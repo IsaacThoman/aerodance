@@ -1,13 +1,13 @@
 {
   "name": "aerodance",
   "version": "1.0.0",
-  "description": "React + three.js canvas served by Express, realtime via Socket.IO, backed by TimescaleDB",
+  "description": "Webcam dance game: React + three.js canvas with in-browser pose tracking, built as a static site",
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,magenta \"node --watch server/index.js\" \"vite\"",
-    "test": "node --test client/tests/*.test.js packages/*/tests/*.test.js temp/frutiger-character/tests/*.test.js",
-    "bench:performance": "node scripts/performance-audit.mjs",
-    "build": "vite build && vite build --config temp/frutiger-character/vite.config.js --base=/dance/ --outDir=../../../dist/dance && vite build --config temp/win-screens/vite.config.js --base=/win-screens/ --outDir=../../../dist/win-screens",
-    "start": "NODE_ENV=production node server/index.js",
+    "dev": "vite",
+    "test": "node --test client/tests/*.test.js packages/*/tests/*.test.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "character:build": "blender -b -t 2 -P packages/character/source/build-character.py",
     "studio:dev": "concurrently -n studio-api,studio-web \"STUDIO_PORT=8082 node --watch tools/choreography/server/index.js\" \"vite --config tools/choreography/vite.config.js\"",
     "studio:build": "vite build --config tools/choreography/vite.config.js",
     "studio:start": "node tools/choreography/server/index.js",
@@ -15,9 +15,7 @@
   },
   "type": "module",
   "dependencies": {
-    "express": "^5.3.0",
-    "pg": "^8.23.1",
-    "socket.io": "^4.8.4"
+    "express": "^5.3.0"
   },
   "devDependencies": {
     "@fontsource/exo-2": "^5.3.0",
@@ -29,7 +27,6 @@
     "mediabunny": "^1.61.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "socket.io-client": "^4.8.4",
     "three": "^0.186.1",
     "vite": "^8.3.4"
   },

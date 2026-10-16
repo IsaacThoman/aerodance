@@ -6,7 +6,7 @@ COPY . .
 RUN npm run studio:build
 
 FROM build AS test
-RUN npm test && npm run studio:test && npm --prefix temp/frutiger-character test
+RUN npm test && npm run studio:test
 
 FROM mcr.microsoft.com/playwright:v1.58.2-noble AS ui-test
 WORKDIR /app

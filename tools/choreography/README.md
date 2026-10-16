@@ -196,7 +196,6 @@ export does not deploy or publish automatically. The game owns character assets.
 ```sh
 npm test
 npm run studio:test
-npm --prefix temp/frutiger-character test
 npm run studio:build
 npm run build
 node tools/choreography/tests/video-import.browser.mjs

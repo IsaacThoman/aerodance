@@ -59,12 +59,10 @@ assets.
 - `AndroidPoseSource` and
   [protocol decoder](../client/src/pose/protocol.js): connection lifecycle,
   bounded decoding, validation, and player-mode boundaries.
-- [Frutiger capture guide](../temp/frutiger-character/README.md),
+- [Character package guide](../packages/character/README.md),
   [motion code](../packages/character/motion.js), and
   [character component](../packages/character/Character.jsx):
   independent skeleton instances, recorded sampling, calibration, and pose mapping.
-- [Existing video tracker](../temp/frutiger-character/scripts/pose/track.py):
-  locked offline capture and diagnostic overlays, as an optional import path.
 - Song catalog (`songs/manifest.json`): generated automatically from exported
   song folders for development, production, and static builds, retaining version 1.
 

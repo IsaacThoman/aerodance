@@ -14,15 +14,13 @@ playable endpoint. It does not use the silent demo's loop or seam blend.
 Unpack the runtime ZIP into `client/public/songs/`, retaining its `<songId>/`
 folder with `song.json`, `choreography.json`, audio, optional cover, and
 `checksums.json`. The folder name must match `songId`. No manual catalog update
-is needed: Vite development and the production Express server generate
-`songs/manifest.json` from exported folders on each catalog request. Reopen Song
-Select to see changes. Invalid metadata, missing files, mismatched file sizes,
+is needed: the Vite development server generates `songs/manifest.json` from
+exported folders on each catalog request. Reopen Song Select to see changes. Invalid metadata, missing files, mismatched file sizes,
 and invalid metadata checksums cause a folder to be skipped with a warning.
 The loader still performs full runtime integrity/schema checks when selected.
 
 Builds generate the same catalog in `dist/songs/manifest.json` for static hosting.
-Rebuild/redeploy after changing the source songs directory. On a running Express
-server, installing complete folders directly in `dist/songs/` requires no restart.
+Rebuild/redeploy after changing the source songs directory.
 Exported metadata supplies title, artist, duration, player counts, revision,
 difficulty, stage, optional cover, and a SHA-256 pin for `song.json`. The preview
 opens on the song's stage, or Open Reef when it has none. Re-exported songs
@@ -56,7 +54,7 @@ Code:
 
 ## Migrated silent capture
 
-The menu and `/dance/` asset now uses `aerodance.take`, schema version 1, with
+The menu dancers' capture (`packages/character/assets/dance.json`) uses `aerodance.take`, schema version 1, with
 `durationMs`, unmirrored `input`, and `samples: [{takeTimeMs, poses, quality,
 legacyConfidence}]`. Pose entries use the `{playerId, landmarks}` shape with
 33 `{x,y,z,visibility,presence}` landmarks. Capture clocks remain separate from
@@ -83,7 +81,7 @@ samples separately. Runtime preview still loops, while game bundle sampling is f
 ## Checks
 
 ```sh
-node --test client/tests/*.test.js temp/frutiger-character/tests/*.test.js
+npm test
 npm run build
 node client/tests/ui-flow.browser.mjs # requires Playwright and Chromium
 ```

@@ -3,14 +3,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { AnimationMixer, Vector3 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import {
-  sanitizeCharacter,
-  DEFAULT_CHARACTER,
-} from "../client/src/character.js";
-import { movementInput } from "../client/src/movement.js";
 
 const bytes = await readFile(
-  new URL("../../../packages/character/assets/aero-character.glb", import.meta.url),
+  new URL("../assets/aero-character.glb", import.meta.url),
 );
 const asset = await new GLTFLoader().parseAsync(
   bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
@@ -77,29 +72,4 @@ test("four usable clips animate the actual exported skeleton", () => {
     for (const track of clip.tracks)
       assert.ok([...track.values].every(Number.isFinite));
   }
-});
-
-test("keyboard movement works without touch input and diagonals preserve speed", () => {
-  assert.deepEqual(movementInput(new Set()), [0, 0]);
-  assert.deepEqual(movementInput(new Set(["d"])), [1, 0]);
-  assert.deepEqual(movementInput(new Set(["arrowup"])), [0, -1]);
-  assert.deepEqual(movementInput(new Set(), { left: true }), [-1, 0]);
-  assert.deepEqual(movementInput(new Set(["a", "d"])), [0, 0]);
-  assert.ok(
-    Math.abs(Math.hypot(...movementInput(new Set(["w", "d"]))) - 1) < 1e-9,
-  );
-});
-
-test("saved character values are bounded and invalid data falls back safely", () => {
-  assert.deepEqual(sanitizeCharacter(null), DEFAULT_CHARACTER);
-  assert.equal(
-    sanitizeCharacter({ name: "a".repeat(50), gloss: 500 }).name.length,
-    20,
-  );
-  assert.equal(sanitizeCharacter({ gloss: 500 }).gloss, 100);
-  assert.equal(sanitizeCharacter({ gloss: -10 }).gloss, 0);
-  assert.equal(
-    sanitizeCharacter({ color: "garbage" }).color,
-    DEFAULT_CHARACTER.color,
-  );
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Renders every shot in client/src/shots.js to with-logo/<id>.png and no-logo/<id>.png.
 //
-//   node temp/thumbnails/scripts/render.mjs [--only id,id] [--spec shots.json --out dir] [--jobs 2]
+//   node tools/thumbnails/scripts/render.mjs [--only id,id] [--spec shots.json --out dir] [--jobs 2]
 //
 // Builds the capture page with Vite, opens it in headless Chrome (GPU WebGL), steps each
 // shot's stage to its time and reads back the 540x480 buffer. Each buffer pixel is written
