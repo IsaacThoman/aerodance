@@ -3,11 +3,6 @@ set -euo pipefail
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-if [[ ! -f .env ]]; then
-  echo 'Missing .env. Run: cp .env.example .env, then configure it and try again.' >&2
-  exit 1
-fi
-
 engine=${CONTAINER_ENGINE:-}
 if [[ -z "$engine" ]]; then
   if command -v podman >/dev/null 2>&1; then
@@ -28,23 +23,13 @@ fi
 compose=("$engine" compose -f compose.yaml -f compose.local.yaml)
 echo "Rebuilding and deploying the main app locally with ${engine}…"
 "${compose[@]}" build app
-"${compose[@]}" up -d db
 # Podman Compose can retain a container when only its image has changed.
-# Replace the app explicitly; keep the database container and volume intact.
-"${compose[@]}" up --no-build --no-deps --force-recreate -d app
+# Replace the app explicitly.
+"${compose[@]}" up --no-build --force-recreate -d app
 
-echo 'Waiting for the app and database to become ready…'
+echo 'Waiting for the app to become ready…'
 for ((attempt = 1; attempt <= 60; attempt++)); do
-  if "${compose[@]}" exec -T app node --input-type=module -e '
-    try {
-      const response = await fetch("http://127.0.0.1:3000/api/health", {
-        signal: AbortSignal.timeout(2000),
-      });
-      process.exit(response.ok && (await response.json()).ok === true ? 0 : 1);
-    } catch {
-      process.exit(1);
-    }
-  ' >/dev/null 2>&1; then
+  if "${compose[@]}" exec -T app wget -q -T 2 -O /dev/null http://127.0.0.1:3000/ >/dev/null 2>&1; then
     echo 'Deployment healthy. Open the local address shown below (default: http://localhost:3000).'
     "${compose[@]}" ps
     exit 0
@@ -52,6 +37,6 @@ for ((attempt = 1; attempt <= 60; attempt++)); do
   sleep 2
 done
 
-echo 'Deployment did not become healthy. Recent app and database logs:' >&2
-"${compose[@]}" logs --tail=40 app db >&2 || true
+echo 'Deployment did not become healthy. Recent app logs:' >&2
+"${compose[@]}" logs --tail=40 app >&2 || true
 exit 1

@@ -1,8 +1,6 @@
 # aerodance
 
-React + three.js (via [@react-three/fiber](https://r3f.docs.pmnd.rs/)) rendered in a full-screen canvas, served by Express, with realtime updates over Socket.IO and events stored in a [TimescaleDB](https://www.tigerdata.com/) hypertable.
-
-The server still records `spin` events in the `spins` hypertable, but the current client no longer sends them.
+React + three.js (via [@react-three/fiber](https://r3f.docs.pmnd.rs/)) rendered in a full-screen canvas. The game is a static site: pose tracking and scoring run in the browser, and best scores and settings are saved in the browser, so production serves the build with nginx and needs no backend.
 
 See [how scores are calculated](docs/scoring.md) and [the plan for finishing the game](docs/game-completion-plan.md).
 
@@ -32,7 +30,7 @@ The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, ho
 **Start → One Player / Two Players → Song Select → song preview → Dance! → results**, all drawn in-engine. Back (or Escape) from Song Select returns to the player count, and every screen works with the mouse, touch and the keyboard (arrows and Enter).
 
 - **Connect Client** (`client/src/connect/`): the status pill in the top-right corner of Settings opens a card for the webcam pose input: camera selection and in-browser MediaPipe **Lite / Full / Heavy** tracking for both player modes. Start camera requests permission; the mirrored setup preview shows player placement. Model/camera changes restart tracking and release the old camera. For a scored run without a camera, open the game with `?input=ghost`: an autoplay ghost copies each routine (`&ghostLagMs=300` dances late).
-- **Song Select** (`client/src/game/SongSelect.jsx`) lists the published songs four to a page. Extract Dance Studio's song ZIPs into `client/public/songs/`: Song Select finds the exported folders without manifest edits (`server/songCatalog.js`), and builds generate the catalog for static hosting, so rebuild or redeploy to publish changes. The repo ships no songs, so the list stays empty until you add some. Bundles are fully verified before they play ([game song bundles](docs/game-song-bundles.md)).
+- **Song Select** (`client/src/game/SongSelect.jsx`) lists the published songs four to a page. Extract Dance Studio's song ZIPs into `client/public/songs/`: Song Select finds the exported folders without manifest edits (`scripts/songCatalog.js`), and builds generate the catalog for static hosting, so rebuild or redeploy to publish changes. The repo ships no songs, so the list stays empty until you add some. Bundles are fully verified before they play ([game song bundles](docs/game-song-bundles.md)).
 - **Preview:** a song's music plays through the mixer (ducking any menu music) with its reference dancers on the song's **dance stage**, rendered inside the game canvas (`client/src/stage/StageView.jsx`, stages from `packages/stages`). The music loops on its own while the stage camera slowly circles the dancers (Club Aquarium swings side to side instead), and swings back to the front when Dance! starts. Each song picks its stage in Dance Studio (players can't change it) and defaults to Open Reef. Best scores show on the list.
 - **Dance!** (`client/src/game/GameScreen.jsx`, `GameSession.js`): a ready check (every player tracked and calibrated for a second, or **Start now**), then **3, 2, 1** from the song's scheduled start, with the music and reference dancers starting together at zero. Each player's own glass character copies them live in a top corner (player 1 left, player 2 right; `client/src/stage/LivePanels.jsx`) with their score, combo and a Perfect / Good / OK / Miss pop-up every second. Escape, the pause button or a hidden tab pauses; Resume counts down again at the same spot. The results screen (promoted from the win-screen mock) shows the winner or the solo score, grade, judgements and a new best, then **Play again** or **Song select**.
 - **Timing and scoring:** everything runs on the song's audible clock (`client/src/audio/songPlayer.js`). Each live pose is placed at the song position audible when the camera captured it, using the webcam frame's browser timestamp, and scored 750 ms behind the song so late poses still count. The scorer (`packages/score/`) compares limb directions and movement every 100 ms against the player's own track; [docs/scoring.md](docs/scoring.md) has the details. `?record` downloads each song's live poses as a recording, and `?input=recording&recording=<url>` replays one.
@@ -83,8 +81,7 @@ End-of-song screens on each dance stage (Player 1 wins, Player 2 wins, a tie, or
 | Layer    | Tech                                      |
 | -------- | ----------------------------------------- |
 | Client   | React 19, three.js, @react-three/fiber, Vite |
-| Server   | Express 5, Socket.IO                      |
-| Database | TimescaleDB (Tiger Data), via `pg`        |
+| Hosting  | Static build served by nginx              |
 | Runtime  | Docker Compose                            |
 
 ## In-engine UI
@@ -102,28 +99,24 @@ To rebuild and deploy the main app locally in the background:
 ```
 
 The script runs from any working directory, uses Podman when available (otherwise
-Docker), starts the database, and checks app/database health after startup. Create `.env` from
-`.env.example` before the first run. Set `CONTAINER_ENGINE=docker` or
-`CONTAINER_ENGINE=podman` to choose the runtime explicitly. Existing database
-data is retained. Each deployment rebuilds the app image and replaces the app
-container so Podman Compose serves the new build. This script deploys locally;
-public hosting uses Coolify below.
+Docker), and checks that the app responds after startup. Set `CONTAINER_ENGINE=docker` or
+`CONTAINER_ENGINE=podman` to choose the runtime explicitly. Each deployment rebuilds
+the app image and replaces the app container so Podman Compose serves the new build.
+This script deploys locally; public hosting uses Coolify below.
 
 ```sh
-cp .env.example .env
 docker compose -f compose.yaml -f compose.local.yaml up --build
 ```
 
-Open http://localhost:3000. The local Compose file publishes the app on `127.0.0.1:3000` (override with `PORT`) and Postgres/TimescaleDB on `127.0.0.1:5432` (override with `DB_PORT`). The app always listens on port `3000` inside its container.
+Open http://localhost:3000. The local Compose file publishes the app on `127.0.0.1:3000` (override with `PORT`, for example in `.env` copied from `.env.example`). The app always listens on port `3000` inside its container, where nginx serves the build (`nginx.conf`).
 
 ## Deploy with Coolify
 
-The base `compose.yaml` publishes no host ports. The app serves the frontend, API, and Socket.IO on container port `3000`, and connects to TimescaleDB privately at `db:5432`.
+The base `compose.yaml` publishes no host ports. The app serves the static build on container port `3000`.
 
 1. Create a Git-based application in Coolify with the Docker Compose build strategy, using `compose.yaml` at the repository root. Use normal Compose deployment so Coolify generates the proxy labels and networking.
-2. Set `POSTGRES_PASSWORD` to a strong, URL-safe password in Coolify's environment variables. This value is required; the credentials in `.env.example` are for local development. Optionally set `POSTGRES_USER` and `POSTGRES_DB`.
-3. Assign the domain to service `app` with internal port `3000`, for example `https://aerodance.example.com:3000`. Coolify routes HTTPS through Traefik on public port `443` to the app's internal port.
-4. Deploy using only the base Compose file. Include `compose.local.yaml` only for local development.
+2. Assign the domain to service `app` with internal port `3000`, for example `https://aerodance.example.com:3000`. Coolify routes HTTPS through Traefik on public port `443` to the app's internal port.
+3. Deploy using only the base Compose file. Include `compose.local.yaml` only for local development.
 
 See [Coolify's Docker Compose documentation](https://coolify.io/docs/applications/builds/docker-compose) for deployment and domain configuration.
 
@@ -133,35 +126,13 @@ Bee Coolify deploys `main` at https://aerodance.tech. Its GitHub App automatical
 
 The preview URL template is `{{pr_id}}-aerodance.deathgrips.org`, so PR #3 is available at https://3-aerodance.deathgrips.org. Wildcard DNS for `*.deathgrips.org` routes these hosts to Bee through Cloudflare. Set service `app` domains to internal port `3000` in Coolify; previews inherit that port from the production domain configuration.
 
-Each preview uses a separate Coolify network and database volume. The database connection uses Coolify's `SERVICE_NAME_DB` (for example, `db-pr-3`), falling back to `db` for local Compose. Keep database credentials in Coolify's separate preview environment variables, and do not point previews at the production database.
-
 ## Local development
 
 ```sh
 npm install
-cp .env.example .env
-docker compose -f compose.yaml -f compose.local.yaml up -d db
 npm run dev
 ```
 
-- Vite dev server: http://localhost:5173 (proxies `/api` and `/socket.io` to Express on `:3000`)
-- `npm run build` builds the client into `dist/`; `npm start` serves it from Express.
+- Vite dev server: http://localhost:5173
+- `npm run build` builds the game, `/dance/` and `/win-screens/` into `dist/`; `npm run preview` serves the build locally.
 - `npm run bench:performance` reproduces the CPU comparisons in the [performance audit](docs/performance-audit.md).
-
-## Database
-
-The server applies its schema on startup (idempotent), so it works against the compose database or a hosted [Tiger Cloud](https://console.cloud.timescale.com/) service. To use Tiger Cloud, set `DATABASE_URL` to your service URL with `?sslmode=require`.
-
-```sql
-CREATE TABLE spins (time TIMESTAMPTZ NOT NULL DEFAULT now(), socket_id TEXT NOT NULL);
-SELECT create_hypertable('spins', by_range('time'));
-```
-
-## API
-
-| Endpoint                  | Description                                     |
-| ------------------------- | ----------------------------------------------- |
-| `GET /api/health`         | DB connectivity check                           |
-| `GET /api/spins/history`  | Spins per minute over the last hour (`time_bucket`) |
-
-Socket.IO events: client emits `spin`; server broadcasts `spin` and `stats` (`{ online, spinsLastMinute }`).

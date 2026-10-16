@@ -18,14 +18,7 @@ FROM ui-test AS webcam-test
 RUN npm run studio:build
 CMD ["node", "client/tests/webcam.browser.mjs"]
 
-FROM node:24-alpine
-WORKDIR /app
-ENV NODE_ENV=production
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-COPY server ./server
-COPY packages/pose ./packages/pose
-COPY --from=build /app/dist ./dist
+FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 3000
-USER node
-CMD ["node", "server/index.js"]

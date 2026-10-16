@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { validateCatalog, validateSong } from '../../packages/pose/song.js';
 import { DEFAULT_STAGE, STAGE_LIST, resolveStage, stageName } from '../../packages/stages/catalog.js';
-import { discoverSongs } from '../../server/songCatalog.js';
+import { discoverSongs } from '../../scripts/songCatalog.js';
 import { bundleFixture } from './fixtures/songBundle.js';
 
 test('the stage catalog lists the six dance stages and defaults to Open Reef', () => {

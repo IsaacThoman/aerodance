@@ -1,14 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { discoverSongs, songCatalogMiddleware } from './server/songCatalog.js';
+import { discoverSongs, songCatalogMiddleware } from './scripts/songCatalog.js';
 import { poseAssetsPlugin } from './scripts/poseAssets.mjs';
-
-if (existsSync('.env')) process.loadEnvFile();
-
-const serverPort = process.env.PORT || 3000;
 
 export default defineConfig({
   root: 'client',
@@ -31,9 +26,5 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: {
-      '/api': `http://localhost:${serverPort}`,
-      '/socket.io': { target: `http://localhost:${serverPort}`, ws: true },
-    },
   },
 });

@@ -18,7 +18,7 @@ import {
 /**
  * Song Select, drawn in-engine after the player count is picked (menu/MainMenu.jsx).
  *
- *   list     the published songs (songs/manifest.json, found by server/songCatalog.js),
+ *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.js),
  *            four to a page
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance

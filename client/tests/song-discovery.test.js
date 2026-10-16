@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { discoverSongs, songCatalogMiddleware } from '../../server/songCatalog.js';
+import { discoverSongs, songCatalogMiddleware } from '../../scripts/songCatalog.js';
 import { bundleFixture } from './fixtures/songBundle.js';
 
 async function directory(t) {
