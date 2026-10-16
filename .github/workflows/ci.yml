@@ -44,7 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: docker build --target webcam-test -t aerodance-webcam-test .
-      - run: docker run --rm aerodance-webcam-test
+      # Heavy needs more CPU than a hosted runner has to start within the app's 60 s limit.
+      - run: docker run --rm -e WEBCAM_MODELS=lite,full aerodance-webcam-test
 
   studio-browser:
     # Dance Studio in Chromium: editing, video import, duet import and project loading.

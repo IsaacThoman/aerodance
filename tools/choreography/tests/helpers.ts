@@ -1,9 +1,21 @@
 // Shared by the Dance Studio tests (not a test file itself).
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
+import type { Locator } from "playwright";
 import { isObject } from "../../../packages/pose/choreography.ts";
 import { validateProject, validateTake } from "../core.ts";
 import type { ProjectV2 } from "../core.ts";
+
+/** Waits for a locator to match exactly `count` elements: the UI renders after the action that triggers it. */
+export async function expectCount(locator: Locator, count: number, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let actual = await locator.count();
+  while (actual !== count && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    actual = await locator.count();
+  }
+  assert.equal(actual, count);
+}
 
 /** The value, failing the test when it is missing. */
 export function found<T>(value: T | null | undefined): T {

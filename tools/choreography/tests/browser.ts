@@ -10,7 +10,7 @@ import { validateProject, validateTake } from "../core.ts";
 import type { ProjectV2 } from "../core.ts";
 import type { PoseWorker } from "../../../packages/pose/browser/WebcamPoseSource.ts";
 import type { PoseWorkerResponse } from "../../../packages/pose/browser/pose.worker.ts";
-import { found } from "./helpers.ts";
+import { expectCount, found } from "./helpers.ts";
 
 interface FakePose { ready: boolean; visible: number[]; liveX: number; }
 declare global {
@@ -424,8 +424,8 @@ try {
   await page.getByRole("button", { name: "Live view", exact: true }).click();
   const liveSkeleton = page.getByLabel("Live pose skeleton");
   await liveSkeleton.waitFor();
-  assert.equal(await liveSkeleton.locator("circle").count(), 66);
-  assert.equal(await liveSkeleton.locator(".original-pose").count(), 0);
+  await expectCount(liveSkeleton.locator("circle"), 66);
+  await expectCount(liveSkeleton.locator(".original-pose"), 0);
   assert.equal(await page.getByLabel("Landmark X").isEnabled(), false);
   await page.getByLabel("Selected player").selectOption("0");
   assert.equal(Number(await page.getByLabel("Landmark X").inputValue()), 0.75);
@@ -543,10 +543,7 @@ try {
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   await page.getByRole("button", { name: "Live view", exact: true }).click();
   await page.getByText("Live view · disconnected", { exact: false }).waitFor();
-  assert.equal(
-    await page.getByLabel("Live pose skeleton").locator("circle").count(),
-    0,
-  );
+  await expectCount(page.getByLabel("Live pose skeleton").locator("circle"), 0);
   // Deleting either a newly recorded or assigned take preserves player tracks.
   for (const name of [saved.takes[1].name, "dance.json"]) {
     await page
@@ -582,10 +579,7 @@ try {
     .waitFor();
   await page.getByRole("button", { name: "Skeleton", exact: true }).click();
   await page.getByLabel("Song cursor").fill("2000");
-  assert.equal(
-    await page.getByLabel("Editable pose skeleton").locator("circle").count(),
-    66,
-  );
+  await expectCount(page.getByLabel("Editable pose skeleton").locator("circle"), 66);
   if (process.env.UI_ARTIFACTS)
     await page.screenshot({
       path: path.join(process.env.UI_ARTIFACTS, "dance-studio.png"),
@@ -681,10 +675,7 @@ try {
     true,
   );
   await page.getByLabel("Song cursor").fill("1000");
-  assert.equal(
-    await page.getByLabel("Editable pose skeleton").locator("circle").count(),
-    33,
-  );
+  await expectCount(page.getByLabel("Editable pose skeleton").locator("circle"), 33);
   await page.getByRole("button", { name: "Undo", exact: false }).click();
   assert.equal(
     await page
