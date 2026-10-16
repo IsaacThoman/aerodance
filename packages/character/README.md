@@ -2,11 +2,11 @@
 
 The glass dancer shared by the game, Dance Studio and the thumbnail renderer.
 
-- `Character.jsx`: the character component.
-- `retarget.js`: `createPoseApplier`, one pose applier for recorded, edited and live poses.
-- `calibration.js`, `liveCalibration.js`: per-player body calibration for recorded and live (webcam) sessions.
-- `livePoseFilter.js`: display-only smoothing of live poses.
-- `motion.js`: playback of the silent menu capture (`assets/dance.json`), including the loop seam.
+- `Character.tsx`: the character component.
+- `retarget.ts`: `createPoseApplier`, one pose applier for recorded, edited and live poses.
+- `calibration.ts`, `liveCalibration.ts`: per-player body calibration for recorded and live (webcam) sessions.
+- `livePoseFilter.ts`: display-only smoothing of live poses.
+- `motion.ts`: playback of the silent menu capture (`assets/dance.json`), including the loop seam.
 - `assets/aero-character.glb`: the model, with seven bones and four stock clips (Dance, Idle, Walk, Wave). `Character` plays a clip (`Idle` by default) only when it has no pose to apply.
 - `assets/dance.json`: the two-dancer capture behind the menu dancers, results screen and thumbnails.
 - `source/`: the editable Blender file and the deterministic generator that exports the GLB.
