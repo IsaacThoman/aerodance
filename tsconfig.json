@@ -14,12 +14,10 @@
     "types": ["node", "vite/client"],
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "allowJs": true,
-    "checkJs": false,
     "strict": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true
   },
-  "include": ["client", "packages", "tools", "scripts", "*.ts", "*.js"],
+  "include": ["client", "packages", "tools", "scripts", "*.ts"],
   "exclude": ["**/dist", "**/node_modules", "studio-data", ".cache"]
 }
