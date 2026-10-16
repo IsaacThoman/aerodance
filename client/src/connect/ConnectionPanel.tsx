@@ -110,15 +110,17 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       st.k = s.ease(st.k, p.open && p.visible ? 1 : 0, p.open ? 8 : 10);
       const { status } = p.connection;
       const ready = p.open && st.k >= 0.5 && st.alpha > 0.3;
+      // The pill takes clicks once the overlay has faded in (see active above).
+      const pillReady = p.visible && st.alpha > 0.3;
       if (p.open && p.source.video && s.time - (st.lastPreview || 0) > 1 / 15) {
         st.lastPreview = s.time; s.invalidate();
       }
-      const key = `${status}|${statusMessage()}|${p.open}|${ready}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}`;
+      const key = `${status}|${statusMessage()}|${p.open}|${ready}|${pillReady}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}`;
       if (key !== st.drawn) {
         st.drawn = key;
         s.invalidate();
         Object.assign(gl.domElement.dataset, {
-          connectOpen: String(p.open), connectReady: String(ready), connectStatus: status, connectMessage: statusMessage(),
+          connectOpen: String(p.open), connectReady: String(ready), connectPill: String(pillReady), connectStatus: status, connectMessage: statusMessage(),
           connectModel: p.connection.model || '', connectCamera: p.connection.cameraId || '',
         });
       }

@@ -26,10 +26,12 @@ type TestWindow = typeof window & { webcamRequests: number };
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
 
+// UI_BASE_URL runs the flow against a build that is already served, such as the production image.
+const baseUrl = process.env.UI_BASE_URL ?? 'http://127.0.0.1:4173';
 const app = express();
 app.use(express.static('dist'));
-const server = app.listen(4173, '127.0.0.1');
-await new Promise((resolve) => server.once('listening', resolve));
+const server = process.env.UI_BASE_URL ? null : app.listen(4173, '127.0.0.1');
+if (server) await new Promise((resolve) => server.once('listening', resolve));
 const graphics = process.env.UI_GPU === '1'
   ? ['--enable-gpu', '--use-gl=angle', '--use-angle=gl', '--disable-gpu-sandbox', '--ignore-gpu-blocklist']
   : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
@@ -71,7 +73,7 @@ try {
   await page.route('**/songs/manifest.json', (route) => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ version: 1, songs: [] }),
   }));
-  await page.goto('http://127.0.0.1:4173');
+  await page.goto(baseUrl);
   await page.locator('canvas').waitFor();
   const frameBox = async () => {
     const box = await page.locator('.canvas-frame').boundingBox();
@@ -103,6 +105,7 @@ try {
   // Connect Client lives on Settings; Escape closes only the card.
   await click(SETTINGS);
   await menuOn('settings');
+  await until({ connectPill: 'true' });
   await click(PILL);
   await until({ connectReady: 'true', connectStatus: 'disconnected' });
   await page.keyboard.press('Escape');
@@ -241,7 +244,7 @@ try {
     audio: silentWav(song.durationMs),
     entry: { id: song.songId, title: song.title, artist: song.artist, durationMs: song.durationMs, supportedPlayerCounts: song.supportedPlayerCounts, bundleRevision: song.bundleRevision, bundle: `${song.songId}/song.json` },
   });
-  await page.goto('http://127.0.0.1:4173/?input=ghost');
+  await page.goto(`${baseUrl}/?input=ghost`);
   await page.locator('canvas').waitFor();
   await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });
   frame = await frameBox();
@@ -286,5 +289,5 @@ try {
   throw error;
 } finally {
   await browser.close();
-  await new Promise((resolve) => server.close(resolve));
+  if (server) await new Promise((resolve) => server.close(resolve));
 }

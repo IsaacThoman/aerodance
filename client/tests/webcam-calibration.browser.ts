@@ -82,7 +82,7 @@ try {
       frame.y + (r.y + h / 2) / 900 * frame.height);
   };
   const until = (key: string, value: string) => page.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
-  await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true');
+  await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('connectPill', 'true');
   await click(PILL); await until('connectReady', 'true');
   await click(PRIMARY); await until('connectStatus', 'connected');
   await page.keyboard.press('Escape'); await until('connectOpen', 'false');

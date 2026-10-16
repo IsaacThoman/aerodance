@@ -96,7 +96,7 @@ try {
       frame.y + (rect.y + h / 2) / 900 * frame.height);
   };
   const until = (key: string, value: string) => gamePage.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
-  await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true'); await click(PILL); await until('connectReady', 'true');
+  await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('connectPill', 'true'); await click(PILL); await until('connectReady', 'true');
   assert.equal(await game.evaluate(() => (window as TestWindow).cameraRequests), 0, 'opening Connect Client does not request permission');
   await game.evaluate(() => { (window as TestWindow).cameraMode = 'denied'; }); await click(PRIMARY); await until('connectStatus', 'error');
   assert.match(await game.locator('canvas').getAttribute('data-connect-message') ?? '', /permission was denied/);
@@ -113,7 +113,7 @@ try {
   await click(TWO_PLAYERS); await until('playerSlots', 'Detected|Detected');
   await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
   await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
-  await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true');
+  await click(SETTINGS); await until('menuScreen', 'settings'); await until('connectPill', 'true');
   await click(PILL); await until('connectReady', 'true'); await click(PRIMARY); await until('connectStatus', 'disconnected');
   assert.ok(await game.evaluate(() => (window as TestWindow).cameraStops >= 4), 'switches and Stop release camera tracks');
 
