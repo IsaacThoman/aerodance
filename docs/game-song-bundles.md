@@ -54,7 +54,7 @@ Code:
 
 ## Migrated silent capture
 
-The menu and `/dance/` asset now uses `aerodance.take`, schema version 1, with
+The menu dancers' capture (`packages/character/assets/dance.json`) uses `aerodance.take`, schema version 1, with
 `durationMs`, unmirrored `input`, and `samples: [{takeTimeMs, poses, quality,
 legacyConfidence}]`. Pose entries use the `{playerId, landmarks}` shape with
 33 `{x,y,z,visibility,presence}` landmarks. Capture clocks remain separate from
@@ -81,7 +81,7 @@ samples separately. Runtime preview still loops, while game bundle sampling is f
 ## Checks
 
 ```sh
-node --test client/tests/*.test.js temp/frutiger-character/tests/*.test.js
+npm test
 npm run build
 node client/tests/ui-flow.browser.mjs # requires Playwright and Chromium
 ```

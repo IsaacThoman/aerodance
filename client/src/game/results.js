@@ -1,5 +1,5 @@
 /*
- * Round outcomes for the results screens (promoted from temp/win-screens): one entry per
+ * Round outcomes for the results screens: one entry per
  * dancer, seat 0 the blue dancer and seat 1 the purple one, each with its score.
  */
 

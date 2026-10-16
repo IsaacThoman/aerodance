@@ -32,7 +32,7 @@ The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, ho
 - **Connect Client** (`client/src/connect/`): the status pill in the top-right corner of Settings opens a card for the webcam pose input: camera selection and in-browser MediaPipe **Lite / Full / Heavy** tracking for both player modes. Start camera requests permission; the mirrored setup preview shows player placement. Model/camera changes restart tracking and release the old camera. For a scored run without a camera, open the game with `?input=ghost`: an autoplay ghost copies each routine (`&ghostLagMs=300` dances late).
 - **Song Select** (`client/src/game/SongSelect.jsx`) lists the published songs four to a page. Extract Dance Studio's song ZIPs into `client/public/songs/`: Song Select finds the exported folders without manifest edits (`scripts/songCatalog.js`), and builds generate the catalog for static hosting, so rebuild or redeploy to publish changes. The repo ships no songs, so the list stays empty until you add some. Bundles are fully verified before they play ([game song bundles](docs/game-song-bundles.md)).
 - **Preview:** a song's music plays through the mixer (ducking any menu music) with its reference dancers on the song's **dance stage**, rendered inside the game canvas (`client/src/stage/StageView.jsx`, stages from `packages/stages`). The music loops on its own while the stage camera slowly circles the dancers (Club Aquarium swings side to side instead), and swings back to the front when Dance! starts. Each song picks its stage in Dance Studio (players can't change it) and defaults to Open Reef. Best scores show on the list.
-- **Dance!** (`client/src/game/GameScreen.jsx`, `GameSession.js`): a ready check (every player tracked and calibrated for a second, or **Start now**), then **3, 2, 1** from the song's scheduled start, with the music and reference dancers starting together at zero. Each player's own glass character copies them live in a top corner (player 1 left, player 2 right; `client/src/stage/LivePanels.jsx`) with their score, combo and a Perfect / Good / OK / Miss pop-up every second. Escape, the pause button or a hidden tab pauses; Resume counts down again at the same spot. The results screen (promoted from the win-screen mock) shows the winner or the solo score, grade, judgements and a new best, then **Play again** or **Song select**.
+- **Dance!** (`client/src/game/GameScreen.jsx`, `GameSession.js`): a ready check (every player tracked and calibrated for a second, or **Start now**), then **3, 2, 1** from the song's scheduled start, with the music and reference dancers starting together at zero. Each player's own glass character copies them live in a top corner (player 1 left, player 2 right; `client/src/stage/LivePanels.jsx`) with their score, combo and a Perfect / Good / OK / Miss pop-up every second. Escape, the pause button or a hidden tab pauses; Resume counts down again at the same spot. The results screen shows the winner or the solo score, grade, judgements and a new best, then **Play again** or **Song select**.
 - **Timing and scoring:** everything runs on the song's audible clock (`client/src/audio/songPlayer.js`). Each live pose is placed at the song position audible when the camera captured it, using the webcam frame's browser timestamp, and scored 750 ms behind the song so late poses still count. The scorer (`packages/score/`) compares limb directions and movement every 100 ms against the player's own track; [docs/scoring.md](docs/scoring.md) has the details. `?record` downloads each song's live poses as a recording, and `?input=recording&recording=<url>` replays one.
 
 Containerized build, unit and browser-flow checks (use `podman` in place of `docker`
@@ -64,17 +64,13 @@ checks the actual models, a synthetic two-person camera stream, Studio recording
 export, and game bundle preview. Physical duet accuracy, hardware performance,
 and browser/device coverage still need manual validation.
 
-## Captured dance demo
+## Shared packages
 
-The menu-free two-character Frutiger demo is served at `/dance/` in production and PR previews. It replays pose tracking from the supplied dance video at the same fixed resolution and letterboxing as the main app, on six switchable in-engine stages: Skyline Sanctuary, Coral Dome, Open Reef, Emerald Falls, Club Aquarium and Sugarsand Sunset. Switch with ← / →, 1–6, or a hash such as `/dance/#club`. The stages live in [`packages/stages`](packages/stages) and the glass character in [`packages/character`](packages/character), shared by the game, `/dance/` and `/win-screens/`. See [the capture guide](temp/frutiger-character/README.md) for the locked, reusable tracking script, diagnostics, retargeting details, and validation.
-
-## Win screens
-
-End-of-song screens on each dance stage (Player 1 wins, Player 2 wins, a tie, or a solo end screen, all with placeholder scores) are served at `/win-screens/` in production and PR previews. The game's results screen was promoted from this mock (`client/src/stage/ResultsDancers.jsx`, `client/src/game/results.js`). Switch stage with 1–6, the result with M, or link directly with a hash such as `/win-screens/#club/p2`. See [its README](temp/win-screens/README.md).
+The dance stages live in [`packages/stages`](packages/stages/README.md) and the glass character, its retargeting and the menu dance capture in [`packages/character`](packages/character/README.md). The game, Dance Studio and the thumbnail renderer share them.
 
 ## Thumbnails
 
-27 in-engine 3:2 thumbnails (2160×1440) of the six dance stages, with and without the "aerodance." wordmark, are in `temp/thumbnails/with-logo/` and `temp/thumbnails/no-logo/`. They use the game's own pixel grid, each pixel an exact 4×3 block. See [its README](temp/thumbnails/README.md) to re-render them or add shots.
+27 in-engine 3:2 thumbnails (2160×1440) of the six dance stages, with and without the "aerodance." wordmark, are in `tools/thumbnails/with-logo/` and `tools/thumbnails/no-logo/`. They use the game's own pixel grid, each pixel an exact 4×3 block. See [its README](tools/thumbnails/README.md) to re-render them or add shots.
 
 ## Stack
 
@@ -134,5 +130,4 @@ npm run dev
 ```
 
 - Vite dev server: http://localhost:5173
-- `npm run build` builds the game, `/dance/` and `/win-screens/` into `dist/`; `npm run preview` serves the build locally.
-- `npm run bench:performance` reproduces the CPU comparisons in the [performance audit](docs/performance-audit.md).
+- `npm run build` builds the game into `dist/`; `npm run preview` serves the build locally.

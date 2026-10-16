@@ -26,10 +26,10 @@ The dancers hold four moments of the capture: 3.1 s (purple's lunge), 5 s (blue'
 From the repository root, after `npm ci`:
 
 ```sh
-npm --prefix temp/thumbnails ci
-node temp/thumbnails/scripts/render.mjs                         # all shots, into this folder
-node temp/thumbnails/scripts/render.mjs --only club-dj,beach-hero
-node temp/thumbnails/scripts/render.mjs --spec my-shots.json --out /tmp/thumbs   # one-off shots
+npm --prefix tools/thumbnails ci
+node tools/thumbnails/scripts/render.mjs                         # all shots, into this folder
+node tools/thumbnails/scripts/render.mjs --only club-dj,beach-hero
+node tools/thumbnails/scripts/render.mjs --spec my-shots.json --out /tmp/thumbs   # one-off shots
 ```
 
 It needs Google Chrome (driven headless by `playwright-core`, with GPU WebGL) and network access for the Inter font. A full run takes under 2 minutes on an M3 Pro. Renders are deterministic: re-rendering on the same machine gives byte-identical files. A different GPU or driver may differ slightly.
@@ -37,7 +37,7 @@ It needs Google Chrome (driven headless by `playwright-core`, with GPU WebGL) an
 ## Code
 
 - `client/src/shots.js`: the shot list. Each shot has a stage, how long the stage plays before the capture (`time`), the dance-capture moment the dancers hold (`pose`), a camera, optional dancer placement, and the wordmark's position and size. Add or tweak a shot here and re-render it with `--only`.
-- `client/src/App.jsx`: the capture page. It mounts one stage with the dancers, swaps in the shot's 3:2 camera for the stage's orbiting 16:9 one, steps the clock by hand at 60 fps to the shot's time (`frameloop="never"`), and reads back the frame with and without the wordmark. `?shot=<id>` opens a shot in the browser (`npx vite --config temp/thumbnails/vite.config.js`, port 5179).
+- `client/src/App.jsx`: the capture page. It mounts one stage with the dancers, swaps in the shot's 3:2 camera for the stage's orbiting 16:9 one, steps the clock by hand at 60 fps to the shot's time (`frameloop="never"`), and reads back the frame with and without the wordmark. `?shot=<id>` opens a shot in the browser (`npx vite --config tools/thumbnails/vite.config.js`, port 5179).
 - `scripts/render.mjs`: builds the page, drives Chrome, upscales each frame into exact 4×3 blocks and writes the PNGs with its own encoder.
 
 The stages needed two small, backward-compatible changes to render at 3:2: `RenderPipeline` takes an optional buffer size and display aspect (`stages/shared/post.jsx`), and the sanctuary and beach lens flares follow the camera's aspect. The game always renders at the old defaults, so it looks the same as before.

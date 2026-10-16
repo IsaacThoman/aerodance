@@ -6,7 +6,7 @@ import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.jsx';
 import { PLAYERS, REVEAL, easeOut, timeline } from '../game/results.js';
 
 /*
- * The 3D side of the results screen (promoted from temp/win-screens), in place of the
+ * The 3D side of the results screen, in place of the
  * reference dancers on the song's stage:
  *   - win: the winner steps up to centre stage under a light column, on a glowing halo in
  *     their colour, with confetti; the other dancer steps back and shrinks a little.

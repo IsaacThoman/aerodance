@@ -21,12 +21,10 @@ Only the grading buffer loses MSAA/depth. The scene buffer retains 4× MSAA, HDR
 ```sh
 npm ci
 npm test
-npm test --prefix temp/frutiger-character
-npm run bench:performance
 npm run build
 ```
 
-The benchmark uses the actual character GLB, capture, and seeded production lake waves. It loads the previous retargeter from the baseline Git revision, checks output equivalence, warms up twice, and reports the median of seven measurements. Each pose timing sample runs 20,000 updates. An alternate baseline can be supplied with `npm run bench:performance -- <revision>`; retain the audited revision in Git history to reproduce the default run.
+The timings came from a benchmark script that loaded the previous retargeter from the baseline revision, checked output equivalence, warmed up twice, and reported the median of seven measurements (20,000 updates per pose timing sample), using the actual character GLB, capture, and seeded production lake waves. The baseline revision is not in this repository's history, so the script was removed; the regression tests above still cover the optimized code.
 
 Recorded CPU environment: macOS arm64, Node v26.4.0. These are local subsystem measurements, not an end-to-end FPS guarantee. Timing varies with host load and hardware.
 

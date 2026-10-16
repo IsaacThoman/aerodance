@@ -2,22 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Box3, Group, Vector3 } from "three";
-import { createPoseApplier, calibratePoses } from '../../../packages/character/retarget.js';
+import { createPoseApplier, calibratePoses } from '../retarget.js';
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import {
   validateMotion,
   samplePose,
   createRetargeter,
-} from "../../../packages/character/motion.js";
+} from "../motion.js";
 
 const data = JSON.parse(
   await readFile(
-    new URL("../../../packages/character/assets/dance.json", import.meta.url),
+    new URL("../assets/dance.json", import.meta.url),
   ),
 );
 const buffer = await readFile(
-  new URL("../../../packages/character/assets/aero-character.glb", import.meta.url),
+  new URL("../assets/aero-character.glb", import.meta.url),
 );
 const asset = await new GLTFLoader().parseAsync(
   buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),

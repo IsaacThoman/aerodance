@@ -4,10 +4,10 @@
   "description": "Webcam dance game: React + three.js canvas with in-browser pose tracking, built as a static site",
   "scripts": {
     "dev": "vite",
-    "test": "node --test client/tests/*.test.js packages/*/tests/*.test.js temp/frutiger-character/tests/*.test.js",
-    "bench:performance": "node scripts/performance-audit.mjs",
-    "build": "vite build && vite build --config temp/frutiger-character/vite.config.js --base=/dance/ --outDir=../../../dist/dance && vite build --config temp/win-screens/vite.config.js --base=/win-screens/ --outDir=../../../dist/win-screens",
+    "test": "node --test client/tests/*.test.js packages/*/tests/*.test.js",
+    "build": "vite build",
     "preview": "vite preview",
+    "character:build": "blender -b -t 2 -P packages/character/source/build-character.py",
     "studio:dev": "concurrently -n studio-api,studio-web \"STUDIO_PORT=8082 node --watch tools/choreography/server/index.js\" \"vite --config tools/choreography/vite.config.js\"",
     "studio:build": "vite build --config tools/choreography/vite.config.js",
     "studio:start": "node tools/choreography/server/index.js",
