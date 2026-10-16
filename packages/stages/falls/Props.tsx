@@ -216,7 +216,8 @@ export function Observatory({ position, cableTo }: { position: Vec3; cableTo?: V
     const podMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.15, clearcoat: 1, emissive: '#2fd8ff', emissiveIntensity: 0.15 });
     const lineMat = new THREE.LineBasicMaterial({ color: '#4d6b7d', transparent: true, opacity: 0.7 });
     return { g, curve, lineMat, line: new THREE.Line(g, lineMat), pod, podMat };
-  }, [cableTo]);
+    // Coordinates rather than the tuples, so inline literals don't rebuild the cable every render.
+  }, [position[0], position[1], position[2], cableTo?.[0], cableTo?.[1], cableTo?.[2]]);
   const pods = useRef<(THREE.Mesh | null)[]>([]);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   useFrame((state) => {
