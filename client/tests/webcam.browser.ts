@@ -129,13 +129,15 @@ try {
   await studio.getByRole('button', { name: 'Disconnect', exact: true }).waitFor();
   await studio.getByText('P1 detected', { exact: false }).waitFor();
   await studio.getByText('P2 detected', { exact: false }).waitFor();
-  await studio.getByText('Body calibration ready', { exact: false }).waitFor();
+  // Calibration needs a run of tracked frames, which arrive slowly on a CPU-only CI runner.
+  await studio.getByText('Body calibration ready', { exact: false }).waitFor({ timeout: 180_000 });
   await studio.evaluate(() => { (window as TestWindow).cameraViewScale=.65; });
   await studio.waitForTimeout(700);
   await studio.getByText('P1 detected', { exact: false }).waitFor();
   await studio.getByText('P2 detected', { exact: false }).waitFor();
   await studio.getByRole('button', { name: 'Recalibrate body', exact: true }).click();
-  await studio.getByText('Body calibration ready', { exact: false }).waitFor();
+  // Calibration needs a run of tracked frames, which arrive slowly on a CPU-only CI runner.
+  await studio.getByText('Body calibration ready', { exact: false }).waitFor({ timeout: 180_000 });
   await studio.getByRole('button', { name: 'Live view', exact: true }).click();
   assert.equal(await studio.getByRole('button', { name: 'Live view', exact: true }).getAttribute('aria-pressed'), 'true');
   // Real decoded audio, then pose capture through the production batch/finalize API.
@@ -267,6 +269,7 @@ try {
   console.log(`Webcam integration passed: game models ${models.join('/')}, real two-player inference, permissions, cleanup, Studio live view, frame-timed recording, export, game bundle playback, persistence.`);
 } catch (error) {
   if (game) console.error('Game state:', await game.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
+  if (studio) console.error('Studio capture:', await studio.locator('.body-calibration, .connection-status, [role=status]').allInnerTexts().catch(() => []));
   if (game) console.error('Pose diagnostics:', await game.evaluate(() => JSON.stringify((window as TestWindow).poseDiagnostics)).catch(() => ''));
   if (studio) {
     console.error('Studio state:', await studio.locator('.connection-status').textContent().catch(() => ''));

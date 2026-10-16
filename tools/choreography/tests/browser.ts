@@ -522,7 +522,12 @@ try {
   const projectId = await page.getByLabel("Open project").inputValue();
   const latest = await savedProject(page, projectId);
   await page.waitForTimeout(1500);
-  const saved = await savedProject(page, projectId);
+  // The take is saved after finalizing; slow machines need longer than the pause above.
+  let saved = await savedProject(page, projectId);
+  for (const deadline = Date.now() + 20_000; saved.takes.length < 2 && Date.now() < deadline;) {
+    await page.waitForTimeout(250);
+    saved = await savedProject(page, projectId);
+  }
   assert.equal(saved.takes.length, 2);
   const capture = validateTake(await (
     await page.request.get(
