@@ -863,6 +863,18 @@ export function compileProject(
         q.scoreEligible.fill(false);
   return fullTimeline ? result : validateChoreography(result);
 }
+// Whether the intervals together cover [startMs, endMs]; adjacent or overlapping reviews count jointly.
+// Compiled sample times are rounded to the microsecond and review bounds aren't, so allow that much.
+const COVER_TOLERANCE_MS = 0.001;
+export function intervalsCover(intervals: readonly { startMs: number; endMs: number }[], startMs: number, endMs: number): boolean {
+  let reached = startMs;
+  for (const x of [...intervals].sort((a, b) => a.startMs - b.startMs)) {
+    if (x.startMs > reached + COVER_TOLERANCE_MS) break;
+    reached = Math.max(reached, x.endMs);
+    if (reached + COVER_TOLERANCE_MS >= endMs) return true;
+  }
+  return reached + COVER_TOLERANCE_MS >= endMs;
+}
 export function reviewReport(project, data) {
   const blockers = [],
     warnings = [],
@@ -897,11 +909,7 @@ export function reviewReport(project, data) {
       if (!pose) {
         missing += dt;
         if (gapStart === null) gapStart = s.songTimeMs;
-        if (
-          !excludes.some(
-            (x) => x.startMs <= s.songTimeMs && x.endMs >= s.songTimeMs + dt,
-          )
-        )
+        if (!intervalsCover(excludes, s.songTimeMs, s.songTimeMs + dt))
           unreviewedGap += dt;
       } else {
         if (

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { poseModel, MEDIAPIPE_VERSION } from '../../../packages/pose/browser/models.ts';
 import {
+  intervalsCover,
   newProject,
   addTake,
   importMotion,
@@ -531,4 +532,14 @@ test("legacy projects migrate their edited poses, negative source timing and ori
   migrated.takes = [];
   takes.delete("take-a");
   assert.deepEqual(compileProject(migrated, takes).samples, before.samples);
+});
+
+test("review coverage combines adjacent and overlapping exclusions", () => {
+  const split = [{ startMs: 300, endMs: 500 }, { startMs: 100, endMs: 300 }];
+  assert.ok(intervalsCover(split, 233, 433), "two adjacent reviews cover a step that spans both");
+  assert.ok(intervalsCover([{ startMs: 100, endMs: 400 }, { startMs: 350, endMs: 600 }], 120, 580));
+  assert.ok(!intervalsCover([{ startMs: 100, endMs: 300 }, { startMs: 310, endMs: 500 }], 233, 433), "a hole between reviews stays unreviewed");
+  assert.ok(!intervalsCover([], 0, 1));
+  assert.ok(!intervalsCover([{ startMs: 150, endMs: 500 }], 100, 200), "coverage must start at the step");
+  assert.ok(intervalsCover([{ startMs: 56.9, endMs: 525.7969999985098 }], 523.566667, 525.797), "review bounds that differ from the rounded sample grid by float error still cover it");
 });
