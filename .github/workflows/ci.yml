@@ -38,19 +38,16 @@ jobs:
       - run: docker build --target ui-test -t aerodance-ui-browser-test .
       - run: docker run --rm aerodance-ui-browser-test
 
-  webcam:
-    # Real MediaPipe models on a synthetic two-person camera: game, calibration and Studio recording.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: docker build --target webcam-test -t aerodance-webcam-test .
-      # Heavy needs more CPU than a hosted runner has to start within the app's 60 s limit.
-      - run: docker run --rm -e WEBCAM_MODELS=lite,full aerodance-webcam-test
-
   studio-browser:
-    # Dance Studio in Chromium: editing, video import, duet import and project loading.
+    # Dance Studio in Chromium: project loading, video import and the duet import.
+    # Tests that need real-time tracking (Studio's browser.ts, the webcam and webcam-calibration
+    # tests) drop stale frames on a 2-core runner, so they run locally or via the Docker targets.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: docker build -f tools/choreography/Dockerfile --target ui-test -t aerodance-studio-browser-test .
-      - run: docker run --rm aerodance-studio-browser-test
+      - run: >-
+          docker run --rm aerodance-studio-browser-test sh -c
+          "node tools/choreography/tests/project-loading.browser.ts &&
+          node tools/choreography/tests/video-import.browser.ts &&
+          node tools/choreography/tests/video-duet.browser.ts"
