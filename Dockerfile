@@ -11,12 +11,11 @@ RUN npm test
 FROM mcr.microsoft.com/playwright:v1.58.2-noble AS ui-test
 WORKDIR /app
 COPY --from=build /app ./
-RUN npm install --no-save --package-lock=false playwright@1.58.2
-CMD ["node", "client/tests/ui-flow.browser.mjs"]
+CMD ["node", "client/tests/ui-flow.browser.ts"]
 
 FROM ui-test AS webcam-test
 RUN npm run studio:build
-CMD ["node", "client/tests/webcam.browser.mjs"]
+CMD ["sh", "-c", "node client/tests/webcam.browser.ts && node client/tests/webcam-calibration.browser.ts"]
 
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf

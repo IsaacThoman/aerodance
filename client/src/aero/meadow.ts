@@ -1,0 +1,187 @@
+import * as THREE from 'three';
+import type { AeroContext } from './context.ts';
+import type { FlightPath } from './flight.ts';
+import { TAU, canvas2d, col, hexMul } from './util.ts';
+
+/* ------------------------------------------------------- meadow grass */
+/** Instanced grass blades swaying in a vertex-shader wind. */
+export function buildMeadowGrass(ctx: AeroContext, path: FlightPath) {
+  const { R, rnd } = ctx.random;
+  const w = 0.07, bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.Float32BufferAttribute([-w, 0, 0, w, 0, 0, -w * 0.7, 0.5, 0.02, w * 0.7, 0.5, 0.02, 0, 1, 0.07], 3));
+  bg.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  const a = col('#2c7a1a'), b = col('#5ec12d'), c = col('#c8f06a');
+  bg.setAttribute('color', new THREE.Float32BufferAttribute([a.r, a.g, a.b, a.r, a.g, a.b, b.r, b.g, b.b, b.r, b.g, b.b, c.r, c.g, c.b], 3));
+  bg.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]);
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = ctx.time;
+    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+        vec2 ip=vec2(instanceMatrix[3][0],instanceMatrix[3][2]);
+        #else
+        vec2 ip=vec2(0.0);
+        #endif
+        float sw=sin(uTime*1.8+ip.x*.15+ip.y*.11)+.5*sin(uTime*3.1+ip.x*.4);
+        transformed.x+=sw*position.y*position.y*.14;transformed.z+=sw*position.y*position.y*.07;`);
+  };
+  const N = Math.round(120000 * ctx.quality.Q), im = new THREE.InstancedMesh(bg, mat, N), d = new THREE.Object3D(), cc = new THREE.Color();
+  for (let i = 0; i < N; i++) {
+    let x: number, z: number; if (rnd() < 0.72) [x, z] = path.nearMeadow(26); else { x = R(-260, 320); z = R(270, 1000); }
+    d.position.set(x, 0, z); d.rotation.set(R(-0.2, 0.2), R(0, TAU), R(-0.2, 0.2)); d.scale.set(R(0.8, 1.7), R(0.45, 1.35), 1); d.updateMatrix(); im.setMatrixAt(i, d.matrix);
+    const bb = R(0.75, 1.12); cc.setRGB(bb * R(0.9, 1.05), bb, bb * R(0.82, 1)); im.setColorAt(i, cc);
+  }
+  ctx.root.add(im);
+}
+
+/* --------------------------------------------------------------- flowers */
+type FlowerKind = 'daisy' | 'cosmos' | 'yellow';
+
+function flowerTex(ctx: AeroContext, kind: FlowerKind) {
+  const { R } = ctx.random;
+  const S = 128, { c, g } = canvas2d(S, S); g.translate(64, 64);
+  const petals = kind === 'daisy' ? 18 : 8, fc = kind === 'daisy' ? '#ffffff' : kind === 'cosmos' ? '#ff6fb5' : '#ffd21f', len = kind === 'daisy' ? 52 : 50, wid = kind === 'daisy' ? 7 : 15;
+  for (let i = 0; i < petals; i++) {
+    g.save(); g.rotate((i / petals) * TAU);
+    const gr = g.createLinearGradient(0, 0, len, 0); gr.addColorStop(0, hexMul(fc, kind === 'daisy' ? 0.9 : 0.85)); gr.addColorStop(1, fc);
+    g.fillStyle = gr; g.beginPath(); g.ellipse(len / 2 + 6, 0, len / 2, wid, 0, 0, TAU); g.fill();
+    if (kind !== 'daisy') { g.globalCompositeOperation = 'destination-out'; g.beginPath(); for (let k = -1; k <= 1; k++) { g.moveTo(len + 6, k * 5); g.lineTo(len - 2, k * 5 + 2.5); g.lineTo(len + 6, k * 5 + 5); } g.fill(); g.globalCompositeOperation = 'source-over'; }
+    g.restore();
+  }
+  const cr = kind === 'daisy' ? 13 : 11, gr = g.createRadialGradient(-3, -3, 1, 0, 0, cr);
+  gr.addColorStop(0, kind === 'yellow' ? '#a2541a' : '#ffe46a'); gr.addColorStop(1, kind === 'yellow' ? '#5a2a0c' : '#f0a91a');
+  g.fillStyle = gr; g.beginPath(); g.arc(0, 0, cr, 0, TAU); g.fill();
+  g.fillStyle = 'rgba(120,60,0,.35)'; for (let i = 0; i < 30; i++) { const a = R(0, TAU), r = R(0, cr * 0.85); g.fillRect(Math.cos(a) * r, Math.sin(a) * r, 1.5, 1.5); }
+  return ctx.tex(c);
+}
+
+/** Flower heads (instanced billboards) on instanced stems. */
+export function buildFlowers(ctx: AeroContext, path: FlightPath) {
+  const { R, rnd } = ctx.random;
+  const STEMS: number[] = [], geo = new THREE.PlaneGeometry(1, 1), d = new THREE.Object3D();
+  const kinds: [kind: FlowerKind, size: number, count: number][] = [['daisy', 0.6, 3000], ['cosmos', 0.8, 2200], ['yellow', 0.75, 2200]];
+  for (const [kind, size, n] of kinds) {
+    const N = Math.round(n * ctx.quality.Q), im = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ map: flowerTex(ctx, kind), alphaTest: 0.5, side: THREE.DoubleSide, color: col('#f4f4f4') }), N);
+    for (let i = 0; i < N; i++) {
+      let x: number, z: number;
+      if (rnd() < 0.8) { let p: THREE.Vector3; [x, z, p] = path.nearMeadow(20); const dx = x - p.x, dz = z - p.z; if (dx * dx + dz * dz < 2.5) x += dx < 0 ? -1.6 : 1.6; } else { x = R(-250, 300); z = R(280, 1000); }
+      const h = R(0.55, 1.45), s = size * R(0.75, 1.25);
+      d.position.set(x, h, z); d.rotation.set(-Math.PI / 2 + R(0.35, 1.0), R(0, TAU), 0, 'YXZ'); d.scale.set(s, s, s); d.updateMatrix(); im.setMatrixAt(i, d.matrix); STEMS.push(x, h, z);
+    }
+    ctx.root.add(im);
+  }
+  const sg = new THREE.CylinderGeometry(0.022, 0.03, 1, 3); sg.translate(0, 0.5, 0);
+  const sm = new THREE.InstancedMesh(sg, new THREE.MeshBasicMaterial({ color: col('#3f9a25') }), STEMS.length / 3);
+  for (let i = 0; i < STEMS.length / 3; i++) { d.position.set(STEMS[i * 3], 0, STEMS[i * 3 + 2]); d.rotation.set(0, 0, 0); d.scale.set(1, STEMS[i * 3 + 1], 1); d.updateMatrix(); sm.setMatrixAt(i, d.matrix); }
+  ctx.root.add(sm);
+}
+
+/* -------------------------------------------------- tulips + windmills */
+/** Striped tulip field beside the meadow. */
+export function buildTulips(ctx: AeroContext) {
+  const { R } = ctx.random;
+  const cup = new THREE.LatheGeometry([[0, 0], [0.12, 0.03], [0.2, 0.12], [0.22, 0.26], [0.19, 0.38], [0.13, 0.45]].map((p) => new THREE.Vector2(p[0], p[1])), 7);
+  const stem = new THREE.CylinderGeometry(0.03, 0.035, 1, 3); stem.translate(0, 0.5, 0);
+  const pts: [x: number, z: number, band: number][] = [], cols = ['#ff2a2a', '#ffd21a', '#ff5fa2', '#ff8a1a', '#ffffff'].map((h) => col(h));
+  for (let x = -142, row = 0; x < -46; x += 2.0, row++) { const band = Math.floor(row / 6) % cols.length; for (let z = 520; z < 770; z += 1.6) pts.push([x + R(-0.4, 0.4), z + R(-0.5, 0.5), band]); }
+  const N = Math.round(pts.length * (ctx.quality.small ? 0.6 : 1));
+  const cm = new THREE.InstancedMesh(cup, new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }), N);
+  const st = new THREE.InstancedMesh(stem, new THREE.MeshBasicMaterial({ color: col('#3c8f24') }), N);
+  const d = new THREE.Object3D(), c = new THREE.Color();
+  for (let i = 0; i < N; i++) {
+    const [x, z, b] = pts[Math.floor((i / N) * pts.length)], h = R(0.7, 1.1), s = R(1.1, 1.5);
+    d.position.set(x, 0, z); d.rotation.set(0, 0, 0); d.scale.set(1, h, 1); d.updateMatrix(); st.setMatrixAt(i, d.matrix);
+    d.position.y = h; d.rotation.set(R(-0.15, 0.15), R(0, TAU), R(-0.15, 0.15)); d.scale.set(s, s, s); d.updateMatrix(); cm.setMatrixAt(i, d.matrix);
+    c.copy(cols[b]).multiplyScalar(R(0.85, 1.1)); cm.setColorAt(i, c);
+  }
+  ctx.root.add(cm, st);
+}
+
+export function buildWindmills(ctx: AeroContext) {
+  const MILLS: THREE.Group[] = [];
+  const tw = new THREE.MeshLambertMaterial({ color: col('#6b4632') }), cap = new THREE.MeshLambertMaterial({ color: col('#3e2a1e') }), sail = new THREE.MeshLambertMaterial({ color: col('#f3ead8') });
+  for (const [x, z] of [[-168, 575], [-175, 650], [-160, 725]]) {
+    const g = new THREE.Group(); g.position.set(x, 0, z);
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 4, 18, 8), tw); t.position.y = 9; g.add(t);
+    const c = new THREE.Mesh(new THREE.ConeGeometry(3.2, 4.5, 8), cap); c.position.y = 20.2; g.add(c);
+    const bl = new THREE.Group(); bl.position.set(3.4, 17, 0);
+    for (let k = 0; k < 4; k++) {
+      const arm = new THREE.Group(); arm.rotation.x = (k * Math.PI) / 2;
+      const a = new THREE.Mesh(new THREE.BoxGeometry(0.3, 13, 0.4), cap); a.position.y = 6.5; arm.add(a);
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.15, 10, 2.4), sail); s.position.set(0, 8, 1.3); arm.add(s);
+      bl.add(arm);
+    }
+    g.add(bl); ctx.root.add(g); MILLS.push(bl);
+  }
+  return {
+    update(dt: number) { for (const m of MILLS) m.rotation.x += dt * 0.5; },
+  };
+}
+
+/* ------------------------------------------------------------ butterflies */
+type WingKind = 'monarch' | 'morpho' | 'swallow';
+
+function wingTex(ctx: AeroContext, kind: WingKind) {
+  const S = 128, { c, g } = canvas2d(S, S);
+  const shape = () => { g.beginPath(); g.ellipse(58, 44, 56, 34, -0.35, 0, TAU); g.ellipse(42, 92, 38, 28, 0.45, 0, TAU); };
+  g.save(); shape(); g.clip();
+  if (kind === 'monarch') { g.fillStyle = '#ff8a1c'; g.fillRect(0, 0, S, S); g.strokeStyle = '#1a120a'; g.lineWidth = 3; for (let i = 0; i < 7; i++) { g.beginPath(); g.moveTo(0, 64); g.lineTo(130 * Math.cos(-1.1 + i * 0.33), 64 + 130 * Math.sin(-1.1 + i * 0.33)); g.stroke(); } }
+  else if (kind === 'morpho') { const gr = g.createLinearGradient(0, 64, 128, 20); gr.addColorStop(0, '#0a3fd8'); gr.addColorStop(0.6, '#1f8bff'); gr.addColorStop(1, '#3fe0ff'); g.fillStyle = gr; g.fillRect(0, 0, S, S); }
+  else { g.fillStyle = '#ffe14d'; g.fillRect(0, 0, S, S); g.fillStyle = '#14110c'; for (let i = 0; i < 6; i++) { g.save(); g.translate(18 + i * 18, 0); g.rotate(0.35); g.fillRect(0, -20, i % 2 ? 5 : 9, 170); g.restore(); } g.fillStyle = '#2a7bff'; g.beginPath(); g.arc(30, 106, 6, 0, TAU); g.fill(); g.fillStyle = '#ff7a1a'; g.beginPath(); g.arc(48, 112, 4, 0, TAU); g.fill(); }
+  g.restore();
+  g.save(); shape(); g.lineWidth = 10; g.strokeStyle = '#120d08'; g.stroke(); g.restore();
+  g.fillStyle = '#ffffff'; for (let i = 0; i < 14; i++) { const a = -1.4 + i * 0.2; g.beginPath(); g.arc(60 + 54 * Math.cos(a) * 0.95, 44 + 34 * Math.sin(a) * 0.95, 1.8, 0, TAU); g.fill(); }
+  return ctx.tex(c);
+}
+
+interface Butterfly { g: THREE.Group; r: THREE.Group; l: THREE.Group; ax: number; az: number; ay: number; ph: number; f: number; sp: number; rad: number }
+
+export function buildButterflies(ctx: AeroContext, path: FlightPath) {
+  const { R, pick } = ctx.random;
+  const BFLY: Butterfly[] = [];
+  const wg = new THREE.PlaneGeometry(1, 1); wg.translate(0.5, 0, 0); wg.rotateX(Math.PI / 2);
+  const kinds: WingKind[] = ['monarch', 'morpho', 'swallow'];
+  const mats = kinds.map((k) => { const t = wingTex(ctx, k); return new THREE.MeshLambertMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.35, alphaTest: 0.5, side: THREE.DoubleSide }); });
+  const body = new THREE.CylinderGeometry(0.035, 0.025, 0.5, 5); body.rotateX(Math.PI / 2);
+  const bm = new THREE.MeshBasicMaterial({ color: col('#1a120a') });
+  for (let i = 0; i < Math.round(80 * ctx.quality.Q + 20); i++) {
+    const [x, z, p] = path.nearMeadow(14), m = pick(mats), g = new THREE.Group();
+    const r = new THREE.Group(), l = new THREE.Group();
+    r.add(new THREE.Mesh(wg, m)); l.add(new THREE.Mesh(wg, m)); l.scale.x = -1; g.add(r, l, new THREE.Mesh(body, bm));
+    g.scale.setScalar(R(0.45, 0.75)); ctx.root.add(g);
+    let ax = x; const az = z, dx = x - p.x, dz = z - p.z; if (dx * dx + dz * dz < 9) ax += dx < 0 ? -3 : 3;
+    BFLY.push({ g, r, l, ax, az, ay: R(1.2, 3.2), ph: R(0, TAU), f: R(9, 14), sp: R(0.3, 0.7), rad: R(1.5, 4) });
+  }
+  const tmp = new THREE.Vector3();
+  return {
+    update(t: number) {
+      for (const b of BFLY) {
+        const q = t * b.sp + b.ph, y = b.ay + Math.sin(q * 1.7) * 0.6;
+        tmp.set(b.ax + Math.sin(q + 0.05) * b.rad, y, b.az + Math.cos((q + 0.05) * 0.8) * b.rad);
+        b.g.position.set(b.ax + Math.sin(q) * b.rad, y, b.az + Math.cos(q * 0.8) * b.rad); b.g.lookAt(tmp);
+        const a = Math.sin(t * b.f + b.ph) * 1.05 + 0.2; b.r.rotation.z = a; b.l.rotation.z = -a;
+      }
+    },
+  };
+}
+
+/* ---------------------------------------------------------------- sparkles */
+/** Two twinkling point clouds over the meadow, blinking in antiphase. */
+export function buildSparkles(ctx: AeroContext, path: FlightPath) {
+  const { R } = ctx.random;
+  const SPK: THREE.PointsMaterial[] = [];
+  const { c, g } = canvas2d(64, 64), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(220,255,240,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(31, 4, 2, 56); g.fillRect(4, 31, 56, 2);
+  const t = ctx.tex(c);
+  for (let k = 0; k < 2; k++) {
+    const n = Math.round(500 * ctx.quality.Q), a: number[] = [];
+    for (let i = 0; i < n; i++) { const [x, z] = path.nearMeadow(16); a.push(x, R(0.3, 5), z); }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
+    const m = new THREE.PointsMaterial({ map: t, size: 0.55, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: col(k ? '#d8ffe9' : '#fff7cf') });
+    const p = new THREE.Points(geo, m); p.frustumCulled = false; ctx.root.add(p); SPK.push(m);
+  }
+  return {
+    update(t: number) { SPK[0].opacity = 0.5 + 0.5 * Math.sin(t * 2.3); SPK[1].opacity = 0.5 + 0.5 * Math.sin(t * 2.3 + Math.PI); },
+  };
+}

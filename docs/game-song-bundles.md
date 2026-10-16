@@ -46,11 +46,11 @@ Audio is decoded from the verified in-memory Blob and released when preview clos
 
 Code:
 
-- `packages/pose/song.js`: catalog/song validation, bundle cross-checks, finite sampling.
-- `client/src/songs/loadBundle.js`: bounded HTTP loading and file integrity.
-- `client/src/game/SongSelect.jsx`: the in-engine list and preview.
-- `client/src/audio/songPlayer.js`: finite music on the mixer, clamped to the playable range.
-- `client/src/stage/StageView.jsx` and `packages/stages/shared/Dancers.jsx`: the stage and its independent Frutiger dancers.
+- `packages/pose/song.ts`: catalog/song validation, bundle cross-checks, finite sampling.
+- `client/src/songs/loadBundle.ts`: bounded HTTP loading and file integrity.
+- `client/src/game/SongSelect.tsx`: the in-engine list and preview.
+- `client/src/audio/songPlayer.ts`: finite music on the mixer, clamped to the playable range.
+- `client/src/stage/StageView.tsx` and `packages/stages/shared/Dancers.tsx`: the stage and its independent Frutiger dancers.
 
 ## Migrated silent capture
 
@@ -69,7 +69,7 @@ gaps or repairs. This silent take is a preview, not a published song.
 Convert an older capture with:
 
 ```sh
-node tools/pose/migrate-legacy.js old-dance.json new-take.json
+node tools/pose/migrate-legacy.ts old-dance.json new-take.json
 ```
 
 The demo loader retains explicit legacy import compatibility. Its playback and
@@ -83,7 +83,7 @@ samples separately. Runtime preview still loops, while game bundle sampling is f
 ```sh
 npm test
 npm run build
-node client/tests/ui-flow.browser.mjs # requires Playwright and Chromium
+node client/tests/ui-flow.browser.ts # requires Playwright and Chromium
 ```
 
 Tests cover migration, wire-payload compatibility, integrity failures, revision

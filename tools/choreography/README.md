@@ -44,7 +44,7 @@ Open http://localhost:5177. The API listens on 8082 and writes ignored
    by the browser audio decoder. Set the real artist, authors/choreographers, the
    **Stage** the game shows the routine on (Open Reef by default), and
    distribution licenses or permissions.
-2. Import a pose JSON/NDJSON, or start the webcam and **Record new take**.
+2. Import a pose JSON, or start the webcam and **Record new take**.
    Choose a camera and **Lite / Full / Heavy**, then **Start camera**
    and allow permission. Recording stays disabled until the first pose result
    arrives, even if neither player is detected. You can start the countdown and
@@ -194,12 +194,16 @@ export does not deploy or publish automatically. The game owns character assets.
 ## Checks
 
 ```sh
+npm run lint
+npm run typecheck
 npm test
 npm run studio:test
 npm run studio:build
 npm run build
-node tools/choreography/tests/video-import.browser.mjs
-node tools/choreography/tests/video-duet.browser.mjs
+node tools/choreography/tests/browser.ts
+node tools/choreography/tests/video-import.browser.ts
+node tools/choreography/tests/video-duet.browser.ts
+node tools/choreography/tests/project-loading.browser.ts
 docker build -f tools/choreography/Dockerfile --target test -t studio-test .
 docker build -f tools/choreography/Dockerfile --target ui-test -t studio-browser-test .
 docker run --rm studio-browser-test
@@ -220,9 +224,10 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
   Webcam fixtures cover Chromium runtime/capture integration; real duet accuracy,
   hardware performance, and Safari/Firefox/mobile compatibility need manual checks.
 
-- Older protocol-v2 takes and raw NDJSON imports still load. NDJSON without an
-  audio anchor starts at zero; review its alignment manually.
-- The editor imports JSON/NDJSON, its own project backups, and browser-decodable
+- Takes captured by earlier editor versions still open, compile, and export; the
+  take list shows them as **legacy capture**. Raw NDJSON pose streams can no
+  longer be imported or recorded.
+- The editor imports JSON, its own project backups, and browser-decodable
   videos. Video import runs the same local models as the webcam; the optional
   Python tracker remains an offline tool.
 - Automatic normalization of different camera placements, articulated IK, and

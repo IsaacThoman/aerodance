@@ -7,3 +7,4 @@ studio-data/
 tools/choreography/dist/
 *.blend1
 *.blend2
+.idea/

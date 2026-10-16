@@ -16,24 +16,24 @@ http://localhost:8082 to record/import, edit, preview, save, and export song bun
 
 The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display is one letterboxed 16:9 frame rendered at a fixed 640x480 buffer and scaled up with `image-rendering: pixelated`; the HUD sits inside the frame.
 
-- `client/src/aero/aeroBackground.js` builds the world. `createAeroWorld({ renderer, scene, camera, speed, quality })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
-- `client/src/aero/AeroWorld.jsx` plugs it into the Fiber `<Canvas>` (used by `Scene.jsx`): `<AeroWorld speed={1} quality="auto" />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
+- `client/src/aero/aeroBackground.ts` builds the world. `createAeroWorld({ renderer, scene, camera, speed, quality })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
+- `client/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} quality="auto" />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
 - The loop starts low over the meadow facing the skyline (`start` 0.08). Downtown, the east/west districts and the north district across the lake all sit on one 70 m street grid; the lake uses a reflective water surface with boats and quays.
 - `quality="low"` thins out grass, flowers and leaf detail for weaker GPUs; `auto` picks it on touch devices.
 
 ### Sound
 
-`client/src/audio/mixer.js` runs all audio through one Web Audio context. Settings → Sound drives it: **Master** (everything), **Music** (all music, menu and in-game), **Effects** (sound effects), **Menu music** (switches off just the menu's background track; in-game songs go straight to the music channel) and **Mute all** (silences everything). Settings are saved per browser (`menu/soundSettings.js`). The game currently ships no menu music or sound effects, so only songs play through it; `client/src/audio/loopingMusic.js` can loop a menu track on the Menu music channel.
+`client/src/audio/mixer.ts` runs all audio through one Web Audio context. Settings → Sound drives it: **Master** (everything), **Music** (all music, menu and in-game), **Effects** (sound effects), **Menu music** (switches off just the menu's background track; in-game songs go straight to the music channel) and **Mute all** (silences everything). Settings are saved per browser (`menu/soundSettings.ts`). The game currently ships no menu music or sound effects, so only songs play through it; `client/src/audio/loopingMusic.ts` can loop a menu track on the Menu music channel.
 
 ## Main UI flow
 
 **Start → One Player / Two Players → Song Select → song preview → Dance! → results**, all drawn in-engine. Back (or Escape) from Song Select returns to the player count, and every screen works with the mouse, touch and the keyboard (arrows and Enter).
 
 - **Connect Client** (`client/src/connect/`): the status pill in the top-right corner of Settings opens a card for the webcam pose input: camera selection and in-browser MediaPipe **Lite / Full / Heavy** tracking for both player modes. Start camera requests permission; the mirrored setup preview shows player placement. Model/camera changes restart tracking and release the old camera. For a scored run without a camera, open the game with `?input=ghost`: an autoplay ghost copies each routine (`&ghostLagMs=300` dances late).
-- **Song Select** (`client/src/game/SongSelect.jsx`) lists the published songs four to a page. Extract Dance Studio's song ZIPs into `client/public/songs/`: Song Select finds the exported folders without manifest edits (`scripts/songCatalog.js`), and builds generate the catalog for static hosting, so rebuild or redeploy to publish changes. The repo ships no songs, so the list stays empty until you add some. Bundles are fully verified before they play ([game song bundles](docs/game-song-bundles.md)).
-- **Preview:** a song's music plays through the mixer (ducking any menu music) with its reference dancers on the song's **dance stage**, rendered inside the game canvas (`client/src/stage/StageView.jsx`, stages from `packages/stages`). The music loops on its own while the stage camera slowly circles the dancers (Club Aquarium swings side to side instead), and swings back to the front when Dance! starts. Each song picks its stage in Dance Studio (players can't change it) and defaults to Open Reef. Best scores show on the list.
-- **Dance!** (`client/src/game/GameScreen.jsx`, `GameSession.js`): a ready check (every player tracked and calibrated for a second, or **Start now**), then **3, 2, 1** from the song's scheduled start, with the music and reference dancers starting together at zero. Each player's own glass character copies them live in a top corner (player 1 left, player 2 right; `client/src/stage/LivePanels.jsx`) with their score, combo and a Perfect / Good / OK / Miss pop-up every second. Escape, the pause button or a hidden tab pauses; Resume counts down again at the same spot. The results screen shows the winner or the solo score, grade, judgements and a new best, then **Play again** or **Song select**.
-- **Timing and scoring:** everything runs on the song's audible clock (`client/src/audio/songPlayer.js`). Each live pose is placed at the song position audible when the camera captured it, using the webcam frame's browser timestamp, and scored 750 ms behind the song so late poses still count. The scorer (`packages/score/`) compares limb directions and movement every 100 ms against the player's own track; [docs/scoring.md](docs/scoring.md) has the details. `?record` downloads each song's live poses as a recording, and `?input=recording&recording=<url>` replays one.
+- **Song Select** (`client/src/game/SongSelect.tsx`) lists the published songs four to a page. Extract Dance Studio's song ZIPs into `client/public/songs/`: Song Select finds the exported folders without manifest edits (`scripts/songCatalog.ts`), and builds generate the catalog for static hosting, so rebuild or redeploy to publish changes. The repo ships no songs, so the list stays empty until you add some. Bundles are fully verified before they play ([game song bundles](docs/game-song-bundles.md)).
+- **Preview:** a song's music plays through the mixer (ducking any menu music) with its reference dancers on the song's **dance stage**, rendered inside the game canvas (`client/src/stage/StageView.tsx`, stages from `packages/stages`). The music loops on its own while the stage camera slowly circles the dancers (Club Aquarium swings side to side instead), and swings back to the front when Dance! starts. Each song picks its stage in Dance Studio (players can't change it) and defaults to Open Reef. Best scores show on the list.
+- **Dance!** (`client/src/game/GameScreen.tsx`, `GameSession.ts`): a ready check (every player tracked and calibrated for a second, or **Start now**), then **3, 2, 1** from the song's scheduled start, with the music and reference dancers starting together at zero. Each player's own glass character copies them live in a top corner (player 1 left, player 2 right; `client/src/stage/LivePanels.tsx`) with their score, combo and a Perfect / Good / OK / Miss pop-up every second. Escape, the pause button or a hidden tab pauses; Resume counts down again at the same spot. The results screen shows the winner or the solo score, grade, judgements and a new best, then **Play again** or **Song select**.
+- **Timing and scoring:** everything runs on the song's audible clock (`client/src/audio/songPlayer.ts`). Each live pose is placed at the song position audible when the camera captured it, using the webcam frame's browser timestamp, and scored 750 ms behind the song so late poses still count. The scorer (`packages/score/`) compares limb directions and movement every 100 ms against the player's own track; [docs/scoring.md](docs/scoring.md) has the details. `?record` downloads each song's live poses as a recording, and `?input=recording&recording=<url>` replays one.
 
 Containerized build, unit and browser-flow checks (use `podman` in place of `docker`
 when using Podman):
@@ -46,7 +46,9 @@ docker build --target webcam-test -t aerodance-webcam-test .
 docker run --rm aerodance-webcam-test
 ```
 
-The browser flow (`client/tests/ui-flow.browser.mjs`) clicks the canvas in design units and reads the state each overlay reports on its `data-*` attributes. It skips GPU rasterization in software-only containers; set `UI_RENDER=1` for a full rendered check on a capable GPU.
+CI runs the game's browser flow and Dance Studio's project-loading, video-import and duet tests. The tests that need real-time tracking (`webcam`, `webcam-calibration` and Studio's `browser.ts`) drop stale frames on CI's 2-core runners, so run them locally or with the Docker targets above before merging changes to capture, calibration or recording.
+
+The browser flow (`client/tests/ui-flow.browser.ts`) clicks the canvas in design units and reads the state each overlay reports on its `data-*` attributes. It skips GPU rasterization in software-only containers; set `UI_RENDER=1` for a full rendered check on a capable GPU.
 
 Webcam requires **HTTPS or localhost**; a plain HTTP LAN address cannot request
 camera access. Models and the matching WASM runtime are prepared during development
@@ -59,7 +61,7 @@ WebGL is rendered in software; the status shows the active model, delegate, and
 tracking rate. Heavy needs more processing capacity; slow results never count as
 fresh player detection.
 
-After both builds, `node client/tests/webcam.browser.mjs` (with Playwright installed)
+After both builds, `node client/tests/webcam.browser.ts` (with Playwright installed)
 checks the actual models, a synthetic two-person camera stream, Studio recording,
 export, and game bundle preview. Physical duet accuracy, hardware performance,
 and browser/device coverage still need manual validation.
@@ -76,15 +78,16 @@ The dance stages live in [`packages/stages`](packages/stages/README.md) and the 
 
 | Layer    | Tech                                      |
 | -------- | ----------------------------------------- |
+| Language | TypeScript (strict), run directly by Node 24 and Vite |
 | Client   | React 19, three.js, @react-three/fiber, Vite |
 | Hosting  | Static build served by nginx              |
 | Runtime  | Docker Compose                            |
 
 ## In-engine UI
 
-All menus, Song Select, Connect Client and the game screens are drawn on 2D canvases that share the render buffer, so they get the same pixels and stretch as the world. `client/src/ui/useCanvasUI.js` handles the overlay (canvas texture, design-unit layout, hit testing, press/hover/drag, scrolling, opt-in arrow-key navigation) and `client/src/ui/draw.js` holds the aero drawing kit (bubble pills, glass panels, headers, the title, icons, status lights, progress bars).
+All menus, Song Select, Connect Client and the game screens are drawn on 2D canvases that share the render buffer, so they get the same pixels and stretch as the world. `client/src/ui/useCanvasUI.ts` handles the overlay (canvas texture, design-unit layout, hit testing, press/hover/drag, scrolling, opt-in arrow-key navigation) and `client/src/ui/draw.ts` holds the aero drawing kit (bubble pills, glass panels, headers, the title, icons, status lights, progress bars).
 
-- **Fullscreen:** the main menu shows a fullscreen bubble in the bottom-right corner (`client/src/menu/FullscreenButton.jsx`). It slides off the right edge on submenus and slides back in on return to the main menu. Press Esc to exit fullscreen. Safari on macOS is supported, and the existing 16:9 letterboxing and fixed render resolution are preserved.
+- **Fullscreen:** the main menu shows a fullscreen bubble in the bottom-right corner (`client/src/menu/FullscreenButton.tsx`). It slides off the right edge on submenus and slides back in on return to the main menu. Press Esc to exit fullscreen. Safari on macOS is supported, and the existing 16:9 letterboxing and fixed render resolution are preserved.
 
 ## Run locally with Docker Compose
 
@@ -118,7 +121,7 @@ See [Coolify's Docker Compose documentation](https://coolify.io/docs/application
 
 ### Pull request previews
 
-Bee Coolify deploys `main` at https://aerodance.tech. Its GitHub App automatically builds previews for repository members' pull requests targeting `main`, updates them when commits are pushed, and removes them when the PR is closed or merged.
+Bee Coolify deploys `dev`, the primary branch, at https://aerodance.tech. Its GitHub App automatically builds previews for repository members' pull requests targeting `dev`, updates them when commits are pushed, and removes them when the PR is closed or merged.
 
 The preview URL template is `{{pr_id}}-aerodance.deathgrips.org`, so PR #3 is available at https://3-aerodance.deathgrips.org. Wildcard DNS for `*.deathgrips.org` routes these hosts to Bee through Cloudflare. Set service `app` domains to internal port `3000` in Coolify; previews inherit that port from the production domain configuration.
 
@@ -131,3 +134,12 @@ npm run dev
 
 - Vite dev server: http://localhost:5173
 - `npm run build` builds the game into `dist/`; `npm run preview` serves the build locally.
+- `npm run lint`, `npm run typecheck` and `npm test` are what CI runs first. Browser tests run in Docker in CI (see above); to run one locally after `npm run build`, use `node client/tests/ui-flow.browser.ts`, with `CHROMIUM_PATH` pointing at a Chromium if Playwright's own isn't installed.
+
+### TypeScript
+
+Everything is TypeScript with `strict` on, and nothing is compiled ahead of time: Vite bundles the browser code, and Node runs `.ts` files directly by stripping their types (the Studio server, unit tests and scripts). So:
+
+- Use only erasable syntax (no `enum`, `namespace` or constructor parameter properties; `tsconfig.json` enforces this), and `import type` for type-only imports.
+- Write relative imports with their real `.ts`/`.tsx` extension. Node can't run `.tsx`, so anything Node imports stays `.ts`.
+- Validate untrusted data (JSON files, API bodies, recordings) with the assertion functions next to each format, such as `assertSong` in `packages/pose/song.ts`, instead of casting.

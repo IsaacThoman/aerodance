@@ -1,0 +1,83 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { AnimationMixer, Vector3 } from "three";
+import type { Object3D, SkinnedMesh } from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+const bytes = await readFile(
+  new URL("../assets/aero-character.glb", import.meta.url),
+);
+const asset = await new GLTFLoader().parseAsync(
+  bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  "",
+);
+
+const isSkinnedMesh = (o: Object3D): o is SkinnedMesh => "isSkinnedMesh" in o && o.isSkinnedMesh === true;
+const materialName = (mesh: SkinnedMesh) => Array.isArray(mesh.material) ? undefined : mesh.material.name;
+
+test("export contains the reference silhouette, two arms, two feet, and no invented face details", () => {
+  const meshes: SkinnedMesh[] = [];
+  asset.scene.traverse((o) => {
+    if (isSkinnedMesh(o)) meshes.push(o);
+  });
+  const bodyParts = meshes.filter((o) => materialName(o) === "AquaGel");
+  assert.equal(bodyParts.length, 6);
+  assert.equal(bodyParts.filter((o) => o.name.startsWith("Arm")).length, 2);
+  assert.equal(bodyParts.filter((o) => o.name.startsWith("Foot")).length, 2);
+  assert.equal(meshes.filter((o) => materialName(o) === "Ink").length, 2);
+  assert.ok(!meshes.some((o) => /Smile|Glint/.test(o.name)));
+  const head = bodyParts.find((o) => o.name.startsWith("Head"));
+  const torso = bodyParts.find((o) => o.name.startsWith("Body"));
+  assert.ok(head && torso);
+  head.geometry.computeBoundingBox();
+  torso.geometry.computeBoundingBox();
+  assert.ok(head.geometry.boundingBox && torso.geometry.boundingBox);
+  const headSize = head.geometry.boundingBox.getSize(new Vector3());
+  const bodySize = torso.geometry.boundingBox.getSize(new Vector3());
+  assert.ok(Math.abs(headSize.x - 1.29) < 0.01);
+  assert.ok(Math.abs(bodySize.y / headSize.y - 145 / 129) < 0.04);
+  assert.ok(bodySize.x / headSize.x > 1 && bodySize.x / headSize.x < 1.1);
+  for (const mesh of bodyParts) {
+    assert.equal(mesh.skeleton.bones.length, 7);
+    const weights = mesh.geometry.attributes.skinWeight;
+    for (let i = 0; i < weights.count; i++) {
+      assert.ok(
+        Math.abs(
+          weights.getX(i) +
+            weights.getY(i) +
+            weights.getZ(i) +
+            weights.getW(i) -
+            1,
+        ) < 0.001,
+      );
+    }
+  }
+});
+
+test("four usable clips animate the actual exported skeleton", () => {
+  assert.deepEqual(asset.animations.map((a) => a.name).sort(), [
+    "Dance",
+    "Idle",
+    "Walk",
+    "Wave",
+  ]);
+  const mixer = new AnimationMixer(asset.scene);
+  const arm = asset.scene.getObjectByName("ArmR");
+  const wave = asset.animations.find((c) => c.name === "Wave");
+  assert.ok(arm && wave);
+  const rest = arm.quaternion.clone();
+  mixer.clipAction(wave).play();
+  mixer.update(0.5);
+  assert.ok(
+    rest.angleTo(arm.quaternion) > 1.8,
+    "Wave must raise the arm, not just spin it in place",
+  );
+  mixer.stopAllAction();
+  mixer.uncacheRoot(asset.scene);
+  for (const clip of asset.animations) {
+    assert.ok(clip.duration >= 1);
+    for (const track of clip.tracks)
+      assert.ok([...track.values].every(Number.isFinite));
+  }
+});

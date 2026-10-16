@@ -57,11 +57,11 @@ assets.
   HTTP port 1337, status/config endpoints, one NDJSON streaming connection,
   complete snapshots, explicit IDs, and 33 MediaPipe image landmarks.
 - `AndroidPoseSource` and
-  [protocol decoder](../client/src/pose/protocol.js): connection lifecycle,
+  [protocol decoder](../client/src/pose/protocol.ts): connection lifecycle,
   bounded decoding, validation, and player-mode boundaries.
 - [Character package guide](../packages/character/README.md),
-  [motion code](../packages/character/motion.js), and
-  [character component](../packages/character/Character.jsx):
+  [motion code](../packages/character/motion.ts), and
+  [character component](../packages/character/Character.tsx):
   independent skeleton instances, recorded sampling, calibration, and pose mapping.
 - Song catalog (`songs/manifest.json`): generated automatically from exported
   song folders for development, production, and static builds, retaining version 1.
@@ -441,7 +441,7 @@ carry actual song times and support variable tempo. BPM never sets the pose cloc
 
 `stage` is the id of the dance stage the game shows the song on, one of
 `sanctuary`, `reef`, `openreef`, `falls`, `club` or `beach` (see
-`packages/stages/catalog.js`). Dance Studio sets it by name and defaults to Open
+`packages/stages/catalog.ts`). Dance Studio sets it by name and defaults to Open
 Reef. A missing or unknown stage plays on Open Reef; players can try other
 stages from the preview.
 
@@ -602,7 +602,7 @@ editing/exporting; the studio does not silently deploy to production.
 
 ## Shared Frutiger playback and mirror convention
 
-Refactor `motion.js` into a finite recorded sampler, calibration builder, and
+Refactor `motion.ts` into a finite recorded sampler, calibration builder, and
 `applyPoseToCharacter(model, pose, calibration, options)`. This function accepts
 the shared Android-shaped pose. It must not require a whole recorded clip to
 apply one pose. Editor, runtime reference actors, and live player panels all use it.

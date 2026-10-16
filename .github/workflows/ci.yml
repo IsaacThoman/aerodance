@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [dev]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +23,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
       - run: npm test
       - run: npm run studio:test
       - run: npm run build
@@ -35,3 +37,17 @@ jobs:
       - uses: actions/checkout@v5
       - run: docker build --target ui-test -t aerodance-ui-browser-test .
       - run: docker run --rm aerodance-ui-browser-test
+
+  studio-browser:
+    # Dance Studio in Chromium: project loading, video import and the duet import.
+    # Tests that need real-time tracking (Studio's browser.ts, the webcam and webcam-calibration
+    # tests) drop stale frames on a 2-core runner, so they run locally or via the Docker targets.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -f tools/choreography/Dockerfile --target ui-test -t aerodance-studio-browser-test .
+      - run: >-
+          docker run --rm aerodance-studio-browser-test sh -c
+          "node tools/choreography/tests/project-loading.browser.ts &&
+          node tools/choreography/tests/video-import.browser.ts &&
+          node tools/choreography/tests/video-duet.browser.ts"

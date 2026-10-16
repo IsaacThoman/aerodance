@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Renders in-engine 3:2 Aerodance thumbnails of every dance stage",
   "scripts": {
-    "render": "node scripts/render.mjs"
+    "render": "node scripts/render.ts"
   },
   "devDependencies": {
     "playwright-core": "^1.64.0"

@@ -1,0 +1,23 @@
+{
+  // Type checking only: Vite bundles the browser code and Node runs .ts files directly by
+  // stripping types, so nothing is emitted and only erasable TypeScript syntax is allowed.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"],
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "include": ["client", "packages", "tools", "scripts", "*.ts"],
+  "exclude": ["**/dist", "**/node_modules", "studio-data", ".cache"]
+}
