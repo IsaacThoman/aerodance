@@ -15,7 +15,7 @@ CMD ["node", "client/tests/ui-flow.browser.mjs"]
 
 FROM ui-test AS webcam-test
 RUN npm run studio:build
-CMD ["node", "client/tests/webcam.browser.mjs"]
+CMD ["sh", "-c", "node client/tests/webcam.browser.mjs && node client/tests/webcam-calibration.browser.mjs"]
 
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf

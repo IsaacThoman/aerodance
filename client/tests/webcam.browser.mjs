@@ -19,7 +19,7 @@ apps[0].use(express.static('dist'));
 apps[1].use(createStudio({ dataDir }).app);
 const servers = apps.map((app, i) => app.listen(4180 + i, '127.0.0.1'));
 await Promise.all(servers.map(server => new Promise(resolve => server.once('listening', resolve))));
-const browser = await chromium.launch({ args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const errors = [];
 async function pageFor(port) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
