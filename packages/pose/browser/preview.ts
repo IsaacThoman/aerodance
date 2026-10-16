@@ -1,11 +1,15 @@
 import { CONNECTIONS } from '../choreography.ts';
+import type { Pose } from '../choreography.ts';
+
+export interface PreviewRect { x: number; y: number; w: number; h: number; }
 
 // Shared setup view: mirrored display only; captured landmarks stay canonical.
-export function drawWebcamPreview(g, video, snapshot, rect, playerCount = 2) {
+export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoElement | null | undefined,
+  snapshot: { poses: readonly Pose[] } | null | undefined, rect: PreviewRect, playerCount = 2) {
   const { x, y, w, h } = rect;
   g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
   g.fillStyle = '#09273b'; g.fillRect(x, y, w, h);
-  if (video?.readyState >= 2 && video.videoWidth) {
+  if (video && video.readyState >= 2 && video.videoWidth) {
     const scale = Math.min(w / video.videoWidth, h / video.videoHeight);
     const dw = video.videoWidth * scale, dh = video.videoHeight * scale;
     const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;

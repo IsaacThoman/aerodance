@@ -1,5 +1,8 @@
 import { sampleSong } from '../pose/song.ts';
+import type { SongBundle } from '../pose/song.ts';
+import type { Landmark, PlayerCount } from '../pose/choreography.ts';
 import { LIMBS, TOTAL_WEIGHT, angleBetween, lerpDirections, limbDirections, liveUsable } from './features.ts';
+import type { LimbDirections } from './features.ts';
 
 /*
  * The dance scorer: each player against their own choreography track, on song time.
@@ -13,6 +16,37 @@ import { LIMBS, TOTAL_WEIGHT, angleBetween, lerpDirections, limbDirections, live
  * scorer.result(playerId);     // { score, accuracy, grade, judgements, combo, ... }
  * const off = scorer.onJudgement(({ playerId, judgement, songTimeMs, combo }) => ...);
  */
+
+export type Judgement = 'perfect' | 'good' | 'ok' | 'miss';
+/** A one-second window's verdict: a judgement, or lost when the player was mostly untracked. */
+export type WindowJudgement = Judgement | 'lost';
+export type Grade = 'S' | 'A' | 'B' | 'C' | 'F';
+export type JudgementCounts = Record<WindowJudgement, number>;
+export interface JudgementEvent { playerId: number; judgement: WindowJudgement; score: number; songTimeMs: number; combo: number; }
+export interface PlayerResult {
+  playerId: number; scorerVersion: number;
+  score: number; maxScore: number; accuracy: number;
+  /** Accuracy so far, for a live readout: the share of points earned of those played. */
+  runningAccuracy: number;
+  grade: Grade; judgements: JudgementCounts; combo: number; maxCombo: number;
+  /** Share of scored intervals in which the player was tracked. */
+  coverage: number;
+  meanOffsetMs: number; scoredIntervals: number; possibleIntervals: number;
+}
+/** One interval's comparison: score in [0, 1], and live, the share of reference limbs tracked. */
+export interface IntervalComparison { score: number; live: number; }
+export interface Scorer {
+  readonly version: number;
+  readonly playerCount: PlayerCount;
+  addSample(playerId: number, songTimeMs: number, landmarks: readonly Landmark[], aspect: number): void;
+  discardAfter(songTimeMs: number): void;
+  advance(songTimeMs: number): void;
+  finish(): void;
+  readonly done: boolean;
+  result(playerId: number): PlayerResult;
+  results(): PlayerResult[];
+  onJudgement(fn: (event: JudgementEvent) => void): () => boolean;
+}
 
 export const SCORER_VERSION = 1;
 export const MAX_SCORE = 1_000_000;
@@ -33,31 +67,34 @@ const LATE_MS = MAX_LIVE_REACH_MS + 150 + 30; // how far past an interval its in
 // Interval score → share of its points: nothing below FLOOR, everything above CEIL.
 const FLOOR = 0.3;
 const CEIL = 0.85;
-export const JUDGEMENTS = [
+export const JUDGEMENTS: readonly (readonly [Judgement, number])[] = [
   ['perfect', 0.8],
   ['good', 0.65],
   ['ok', 0.45],
   ['miss', -Infinity],
 ];
 const LOST_SHARE = 0.6;
-export const GRADES = [['S', 0.9], ['A', 0.8], ['B', 0.65], ['C', 0.5], ['F', -Infinity]];
+export const GRADES: readonly (readonly [Grade, number])[] = [['S', 0.9], ['A', 0.8], ['B', 0.65], ['C', 0.5], ['F', -Infinity]];
 
-const shiftFactor = (shift) => {
+const shiftFactor = (shift: number) => {
   const off = Math.abs(shift);
   return off <= 50 ? 1 : 1 - 0.15 * (off - 50) / 100;
 };
-export const pointsShare = (s) => Math.min(1, Math.max(0, (s - FLOOR) / (CEIL - FLOOR)));
-export const judge = (s) => JUDGEMENTS.find(([, min]) => s >= min)[0];
-export const gradeFor = (accuracy) => GRADES.find(([, min]) => accuracy >= min)[0];
+// The first row the value reaches; the last row's minimum is -Infinity, so only NaN falls through.
+const lookup = <T>(rows: readonly (readonly [T, number])[], value: number) => (rows.find(([, min]) => value >= min) ?? rows[rows.length - 1])[0];
+export const pointsShare = (s: number) => Math.min(1, Math.max(0, (s - FLOOR) / (CEIL - FLOOR)));
+export const judge = (s: number) => lookup(JUDGEMENTS, s);
+export const gradeFor = (accuracy: number) => lookup(GRADES, accuracy);
 
 /** Reference limb directions for one track on a fixed grid, from the bundle's choreography. */
-function referenceGrid(bundle, playerCount, playerId) {
+type ReferenceGrid = (songTimeMs: number) => LimbDirections | null;
+function referenceGrid(bundle: SongBundle, playerCount: PlayerCount, playerId: number): ReferenceGrid {
   const { song, choreography } = bundle;
   const { inputWidth, inputHeight } = choreography.tracks[playerId].calibration;
   const aspect = inputWidth / inputHeight;
   const from = song.playableStartMs - MOTION_MS - 200;
   const count = Math.ceil((song.playableEndMs + 200 - from) / REF_STEP_MS) + 1;
-  const dirs = new Array(count);
+  const dirs: (LimbDirections | null)[] = new Array(count);
   for (let i = 0; i < count; i++) {
     const t = from + i * REF_STEP_MS;
     const { poses, quality } = sampleSong(bundle, t, playerCount);
@@ -72,13 +109,13 @@ function referenceGrid(bundle, playerCount, playerId) {
   };
 }
 
-const refWeight = (dirs) => (dirs ? LIMBS.reduce((n, l, i) => n + (dirs[i] ? l.weight : 0), 0) : 0);
+const refWeight = (dirs: LimbDirections | null) => (dirs ? LIMBS.reduce((n, l, i) => n + (dirs[i] ? l.weight : 0), 0) : 0);
 
 /**
  * One interval: how well live directions match the reference at a shifted time.
  * Returns { score, live } where live is the share of reference limbs being tracked.
  */
-export function compare(live, liveBefore, ref, refBefore) {
+export function compare(live: LimbDirections | null, liveBefore: LimbDirections | null, ref: LimbDirections, refBefore: LimbDirections | null): IntervalComparison {
   let weight = 0, pose = 0, tracked = 0, moving = 0, motion = 0;
   LIMBS.forEach((limb, i) => {
     const r = ref[i];
@@ -107,7 +144,15 @@ export function compare(live, liveBefore, ref, refBefore) {
   return { score, live: tracked / weight };
 }
 
-function createTrack(bundle, playerCount, playerId) {
+interface LiveSample { t: number; dirs: LimbDirections; }
+interface WindowEntry { score: number; lost: boolean; }
+interface Track {
+  playerId: number; ref: ReferenceGrid; times: number[]; scorable: boolean[]; possible: number; value: number;
+  samples: LiveSample[]; next: number; earned: number;
+  scored: number; trackedIntervals: number; offsetSum: number; offsetCount: number;
+  window: WindowEntry[]; judgements: JudgementCounts; combo: number; maxCombo: number;
+}
+function createTrack(bundle: SongBundle, playerCount: PlayerCount, playerId: number): Track {
   const { song } = bundle;
   const ref = referenceGrid(bundle, playerCount, playerId);
   const total = Math.floor((song.playableEndMs - song.playableStartMs) / INTERVAL_MS);
@@ -128,40 +173,40 @@ function createTrack(bundle, playerCount, playerId) {
   };
 }
 
-function liveAt(track, t) {
+function liveAt(track: Track, t: number) {
   const s = track.samples;
   if (!s.length) return null;
   let lo = 0, hi = s.length;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (s[mid].t <= t) lo = mid + 1; else hi = mid; }
-  const before = s[lo - 1], after = s[lo];
+  const before: LiveSample | undefined = s[lo - 1], after: LiveSample | undefined = s[lo];
   if (before && after && after.t - before.t <= MAX_LIVE_GAP_MS) {
     return lerpDirections(before.dirs, after.dirs, (t - before.t) / (after.t - before.t));
   }
-  const near = [before, after].filter((x) => x && Math.abs(x.t - t) <= MAX_LIVE_REACH_MS)
+  const near = [before, after].filter((x) => x !== undefined && Math.abs(x.t - t) <= MAX_LIVE_REACH_MS)
     .sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
   return near ? near.dirs : null;
 }
 
-export function createScorer(bundle, playerCount) {
+export function createScorer(bundle: SongBundle, playerCount: PlayerCount): Scorer {
   if (![1, 2].includes(playerCount)) throw Error('Invalid player count');
   const tracks = Array.from({ length: playerCount }, (_, id) => createTrack(bundle, playerCount, id));
-  const listeners = new Set();
-  const emit = (event) => { for (const fn of listeners) fn(event); };
+  const listeners = new Set<(event: JudgementEvent) => void>();
+  const emit = (event: JudgementEvent) => { for (const fn of listeners) fn(event); };
 
-  function closeWindow(track, songTimeMs) {
+  function closeWindow(track: Track, songTimeMs: number) {
     const w = track.window;
     track.window = [];
     if (!w.length) return;
     const mean = w.reduce((n, x) => n + x.score, 0) / w.length;
     const lost = w.filter((x) => x.lost).length / w.length >= LOST_SHARE;
-    const judgement = lost ? 'lost' : judge(mean);
+    const judgement: WindowJudgement = lost ? 'lost' : judge(mean);
     track.judgements[judgement]++;
     track.combo = judgement === 'miss' || judgement === 'lost' ? 0 : track.combo + 1;
     track.maxCombo = Math.max(track.maxCombo, track.combo);
     emit({ playerId: track.playerId, judgement, score: mean, songTimeMs, combo: track.combo });
   }
 
-  function scoreInterval(track, k) {
+  function scoreInterval(track: Track, k: number) {
     const t = track.times[k];
     if (track.scorable[k]) {
       const live = liveAt(track, t);
@@ -185,7 +230,7 @@ export function createScorer(bundle, playerCount) {
     if ((k + 1) % WINDOW_INTERVALS === 0 || k === track.times.length - 1) closeWindow(track, t + INTERVAL_MS / 2);
   }
 
-  const scorer = {
+  const scorer: Scorer = {
     version: SCORER_VERSION,
     playerCount,
     /** A live pose at its song time (from capture time, not arrival). Duplicates replace. */
@@ -202,7 +247,7 @@ export function createScorer(bundle, playerCount) {
     /** Live samples after this song time are dropped (a pause or a seek back). */
     discardAfter(songTimeMs) {
       for (const track of tracks) {
-        while (track.samples.length && track.samples.at(-1).t > songTimeMs) track.samples.pop();
+        while (track.samples.length && track.samples[track.samples.length - 1].t > songTimeMs) track.samples.pop();
       }
     },
     /** Score every interval whose inputs are complete by this song time. */

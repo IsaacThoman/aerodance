@@ -3,23 +3,25 @@ import { mkdir, readFile, writeFile, copyFile, readdir, cp, rename } from 'node:
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import express from 'express';
+import type { Plugin } from 'vite';
 import { ASSET_PATH, MEDIAPIPE_VERSION, MODELS } from '../packages/pose/browser/models.ts';
+import { isObject } from '../packages/pose/choreography.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = path.join(root, '.cache', ASSET_PATH);
-const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-let preparation;
+const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+let preparation: Promise<void> | undefined;
 export function preparePoseAssets() {
   return preparation ??= (async () => {
     const packageRoot = path.join(root, 'node_modules/@mediapipe/tasks-vision');
-    const pkg = JSON.parse(await readFile(path.join(packageRoot, 'package.json')));
-    if (pkg.version !== MEDIAPIPE_VERSION) throw Error('MediaPipe JS/WASM version mismatch');
+    const pkg: unknown = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
+    if (!isObject(pkg) || pkg.version !== MEDIAPIPE_VERSION) throw Error('MediaPipe JS/WASM version mismatch');
     await mkdir(path.join(directory, 'wasm'), { recursive: true });
     for (const file of await readdir(path.join(packageRoot, 'wasm')))
       await copyFile(path.join(packageRoot, 'wasm', file), path.join(directory, 'wasm', file));
     await Promise.all(MODELS.map(async model => {
       const filename = path.join(directory, model.file);
-      let bytes = await readFile(filename).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      let bytes = await readFile(filename).catch((error: unknown) => { if (!isObject(error) || error.code !== 'ENOENT') throw error; });
       if (bytes && (bytes.length !== model.bytes || hash(bytes) !== model.sha256)) throw Error(`Cached ${model.label} model checksum mismatch; remove ${filename} and retry`);
       if (!bytes) {
         console.log(`Preparing MediaPipe ${model.label} model…`);
@@ -36,16 +38,22 @@ export function preparePoseAssets() {
     await copyFile(path.join(root, 'packages/pose/browser/LICENSE.Apache-2.0.txt'), path.join(directory, 'LICENSE.Apache-2.0.txt'));
   })();
 }
-export function poseAssetsPlugin() {
+export function poseAssetsPlugin(): Plugin {
   let base = '/';
   return {
     name: 'browser-pose-assets',
     configResolved(config) { base = config.base; },
     async configureServer(server) {
       await preparePoseAssets();
+      // express.static is typed for Express's Response, but serve-static only uses Node's http
+      // API, so it works as the Connect middleware Vite's dev server expects.
+      // @ts-expect-error Express's static handler typing does not admit Connect's ServerResponse.
       server.middlewares.use(`${base}${ASSET_PATH}`, express.static(directory));
     },
     async buildStart() { await preparePoseAssets(); },
-    async writeBundle(options) { await cp(directory, path.join(options.dir, ASSET_PATH), { recursive: true }); },
+    async writeBundle(options) {
+      if (!options.dir) throw Error('Pose assets need a build output directory');
+      await cp(directory, path.join(options.dir, ASSET_PATH), { recursive: true });
+    },
   };
 }

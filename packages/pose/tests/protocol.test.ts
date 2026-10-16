@@ -1,13 +1,14 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {MAX_BYTES, NdjsonDecoder, validate} from '../protocol.ts';
+import type {ProtocolRecord} from '../protocol.ts';
 const pose = (seq = 1, sessionId = 'session') => ({protocolVersion:2,type:'pose',sessionId,seq,frameReceivedTimeMs:10,resultTimeMs:20,playerCount:1,input:{width:480,height:640,mirrored:false},poses:[{playerId:0,landmarks:Array.from({length:33},()=>({x:.5,y:.4,z:-.1,visibility:.99,presence:null}))}]});
 const heartbeat = {protocolVersion:2,type:'heartbeat',sessionId:'session',producerTimeMs:30,lastPoseSeq:1,pipelineState:'running'};
-const bytes = value => new TextEncoder().encode(value);
+const bytes = (value: string) => new TextEncoder().encode(value);
 test('arbitrary byte splits, multiple records and multibyte session names', () => {
   const source = bytes(JSON.stringify(pose(1,'测试'))+'\n'+JSON.stringify(heartbeat)+'\n');
   for (let split=0;split<=source.length;split++) {
-    const records=[]; const decoder = new NdjsonDecoder(r=>records.push(r));
+    const records: ProtocolRecord[]=[]; const decoder = new NdjsonDecoder(r=>records.push(r));
     decoder.push(source.subarray(0,split)); decoder.push(source.subarray(split)); decoder.finish();
     assert.equal(records.length,2); assert.equal(records[0].sessionId,'测试');
   }

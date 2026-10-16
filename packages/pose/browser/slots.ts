@@ -1,8 +1,12 @@
 import { validatePoses } from '../choreography.ts';
+import type { Landmark, PlayerCount, Pose } from '../choreography.ts';
+
+/** A landmark as a detector reports it (MediaPipe's NormalizedLandmark); confidences may be unset. */
+export interface DetectedLandmark { x: number; y: number; z: number; visibility?: number | null; presence?: number | null; }
 
 // Regions, not identities: unreliable/competing detections never fill another slot.
-export function assignPlayerSlots(detections, playerCount, deadBand = 0.025) {
-  const candidates = [[], []];
+export function assignPlayerSlots(detections: readonly (readonly DetectedLandmark[])[], playerCount: PlayerCount, deadBand = 0.025): Pose[] {
+  const candidates: Landmark[][][] = [[], []];
   for (const points of detections) {
     const landmarks = points.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility ?? null, presence: p.presence ?? null }));
     try { validatePoses([{ playerId: 0, landmarks }]); } catch { continue; }
@@ -16,8 +20,9 @@ export function assignPlayerSlots(detections, playerCount, deadBand = 0.025) {
 }
 
 export class PlayerSlotMapper {
+  streaks: [number, number];
   constructor() { this.streaks = [0, 0]; }
-  map(detections, playerCount) {
+  map(detections: readonly (readonly DetectedLandmark[])[], playerCount: PlayerCount): Pose[] {
     const poses = assignPlayerSlots(detections, playerCount);
     for (let id = 0; id < 2; id++) this.streaks[id] = poses.some(p => p.playerId === id) ? Math.min(2, this.streaks[id] + 1) : 0;
     // Require consecutive evidence when acquiring a two-player region. Loss is immediate.

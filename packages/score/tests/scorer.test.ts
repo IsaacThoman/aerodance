@@ -2,33 +2,48 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mirrorPose } from '../../pose/choreography.ts';
-import { sampleSong } from '../../pose/song.ts';
+import type { Landmark, PlayerCount } from '../../pose/choreography.ts';
+import { sampleSong, validateSong, validateSongChoreography } from '../../pose/song.ts';
+import type { SongBundle } from '../../pose/song.ts';
 import { MAX_SCORE, SCORER_VERSION, createScorer, gradeFor, judge } from '../scorer.ts';
+import type { JudgementEvent } from '../scorer.ts';
 
 // A real recorded routine is the fixture: both tracks, real tracking noise and real gaps.
 const dir = new URL('../../../client/tests/fixtures/song-70c63c8e/', import.meta.url);
-const bundle = {
-  song: JSON.parse(readFileSync(new URL('song.json', dir))),
-  choreography: JSON.parse(readFileSync(new URL('choreography.json', dir))),
+const song = validateSong(JSON.parse(readFileSync(new URL('song.json', dir), 'utf8')));
+const bundle: SongBundle = {
+  song,
+  choreography: validateSongChoreography(song, JSON.parse(readFileSync(new URL('choreography.json', dir), 'utf8'))),
 };
-const { song } = bundle;
 const ASPECT = 640 / 480;
 
-const reference = (id, t) => {
+type PoseAt = (id: number, t: number) => Landmark[] | null;
+const reference: PoseAt = (id, t) => {
   const clamped = Math.min(Math.max(t, song.playableStartMs), song.playableEndMs - 1);
   return sampleSong(bundle, clamped, 2).poses.find((p) => p.playerId === id)?.landmarks ?? null;
 };
 
-function random(seed) {
+/** The reference pose where the routine has one. */
+const referenceAt = (id: number, t: number) => {
+  const landmarks = reference(id, t);
+  assert.ok(landmarks);
+  return landmarks;
+};
+
+function random(seed: number) {
   let s = seed;
   return () => (s = (s * 16807) % 2147483647) / 2147483647;
 }
 
+interface PlayOptions {
+  players?: PlayerCount; rate?: number; jitter?: number; seed?: number;
+  order?: 'in-order' | 'shuffled'; duplicate?: boolean;
+}
 /** Feed a scorer live poses at `rate` per second with timing jitter, as a camera would. */
-function play(poseAt, { players = 2, rate = 9, jitter = 30, seed = 1, order = 'in-order', duplicate = false } = {}) {
+function play(poseAt: PoseAt, { players = 2, rate = 9, jitter = 30, seed = 1, order = 'in-order', duplicate = false }: PlayOptions = {}) {
   const scorer = createScorer(bundle, players);
   const rnd = random(seed);
-  const samples = [];
+  const samples: [id: number, songTimeMs: number, landmarks: Landmark[]][] = [];
   for (let t = song.playableStartMs; t < song.playableEndMs; t += 1000 / rate) {
     const at = t + (rnd() - 0.5) * jitter;
     for (let id = 0; id < players; id++) {
@@ -135,7 +150,7 @@ test('player 1 in one-player mode scores the same as in two-player mode', () => 
 
 test('judgements are emitted once per second of song with a running combo', () => {
   const scorer = createScorer(bundle, 1);
-  const events = [];
+  const events: JudgementEvent[] = [];
   scorer.onJudgement((e) => events.push(e));
   for (let t = 0; t < song.playableEndMs; t += 100) {
     const landmarks = reference(0, t);
@@ -147,17 +162,17 @@ test('judgements are emitted once per second of song with a running combo', () =
   scorer.finish();
   assert.equal(events.length, Math.ceil(Math.floor((song.playableEndMs - song.playableStartMs) / 100) / 10));
   assert.ok(events.every((e, i) => i === 0 || e.songTimeMs > events[i - 1].songTimeMs));
-  assert.equal(events.at(-1).combo, scorer.result(0).maxCombo);
+  assert.equal(events.at(-1)?.combo, scorer.result(0).maxCombo);
   assert.ok(scorer.done);
 });
 
 test('a pause drops live samples from after the paused position', () => {
   const scorer = createScorer(bundle, 1);
-  scorer.addSample(0, 1000, reference(0, 1000), ASPECT);
-  scorer.addSample(0, 1200, reference(0, 1200), ASPECT);
+  scorer.addSample(0, 1000, referenceAt(0, 1000), ASPECT);
+  scorer.addSample(0, 1200, referenceAt(0, 1200), ASPECT);
   scorer.discardAfter(1100);
   scorer.advance(1600);
-  scorer.addSample(0, 1150, reference(0, 1150), ASPECT);
+  scorer.addSample(0, 1150, referenceAt(0, 1150), ASPECT);
   assert.equal(scorer.result(0).possibleIntervals, perfect[0].possibleIntervals);
 });
 

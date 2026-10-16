@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import type { RefObject } from "react";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
   AnimationMixer,
@@ -7,12 +8,43 @@ import {
   Color,
   BufferAttribute,
 } from "three";
+import type { BufferGeometry, ColorRepresentation, Mesh, Object3D } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createRetargeter } from "./motion.ts";
 import { createPoseApplier } from "./retarget.ts";
 import { LivePoseFilter } from './livePoseFilter.ts';
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import modelUrl from "./assets/aero-character.glb?url";
+import type { MotionTake } from "../pose/legacy.ts";
+import type { Pose, TrackCalibration } from "../pose/choreography.ts";
+
+export interface CharacterAppearance {
+  color: ColorRepresentation;
+  /** 0-100. */
+  gloss: number;
+  opacity?: number;
+  /** Shows the rig's acc_<name>_ meshes; "None" hides them all. */
+  accessory: string;
+}
+/**
+ * The rig is driven by the first that applies: a live/edited pose (calibration + poseRef), a
+ * recorded take (motion + playback, in seconds), or else the named animation clip.
+ */
+export interface CharacterProps {
+  appearance: CharacterAppearance;
+  /** Fades the character (gel and ink) each frame. */
+  opacityRef?: RefObject<number>;
+  animation?: string;
+  motion?: MotionTake | null;
+  person?: number;
+  playback?: RefObject<number>;
+  poseRef?: RefObject<Pose | null>;
+  calibration?: TrackCalibration | null;
+  /** Live webcam input: smooth the displayed pose and keep rendering while it settles. */
+  live?: boolean;
+  url?: string;
+}
+const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
 
 export default function Character({
   appearance,
@@ -25,7 +57,7 @@ export default function Character({
   calibration,
   live = false,
   url = modelUrl,
-}) {
+}: CharacterProps) {
   const gltf = useLoader(GLTFLoader, url);
   const model = useMemo(() => clone(gltf.scene), [gltf]);
   const retarget = useMemo(
@@ -73,20 +105,21 @@ export default function Character({
     return material;
   }, []);
   useEffect(() => {
-    const ownedGeometries = [];
+    const ownedGeometries: BufferGeometry[] = [];
     model.traverse((obj) => {
-      if (obj.isMesh) {
+      if (isMesh(obj)) {
         obj.castShadow = true;
         obj.receiveShadow = true;
-        if (obj.material.name === "AquaGel") {
+        if (!Array.isArray(obj.material) && obj.material.name === "AquaGel") {
           const geo = obj.geometry.clone();
           ownedGeometries.push(geo);
           geo.computeBoundingBox();
           const pos = geo.attributes.position;
           const colors = new Float32Array(pos.count * 3);
           const heights = new Float32Array(pos.count);
-          const min = geo.boundingBox.min.y;
-          const range = geo.boundingBox.max.y - min;
+          const box = geo.boundingBox!; // computed just above
+          const min = box.min.y;
+          const range = box.max.y - min;
           for (let i = 0; i < pos.count; i++) {
             const h = (pos.getY(i) - min) / range;
             const brightness = 0.065 + 0.935 * Math.pow(1 - h, 1.35);
@@ -101,7 +134,7 @@ export default function Character({
           obj.geometry = geo;
           obj.material = gel;
         }
-        if (obj.material.name === "Ink") obj.material = ink;
+        if (!Array.isArray(obj.material) && obj.material.name === "Ink") obj.material = ink;
       }
     });
     return () => {
@@ -139,10 +172,11 @@ export default function Character({
       ink.opacity = opacityRef.current;
     }
     if (applyPose) {
-      applyPose(live ? poseFilter.update(poseRef.current,delta) : poseRef.current,delta);
+      const pose = poseRef?.current ?? null;
+      applyPose(live ? poseFilter.update(pose,delta) : pose,delta);
       if(live && (poseFilter.settling || applyPose.settling)) invalidate();
     }
-    else if (retarget) retarget(playback.current);
+    else if (retarget) retarget(playback?.current ?? 0);
     else mixer.update(Math.min(delta, 0.05));
   }, opacityRef ? 1 : 0);
   return <primitive object={model} dispose={null} />;

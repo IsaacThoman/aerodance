@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { AnimationMixer, Vector3 } from "three";
+import type { Object3D, SkinnedMesh } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const bytes = await readFile(
@@ -12,21 +13,26 @@ const asset = await new GLTFLoader().parseAsync(
   "",
 );
 
+const isSkinnedMesh = (o: Object3D): o is SkinnedMesh => "isSkinnedMesh" in o && o.isSkinnedMesh === true;
+const materialName = (mesh: SkinnedMesh) => Array.isArray(mesh.material) ? undefined : mesh.material.name;
+
 test("export contains the reference silhouette, two arms, two feet, and no invented face details", () => {
-  const meshes = [];
+  const meshes: SkinnedMesh[] = [];
   asset.scene.traverse((o) => {
-    if (o.isSkinnedMesh) meshes.push(o);
+    if (isSkinnedMesh(o)) meshes.push(o);
   });
-  const bodyParts = meshes.filter((o) => o.material.name === "AquaGel");
+  const bodyParts = meshes.filter((o) => materialName(o) === "AquaGel");
   assert.equal(bodyParts.length, 6);
   assert.equal(bodyParts.filter((o) => o.name.startsWith("Arm")).length, 2);
   assert.equal(bodyParts.filter((o) => o.name.startsWith("Foot")).length, 2);
-  assert.equal(meshes.filter((o) => o.material.name === "Ink").length, 2);
+  assert.equal(meshes.filter((o) => materialName(o) === "Ink").length, 2);
   assert.ok(!meshes.some((o) => /Smile|Glint/.test(o.name)));
   const head = bodyParts.find((o) => o.name.startsWith("Head"));
   const torso = bodyParts.find((o) => o.name.startsWith("Body"));
+  assert.ok(head && torso);
   head.geometry.computeBoundingBox();
   torso.geometry.computeBoundingBox();
+  assert.ok(head.geometry.boundingBox && torso.geometry.boundingBox);
   const headSize = head.geometry.boundingBox.getSize(new Vector3());
   const bodySize = torso.geometry.boundingBox.getSize(new Vector3());
   assert.ok(Math.abs(headSize.x - 1.29) < 0.01);
@@ -58,8 +64,10 @@ test("four usable clips animate the actual exported skeleton", () => {
   ]);
   const mixer = new AnimationMixer(asset.scene);
   const arm = asset.scene.getObjectByName("ArmR");
+  const wave = asset.animations.find((c) => c.name === "Wave");
+  assert.ok(arm && wave);
   const rest = arm.quaternion.clone();
-  mixer.clipAction(asset.animations.find((c) => c.name === "Wave")).play();
+  mixer.clipAction(wave).play();
   mixer.update(0.5);
   assert.ok(
     rest.angleTo(arm.quaternion) > 1.8,

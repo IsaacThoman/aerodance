@@ -1,60 +1,150 @@
-import { MEDIAPIPE_VERSION, ASSET_PATH, poseModel } from './models.ts';
+import { MEDIAPIPE_VERSION, ASSET_PATH, isPoseModelId, poseModel } from './models.ts';
+import type { PoseModelId } from './models.ts';
 import { PlayerSlotMapper } from './slots.ts';
 import { validateWebcamRecord } from '../webcamRecord.ts';
+import type { WebcamRecord } from '../webcamRecord.ts';
+import type { CaptureInput, PlayerCount } from '../choreography.ts';
+import type { PoseDelegate, PoseWorkerRequest, PoseWorkerResponse } from './pose.worker.ts';
 
-const ACTIVE = ['connecting', 'initializing', 'connected'];
-const saved = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
-const save = (key, value) => { try { localStorage.setItem(key, value); } catch { /* Private browsing. */ } };
-function aborted(promise, signal) {
-  return new Promise((resolve, reject) => {
+export type WebcamStatus = 'disconnected' | 'connecting' | 'initializing' | 'connected' | 'error';
+export interface CameraInfo { deviceId: string; label: string; }
+/** The latest tracked frame, as the view shows it. */
+export interface WebcamSnapshot extends WebcamRecord { sourceKind: 'webcam'; frameId: number; }
+export interface WebcamModelConfig {
+  modelId: PoseModelId; modelHash: string; packageVersion: string;
+  thresholds: { detection: number; presence: number; tracking: number };
+  timingMethod: 'browser-frame-observation';
+  delegate?: PoseDelegate;
+}
+export interface WebcamStats { poseHz: number; inferenceMs: number; frameAgeMs: number; droppedFrames: number; }
+/** Everything the camera UI shows; published on every change. */
+export interface WebcamView {
+  status: WebcamStatus; sourceKind: 'webcam';
+  snapshot: WebcamSnapshot | null;
+  configuring: boolean; message: string;
+  model: PoseModelId; cameraId: string; cameras: CameraInfo[];
+  stats: WebcamStats | null;
+  modelConfig?: WebcamModelConfig;
+  delegate?: PoseDelegate;
+}
+export interface RecordTiming { method: string; uncertaintyMs?: number | null; }
+/** A tracked pose record as delivered to record listeners (captures, scoring). */
+export interface PoseRecordEvent<R = WebcamRecord> {
+  record: R; receivedBrowserTimeMs: number; captureBrowserTimeMs: number; timing: RecordTiming;
+}
+export interface SourceStoppedEvent { event: { type: 'source-stopped'; reason: string }; receivedBrowserTimeMs: number; }
+export type WebcamRecordEvent = PoseRecordEvent | SourceStoppedEvent;
+export type Listener<T> = (value: T) => void;
+
+/** The part of a Worker the source uses; replaceable in tests. */
+export interface PoseWorker {
+  onmessage: ((event: MessageEvent<PoseWorkerResponse>) => void) | null;
+  onerror: ((event: ErrorEvent) => void) | null;
+  postMessage(message: PoseWorkerRequest, transfer?: Transferable[]): void;
+  terminate(): void;
+}
+export interface WebcamPoseSourceOptions {
+  mediaDevices?: Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'>;
+  createWorker?: () => PoseWorker;
+  createVideo?: () => HTMLVideoElement;
+  bitmap?: (video: HTMLVideoElement) => Promise<ImageBitmap>;
+  now?: () => number;
+  assetUrl?: () => string;
+}
+export interface WebcamConfigureOptions { modelId?: string; cameraId?: string; }
+interface PendingFrame { seq: number; mediaTimeMs: number; frameBrowserTimeMs: number; }
+
+const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
+const saved = (key: string, fallback: string) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
+const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing. */ } };
+function aborted<T>(promise: Promise<T>, signal: AbortSignal) {
+  return new Promise<T>((resolve, reject) => {
     const cancel = () => reject(Error('Camera start cancelled'));
     signal.addEventListener('abort', cancel, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', cancel));
     if (signal.aborted) cancel();
   });
 }
-function cameraMessage(error) {
-  return ({ NotAllowedError: 'Camera permission was denied. Allow camera access for this site, then start again.',
-    NotFoundError: 'No camera was found. Connect a camera, then start again.',
-    NotReadableError: 'The camera is busy or unavailable. Close other camera applications, then start again.',
-    OverconstrainedError: 'The selected camera is unavailable. Choose another camera.' })[error.name] || error.message || 'Could not start webcam tracking';
+const CAMERA_ERRORS: Partial<Record<string, string>> = { NotAllowedError: 'Camera permission was denied. Allow camera access for this site, then start again.',
+  NotFoundError: 'No camera was found. Connect a camera, then start again.',
+  NotReadableError: 'The camera is busy or unavailable. Close other camera applications, then start again.',
+  OverconstrainedError: 'The selected camera is unavailable. Choose another camera.' };
+function cameraMessage(error: unknown) {
+  const known = typeof error === 'object' && error !== null;
+  const name = known && 'name' in error && typeof error.name === 'string' ? error.name : '';
+  const message = known && 'message' in error && typeof error.message === 'string' ? error.message : '';
+  return CAMERA_ERRORS[name] || message || 'Could not start webcam tracking';
 }
 
 export class WebcamPoseSource {
+  mediaDevices: Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'> | undefined;
+  createWorker: () => PoseWorker;
+  createVideo: () => HTMLVideoElement;
+  bitmap: (video: HTMLVideoElement) => Promise<ImageBitmap>;
+  now: () => number;
+  assetUrl: () => string;
+  listeners = new Set<Listener<WebcamView>>();
+  recordListeners = new Set<Listener<WebcamRecordEvent>>();
+  generation = 0;
+  playerCount: PlayerCount = 1;
+  view: WebcamView;
+  controller: AbortController | null = null;
+  startupTimeout: ReturnType<typeof setTimeout> | undefined;
+  watchdog: ReturnType<typeof setInterval> | undefined;
+  video: HTMLVideoElement | null = null;
+  stream: MediaStream | null = null;
+  worker: PoseWorker | null = null;
+  frameCallback: number | null = null;
+  animationFrame: number | null = null;
+  hidden: (() => void) | null = null;
+  pagehide: (() => void) | null = null;
+  pending: PendingFrame | null = null;
+  busy = false;
+  // Per-session state, reset by connect().
+  input: CaptureInput | null = null;
+  sessionId = '';
+  seq = 0;
+  lastMediaTime = -Infinity;
+  slots = new PlayerSlotMapper();
+  resultTimes: number[] = [];
+  startedAt = 0;
+  completed = 0;
+  dropped = 0;
+  lastResult = 0;
   constructor({ mediaDevices = globalThis.navigator?.mediaDevices,
     createWorker = () => new Worker(new URL('./pose.worker.ts', import.meta.url), { type: 'module' }),
     createVideo = () => document.createElement('video'),
-    bitmap = (...args) => createImageBitmap(...args), now = () => performance.now(),
+    bitmap = video => createImageBitmap(video), now = () => performance.now(),
     assetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href,
-  } = {}) {
-    Object.assign(this, { mediaDevices, createWorker, createVideo, bitmap, now, assetUrl });
-    this.listeners = new Set(); this.recordListeners = new Set(); this.generation = 0; this.playerCount = 1;
-    let modelId = saved('aerodance-webcam-model', 'lite');
-    try { poseModel(modelId); } catch { modelId = 'lite'; }
+  }: WebcamPoseSourceOptions = {}) {
+    this.mediaDevices = mediaDevices; this.createWorker = createWorker; this.createVideo = createVideo;
+    this.bitmap = bitmap; this.now = now; this.assetUrl = assetUrl;
+    const savedModel = saved('aerodance-webcam-model', 'lite');
+    const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
     this.view = { status: 'disconnected', sourceKind: 'webcam', snapshot: null, configuring: false,
       message: 'Choose a camera and model, then Start camera.', model: modelId,
       cameraId: saved('aerodance-webcam-camera', ''), cameras: [], stats: null };
   }
-  subscribe(listener) { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
-  subscribeRecords(listener) { this.recordListeners.add(listener); return () => this.recordListeners.delete(listener); }
-  publish(patch) { this.view = { ...this.view, ...patch }; for (const listener of this.listeners) listener(this.view); }
-  emit(event) { for (const listener of this.recordListeners) listener(event); }
+  subscribe(listener: Listener<WebcamView>) { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
+  subscribeRecords(listener: Listener<WebcamRecordEvent>) { this.recordListeners.add(listener); return () => this.recordListeners.delete(listener); }
+  publish(patch: Partial<WebcamView>) { this.view = { ...this.view, ...patch }; for (const listener of this.listeners) listener(this.view); }
+  emit(event: WebcamRecordEvent) { for (const listener of this.recordListeners) listener(event); }
   async refreshCameras() {
     if (!this.mediaDevices?.enumerateDevices) return;
     const cameras = (await this.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput')
       .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `Camera ${i + 1}` }));
     this.publish({ cameras });
   }
-  async configure({ modelId = this.view.model, cameraId = this.view.cameraId } = {}) {
-    poseModel(modelId);
-    if (modelId === this.view.model && cameraId === this.view.cameraId) return;
+  async configure({ modelId = this.view.model, cameraId = this.view.cameraId }: WebcamConfigureOptions = {}) {
+    const model = poseModel(modelId).id;
+    if (model === this.view.model && cameraId === this.view.cameraId) return;
     const active = ACTIVE.includes(this.view.status);
     this.disconnect();
-    this.publish({ model: modelId, cameraId });
-    save('aerodance-webcam-model', modelId); save('aerodance-webcam-camera', cameraId);
+    this.publish({ model, cameraId });
+    save('aerodance-webcam-model', model); save('aerodance-webcam-camera', cameraId);
     if (active) await this.connect();
   }
-  async setPlayerCount(count) {
+  async setPlayerCount(count: PlayerCount) {
     if (![1, 2].includes(count)) throw Error('Choose one or two players');
     if (count === this.playerCount) return;
     const active = ACTIVE.includes(this.view.status);
@@ -78,13 +168,13 @@ export class WebcamPoseSource {
       worker.postMessage({ type: 'close' });
       worker.terminate(); this.worker = null;
     }
-    globalThis.document?.removeEventListener('visibilitychange', this.hidden);
-    globalThis.window?.removeEventListener('pagehide', this.pagehide);
+    if (this.hidden) globalThis.document?.removeEventListener('visibilitychange', this.hidden);
+    if (this.pagehide) globalThis.window?.removeEventListener('pagehide', this.pagehide);
     this.pending = null; this.busy = false;
     this.emit({ event: { type: 'source-stopped', reason: message }, receivedBrowserTimeMs: this.now() });
     this.publish({ status: 'disconnected', snapshot: null, configuring: false, stats: null, message });
   }
-  fail(error) {
+  fail(error: unknown) {
     const message = cameraMessage(error);
     this.disconnect(message);
     this.publish({ status: 'error', message });
@@ -112,7 +202,7 @@ export class WebcamPoseSource {
       await this.refreshCameras();
       if (!current()) return;
       const deviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
-      const actualCamera = this.view.cameras.some(camera => camera.deviceId === deviceId) ? deviceId : this.view.cameraId;
+      const actualCamera = deviceId !== undefined && this.view.cameras.some(camera => camera.deviceId === deviceId) ? deviceId : this.view.cameraId;
       this.publish({ cameraId: actualCamera }); save('aerodance-webcam-camera', actualCamera);
       const video = this.video = this.createVideo();
       video.muted = true; video.playsInline = true; video.srcObject = stream;
@@ -145,10 +235,10 @@ export class WebcamPoseSource {
       }, 100);
     } catch (error) { if (current()) this.fail(error); }
   }
-  handleWorker(data) {
+  handleWorker(data: PoseWorkerResponse) {
     if (data.type === 'error') { this.fail(Error(data.message)); return; }
     if (data.type === 'ready') {
-      this.publish({ delegate: data.delegate, modelConfig: { ...this.view.modelConfig, delegate: data.delegate },
+      this.publish({ delegate: data.delegate, modelConfig: this.view.modelConfig && { ...this.view.modelConfig, delegate: data.delegate },
         message: data.fallback ? 'GPU unavailable; using CPU. Waiting for the first pose result…' : 'Waiting for the first pose result…' });
       this.schedule(); return;
     }
@@ -163,7 +253,7 @@ export class WebcamPoseSource {
     try {
       const record = validateWebcamRecord({ schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose',
         sessionId: this.sessionId, seq: pending.seq, playerCount: this.playerCount, input: this.input,
-        modelId: this.view.model, ...pending, resultBrowserTimeMs: receivedBrowserTimeMs,
+        modelId: this.view.model, mediaTimeMs: pending.mediaTimeMs, frameBrowserTimeMs: pending.frameBrowserTimeMs, resultBrowserTimeMs: receivedBrowserTimeMs,
         timingMethod: 'browser-frame-observation', poses: this.slots.map(data.landmarks, this.playerCount) });
       clearTimeout(this.startupTimeout);
       this.completed++;
@@ -181,21 +271,22 @@ export class WebcamPoseSource {
     const video = this.video;
     const generation = this.generation;
     if (!video) return;
-    const callback = (_time, metadata) => {
+    const callback = (_time: number, metadata?: VideoFrameCallbackMetadata) => {
       if (generation !== this.generation) return;
       this.schedule();
       const mediaTimeMs = (metadata?.mediaTime ?? video.currentTime) * 1000;
       if (!Number.isFinite(mediaTimeMs) || mediaTimeMs <= this.lastMediaTime) return;
       this.lastMediaTime = mediaTimeMs;
       if (this.busy) { this.dropped++; return; }
-      if (video.videoWidth !== this.input.width || video.videoHeight !== this.input.height) {
+      if (video.videoWidth !== this.input?.width || video.videoHeight !== this.input.height) {
         this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return;
       }
       this.busy = true;
       const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs: this.now() };
       void this.bitmap(video).then(bitmap => {
-        if (generation !== this.generation) { bitmap.close(); return; }
-        this.worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs }, [bitmap]);
+        const worker = this.worker;
+        if (generation !== this.generation || !worker) { bitmap.close(); return; }
+        worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs }, [bitmap]);
       }).catch(error => { if (generation === this.generation) this.fail(error); });
     };
     if (video.requestVideoFrameCallback) this.frameCallback = video.requestVideoFrameCallback(callback);

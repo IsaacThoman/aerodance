@@ -1,26 +1,67 @@
-import { finite, validatePoses, qualityFor } from './choreography.ts';
+import { assertPoses, finite, isArray, isObject, qualityFor } from './choreography.ts';
+import type { CaptureInput, Pose, PoseQuality } from './choreography.ts';
 
-// Explicit import only: the tuple's min(visibility, presence) cannot be split back.
-export function migrateLegacyMotion(data) {
-  if (data?.version !== 1 || !finite(data.duration) || data.duration <= 0 ||
-      !Array.isArray(data.times) || data.times.length < 2 ||
-      data.times.length !== data.poses?.length ||
-      ![data.source?.width, data.source?.height].every(v => Number.isInteger(v) && v > 0)) {
+/** A take sample on the take's own clock (ms from the start of the capture). */
+export interface TakeSample {
+  takeTimeMs: number; poses: Pose[]; quality?: PoseQuality[];
+  /** Legacy captures only: the combined min(visibility, presence) per player and joint. */
+  legacyConfidence?: number[][];
+}
+/** The part of an aerodance.take v1 that motion playback relies on (validateMotionTake). */
+export interface MotionTake {
+  schema: 'aerodance.take'; schemaVersion: 1;
+  durationMs: number;
+  /** Always unmirrored. */
+  input: CaptureInput;
+  samples: TakeSample[];
+}
+/** A legacy joint: x, y, z and the combined confidence. */
+export type LegacyJoint = [x: number, y: number, z: number, confidence: number];
+/** The pre-take dance capture format (version 1), accepted by explicit migration only. */
+export interface LegacyMotion {
+  version: 1; duration: number; times: number[];
+  /** [sample][player][joint]: two players of 33 joints per sample. */
+  poses: LegacyJoint[][][];
+  source: { width: number; height: number; [key: string]: unknown };
+  model?: unknown; settings?: unknown; report?: unknown;
+}
+export interface LegacyTakeSample extends TakeSample { quality: PoseQuality[]; legacyConfidence: number[][]; }
+export interface LegacyMigratedTake extends MotionTake {
+  takeId: 'legacy-demo'; name: string; source: 'legacy-demo';
+  offsetMs: 0; timeScale: 1; samples: LegacyTakeSample[];
+  provenance: { source: LegacyMotion['source']; model: unknown; settings: unknown; report: unknown; legacySmoothed: true; limitations: string };
+}
+
+const dimension = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0;
+const unit = (v: unknown) => finite(v) && v >= 0 && v <= 1;
+export function assertLegacyMotion(data: unknown): asserts data is LegacyMotion {
+  if (!isObject(data) || data.version !== 1 || !finite(data.duration) || data.duration <= 0 ||
+      !isArray(data.times) || data.times.length < 2 ||
+      !isArray(data.poses) || data.times.length !== data.poses.length ||
+      !isObject(data.source) || !dimension(data.source.width) || !dimension(data.source.height)) {
     throw Error('Invalid legacy dance capture');
   }
-  const samples = data.times.map((time, i) => {
-    if (!finite(time) || time < 0 || time >= data.duration ||
-        (i && time <= data.times[i - 1]) || data.poses[i]?.length !== 2) throw Error('Invalid legacy samples');
-    const legacyConfidence = [];
-    const poses = data.poses[i].map((points, playerId) => {
-      if (!Array.isArray(points) || points.length !== 33) throw Error('Invalid legacy landmarks');
-      legacyConfidence.push(points.map(j => {
-        if (!Array.isArray(j) || j.length !== 4 || !j.every(finite) || j[3] < 0 || j[3] > 1) throw Error('Invalid legacy landmark');
-        return j[3];
-      }));
-      return { playerId, landmarks: points.map(([x,y,z]) => ({ x,y,z,visibility:null,presence:null })) };
-    });
-    validatePoses(poses);
+  const { duration, poses } = data;
+  let previous = -Infinity;
+  data.times.forEach((time, i) => {
+    const sample = poses[i];
+    if (!finite(time) || time < 0 || time >= duration ||
+        time <= previous || !isArray(sample) || sample.length !== 2) throw Error('Invalid legacy samples');
+    previous = time;
+    for (const points of sample) {
+      if (!isArray(points) || points.length !== 33) throw Error('Invalid legacy landmarks');
+      for (const j of points) if (!isArray(j) || j.length !== 4 || !j.every(finite) || !unit(j[3])) throw Error('Invalid legacy landmark');
+    }
+  });
+}
+// Explicit import only: the tuple's min(visibility, presence) cannot be split back.
+export function migrateLegacyMotion(input: unknown): LegacyMigratedTake {
+  assertLegacyMotion(input);
+  const data = input;
+  const samples = data.times.map((time, i): LegacyTakeSample => {
+    const legacyConfidence = data.poses[i].map(points => points.map(j => j[3]));
+    const poses = data.poses[i].map((points, playerId) => ({ playerId, landmarks: points.map(([x,y,z]) => ({ x,y,z,visibility:null,presence:null })) }));
+    assertPoses(poses);
     return { takeTimeMs: time * 1000, poses, quality: qualityFor(poses), legacyConfidence };
   });
   return {
@@ -33,16 +74,20 @@ export function migrateLegacyMotion(data) {
   };
 }
 
-export function validateMotionTake(data) {
-  if (data?.schema !== 'aerodance.take' || data.schemaVersion !== 1 ||
+export function assertMotionTake(data: unknown): asserts data is MotionTake {
+  if (!isObject(data) || data.schema !== 'aerodance.take' || data.schemaVersion !== 1 ||
       !finite(data.durationMs) || data.durationMs <= 0 ||
-      ![data.input?.width, data.input?.height].every(v => Number.isInteger(v) && v > 0) ||
-      data.input.mirrored !== false || !Array.isArray(data.samples) || data.samples.length < 2) throw Error('Invalid dance capture');
+      !isObject(data.input) || !dimension(data.input.width) || !dimension(data.input.height) ||
+      data.input.mirrored !== false || !isArray(data.samples) || data.samples.length < 2) throw Error('Invalid dance capture');
+  const durationMs = data.durationMs;
   let last = -Infinity;
   for (const sample of data.samples) {
-    if (!finite(sample.takeTimeMs) || sample.takeTimeMs < 0 || sample.takeTimeMs >= data.durationMs || sample.takeTimeMs <= last) throw Error('Invalid dance times');
+    if (!isObject(sample) || !finite(sample.takeTimeMs) || sample.takeTimeMs < 0 || sample.takeTimeMs >= durationMs || sample.takeTimeMs <= last) throw Error('Invalid dance times');
     last = sample.takeTimeMs;
-    validatePoses(sample.poses);
+    assertPoses(sample.poses);
   }
+}
+export function validateMotionTake(data: unknown): MotionTake {
+  assertMotionTake(data);
   return data;
 }

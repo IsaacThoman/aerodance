@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Box3, Group, Vector3 } from "three";
+import type { Bone, Object3D, SkinnedMesh } from "three";
 import { createPoseApplier, calibratePoses } from '../retarget.ts';
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
@@ -10,10 +11,17 @@ import {
   samplePose,
   createRetargeter,
 } from "../motion.ts";
+import type { MotionTake } from "../../pose/legacy.ts";
+import type { FrameSize, Pose } from "../../pose/choreography.ts";
 
-const data = JSON.parse(
+/** The demo capture, with the tracking report the legacy migration preserved. */
+interface DanceCapture extends MotionTake {
+  provenance: { report: { reliableJointFraction: number[]; longestMissingRun: number[] } };
+}
+const data: DanceCapture = JSON.parse(
   await readFile(
     new URL("../assets/dance.json", import.meta.url),
+    "utf8",
   ),
 );
 const buffer = await readFile(
@@ -24,16 +32,24 @@ const asset = await new GLTFLoader().parseAsync(
   "",
 );
 
-function meshBounds(model, prefix) {
-  let mesh;
-  model.traverse(o => { if (o.isSkinnedMesh && o.name.startsWith(prefix)) mesh = o; });
+const isSkinnedMesh = (o: Object3D): o is SkinnedMesh => "isSkinnedMesh" in o && o.isSkinnedMesh === true;
+const isBone = (o: Object3D): o is Bone => "isBone" in o && o.isBone === true;
+const node = (model: Object3D, name: string) => {
+  const object = model.getObjectByName(name);
+  assert.ok(object, `missing ${name}`);
+  return object;
+};
+function meshBounds(model: Object3D, prefix: string) {
+  let mesh: SkinnedMesh | undefined;
+  model.traverse(o => { if (isSkinnedMesh(o) && o.name.startsWith(prefix)) mesh = o; });
+  assert.ok(mesh);
   mesh.skeleton.update();
   const bounds = new Box3(), vertex = new Vector3();
   for (let i = 0; i < mesh.geometry.attributes.position.count; i++)
     bounds.expandByPoint(mesh.getVertexPosition(i, vertex).applyMatrix4(mesh.matrixWorld));
   return bounds;
 }
-function standingPose() {
+function standingPose(): Pose {
   const landmarks = Array.from({ length: 33 }, () => ({ x: .5, y: .2, z: 0, visibility: 1, presence: 1 }));
   for (const [i, x, y] of [[11,.56,.3],[12,.44,.3],[23,.56,.55],[24,.44,.55],
     [15,.67,.3],[16,.33,.3],[27,.56,.9],[28,.44,.9]]) Object.assign(landmarks[i], { x, y });
@@ -43,12 +59,12 @@ test('webcam distance compensation keeps hands, feet and root consistent across 
   const reference = standingPose();
   reference.landmarks.forEach((p,i) => { p.x -= .2; p.z=(i-20)*.003; });
   const names=['Root','Body','Head','ArmL','ArmR','FootL','FootR'];
-  const project=(pose,zoom,aspect)=>({ ...pose, landmarks:pose.landmarks.map(p=>({ ...p,
+  const project=(pose: Pose,zoom: number,aspect: number): Pose=>({ ...pose, landmarks:pose.landmarks.map(p=>({ ...p,
     x:.5+(p.x-.5)*zoom*(4/3)/aspect,y:.5+(p.y-.5)*zoom,z:p.z*zoom*(4/3)/aspect,
   })) });
   const baseline=clone(asset.scene);
   createPoseApplier(baseline,calibratePoses([reference],{width:640,height:480},{adaptiveDistance:true}))(reference);
-  for(const input of [{width:640,height:480},{width:1280,height:720},{width:480,height:640}]) {
+  for(const input of [{width:640,height:480},{width:1280,height:720},{width:480,height:640}] satisfies FrameSize[]) {
     const aspect=input.width/input.height;
     const neutral=project(reference,1,aspect), model=clone(asset.scene);
     // Retain the near calibration while the dancer moves back; do not silently
@@ -58,7 +74,7 @@ test('webcam distance compensation keeps hands, feet and root consistent across 
       const projected=project(reference,zoom,aspect), raw=structuredClone(projected);
       apply(projected);
       for(const name of names) {
-        const expected=baseline.getObjectByName(name), actual=model.getObjectByName(name);
+        const expected=node(baseline,name), actual=node(model,name);
         assert.ok(actual.position.distanceTo(expected.position)<1e-6, `${name} position at framing ${zoom}, aspect ${aspect}`);
         assert.ok(actual.quaternion.angleTo(expected.quaternion)<1e-6, `${name} orientation`);
       }
@@ -114,11 +130,14 @@ test("timestamp interpolation, negative time and loop seam remain continuous", (
   assert.deepEqual(samplePose(data, 0, 4 + (data.durationMs / 1000)), a);
   const first = samplePose(data, 0, 0);
   const end = samplePose(data, 0, -0.0001);
+  assert.ok(first && end);
   assert.ok(Math.abs(first.landmarks[15].x - end.landmarks[15].x) < 0.0001);
   const mid = (data.samples[30].takeTimeMs + data.samples[31].takeTimeMs) / 2000;
+  const between = samplePose(data, 1, mid);
+  assert.ok(between);
   assert.ok(
     Math.abs(
-      samplePose(data, 1, mid).landmarks[15].x -
+      between.landmarks[15].x -
         (data.samples[30].poses[1].landmarks[15].x + data.samples[31].poses[1].landmarks[15].x) / 2,
     ) < 1e-8,
   );
@@ -127,9 +146,9 @@ test("timestamp interpolation, negative time and loop seam remain continuous", (
 test("cloned skeletons move independently, remain finite and keep feet above the stage", () => {
   const models = [clone(asset.scene), clone(asset.scene)];
   const apply = models.map((m, p) => createRetargeter(m, data, p));
-  const fixed = models[1].getObjectByName("ArmR").position.clone();
+  const fixed = node(models[1], "ArmR").position.clone();
   apply[0](5);
-  assert.deepEqual(models[1].getObjectByName("ArmR").position, fixed);
+  assert.deepEqual(node(models[1], "ArmR").position, fixed);
   let minX = Infinity,
     maxX = -Infinity;
   for (let t = 0; t < (data.durationMs / 1000); t += 1 / 30)
@@ -137,15 +156,14 @@ test("cloned skeletons move independently, remain finite and keep feet above the
       apply[p](t);
       models[p].updateMatrixWorld(true);
       models[p].traverse((o) => {
-        if (o.isBone) assert.ok(o.matrixWorld.elements.every(Number.isFinite));
+        if (isBone(o)) assert.ok(o.matrixWorld.elements.every(Number.isFinite));
       });
       for (const name of ["FootL", "FootR"])
         assert.ok(
-          models[p].getObjectByName(name).getWorldPosition(new Vector3()).y >=
+          node(models[p], name).getWorldPosition(new Vector3()).y >=
             0.299,
         );
-      const hand = models[p]
-        .getObjectByName("ArmR")
+      const hand = node(models[p], "ArmR")
         .getWorldPosition(new Vector3());
       minX = Math.min(minX, hand.x);
       maxX = Math.max(maxX, hand.x);
@@ -176,7 +194,7 @@ test("retargeting preserves the pose under moving, rotated and nonuniformly scal
       applyLocal(t);
       applyTransformed(t);
       for (const name of names) {
-        const a = local.getObjectByName(name), b = transformed.getObjectByName(name);
+        const a = node(local, name), b = node(transformed, name);
         assert.ok(a.position.distanceTo(b.position) < 1e-10, `${name} position at ${t}`);
         assert.ok(a.quaternion.toArray().every((n, i) => Math.abs(n - b.quaternion.toArray()[i]) < 1e-10));
       }
