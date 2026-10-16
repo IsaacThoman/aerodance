@@ -4,24 +4,15 @@ import { useFrame } from '@react-three/fiber';
 import Character from '../../character/Character.tsx';
 import type { CharacterAppearance } from '../../character/Character.tsx';
 import { sampleSong } from '../../pose/song.ts';
-import type { SongBundle } from '../../pose/song.ts';
-import type { PlayerCount, Pose } from '../../pose/choreography.ts';
+import type { Pose } from '../../pose/choreography.ts';
 import type { MotionTake } from '../../pose/legacy.ts';
 import type { DancerPlacement } from '../catalog.ts';
 import DancerEntrance from './DancerEntrance.tsx';
+import type { DancerRoutine } from './routine.ts';
+
+export type { DancerRoutine };
 
 export type DancerLook = CharacterAppearance;
-
-/** A song's choreography for the dancers to follow. */
-export interface DancerRoutine {
-  bundle: SongBundle;
-  /** One player dances alone in the middle. */
-  playerCount: PlayerCount;
-  /** The song clock. */
-  timeMs: () => number;
-  /** Reveals the dancers at the first beat. */
-  entranceTimeMs?: () => number;
-}
 
 // A little more solid than the menu's dancers (default gel opacity 0.72) so they
 // hold up against busy stage backgrounds.

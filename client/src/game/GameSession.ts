@@ -1,12 +1,12 @@
 import { createScorer } from '../../../packages/score/scorer.ts';
 import type { JudgementEvent, PlayerResult, Scorer } from '../../../packages/score/scorer.ts';
 import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
-import type { SongBundle } from '../../../packages/pose/song.ts';
 import { createSongPlayer } from '../audio/songPlayer.ts';
 import type { SongPlayer, SongRange } from '../audio/songPlayer.ts';
 import { createPoseRecorder } from '../pose/ReplayPoseSource.ts';
 import type { PoseRecorder } from '../pose/ReplayPoseSource.ts';
 import { isPoseRecordEvent } from '../pose/PoseSource.ts';
+import type { DancerRoutine } from '../../../packages/stages/shared/routine.ts';
 import type { PoseSource, PoseSourceEvent, SongClock } from '../pose/PoseSource.ts';
 import type { LoadedSongBundle } from '../songs/loadBundle.ts';
 import { createLivePlayer } from './livePose.ts';
@@ -45,14 +45,9 @@ export type Readiness = 'missing' | 'calibrating' | 'ready';
 /** The part of a song player (audio/songPlayer.ts) the session drives. */
 export type SessionPlayer = Pick<SongPlayer, 'state' | 'ended' | 'timeMs' | 'rawTimeMs' | 'songTimeAt' | 'play' | 'pause' | 'seek' | 'dispose'>;
 /** A song for the stage's reference dancers to follow (StageView). */
-export interface SongRoutine {
-  bundle: SongBundle;
-  playerCount: PlayerCount;
-  /** The song clock the dancers sample. */
-  timeMs(): number;
+/** The dancers' routine, plus whether the song is audible (StageView pauses with it). */
+export interface SongRoutine extends DancerRoutine {
   playing(): boolean;
-  /** Reveals the dancers at the first beat. */
-  entranceTimeMs?(): number;
 }
 export interface GameSessionOptions {
   bundle: LoadedSongBundle;
