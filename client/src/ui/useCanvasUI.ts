@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
+import type { Circle, Point, Rect } from './draw.ts';
 
 /**
  * An in-engine 2D overlay: a canvas the size of the render buffer, laid out in design
@@ -29,15 +30,73 @@ import { loadFonts } from './draw.ts';
  * (anything that marks the overlay dirty) request the next frame.
  */
 
+/** A hit area: a rect or a circle, in content units. Screens add their own fields. */
+export type Widget = {
+  id: string;
+  /** Pressing drags (sliders): onDrag instead of onActivate. */
+  drag?: boolean;
+  /** false: keyboard navigation skips it. */
+  nav?: boolean;
+} & ({ rect: Rect; circle?: undefined } | { circle: Circle; rect?: undefined });
+
+/** Design size in units for a displayed CSS size. */
+export interface DesignSize { w: number; h: number; }
+
+/** An overlay's live state: layout size, pointer, hover/press animation and scrolling. */
+export interface CanvasUI<W extends Widget = Widget> {
+  /** Design size. */
+  w: number;
+  h: number;
+  /** In content units (scroll included); null when the pointer is away. */
+  pointer: Point | null;
+  /** 0..1 per widget id, eased. */
+  hover: Record<string, number>;
+  /** 1 on activation, easing back to 0. */
+  press: number;
+  /** The id of the widget held down. */
+  pressed: string | null;
+  /** The last input's pointerType, or 'key' for keyboard navigation. */
+  pointerKind: string | null;
+  /** The slider being dragged. */
+  drag: W | null;
+  scroll: number;
+  /** Set by draw: content taller than h scrolls. */
+  contentHeight: number;
+  dirty: boolean;
+  dt: number;
+  time: number;
+  requestFrame: () => void;
+  /** Marks the overlay dirty and asks for a frame. */
+  invalidate(): void;
+  readonly maxScroll: number;
+  /** Eases v towards `to`, marking the overlay dirty while it moves. */
+  ease(v: number, to: number, rate: number): number;
+}
+
+export interface CanvasUIOptions<W extends Widget = Widget> {
+  /** useFrame priority (the world renders at 1). */
+  priority?: number;
+  design?: (cssW: number, cssH: number) => DesignSize;
+  widgets?: (ui: CanvasUI<W>) => readonly W[];
+  active?: (ui: CanvasUI<W>) => boolean;
+  onActivate?: (wdg: W, ui: CanvasUI<W>) => void;
+  onDrag?: (wdg: W, point: Point, ui: CanvasUI<W>) => void;
+  onKey?: (event: KeyboardEvent, ui: CanvasUI<W>) => void;
+  keyNav?: boolean | ((ui: CanvasUI<W>) => boolean);
+  update?: (dt: number, ui: CanvasUI<W>) => void;
+  draw: (g: CanvasRenderingContext2D, ui: CanvasUI<W>) => void;
+  opacity?: (ui: CanvasUI<W>) => number;
+}
+
 // Hit areas are padded a little so a bubble's rim and edge count as part of it.
 const PAD = 8;
-export const inRect = (p, r) => p && p.x >= r.x - PAD && p.x <= r.x + r.w + PAD && p.y >= r.y - PAD && p.y <= r.y + r.h + PAD;
-export const inCircle = (p, c) => p && Math.hypot(p.x - c.x, p.y - c.y) <= c.r + 6;
-export const hit = (p, wdg) => (wdg.rect ? inRect(p, wdg.rect) : inCircle(p, wdg.circle));
+export const inRect = (p: Point | null, r: Rect) => !!p && p.x >= r.x - PAD && p.x <= r.x + r.w + PAD && p.y >= r.y - PAD && p.y <= r.y + r.h + PAD;
+export const inCircle = (p: Point | null, c: Circle) => !!p && Math.hypot(p.x - c.x, p.y - c.y) <= c.r + 6;
+export const hit = (p: Point | null, wdg: Widget) => (wdg.rect ? inRect(p, wdg.rect) : inCircle(p, wdg.circle));
 
 // Overlays share the canvas element, so the cursor is a pointer while any of them wants one.
-const cursorWants = new WeakMap();
-function wantCursor(el, key, want) {
+const cursorWants = new WeakMap<HTMLElement, Set<object>>();
+function wantCursor(el: HTMLElement, key: object, want: boolean) {
   const wants = cursorWants.get(el) ?? new Set();
   cursorWants.set(el, wants);
   if (want) wants.add(key);
@@ -45,11 +104,11 @@ function wantCursor(el, key, want) {
   el.style.cursor = wants.size ? 'pointer' : '';
 }
 
-const DEFAULT_DESIGN = () => ({ w: 1600, h: 900 });
+const DEFAULT_DESIGN = (): DesignSize => ({ w: 1600, h: 900 });
 // A press that travels this far (design units) turns into a scroll.
 const SCROLL_SLOP = 14;
 
-function createState() {
+function createState<W extends Widget>(): CanvasUI<W> {
   return {
     w: 1600,
     h: 900,
@@ -77,7 +136,7 @@ function createState() {
   };
 }
 
-export default function useCanvasUI(options) {
+export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUIOptions<W>): CanvasUI<W> {
   const gl = useThree((state) => state.gl);
   const requestFrame = useThree((state) => state.invalidate);
   const opts = useRef(options);
@@ -97,11 +156,14 @@ export default function useCanvasUI(options) {
     quad.frustumCulled = false;
     const scene = new THREE.Scene();
     scene.add(quad);
-    return { canvas, texture, material, quad, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1) };
+    // The same context every time the canvas is asked for it, across resizes.
+    const g = canvas.getContext('2d');
+    if (!g) throw Error('2D canvas unavailable');
+    return { canvas, g, texture, material, quad, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1) };
   }, []);
 
-  const ref = useRef(null);
-  ref.current ??= createState();
+  const ref = useRef<CanvasUI<W> | null>(null);
+  ref.current ??= createState<W>();
   const ui = ref.current;
   ui.requestFrame = requestFrame;
 
@@ -109,15 +171,15 @@ export default function useCanvasUI(options) {
     const el = gl.domElement;
     const s = ui;
     const key = {};
-    const toDesign = (e) => {
+    const toDesign = (e: MouseEvent): Point => {
       const rect = el.getBoundingClientRect();
       return { x: ((e.clientX - rect.left) / rect.width) * s.w, y: ((e.clientY - rect.top) / rect.height) * s.h + s.scroll };
     };
     const active = () => opts.current.active?.(s) ?? true;
-    const widgetAt = (p) => (active() ? opts.current.widgets?.(s).find((wdg) => hit(p, wdg)) : undefined);
-    let down = null; // { y, scroll } for drag-to-scroll
+    const widgetAt = (p: Point | null) => (active() ? opts.current.widgets?.(s).find((wdg) => hit(p, wdg)) : undefined);
+    let down: { y: number; scroll: number } | null = null; // for drag-to-scroll
 
-    const onMove = (e) => {
+    const onMove = (e: PointerEvent) => {
       s.pointer = toDesign(e);
       s.pointerKind = e.pointerType;
       if (s.drag) opts.current.onDrag?.(s.drag, s.pointer, s);
@@ -135,7 +197,7 @@ export default function useCanvasUI(options) {
     // Buttons fire on release when the press started on the same button, so a
     // press anywhere on the bubble counts even if the pointer wobbles a little.
     // Returns the widget pressed.
-    const pressAt = (p) => {
+    const pressAt = (p: Point) => {
       s.pointer = p;
       const wdg = widgetAt(p);
       if (!wdg) return undefined;
@@ -147,11 +209,11 @@ export default function useCanvasUI(options) {
       }
       return wdg;
     };
-    const activate = (wdg) => {
+    const activate = (wdg: W) => {
       s.press = 1;
       opts.current.onActivate?.(wdg, s);
     };
-    const releaseAt = (p) => {
+    const releaseAt = (p: Point) => {
       if (s.drag) { s.drag = null; return; }
       const id = s.pressed;
       s.pressed = null;
@@ -159,7 +221,7 @@ export default function useCanvasUI(options) {
       const wdg = widgetAt(p);
       if (wdg?.id === id) activate(wdg);
     };
-    const onDown = (e) => {
+    const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       const p = toDesign(e);
       if (!widgetAt(p) && !(s.maxScroll > 0 && active())) return;
@@ -167,27 +229,27 @@ export default function useCanvasUI(options) {
       const wdg = pressAt(p);
       down = wdg?.drag ? null : { y: p.y - s.scroll, scroll: s.scroll };
     };
-    const onUp = (e) => {
+    const onUp = (e: PointerEvent) => {
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       down = null;
       // A lifted finger isn't hovering anything.
       if (e.pointerType === 'touch') setTimeout(() => { s.pointer = null; }, 0);
       releaseAt(toDesign(e));
     };
-    const onCancel = (e) => {
+    const onCancel = (e: PointerEvent) => {
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       down = null;
       s.drag = null;
       s.pressed = null;
     };
-    const onWheel = (e) => {
+    const onWheel = (e: WheelEvent) => {
       if (!(s.maxScroll > 0) || !active()) return;
       const rect = el.getBoundingClientRect();
       s.scroll = Math.min(s.maxScroll, Math.max(0, s.scroll + (e.deltaY / rect.height) * s.h));
       s.dirty = true;
     };
-    const center = (wdg) => (wdg.rect ? { x: wdg.rect.x + wdg.rect.w / 2, y: wdg.rect.y + wdg.rect.h / 2 } : { x: wdg.circle.x, y: wdg.circle.y });
-    const onKey = (e) => {
+    const center = (wdg: Widget): Point => (wdg.rect ? { x: wdg.rect.x + wdg.rect.w / 2, y: wdg.rect.y + wdg.rect.h / 2 } : { x: wdg.circle.x, y: wdg.circle.y });
+    const onKey = (e: KeyboardEvent) => {
       opts.current.onKey?.(e, s);
       const { keyNav } = opts.current;
       if (e.defaultPrevented || !(typeof keyNav === 'function' ? keyNav(s) : keyNav) || !active()) return;
@@ -212,25 +274,28 @@ export default function useCanvasUI(options) {
     };
 
     // Each input asks for a frame (frameloop="demand" renders nothing otherwise).
-    const framed = (fn) => (e) => { fn(e); s.requestFrame(); };
-
-    const handlers = [
-      [el, 'pointermove', framed(onMove)],
-      [el, 'pointerleave', framed(onLeave)],
-      [el, 'pointerdown', framed(onDown)],
-      [el, 'pointerup', framed(onUp)],
-      [el, 'pointercancel', framed(onCancel)],
-      [el, 'wheel', framed(onWheel), { passive: true }],
-      [window, 'keydown', framed(onKey)],
-    ];
-    for (const [target, type, fn, o] of handlers) target.addEventListener(type, fn, o);
+    const offs: (() => void)[] = [];
+    const listen = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void, o?: AddEventListenerOptions) => {
+      const framed = (e: HTMLElementEventMap[K]) => { fn(e); s.requestFrame(); };
+      el.addEventListener(type, framed, o);
+      offs.push(() => el.removeEventListener(type, framed));
+    };
+    listen('pointermove', onMove);
+    listen('pointerleave', onLeave);
+    listen('pointerdown', onDown);
+    listen('pointerup', onUp);
+    listen('pointercancel', onCancel);
+    listen('wheel', onWheel, { passive: true });
+    const keyFramed = (e: KeyboardEvent) => { onKey(e); s.requestFrame(); };
+    window.addEventListener('keydown', keyFramed);
+    offs.push(() => window.removeEventListener('keydown', keyFramed));
 
     let cancelled = false;
     loadFonts().then(() => { if (!cancelled) s.invalidate(); });
 
     return () => {
       cancelled = true;
-      for (const [target, type, fn] of handlers) target.removeEventListener(type, fn);
+      for (const off of offs) off();
       wantCursor(el, key, false);
     };
   }, [gl, ui]);
@@ -278,7 +343,7 @@ export default function useCanvasUI(options) {
 
     if (s.dirty) {
       s.dirty = false;
-      const g = overlay.canvas.getContext('2d');
+      const { g } = overlay;
       const sx = overlay.canvas.width / s.w;
       const sy = overlay.canvas.height / s.h;
       g.setTransform(1, 0, 0, 1, 0, 0);

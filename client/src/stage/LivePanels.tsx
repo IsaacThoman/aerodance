@@ -1,6 +1,9 @@
 import { Suspense, useMemo, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
+import type * as THREE from 'three';
 import Character from '../../../packages/character/Character.tsx';
+import type { PlayerCount, Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
 import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
 import { LIVE_PANEL, livePanelCenterX } from '../game/layout.ts';
 
@@ -13,15 +16,25 @@ import { LIVE_PANEL, livePanelCenterX } from '../game/layout.ts';
  * live: { playerCount, livePose(id, now) → { landmarks } | null, calibration(id) }
  */
 
+/** The players' live characters: GameSession's smoothed poses and calibrations. */
+export interface LiveDancers {
+  playerCount: PlayerCount;
+  /** The pose to draw now (null hides the character). */
+  livePose(id: number, now: number): Pose | null;
+  calibration(id: number): TrackCalibration | null;
+}
+
 // The character's height at scale 1 with its arms down, as it stands in a panel.
 const HEIGHT = 3.4;
 // In front of the camera: near enough to sit in front of any stage set.
 const DISTANCE = 3;
 const LOOKS = DANCER_LOOKS.map((look) => ({ ...look, opacity: 0.92 }));
 
-function LivePlayer({ id, live, anchor }) {
-  const poseRef = useRef(null);
-  const [calibration, setCalibration] = useState(null);
+interface LivePlayerProps { id: number; live: LiveDancers; anchor: RefObject<THREE.Group | null>; }
+
+function LivePlayer({ id, live, anchor }: LivePlayerProps) {
+  const poseRef = useRef<Pose | null>(null);
+  const [calibration, setCalibration] = useState<TrackCalibration | null>(null);
   useFrame(() => {
     const c = live.calibration(id);
     if (c !== calibration) setCalibration(c);
@@ -37,14 +50,14 @@ function LivePlayer({ id, live, anchor }) {
   );
 }
 
-export default function LivePanels({ live }) {
-  const root = useRef();
-  const anchors = useMemo(() => [{ current: null }, { current: null }], []);
+export default function LivePanels({ live }: { live: LiveDancers }) {
+  const root = useRef<THREE.Group>(null);
+  const anchors = useMemo((): RefObject<THREE.Group | null>[] => [{ current: null }, { current: null }], []);
   useFrame(({ camera }) => {
     const g = root.current;
-    if (!g || !camera.isPerspectiveCamera) return;
+    if (!g || !('isPerspectiveCamera' in camera)) return;
     // Close to the camera, so they shouldn't throw shadows across the stage.
-    g.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+    g.traverse((o) => { if ('isMesh' in o) o.castShadow = false; });
     g.position.copy(camera.position);
     g.quaternion.copy(camera.quaternion);
     const viewH = 2 * DISTANCE * Math.tan((camera.fov * Math.PI) / 360);

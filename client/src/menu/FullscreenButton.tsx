@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { ICONS, drawGlassCircle, drawShadowText } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import useFullscreen from './useFullscreen.ts';
+import type { Fullscreen } from './useFullscreen.ts';
 
 /**
  * The main menu's fullscreen bubble, drawn in-engine in the bottom-right corner (priority
@@ -14,13 +15,18 @@ import useFullscreen from './useFullscreen.ts';
 const BUTTON = { x: 1516, y: 836, r: 42 };
 const SLIDE_SECONDS = 0.3;
 
-const smooth = (k) => k * k * (3 - 2 * k);
+const smooth = (k: number) => k * k * (3 - 2 * k);
 
-export default function FullscreenButton({ visible = () => true }) {
+export interface FullscreenButtonProps {
+  /** Read every frame: whether the bubble should be on screen. */
+  visible?: () => boolean;
+}
+
+export default function FullscreenButton({ visible = () => true }: FullscreenButtonProps) {
   const fullscreen = useFullscreen();
-  const props = useRef({});
+  const props = useRef({ fullscreen, visible });
   props.current = { fullscreen, visible };
-  const st = useRef({ slide: 0, visible: null, drawn: null }).current;
+  const st = useRef<{ slide: number; visible: boolean | null; drawn: Fullscreen | null }>({ slide: 0, visible: null, drawn: null }).current;
 
   useCanvasUI({
     priority: 3.5,

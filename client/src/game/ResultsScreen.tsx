@@ -3,19 +3,33 @@ import { useThree } from '@react-three/fiber';
 import {
   FONT, drawCaps, drawHeadline as headline, drawPill, drawShadowText, ellipsize,
 } from '../ui/draw.ts';
+import type { Face, IconName, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import { PLAYERS, REVEAL, backOut, clamp01, timeline } from './results.ts';
+import type { ResultsShow } from './results.ts';
 import { RESULTS_RETRY, RESULTS_SONGS } from './layout.ts';
+import type { RefObject } from 'react';
+import type { Song } from '../../../packages/pose/song.ts';
 
-const GOLD = ['#fff6cc', '#ffd34d', '#f0a500'];
-const pct = (x) => `${Math.round(x * 100)}%`;
+export interface ResultsScreenProps {
+  visible?: boolean;
+  blocked?: boolean;
+  /** The reveal, once the song has finished (App sets it on results). */
+  show: RefObject<ResultsShow | null>;
+  song?: Song;
+  onRetry?: () => void;
+  onQuit?: () => void;
+}
 
-function drawResults(g, show, now, song) {
+const GOLD: Face = ['#fff6cc', '#ffd34d', '#f0a500'];
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number, song: Song) {
   const { results, winner } = show;
   const { t, count, reveal } = timeline(show, now);
   const solo = results.length === 1;
   let title;
-  let face = ['#ffffff', '#ffffff', '#d5f3ff'];
+  let face: Face = ['#ffffff', '#ffffff', '#d5f3ff'];
   let pop = 1;
   if (solo) title = 'SONG COMPLETE!';
   else if (t < REVEAL) title = 'And the winner is…';
@@ -71,12 +85,12 @@ function drawResults(g, show, now, song) {
 }
 
 /** The song's stage celebration: the winner (or the solo score), grades and a new best. */
-export default function ResultsScreen({ visible = false, blocked = false, show, song, onRetry, onQuit }) {
+export default function ResultsScreen({ visible = false, blocked = false, show, song, onRetry, onQuit }: ResultsScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({});
+  const props = useRef({ visible, blocked, show, song, onRetry, onQuit });
   props.current = { visible, blocked, show, song, onRetry, onQuit };
   const st = useRef({ alpha: 0 }).current;
-  const live = () => props.current.visible && !props.current.blocked && !!props.current.show?.current;
+  const live = () => props.current.visible && !props.current.blocked && !!props.current.show.current;
 
   useCanvasUI({
     priority: 2.5,
@@ -99,7 +113,7 @@ export default function ResultsScreen({ visible = false, blocked = false, show, 
       // ready together, including a Play again click on the very first results frame.
       st.alpha = p.visible ? 1 : s.ease(st.alpha, 0, 8);
       if (p.visible) s.invalidate(); // reveal and score count
-      if (p.visible && p.show?.current) {
+      if (p.visible && p.show.current) {
         Object.assign(gl.domElement.dataset, {
           resultsScreen: 'stage',
           resultsWinner: String(p.show.current.winner),
@@ -111,9 +125,9 @@ export default function ResultsScreen({ visible = false, blocked = false, show, 
     opacity: () => st.alpha,
     draw: (g, s) => {
       const p = props.current;
-      if (!p.show?.current || !p.song) return;
+      if (!p.show.current || !p.song) return;
       drawResults(g, p.show.current, performance.now() / 1000, p.song);
-      const button = (id, rect, label, icon) => drawPill(g, rect, {
+      const button = (id: string, rect: Rect, label: string, icon: IconName) => drawPill(g, rect, {
         label, icon, hover: s.hover[id] ?? 0, press: s.press * (s.hover[id] ?? 0),
       });
       button('retry', RESULTS_RETRY, 'Play again', 'replay');

@@ -13,19 +13,26 @@ import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 import { build, preview } from 'vite';
 import { chromium } from 'playwright-core';
-import { SHOTS, UPSCALE } from '../client/src/shots.ts';
+import { SHOTS, UPSCALE, assertShot } from '../client/src/shots.ts';
+import type { Shot, ThumbnailWindow } from '../client/src/shots.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-function option(name) {
+function option(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? process.argv[i + 1] : undefined;
 }
 
-let shots = SHOTS;
-if (option('spec')) shots = JSON.parse(await readFile(option('spec'), 'utf8'));
-if (option('only')) {
-  const only = new Set(option('only').split(','));
+let shots: readonly Shot[] = SHOTS;
+const spec = option('spec');
+if (spec) {
+  const list: unknown = JSON.parse(await readFile(spec, 'utf8'));
+  if (!Array.isArray(list)) throw new Error(`${spec} must hold an array of shots`);
+  shots = list.map((shot: unknown) => { assertShot(shot); return shot; });
+}
+const onlyIds = option('only');
+if (onlyIds) {
+  const only = new Set(onlyIds.split(','));
   shots = shots.filter((s) => only.has(s.id));
 }
 const outDir = path.resolve(option('out') ?? ROOT);
@@ -34,7 +41,7 @@ if (!shots.length) throw new Error('No shots to render');
 
 // --- PNG ----------------------------------------------------------------------------
 
-function chunk(type, data) {
+function chunk(type: string, data: Buffer) {
   const head = Buffer.alloc(8);
   head.writeUInt32BE(data.length, 0);
   head.write(type, 4, 'ascii');
@@ -43,14 +50,14 @@ function chunk(type, data) {
   return Buffer.concat([head, data, crc]);
 }
 
-const paeth = (a, b, c) => {
+const paeth = (a: number, b: number, c: number) => {
   const p = a + b - c;
   const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
 };
 
 // 8-bit RGB PNG, choosing each row's filter by the usual minimum-sum heuristic.
-function encodePng(width, height, rgb) {
+function encodePng(width: number, height: number, rgb: Buffer) {
   const stride = width * 3;
   const raw = Buffer.alloc((stride + 1) * height);
   const candidates = Array.from({ length: 5 }, () => Buffer.alloc(stride));
@@ -95,7 +102,7 @@ function encodePng(width, height, rgb) {
 }
 
 // Every source pixel becomes an exact sx-by-sy block.
-function upscale(rgba, width, height, [sx, sy]) {
+function upscale(rgba: Buffer, width: number, height: number, [sx, sy]: readonly [number, number]) {
   const w = width * sx;
   const out = Buffer.alloc(w * height * sy * 3);
   const line = Buffer.alloc(w * 3);
@@ -114,7 +121,7 @@ function upscale(rgba, width, height, [sx, sy]) {
   return { width: w, height: height * sy, rgb: out };
 }
 
-async function writeImage(file, base64, width, height) {
+async function writeImage(file: string, base64: string, width: number, height: number) {
   const big = upscale(Buffer.from(base64, 'base64'), width, height, UPSCALE);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, encodePng(big.width, big.height, big.rgb));
@@ -126,7 +133,8 @@ const buildDir = await mkdtemp(path.join(tmpdir(), 'aerodance-thumbnails-'));
 const config = path.join(ROOT, 'vite.config.ts');
 await build({ configFile: config, logLevel: 'warn', build: { outDir: buildDir, emptyOutDir: true } });
 const server = await preview({ configFile: config, logLevel: 'warn', build: { outDir: buildDir }, preview: { port: 0, host: '127.0.0.1' } });
-const base = server.resolvedUrls.local[0];
+const base = server.resolvedUrls?.local[0];
+if (!base) throw new Error('The preview server has no local URL');
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--ignore-gpu-blocklist', '--enable-gpu'] });
 const context = await browser.newContext({ viewport: { width: 1080, height: 720 }, deviceScaleFactor: 1, reducedMotion: 'no-preference' });
@@ -137,26 +145,30 @@ const queue = [...shots];
 async function worker() {
   for (let shot = queue.shift(); shot; shot = queue.shift()) {
     const page = await context.newPage();
-    const errors = [];
+    const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
     const started = performance.now();
     try {
-      const query = option('spec') ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `shot=${encodeURIComponent(shot.id)}`;
+      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `shot=${encodeURIComponent(shot.id)}`;
       await page.goto(`${base}?${query}`);
-      await page.waitForFunction(() => window.__thumb, null, { timeout: 60000 });
+      await page.waitForFunction(() => (window as ThumbnailWindow).__thumb, null, { timeout: 60000 });
       if (!logged) {
         logged = true;
-        console.log(`WebGL: ${await page.evaluate(() => window.__thumb.renderer)}`);
+        console.log(`WebGL: ${await page.evaluate(() => (window as ThumbnailWindow).__thumb?.renderer)}`);
       }
-      const frame = await page.evaluate(() => window.__thumb.render());
+      const frame = await page.evaluate(() => {
+        const thumb = (window as ThumbnailWindow).__thumb;
+        if (!thumb) throw new Error('The capture page is not ready');
+        return thumb.render();
+      });
       await writeImage(path.join(outDir, 'no-logo', `${shot.id}.png`), frame.plain, frame.width, frame.height);
       if (frame.logo) await writeImage(path.join(outDir, 'with-logo', `${shot.id}.png`), frame.logo, frame.width, frame.height);
       const seconds = ((performance.now() - started) / 1000).toFixed(1);
       console.log(`✓ ${shot.id} (${seconds}s)${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);
     } catch (e) {
       failed++;
-      console.error(`✗ ${shot.id}: ${e.message}${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);
+      console.error(`✗ ${shot.id}: ${e instanceof Error ? e.message : e}${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);
     } finally {
       await page.close();
     }

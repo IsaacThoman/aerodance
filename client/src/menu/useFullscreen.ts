@@ -1,8 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 
-const fullscreenElement = (doc) => doc.fullscreenElement ?? doc.webkitFullscreenElement;
+/** The fullscreen API of a document, with older Safari's prefixed methods (which return void). */
+export interface FullscreenDocument {
+  fullscreenEnabled?: boolean;
+  fullscreenElement?: object | null;
+  exitFullscreen?: () => Promise<void>;
+  webkitFullscreenEnabled?: boolean;
+  webkitFullscreenElement?: object | null;
+  webkitExitFullscreen?: () => void;
+  documentElement: {
+    requestFullscreen?: () => Promise<void>;
+    webkitRequestFullscreen?: () => void;
+  };
+}
+export interface FullscreenState { active: boolean; supported: boolean; }
+export interface Fullscreen extends FullscreenState {
+  error: string | null;
+  toggle: () => void;
+}
 
-export function readFullscreenState(doc) {
+const fullscreenElement = (doc: FullscreenDocument) => doc.fullscreenElement ?? doc.webkitFullscreenElement;
+
+export function readFullscreenState(doc: FullscreenDocument): FullscreenState {
   const el = doc.documentElement;
   const supported = typeof el.requestFullscreen === 'function'
     ? doc.fullscreenEnabled !== false && typeof doc.exitFullscreen === 'function'
@@ -12,19 +31,21 @@ export function readFullscreenState(doc) {
 
 // Call directly from the canvas input handler: Safari needs the user's activation.
 // Older Safari uses prefixed methods that return void instead of a Promise.
-export function toggleFullscreen(doc) {
+export function toggleFullscreen(doc: FullscreenDocument): Promise<void> | void {
   if (fullscreenElement(doc)) {
     const exit = doc.exitFullscreen ?? doc.webkitExitFullscreen;
+    if (!exit) throw Error('Fullscreen is not supported');
     return exit.call(doc);
   }
   const el = doc.documentElement;
   const request = el.requestFullscreen ?? el.webkitRequestFullscreen;
+  if (!request) throw Error('Fullscreen is not supported');
   return request.call(el);
 }
 
-export default function useFullscreen() {
+export default function useFullscreen(): Fullscreen {
   const [state, setState] = useState(() => readFullscreenState(document));
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const failed = useCallback(() => setError('Click fullscreen on this display to retry.'), []);
 
   useEffect(() => {
@@ -32,7 +53,7 @@ export default function useFullscreen() {
       setState(readFullscreenState(document));
       setError(null);
     };
-    const events = [
+    const events: [string, () => void][] = [
       ['fullscreenchange', changed], ['webkitfullscreenchange', changed],
       ['fullscreenerror', failed], ['webkitfullscreenerror', failed],
     ];

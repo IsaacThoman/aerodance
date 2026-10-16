@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { getMixer } from './mixer.ts';
+import type { MusicChannel } from './mixer.ts';
 
 /*
  * Background music that loops forever without dropping out, independent of the aero
@@ -20,17 +21,17 @@ const TAIL_LEVEL = 0.1; // the outro starts where loudness falls below 10% of th
 const MAX_OVERLAP = 6;
 const FADE_IN = 1.5;
 
-const rmsAt = (channels, from, n) => {
+const rmsAt = (channels: readonly Float32Array[], from: number, n: number) => {
   let sum = 0;
   for (const d of channels) for (let i = from; i < from + n; i++) sum += d[i] * d[i];
   return Math.sqrt(sum / (n * channels.length));
 };
 
 /** Where the audible track starts and ends, and where its fade-out begins (seconds). */
-export function loopPoints(buffer) {
+export function loopPoints(buffer: AudioBuffer) {
   const sr = buffer.sampleRate;
   const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
-  const loud = (i) => channels.some((d) => Math.abs(d[i]) > SILENCE);
+  const loud = (i: number) => channels.some((d) => Math.abs(d[i]) > SILENCE);
   let first = 0;
   let last = buffer.length - 1;
   while (first < last && !loud(first)) first++;
@@ -46,16 +47,16 @@ export function loopPoints(buffer) {
   return { start, end, next: Math.min(end, (tail + n) / sr) };
 }
 
-export function createLoopingMusic(url, { channel = 'music' } = {}) {
+export function createLoopingMusic(url: string, { channel = 'music' }: { channel?: MusicChannel } = {}) {
   const mixer = getMixer();
   const { ctx } = mixer;
   const fade = ctx.createGain();
   fade.gain.value = 0;
   fade.connect(mixer[channel]);
-  const sources = new Set();
+  const sources = new Set<AudioBufferSourceNode>();
   let disposed = false;
   let faded = false;
-  let timer = 0;
+  let timer: ReturnType<typeof setInterval> | null = null;
 
   const fadeIn = () => {
     if (faded || !timer || ctx.state !== 'running') return;
@@ -64,7 +65,7 @@ export function createLoopingMusic(url, { channel = 'music' } = {}) {
     fade.gain.linearRampToValueAtTime(1, ctx.currentTime + FADE_IN);
   };
 
-  const play = (buffer) => {
+  const play = (buffer: AudioBuffer) => {
     const { start, end, next } = loopPoints(buffer);
     const lap = next - start;
     let at = ctx.currentTime + 0.05;
@@ -92,14 +93,14 @@ export function createLoopingMusic(url, { channel = 'music' } = {}) {
     })
     .then((data) => ctx.decodeAudioData(data))
     .then((buffer) => { if (!disposed) play(buffer); })
-    .catch((err) => { if (!disposed) console.warn('background music could not load:', err.message); });
+    .catch((err: unknown) => { if (!disposed) console.warn('background music could not load:', err instanceof Error ? err.message : err); });
 
   ctx.addEventListener('statechange', fadeIn);
 
   return {
     dispose() {
       disposed = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       ctx.removeEventListener('statechange', fadeIn);
       for (const source of sources) source.stop();
       fade.disconnect();
@@ -108,7 +109,7 @@ export function createLoopingMusic(url, { channel = 'music' } = {}) {
 }
 
 /** Plays `url` on a continuous loop while mounted, into the mixer's `channel`. */
-export function useLoopingMusic(url, channel = 'music') {
+export function useLoopingMusic(url: string, channel: MusicChannel = 'music') {
   useEffect(() => {
     const m = createLoopingMusic(url, { channel });
     return () => m.dispose();

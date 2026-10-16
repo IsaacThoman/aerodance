@@ -1,14 +1,45 @@
 import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { createPortal, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { STAGES, resolveStage } from '../../../packages/stages/index.ts';
+import type { DancerPlacement, Stage, StageId, StageMeta } from '../../../packages/stages/index.ts';
 import { RenderPipeline, resetPost } from '../../../packages/stages/shared/post.tsx';
 import Dancers from '../../../packages/stages/shared/Dancers.tsx';
 import { beat, stageOrbit } from '../../../packages/stages/shared/hooks.ts';
 import { validateMotion } from '../../../packages/character/motion.ts';
 import motionUrl from '../../../packages/character/assets/dance.json?url';
+import type { MotionTake } from '../../../packages/pose/legacy.ts';
+import type { SongRoutine } from '../game/GameSession.ts';
+import type { ResultsShow } from '../game/results.ts';
 import LivePanels from './LivePanels.tsx';
+import type { LiveDancers } from './LivePanels.tsx';
 import ResultsDancers from './ResultsDancers.tsx';
+
+/** How the stage is doing, reported through onState. */
+export interface StageState {
+  /** A stage is mounted (the Aero world should pause). */
+  showing: boolean;
+  /** Mounted, compiled and unveiled. */
+  ready: boolean;
+  stage: StageId | null;
+  failed: boolean;
+  dancersFailed?: boolean;
+}
+export interface StageViewProps {
+  active?: boolean;
+  orbiting?: boolean;
+  /** The song's stage id (Open Reef if unset or unknown). */
+  stageId?: string | null;
+  routine?: SongRoutine | null;
+  live?: LiveDancers | null;
+  /** The results reveal: swaps the reference dancers for the celebration. */
+  results?: RefObject<ResultsShow | null> | null;
+  onState?: (state: StageState) => void;
+}
+type ReadyHandler = (id: StageId, failed: boolean) => void;
+/** The veil's opacity, and frames the shown stage has had to settle. */
+interface Fade { value: number; settled: number; }
 
 /**
  * The game's dance stages (packages/stages) inside its canvas, with the routine's dancers.
@@ -46,31 +77,37 @@ const ORBIT_SPEED = (Math.PI * 2) / 60;
 const ORBIT_RETURN = 2.4;
 const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-const byId = Object.fromEntries(STAGES.map((stage) => [stage.meta.id, stage]));
+const byId = new Map(STAGES.map((stage) => [stage.meta.id, stage]));
+const stageFor = (id: StageId): Stage => {
+  const stage = byId.get(id);
+  if (!stage) throw Error(`Unknown stage "${id}"`);
+  return stage;
+};
+const hasShow = (results: RefObject<ResultsShow | null>): results is RefObject<ResultsShow> => results.current !== null;
 
 // Keeps one broken stage from taking down the game.
-class StageBoundary extends Component {
-  state = { error: null };
-  static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error) { console.error(`[stage] "${this.props.id}" crashed:`, error); }
+class StageBoundary extends Component<{ id: StageId; fallback: ReactNode; children?: ReactNode }, { error: unknown }> {
+  state: { error: unknown } = { error: null };
+  static getDerivedStateFromError(error: unknown) { return { error }; }
+  componentDidCatch(error: unknown) { console.error(`[stage] "${this.props.id}" crashed:`, error); }
   render() { return this.state.error ? this.props.fallback : this.props.children; }
 }
 
 // The dancers can fail on their own (their model didn't load); the stage carries on without them.
-class DancerBoundary extends Component {
+class DancerBoundary extends Component<{ onFail: () => void; children?: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(error) { console.warn('[stage] dancers could not load:', error); this.props.onFail(); }
+  componentDidCatch(error: unknown) { console.warn('[stage] dancers could not load:', error); this.props.onFail(); }
   render() { return this.state.failed ? null : this.props.children; }
 }
 
 // Mounts once the lazily loaded stage has resolved.
-function Ready({ onReady, id, failed = false }) {
+function Ready({ onReady, id, failed = false }: { onReady: ReadyHandler; id: StageId; failed?: boolean }) {
   useLayoutEffect(() => { onReady(id, failed); }, [onReady, id, failed]);
   return null;
 }
 
-function Veil({ fade }) {
+function Veil({ fade }: { fade: RefObject<Fade> }) {
   const gl = useThree((state) => state.gl);
   const layer = useMemo(() => {
     const material = new THREE.MeshBasicMaterial({ color: '#f4fdff', transparent: true, toneMapped: false, depthTest: false, depthWrite: false });
@@ -95,7 +132,7 @@ function Veil({ fade }) {
 }
 
 // The captured demo clip the results dancers celebrate to, loaded once.
-let celebration = null;
+let celebration: Promise<MotionTake> | null = null;
 const loadCelebration = () => {
   celebration ??= fetch(motionUrl).then((r) => {
     if (!r.ok) throw Error('Celebration clip unavailable');
@@ -104,22 +141,31 @@ const loadCelebration = () => {
   return celebration;
 };
 
-function Results({ show, floor, accent }) {
-  const [motion, setMotion] = useState(null);
+function Results({ show, floor, accent }: { show: RefObject<ResultsShow>; floor: DancerPlacement; accent: StageMeta['accent'] }) {
+  const [motion, setMotion] = useState<MotionTake | null>(null);
   const playback = useRef(0);
   useEffect(() => {
     let alive = true;
-    loadCelebration().then((m) => alive && setMotion(m), (error) => console.warn('[stage] results dancers:', error.message));
+    loadCelebration().then((m) => alive && setMotion(m), (error: unknown) => console.warn('[stage] results dancers:', error instanceof Error ? error.message : error));
     return () => { alive = false; };
   }, []);
   useFrame((_, delta) => { playback.current += Math.min(delta, 0.1); });
   return motion ? <ResultsDancers motion={motion} playback={playback} show={show} floor={floor} accent={accent} /> : null;
 }
 
+interface StageContentProps {
+  id: StageId;
+  routine: SongRoutine | null;
+  live: LiveDancers | null;
+  results: RefObject<ResultsShow | null> | null;
+  onReady: ReadyHandler;
+  onDancersFail: () => void;
+}
+
 // Everything inside the portal: the pipeline, the stage and its dancers.
-function StageContent({ id, routine, live, results, onReady, onDancersFail }) {
+function StageContent({ id, routine, live, results, onReady, onDancersFail }: StageContentProps) {
   const gl = useThree((state) => state.gl);
-  const { meta, Component: Stage } = byId[id];
+  const { meta, Component: Stage } = stageFor(id);
 
   // Borrow the renderer's settings while a stage is up (the Aero world sets its own once).
   useLayoutEffect(() => {
@@ -144,8 +190,9 @@ function StageContent({ id, routine, live, results, onReady, onDancersFail }) {
 
   // Beat-reactive lights follow the song while it plays, when it knows its tempo.
   useFrame((_, delta) => {
+    // Display metadata: only a numeric tempo drives the lights.
     const bpm = routine?.bundle.song.bpm;
-    if (!bpm || !routine.playing()) return;
+    if (!routine || typeof bpm !== 'number' || !bpm || !routine.playing()) return;
     beat.bpm = bpm;
     // RenderPipeline's tickBeat adds this frame's delta next.
     beat.time = routine.timeMs() / 1000 - Math.min(delta, 0.1);
@@ -163,7 +210,7 @@ function StageContent({ id, routine, live, results, onReady, onDancersFail }) {
       {/* A new song or stage gives dancers that failed to load another try. */}
       <DancerBoundary key={`${id}|${routine?.bundle.song.songId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
         {results
-          ? <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent ?? ['#7fe3ff', '#0a8fd8']} />
+          ? hasShow(results) && <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent} />
           : <Dancers routine={routine} {...meta.dancers} />}
         {live && !results && <LivePanels live={live} />}
       </DancerBoundary>
@@ -171,21 +218,31 @@ function StageContent({ id, routine, live, results, onReady, onDancersFail }) {
   );
 }
 
-export default function StageView({ active = false, orbiting = false, stageId, routine, live = null, results = null, onState }) {
+interface StageViewState {
+  loaded: StageId | null;
+  failed: Set<StageId>;
+  dancersFailed: boolean;
+  routine: SongRoutine | null;
+  /** The stage last mounted behind the veil (undefined before the first). */
+  requested: StageId | null | undefined;
+  reported: string;
+}
+
+export default function StageView({ active = false, orbiting = false, stageId, routine, live = null, results = null, onState }: StageViewProps) {
   const scene = useMemo(() => new THREE.Scene(), []);
-  const [shown, setShown] = useState(null);
-  const fade = useRef({ value: 0, settled: 0 });
-  const st = useRef({ loaded: null, failed: new Set(), dancersFailed: false, routine: null, requested: undefined, reported: '' }).current;
+  const [shown, setShown] = useState<StageId | null>(null);
+  const fade = useRef<Fade>({ value: 0, settled: 0 });
+  const st = useRef<StageViewState>({ loaded: null, failed: new Set(), dancersFailed: false, routine: null, requested: undefined, reported: '' }).current;
   const target = active ? resolveStage(stageId) : null;
-  const props = useRef({});
+  const props = useRef({ target, shown, onState, routine, orbiting });
   props.current = { target, shown, onState, routine, orbiting };
   const orbit = useRef({ speed: 0, phase: 0, ramp: 0, on: false });
   // Keep dancing the last routine while the veil comes up on the way out.
-  const lastRoutine = useRef(null);
+  const lastRoutine = useRef<SongRoutine | null>(null);
   if (routine) lastRoutine.current = routine;
   else if (!shown) lastRoutine.current = null;
 
-  const onReady = useMemo(() => (id, failed) => {
+  const onReady = useMemo((): ReadyHandler => (id, failed) => {
     st.loaded = id;
     if (failed) st.failed.add(id);
   }, [st]);
@@ -204,7 +261,7 @@ export default function StageView({ active = false, orbiting = false, stageId, r
       Object.assign(o, { speed: 0, phase: 0, ramp: 0, on: false });
       stageOrbit.yaw = 0;
     } else if (props.current.orbiting && want === have && !reducedMotion && dt > 0) {
-      const swing = byId[have].meta.previewOrbit?.swing;
+      const swing = stageFor(have).meta.previewOrbit?.swing;
       // Pick up from wherever the camera is (it may still be swinging back from the last song).
       if (!o.on) Object.assign(o, { on: true, ramp: 0, phase: swing ? Math.asin(Math.max(-1, Math.min(1, stageOrbit.yaw / swing))) : stageOrbit.yaw });
       o.ramp += (1 - o.ramp) * Math.min(1, dt * 1.5);
@@ -225,7 +282,7 @@ export default function StageView({ active = false, orbiting = false, stageId, r
       if (f.value >= 1 && st.requested !== want) {
         st.requested = want;
         st.loaded = null;
-        st.failed.delete(want);
+        if (want) st.failed.delete(want);
         st.dancersFailed = false;
         f.settled = 0;
         // Behind the veil: the next stage starts from the front.

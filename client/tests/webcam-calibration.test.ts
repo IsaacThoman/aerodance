@@ -1,16 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { WebcamCalibration, WEBCAM_STILL_MS, WEBCAM_FRAME_GAP_MS } from '../src/game/webcamCalibration.ts';
+import type { CalibrationRecord } from '../src/game/webcamCalibration.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
+import type { PlayerCount, Pose } from '../../packages/pose/choreography.ts';
 
-const poses = (count = 2) => Array.from({ length: count }, (_, playerId) => ({ playerId, landmarks: standingPose(count === 1 ? 0.5 : 0.3 + playerId * 0.4) }));
-function camera(count = 2) {
+const poses = (count: PlayerCount = 2): Pose[] => Array.from({ length: count }, (_, playerId) => ({ playerId, landmarks: standingPose(count === 1 ? 0.5 : 0.3 + playerId * 0.4) }));
+function camera(count: PlayerCount = 2) {
   const calibration = new WebcamCalibration(count);
   let seq = 0;
-  const send = (time, players = poses(count), patch = {}, lag = 0) => calibration.accept({
+  const send = (time: number, players = poses(count), patch: Partial<CalibrationRecord> = {}, lag = 0) => calibration.accept({
     sessionId: 'camera', seq: ++seq, input: { width: 1280, height: 720 }, poses: players, ...patch,
   }, time, time + lag);
-  const hold = (start, end, transform = p => p) => {
+  const hold = (start: number, end: number, transform = (p: Pose[], _time: number) => p) => {
     for (let time = start; time <= end; time += 100) send(time, transform(poses(count), time));
   };
   return { calibration, send, hold };
@@ -27,6 +29,7 @@ test('both players hold together for 2.5 seconds; jitter is allowed and each sta
   assert.equal(calibration.status(4500).complete, false);
   assert.equal(send(4600), true);
   assert.deepEqual(calibration.status(4600), { players: ['ready', 'ready'], progress: 1, complete: true });
+  assert.ok(calibration.tracks);
   assert.equal(calibration.tracks.length, 2);
   for (const [id, track] of calibration.tracks.entries()) {
     assert.equal(track.profileVersion, 2);
@@ -62,7 +65,8 @@ test('slow drift is measured against the initial stance, not just the previous f
 });
 
 test('missing players, low confidence and feet outside the image reset the hold', () => {
-  for (const partial of [p => [p[0]], p => { p[1].landmarks[27].visibility = 0.1; return p; }, p => { p[1].landmarks[28].y = 1.1; return p; }]) {
+  const partials: ((p: Pose[]) => Pose[])[] = [p => [p[0]], p => { p[1].landmarks[27].visibility = 0.1; return p; }, p => { p[1].landmarks[28].y = 1.1; return p; }];
+  for (const partial of partials) {
     const { calibration, send, hold } = camera();
     hold(0, 1500);
     send(1600, partial(poses()));

@@ -4,11 +4,14 @@ import * as THREE from 'three';
 import { PCFShadowMap } from 'three';
 import { validateMotion } from '../../../../packages/character/motion.ts';
 import motionUrl from '../../../../packages/character/assets/dance.json?url';
+import type { MotionTake } from '../../../../packages/pose/legacy.ts';
 import { STAGES } from '../../../../packages/stages/index.ts';
+import type { Stage, StageId } from '../../../../packages/stages/index.ts';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
-import { BUFFER, DESIGN, SHOTS } from './shots.ts';
+import { BUFFER, DESIGN, SHOTS, assertShot } from './shots.ts';
+import type { Shot, ShotCamera as ShotCameraSpec, ShotLogo, ThumbnailWindow } from './shots.ts';
 
 /*
  * Renders one thumbnail in-engine: a dance stage, the two captured dancers holding a pose,
@@ -27,17 +30,29 @@ import { BUFFER, DESIGN, SHOTS } from './shots.ts';
 
 const STEP = 1 / 60;
 
-function shotFromUrl() {
+function shotFromUrl(): Shot {
   const params = new URLSearchParams(window.location.search);
-  if (params.has('spec')) return JSON.parse(params.get('spec'));
+  const spec = params.get('spec');
+  if (spec !== null) {
+    const shot: unknown = JSON.parse(spec);
+    assertShot(shot);
+    return shot;
+  }
   return SHOTS.find((s) => s.id === params.get('shot')) ?? SHOTS[0];
+}
+
+function stageFor(id: StageId): Stage {
+  const stage = STAGES.find((s) => s.meta.id === id);
+  if (!stage) throw new Error(`Unknown stage "${id}"`);
+  return stage;
 }
 
 // The shot's camera, at 3:2, stands in for the stage's own (orbiting, 16:9) camera:
 // it takes over as the default camera whenever the stage sets its own.
-function ShotCamera({ position, target, fov = 40, near, far }) {
+function ShotCamera({ position, target, fov = 40, near, far }: ShotCameraSpec) {
   const camera = useMemo(() => {
-    const cam = new THREE.PerspectiveCamera(fov, BUFFER.aspect, near ?? 0.1, far ?? 2000);
+    // manual: fiber leaves its aspect alone on resize.
+    const cam: THREE.PerspectiveCamera & { manual?: boolean } = new THREE.PerspectiveCamera(fov, BUFFER.aspect, near ?? 0.1, far ?? 2000);
     cam.manual = true;
     cam.position.set(...position);
     cam.lookAt(...target);
@@ -56,18 +71,19 @@ function ShotCamera({ position, target, fov = 40, near, far }) {
   return null;
 }
 
-function Ready({ onReady }) {
+function Ready({ onReady }: { onReady: () => void }) {
   useLayoutEffect(() => onReady(), [onReady]);
   return null;
 }
 
 // The title screen's wordmark on a buffer-sized canvas, laid out in 3:2 design units and
 // drawn over the frame with nearest filtering, exactly as the game's canvas UI draws it.
-function makeLogo(logo) {
+function makeLogo(logo: ShotLogo) {
   const canvas = document.createElement('canvas');
   canvas.width = BUFFER.width;
   canvas.height = BUFFER.height;
   const g = canvas.getContext('2d');
+  if (!g) throw new Error('2D canvas unavailable');
   g.setTransform(BUFFER.width / DESIGN.width, 0, 0, BUFFER.height / DESIGN.height, 0, 0);
   const w = titleWidth(g, logo.size);
   const x = logo.x === 'left' ? 96 : logo.x === 'right' ? DESIGN.width - 96 - w : typeof logo.x === 'number' ? logo.x : (DESIGN.width - w) / 2;
@@ -87,7 +103,7 @@ function makeLogo(logo) {
 }
 
 // Reads the drawing buffer top-down as base64 RGBA.
-function readFrame(gl) {
+function readFrame(gl: THREE.WebGLRenderer) {
   const ctx = gl.getContext();
   const { width, height } = BUFFER;
   gl.setRenderTarget(null);
@@ -103,7 +119,7 @@ function readFrame(gl) {
 
 const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function until(test, what, timeout = 60000) {
+async function until(test: () => boolean, what: string, timeout = 60000) {
   const start = performance.now();
   while (!test()) {
     if (performance.now() - start > timeout) throw new Error(`Timed out waiting for ${what}`);
@@ -111,11 +127,11 @@ async function until(test, what, timeout = 60000) {
   }
 }
 
-function Thumbnail({ shot, motion }) {
+function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   const size = useThree((s) => s.size);
-  const { meta, Component: Stage } = STAGES.find((s) => s.meta.id === shot.stage);
+  const { meta, Component: Stage } = stageFor(shot.stage);
   const playback = useRef(shot.pose);
   const hud = useMemo(() => ({ scene: new THREE.Scene(), camera: new THREE.OrthographicCamera() }), []);
   const stageReady = useRef(false);
@@ -127,17 +143,17 @@ function Thumbnail({ shot, motion }) {
   useLayoutEffect(() => resetPost(meta.post), [meta]);
 
   useEffect(() => {
-    window.__thumb = {
+    (window as ThumbnailWindow).__thumb = {
       shot,
       renderer: (() => {
         const ctx = gl.getContext();
         const info = ctx.getExtension('WEBGL_debug_renderer_info');
-        return info ? ctx.getParameter(info.UNMASKED_RENDERER_WEBGL) : ctx.getParameter(ctx.RENDERER);
+        return String(info ? ctx.getParameter(info.UNMASKED_RENDERER_WEBGL) : ctx.getParameter(ctx.RENDERER));
       })(),
       async render() {
         await until(() => stageReady.current, 'the stage');
         // Both dancers' rigs are in the scene (the model loads in its own Suspense).
-        await until(() => scene.getObjectsByProperty('name', 'Root').filter((o) => o.isBone).length >= 2, 'the dancers');
+        await until(() => scene.getObjectsByProperty('name', 'Root').filter((o) => 'isBone' in o).length >= 2, 'the dancers');
         // The wordmark's two Inter weights (index.html); never fall back to another font.
         if (shot.logo) {
           const faces = await Promise.all(['800', '200'].map((wt) => document.fonts.load(`${wt} 64px Inter`, 'aerodance')));
@@ -151,7 +167,7 @@ function Thumbnail({ shot, motion }) {
           if (i % 20 === 0) await nextTask();
         }
         const plain = readFrame(gl);
-        let logo = null;
+        let logo: string | null = null;
         if (shot.logo) {
           const layer = makeLogo(shot.logo);
           gl.autoClear = false;
@@ -170,7 +186,7 @@ function Thumbnail({ shot, motion }) {
       <RenderPipeline hudScene={hud.scene} hudCamera={hud.camera} width={BUFFER.width} height={BUFFER.height} aspect={BUFFER.aspect} />
       <ShotCamera {...shot.camera} />
       <Suspense fallback={null}>
-        <Stage motion={motion} playback={playback} />
+        <Stage />
         <Ready onReady={onReady} />
       </Suspense>
       <Dancers motion={motion} playback={playback} {...meta.dancers} {...shot.dancers} />
@@ -180,7 +196,7 @@ function Thumbnail({ shot, motion }) {
 
 export default function App() {
   const shot = useMemo(shotFromUrl, []);
-  const [motion, setMotion] = useState(null);
+  const [motion, setMotion] = useState<MotionTake | null>(null);
   useEffect(() => {
     fetch(motionUrl)
       .then((r) => r.json())

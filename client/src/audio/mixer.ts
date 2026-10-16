@@ -1,4 +1,5 @@
 import { loadSound } from '../menu/soundSettings.ts';
+import type { SoundSettings } from '../menu/soundSettings.ts';
 
 /*
  * One AudioContext for the page, wired like a little mixing desk:
@@ -21,14 +22,27 @@ import { loadSound } from '../menu/soundSettings.ts';
  * resumes on that gesture.
  */
 
+export interface Mixer {
+  ctx: AudioContext;
+  master: GainNode;
+  music: GainNode;
+  menuMusic: GainNode;
+  menuDuck: GainNode;
+  sfx: GainNode;
+}
+/** The mixer inputs music plays into. */
+export type MusicChannel = 'music' | 'menuMusic';
+
 // Kept on the page rather than in the module, so a hot-reloaded copy of this file still shares it.
-const KEY = Symbol.for('aerodance.mixer');
+const KEY: unique symbol = Symbol.for('aerodance.mixer');
+const page = globalThis as typeof globalThis & { [KEY]?: Mixer };
 
 // Sliders are linear 0..1; squaring makes equal slider moves sound like equal steps.
-const level = (v) => Math.max(0, Math.min(1, Number(v) || 0)) ** 2;
+const level = (v: number) => Math.max(0, Math.min(1, Number(v) || 0)) ** 2;
 
-export function getMixer() {
-  if (globalThis[KEY]) return globalThis[KEY];
+export function getMixer(): Mixer {
+  const shared = page[KEY];
+  if (shared) return shared;
   const ctx = new AudioContext();
   const gain = () => ctx.createGain();
   const master = gain();
@@ -48,8 +62,8 @@ export function getMixer() {
   music.connect(master);
   sfx.connect(master);
   master.connect(limiter).connect(ctx.destination);
-  const mixer = { ctx, master, music, menuMusic, menuDuck, sfx };
-  globalThis[KEY] = mixer;
+  const mixer: Mixer = { ctx, master, music, menuMusic, menuDuck, sfx };
+  page[KEY] = mixer;
 
   const unlock = () => { if (ctx.state === 'suspended') ctx.resume(); };
   for (const type of ['pointerdown', 'pointerup', 'keydown', 'touchend']) window.addEventListener(type, unlock, true);
@@ -58,7 +72,7 @@ export function getMixer() {
   return mixer;
 }
 
-const set = (param, value, ctx) => {
+const set = (param: AudioParam, value: number, ctx: BaseAudioContext) => {
   // A short timed ramp (no zipper noise while a slider is dragged). Not setTargetAtTime:
   // Chrome only advances that glide while sound flows through the node, so an idle effects
   // channel would play its next button sound at the old volume.
@@ -68,7 +82,7 @@ const set = (param, value, ctx) => {
   param.linearRampToValueAtTime(value, now + 0.03);
 };
 
-export function applySound(sound) {
+export function applySound(sound: SoundSettings) {
   const { ctx, master, music, menuMusic, sfx } = getMixer();
   set(master.gain, sound.muted ? 0 : level(sound.master), ctx);
   set(music.gain, level(sound.music), ctx);
@@ -76,7 +90,7 @@ export function applySound(sound) {
   set(sfx.gain, level(sound.sfx), ctx);
 }
 
-export function duckMenuMusic(on) {
+export function duckMenuMusic(on: boolean) {
   const { ctx, menuDuck } = getMixer();
   const now = ctx.currentTime;
   menuDuck.gain.cancelScheduledValues(now);

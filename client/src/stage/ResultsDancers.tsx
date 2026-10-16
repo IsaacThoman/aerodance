@@ -1,9 +1,13 @@
 import { Suspense, createRef, useEffect, useMemo, useRef } from 'react';
+import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Character from '../../../packages/character/Character.tsx';
 import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
+import type { DancerPlacement, StageMeta } from '../../../packages/stages/index.ts';
+import type { MotionTake } from '../../../packages/pose/legacy.ts';
 import { PLAYERS, REVEAL, easeOut, timeline } from '../game/results.ts';
+import type { ResultsShow } from '../game/results.ts';
 
 /*
  * The 3D side of the results screen, in place of the
@@ -18,9 +22,11 @@ import { PLAYERS, REVEAL, easeOut, timeline } from '../game/results.ts';
 const FOOT_CLEARANCE = 0.015;
 const GOLD = '#ffd34d';
 
-function Halo({ color, intensity }) {
-  const ring = useRef();
-  const glow = useRef();
+interface GlowProps { color: string; intensity: RefObject<number>; }
+
+function Halo({ color, intensity }: GlowProps) {
+  const ring = useRef<THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>>(null);
+  const glow = useRef<THREE.Mesh>(null);
   const material = useMemo(() => new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -42,9 +48,11 @@ function Halo({ color, intensity }) {
     const k = intensity.current;
     material.uniforms.uK.value = k;
     material.uniforms.uTime.value = s.clock.elapsedTime;
-    ring.current.scale.setScalar(0.6 + 0.4 * k);
-    ring.current.material.opacity = k;
-    glow.current.visible = k > 0.01;
+    if (ring.current) {
+      ring.current.scale.setScalar(0.6 + 0.4 * k);
+      ring.current.material.opacity = k;
+    }
+    if (glow.current) glow.current.visible = k > 0.01;
   });
   return (
     <group position={[0, 0.02, 0]}>
@@ -59,7 +67,7 @@ function Halo({ color, intensity }) {
   );
 }
 
-function LightColumn({ color, intensity }) {
+function LightColumn({ color, intensity }: GlowProps) {
   const material = useMemo(() => new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -80,8 +88,8 @@ function LightColumn({ color, intensity }) {
 }
 
 const CONFETTI = 160;
-function Confetti({ colors, show }) {
-  const mesh = useRef();
+function Confetti({ colors, show }: { colors: readonly string[]; show: RefObject<ResultsShow> }) {
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const pieces = useMemo(() => Array.from({ length: CONFETTI }, () => ({
     x: (Math.random() - 0.5) * 9,
     z: (Math.random() - 0.5) * 4,
@@ -96,11 +104,15 @@ function Confetti({ colors, show }) {
   const material = useMemo(() => new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false }), []);
   useEffect(() => () => { geometry.dispose(); material.dispose(); }, [geometry, material]);
   useEffect(() => {
+    const m = mesh.current;
+    if (!m) return;
     const c = new THREE.Color();
-    for (let i = 0; i < CONFETTI; i++) mesh.current.setColorAt(i, c.set(colors[i % colors.length]));
-    mesh.current.instanceColor.needsUpdate = true;
+    for (let i = 0; i < CONFETTI; i++) m.setColorAt(i, c.set(colors[i % colors.length]));
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
   }, [colors]);
   useFrame(() => {
+    const m = mesh.current;
+    if (!m) return;
     const s = show.current;
     const t = timeline(s, performance.now() / 1000).t - REVEAL;
     pieces.forEach((p, i) => {
@@ -111,9 +123,9 @@ function Confetti({ colors, show }) {
       dummy.rotation.set(age * p.spin, age * p.spin * 0.7, age * 0.9);
       dummy.scale.setScalar(age < 0 ? 0 : 1);
       dummy.updateMatrix();
-      mesh.current.setMatrixAt(i, dummy.matrix);
+      m.setMatrixAt(i, dummy.matrix);
     });
-    mesh.current.instanceMatrix.needsUpdate = true;
+    m.instanceMatrix.needsUpdate = true;
   });
   return <instancedMesh ref={mesh} args={[geometry, material, CONFETTI]} frustumCulled={false} />;
 }
@@ -123,14 +135,23 @@ function Confetti({ colors, show }) {
  * floor: the stage's meta.dancers ({ position, rotationY, spacing, scale })
  * motion, playback: the captured demo clip the dancers celebrate to
  */
-export default function ResultsDancers({ motion, playback, show, floor, accent }) {
+export interface ResultsDancersProps {
+  motion: MotionTake;
+  /** Seconds into the motion take. */
+  playback: RefObject<number>;
+  show: RefObject<ResultsShow>;
+  floor: DancerPlacement;
+  accent: StageMeta['accent'];
+}
+
+export default function ResultsDancers({ motion, playback, show, floor, accent }: ResultsDancersProps) {
   const { position = [0, 0, 0], rotationY = 0, spacing = 4, scale = 1 } = floor;
   const s0 = show.current;
   const count = s0.results.length;
   const solo = count === 1;
   const seats = Array.from({ length: count }, (_, i) => i);
-  const groups = useMemo(() => Array.from({ length: count }, () => createRef()), [count]);
-  const halo = useMemo(() => Array.from({ length: count }, () => ({ current: 0 })), [count]);
+  const groups = useMemo(() => Array.from({ length: count }, () => createRef<THREE.Group>()), [count]);
+  const halo = useMemo((): RefObject<number>[] => Array.from({ length: count }, () => ({ current: 0 })), [count]);
   const column = useRef(0);
   const winColor = s0.winner === null ? GOLD : PLAYERS[s0.winner % PLAYERS.length].color;
   const confettiColors = useMemo(() => (s0.winner === null ? [GOLD, '#ffffff', accent[0]] : [PLAYERS[s0.winner % PLAYERS.length].color, PLAYERS[s0.winner % PLAYERS.length].light, '#ffffff', accent[0], GOLD]), [s0.winner, accent]);

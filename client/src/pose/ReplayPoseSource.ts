@@ -1,4 +1,10 @@
 import { sampleSong } from '../../../packages/pose/song.ts';
+import { assertPoses, finite, isObject, isPlayerCount } from '../../../packages/pose/choreography.ts';
+import type { CaptureInput, Landmark, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
+import type { ProtocolPoseRecord } from '../../../packages/pose/protocol.ts';
+import type { PoseRecordEvent, RecordTiming } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import { isPoseRecordEvent } from './PoseSource.ts';
+import type { LivePoseRecord, PoseInputView, PoseSource, SongClock } from './PoseSource.ts';
 
 /*
  * A pose source that plays back poses instead of tracking anyone, with the same surface as
@@ -18,14 +24,42 @@ import { sampleSong } from '../../../packages/pose/song.ts';
 
 const RATE_HZ = 10;
 const STALE_MS = 500;
-const ASPECT_INPUT = { width: 640, height: 480, mirrored: false };
+const ASPECT_INPUT: CaptureInput = { width: 640, height: 480, mirrored: false };
+
+export type ReplayMode = 'ghost' | 'recording';
+export interface ReplayView extends PoseInputView {
+  status: 'connected' | 'disconnected';
+  sourceKind: 'replay';
+  snapshot: ProtocolPoseRecord | null;
+  timing: RecordTiming;
+  model: 'replay';
+}
+/** The first line of a pose recording. */
+export interface PoseRecordingHeader {
+  schema: 'aerodance.pose-recording'; schemaVersion: 1;
+  songId: string; playerCount: PlayerCount; recordedAt: string;
+}
+/** What a recording keeps of each record: enough to replay it. */
+export type RecordedPose = Pick<LivePoseRecord, 'type' | 'input' | 'poses'>;
+export interface PoseRecordingEntry { songTimeMs: number; timing?: unknown; record: RecordedPose; }
+export interface PoseRecording { header: PoseRecordingHeader; entries: PoseRecordingEntry[]; }
+export interface ReplayPoseSourceOptions {
+  now?: () => number;
+  mode?: ReplayMode;
+  recording?: PoseRecording | null;
+  /** The ghost dances this far behind the routine. */
+  lagMs?: number;
+  /** Tracking noise (image units, standard deviation). */
+  noise?: number;
+  seed?: number;
+}
 
 /** A relaxed standing pose centred at image x = cx (unmirrored: the person's left is image right). */
-export function standingPose(cx) {
-  const at = (dx, y) => ({ x: cx + dx, y, z: 0, visibility: 0.99, presence: 0.99 });
-  const lm = [];
+export function standingPose(cx: number): Landmark[] {
+  const at = (dx: number, y: number): Landmark => ({ x: cx + dx, y, z: 0, visibility: 0.99, presence: 0.99 });
+  const lm: Landmark[] = [];
   lm[0] = at(0, 0.2);
-  [[1, 0.012], [2, 0.02], [3, 0.028]].forEach(([i, dx]) => { lm[i] = at(dx, 0.19); lm[i + 3] = at(-dx, 0.19); });
+  ([[1, 0.012], [2, 0.02], [3, 0.028]] as const).forEach(([i, dx]) => { lm[i] = at(dx, 0.19); lm[i + 3] = at(-dx, 0.19); });
   lm[7] = at(0.035, 0.2); lm[8] = at(-0.035, 0.2);
   lm[9] = at(0.012, 0.225); lm[10] = at(-0.012, 0.225);
   for (const [i, dx, y] of [[11, 0.07, 0.32], [13, 0.085, 0.44], [15, 0.09, 0.55], [17, 0.095, 0.58], [19, 0.09, 0.59], [21, 0.08, 0.57],
@@ -36,46 +70,68 @@ export function standingPose(cx) {
   return lm;
 }
 
-function gaussian(rnd) {
+function gaussian(rnd: () => number) {
   return Math.sqrt(-2 * Math.log(rnd() || 1e-9)) * Math.cos(2 * Math.PI * rnd());
 }
 
+function isRecordingHeader(header: unknown): header is PoseRecordingHeader {
+  return isObject(header) && header.schema === 'aerodance.pose-recording' && header.schemaVersion === 1 &&
+    typeof header.songId === 'string' && isPlayerCount(header.playerCount) && typeof header.recordedAt === 'string';
+}
+// A recorded pose line: its song time and a pose record with valid poses and input.
+function isRecordingEntry(entry: unknown): entry is PoseRecordingEntry {
+  if (!isObject(entry) || !finite(entry.songTimeMs) || !isObject(entry.record) || entry.record.type !== 'pose') return false;
+  const { input, poses } = entry.record;
+  if (!isObject(input) || !finite(input.width) || !finite(input.height) || typeof input.mirrored !== 'boolean') return false;
+  try { assertPoses(poses); } catch { return false; }
+  return true;
+}
+
 /** Parse an NDJSON pose recording: a header line, then { songTimeMs, record } lines. */
-export function parseRecording(text) {
+export function parseRecording(text: string): PoseRecording {
   const lines = text.split('\n').filter((l) => l.trim());
-  const header = JSON.parse(lines[0]);
-  if (header.schema !== 'aerodance.pose-recording' || header.schemaVersion !== 1) throw Error('Unsupported pose recording');
-  const entries = lines.slice(1).map((l) => JSON.parse(l)).filter((e) => Number.isFinite(e.songTimeMs) && e.record?.type === 'pose');
+  const header: unknown = JSON.parse(lines[0]);
+  if (!isRecordingHeader(header)) throw Error('Unsupported pose recording');
+  const entries = lines.slice(1).map((l): unknown => JSON.parse(l)).filter(isRecordingEntry);
   entries.sort((a, b) => a.songTimeMs - b.songTimeMs);
   return { header, entries };
 }
 
-export class ReplayPoseSource {
-  constructor({ now = () => performance.now(), mode = 'ghost', recording = null, lagMs = 0, noise = 0.006, seed = 7 } = {}) {
-    Object.assign(this, { now, mode, recording, lagMs, noise });
-    this.listeners = new Set();
-    this.recordListeners = new Set();
-    this.playerCount = 1;
-    this.song = null;
-    this.seq = 0;
-    this.cursor = 0;
-    this.last = null;
-    this.lastAt = null;
-    this.timer = null;
+type RecordListener = (event: PoseRecordEvent<ProtocolPoseRecord>) => void;
+
+export class ReplayPoseSource implements PoseSource {
+  now: () => number;
+  mode: ReplayMode;
+  recording: PoseRecording | null;
+  lagMs: number;
+  noise: number;
+  listeners = new Set<(view: ReplayView) => void>();
+  recordListeners = new Set<RecordListener>();
+  playerCount: PlayerCount = 1;
+  song: SongClock | null = null;
+  seq = 0;
+  cursor = 0;
+  last: ProtocolPoseRecord | null = null;
+  lastAt: number | null = null;
+  timer: ReturnType<typeof setInterval> | null = null;
+  rnd: () => number;
+  view: ReplayView;
+  constructor({ now = () => performance.now(), mode = 'ghost', recording = null, lagMs = 0, noise = 0.006, seed = 7 }: ReplayPoseSourceOptions = {}) {
+    this.now = now; this.mode = mode; this.recording = recording; this.lagMs = lagMs; this.noise = noise;
     let s = seed;
     this.rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-    this.view = { status: 'disconnected', message: '', snapshot: null, configuring: false, timing: { method: 'none', uncertaintyMs: null }, model: 'replay' };
+    this.view = { status: 'disconnected', sourceKind: 'replay', message: '', snapshot: null, configuring: false, timing: { method: 'none', uncertaintyMs: null }, model: 'replay' };
   }
-  subscribe(listener) {
+  subscribe(listener: (view: ReplayView) => void) {
     this.listeners.add(listener);
     listener(this.view);
-    return () => this.listeners.delete(listener);
+    return () => { this.listeners.delete(listener); };
   }
-  subscribeRecords(listener) {
+  subscribeRecords(listener: RecordListener) {
     this.recordListeners.add(listener);
-    return () => this.recordListeners.delete(listener);
+    return () => { this.recordListeners.delete(listener); };
   }
-  publish(patch) {
+  publish(patch: Partial<ReplayView>) {
     this.view = { ...this.view, ...patch };
     for (const listener of this.listeners) listener(this.view);
   }
@@ -85,25 +141,24 @@ export class ReplayPoseSource {
     this.timer = setInterval(() => this.tick(), 1000 / RATE_HZ / 2);
   }
   disconnect() {
-    clearInterval(this.timer);
+    if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.last = null;
     this.publish({ status: 'disconnected', snapshot: null, message: '' });
   }
-  async setPlayerCount(count) {
+  async setPlayerCount(count: PlayerCount) {
     if (![1, 2].includes(count)) throw Error('Choose one or two players');
     this.playerCount = count;
     this.last = null;
     this.publish({ snapshot: null });
   }
-  attachSong(song) {
+  attachSong(song: SongClock | null) {
     this.song = song;
     this.cursor = 0;
-    this.nextGhostSongMs = null;
   }
-  emit(poses, captureBrowserTimeMs, input = ASPECT_INPUT) {
+  emit(poses: Pose[], captureBrowserTimeMs: number, input = ASPECT_INPUT) {
     const frame = Math.round(captureBrowserTimeMs);
-    const record = {
+    const record: ProtocolPoseRecord = {
       protocolVersion: 2, type: 'pose', sessionId: 'replay', seq: ++this.seq, playerCount: this.playerCount,
       frameReceivedTimeMs: frame, resultTimeMs: frame, input, poses,
     };
@@ -112,11 +167,11 @@ export class ReplayPoseSource {
     this.lastAt = receivedBrowserTimeMs;
     for (const listener of this.recordListeners) listener({ record, receivedBrowserTimeMs, captureBrowserTimeMs, timing: this.view.timing });
   }
-  jitter(landmarks) {
+  jitter(landmarks: Landmark[]) {
     if (!this.noise) return landmarks;
     return landmarks.map((j) => ({ ...j, x: j.x + gaussian(this.rnd) * this.noise, y: j.y + gaussian(this.rnd) * this.noise }));
   }
-  standing() {
+  standing(): Pose[] {
     const xs = this.playerCount === 1 ? [0.5] : [0.7, 0.3];
     return xs.map((cx, playerId) => ({ playerId, landmarks: this.jitter(standingPose(cx)) }));
   }
@@ -130,10 +185,10 @@ export class ReplayPoseSource {
     } else {
       this.tickRecording(song, now);
     }
-    const snapshot = this.last && now - this.lastAt < STALE_MS ? this.last : null;
+    const snapshot = this.last && this.lastAt !== null && now - this.lastAt < STALE_MS ? this.last : null;
     if (snapshot !== this.view.snapshot) this.publish({ snapshot });
   }
-  tickGhost(song, now) {
+  tickGhost(song: SongClock, now: number) {
     const songNow = song.songTimeAt(now);
     if (this.lastAt !== null && now - this.lastAt < 1000 / RATE_HZ) return;
     const { bundle } = song;
@@ -145,7 +200,7 @@ export class ReplayPoseSource {
     const { inputWidth: width, inputHeight: height } = bundle.choreography.tracks[0].calibration;
     this.emit(poses, now, { width, height, mirrored: false });
   }
-  tickRecording(song, now) {
+  tickRecording(song: SongClock, now: number) {
     if (!song.playing()) return;
     const songNow = song.songTimeAt(now);
     const entries = this.recording?.entries ?? [];
@@ -161,10 +216,24 @@ export class ReplayPoseSource {
  * Records every pose a source delivers during a song, at the song time it was captured, for
  * replay (ReplayPoseSource 'recording') and scoring research. Call stop() for NDJSON text.
  */
-export function createPoseRecorder(source, { songId, songTimeAt, playerCount }) {
-  const lines = [JSON.stringify({ schema: 'aerodance.pose-recording', schemaVersion: 1, songId, playerCount, recordedAt: new Date().toISOString() })];
-  const off = source.subscribeRecords(({ record, captureBrowserTimeMs, timing }) => {
-    if (record?.type !== 'pose' || !Number.isFinite(captureBrowserTimeMs)) return;
+export interface PoseRecorderOptions {
+  songId: string;
+  /** The song position audible at a performance.now() time. */
+  songTimeAt: (perfMs: number) => number;
+  playerCount: PlayerCount;
+}
+export interface PoseRecorder {
+  /** Stops recording; returns the recording as NDJSON. */
+  stop(): string;
+}
+
+export function createPoseRecorder(source: Pick<PoseSource, 'subscribeRecords'>, { songId, songTimeAt, playerCount }: PoseRecorderOptions): PoseRecorder {
+  const header: PoseRecordingHeader = { schema: 'aerodance.pose-recording', schemaVersion: 1, songId, playerCount, recordedAt: new Date().toISOString() };
+  const lines = [JSON.stringify(header)];
+  const off = source.subscribeRecords((event) => {
+    if (!isPoseRecordEvent(event)) return;
+    const { record, captureBrowserTimeMs, timing } = event;
+    if (record.type !== 'pose' || !Number.isFinite(captureBrowserTimeMs)) return;
     lines.push(JSON.stringify({ songTimeMs: Math.round(songTimeAt(captureBrowserTimeMs) * 10) / 10, timing: timing?.method, record }));
   });
   return {

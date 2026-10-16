@@ -1,11 +1,12 @@
 // Song Select layout in 1600x900 design units, shared with the browser flow test.
+import type { Rect } from '../ui/draw.ts';
 
 // Both phases: back button + heading, top left (under the server HUD).
 export const BACK = { x: 166, y: 150, r: 30 };
 
 // List phase: songs down the left.
 export const ROWS = { x: 128, y: 258, w: 560, h: 88, gap: 16, perPage: 4 };
-export const rowRect = (i) => ({ x: ROWS.x, y: ROWS.y + i * (ROWS.h + ROWS.gap), w: ROWS.w, h: ROWS.h });
+export const rowRect = (i: number): Rect => ({ x: ROWS.x, y: ROWS.y + i * (ROWS.h + ROWS.gap), w: ROWS.w, h: ROWS.h });
 export const PAGE_UP = { x: 730, y: ROWS.y + ROWS.h / 2, r: 28 };
 export const PAGE_DOWN = { x: 730, y: ROWS.y + 3 * (ROWS.h + ROWS.gap) + ROWS.h / 2, r: 28 };
 export const RETRY = { x: 128, y: 340, w: 300, h: 80 };
@@ -19,7 +20,7 @@ export const PREVIEW_NOTE = { x: 128, y: 830 };
 // player 2 top right; each character stands in a box `height` tall whose top is at `top`
 // and whose centre is `inset` in from its side.
 export const LIVE_PANEL = { inset: 0.1, top: 0.17, height: 0.27 };
-export const livePanelCenterX = (id) => (id === 0 ? LIVE_PANEL.inset : 1 - LIVE_PANEL.inset);
+export const livePanelCenterX = (id: number) => (id === 0 ? LIVE_PANEL.inset : 1 - LIVE_PANEL.inset);
 
 // Gameplay overlay (GameScreen.jsx).
 export const GAME_PAUSE = { x: 800, y: 66, r: 30 };

@@ -3,14 +3,23 @@ import { useThree } from '@react-three/fiber';
 import {
   FONT, ICONS, drawGlassCircle, drawHeader, drawPill, drawShadowText, ellipsize, paragraph,
 } from '../ui/draw.ts';
+import type { Circle, IconName } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
+import type { Widget } from '../ui/useCanvasUI.ts';
 import { duckMenuMusic } from '../audio/mixer.ts';
 import { createSongPlayer } from '../audio/songPlayer.ts';
+import type { SongPlayer } from '../audio/songPlayer.ts';
 import { loadSongBundle } from '../songs/loadBundle.ts';
+import type { LoadedSongBundle } from '../songs/loadBundle.ts';
 import { validateCatalog } from '../../../packages/pose/song.ts';
+import type { CatalogSong } from '../../../packages/pose/song.ts';
+import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import { SCORER_VERSION } from '../../../packages/score/scorer.ts';
 import { bestScore } from './bestScores.ts';
+import type { SongRoutine } from './GameSession.ts';
+import type { PoseInputView } from '../pose/PoseSource.ts';
 import { preloadStage, resolveStage, stageName } from '../../../packages/stages/index.ts';
+import type { StageState } from '../stage/StageView.tsx';
 import {
   BACK, DANCE, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, rowRect,
 } from './layout.ts';
@@ -35,11 +44,42 @@ import {
  *   stageState={{ showing, ready, stage, failed }} onPreviewChange onDance />
  */
 
+export interface SongSelectProps {
+  visible?: boolean;
+  blocked?: boolean;
+  playerCount?: PlayerCount;
+  connection: PoseInputView;
+  onBack?: () => void;
+  stageState?: Partial<StageState>;
+  /** The routine to preview on its stage, or null when the preview closes. */
+  onPreviewChange?: (routine: SongRoutine | null) => void;
+  onDance?: (bundle: LoadedSongBundle) => void;
+}
+type SongScreen = 'list' | 'preview';
+type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
+type PreviewState = 'loading' | 'error' | SongPlayer['state'];
+type SongWidget = Widget & { song?: CatalogSong };
+interface SongSelectState {
+  alpha: number; screen: SongScreen; next: SongScreen; swap: number; page: number;
+  catalog: { status: CatalogStatus; songs: CatalogSong[]; error: string };
+  catalogCtl: AbortController | null;
+  loading: { id: string; controller: AbortController } | null;
+  loadError: string;
+  bundle: LoadedSongBundle | null;
+  player: SongPlayer | null;
+  routine: SongRoutine | null;
+  previewState: PreviewState;
+  previewError: string;
+  drawn: string;
+  reported: string;
+}
+
 const CATALOG_URL = () => new URL(`${import.meta.env.BASE_URL}songs/manifest.json`, window.location.href).href;
 const ACTIVE = ['connecting'];
+const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
 // Each player's tracking, from the pose input (reported for tests as data-player-slots).
-function slotStatus(connection, id) {
+function slotStatus(connection: PoseInputView, id: number): { label: string; kind?: 'detected' } {
   if (connection.snapshot?.poses?.some((p) => p.playerId === id)) return { label: 'Detected', kind: 'detected' };
   if (connection.status === 'initializing') return { label: 'Camera starting…' };
   if (connection.status === 'connected') return { label: 'Step into view' };
@@ -50,11 +90,11 @@ function slotStatus(connection, id) {
 export default function SongSelect({
   visible = false, blocked = false, playerCount = 1, connection, onBack,
   stageState = {}, onPreviewChange, onDance,
-}) {
+}: SongSelectProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({});
+  const props = useRef({ visible, blocked, playerCount, connection, onBack, stageState, onPreviewChange, onDance });
   props.current = { visible, blocked, playerCount, connection, onBack, stageState, onPreviewChange, onDance };
-  const st = useRef({
+  const st = useRef<SongSelectState>({
     alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
     loading: null, loadError: '',
@@ -66,7 +106,7 @@ export default function SongSelect({
   const pages = () => Math.max(1, Math.ceil(songs().length / ROWS.perPage));
   const pageSongs = () => songs().slice(st.page * ROWS.perPage, (st.page + 1) * ROWS.perPage);
   const live = () => props.current.visible && !props.current.blocked && st.alpha > 0.3 && st.screen === st.next;
-  const go = (screen) => {
+  const go = (screen: SongScreen) => {
     if (screen === st.next) return;
     st.next = screen;
     if (ui.pointerKind === 'key') ui.pointer = null;
@@ -82,14 +122,14 @@ export default function SongSelect({
         if (!response.ok) throw Error('Song catalog could not load.');
         return response.json();
       })
-      .then((data) => {
+      .then((data: unknown) => {
         const catalog = validateCatalog(data);
         st.catalog = { status: 'ready', songs: catalog.songs, error: '' };
         st.page = 0;
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (ctl.signal.aborted) return;
-        st.catalog = { status: 'error', songs: [], error: error.message || 'Song catalog could not load.' };
+        st.catalog = { status: 'error', songs: [], error: message(error) || 'Song catalog could not load.' };
       })
       .finally(() => { if (!ctl.signal.aborted) ui.invalidate(); });
   };
@@ -103,12 +143,12 @@ export default function SongSelect({
     props.current.onPreviewChange?.(null);
   };
 
-  const openPreview = (bundle) => {
+  const openPreview = (bundle: LoadedSongBundle) => {
     const { song } = bundle;
     st.bundle = bundle;
     st.previewState = 'loading';
     st.previewError = '';
-    const routine = {
+    const routine: SongRoutine = {
       bundle,
       playerCount: props.current.playerCount,
       // While the timeline is dragged the dancers follow the knob.
@@ -141,14 +181,14 @@ export default function SongSelect({
       .finally(() => ui.invalidate());
   };
 
-  const chooseSong = (entry) => {
+  const chooseSong = (entry: CatalogSong) => {
     st.loading?.controller.abort();
     const controller = new AbortController();
     st.loading = { id: entry.id, controller };
     st.loadError = '';
     loadSongBundle(entry, CATALOG_URL(), { signal: controller.signal })
       .then((bundle) => { if (!controller.signal.aborted && props.current.visible) openPreview(bundle); })
-      .catch((error) => { if (!controller.signal.aborted) st.loadError = error.message; })
+      .catch((error: unknown) => { if (!controller.signal.aborted) st.loadError = message(error); })
       .finally(() => {
         if (controller.signal.aborted) return;
         st.loading = null;
@@ -169,19 +209,19 @@ export default function SongSelect({
     props.current.onDance?.(bundle);
   };
 
-  const ui = useCanvasUI({
+  const ui = useCanvasUI<SongWidget>({
     priority: 2,
     active: live,
     keyNav: true,
     widgets: () => {
       if (st.screen === 'preview') {
-        const list = [
+        const list: SongWidget[] = [
           { id: 'back', circle: BACK },
           { id: 'dance', rect: DANCE },
         ];
         return list;
       }
-      const list = [{ id: 'back', circle: BACK }];
+      const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
         if (!st.loading) pageSongs().forEach((song, i) => list.push({ id: `song-${song.id}`, song, rect: rowRect(i) }));
         if (st.page > 0) list.push({ id: 'page-up', circle: PAGE_UP });
@@ -243,7 +283,7 @@ export default function SongSelect({
     draw: (g, s) => {
       const p = props.current;
       const h = s.hover;
-      const press = (id) => s.press * (h[id] ?? 0);
+      const press = (id: string) => s.press * (h[id] ?? 0);
       const t = st.swap;
       g.save();
       g.globalAlpha = t;
@@ -276,7 +316,9 @@ export default function SongSelect({
             g.font = `700 ${Math.round(rect.h * 0.34)}px ${FONT}`;
             const label = ellipsize(g, song.title, rect.w - rect.h - 44);
             const best = bestScore(song.id, p.playerCount, SCORER_VERSION);
-            const sub = loadingThis ? `Loading bundle${dots}` : [song.artist, song.difficulty ?? 'Routine', song.stage ? stageName(song.stage) : null,
+            // Catalog difficulty is free-form display text.
+            const difficulty = typeof song.difficulty === 'string' || typeof song.difficulty === 'number' ? String(song.difficulty) : 'Routine';
+            const sub = loadingThis ? `Loading bundle${dots}` : [song.artist, difficulty, song.stage ? stageName(song.stage) : null,
               best ? `Best ${best.score.toLocaleString('en-US')} ${best.grade}` : null].filter(Boolean).join(' · ');
             g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
             drawPill(g, rect, {
@@ -285,7 +327,8 @@ export default function SongSelect({
             });
           });
           if (pages() > 1) {
-            for (const [c, id, icon, on] of [[PAGE_UP, 'page-up', 'up', st.page > 0], [PAGE_DOWN, 'page-down', 'down', st.page < pages() - 1]]) {
+            const pagers: [Circle, string, IconName, boolean][] = [[PAGE_UP, 'page-up', 'up', st.page > 0], [PAGE_DOWN, 'page-down', 'down', st.page < pages() - 1]];
+            for (const [c, id, icon, on] of pagers) {
               g.save();
               if (!on) g.globalAlpha *= 0.35;
               drawGlassCircle(g, c, on ? h[id] ?? 0 : 0);

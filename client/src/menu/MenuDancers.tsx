@@ -1,9 +1,12 @@
 import { Component, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../packages/character/Character.tsx';
+import type { CharacterAppearance } from '../../../packages/character/Character.tsx';
 import { validateMotion } from '../../../packages/character/motion.ts';
+import type { MotionTake } from '../../../packages/pose/legacy.ts';
 import motionUrl from '../../../packages/character/assets/dance.json?url';
 
 /**
@@ -18,7 +21,7 @@ import motionUrl from '../../../packages/character/assets/dance.json?url';
  * <MenuDancers visible raised solo />
  */
 
-const DANCERS = [
+const DANCERS: readonly { x: number; appearance: CharacterAppearance }[] = [
   { x: -1.45, appearance: { color: '#078fff', gloss: 85, accessory: 'None' } },
   { x: 1.45, appearance: { color: '#b86bff', gloss: 85, accessory: 'None' } },
 ];
@@ -33,7 +36,7 @@ const SPOT_EPSILON = 0.01;
 const SOLO_HIDE_PROGRESS = 0.95;
 const SOLO_FADE_SECONDS = 0.05;
 
-function Environment({ scene }) {
+function Environment({ scene }: { scene: THREE.Scene }) {
   const gl = useThree((state) => state.gl);
   useEffect(() => {
     const pmrem = new THREE.PMREMGenerator(gl);
@@ -78,24 +81,32 @@ function Puck() {
   );
 }
 
-class Quiet extends Component {
+class Quiet extends Component<{ children?: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(err) { console.warn('Menu dancers could not load', err); }
+  componentDidCatch(err: unknown) { console.warn('Menu dancers could not load', err); }
   render() { return this.state.failed ? null : this.props.children; }
 }
 
-export default function MenuDancers({ visible = true, raised = false, solo = false }) {
+export interface MenuDancersProps {
+  visible?: boolean;
+  /** Song Select: the stage rises to the middle of the screen. */
+  raised?: boolean;
+  /** One player: a single dancer in the middle. */
+  solo?: boolean;
+}
+
+export default function MenuDancers({ visible = true, raised = false, solo = false }: MenuDancersProps) {
   const gl = useThree((state) => state.gl);
   const camera = useThree((state) => state.camera);
-  const [motion, setMotion] = useState(null);
+  const [motion, setMotion] = useState<MotionTake | null>(null);
   const stage = useMemo(() => new THREE.Scene(), []);
   const cam = useMemo(() => new THREE.PerspectiveCamera(30, 16 / 9, 0.5, 60), []);
-  const rig = useRef(null);
+  const rig = useRef<THREE.Group>(null);
   const playback = useRef(0);
   const shown = useRef(0);
   const lift = useRef(0);
-  const spots = useRef([]);
+  const spots = useRef<(THREE.Group | null)[]>([]);
   const purpleOpacity = useRef(1);
   const still = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
@@ -107,7 +118,7 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
         return response.json();
       })
       .then((data) => setMotion(validateMotion(data)))
-      .catch((e) => { if (e.name !== 'AbortError') console.warn('Menu dancers could not load', e); });
+      .catch((e: unknown) => { if (!(e instanceof Error && e.name === 'AbortError')) console.warn('Menu dancers could not load', e); });
     return () => controller.abort();
   }, []);
 
@@ -152,7 +163,7 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
   useFrame(() => {
     if (!motion || !rig.current || shown.current < 0.005) return;
     // Match the world camera's aspect so the stretch to 16:9 is shared.
-    if (cam.aspect !== camera.aspect) { cam.aspect = camera.aspect; cam.updateProjectionMatrix(); }
+    if ('aspect' in camera && cam.aspect !== camera.aspect) { cam.aspect = camera.aspect; cam.updateProjectionMatrix(); }
     const ac = gl.autoClear;
     const tm = gl.toneMapping;
     gl.autoClear = false;

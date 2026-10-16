@@ -8,6 +8,10 @@ import { bundleFixture } from './fixtures/songBundle.ts';
 import { PILL, PRIMARY } from '../src/connect/layout.ts';
 import { BACK as MENU_BACK, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { DANCE, GAME_READY_START, RESULTS_RETRY, rowRect } from '../src/game/layout.ts';
+import type { Rect } from '../src/ui/draw.ts';
+
+/** What the page script adds to window: whether the synthetic dancers are in shot. */
+type TestWindow = typeof window & { cameraVisible: boolean };
 
 const fixture = bundleFixture();
 const files = new Map([
@@ -33,26 +37,28 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
   '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.setDefaultTimeout(60000);
-const errors = [];
+const errors: string[] = [];
 page.on('pageerror', error => errors.push(error.message));
 try {
   await page.addInitScript(({ render }) => {
     if (!render) for (const Type of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
       if (!Type) continue;
       for (const name of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced']) {
-        if (Type.prototype[name]) Type.prototype[name] = () => {};
+        if (Reflect.get(Type.prototype, name)) Reflect.set(Type.prototype, name, () => {});
       }
     }
-    window.cameraVisible = false;
+    const w = window as TestWindow;
+    w.cameraVisible = false;
     Object.defineProperty(navigator, 'mediaDevices', { value: {
       enumerateDevices: async () => [{ kind: 'videoinput', deviceId: 'fixture-camera', label: 'Fixture camera' }],
       getUserMedia: async () => {
         const image = new Image(); image.src = '/pose-fixture.jpg'; await image.decode();
         const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
         const g = canvas.getContext('2d'); let count = 0;
+        if (!g) throw Error('2D canvas unavailable');
         const draw = () => {
           g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
-          if (!window.cameraVisible) return;
+          if (!w.cameraVisible) return;
           const offset = Math.sin(count++ / 20) * 2;
           g.drawImage(image, 200, 0, 600, 667, offset, 40, 320, 356);
           g.drawImage(image, 200, 0, 600, 667, 320 + offset, 40, 320, 356);
@@ -67,12 +73,15 @@ try {
     } });
   }, { render: process.env.UI_RENDER === '1' });
   await page.goto('http://127.0.0.1:4182');
-  const click = async shape => {
-    const r = shape.rect ?? shape, frame = await page.locator('.canvas-frame').boundingBox();
-    await page.mouse.click(frame.x + (r.x + (r.w || 0) / 2) / 1600 * frame.width,
-      frame.y + (r.y + (r.h || 0) / 2) / 900 * frame.height);
+  // A layout rect, or a circle (clicked at its centre).
+  const click = async (r: Rect | { x: number; y: number }) => {
+    const frame = await page.locator('.canvas-frame').boundingBox();
+    assert.ok(frame, 'the canvas frame is laid out');
+    const [w, h] = 'w' in r ? [r.w, r.h] : [0, 0];
+    await page.mouse.click(frame.x + (r.x + w / 2) / 1600 * frame.width,
+      frame.y + (r.y + h / 2) / 900 * frame.height);
   };
-  const until = (key, value) => page.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
+  const until = (key: string, value: string) => page.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
   await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true');
   await click(PILL); await until('connectReady', 'true');
   await click(PRIMARY); await until('connectStatus', 'connected');
@@ -91,15 +100,15 @@ try {
 
   await click(DANCE); await until('gamePhase', 'calibrating');
   if (process.env.UI_ARTIFACTS) await page.screenshot({ path: `${process.env.UI_ARTIFACTS}/webcam-calibration.png` });
-  await page.evaluate(() => { window.cameraVisible = true; });
-  await page.waitForFunction(() => Number(document.querySelector('canvas').dataset.gameCalibrationProgress) > 0.15);
-  await page.evaluate(() => { window.cameraVisible = false; });
+  await page.evaluate(() => { (window as TestWindow).cameraVisible = true; });
+  await page.waitForFunction(() => Number(document.querySelector('canvas')?.dataset.gameCalibrationProgress) > 0.15);
+  await page.evaluate(() => { (window as TestWindow).cameraVisible = false; });
   await until('gameCalibrationPlayers', 'missing|missing'); await until('gameCalibrationProgress', '0.000');
-  const freshHoldStart = await page.evaluate(() => { window.cameraVisible = true; return performance.now(); });
+  const freshHoldStart = await page.evaluate(() => { (window as TestWindow).cameraVisible = true; return performance.now(); });
   await until('gamePhase', 'countdown');
   assert.ok(await page.evaluate(() => performance.now()) - freshHoldStart >= 2500, 'fresh full-body evidence must span 2.5 seconds');
   await until('gamePhase', 'playing'); await until('gamePhase', 'results');
-  await page.evaluate(() => { window.cameraVisible = false; });
+  await page.evaluate(() => { (window as TestWindow).cameraVisible = false; });
   await click(RESULTS_RETRY); await until('gamePhase', 'calibrating'); await until('gameCalibrationProgress', '0.000');
   await page.keyboard.press('Escape'); await until('songReady', 'true');
   assert.deepEqual(errors, []);

@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { FONT, TAU, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
+import type { Widget } from '../ui/useCanvasUI.ts';
+import type { PlayerCount } from '../../../packages/pose/choreography.ts';
+import type { SoundSettings } from './soundSettings.ts';
 import FullscreenButton from './FullscreenButton.tsx';
 import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.ts';
 
@@ -23,24 +26,42 @@ import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.
  *   onScreenChange={setShown} sound={sound} onSoundChange={setSound} />
  */
 
-// Design space is 1600x900 (16:9); the layout is in ./layout.js.
+export type MenuScreen = 'main' | 'players' | 'settings';
+export interface MainMenuProps {
+  visible?: boolean;
+  /** Holds input (the Connect Client card is open). */
+  blocked?: boolean;
+  /** Where the menu opens when it is shown. */
+  initialScreen?: MenuScreen;
+  onStart?: (playerCount: PlayerCount) => void;
+  onSettingsOpen?: () => void;
+  onScreenChange?: (screen: MenuScreen) => void;
+  sound: SoundSettings;
+  onSoundChange?: (sound: SoundSettings) => void;
+}
+type SliderKey = 'master' | 'music' | 'sfx';
+type ToggleKey = 'menuMusic' | 'muted';
+interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
+type MenuWidget = Widget & { slider?: SliderKey; toggle?: Toggle };
+
+// Design space is 1600x900 (16:9); the layout is in ./layout.ts.
 const PANEL = { x: 128, y: 540, w: 600, h: 294 };
-const SLIDERS = [
+const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
   { key: 'music', label: 'Music' },
   { key: 'sfx', label: 'Effects' },
 ];
 // Switches below the sliders: on() reads whether each one is on from the menu's props; audio
 // ones also grey out under Mute all.
-const TOGGLES = [
+const TOGGLES: readonly Toggle[] = [
   { key: 'menuMusic', label: 'Menu music', audio: true, on: (p) => p.sound.menuMusic !== false },
   { key: 'muted', label: 'Mute all', on: (p) => !!p.sound.muted },
 ];
-const ROW_Y = (i) => PANEL.y + 46 + i * 50;
+const ROW_Y = (i: number) => PANEL.y + 46 + i * 50;
 const SWITCH = { w: 84, h: 42, x: PANEL.x + PANEL.w - 40 - 84 };
 const TRACK = { x0: PANEL.x + 190, x1: PANEL.x + PANEL.w - 110 };
 
-const WIDGETS = {
+const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
   main: [
     { id: 'start', rect: START },
     { id: 'settings', rect: SETTINGS },
@@ -52,22 +73,22 @@ const WIDGETS = {
   ],
   settings: [
     { id: 'back', circle: BACK },
-    ...SLIDERS.map((sl, i) => ({ id: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
+    ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
     ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: PANEL.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: PANEL.w - 32, h: 48 } })),
   ],
 };
 // Where back / Escape leads from each submenu.
-const PARENT = { players: 'main', settings: 'main' };
+const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
 
-const sliderValue = (x) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
+const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
 
-function drawSettingsPanel(g, p, hover) {
+function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>) {
   const { sound } = p;
   const { x, w } = PANEL;
   const base = g.globalAlpha;
   drawGlassPanel(g, PANEL, 34);
 
-  const label = (text, cy) => {
+  const label = (text: string, cy: number) => {
     g.font = `600 30px ${FONT}`;
     g.textBaseline = 'middle';
     g.fillStyle = '#ffffff';
@@ -137,37 +158,53 @@ function drawSettingsPanel(g, p, hover) {
   });
 }
 
+interface MenuState {
+  spin: number; gearAngle: number; alpha: number;
+  /** Showing, and where it is going (they differ during a swap). */
+  screen: MenuScreen; next: MenuScreen; swap: number;
+  drawnSound: SoundSettings | null;
+  reported?: MenuScreen;
+}
+
 export default function MainMenu({
   visible = true, blocked = false, initialScreen = 'main', onStart, onSettingsOpen, onScreenChange, sound, onSoundChange,
-}) {
+}: MainMenuProps) {
   const gl = useThree((state) => state.gl);
-  const menu = useRef({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null });
-  const props = useRef({});
+  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null });
+  const props = useRef<MainMenuProps>({ sound });
   props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
 
   const m = menu.current;
-  const go = (screen) => {
+  const go = (screen: MenuScreen | undefined) => {
+    if (!screen) return;
     if (screen === m.next) return;
     m.next = screen;
     // A keyboard cursor starts over on the next screen.
     if (ui.pointerKind === 'key') ui.pointer = null;
   };
-  const live = () => props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
-  const setSound = (patch) => {
+  const live = () => !!props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
+  const setSound = (patch: Partial<SoundSettings>) => {
     const { sound: cur, onSoundChange: cb } = props.current;
     cb?.({ ...cur, ...patch });
   };
 
-  const ui = useCanvasUI({
+  const ui = useCanvasUI<MenuWidget>({
     priority: 2,
     // Input goes to the visible screen as soon as it is fading in (never mid swap-out).
     active: live,
     keyNav: true,
     widgets: () => WIDGETS[m.screen],
-    onDrag: (wdg, p) => setSound({ [wdg.id]: sliderValue(p.x) }),
+    onDrag: (wdg, p) => {
+      if (!wdg.slider) return;
+      const patch: Partial<SoundSettings> = {};
+      patch[wdg.slider] = sliderValue(p.x);
+      setSound(patch);
+    },
     onActivate: (wdg, s) => {
       if (wdg.toggle) {
-        setSound({ [wdg.id]: !wdg.toggle.on(props.current) });
+        const patch: Partial<SoundSettings> = {};
+        patch[wdg.toggle.key] = !wdg.toggle.on(props.current);
+        setSound(patch);
         s.invalidate();
         return;
       }
@@ -185,7 +222,7 @@ export default function MainMenu({
       if (e.key === 'Escape' && !e.repeat && live() && PARENT[m.screen]) { go(PARENT[m.screen]); s.invalidate(); }
     },
     update: (dt, s) => {
-      const shown = props.current.visible;
+      const shown = !!props.current.visible;
       // Screen change: fade the current screen out, swap, fade the next one in.
       if (m.next !== m.screen) {
         m.swap = Math.max(0, m.swap - dt * 7);
@@ -213,7 +250,7 @@ export default function MainMenu({
       g.globalAlpha = t;
       g.translate((1 - t) * -24, 0);
       const h = s.hover;
-      const press = (id) => s.press * (h[id] ?? 0);
+      const press = (id: string) => s.press * (h[id] ?? 0);
       if (m.screen === 'main') {
         drawPill(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start') });
         drawPill(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle });
@@ -237,5 +274,5 @@ export default function MainMenu({
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 
-  return <FullscreenButton visible={() => props.current.visible && !props.current.blocked && m.screen === 'main' && m.next === 'main'} />;
+  return <FullscreenButton visible={() => !!props.current.visible && !props.current.blocked && m.screen === 'main' && m.next === 'main'} />;
 }

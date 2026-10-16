@@ -1,7 +1,10 @@
+import { isStageId } from '../../../../packages/stages/catalog.ts';
+import type { DancerPlacement, StageId, Vec3 } from '../../../../packages/stages/catalog.ts';
+
 // The game renders 640x480 and shows it at 16:9 (4:3-wide pixels). Cropped to 3:2 that
 // grid is 540x480; each buffer pixel becomes a 4x3 block in the 2160x1440 PNG.
 export const BUFFER = { width: 540, height: 480, aspect: 3 / 2 };
-export const UPSCALE = [4, 3];
+export const UPSCALE: readonly [x: number, y: number] = [4, 3];
 // Wordmark layout units: 3:2 at the title menu's scale (its 1600x900 maps to 640x480).
 export const DESIGN = { width: 1350, height: 900 };
 
@@ -14,7 +17,50 @@ export const DESIGN = { width: 1350, height: 900 };
  *   dancers: overrides for the stage's dancer placement ({ position, rotationY, spacing })
  *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered) } in DESIGN units
  */
-export const SHOTS = [
+export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
+export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; }
+export interface Shot {
+  id: string;
+  stage: StageId;
+  time: number;
+  pose: number;
+  camera: ShotCamera;
+  dancers?: Partial<DancerPlacement>;
+  logo?: ShotLogo;
+}
+
+/** One capture read back from the page: base64 RGBA, top row first. */
+export interface ThumbnailFrame { width: number; height: number; plain: string; logo: string | null; }
+/** What the capture page exposes to scripts/render.ts as window.__thumb. */
+export interface ThumbnailPage {
+  shot: Shot;
+  /** The WebGL renderer string, for the log. */
+  renderer: string;
+  render(): Promise<ThumbnailFrame>;
+}
+export type ThumbnailWindow = typeof window & { __thumb?: ThumbnailPage };
+
+// One-off shots come in as JSON (?spec=, --spec): check them before rendering.
+type Fields = Record<string, unknown>;
+const isFields = (v: unknown): v is Fields => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const optionalNumber = (v: unknown) => v === undefined || isNumber(v);
+const isVec3 = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every(isNumber);
+const isCamera = (v: unknown): v is ShotCamera => isFields(v) && isVec3(v.position) && isVec3(v.target) &&
+  optionalNumber(v.fov) && optionalNumber(v.near) && optionalNumber(v.far);
+const isDancers = (v: unknown): v is Partial<DancerPlacement> => isFields(v) && (v.position === undefined || isVec3(v.position)) &&
+  optionalNumber(v.rotationY) && optionalNumber(v.spacing) && optionalNumber(v.scale);
+const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && isNumber(v.size) &&
+  (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x));
+
+export function assertShot(shot: unknown): asserts shot is Shot {
+  if (!isFields(shot) || typeof shot.id !== 'string' || !isStageId(shot.stage) || !isNumber(shot.time) || !isNumber(shot.pose) ||
+      !isCamera(shot.camera) || !(shot.dancers === undefined || isDancers(shot.dancers)) || !(shot.logo === undefined || isLogo(shot.logo))) {
+    throw new Error(`Invalid shot: ${JSON.stringify(shot)}`);
+  }
+}
+
+export const SHOTS: readonly Shot[] = [
   // Skyline Sanctuary: rooftop terrace over the glass eco-city.
   {
     id: 'sanctuary-skyline',

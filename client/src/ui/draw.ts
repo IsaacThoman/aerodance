@@ -1,5 +1,16 @@
 // Frutiger Aero drawing kit for the in-engine 2D overlays. Everything takes design units;
 // useCanvasUI scales them to the render buffer.
+import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+
+type Ctx = CanvasRenderingContext2D;
+/** A point in design units. */
+export interface Point { x: number; y: number; }
+/** A layout rectangle in design units. */
+export interface Rect { x: number; y: number; w: number; h: number; }
+/** A layout circle (centre and radius) in design units. */
+export interface Circle { x: number; y: number; r: number; }
+/** Top, middle and baseline colours of a glossy headline face. */
+export type Face = readonly [top: string, middle: string, bottom: string];
 
 export const FONT = '"Inter", "Helvetica Neue", Helvetica, Arial, sans-serif';
 export const NAVY = '#0c2f52';
@@ -9,7 +20,7 @@ export const TAU = Math.PI * 2;
 export const loadFonts = () =>
   Promise.all(['800', '700', '600', '200'].map((wt) => document.fonts.load(`${wt} 64px ${FONT}`))).catch(() => {});
 
-export function pill(g, x, y, w, h) {
+export function pill(g: Ctx, x: number, y: number, w: number, h: number) {
   const r = h / 2;
   g.beginPath();
   g.moveTo(x + r, y);
@@ -20,13 +31,13 @@ export function pill(g, x, y, w, h) {
   g.closePath();
 }
 
-export function roundRect(g, x, y, w, h, r) {
+export function roundRect(g: Ctx, x: number, y: number, w: number, h: number, r: number) {
   g.beginPath();
   g.roundRect(x, y, w, h, r);
 }
 
 // "aerodance." wordmark with its baseline at y.
-export function drawTitle(g, { x, y, size }) {
+export function drawTitle(g: Ctx, { x, y, size }: { x: number; y: number; size: number }) {
   g.save();
   if ('letterSpacing' in g) g.letterSpacing = `${-size * 0.045}px`;
   g.textBaseline = 'alphabetic';
@@ -37,7 +48,7 @@ export function drawTitle(g, { x, y, size }) {
   const s = size * 0.15;
   const dotX = x + aeroW + danceW + size * 0.04;
 
-  const text = (fill) => {
+  const text = (fill: string | CanvasGradient) => {
     g.fillStyle = fill;
     g.font = `800 ${size}px ${FONT}`;
     g.fillText('aero', x, y);
@@ -72,7 +83,7 @@ export function drawTitle(g, { x, y, size }) {
   g.restore();
 }
 
-export function titleWidth(g, size) {
+export function titleWidth(g: Ctx, size: number) {
   g.save();
   if ('letterSpacing' in g) g.letterSpacing = `${-size * 0.045}px`;
   g.font = `800 ${size}px ${FONT}`;
@@ -83,7 +94,7 @@ export function titleWidth(g, size) {
   return aeroW + danceW + size * 0.19;
 }
 
-export function drawDisc(g, cx, cy, r) {
+export function drawDisc(g: Ctx, cx: number, cy: number, r: number) {
   g.save();
   g.shadowColor = 'rgba(0, 60, 120, 0.4)';
   g.shadowBlur = 10;
@@ -104,7 +115,7 @@ export function drawDisc(g, cx, cy, r) {
 }
 
 // White head-and-shoulders figures for the player icons: [x offset, scale] in units of r.
-function figures(g, cx, cy, r, list) {
+function figures(g: Ctx, cx: number, cy: number, r: number, list: readonly (readonly [dx: number, k: number])[]) {
   g.save();
   g.fillStyle = '#ffffff';
   for (const [dx, k] of list) {
@@ -120,6 +131,9 @@ function figures(g, cx, cy, r, list) {
   }
   g.restore();
 }
+
+/** Draws an icon centred on (cx, cy), sized for a disc of radius r. */
+type IconDraw = (g: Ctx, cx: number, cy: number, r: number) => void;
 
 // Icons drawn in white on a blue disc of radius r.
 export const ICONS = {
@@ -244,9 +258,10 @@ export const ICONS = {
   down(g, cx, cy, r) { chevron(g, cx, cy, r, Math.PI / 2); },
   left(g, cx, cy, r) { chevron(g, cx, cy, r, Math.PI); },
   right(g, cx, cy, r) { chevron(g, cx, cy, r, 0); },
-};
+} satisfies Record<string, IconDraw>;
+export type IconName = keyof typeof ICONS;
 
-function chevron(g, cx, cy, r, angle) {
+function chevron(g: Ctx, cx: number, cy: number, r: number, angle: number) {
   const a = r * 0.3;
   g.save();
   g.translate(cx, cy);
@@ -259,8 +274,19 @@ function chevron(g, cx, cy, r, angle) {
   g.restore();
 }
 
+export interface PillOptions {
+  label: string;
+  sub?: string;
+  icon: IconName;
+  hover?: number;
+  press?: number;
+  /** The gear icon's rotation. */
+  angle?: number;
+  disabled?: boolean;
+}
+
 // Glossy aqua bubble button with an icon disc on the left. Disabled buttons fade and stay put.
-export function drawPill(g, rect, { label, sub, icon, hover = 0, press = 0, angle, disabled = false }) {
+export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, press = 0, angle, disabled = false }: PillOptions) {
   if (disabled) {
     hover = 0;
     press = 0;
@@ -310,7 +336,8 @@ export function drawPill(g, rect, { label, sub, icon, hover = 0, press = 0, angl
   g.lineCap = 'round';
   g.lineWidth = 6;
   g.strokeStyle = '#ffffff';
-  ICONS[icon](g, cx, cy, r, angle);
+  if (icon === 'gear') ICONS.gear(g, cx, cy, r, angle);
+  else ICONS[icon](g, cx, cy, r);
 
   g.fillStyle = NAVY;
   g.font = `700 ${Math.round(h * (sub ? 0.34 : 0.4))}px ${FONT}`;
@@ -327,7 +354,7 @@ export function drawPill(g, rect, { label, sub, icon, hover = 0, press = 0, angl
   g.restore();
 }
 
-export function drawGlassCircle(g, c, hover) {
+export function drawGlassCircle(g: Ctx, c: Circle, hover: number) {
   g.save();
   g.shadowColor = 'rgba(0, 34, 84, 0.45)';
   g.shadowBlur = 16;
@@ -349,7 +376,7 @@ export function drawGlassCircle(g, c, hover) {
 }
 
 // Submenu header: glass back button (circle `back`) and a small-caps heading beside it.
-export function drawHeader(g, back, label, hover) {
+export function drawHeader(g: Ctx, back: Circle, label: string, hover: number) {
   const { x, y, r } = back;
   drawGlassCircle(g, back, hover);
   const a = r * 0.4 + hover * 2;
@@ -369,7 +396,7 @@ export function drawHeader(g, back, label, hover) {
 }
 
 // White small-caps label with a navy drop shadow (headers, panel titles).
-export function drawCaps(g, label, x, y, { size = 26, align = 'left' } = {}) {
+export function drawCaps(g: Ctx, label: string, x: number, y: number, { size = 26, align = 'left' }: { size?: number; align?: CanvasTextAlign } = {}) {
   g.save();
   g.font = `800 ${size}px ${FONT}`;
   if ('letterSpacing' in g) g.letterSpacing = `${Math.round(size * 0.23)}px`;
@@ -384,7 +411,7 @@ export function drawCaps(g, label, x, y, { size = 26, align = 'left' } = {}) {
 }
 
 // Deep-blue glass panel (the settings panel look) for cards and sheets.
-export function drawGlassPanel(g, { x, y, w, h }, radius = 34) {
+export function drawGlassPanel(g: Ctx, { x, y, w, h }: Rect, radius = 34) {
   g.save();
   g.shadowColor = 'rgba(0, 30, 80, 0.45)';
   g.shadowBlur = 30;
@@ -411,8 +438,15 @@ export function drawGlassPanel(g, { x, y, w, h }, radius = 34) {
   g.stroke();
 }
 
+export interface TextOptions {
+  size?: number;
+  weight?: number;
+  align?: CanvasTextAlign;
+  color?: string;
+}
+
 // White text with the navy drop shadow used over the bright world.
-export function drawShadowText(g, text, x, y, { size = 30, weight = 700, align = 'left', color = '#ffffff', alpha = 1 } = {}) {
+export function drawShadowText(g: Ctx, text: string, x: number, y: number, { size = 30, weight = 700, align = 'left', color = '#ffffff', alpha = 1 }: TextOptions & { alpha?: number } = {}) {
   g.save();
   g.globalAlpha *= alpha;
   g.font = `${weight} ${size}px ${FONT}`;
@@ -427,7 +461,7 @@ export function drawShadowText(g, text, x, y, { size = 30, weight = 700, align =
 }
 
 // Shortens text with an ellipsis to fit maxW in the current font.
-export function ellipsize(g, text, maxW) {
+export function ellipsize(g: Ctx, text: string, maxW: number) {
   if (g.measureText(text).width <= maxW) return text;
   let t = text;
   while (t.length > 1 && g.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
@@ -435,8 +469,8 @@ export function ellipsize(g, text, maxW) {
 }
 
 // Splits text into lines no wider than maxW in the current font.
-export function wrapText(g, text, maxW) {
-  const lines = [];
+export function wrapText(g: Ctx, text: string, maxW: number) {
+  const lines: string[] = [];
   let line = '';
   for (const word of text.split(/\s+/)) {
     const next = line ? `${line} ${word}` : word;
@@ -452,7 +486,7 @@ export function wrapText(g, text, maxW) {
 }
 
 // Plain text, vertically centred on y.
-export function text(g, str, x, y, { size = 28, weight = 600, color = '#ffffff', align = 'left' } = {}) {
+export function text(g: Ctx, str: string, x: number, y: number, { size = 28, weight = 600, color = '#ffffff', align = 'left' }: TextOptions = {}) {
   g.font = `${weight} ${size}px ${FONT}`;
   g.fillStyle = color;
   g.textAlign = align;
@@ -461,7 +495,7 @@ export function text(g, str, x, y, { size = 28, weight = 600, color = '#ffffff',
 }
 
 // Wrapped text from y down; returns the height it took.
-export function paragraph(g, str, x, y, maxW, { size = 26, weight = 600, color = 'rgba(255,255,255,0.88)', align = 'left', lineH = size * 1.35 } = {}) {
+export function paragraph(g: Ctx, str: string, x: number, y: number, maxW: number, { size = 26, weight = 600, color = 'rgba(255,255,255,0.88)', align = 'left', lineH = size * 1.35 }: TextOptions & { lineH?: number } = {}) {
   g.font = `${weight} ${size}px ${FONT}`;
   const lines = wrapText(g, str, maxW);
   lines.forEach((line, i) => text(g, line, x, y + i * lineH, { size, weight, color, align }));
@@ -469,7 +503,7 @@ export function paragraph(g, str, x, y, maxW, { size = 26, weight = 600, color =
 }
 
 // Connection status colours: green when live, amber while connecting.
-export const STATUS_COLORS = {
+export const STATUS_COLORS: Record<WebcamStatus, string> = {
   connected: '#3ad68a',
   connecting: '#ffc44d',
   initializing: '#ffc44d',
@@ -478,8 +512,8 @@ export const STATUS_COLORS = {
 };
 
 // Glossy status light.
-export function drawStatusDot(g, x, y, status, r = 10) {
-  const color = STATUS_COLORS[status] ?? STATUS_COLORS.disconnected;
+export function drawStatusDot(g: Ctx, x: number, y: number, status: WebcamStatus, r = 10) {
+  const color = STATUS_COLORS[status];
   g.save();
   g.shadowColor = color;
   g.shadowBlur = status === 'disconnected' ? 0 : r;
@@ -500,7 +534,7 @@ export function drawStatusDot(g, x, y, status, r = 10) {
 }
 
 // Glossy track filling to t (0..1), with a knob while hovered or dragged (scrubbing).
-export function drawProgress(g, rect, t, { hover = 0, knob = false } = {}) {
+export function drawProgress(g: Ctx, rect: Rect, t: number, { hover = 0, knob = false }: { hover?: number; knob?: boolean } = {}) {
   const k = Math.min(1, Math.max(0, t));
   const { x, y, w, h } = rect;
   roundRect(g, x, y, w, h, h / 2);
@@ -538,7 +572,7 @@ export function drawProgress(g, rect, t, { hover = 0, knob = false } = {}) {
 // ---------- Frutiger Aero celebration ----------
 
 /** Headline in the wordmark's treatment: dark halo, hard drop shadow, glossy tinted face. */
-export function drawHeadline(g, str, x, y, size, face, maxW) {
+export function drawHeadline(g: Ctx, str: string, x: number, y: number, size: number, face: Face, maxW?: number) {
   g.save();
   if ('letterSpacing' in g) g.letterSpacing = `${-size * 0.015}px`;
   g.font = `800 ${size}px ${FONT}`;

@@ -5,15 +5,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
+import type { TestContext } from 'node:test';
 import { discoverSongs, songCatalogMiddleware } from '../../scripts/songCatalog.ts';
 import { bundleFixture } from './fixtures/songBundle.ts';
 
-async function directory(t) {
+async function directory(t: TestContext) {
   const root = await mkdtemp(path.join(tmpdir(), 'aerodance-songs-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
-async function install(root, revision = 1) {
+async function install(root: string, revision = 1) {
   const { song, choreography, audio } = bundleFixture();
   song.bundleRevision = revision;
   const folder = path.join(root, song.songId);
@@ -34,7 +35,7 @@ test('discovers exports, uses current metadata, and reflects replacement/removal
   const catalog = await discoverSongs(root);
   assert.equal(catalog.songs[0].bundle, 'fixture/song.json');
   assert.equal(catalog.songs[0].title, 'Fixture routine');
-  assert.match(catalog.songs[0].sha256, /^[a-f0-9]{64}$/);
+  assert.match(catalog.songs[0].sha256 ?? '', /^[a-f0-9]{64}$/);
   await install(root, 2);
   assert.equal((await discoverSongs(root)).songs[0].bundleRevision, 2);
   await rm(path.join(root, 'fixture'), { recursive: true });
@@ -46,7 +47,7 @@ test('skips incomplete, malformed, mismatched, and escaped bundles while retaini
   const root = await directory(t);
   const folder = await install(root);
   await mkdir(path.join(root, 'unfinished'));
-  const warnings = [];
+  const warnings: string[] = [];
   const scan = () => discoverSongs(root, { warn: message => warnings.push(message) });
   assert.equal((await scan()).songs.length, 1);
   assert.ok(warnings.some(message => message.includes('unfinished')));
@@ -72,9 +73,11 @@ test('catalog HTTP response is uncached and discovers songs added after server s
   const root = await directory(t);
   const middleware = songCatalogMiddleware(root);
   const server = createServer((req, res) => middleware(req, res, () => { res.statusCode = 500; res.end(); }));
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const url = `http://127.0.0.1:${server.address().port}/songs/manifest.json`;
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const url = `http://127.0.0.1:${address.port}/songs/manifest.json`;
   const response = await fetch(url);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal((await response.json()).songs.length, 0);

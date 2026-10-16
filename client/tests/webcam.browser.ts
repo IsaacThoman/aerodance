@@ -9,8 +9,18 @@ import { createStudio } from '../../tools/choreography/server/index.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import { BACK as MENU_BACK, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { BACK, rowRect } from '../src/game/layout.ts';
-import { appendOperation, trackDataIds } from '../../tools/choreography/core.ts';
+import type { Rect } from '../src/ui/draw.ts';
+import { appendOperation, trackDataIds, validateProject, validateTake, validateTrackData } from '../../tools/choreography/core.ts';
+import type { ProjectSummary, ProjectV2, StudioAssets, Take } from '../../tools/choreography/core.ts';
 import { readZip } from '../../tools/choreography/server/zip.ts';
+import { validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
+import type { Page } from 'playwright';
+
+/** What the page script adds to window: the synthetic camera's controls and counters. */
+type TestWindow = typeof window & {
+  cameraRequests: number; cameraStops: number; cameraMode: 'normal' | 'denied'; cameraViewScale: number;
+  poseDiagnostics?: unknown;
+};
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'webcam-studio-'));
 const apps = [express(), express()];
@@ -20,8 +30,8 @@ apps[1].use(createStudio({ dataDir }).app);
 const servers = apps.map((app, i) => app.listen(4180 + i, '127.0.0.1'));
 await Promise.all(servers.map(server => new Promise(resolve => server.once('listening', resolve))));
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-const errors = [];
-async function pageFor(port) {
+const errors: string[] = [];
+async function pageFor(port: number) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(60000); page.on('pageerror', error => {
     if (errors.length < 2) console.error('Browser error:', error.stack);
@@ -33,30 +43,32 @@ async function pageFor(port) {
     for (const Type of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
       if (!Type) continue;
       for (const name of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced'])
-        if (Type.prototype[name]) Type.prototype[name] = () => {};
+        if (Reflect.get(Type.prototype, name)) Reflect.set(Type.prototype, name, () => {});
     }
-    window.cameraRequests = 0; window.cameraStops = 0; window.cameraMode = 'normal'; window.cameraViewScale=1;
+    const w = window as TestWindow;
+    w.cameraRequests = 0; w.cameraStops = 0; w.cameraMode = 'normal'; w.cameraViewScale=1;
     const NativeWorker = Worker;
-    window.Worker = class extends NativeWorker {
-      constructor(...args) {
+    w.Worker = class extends NativeWorker {
+      constructor(...args: ConstructorParameters<typeof Worker>) {
         super(...args);
-        this.addEventListener('message', ({ data }) => {
-          if (data.type === 'result') window.poseDiagnostics = data.landmarks.map(points => [11, 12, 23, 24].map(i => points[i]));
+        this.addEventListener('message', ({ data }: MessageEvent<{ type: string; landmarks?: unknown[][] }>) => {
+          if (data.type === 'result') w.poseDiagnostics = data.landmarks?.map(points => [11, 12, 23, 24].map(i => points[i]));
         });
       }
     };
     Object.defineProperty(navigator, 'mediaDevices', { value: {
       enumerateDevices: async () => [{ kind: 'videoinput', deviceId: 'fixture-camera', label: 'Fixture camera' }],
       getUserMedia: async () => {
-        window.cameraRequests++;
-        if (window.cameraMode === 'denied') throw new DOMException('Denied', 'NotAllowedError');
+        w.cameraRequests++;
+        if (w.cameraMode === 'denied') throw new DOMException('Denied', 'NotAllowedError');
         const image = new Image(); image.src = '/pose-fixture.jpg'; await image.decode();
         const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
         const g = canvas.getContext('2d'); let count = 0;
+        if (!g) throw Error('2D canvas unavailable');
         const draw = () => {
           g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
           const offset = Math.sin(count++ / 20) * 2;
-          g.save(); g.translate(320,240); g.scale(window.cameraViewScale,window.cameraViewScale); g.translate(-320,-240);
+          g.save(); g.translate(320,240); g.scale(w.cameraViewScale,w.cameraViewScale); g.translate(-320,-240);
           g.drawImage(image, 200, 0, 600, 667, offset, 40, 320, 356);
           g.drawImage(image, 200, 0, 600, 667, 320 + offset, 40, 320, 356);
           g.restore();
@@ -64,7 +76,7 @@ async function pageFor(port) {
         draw(); const stream = canvas.captureStream(20), timer = setInterval(draw, 50);
         for (const track of stream.getTracks()) {
           const stop = track.stop.bind(track);
-          track.stop = () => { clearInterval(timer); window.cameraStops++; stop(); };
+          track.stop = () => { clearInterval(timer); w.cameraStops++; stop(); };
         }
         return stream;
       },
@@ -72,20 +84,23 @@ async function pageFor(port) {
   });
   await page.goto(`http://127.0.0.1:${port}`); return page;
 }
-let game, studio;
+let game: Page | undefined, studio: Page | undefined;
 try {
-  game = await pageFor(4180);
-  const click = async shape => {
-    const rect = shape.rect ?? shape, frame = await game.locator('.canvas-frame').boundingBox();
-    await game.mouse.click(frame.x + (rect.x + (rect.w || 0) / 2) / 1600 * frame.width,
-      frame.y + (rect.y + (rect.h || 0) / 2) / 900 * frame.height);
+  const gamePage = game = await pageFor(4180);
+  // A layout rect, or a circle (clicked at its centre).
+  const click = async (rect: Rect | { x: number; y: number }) => {
+    const frame = await gamePage.locator('.canvas-frame').boundingBox();
+    assert.ok(frame, 'the canvas frame is laid out');
+    const [w, h] = 'w' in rect ? [rect.w, rect.h] : [0, 0];
+    await gamePage.mouse.click(frame.x + (rect.x + w / 2) / 1600 * frame.width,
+      frame.y + (rect.y + h / 2) / 900 * frame.height);
   };
-  const until = (key, value) => game.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
+  const until = (key: string, value: string) => gamePage.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
   await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true'); await click(PILL); await until('connectReady', 'true');
-  assert.equal(await game.evaluate(() => window.cameraRequests), 0, 'opening Connect Client does not request permission');
-  await game.evaluate(() => { window.cameraMode = 'denied'; }); await click(PRIMARY); await until('connectStatus', 'error');
-  assert.match(await game.locator('canvas').getAttribute('data-connect-message'), /permission was denied/);
-  await game.evaluate(() => { window.cameraMode = 'normal'; }); await click(PRIMARY);
+  assert.equal(await game.evaluate(() => (window as TestWindow).cameraRequests), 0, 'opening Connect Client does not request permission');
+  await game.evaluate(() => { (window as TestWindow).cameraMode = 'denied'; }); await click(PRIMARY); await until('connectStatus', 'error');
+  assert.match(await game.locator('canvas').getAttribute('data-connect-message') ?? '', /permission was denied/);
+  await game.evaluate(() => { (window as TestWindow).cameraMode = 'normal'; }); await click(PRIMARY);
   await until('connectStatus', 'connected');
   for (const [index, model] of ['lite', 'full', 'heavy'].entries()) {
     await click(MODEL_RECTS[index]); await until('connectModel', model); await until('connectStatus', 'connected');
@@ -100,11 +115,11 @@ try {
   await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
   await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true');
   await click(PILL); await until('connectReady', 'true'); await click(PRIMARY); await until('connectStatus', 'disconnected');
-  assert.ok(await game.evaluate(() => window.cameraStops >= 4), 'switches and Stop release camera tracks');
+  assert.ok(await game.evaluate(() => (window as TestWindow).cameraStops >= 4), 'switches and Stop release camera tracks');
 
   studio = await pageFor(4181);
   await studio.getByRole('heading', { name: 'Make every move yours.' }).waitFor();
-  assert.equal(await studio.evaluate(() => window.cameraRequests), 0);
+  assert.equal(await studio.evaluate(() => (window as TestWindow).cameraRequests), 0);
   // Keep Studio capture responsive in software CI; all three models were exercised above.
   await studio.getByLabel('Webcam pose model').selectOption('lite');
   await studio.getByRole('button', { name: 'Start camera', exact: true }).click();
@@ -112,7 +127,7 @@ try {
   await studio.getByText('P1 detected', { exact: false }).waitFor();
   await studio.getByText('P2 detected', { exact: false }).waitFor();
   await studio.getByText('Body calibration ready', { exact: false }).waitFor();
-  await studio.evaluate(() => { window.cameraViewScale=.65; });
+  await studio.evaluate(() => { (window as TestWindow).cameraViewScale=.65; });
   await studio.waitForTimeout(700);
   await studio.getByText('P1 detected', { exact: false }).waitFor();
   await studio.getByText('P2 detected', { exact: false }).waitFor();
@@ -139,48 +154,58 @@ try {
   let persisted = false;
   for (let attempt = 0; attempt < 100 && !persisted; attempt++) {
     persisted = await studio.evaluate(async () => {
-      const projects = await (await fetch('/api/projects')).json();
-      const project = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
+      const projects: ProjectSummary[] = await (await fetch('/api/projects')).json();
+      const project: ProjectV2 = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
       return project.takes.some(take => take.source === 'webcam');
     });
     if (!persisted) await studio.waitForTimeout(100);
   }
   assert.ok(persisted, 'recorded webcam take was finalized and saved');
-  const take = await studio.evaluate(async () => {
-    const projects = await (await fetch('/api/projects')).json();
-    const project = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
-    return (await fetch(`/api/projects/${project.projectId}/takes/${project.takes.at(-1).takeId}`)).json();
-  });
-  assert.equal(take.source, 'webcam'); assert.equal(take.provenance.modelId, 'lite');
-  assert.equal(take.provenance.alignmentMethod, 'browser-frame-audio-anchor');
+  const take: Take = validateTake(await studio.evaluate(async (): Promise<unknown> => {
+    const projects: ProjectSummary[] = await (await fetch('/api/projects')).json();
+    const project: ProjectV2 = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
+    return (await fetch(`/api/projects/${project.projectId}/takes/${project.takes[project.takes.length - 1].takeId}`)).json();
+  }));
+  assert.equal(take.source, 'webcam'); assert.equal(take.provenance?.modelId, 'lite');
+  assert.equal(take.provenance?.alignmentMethod, 'browser-frame-audio-anchor');
   assert.ok(take.samples.length > 5); assert.ok(take.samples.some(s => s.poses.length === 2));
+  const lastSample = take.samples[take.samples.length - 1];
   // A recorded take stays in the library until explicitly assigned to the dance tracks.
   await studio.getByLabel('Take actions:', { exact: false }).last().click();
   await studio.getByRole('menuitem', { name: 'Overwrite both tracks', exact: true }).last().click();
   await studio.getByRole('button', { name: 'Save', exact: true }).click();
   await studio.locator('.save-state').filter({ hasText: /^Saved$/ }).waitFor();
   await studio.waitForFunction(async () => {
-    const projects = await (await fetch('/api/projects')).json();
-    const p = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
+    const projects: ProjectSummary[] = await (await fetch('/api/projects')).json();
+    const p: ProjectV2 = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
     return p.tracks.every(track => track.dataId);
   });
   const exported = await (async () => {
-    const json = async (url, options) => {
+    const json = async (url: string, options?: RequestInit): Promise<unknown> => {
       const response = await fetch(`http://127.0.0.1:4181${url}`, options);
       if (!response.ok) throw Error(await response.text());
       return response.json();
     };
-    const write = body => ({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const write = (body: unknown): RequestInit => ({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    // Saved projects are always the current format.
+    const project = (data: unknown): ProjectV2 => {
+      const loaded = validateProject(data);
+      assert.equal(loaded.schemaVersion, 2);
+      return loaded;
+    };
     const projects = await json('/api/projects');
-    let p = await json(`/api/projects/${projects[0].projectId}`);
-    const assets = new Map(await Promise.all(trackDataIds(p).map(async id => [id, await json(`/api/projects/${p.projectId}/tracks/${id}`)])));
+    assert.ok(Array.isArray(projects) && projects.length);
+    const summary: ProjectSummary = projects[0];
+    let p = project(await json(`/api/projects/${summary.projectId}`));
+    const projectId = p.projectId;
+    const assets: StudioAssets = new Map(await Promise.all(trackDataIds(p).map(async (id) => [id, validateTrackData(await json(`/api/projects/${projectId}/tracks/${id}`))] as const)));
     const existing = new Set(assets.keys());
     p.metadata.artist = 'Browser fixture'; p.metadata.title = 'Webcam fixture';
     p.metadata.rights.audio.license = 'test-fixture'; p.metadata.rights.choreography.license = 'test-fixture';
     p.playableStartMs = take.offsetMs;
-    p.playableEndMs = take.offsetMs + take.samples.at(-1).takeTimeMs * take.timeScale;
+    p.playableEndMs = take.offsetMs + lastSample.takeTimeMs * take.timeScale;
     p.alignmentReviewed = true;
-    p = await json(`/api/projects/${p.projectId}`, write(p));
+    p = project(await json(`/api/projects/${p.projectId}`, write(p)));
     // Software CI can miss >200 ms intervals. Apply the production track review
     // operation, which records v2 track snapshots and history alongside exclusions.
     for (let i = 0; i < take.samples.length - 1; i++) {
@@ -204,14 +229,19 @@ try {
     for (const id of trackDataIds(p)) if (!existing.has(id)) {
       await json(`/api/projects/${p.projectId}/tracks`, { ...write(assets.get(id)), method: 'POST' });
     }
-    p = await json(`/api/projects/${p.projectId}`, write(p));
+    p = project(await json(`/api/projects/${p.projectId}`, write(p)));
     const response = await fetch(`http://127.0.0.1:4181/api/projects/${p.projectId}/export`);
     if (!response.ok) throw Error(await response.text());
     return { songId: p.songId, bytes: Array.from(new Uint8Array(await response.arrayBuffer())) };
   })();
   const bundle = readZip(Buffer.from(exported.bytes));
-  const song = JSON.parse(bundle.get(`${exported.songId}/song.json`));
-  const exportedMotion=JSON.parse(bundle.get(`${exported.songId}/choreography.json`));
+  const zipJson = (name: string): unknown => {
+    const file = bundle.get(`${exported.songId}/${name}`);
+    assert.ok(file, `exported ${name}`);
+    return JSON.parse(file.toString('utf8'));
+  };
+  const song = validateSong(zipJson('song.json'));
+  const exportedMotion=validateSongChoreography(song, zipJson('choreography.json'));
   assert.equal(exportedMotion.tracks[0].calibration.cameraScaleMode,'body-relative');
   assert.equal(exportedMotion.tracks[0].calibration.profileVersion,2);
   apps[0].use('/songs/webcam-capture', (req, res) => {
@@ -234,7 +264,7 @@ try {
   console.log('Webcam integration passed: all game models, real two-player inference, permissions, cleanup, Studio live view, frame-timed recording, export, game bundle playback, persistence.');
 } catch (error) {
   if (game) console.error('Game state:', await game.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
-  if (game) console.error('Pose diagnostics:', await game.evaluate(() => JSON.stringify(window.poseDiagnostics)).catch(() => ''));
+  if (game) console.error('Pose diagnostics:', await game.evaluate(() => JSON.stringify((window as TestWindow).poseDiagnostics)).catch(() => ''));
   if (studio) {
     console.error('Studio state:', await studio.locator('.connection-status').textContent().catch(() => ''));
     console.error('Studio message:', await studio.locator('.message').textContent().catch(() => ''));

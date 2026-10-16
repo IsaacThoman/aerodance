@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFullscreenState, toggleFullscreen } from '../src/menu/useFullscreen.ts';
+import type { FullscreenDocument } from '../src/menu/useFullscreen.ts';
 
 test('standard fullscreen enters synchronously on the whole document and exits with the right receiver', async () => {
   let requested = false;
-  const doc = {
+  const doc: FullscreenDocument = {
     fullscreenEnabled: true,
     fullscreenElement: null,
     documentElement: {
@@ -33,7 +34,7 @@ test('standard fullscreen enters synchronously on the whole document and exits w
 });
 
 test('older Safari can enter and exit through the prefixed API returning void', () => {
-  const doc = {
+  const doc: FullscreenDocument = {
     webkitFullscreenEnabled: true,
     webkitFullscreenElement: null,
     documentElement: {
@@ -58,8 +59,8 @@ test('fullscreen is unavailable when the API is missing or browser policy disabl
   assert.equal(readFullscreenState({ documentElement: {} }).supported, false);
   assert.equal(readFullscreenState({
     fullscreenEnabled: false,
-    documentElement: { requestFullscreen() {} },
-    exitFullscreen() {},
+    documentElement: { async requestFullscreen() {} },
+    async exitFullscreen() {},
   }).supported, false);
   assert.equal(readFullscreenState({
     webkitFullscreenEnabled: false,

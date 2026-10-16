@@ -4,9 +4,14 @@ import {
   FONT, ICONS, drawCaps, drawGlassCircle, drawGlassPanel, drawPill, drawStatusDot, ellipsize, paragraph, text,
 } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
+import type { Widget } from '../ui/useCanvasUI.ts';
 import { CARD, CLOSE, COLUMN, PILL, PRIMARY, STATUS, CAMERA_PREV, CAMERA_NEXT, MODEL_RECTS, WEBCAM_PREVIEW } from './layout.ts';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
+import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
+import type { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
+import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { PoseInputView } from '../pose/PoseSource.ts';
 
 /**
  * Connect Client, drawn in-engine: a status pill in the top-right corner of Settings
@@ -19,32 +24,45 @@ import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
  * <ConnectionPanel visible open onOpenChange={setOpen} source={source} connection={view} />
  */
 
-const ACTIVE = ['connecting', 'initializing', 'connected'];
-const LABELS = {
+export interface ConnectionPanelProps {
+  visible?: boolean;
+  /** The card is out (the pill toggles it through onOpenChange). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** The webcam input the card configures. */
+  source: PoseSourceController;
+  /** What the game is playing with: the webcam, or a URL replay. */
+  connection: PoseInputView;
+}
+type ConnectWidget = Widget & { cameraDelta?: number; modelId?: PoseModelId };
+
+const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
+const LABELS: Partial<Record<WebcamStatus, string>> = {
   connected: 'Client Connected',
   connecting: 'Connecting…',
   initializing: 'Camera starting…',
 };
-const smooth = (k) => k * k * (3 - 2 * k);
+const smooth = (k: number) => k * k * (3 - 2 * k);
+const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
-export default function ConnectionPanel({ visible = true, open = false, onOpenChange, source, connection }) {
+export default function ConnectionPanel({ visible = true, open = false, onOpenChange, source, connection }: ConnectionPanelProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({});
+  const props = useRef({ visible, open, onOpenChange, source, connection });
   props.current = { visible, open, onOpenChange, source, connection };
   // alpha: the whole overlay; k: how far the card is out (it grows from the pill).
-  const st = useRef({ alpha: 0, k: 0, error: '', drawn: null }).current;
+  const st = useRef<{ alpha: number; k: number; error: string; drawn: string | null; lastPreview?: number }>({ alpha: 0, k: 0, error: '', drawn: null }).current;
 
   const connecting = () => ACTIVE.includes(props.current.connection.status);
-  const message = () => st.error || props.current.connection.message || '';
+  const statusMessage = () => st.error || props.current.connection.message || '';
   const close = () => props.current.onOpenChange?.(false);
   const submit = () => {
     const p = props.current;
     if (connecting()) { p.source.disconnect(); return; }
     st.error = '';
-    p.source.connect()?.catch(err => { st.error = err.message; });
+    p.source.connect()?.catch((err: unknown) => { st.error = message(err); });
   };
 
-  useCanvasUI({
+  useCanvasUI<ConnectWidget>({
     priority: 3.2,
     active: () => props.current.visible && st.alpha > 0.3,
     keyNav: () => props.current.open,
@@ -65,12 +83,12 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       if (wdg.id === 'pill') p.onOpenChange?.(!p.open);
       else if (wdg.id === 'close') close();
       else if (wdg.modelId) {
-        st.error = ''; void p.source.configure({ modelId: wdg.modelId }).catch(err => { st.error = err.message; });
+        st.error = ''; void p.source.configure({ modelId: wdg.modelId }).catch((err: unknown) => { st.error = message(err); });
       } else if (wdg.cameraDelta) {
         const cameras = [{ deviceId: '', label: 'Default camera' }, ...(p.connection.cameras || [])];
         const index = Math.max(0, cameras.findIndex(camera => camera.deviceId === p.connection.cameraId));
         const camera = cameras[(index + wdg.cameraDelta + cameras.length) % cameras.length];
-        st.error = ''; void p.source.configure({ cameraId: camera.deviceId }).catch(err => { st.error = err.message; });
+        st.error = ''; void p.source.configure({ cameraId: camera.deviceId }).catch((err: unknown) => { st.error = message(err); });
       }
       else if (wdg.id === 'primary') submit();
       s.invalidate();
@@ -95,12 +113,12 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       if (p.open && p.source.video && s.time - (st.lastPreview || 0) > 1 / 15) {
         st.lastPreview = s.time; s.invalidate();
       }
-      const key = `${status}|${message()}|${p.open}|${ready}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}`;
+      const key = `${status}|${statusMessage()}|${p.open}|${ready}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}`;
       if (key !== st.drawn) {
         st.drawn = key;
         s.invalidate();
         Object.assign(gl.domElement.dataset, {
-          connectOpen: String(p.open), connectReady: String(ready), connectStatus: status, connectMessage: message(),
+          connectOpen: String(p.open), connectReady: String(ready), connectStatus: status, connectMessage: statusMessage(),
           connectModel: p.connection.model || '', connectCamera: p.connection.cameraId || '',
         });
       }
@@ -109,7 +127,7 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
     draw: (g, s) => {
       const p = props.current;
       const h = s.hover;
-      const press = (id) => s.press * (h[id] ?? 0);
+      const press = (id: string) => s.press * (h[id] ?? 0);
       const { status } = p.connection;
       const k = smooth(st.k);
 
@@ -147,7 +165,7 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
         paragraph(g, 'Keep your full body visible. Video stays in this browser. Camera access needs HTTPS or localhost.',
           WEBCAM_PREVIEW.x + WEBCAM_PREVIEW.w + 20, WEBCAM_PREVIEW.y + 78, 365, { size: 19, lineH: 24 });
 
-        paragraph(g, message(), STATUS.x + 4, STATUS.y, STATUS.w - 8, { size: 21, lineH: 28, color: st.error || status === 'error' ? '#ffb38a' : '#ffffff' });
+        paragraph(g, statusMessage(), STATUS.x + 4, STATUS.y, STATUS.w - 8, { size: 21, lineH: 28, color: st.error || status === 'error' ? '#ffb38a' : '#ffffff' });
 
         const active = connecting();
         const label = active ? (status === 'connected' ? 'Disconnect' : 'Cancel connection') : 'Start camera';

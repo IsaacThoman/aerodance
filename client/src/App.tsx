@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Canvas, useThree } from '@react-three/fiber';
 import Scene from './Scene.tsx';
 import MainMenu from './menu/MainMenu.tsx';
+import type { MenuScreen } from './menu/MainMenu.tsx';
 import MenuDancers from './menu/MenuDancers.tsx';
 import { loadSound, saveSound } from './menu/soundSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
@@ -10,12 +11,19 @@ import SongSelect from './game/SongSelect.tsx';
 import GameScreen from './game/GameScreen.tsx';
 import ResultsScreen from './game/ResultsScreen.tsx';
 import { GameSession } from './game/GameSession.ts';
+import type { GamePhase, SongRoutine } from './game/GameSession.ts';
 import { recordResults } from './game/bestScores.ts';
 import { PLAYERS, winnerOf } from './game/results.ts';
+import type { ResultsShow } from './game/results.ts';
 import StageView from './stage/StageView.tsx';
+import type { StageState } from './stage/StageView.tsx';
+import type { LiveDancers } from './stage/LivePanels.tsx';
+import type { LoadedSongBundle } from './songs/loadBundle.ts';
 import { resolveStage } from '../../packages/stages/catalog.ts';
 import { PoseSourceController } from '../../packages/pose/browser/PoseSourceController.ts';
+import type { PlayerCount } from '../../packages/pose/choreography.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
+import type { PoseSource } from './pose/PoseSource.ts';
 
 function FixedRenderResolution() {
   const gl = useThree((state) => state.gl);
@@ -36,14 +44,17 @@ const params = new URLSearchParams(location.search);
 function replaySource() {
   const input = params.get('input');
   if (input === 'ghost') return new ReplayPoseSource({ mode: 'ghost', lagMs: Number(params.get('ghostLagMs')) || 0 });
-  if (input !== 'recording' || !params.get('recording')) return null;
+  const recording = params.get('recording');
+  if (input !== 'recording' || !recording) return null;
   const source = new ReplayPoseSource({ mode: 'recording' });
-  fetch(params.get('recording')).then((r) => r.text()).then((text) => { source.recording = parseRecording(text); })
-    .catch((err) => console.error('pose recording could not load:', err.message));
+  fetch(recording).then((r) => r.text()).then((text) => { source.recording = parseRecording(text); })
+    .catch((err: unknown) => console.error('pose recording could not load:', err instanceof Error ? err.message : err));
   return source;
 }
 
-function download(name, text) {
+type AppScreen = 'menu' | 'songs' | 'game';
+
+function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: name });
   a.click();
@@ -52,29 +63,29 @@ function download(name, text) {
 
 export default function App() {
   // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select) or 'game' (a song).
-  const [screen, setScreen] = useState('menu');
-  const [menuScreen, setMenuScreen] = useState('main');
+  const [screen, setScreen] = useState<AppScreen>('menu');
+  const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
   // The menu screen actually showing; the Connect Client pill lives on Settings.
-  const [menuShown, setMenuShown] = useState('main');
-  const [playerCount, setPlayerCount] = useState(1);
+  const [menuShown, setMenuShown] = useState<MenuScreen>('main');
+  const [playerCount, setPlayerCount] = useState<PlayerCount>(1);
   // The live webcam input, with optional URL replay.
   const [source] = useState(() => new PoseSourceController());
   const [replay] = useState(replaySource);
   const [connection, setConnection] = useState(source.view);
   const [replayView, setReplayView] = useState(replay?.view ?? null);
-  const activeSource = replay ?? source;
+  const activeSource: PoseSource = replay ?? source;
   // The Connect Client card holds the menus while it's open.
   const [connectOpen, setConnectOpen] = useState(false);
   // Song Select's preview: the routine to dance, and how its stage is doing.
-  const [preview, setPreview] = useState(null);
-  const [stage, setStage] = useState({ showing: false, ready: false, stage: null, failed: false });
+  const [preview, setPreview] = useState<SongRoutine | null>(null);
+  const [stage, setStage] = useState<StageState>({ showing: false, ready: false, stage: null, failed: false });
   const menuOpen = screen === 'menu';
-  const selectedConnection = replay ? replayView : connection;
+  const selectedConnection = replay && replayView ? replayView : connection;
   // The song being danced, its phase, and the results screen's reveal (StageView and
   // GameScreen both read it).
-  const [game, setGame] = useState(null);
-  const [gamePhase, setGamePhase] = useState(null);
-  const resultsShow = useRef(null);
+  const [game, setGame] = useState<GameSession | null>(null);
+  const [gamePhase, setGamePhase] = useState<GamePhase | null>(null);
+  const resultsShow = useRef<ResultsShow | null>(null);
   const [sound, setSound] = useState(loadSound);
 
   useEffect(() => {
@@ -96,7 +107,7 @@ export default function App() {
     };
   }, [source]);
 
-  const choosePlayers = useCallback((count) => {
+  const choosePlayers = useCallback((count: PlayerCount) => {
     if (source.view.configuring) return;
     setPlayerCount(count);
     replay?.setPlayerCount(count);
@@ -109,7 +120,7 @@ export default function App() {
   }, []);
 
   // Dance! on Song Select: a new GameSession for the bundle, on the song's stage.
-  const startGame = useCallback((bundle) => {
+  const startGame = useCallback((bundle: LoadedSongBundle) => {
     const session = new GameSession({ bundle, playerCount, source: activeSource, record: params.has('record') });
     resultsShow.current = null;
     setGame(session);
@@ -138,7 +149,7 @@ export default function App() {
     if (!game) return undefined;
     return game.onChange((session) => {
       setGamePhase(session.phase);
-      if (session.phase !== 'results') return;
+      if (session.phase !== 'results' || !session.results) return;
       const results = session.results.map((r, i) => ({ ...PLAYERS[i], ...r }));
       const best = recordResults(session.bundle.song.songId, session.playerCount, session.results);
       resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), best };
@@ -154,7 +165,7 @@ export default function App() {
   // Every song dances on its own stage, picked in Dance Studio (Open Reef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
   // The players' own characters, while the song is on.
-  const liveDancers = useMemo(() => (game && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase) ? {
+  const liveDancers = useMemo((): LiveDancers | null => (game && gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase) ? {
     playerCount: game.playerCount,
     livePose: (id, now) => game.livePose(id, now),
     calibration: (id) => game.live[id]?.calibration ?? null,
