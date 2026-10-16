@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+import type { Vec2, Vec3 } from '../catalog.ts';
 
 // Shared numbers for the terrace and the city below it. The dance floor sits at
 // y = 0 on top of a tall eco-tower; the city's streets are GROUND units below.
 
 export const GROUND = -95;
 
-const dir = (elevationDeg, azimuthDeg) => {
+const dir = (elevationDeg: number, azimuthDeg: number) => {
   const e = THREE.MathUtils.degToRad(elevationDeg);
   const a = THREE.MathUtils.degToRad(azimuthDeg);
   return new THREE.Vector3(Math.sin(a) * Math.cos(e), Math.sin(e), -Math.cos(a) * Math.cos(e));
@@ -22,21 +23,26 @@ export const COLORS = {
   fog: '#b3e0fb',
 };
 
-export const FOG = [220, 5200];
+export const FOG: Vec2 = [220, 5200];
 
 // Camera sits just in front of the terrace looking out over the skyline.
-export const CAMERA = { position: [0, 4.1, 13.4], target: [0, 2.05, 0], fov: 42 };
+export const CAMERA: { position: Vec3; target: Vec3; fov: number } = { position: [0, 4.1, 13.4], target: [0, 2.05, 0], fov: 42 };
+
+/** A ground position [x, z]. */
+export type XZ = [x: number, z: number];
 
 /** Ground position for an azimuth (degrees, + = right) and distance from the camera. */
-export function polar(azDeg, d, out = [0, 0]) {
+export function polar(azDeg: number, d: number, out: XZ = [0, 0]): XZ {
   const a = THREE.MathUtils.degToRad(azDeg);
   out[0] = Math.sin(a) * d;
   out[1] = CAMERA.position[2] - Math.cos(a) * d;
   return out;
 }
 
+export type RiverPoint = readonly [x: number, z: number, halfWidth: number];
+
 // River + lagoon centerline [x, z, halfWidth], winding from the bay to the horizon.
-export const RIVER = [
+export const RIVER: readonly RiverPoint[] = [
   [150, -470, 120],
   [40, -640, 85],
   [-70, -860, 70],
@@ -48,7 +54,7 @@ export const RIVER = [
 ];
 
 /** Signed distance (xz) to the river: negative inside the water. */
-export function riverSDF(x, z) {
+export function riverSDF(x: number, z: number): number {
   let best = Infinity;
   for (let i = 0; i < RIVER.length - 1; i++) {
     const [ax, az, aw] = RIVER[i];
@@ -65,7 +71,7 @@ export function riverSDF(x, z) {
 // Elevated monorail: two loops weaving between the towers on either flank,
 // so no track crosses the calm middle behind the dancers.
 export const MONO_Y = GROUND + 70;
-export const MONORAILS = [
+export const MONORAILS: XZ[][] = [
   [
     [-18, 340],
     [-26, 360],

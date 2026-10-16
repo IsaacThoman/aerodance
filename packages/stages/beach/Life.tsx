@@ -2,15 +2,40 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { beat, useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
 import { makeRandom } from '../shared/random.ts';
 import { SUN_AZIMUTH, WATER_Y, world } from './palette.ts';
 import { makeLitMaterial } from './shaders.ts';
 import { dolphinGeometry, gullGeometry } from './props.ts';
 
+/** Circles (cx, cz) at radius r and angular speed w, bobbing around height cy. */
+interface CirclingGull {
+  kind: 0;
+  cx: number;
+  cy: number;
+  cz: number;
+  r: number;
+  w: number;
+  ph: number;
+  s: number;
+}
+
+/** Glides across the frame along x at height y, depth z. */
+interface CrossingGull {
+  kind: 1;
+  y: number;
+  z: number;
+  speed: number;
+  ph: number;
+  s: number;
+}
+
+type Gull = CirclingGull | CrossingGull;
+
 // Gulls: circling over the shallows, gliding high, and crossing near the lens.
 const GULLS = (() => {
   const rand = makeRandom(91);
-  const list = [];
+  const list: Gull[] = [];
   for (let i = 0; i < 5; i++) list.push({ kind: 0, cx: rand.range(-10, 12), cy: rand.range(8, 14), cz: rand.range(-40, -22), r: rand.range(8, 15), w: rand.range(0.18, 0.3) * rand.sign(), ph: rand.range(0, 6.28), s: rand.range(1.6, 2.1) });
   for (let i = 0; i < 3; i++) list.push({ kind: 0, cx: rand.range(-40, 30), cy: rand.range(18, 26), cz: rand.range(-110, -70), r: rand.range(18, 28), w: rand.range(0.1, 0.16) * rand.sign(), ph: rand.range(0, 6.28), s: 2.6 });
   list.push({ kind: 1, y: 7.5, z: 1.5, speed: 3.6, ph: 0, s: 1.4 });
@@ -18,7 +43,7 @@ const GULLS = (() => {
   return list;
 })();
 
-function gullPos(g, t, out) {
+function gullPos(g: Gull, t: number, out: THREE.Vector3) {
   if (g.kind === 1) {
     const span = 90;
     const x = ((((g.ph + t * g.speed) % span) + span) % span) - span / 2;
@@ -29,12 +54,14 @@ function gullPos(g, t, out) {
 }
 
 function Gulls() {
-  const mesh = useRef();
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const geometry = useDisposable(() => gullGeometry());
   const material = useDisposable(() => makeLitMaterial({ shininess: 20, specular: 0.2, rim: 0.8, side: THREE.DoubleSide, flap: true }));
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const ahead = useMemo(() => new THREE.Vector3(), []);
   useFrame(() => {
+    const m = mesh.current;
+    if (!m) return;
     const t = world.uTime.value;
     GULLS.forEach((g, i) => {
       gullPos(g, t, dummy.position);
@@ -43,9 +70,9 @@ function Gulls() {
       if (g.kind === 0) dummy.rotateZ(-Math.sign(g.w) * 0.3);
       dummy.scale.setScalar(g.s);
       dummy.updateMatrix();
-      mesh.current.setMatrixAt(i, dummy.matrix);
+      m.setMatrixAt(i, dummy.matrix);
     });
-    mesh.current.instanceMatrix.needsUpdate = true;
+    m.instanceMatrix.needsUpdate = true;
   });
   return <instancedMesh ref={mesh} args={[geometry, material, GULLS.length]} frustumCulled={false} />;
 }
@@ -77,8 +104,14 @@ function makeDropMaterial() {
   });
 }
 
-function dropGeometry(count) {
-  const g = new THREE.BufferGeometry();
+// A type alias (not an interface) so it satisfies BufferGeometry's attribute record constraint.
+type DropAttributes = {
+  position: THREE.BufferAttribute;
+  aFade: THREE.BufferAttribute;
+};
+
+function dropGeometry(count: number) {
+  const g = new THREE.BufferGeometry<DropAttributes>();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
   g.setAttribute('aFade', new THREE.BufferAttribute(new Float32Array(count), 1));
   return g;
@@ -93,7 +126,23 @@ const DOLPHINS = [
 ];
 const DROPS = 10;
 
-function dolphinState(d, t, out) {
+type Dolphin = (typeof DOLPHINS)[number];
+
+/** Where a dolphin is in its leap cycle. */
+interface DolphinState {
+  inAir: boolean;
+  /** Progress through the leap, 0..1. */
+  u: number;
+  x: number;
+  y: number;
+  pitch: number;
+  /** Take-off x of this cycle. */
+  cycleX: number;
+  /** Seconds since take-off. */
+  age: number;
+}
+
+function dolphinState(d: Dolphin, t: number, out: DolphinState) {
   const s = ((t - d.lag) / POD.period) % 1;
   const cycle = Math.floor((t - d.lag) / POD.period);
   const u = s / POD.air;
@@ -109,8 +158,8 @@ function dolphinState(d, t, out) {
 }
 
 function Dolphins() {
-  const mesh = useRef();
-  const drops = useRef();
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const drops = useRef<THREE.Points>(null);
   const geometry = useDisposable(() => dolphinGeometry());
   const material = useDisposable(() => makeLitMaterial({ shininess: 70, specular: 0.8, rim: 0.7 }));
   const dropGeo = useDisposable(() => dropGeometry(DOLPHINS.length * 2 * DROPS));
@@ -120,8 +169,10 @@ function Dolphins() {
     return Array.from({ length: DROPS }, () => [r.range(-1.2, 1.2), r.range(1.5, 3.2), r.range(-0.8, 0.8)]);
   }, []);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const st = useMemo(() => ({}), []);
+  const st = useMemo<DolphinState>(() => ({ inAir: false, u: 0, x: 0, y: 0, pitch: 0, cycleX: 0, age: 0 }), []);
   useFrame(() => {
+    const m = mesh.current;
+    if (!m) return;
     const t = world.uTime.value;
     const pos = dropGeo.attributes.position;
     const fade = dropGeo.attributes.aFade;
@@ -131,7 +182,7 @@ function Dolphins() {
       dummy.rotation.set(0, Math.PI / 2, 0);
       dummy.rotateX(-st.pitch);
       dummy.updateMatrix();
-      mesh.current.setMatrixAt(i, dummy.matrix);
+      m.setMatrixAt(i, dummy.matrix);
       // Splash droplets at take-off and re-entry.
       for (let e = 0; e < 2; e++) {
         const age = e === 0 ? st.age : st.age - POD.period * POD.air;
@@ -149,7 +200,7 @@ function Dolphins() {
         }
       }
     });
-    mesh.current.instanceMatrix.needsUpdate = true;
+    m.instanceMatrix.needsUpdate = true;
     pos.needsUpdate = true;
     fade.needsUpdate = true;
   });
@@ -161,8 +212,12 @@ function Dolphins() {
   );
 }
 
+interface CountProps {
+  count?: number;
+}
+
 /** Glossy soap-bubble orbs drifting up from the shallows on both sides of the dancers. */
-function Bubbles({ count = 26 }) {
+function Bubbles({ count = 26 }: CountProps) {
   const geometry = useDisposable(() => {
     const rand = makeRandom(12);
     const plane = new THREE.PlaneGeometry(1, 1);
@@ -232,7 +287,7 @@ function Bubbles({ count = 26 }) {
 }
 
 /** Star glints twinkling on the sun's path across the water. */
-function Sparkles({ count = 80 }) {
+function Sparkles({ count = 80 }: CountProps) {
   const geometry = useDisposable(() => {
     const rand = makeRandom(33);
     const pos = new Float32Array(count * 3);
@@ -252,7 +307,7 @@ function Sparkles({ count = 80 }) {
   });
   const material = useDisposable(
     () =>
-      new THREE.ShaderMaterial({
+      shaderMaterial({
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,

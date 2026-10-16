@@ -8,14 +8,28 @@ import { blobGeometry, mergeAll } from './geometry.ts';
 import { FLOOR } from './layout.ts';
 import { BAR_STOOLS, STOOL_SEAT } from './Bar.tsx';
 
+interface Blob {
+  x: number;
+  z: number;
+  size: number;
+  color: THREE.Color;
+  yaw: number;
+  style: number;
+  offset: number;
+  stick: boolean;
+  stickColor?: THREE.Color;
+  seed: number;
+  lift: number;
+}
+
 const COLORS = ['#3ee8ff', '#8dff4a', '#ff5ad0', '#a77bff', '#4f8dff', '#3dffc0', '#d65bff', '#ffe04a'];
 
 // Aeroling crowd around the stage: bob, hop and wave glow sticks on the beat.
 function useCrowd() {
   return useDisposable(() => {
     const rand = makeRandom(9001);
-    const blobs = [];
-    const place = (count, r0, r1, t0, t1) => {
+    const blobs: Blob[] = [];
+    const place = (count: number, r0: number, r1: number, t0: number, t1: number) => {
       for (let tries = 0, n = 0; n < count && tries < count * 40; tries++) {
         const r = rand.range(r0, r1);
         const theta = rand.range(t0, t1);
@@ -69,9 +83,9 @@ function useCrowd() {
 
 export default function Crowd() {
   const blobs = useCrowd();
-  const bodies = useRef();
-  const eyes = useRef();
-  const sticks = useRef();
+  const bodies = useRef<THREE.InstancedMesh>(null);
+  const eyes = useRef<THREE.InstancedMesh>(null);
+  const sticks = useRef<THREE.InstancedMesh>(null);
   const stickBlobs = useMemo(() => blobs.filter((b) => b.stick), [blobs]);
 
   const res = useDisposable(() => {
@@ -94,13 +108,17 @@ export default function Crowd() {
   });
 
   useLayoutEffect(() => {
-    blobs.forEach((b, i) => bodies.current.setColorAt(i, b.color));
-    bodies.current.instanceColor.needsUpdate = true;
-    stickBlobs.forEach((b, i) => sticks.current.setColorAt(i, b.stickColor));
-    if (sticks.current.instanceColor) sticks.current.instanceColor.needsUpdate = true;
+    const [bm, sm] = [bodies.current, sticks.current];
+    if (!bm || !sm) return;
+    blobs.forEach((b, i) => bm.setColorAt(i, b.color));
+    if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
+    stickBlobs.forEach((b, i) => b.stickColor && sm.setColorAt(i, b.stickColor));
+    if (sm.instanceColor) sm.instanceColor.needsUpdate = true;
   }, [blobs, stickBlobs]);
 
   useFrame((state) => {
+    const [bm, em, sm] = [bodies.current, eyes.current, sticks.current];
+    if (!bm || !em || !sm) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
     const { m, q, e, p, s } = res;
     let k = 0;
@@ -130,8 +148,8 @@ export default function Crowd() {
       p.set(b.x, FLOOR + b.lift + y * sc, b.z);
       s.set(sc * (1 + (1 - sy) * 0.6), sc * sy, sc * (1 + (1 - sy) * 0.6));
       m.compose(p, q, s);
-      bodies.current.setMatrixAt(i, m);
-      eyes.current.setMatrixAt(i, m);
+      bm.setMatrixAt(i, m);
+      em.setMatrixAt(i, m);
       if (b.stick) {
         // Glow stick held above the head, waving.
         const wave = Math.sin(t * 4.2 + b.seed * 12) * 0.6;
@@ -140,12 +158,12 @@ export default function Crowd() {
         p.set(b.x + Math.cos(b.yaw) * 0.32 * sc, FLOOR + (y + 1.15) * sc, b.z - Math.sin(b.yaw) * 0.32 * sc);
         s.setScalar(sc);
         m.compose(p, q, s);
-        sticks.current.setMatrixAt(k++, m);
+        sm.setMatrixAt(k++, m);
       }
     }
-    bodies.current.instanceMatrix.needsUpdate = true;
-    eyes.current.instanceMatrix.needsUpdate = true;
-    sticks.current.instanceMatrix.needsUpdate = true;
+    bm.instanceMatrix.needsUpdate = true;
+    em.instanceMatrix.needsUpdate = true;
+    sm.instanceMatrix.needsUpdate = true;
   });
 
   return (

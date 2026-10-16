@@ -58,12 +58,42 @@ const swayGLSL = /* glsl */ `
 }
 `;
 
+/** Extra GLSL spliced into a patched material's fragment shader. */
+export interface FragmentPatch {
+  uniforms?: Record<string, THREE.IUniform>;
+  /** Declarations after `#include <common>`. */
+  head?: string;
+  /** Runs after `#include <color_fragment>`. */
+  color?: string;
+  /** Runs after `#include <normal_fragment_maps>`. */
+  normal?: string;
+  /** Runs after `#include <roughnessmap_fragment>`. */
+  roughness?: string;
+}
+
+export interface PatchOptions {
+  /** Wind sway amplitude; 0 leaves out the `aSway` attribute. */
+  sway?: number;
+  /** Program cache key, unique per distinct patch. */
+  key?: string;
+  fragment?: FragmentPatch | null;
+  /** Share of the environment lighting the material takes. */
+  ibl?: number;
+  /** Scales the haze distance. */
+  haze?: number;
+  /** Warm glow through swaying leaves toward the sun (needs sway). */
+  translucency?: number;
+}
+
 /**
  * Patch a built-in lit material with the stage's horizon haze (sky-colored
  * fog) and optional wind sway driven by an `aSway` vertex attribute.
  */
-export function patchMaterial(material, { sway = 0, key = 'base', fragment = null, ibl = 0.6, haze = 1, translucency = 0 } = {}) {
-  material.onBeforeCompile = (shader) => {
+export function patchMaterial<M extends THREE.Material>(
+  material: M,
+  { sway = 0, key = 'base', fragment = null, ibl = 0.6, haze = 1, translucency = 0 }: PatchOptions = {},
+): M {
+  material.onBeforeCompile = (shader: THREE.WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, skyUniforms(), { uTime: world.uTime, uWaterY: world.uWaterY, uSwayAmp: { value: sway }, uIbl: { value: ibl }, uHazeScale: { value: haze }, uTranslucency: { value: translucency } });
     if (fragment?.uniforms) Object.assign(shader.uniforms, fragment.uniforms);
     shader.vertexShader = shader.vertexShader
@@ -195,6 +225,19 @@ void main() {
 }
 `;
 
+export interface LitMaterialOptions {
+  color?: THREE.ColorRepresentation;
+  emissive?: THREE.ColorRepresentation;
+  emissiveIntensity?: number;
+  shininess?: number;
+  specular?: number;
+  rim?: number;
+  vertexColors?: boolean;
+  side?: THREE.Side;
+  /** Flap wings by the signed span in `aSway` (birds). */
+  flap?: boolean;
+}
+
 export function makeLitMaterial({
   color = '#ffffff',
   emissive = '#000000',
@@ -205,7 +248,7 @@ export function makeLitMaterial({
   vertexColors = true,
   side = THREE.FrontSide,
   flap = false,
-} = {}) {
+}: LitMaterialOptions = {}) {
   return new THREE.ShaderMaterial({
     uniforms: {
       ...skyUniforms(),

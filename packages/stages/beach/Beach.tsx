@@ -4,8 +4,10 @@ import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { hash, simplex } from '../shared/glsl.ts';
 import { makeRandom } from '../shared/random.ts';
+import type { Random } from '../shared/random.ts';
 import { WATER_Y, world } from './palette.ts';
 import { patchMaterial } from './shaders.ts';
+import type { FragmentPatch } from './shaders.ts';
 import { sandHeight } from './terrain.ts';
 import { color, finalize, merge, place } from './geometry.ts';
 import {
@@ -21,7 +23,7 @@ import {
 import { PALM, SURF_RACK, ground } from './layout.ts';
 import meta from './meta.ts';
 
-const sandFragment = {
+const sandFragment: FragmentPatch = {
   uniforms: {
     uSandDry: { value: new THREE.Color('#eec088') },
     uSandLight: { value: new THREE.Color('#f8d9a6') },
@@ -122,7 +124,7 @@ function Palm() {
   return <mesh geometry={geometry} material={material} />;
 }
 
-function scallop(rand) {
+function scallop(rand: Random) {
   const g = new THREE.CircleGeometry(1, 10, 0, Math.PI);
   const pos = g.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -188,7 +190,7 @@ function BeachProps() {
       [flipFlopGeometry('#ff7fa8'), 5.4, 6.3, 0.15],
       [place(sandcastleGeometry(), { scale: 0.85 }), -3.0, 6.2, 0.3],
       [bucketGeometry(), -2.15, 6.75, 0],
-    ]) {
+    ] as const) {
       parts.push(place(g, { position: [x, sandHeight(x, z) - 0.02, z], rotation: [0, rot, 0] }));
     }
     return merge(parts);
@@ -207,13 +209,15 @@ const BALLS = [
 
 /** Glossy beach balls: two resting on the sand, one bobbing in the shallows. */
 function BeachBalls() {
-  const mesh = useRef();
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const geometry = useDisposable(() => beachBallGeometry());
   const material = useDisposable(() =>
     patchMaterial(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.05 }), { key: 'ball' }),
   );
   const dummy = useMemo(() => new THREE.Object3D(), []);
   useFrame(() => {
+    const m = mesh.current;
+    if (!m) return;
     const t = world.uTime.value;
     BALLS.forEach((b, i) => {
       const y = b.float ? world.uWaterY.value + b.r * 0.55 + Math.sin(t * 1.6 + i) * 0.05 : sandHeight(b.x, b.z) + b.r * 0.92;
@@ -222,9 +226,9 @@ function BeachBalls() {
       dummy.rotation.set(b.float ? Math.sin(t * 1.3) * 0.25 : 0.3 + i, b.float ? t * 0.2 : i * 1.7, b.float ? Math.cos(t * 1.1) * 0.2 : 0.2);
       dummy.scale.setScalar(b.r);
       dummy.updateMatrix();
-      mesh.current.setMatrixAt(i, dummy.matrix);
+      m.setMatrixAt(i, dummy.matrix);
     });
-    mesh.current.instanceMatrix.needsUpdate = true;
+    m.instanceMatrix.needsUpdate = true;
   });
   return <instancedMesh ref={mesh} args={[geometry, material, BALLS.length]} castShadow frustumCulled={false} />;
 }

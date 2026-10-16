@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { shaderMaterial } from '../shared/glsl.ts';
 import { SUN_TRAVEL, SURFACE_Y } from './constants.ts';
 
 /**
@@ -22,6 +23,8 @@ export function makeShared() {
     uUnderGround: { value: new THREE.Color('#2a8ab8').multiplyScalar(0.36) },
   };
 }
+
+export type SharedUniforms = ReturnType<typeof makeShared>;
 
 // Joltz0r's tileable water caustic, tuned for world-space use.
 export const causticsGLSL = /* glsl */ `
@@ -226,8 +229,29 @@ void main() {
 }
 `;
 
+export interface LitMaterialOptions {
+  color?: THREE.ColorRepresentation;
+  emissive?: THREE.ColorRepresentation;
+  emissiveIntensity?: number;
+  wrap?: number;
+  shininess?: number;
+  specular?: number;
+  rim?: number;
+  rimColor?: THREE.ColorRepresentation;
+  caustics?: number;
+  sway?: boolean;
+  swayAmp?: number;
+  swaySpeed?: number;
+  vertexColors?: boolean;
+  side?: THREE.Side;
+  /** Extra shader defines (UNDULATE, FLIPPERS, MANTA). */
+  defines?: Record<string, string>;
+  /** Alpha cut-out ("lace") texture. */
+  map?: THREE.Texture | null;
+}
+
 /** Stylised lit material sharing the stage uniforms. */
-export function makeLitMaterial(shared, {
+export function makeLitMaterial(shared: SharedUniforms, {
   color = '#ffffff',
   emissive = '#000000',
   emissiveIntensity = 1,
@@ -244,8 +268,8 @@ export function makeLitMaterial(shared, {
   side = THREE.FrontSide,
   defines = {},
   map = null,
-} = {}) {
-  const m = new THREE.ShaderMaterial({
+}: LitMaterialOptions = {}) {
+  const m = shaderMaterial({
     uniforms: {
       ...shared,
       uColor: { value: new THREE.Color(color) },
@@ -277,15 +301,27 @@ export function makeLitMaterial(shared, {
   return m;
 }
 
+export type LitMaterial = ReturnType<typeof makeLitMaterial>;
+
+export interface UnderwaterOptions {
+  /** Caustic light strength (0 = none). */
+  caustics?: number;
+  fog?: boolean;
+  /** Diffuse IBL multiplier. */
+  ibl?: number;
+  /** GLSL that tweaks diffuseColor from the world position (vUwWorld). */
+  color?: string;
+}
+
 /**
  * Give a built-in material (standard/physical/basic) the stage's caustic
  * light and underwater haze. Uniform objects are shared, so they animate.
  */
-export function patchUnderwater(material, shared, { caustics = 0, fog = true, ibl = 1, color = '' } = {}) {
+export function patchUnderwater<M extends THREE.Material>(material: M, shared: SharedUniforms, { caustics = 0, fog = true, ibl = 1, color = '' }: UnderwaterOptions = {}): M {
   const uCaustics = { value: caustics };
   const uIbl = { value: ibl };
-  material.onBeforeCompile = (shader) => {
-    for (const k of ['uTime', 'uSurfaceY', 'uUnderSun', 'uUnderSunColor', 'uWaterTop', 'uWaterMid', 'uWaterDeep', 'uWaterDensity', 'uFogStart']) {
+  material.onBeforeCompile = (shader: THREE.WebGLProgramParametersWithUniforms) => {
+    for (const k of ['uTime', 'uSurfaceY', 'uUnderSun', 'uUnderSunColor', 'uWaterTop', 'uWaterMid', 'uWaterDeep', 'uWaterDensity', 'uFogStart'] as const) {
       shader.uniforms[k] = shared[k];
     }
     shader.uniforms.uCaustics = uCaustics;

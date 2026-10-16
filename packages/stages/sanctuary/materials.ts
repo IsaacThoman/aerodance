@@ -1,8 +1,20 @@
 import * as THREE from 'three';
 import { noise } from '../shared/glsl.ts';
 
+/** Props for a component whose materials take a reflection map. */
+export interface EnvMapProps {
+  envMap: THREE.Texture;
+}
+
+export interface StageUniforms {
+  uTime: THREE.IUniform<number>;
+  uBeat: THREE.IUniform<number>;
+  uBeatPhase: THREE.IUniform<number>;
+  uSunDir: THREE.IUniform<THREE.Vector3>;
+}
+
 // Shared animated uniforms, updated once per frame by the stage clock.
-export const stageUniforms = {
+export const stageUniforms: StageUniforms = {
   uTime: { value: 0 },
   uBeat: { value: 0 },
   uBeatPhase: { value: 0 },
@@ -142,7 +154,7 @@ void cityShade(inout vec3 col, inout float rough, inout float metal, inout vec3 
  * One material for all static city geometry: surface kind and facade
  * parameters come from vertex attributes (see geometry.js KIND).
  */
-export function makeCityMaterial(envMap) {
+export function makeCityMaterial(envMap: THREE.Texture | null): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0, envMap, envMapIntensity: 1 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = stageUniforms.uTime;
@@ -188,7 +200,7 @@ export function makeCityMaterial(envMap) {
  * bright green-and-glass city below (glass seen from above reflects it).
  * Glossy surfaces close to the camera use a soft sun so it can't blow out.
  */
-export function makeCityEnv(renderer, sunDir, sunStrength = 30) {
+export function makeCityEnv(renderer: THREE.WebGLRenderer, sunDir: THREE.Vector3, sunStrength = 30): THREE.WebGLRenderTarget {
   const scene = new THREE.Scene();
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -241,7 +253,12 @@ export function makeCityEnv(renderer, sunDir, sunStrength = 30) {
 }
 
 /** Instanced foliage: wind sway on canopies (aPart = 1) and per-instance tint. */
-export function makeFoliageMaterial({ sway = 0.3, envMap = null } = {}) {
+export interface FoliageMaterialOptions {
+  sway?: number;
+  envMap?: THREE.Texture | null;
+}
+
+export function makeFoliageMaterial({ sway = 0.3, envMap = null }: FoliageMaterialOptions = {}): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0, vertexColors: true, envMap, envMapIntensity: 0.6 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = stageUniforms.uTime;

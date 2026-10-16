@@ -10,11 +10,11 @@ export const club = {
   uBallPos: { value: new THREE.Vector3(0, 6.0, 0.4) },
   uBallRot: { value: 0 },
   uDots: { value: 1 }, // mirror-ball dot intensity
-};
+} satisfies Record<string, THREE.IUniform>;
 
 export const BALL_POS = club.uBallPos.value;
 
-export function tickClub(t) {
+export function tickClub(t: number) {
   club.uTime.value = t;
   club.uBeat.value = beat.beat + beat.phase;
   club.uPulse.value = beat.pulse;
@@ -36,7 +36,7 @@ export const C = {
 // Lime -> aqua -> blue -> violet -> magenta, ping-ponged so neighbours never
 // mix into mud. Mirrors clubHue() in GLSL.
 const HUES = ['#9dff3a', '#1ee8ff', '#2e8bff', '#8d5cff', '#ff3fd2'].map((c) => new THREE.Color(c));
-export function hue(t, out) {
+export function hue(t: number, out: THREE.Color) {
   const s = 1 - Math.abs((((t % 1) + 1) % 1) * 2 - 1);
   const x = s * (HUES.length - 1);
   const i = Math.min(Math.floor(x), HUES.length - 2);

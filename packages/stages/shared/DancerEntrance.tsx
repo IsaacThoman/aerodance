@@ -1,8 +1,10 @@
 import { useRef } from 'react';
+import type { ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { reducedMotion, useDisposable } from './hooks.ts';
 import { clamp, mulberry32 } from './random.ts';
+import { shaderMaterial } from './glsl.ts';
 
 // The floor wakes up on the last count; the dancer settles exactly at the first beat.
 const LEAD_SECONDS = 0.72;
@@ -66,10 +68,18 @@ const rippleFragment = /* glsl */ `
   }
 `;
 
+export interface DancerEntranceProps {
+  children?: ReactNode;
+  /** The song clock (ms); without one the dancer is simply shown. */
+  timeMs?: () => number;
+  color: THREE.ColorRepresentation;
+  seed: number;
+}
+
 /** A short, song-clock-driven entrance in the dancer's local floor coordinates. */
-export default function DancerEntrance({ children, timeMs, color, seed }) {
-  const dancer = useRef();
-  const effects = useRef();
+export default function DancerEntrance({ children, timeMs, color, seed }: DancerEntranceProps) {
+  const dancer = useRef<THREE.Group>(null);
+  const effects = useRef<THREE.Group>(null);
   const resources = useDisposable(() => {
     const rand = mulberry32(seed * 107);
     const geometry = new THREE.PlaneGeometry(1, 1);
@@ -81,7 +91,7 @@ export default function DancerEntrance({ children, timeMs, color, seed }) {
     }
     geometry.setAttribute('aBubble', new THREE.InstancedBufferAttribute(bubbles, 4));
     geometry.setAttribute('aShape', new THREE.InstancedBufferAttribute(shapes, 3));
-    const material = (vertexShader, fragmentShader) => new THREE.ShaderMaterial({
+    const material = (vertexShader: string, fragmentShader: string) => shaderMaterial({
       vertexShader, fragmentShader,
       uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(color).lerp(new THREE.Color('#d2fcff'), 0.35) } },
       transparent: true, depthWrite: false,
@@ -94,6 +104,7 @@ export default function DancerEntrance({ children, timeMs, color, seed }) {
   }, [color, seed]);
 
   useFrame(() => {
+    if (!dancer.current || !effects.current) return;
     // Previews and the captured demo do not have an entrance clock.
     const t = timeMs ? timeMs() / 1000 + LEAD_SECONDS : Infinity;
     const k = clamp((t - 0.18) / (LEAD_SECONDS - 0.18));

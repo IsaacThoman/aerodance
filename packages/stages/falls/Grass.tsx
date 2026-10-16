@@ -1,19 +1,19 @@
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
-import { makeRandom } from '../shared/random.ts';
+import { makeRandom, type Random } from '../shared/random.ts';
 import { fx, lightGLSL, windGLSL } from './fx.ts';
-import { CAMERA, meadowEdge, meadowHeight, PLATFORM_R } from './terrain.ts';
+import { CAMERA, meadowEdge, meadowHeight, PLATFORM_R, type Clearing } from './terrain.ts';
 
 // Blade template: `segments` rows of two vertices plus a tip. x = side, y = t.
-function bladeTemplate(segments) {
-  const pos = [];
+function bladeTemplate(segments: number) {
+  const pos: number[] = [];
   for (let i = 0; i < segments; i++) {
     const t = i / segments;
     const w = 1 - Math.pow(t, 1.4) * 0.75;
     pos.push(-w, t, 0, w, t, 0);
   }
   pos.push(0, 1, 0);
-  const index = [];
+  const index: number[] = [];
   for (let i = 0; i < segments - 1; i++) {
     const a = i * 2;
     index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
@@ -23,8 +23,11 @@ function bladeTemplate(segments) {
   return { pos, index };
 }
 
+/** True where the meadow is free for grass at (x, z), with optional clearance. */
+export type GrassMask = (x: number, z: number, pad?: number) => boolean;
+
 /** True where the meadow is free for grass (not platform, beds or cliff). */
-export function makeGrassMask(blockers) {
+export function makeGrassMask(blockers: Clearing[]): GrassMask {
   return (x, z, pad = 0) => {
     if (meadowEdge(x, z) < 0.25) return false;
     if (Math.hypot(x, z) < PLATFORM_R + 0.72 + pad) return false;
@@ -32,13 +35,15 @@ export function makeGrassMask(blockers) {
   };
 }
 
-function sampleWedge(rand, rMin, rMax, half) {
+function sampleWedge(rand: Random, rMin: number, rMax: number, half: number): [x: number, z: number, r: number] {
   const r = Math.sqrt(rand.range(rMin * rMin, rMax * rMax));
   const a = rand.range(-half, half);
   return [CAMERA.position[0] + Math.sin(a) * r, CAMERA.position[2] - Math.cos(a) * r, r];
 }
 
-function buildBlades({ count, rMin, rMax, segments, width, seed, free }) {
+interface BladeOptions { count: number; rMin: number; rMax: number; segments: number; width: number; seed: number; free: GrassMask }
+
+function buildBlades({ count, rMin, rMax, segments, width, seed, free }: BladeOptions) {
   const rand = makeRandom(seed);
   const { pos, index } = bladeTemplate(segments);
   const g = new THREE.InstancedBufferGeometry();
@@ -127,7 +132,7 @@ const bladeFrag = /* glsl */ `
   }
 `;
 
-export function GrassField({ free }) {
+export function GrassField({ free }: { free: GrassMask }) {
   const material = useDisposable(
     () =>
       new THREE.ShaderMaterial({
@@ -162,7 +167,8 @@ function makeFlowerAtlas() {
   canvas.width = cell * 2;
   canvas.height = cell * 2;
   const ctx = canvas.getContext('2d');
-  const petals = (cx, cy, n, len, wid, fill, edge) => {
+  if (!ctx) throw new Error('2D canvas unavailable');
+  const petals = (cx: number, cy: number, n: number, len: number, wid: number, fill: string, edge: string) => {
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
       ctx.save();
@@ -179,7 +185,7 @@ function makeFlowerAtlas() {
       ctx.restore();
     }
   };
-  const center = (cx, cy, r, c0, c1) => {
+  const center = (cx: number, cy: number, r: number, c0: string, c1: string) => {
     const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r);
     g.addColorStop(0, c0);
     g.addColorStop(1, c1);
@@ -208,7 +214,7 @@ function makeFlowerAtlas() {
   return t;
 }
 
-function buildFlowers(free, seed = 21) {
+function buildFlowers(free: GrassMask, seed = 21) {
   const rand = makeRandom(seed);
   // Stem quad (part 0) + head quad (part 1).
   const pos = [-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 1];
@@ -216,12 +222,12 @@ function buildFlowers(free, seed = 21) {
   const g = new THREE.InstancedBufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(index);
-  const roots = [];
-  const params = [];
+  const roots: number[] = [];
+  const params: number[] = [];
   for (let c = 0; c < 74; c++) {
     // Half the clumps ring the platform edge, the rest roam the meadow.
-    let cx;
-    let cz;
+    let cx: number;
+    let cz: number;
     if (c % 2 === 0) {
       const a = rand.range(-Math.PI, Math.PI);
       const r = PLATFORM_R + rand.range(1.0, 2.6);
@@ -250,7 +256,7 @@ function buildFlowers(free, seed = 21) {
   return g;
 }
 
-export function Wildflowers({ free }) {
+export function Wildflowers({ free }: { free: GrassMask }) {
   const geometry = useDisposable(() => buildFlowers(free), [free]);
   const texture = useDisposable(makeFlowerAtlas);
   const material = useDisposable(

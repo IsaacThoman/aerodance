@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ASPECT, useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
 import { SUN_DIR } from './layout.ts';
 import { stageUniforms } from './materials.ts';
 import { FOUNTAIN } from './terraceGeometry.ts';
@@ -13,7 +14,11 @@ import { instanced } from './geometry.ts';
 
 const quad = () => new THREE.PlaneGeometry(1, 1);
 
-export function Bubbles({ count = 56 }) {
+export interface ParticleProps {
+  count?: number;
+}
+
+export function Bubbles({ count = 56 }: ParticleProps) {
   const geometry = useDisposable(() => {
     const rand = makeRandom(808);
     const seed = new Float32Array(count * 4);
@@ -79,7 +84,7 @@ export function Bubbles({ count = 56 }) {
   return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={10} />;
 }
 
-export function Glints({ count = 44 }) {
+export function Glints({ count = 44 }: ParticleProps) {
   const geometry = useDisposable(() => {
     const rand = makeRandom(4242);
     const seed = new Float32Array(count * 4);
@@ -198,8 +203,10 @@ export function FountainSpray() {
   return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={9} />;
 }
 
+type Butterfly = readonly [x: number, y: number, z: number, radius: number, color: string];
+
 // Butterflies flitting around the planters: [cx, cy, cz, radius, color].
-const BUTTERFLIES = [
+const BUTTERFLIES: readonly Butterfly[] = [
   [-9.8, 1.2, -0.8, 1.6, '#3fd2ff'],
   [-10.6, 2.2, -2.0, 2.0, '#ffe14a'],
   [-6.5, 0.9, 5.6, 1.2, '#ff7fbf'],
@@ -308,7 +315,11 @@ const FLARE = [
   [1.85, 0.34, 0.34, 0.6, 0.8, 1.0, 2],
 ];
 
-export function LensFlare({ strength = 1 }) {
+export interface LensFlareProps {
+  strength?: number;
+}
+
+export function LensFlare({ strength = 1 }: LensFlareProps) {
   const geometry = useDisposable(() => {
     const n = FLARE.length;
     const a = new Float32Array(n * 4);
@@ -321,7 +332,7 @@ export function LensFlare({ strength = 1 }) {
   });
   const material = useDisposable(
     () =>
-      new THREE.ShaderMaterial({
+      shaderMaterial({
         transparent: true,
         depthTest: false,
         depthWrite: false,
@@ -366,7 +377,7 @@ export function LensFlare({ strength = 1 }) {
     sun.copy(SUN_DIR).multiplyScalar(1000).add(camera.position).project(camera);
     const u = material.uniforms;
     u.uSun.value.set(sun.x, sun.y);
-    u.uAspect.value = camera.aspect;
+    if (camera instanceof THREE.PerspectiveCamera) u.uAspect.value = camera.aspect;
     const edge = Math.max(Math.abs(sun.x), Math.abs(sun.y));
     u.uVis.value = sun.z < 1 ? (1 - THREE.MathUtils.smoothstep(edge, 1.0, 1.8)) * strength : 0;
   });

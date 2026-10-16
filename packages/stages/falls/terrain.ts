@@ -2,15 +2,19 @@
 // valley below (lake, river, rolling hills) and the waterfall mesas. Height
 // functions are deterministic and shared by meshes and everything placed on them.
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { mulberry32 } from '../shared/random.ts';
 
-const GRAD = [
+const GRAD: readonly (readonly [number, number])[] = [
   [1, 1], [-1, 1], [1, -1], [-1, -1],
   [1, 0], [-1, 0], [0, 1], [0, -1],
 ];
 
+/** 2D noise function of (x, y). */
+export type Noise2 = (x: number, y: number) => number;
+
 /** Seeded 2D simplex noise in [-1, 1]. */
-export function makeNoise2(seed) {
+export function makeNoise2(seed: number): Noise2 {
   const rand = mulberry32(seed);
   const p = new Uint8Array(256);
   for (let i = 0; i < 256; i++) p[i] = i;
@@ -22,7 +26,7 @@ export function makeNoise2(seed) {
   for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
   const F2 = 0.5 * (Math.sqrt(3) - 1);
   const G2 = (3 - Math.sqrt(3)) / 6;
-  const corner = (gi, x, y) => {
+  const corner = (gi: number, x: number, y: number) => {
     let t = 0.5 - x * x - y * y;
     if (t < 0) return 0;
     t *= t;
@@ -52,11 +56,11 @@ export function makeNoise2(seed) {
   };
 }
 
-export const smooth = (e0, e1, x) => {
+export const smooth = (e0: number, e1: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
   return t * t * (3 - 2 * t);
 };
-const gauss = (x, z, cx, cz, rx, rz) => {
+const gauss = (x: number, z: number, cx: number, cz: number, rx: number, rz: number) => {
   const dx = (x - cx) / rx;
   const dz = (z - cz) / rz;
   return Math.exp(-(dx * dx + dz * dz));
@@ -66,9 +70,12 @@ const nA = makeNoise2(17);
 const nB = makeNoise2(43);
 const nC = makeNoise2(71);
 
-export const CAMERA = { position: [0, 4.3, 10.4], target: [0, 2.05, 0], fov: 47 };
+export const CAMERA: { position: Vec3; target: Vec3; fov: number } = { position: [0, 4.3, 10.4], target: [0, 2.05, 0], fov: 47 };
 export const PLATFORM_R = 5.2;
-export const OBSERVATORY = [110, 13.6, -260];
+
+/** A round patch of ground kept clear (of grass, trees). */
+export interface Clearing { x: number; z: number; r: number }
+export const OBSERVATORY: Vec3 = [110, 13.6, -260];
 export const LAKE_Y = -38;
 
 // ------------------------------------------------------------- promontory
@@ -77,7 +84,7 @@ const PROM_C = [0, -1];
 const PROM_R = 8.4;
 
 /** Signed distance-ish to the clifftop edge: > 0 on the meadow. */
-export function meadowEdge(x, z) {
+export function meadowEdge(x: number, z: number) {
   const dx = x - PROM_C[0];
   const dz = z - PROM_C[1];
   const r = Math.hypot(dx, dz);
@@ -88,7 +95,7 @@ export function meadowEdge(x, z) {
 }
 
 /** Ground height of the clifftop (plateau + cliff walls). */
-export function meadowHeight(x, z) {
+export function meadowHeight(x: number, z: number) {
   const d = meadowEdge(x, z);
   if (d >= 0) {
     let h = 0.1 * nA(x * 0.25, z * 0.25) + 0.05 * nB(x * 0.9, z * 0.9);
@@ -116,7 +123,7 @@ export const heightAt = meadowHeight;
 export const LAKE = { x: 0, z: -258, rx: 132, rz: 92 };
 
 // River leaving the lake to the right and winding toward the foreground.
-const RIVER_CONTROL = [
+const RIVER_CONTROL: [number, number][] = [
   [78, -204], [88, -176], [70, -150], [84, -122], [76, -96], [98, -72], [128, -52], [170, -30], [220, -4],
 ];
 export const RIVER_CURVE = new THREE.CatmullRomCurve3(
@@ -126,7 +133,7 @@ export const RIVER_CURVE = new THREE.CatmullRomCurve3(
 );
 export const RIVER_POINTS = RIVER_CURVE.getSpacedPoints(120);
 
-export function distToRiver(x, z) {
+export function distToRiver(x: number, z: number) {
   if (x < 40 || z < -230) return 99;
   let best = Infinity;
   for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
@@ -143,7 +150,7 @@ export function distToRiver(x, z) {
 }
 
 /** 1 inside the lake, soft wobbly shore. */
-export function lakeMask(x, z, soft = 10) {
+export function lakeMask(x: number, z: number, soft = 10) {
   const dx = (x - LAKE.x) / LAKE.rx;
   const dz = (z - LAKE.z) / LAKE.rz;
   const ang = Math.atan2(dz, dx);
@@ -153,19 +160,20 @@ export function lakeMask(x, z, soft = 10) {
 }
 
 // Open Bliss-style lawn hills (kept free of trees).
-const LAWNS = [
+// [cx, cz, rx, rz, height]
+const LAWNS: [number, number, number, number, number][] = [
   [-84, -128, 42, 30, 15],
   [92, -150, 34, 26, 11],
   [-36, -178, 26, 18, 6],
 ];
-export function lawnMask(x, z) {
+export function lawnMask(x: number, z: number) {
   let m = 0;
   for (const [cx, cz, rx, rz] of LAWNS) m = Math.max(m, gauss(x, z, cx, cz, rx * 0.8, rz * 0.8));
   return m;
 }
 
 /** Valley floor: rolling Bliss hills around a turquoise lake, far ridges. */
-export function valleyHeight(x, z) {
+export function valleyHeight(x: number, z: number) {
   let h = -36;
   h += 5 * nA(x * 0.012, z * 0.012) + 2 * nB(x * 0.035, z * 0.035);
   // Rolling hills on both sides of the lake.
@@ -192,7 +200,10 @@ export function valleyHeight(x, z) {
 // ----------------------------------------------------------------- mesas
 
 // Green-topped tepuis; each fall is { angle (deg, 0 = +x, 90 = +z), width }.
-export const MESAS = [
+export interface MesaFall { angle: number; width: number }
+export interface Mesa { x: number; z: number; r: number; top: number; seed: number; falls: MesaFall[] }
+
+export const MESAS: Mesa[] = [
   { x: -56, z: -56, r: 15, top: 1, seed: 29, falls: [{ angle: 25, width: 6 }] },
   { x: -106, z: -216, r: 34, top: 6, seed: 3, falls: [{ angle: 56, width: 10 }, { angle: 24, width: 5 }] },
   { x: 136, z: -250, r: 40, top: 13, seed: 7, falls: [{ angle: 150, width: 12 }] },
@@ -203,7 +214,7 @@ export const MESAS = [
 ];
 
 /** Radius of a mesa wall at an angle and relative height (0 base .. 1 rim). */
-export function mesaRadius(m, angle, s) {
+export function mesaRadius(m: Mesa, angle: number, s: number) {
   const n = makeMesaNoise(m.seed);
   let r = m.r * (1 + 0.16 * n(Math.cos(angle) * 1.3, Math.sin(angle) * 1.3) + 0.06 * n(Math.cos(angle) * 4 + 9, Math.sin(angle) * 4));
   // Talus flare at the base, slight lean in toward the rim, rounded top.
@@ -221,19 +232,30 @@ export function mesaRadius(m, angle, s) {
   return r;
 }
 
-const mesaNoiseCache = new Map();
-function makeMesaNoise(seed) {
-  if (!mesaNoiseCache.has(seed)) mesaNoiseCache.set(seed, makeNoise2(seed * 31 + 5));
-  return mesaNoiseCache.get(seed);
+const mesaNoiseCache = new Map<number, Noise2>();
+function makeMesaNoise(seed: number) {
+  let n = mesaNoiseCache.get(seed);
+  if (!n) mesaNoiseCache.set(seed, (n = makeNoise2(seed * 31 + 5)));
+  return n;
 }
 
-export function mesaBase(m) {
+export function mesaBase(m: Mesa) {
   return Math.min(valleyHeight(m.x, m.z), LAKE_Y) - 14;
+}
+
+export interface FallSite {
+  lip: THREE.Vector3;
+  /** Outward horizontal normal (x, z). */
+  dir: THREE.Vector2;
+  width: number;
+  bottom: number;
+  foot: THREE.Vector3;
+  out: number;
 }
 
 /** Waterfall sites derived from the mesas: lip position, outward normal, drop. */
 export function fallSites() {
-  const sites = [];
+  const sites: FallSite[] = [];
   for (const m of MESAS) {
     for (const f of m.falls) {
       const a = THREE.MathUtils.degToRad(f.angle);

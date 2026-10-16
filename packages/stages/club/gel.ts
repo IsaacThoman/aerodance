@@ -1,9 +1,19 @@
 import * as THREE from 'three';
 import { patchClub } from './patch.ts';
 
+export interface GelOptions {
+  key: string;
+  color?: THREE.ColorRepresentation;
+  rim?: number;
+  rimPower?: number;
+  glow?: number;
+  vertexColors?: boolean;
+  envMapIntensity?: number;
+}
+
 // Glossy gel for the aeroling blobs: clearcoat candy with a fresnel rim glow
 // in its own color, like the dancers' gel but opaque and cheap.
-export function gelMaterial({ key, color = '#ffffff', rim = 1.4, rimPower = 3, glow = 0.12, vertexColors = false, envMapIntensity = 0.5 } = {}) {
+export function gelMaterial({ key, color = '#ffffff', rim = 1.4, rimPower = 3, glow = 0.12, vertexColors = false, envMapIntensity = 0.5 }: GelOptions) {
   return patchClub(
     new THREE.MeshPhysicalMaterial({
       color,

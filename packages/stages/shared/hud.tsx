@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { createPortal, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import '@fontsource/nunito/700.css';
 import '@fontsource/nunito/900.css';
+import type { StageListing } from '../catalog.ts';
 import { useDisposable } from './hooks.ts';
 
 // HUD coordinates are virtual pixels: 1280x720, origin at the center, +y up.
@@ -10,11 +12,17 @@ import { useDisposable } from './hooks.ts';
 export const HUD_WIDTH = 1280;
 export const HUD_HEIGHT = 720;
 
-export function useHudLayer() {
+export interface HudLayer {
+  scene: THREE.Scene;
+  camera: THREE.OrthographicCamera;
+}
+
+export function useHudLayer(): HudLayer {
   // useState (not useMemo) so Fast Refresh keeps the same layer.
   const [layer] = useState(() => {
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-HUD_WIDTH / 2, HUD_WIDTH / 2, HUD_HEIGHT / 2, -HUD_HEIGHT / 2, -10, 10);
+    // R3F's `manual` flag keeps it from fitting the projection to the canvas.
+    const camera: THREE.OrthographicCamera & { manual?: boolean } = new THREE.OrthographicCamera(-HUD_WIDTH / 2, HUD_WIDTH / 2, HUD_HEIGHT / 2, -HUD_HEIGHT / 2, -10, 10);
     camera.manual = true;
     camera.updateProjectionMatrix();
     return { scene, camera };
@@ -30,7 +38,9 @@ const IDLE_SECONDS = 3.5;
 // ?nohud hides the name card, e.g. for clean screenshots.
 const HIDE_CARD = new URLSearchParams(window.location.search).has('nohud');
 
-function roundRect(ctx, x, y, w, h, r) {
+type Accent = StageListing['accent'];
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -40,7 +50,7 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawArrowOrb(ctx, cx, cy, r, dir, accent) {
+function drawArrowOrb(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, dir: 1 | -1, accent: Accent) {
   const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.45, r * 0.1, cx, cy, r);
   g.addColorStop(0, '#ffffff');
   g.addColorStop(0.35, accent[0]);
@@ -72,8 +82,17 @@ function drawArrowOrb(ctx, cx, cy, r, dir, accent) {
   ctx.fill();
 }
 
-function drawPill(canvas, { name, subtitle, index, count, accent }) {
+interface PillContent {
+  name: string;
+  subtitle: string;
+  index: number;
+  count: number;
+  accent: Accent;
+}
+
+function drawPill(canvas: HTMLCanvasElement, { name, subtitle, index, count, accent }: PillContent) {
   const ctx = canvas.getContext('2d');
+  if (!ctx) return;
   const s = PILL.scale;
   const w = PILL.w * s;
   const h = PILL.h * s;
@@ -131,11 +150,21 @@ function drawPill(canvas, { name, subtitle, index, count, accent }) {
   return { w, h };
 }
 
+export interface StageHudProps {
+  layer: HudLayer;
+  stages: readonly StageListing[];
+  index: number;
+  /** Called with index - 1 or index + 1 when an arrow orb is clicked. */
+  onSelect: (index: number) => void;
+  /** Veil opacity, 0..1. */
+  fade: RefObject<{ value: number }>;
+}
+
 /**
  * Stage name card with prev/next orbs, plus the white transition veil.
  * The card shows on switch or pointer movement and fades out when idle.
  */
-export function StageHud({ layer, stages, index, onSelect, fade }) {
+export function StageHud({ layer, stages, index, onSelect, fade }: StageHudProps) {
   const gl = useThree((s) => s.gl);
   const [ready, setReady] = useState(false);
   const shown = useRef(1);
@@ -180,18 +209,18 @@ export function StageHud({ layer, stages, index, onSelect, fade }) {
   select.current = onSelect;
   useEffect(() => {
     const el = gl.domElement;
-    const toVirtual = (e) => {
+    const toVirtual = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
       return [((e.clientX - r.left) / r.width - 0.5) * HUD_WIDTH, (0.5 - (e.clientY - r.top) / r.height) * HUD_HEIGHT];
     };
     const onMove = () => {
       lastActive.current = clock.current;
     };
-    const onDown = (e) => {
+    const onDown = (e: PointerEvent) => {
       lastActive.current = clock.current;
       const [x, y] = toVirtual(e);
       const dy = y - (PILL.y + 2);
-      for (const dir of [-1, 1]) {
+      for (const dir of [-1, 1] as const) {
         const cx = dir * (PILL.w / 2 - ARROW.inset);
         if (Math.hypot(x - cx, dy) < ARROW.r + 10) {
           select.current(index + dir);

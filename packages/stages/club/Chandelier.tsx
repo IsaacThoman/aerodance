@@ -6,6 +6,7 @@ import { makeRandom } from '../shared/random.ts';
 import { BALL_POS, club } from './clock.ts';
 import { clubCommon } from './patch.ts';
 import { CEILING } from './layout.ts';
+import type { Vec3 } from '../catalog.ts';
 
 const BALL_R = 0.62;
 
@@ -119,7 +120,7 @@ void main() {
 function useBubbles() {
   return useDisposable(() => {
     const rand = makeRandom(31);
-    const list = [];
+    const list: { pos: Vec3; size: number; glow: number }[] = [];
     for (let i = 0; i < 18; i++) {
       const a = (i / 18) * Math.PI * 2 + rand.range(-0.15, 0.15);
       const ring = i % 2;
@@ -132,12 +133,14 @@ function useBubbles() {
 }
 
 export default function Chandelier() {
-  const group = useRef();
-  const ball = useRef();
+  const group = useRef<THREE.Group>(null);
+  const ball = useRef<THREE.Mesh>(null);
   const bubbles = useBubbles();
   const res = useDisposable(() => {
     const sphere = new THREE.SphereGeometry(1, 24, 16);
-    const bubbleGeo = new THREE.InstancedBufferGeometry().copy(sphere);
+    const bubbleGeo = new THREE.InstancedBufferGeometry();
+    bubbleGeo.index = sphere.index;
+    for (const [name, attr] of Object.entries(sphere.attributes)) bubbleGeo.setAttribute(name, attr);
     sphere.dispose();
     bubbleGeo.setAttribute('aGlow', new THREE.InstancedBufferAttribute(new Float32Array(bubbles.map((b) => b.glow)), 1));
     // Wires from the canopy to each bubble and the ball.
@@ -176,15 +179,18 @@ export default function Chandelier() {
     };
   });
 
-  const spin = useRef();
-  const inst = useRef();
+  const spin = useRef<THREE.Group>(null);
+  const inst = useRef<THREE.InstancedMesh>(null);
   useLayoutEffect(() => {
+    const mesh = inst.current;
+    if (!mesh) return;
     const m = new THREE.Matrix4();
-    bubbles.forEach((b, i) => inst.current.setMatrixAt(i, m.makeScale(b.size, b.size, b.size).setPosition(...b.pos)));
-    inst.current.instanceMatrix.needsUpdate = true;
+    bubbles.forEach((b, i) => mesh.setMatrixAt(i, m.makeScale(b.size, b.size, b.size).setPosition(...b.pos)));
+    mesh.instanceMatrix.needsUpdate = true;
   }, [bubbles]);
 
   useFrame((state) => {
+    if (!spin.current || !group.current || !ball.current) return;
     const t = state.clock.elapsedTime;
     spin.current.rotation.y = t * 0.08;
     group.current.position.y = BALL_POS.y + Math.sin(t * 0.6) * 0.04;

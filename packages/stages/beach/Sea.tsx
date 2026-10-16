@@ -107,7 +107,7 @@ void main() {
 
 /** The sea: follows the camera, gently rising and falling to lap the shore. */
 export function Sea() {
-  const mesh = useRef();
+  const mesh = useRef<THREE.Mesh>(null);
   const material = useDisposable(
     () =>
       new THREE.ShaderMaterial({
@@ -128,6 +128,7 @@ export function Sea() {
       }),
   );
   useFrame((state) => {
+    if (!mesh.current) return;
     mesh.current.position.set(state.camera.position.x, world.uWaterY.value, state.camera.position.z);
   });
   return (

@@ -1,3 +1,19 @@
+import * as THREE from 'three';
+
+/** A ShaderMaterial whose uniforms keep their declared types. */
+export type TypedShaderMaterial<U extends Record<string, THREE.IUniform>> = THREE.ShaderMaterial & { uniforms: U };
+
+/** `new THREE.ShaderMaterial(parameters)`, typed by its uniforms. */
+export function shaderMaterial<U extends Record<string, THREE.IUniform>>(
+  parameters: THREE.ShaderMaterialParameters & { uniforms: U },
+): TypedShaderMaterial<U> {
+  // ShaderMaterial keeps the uniforms object it is given.
+  return new THREE.ShaderMaterial(parameters) as TypedShaderMaterial<U>;
+}
+
+/** A uniform of a wider type than its initial value, e.g. `uniform<THREE.Texture | null>(null)`. */
+export const uniform = <T>(value: T): THREE.IUniform<T> => ({ value });
+
 // Reusable GLSL chunks. Concatenate into shader source strings.
 
 export const hash = /* glsl */ `

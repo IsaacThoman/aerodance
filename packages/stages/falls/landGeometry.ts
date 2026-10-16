@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { CAMERA, MESAS, makeNoise2, meadowHeight, mesaBase, mesaRadius, smooth, valleyHeight } from './terrain.ts';
+import { CAMERA, MESAS, makeNoise2, type Noise2, meadowHeight, mesaBase, mesaRadius, smooth, valleyHeight } from './terrain.ts';
 
-function gridIndex(nx, nz) {
-  const idx = [];
+function gridIndex(nx: number, nz: number) {
+  const idx: number[] = [];
   for (let j = 0; j < nz; j++) {
     for (let i = 0; i < nx; i++) {
       const a = j * (nx + 1) + i;
@@ -15,7 +15,7 @@ function gridIndex(nx, nz) {
   return idx;
 }
 
-function finish(pos, idx, extra = {}) {
+function finish(pos: Float32Array, idx: number[], extra: Record<string, Float32Array> = {}) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   for (const [k, v] of Object.entries(extra)) g.setAttribute(k, new THREE.BufferAttribute(v, 1));
@@ -74,15 +74,15 @@ export function buildMesaGeometry() {
   const NA = 96;
   const NY = 26;
   const NC = 6;
-  const positions = [];
-  const rels = [];
-  const indices = [];
+  const positions: number[] = [];
+  const rels: number[] = [];
+  const indices: number[] = [];
   let base = 0;
   for (const m of MESAS) {
     const bottom = mesaBase(m);
     const top = m.top;
     const cap = makeNoise2(m.seed * 7 + 1);
-    const rows = [];
+    const rows: { s: number; y: number; cap: number }[] = [];
     // Walls: s from base (0) to rim (1).
     for (let j = 0; j <= NY; j++) {
       const s = j / NY;
@@ -129,7 +129,7 @@ export function buildMesaGeometry() {
   return g;
 }
 
-const ridged = (n, x, z, oct) => {
+const ridged = (n: Noise2, x: number, z: number, oct: number) => {
   let v = 0;
   let a = 0.5;
   let f = 1;
@@ -141,8 +141,10 @@ const ridged = (n, x, z, oct) => {
   return v;
 };
 
+export interface MountainOptions { x0?: number; x1?: number; z0?: number; z1?: number; segX?: number; segZ?: number; peak?: number; seed?: number }
+
 /** Distant snow-capped range: a strip of ridged peaks. */
-export function buildMountainGeometry({ x0 = -2600, x1 = 2600, z0 = -1150, z1 = -1750, segX = 300, segZ = 30, peak = 210, seed = 5 } = {}) {
+export function buildMountainGeometry({ x0 = -2600, x1 = 2600, z0 = -1150, z1 = -1750, segX = 300, segZ = 30, peak = 210, seed = 5 }: MountainOptions = {}) {
   const nA = makeNoise2(seed);
   const nB = makeNoise2(seed + 9);
   const pos = new Float32Array((segX + 1) * (segZ + 1) * 3);

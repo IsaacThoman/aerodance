@@ -1,3 +1,5 @@
+import type { StageMeta } from '../catalog.ts';
+
 // Name card, dancer placement and post settings, loaded before the stage itself.
 const meta = {
   id: 'club',
@@ -17,6 +19,6 @@ const meta = {
     saturation: 1.12,
     tint: [1, 1, 1],
   },
-};
+} satisfies StageMeta;
 
 export default meta;

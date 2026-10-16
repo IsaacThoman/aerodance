@@ -1,15 +1,24 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import { fx, lightGLSL, windGLSL } from './fx.ts';
-import { fallSites, LAKE, LAKE_Y, RIVER_CURVE, valleyHeight } from './terrain.ts';
+import { fallSites, LAKE, LAKE_Y, RIVER_CURVE, valleyHeight, type FallSite } from './terrain.ts';
 
 const MAX_FOAM = 8;
 
+/** What a waterfall sheet needs: the lip, outward direction, width, bottom height and reach. */
+export type FallSheet = Omit<FallSite, 'foot'>;
+/** A free-floating mist puff: centre, [size, rise, phase, rate] and width/height ratio. */
+export interface MistWisp { c: Vec3; p: [size: number, rise: number, phase: number, rate: number]; aspect?: number }
+
+// Lake depth-texture footprint: [minX, minZ, sizeX, sizeZ].
+type Box = [x: number, z: number, w: number, d: number];
+
 // ------------------------------------------------------------------ lake
 
-function bakeDepth(box, size = 128) {
+function bakeDepth(box: Box, size = 128) {
   const data = new Uint8Array(size * size * 4);
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
@@ -37,7 +46,7 @@ const waterSurfaceGLSL = /* glsl */ `
 
 export function Lake() {
   const sites = useMemo(fallSites, []);
-  const box = useMemo(() => [LAKE.x - LAKE.rx * 1.25, LAKE.z - LAKE.rz * 1.25, LAKE.rx * 2.5, LAKE.rz * 2.5], []);
+  const box = useMemo((): Box => [LAKE.x - LAKE.rx * 1.25, LAKE.z - LAKE.rz * 1.25, LAKE.rx * 2.5, LAKE.rz * 2.5], []);
   const depth = useDisposable(() => bakeDepth(box), [box]);
   const geometry = useDisposable(() => {
     const g = new THREE.PlaneGeometry(box[2], box[3], 1, 1);
@@ -130,9 +139,9 @@ export function River() {
   const geometry = useDisposable(() => {
     const steps = 160;
     const pts = RIVER_CURVE.getSpacedPoints(steps);
-    const pos = [];
-    const uv = [];
-    const idx = [];
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
     let len = 0;
     for (let i = 0; i <= steps; i++) {
       const p = pts[i];
@@ -204,13 +213,13 @@ export function River() {
 
 // ------------------------------------------------------------- waterfalls
 
-function buildFalls(sites) {
+function buildFalls(sites: FallSheet[]) {
   const NU = 8;
   const NV = 30;
-  const pos = [];
-  const uv = [];
-  const fall = [];
-  const idx = [];
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const fall: number[] = [];
+  const idx: number[] = [];
   let base = 0;
   const rand = makeRandom(91);
   sites.forEach((s) => {
@@ -262,7 +271,7 @@ function buildFalls(sites) {
   return g;
 }
 
-export function Waterfalls({ sites }) {
+export function Waterfalls({ sites }: { sites: FallSheet[] }) {
   const geometry = useDisposable(() => buildFalls(sites), [sites]);
   const material = useDisposable(
     () =>
@@ -328,7 +337,15 @@ export function Waterfalls({ sites }) {
 
 // ------------------------------------------------------------------ mist
 
-export function Mist({ sites, extra = [] }) {
+// Stable default so the geometry isn't rebuilt every render.
+const NO_WISPS: MistWisp[] = [];
+
+interface MistProps {
+  sites: Pick<FallSite, 'foot' | 'dir' | 'width'>[];
+  extra?: MistWisp[];
+}
+
+export function Mist({ sites, extra = NO_WISPS }: MistProps) {
   const geometry = useDisposable(() => {
     const rand = makeRandom(57);
     const plane = new THREE.PlaneGeometry(1, 1);
@@ -336,9 +353,9 @@ export function Mist({ sites, extra = [] }) {
     g.index = plane.index;
     g.attributes.position = plane.attributes.position;
     g.attributes.uv = plane.attributes.uv;
-    const centers = [];
-    const params = [];
-    const aspects = [];
+    const centers: number[] = [];
+    const params: number[] = [];
+    const aspects: number[] = [];
     for (const s of sites) {
       const n = Math.round(12 + s.width * 1.8);
       for (let i = 0; i < n; i++) {
@@ -421,7 +438,15 @@ export function Mist({ sites, extra = [] }) {
 
 // --------------------------------------------------------------- rainbow
 
-export function Rainbow({ center = [-6, -56, -176], radius = 76, start = 98, end = 172 }) {
+interface RainbowProps {
+  center?: Vec3;
+  radius?: number;
+  /** Arc start and end angles (degrees). */
+  start?: number;
+  end?: number;
+}
+
+export function Rainbow({ center = [-6, -56, -176], radius = 76, start = 98, end = 172 }: RainbowProps) {
   const geometry = useDisposable(() => new THREE.PlaneGeometry(radius * 2.3, radius * 2.3), [radius]);
   const material = useDisposable(
     () =>

@@ -1,9 +1,12 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import { hash, simplex } from '../shared/glsl.ts';
 import { causticsGLSL, makeLitMaterial, waterGLSL } from './shaders.ts';
+import type { SharedUniforms } from './shaders.ts';
+import type { BubbleSource } from './Water.tsx';
 import { makeNoise3, merge, place, ss } from './geometry.ts';
 import {
   anemoneBase,
@@ -28,7 +31,9 @@ import {
 export const SAND_Y = -0.45;
 
 /** Seafloor height: flat around the dome, dunes beyond, sloping into the deep. */
-export function makeFloorHeight() {
+export type FloorHeight = (x: number, z: number) => number;
+
+export function makeFloorHeight(): FloorHeight {
   const noise = makeNoise3(42);
   return (x, z) => {
     const k = ss(Math.hypot(x, z * 1.1), 9, 17);
@@ -40,8 +45,27 @@ export function makeFloorHeight() {
   };
 }
 
+type CoralKind = 'brain' | 'branch' | 'table' | 'sponges' | 'whips' | 'star' | 'clam' | 'pillar' | 'leather' | 'anemone';
+
+// Each kind reads the options it knows.
+interface CoralOptions {
+  palette?: readonly THREE.ColorRepresentation[];
+  base?: THREE.ColorRepresentation;
+  tip?: THREE.ColorRepresentation;
+  top?: THREE.ColorRepresentation;
+  rim?: THREE.ColorRepresentation;
+  paint?: THREE.ColorRepresentation;
+}
+
+type CoralSpec = readonly [kind: CoralKind, x: number, z: number, size: number, opts?: CoralOptions];
+
+interface Bommie {
+  rocks: readonly (readonly [x: number, z: number, radius: number, squash: Vec3])[];
+  corals: readonly CoralSpec[];
+}
+
 // Bommies (rock + coral heads). Corals: [kind, x, z, size, opts].
-const BOMMIES = [
+const BOMMIES: readonly Bommie[] = [
   {
     rocks: [[-12.6, -7.2, 1.5, [1.2, 1.0, 1.1]], [-14.4, -5.6, 1.0, [1.2, 0.9, 1]], [-11.0, -9.0, 1.1, [1.2, 0.95, 1]], [-15.2, -8.8, 0.9, [1.1, 1.1, 1]]],
     corals: [
@@ -109,7 +133,7 @@ const BOMMIES = [
 ];
 
 // Low pieces on the sand, including the framing corners in front of the plinth.
-const SCATTER = [
+const SCATTER: readonly CoralSpec[] = [
   ['brain', -4.6, 8.1, 0.7, { palette: ['#e2f56a', '#6f9424'] }],
   ['branch', -5.4, 7.2, 1.1, { base: '#ff3d8f', tip: '#ffd0ea' }],
   ['anemone', -3.3, 8.4, 0.5, { paint: '#2f9a6a', tip: '#c8ff6a' }],
@@ -138,7 +162,7 @@ const SCATTER = [
 
 const ARCH = { x: 14.5, z: -18.5, yaw: -0.45, span: 8.5, height: 5.2 };
 
-const FANS = [
+const FANS: readonly (readonly [x: number, z: number, size: number, tint: string, yaw: number])[] = [
   [-14.6, -4.6, 2.6, '#b23cff', 0.35],
   [15.0, -3.6, 2.4, '#ff3fb4', -0.5],
   [5.2, 6.9, 2.0, '#a24cff', -0.4],
@@ -151,7 +175,7 @@ const FANS = [
 ];
 
 // [x, z, radius, count, height scale]
-const GRASS_PATCHES = [
+const GRASS_PATCHES: readonly (readonly [x: number, z: number, radius: number, count: number, heightScale?: number])[] = [
   [-2.9, 8.8, 0.8, 26, 0.5],
   [3.3, 8.9, 0.7, 20, 0.5],
   [-8.0, -12.5, 2.6, 120],
@@ -165,7 +189,7 @@ const GRASS_PATCHES = [
   [9.4, 7.0, 1.6, 60],
 ];
 
-const KELP = [
+const KELP: readonly (readonly [x: number, z: number, count: number])[] = [
   [-21.0, -5.0, 7],
   [-24.5, -18.0, 8],
   [22.0, -3.0, 7],
@@ -178,7 +202,7 @@ const KELP = [
   [18.0, 6.0, 5],
 ];
 
-export const VENTS = [
+export const VENTS: readonly BubbleSource[] = [
   { x: -9.6, y: -0.5, z: -14.4, count: 18 },
   { x: 7.4, y: -0.5, z: -19.6, count: 18 },
   { x: 16.2, y: 0.4, z: -9.0, count: 14 },
@@ -186,13 +210,41 @@ export const VENTS = [
   { x: 3.6, y: -0.2, z: 8.2, count: 10, size: 0.7, top: 7 },
 ];
 
-export function buildReef(floorHeight) {
-  const solid = [];
-  const sway = [];
-  const anemones = [];
+export interface AnemoneSpot {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  tip: THREE.ColorRepresentation;
+}
+
+/** An instanced plant (seagrass blade or kelp frond). */
+export interface Plant {
+  x: number;
+  y: number;
+  z: number;
+  h: number;
+  yaw: number;
+  /** 0..1 picks the tone. */
+  hue: number;
+}
+
+export interface SeaFan {
+  x: number;
+  y: number;
+  z: number;
+  size: number;
+  tint: string;
+  yaw: number;
+}
+
+export function buildReef(floorHeight: FloorHeight) {
+  const solid: THREE.BufferGeometry[] = [];
+  const sway: THREE.BufferGeometry[] = [];
+  const anemones: AnemoneSpot[] = [];
   const rand = makeRandom(1234);
-  const rockTops = [];
-  const topAt = (x, z) => {
+  const rockTops: { x: number; z: number; r: number; s: Vec3; y: number }[] = [];
+  const topAt = (x: number, z: number) => {
     let y = floorHeight(x, z);
     for (const r of rockTops) {
       const d = Math.hypot((x - r.x) / (r.r * r.s[0]), (z - r.z) / (r.r * r.s[2]));
@@ -200,10 +252,10 @@ export function buildReef(floorHeight) {
     }
     return y;
   };
-  const addCoral = ([kind, x, z, size, opts = {}], seed) => {
+  const addCoral = ([kind, x, z, size, opts = {}]: CoralSpec, seed: number) => {
     const y = topAt(x, z) - 0.05;
     const rotY = rand.range(0, Math.PI * 2);
-    const at = (g, extra = {}) => place(g, { position: [x, y, z], rotation: [0, rotY, 0], ...extra });
+    const at = (g: THREE.BufferGeometry, extra = {}) => place(g, { position: [x, y, z], rotation: [0, rotY, 0], ...extra });
     if (kind === 'brain') solid.push(at(brainCoral({ radius: size, seed, ...opts })));
     else if (kind === 'branch') branchingCoral({ size, seed, ...opts }).forEach((g) => solid.push(at(g)));
     else if (kind === 'table') solid.push(at(tableCoral({ radius: size, seed, height: 0.4 + size * 0.25, ...opts })));
@@ -231,7 +283,7 @@ export function buildReef(floorHeight) {
     const { x, z, yaw, span, height } = ARCH;
     const y = floorHeight(x, z);
     solid.push(place(rockArch({ span, height, seed: 77 }), { position: [x, y, z], rotation: [0, yaw, 0] }));
-    const crown = [
+    const crown: readonly (readonly [kind: 'brain' | 'branch' | 'leather', u: number, size: number, opts: CoralOptions])[] = [
       ['brain', -0.4, 0.62, { palette: ['#ffa6c8', '#b8507c'] }],
       ['branch', 1.6, 0.8, { base: '#ff7a2a', tip: '#ffe0a8' }],
       ['leather', -2.2, 0.55, { paint: '#b8e86a', rim: '#f6ffd8' }],
@@ -253,7 +305,7 @@ export function buildReef(floorHeight) {
   }
   for (const b of BOMMIES) for (const c of b.corals) addCoral(c, seed++);
   // Carpet each bommie with smaller colonies so no bare rock reads as a blob.
-  const SMALL = [
+  const SMALL: readonly (readonly [kind: CoralKind, opts: CoralOptions])[] = [
     ['brain', { palette: ['#ff9ec4', '#c2507e'] }],
     ['brain', { palette: ['#c9ef5a', '#6f9a22'] }],
     ['branch', { base: '#ff3d8f', tip: '#ffd0ea' }],
@@ -288,7 +340,7 @@ export function buildReef(floorHeight) {
     const r = rand.range(0.14, 0.42);
     solid.push(place(rock({ radius: r, seed: seed++, squash: [1.3, 0.6, 1] }), { position: [x, floorHeight(x, z) - r * 0.2, z] }));
   }
-  const blades = [];
+  const blades: Plant[] = [];
   const grassRand = makeRandom(77);
   for (const [cx, cz, radius, count, scale = 1] of GRASS_PATCHES) {
     for (let i = 0; i < count; i++) {
@@ -300,7 +352,7 @@ export function buildReef(floorHeight) {
       blades.push({ x, y: floorHeight(x, z) - 0.05, z, h: grassRand.range(0.5, 1.3) * (1 - (d / radius) * 0.4) * scale, yaw: grassRand.range(0, 6.28), hue: grassRand.next() });
     }
   }
-  const kelp = [];
+  const kelp: Plant[] = [];
   const kelpRand = makeRandom(91);
   for (const [cx, cz, count] of KELP) {
     for (let i = 0; i < count; i++) {
@@ -309,7 +361,7 @@ export function buildReef(floorHeight) {
       kelp.push({ x, y: floorHeight(x, z) - 0.1, z, h: kelpRand.range(5.5, 9.6), yaw: kelpRand.range(0, 6.28), hue: kelpRand.next() });
     }
   }
-  const fans = FANS.map(([x, z, size, tint, yaw]) => ({ x, y: topAt(x, z) - 0.1, z, size, tint, yaw }));
+  const fans = FANS.map(([x, z, size, tint, yaw]): SeaFan => ({ x, y: topAt(x, z) - 0.1, z, size, tint, yaw }));
   return { solid: merge(solid), sway: merge(sway), anemones, blades, kelp, fans };
 }
 
@@ -361,7 +413,11 @@ void main() {
 }
 `;
 
-function SandFloor({ shared, floorHeight, dome }) {
+interface ReefProps {
+  shared: SharedUniforms;
+}
+
+function SandFloor({ shared, floorHeight, dome }: ReefProps & { floorHeight: FloorHeight; dome: boolean }) {
   const geometry = useDisposable(() => {
     const g = new THREE.PlaneGeometry(320, 210, 160, 105);
     g.rotateX(-Math.PI / 2);
@@ -391,7 +447,8 @@ function SandFloor({ shared, floorHeight, dome }) {
   return <mesh geometry={geometry} material={material} />;
 }
 
-function useInstanced(geometry, material, items, write) {
+function useInstanced<T>(geometry: THREE.BufferGeometry, material: THREE.Material, items: readonly T[],
+  write: (item: T, i: number, dummy: THREE.Object3D, color: THREE.Color) => void): THREE.InstancedMesh {
   const mesh = useMemo(() => {
     const m = new THREE.InstancedMesh(geometry, material, items.length);
     const dummy = new THREE.Object3D();
@@ -412,7 +469,7 @@ function useInstanced(geometry, material, items, write) {
   return mesh;
 }
 
-function Seagrass({ shared, blades }) {
+function Seagrass({ shared, blades }: ReefProps & { blades: readonly Plant[] }) {
   const geometry = useDisposable(() => bladeGeometry({ width: 0.07 }));
   const material = useDisposable(() =>
     makeLitMaterial(shared, { shininess: 25, specular: 0.25, rim: 0.2, wrap: 0.7, sway: true, swayAmp: 0.32, swaySpeed: 1.1, vertexColors: false, side: THREE.DoubleSide, caustics: 0.7 }),
@@ -427,7 +484,7 @@ function Seagrass({ shared, blades }) {
   return <primitive object={mesh} />;
 }
 
-function Kelp({ shared, kelp }) {
+function Kelp({ shared, kelp }: ReefProps & { kelp: readonly Plant[] }) {
   const geometry = useDisposable(() => bladeGeometry({ seg: 18, width: 0.22, bend: 0.5, ruffle: 1 }));
   const material = useDisposable(() =>
     makeLitMaterial(shared, { shininess: 30, specular: 0.3, rim: 0.35, rimColor: '#e6ff9a', wrap: 0.8, sway: true, swayAmp: 1.3, swaySpeed: 0.5, vertexColors: false, side: THREE.DoubleSide, caustics: 0.5 }),
@@ -442,7 +499,7 @@ function Kelp({ shared, kelp }) {
   return <primitive object={mesh} />;
 }
 
-function SeaFans({ shared, fans }) {
+function SeaFans({ shared, fans }: ReefProps & { fans: readonly SeaFan[] }) {
   const texture = useDisposable(() => makeLaceTexture());
   const geometry = useDisposable(() => fanGeometry());
   const material = useDisposable(() =>
@@ -457,14 +514,14 @@ function SeaFans({ shared, fans }) {
   return <primitive object={mesh} />;
 }
 
-function Anemones({ shared, anemones }) {
+function Anemones({ shared, anemones }: ReefProps & { anemones: readonly AnemoneSpot[] }) {
   const geometry = useDisposable(() => tentacleGeometry('#f4ead0', '#ffffff'));
   const material = useDisposable(() =>
     makeLitMaterial(shared, { shininess: 40, specular: 0.4, rim: 0.4, rimColor: '#ffe6fa', wrap: 0.6, sway: true, swayAmp: 0.12, swaySpeed: 1.5, emissive: '#2a1030', caustics: 0.8 }),
   );
   const items = useMemo(() => {
     const rand = makeRandom(5);
-    const list = [];
+    const list: { x: number; y: number; z: number; ang: number; tilt: number; s: number; tip: THREE.Color; l: number }[] = [];
     for (const a of anemones) {
       const tip = new THREE.Color(a.tip);
       const per = Math.round(110 * (a.r / 0.55) ** 2);
@@ -486,7 +543,7 @@ function Anemones({ shared, anemones }) {
   return <primitive object={mesh} />;
 }
 
-export function Reef({ shared, floorHeight, dome = true }) {
+export function Reef({ shared, floorHeight, dome = true }: ReefProps & { floorHeight: FloorHeight; dome?: boolean }) {
   const reef = useDisposable(() => buildReef(floorHeight), [floorHeight]);
   const mats = useDisposable(() => ({
     solid: makeLitMaterial(shared, { shininess: 30, specular: 0.25, rim: 0.14, rimColor: '#9ff0ff', wrap: 0.45, caustics: 1.1 }),

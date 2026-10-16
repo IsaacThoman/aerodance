@@ -2,6 +2,27 @@ import { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import type { Vec2, Vec3 } from '../catalog.ts';
+
+/** An emissive panel in the environment. */
+export interface EnvironmentLight {
+  position: Vec3;
+  color?: THREE.ColorRepresentation;
+  intensity?: number;
+  /** [width, height]. */
+  size?: Vec2;
+}
+
+export interface StageEnvironmentProps {
+  /** 'room': three's neutral studio; otherwise a gradient sphere plus light panels. */
+  preset?: 'room';
+  top?: THREE.ColorRepresentation;
+  horizon?: THREE.ColorRepresentation;
+  bottom?: THREE.ColorRepresentation;
+  lights?: readonly EnvironmentLight[];
+  /** scene.environmentIntensity. */
+  intensity?: number;
+}
 
 /**
  * Reflection/IBL environment for a stage, prefiltered with PMREM.
@@ -19,15 +40,15 @@ export function StageEnvironment({
   bottom = '#3e7f73',
   lights = [],
   intensity = 1,
-}) {
+}: StageEnvironmentProps): null {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   const key = JSON.stringify({ preset, top, horizon, bottom, lights });
 
   useEffect(() => {
     const pmrem = new THREE.PMREMGenerator(gl);
-    let source;
-    const owned = [];
+    let source: THREE.Scene;
+    const owned: { dispose(): void }[] = [];
     if (preset === 'room') {
       source = new RoomEnvironment();
     } else {
@@ -70,7 +91,7 @@ export function StageEnvironment({
     }
     const target = pmrem.fromScene(source, 0.04);
     scene.environment = target.texture;
-    if (preset === 'room') source.dispose();
+    if (source instanceof RoomEnvironment) source.dispose();
     owned.forEach((o) => o.dispose());
     pmrem.dispose();
     return () => {

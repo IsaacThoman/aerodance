@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { Vec3 } from '../catalog.ts';
 import { mergeTagged } from './geometry.ts';
+import type { RGB, TaggedPart } from './geometry.ts';
 
 // Unit-height tree models: trunk (aPart = 0) keeps its color, canopy (aPart = 1)
 // is tinted per instance and sways in the wind.
 
-const TRUNK = [0.36, 0.24, 0.15];
+const TRUNK: RGB = [0.36, 0.24, 0.15];
 
-function blob(radius, detail, center, squash = [1, 1, 1], lump = 0.12, seed = 0) {
-  let g = new THREE.IcosahedronGeometry(radius, detail);
+function blob(radius: number, detail: number, center: THREE.Vector3, squash: Vec3 = [1, 1, 1], lump = 0.12, seed = 0): THREE.BufferGeometry {
+  let g: THREE.BufferGeometry = new THREE.IcosahedronGeometry(radius, detail);
   g.deleteAttribute('normal');
   g.deleteAttribute('uv');
   g = mergeVertices(g);
@@ -25,16 +27,16 @@ function blob(radius, detail, center, squash = [1, 1, 1], lump = 0.12, seed = 0)
   return g;
 }
 
-const leaf = (geometry) => ({ geometry, color: [1, 1, 1], extra: { aPart: 1 } });
-const wood = (geometry, color = TRUNK) => ({ geometry, color, extra: { aPart: 0 } });
+const leaf = (geometry: THREE.BufferGeometry): TaggedPart => ({ geometry, color: [1, 1, 1], extra: { aPart: 1 } });
+const wood = (geometry: THREE.BufferGeometry, color: RGB = TRUNK): TaggedPart => ({ geometry, color, extra: { aPart: 0 } });
 
-function build(parts) {
+function build(parts: readonly TaggedPart[]): THREE.BufferGeometry {
   const g = mergeTagged(parts);
   parts.forEach((p) => p.geometry.dispose());
   return g;
 }
 
-export function makeRoundTree(detail = 1) {
+export function makeRoundTree(detail = 1): THREE.BufferGeometry {
   return build([
     wood(new THREE.CylinderGeometry(0.04, 0.065, 0.55, 6, 1).translate(0, 0.27, 0)),
     leaf(blob(0.36, detail, new THREE.Vector3(0, 0.66, 0), [1, 0.92, 1], 0.14, 1)),
@@ -43,15 +45,15 @@ export function makeRoundTree(detail = 1) {
   ]);
 }
 
-export function makeConeTree() {
+export function makeConeTree(): THREE.BufferGeometry {
   return build([
     wood(new THREE.CylinderGeometry(0.035, 0.05, 0.3, 5, 1).translate(0, 0.15, 0)),
     leaf(blob(0.5, 1, new THREE.Vector3(0, 0.6, 0), [0.42, 1, 0.42], 0.06, 4)),
   ]);
 }
 
-export function makePalm() {
-  const parts = [];
+export function makePalm(): THREE.BufferGeometry {
+  const parts: TaggedPart[] = [];
   const segs = 5;
   for (let i = 0; i < segs; i++) {
     const seg = new THREE.CylinderGeometry(0.03, 0.04, 0.78 / segs + 0.01, 6, 1);

@@ -68,7 +68,7 @@ function useFish() {
 function useBubbles() {
   return useDisposable(() => {
     const rand = makeRandom(77);
-    const seeds = [];
+    const seeds: number[] = [];
     TANK_CENTERS.forEach((center) => {
       for (let s = 0; s < 6; s++) {
         const theta = center + rand.range(-0.85, 0.85) * TANK.half;
@@ -88,7 +88,7 @@ export default function Aquarium() {
   const fish = useFish();
   const bubbles = useBubbles();
   const mats = useDisposable(() => {
-    const shader = (fragmentShader, opts = {}) =>
+    const shader = (fragmentShader: string, opts: THREE.ShaderMaterialParameters = {}) =>
       new THREE.ShaderMaterial({ uniforms: fogUniforms(), vertexShader: vertexWorld, fragmentShader, fog: true, ...opts });
     return {
       back: shader(backFragment, { side: THREE.BackSide }),
@@ -126,7 +126,7 @@ export default function Aquarium() {
 
   // Both tanks merged per material.
   const geo = useDisposable(() => {
-    const parts = { back: [], curtain: [], glass: [], plinth: [], frame: [], sand: [] };
+    const parts: Record<'back' | 'curtain' | 'glass' | 'plinth' | 'frame' | 'sand', THREE.BufferGeometry[]> = { back: [], curtain: [], glass: [], plinth: [], frame: [], sand: [] };
     TANK_CENTERS.forEach((c) => {
       const start = c - TANK.half;
       const len = TANK.half * 2;
@@ -147,7 +147,7 @@ export default function Aquarium() {
           .translate(0, SAND, 0),
       );
     });
-    return Object.fromEntries(Object.entries(parts).map(([k, list]) => [k, mergeAll(list)]));
+    return Object.fromEntries(Object.entries(parts).map(([k, list]) => [k, mergeAll(list)])) as Record<keyof typeof parts, THREE.BufferGeometry>;
   });
 
   return (

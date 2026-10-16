@@ -4,13 +4,18 @@ import * as THREE from 'three';
 import { ASPECT, beat, useDisposable } from '../shared/hooks.ts';
 import { makeCloudAtlas } from '../shared/Sky.tsx';
 import { makeRandom } from '../shared/random.ts';
-import { noise } from '../shared/glsl.ts';
+import { noise, shaderMaterial } from '../shared/glsl.ts';
+import type { Vec2, Vec3 } from '../catalog.ts';
 import { SUN_DIR, world } from './palette.ts';
 import { skyGLSL, skyUniforms } from './shaders.ts';
 
+export interface SunsetSkyProps {
+  radius?: number;
+}
+
 /** Sunset dome: banded gradient, pink cirrus, and a big warm sun just above the sea. */
-export function SunsetSky({ radius = 2400 }) {
-  const mesh = useRef();
+export function SunsetSky({ radius = 2400 }: SunsetSkyProps) {
+  const mesh = useRef<THREE.Mesh>(null);
   const material = useDisposable(
     () =>
       new THREE.ShaderMaterial({
@@ -62,7 +67,7 @@ export function SunsetSky({ radius = 2400 }) {
         `,
       }),
   );
-  useFrame((state) => mesh.current.position.copy(state.camera.position));
+  useFrame((state) => mesh.current?.position.copy(state.camera.position));
   return (
     <mesh ref={mesh} material={material} renderOrder={-1000} frustumCulled={false}>
       <sphereGeometry args={[radius, 64, 32]} />
@@ -70,12 +75,27 @@ export function SunsetSky({ radius = 2400 }) {
   );
 }
 
+export interface SunsetCloudsProps {
+  count?: number;
+  center?: Vec3;
+  /** [width along x, depth along z]. */
+  area?: Vec2;
+  heightJitter?: number;
+  /** [min, max] billboard size. */
+  size?: Vec2;
+  /** Drift along +x, world units per second. */
+  speed?: number;
+  seed?: number;
+  opacity?: number;
+  renderOrder?: number;
+}
+
 /**
  * Camera-facing cumulus billboards drifting along +x. Sunset lighting: bases
  * glow gold/peach (lit from below), tops are cooler pink-lilac, and thin edges
  * near the sun catch a bright silver lining.
  */
-export function SunsetClouds({ count = 16, center = [0, 160, -1100], area = [2600, 500], heightJitter = 50, size = [140, 320], speed = 3, seed = 3, opacity = 1, renderOrder = -500 }) {
+export function SunsetClouds({ count = 16, center = [0, 160, -1100], area = [2600, 500], heightJitter = 50, size = [140, 320], speed = 3, seed = 3, opacity = 1, renderOrder = -500 }: SunsetCloudsProps) {
   const texture = useDisposable(() => makeCloudAtlas(seed), [seed]);
   const geometry = useDisposable(() => {
     const rand = makeRandom(seed * 13 + 1);
@@ -218,7 +238,7 @@ export function SunFlare() {
   });
   const material = useDisposable(
     () =>
-      new THREE.ShaderMaterial({
+      shaderMaterial({
         transparent: true,
         depthTest: false,
         depthWrite: false,
@@ -291,7 +311,7 @@ export function SunFlare() {
     v.current.copy(SUN_DIR).multiplyScalar(1000).add(cam.position).project(cam);
     const u = material.uniforms;
     u.uSun.value.set(v.current.x, v.current.y);
-    u.uAspect.value = cam.aspect;
+    if (cam instanceof THREE.PerspectiveCamera) u.uAspect.value = cam.aspect;
     const edge = Math.max(Math.abs(v.current.x), Math.abs(v.current.y));
     u.uVis.value = v.current.z < 1 ? THREE.MathUtils.clamp((1.15 - edge) / 0.4, 0, 1) : 0;
     u.uPulse.value = beat.pulse;

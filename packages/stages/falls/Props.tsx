@@ -1,12 +1,13 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { beat, useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import { valleyHeight } from './terrain.ts';
 
-const flat = (g) => {
+const flat = (g: THREE.BufferGeometry) => {
   const n = g.index ? g.toNonIndexed() : g;
   n.deleteAttribute('uv');
   return n;
@@ -39,8 +40,11 @@ function buildTurbine() {
   return { body, rotor: mergeGeometries(blades) };
 }
 
-/** sites: [{ x, z, y?, s }] — on the mesa tops so they stand against the sky. */
-export function Turbines({ sites: input, seed = 12 }) {
+/** A turbine base; y defaults to the valley floor, s (scale) to 0.75. */
+export interface TurbineSite { x: number; z: number; y?: number; s?: number }
+
+/** On the mesa tops so they stand against the sky. */
+export function Turbines({ sites: input, seed = 12 }: { sites: TurbineSite[]; seed?: number }) {
   const sites = useMemo(() => {
     const rand = makeRandom(seed);
     return input.map((t) => {
@@ -87,11 +91,12 @@ export function Turbines({ sites: input, seed = 12 }) {
 
 // ------------------------------------------------------- hot-air balloons
 
-function makeGoreTexture(colors) {
+function makeGoreTexture(colors: string[]) {
   const c = document.createElement('canvas');
   c.width = 256;
   c.height = 64;
   const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
   const w = c.width / colors.length;
   colors.forEach((col, i) => {
     const g = ctx.createLinearGradient(i * w, 0, (i + 1) * w, 0);
@@ -118,9 +123,19 @@ const BALLOON_LOOKS = [
   ['#ff4f7a', '#ffb22e', '#ffe94a', '#3ad16a', '#2aa6ff', '#9a5cff'],
 ];
 
-export function Balloons({ balloons }) {
+export interface Balloon {
+  p: Vec3;
+  /** Scale. */
+  s: number;
+  /** Index into BALLOON_LOOKS. */
+  look: number;
+  /** Sideways drift amplitude. */
+  drift: number;
+}
+
+export function Balloons({ balloons }: { balloons: Balloon[] }) {
   const shared = useDisposable(() => {
-    const prof = [];
+    const prof: THREE.Vector2[] = [];
     for (let i = 0; i <= 20; i++) {
       const t = i / 20;
       const a = -Math.PI / 2 + t * Math.PI;
@@ -139,7 +154,7 @@ export function Balloons({ balloons }) {
       return { map, mat: new THREE.MeshPhysicalMaterial({ map, roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.2, side: THREE.DoubleSide }) };
     }),
   );
-  const refs = useRef([]);
+  const refs = useRef<(THREE.Group | null)[]>([]);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     refs.current.forEach((g, i) => {
@@ -159,7 +174,7 @@ export function Balloons({ balloons }) {
 
 // ---------------------------------------------- observatory + cable car
 
-export function Observatory({ position, cableTo }) {
+export function Observatory({ position, cableTo }: { position: Vec3; cableTo?: Vec3 }) {
   const parts = useDisposable(() => {
     const dome = new THREE.SphereGeometry(5, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
     dome.translate(0, 3, 0);
@@ -187,7 +202,7 @@ export function Observatory({ position, cableTo }) {
     if (!cableTo) return null;
     const a = new THREE.Vector3(...position).add(new THREE.Vector3(0, 9, 0));
     const b = new THREE.Vector3(...cableTo);
-    const pts = [];
+    const pts: THREE.Vector3[] = [];
     for (let i = 0; i <= 40; i++) {
       const t = i / 40;
       const p = a.clone().lerp(b, t);
@@ -202,7 +217,7 @@ export function Observatory({ position, cableTo }) {
     const lineMat = new THREE.LineBasicMaterial({ color: '#4d6b7d', transparent: true, opacity: 0.7 });
     return { g, curve, lineMat, line: new THREE.Line(g, lineMat), pod, podMat };
   }, [cableTo]);
-  const pods = useRef([]);
+  const pods = useRef<(THREE.Mesh | null)[]>([]);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   useFrame((state) => {
     const t = state.clock.elapsedTime;

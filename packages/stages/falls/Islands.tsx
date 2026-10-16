@@ -1,29 +1,32 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import { LAND_KIND, makeLandMaterial } from './landMaterial.ts';
-import { makeNoise2 } from './terrain.ts';
-import { makeTree, TreeGroup } from './Trees.tsx';
-import { Waterfalls } from './Water.tsx';
+import { makeNoise2, type MesaFall, type Noise2 } from './terrain.ts';
+import { makeTree, TreeGroup, type Tree } from './Trees.tsx';
+import { Waterfalls, type FallSheet, type MistWisp } from './Water.tsx';
 
 // Floating islands: grassy domes on rocky inverted cones, each with a few
 // trees and a thin waterfall spilling off the rim into the clouds below.
-export const ISLANDS = [
+export interface IslandConfig { p: Vec3; R: number; seed: number; falls: MesaFall[] }
+
+export const ISLANDS: IslandConfig[] = [
   { p: [40, 26, -160], R: 12, seed: 1, falls: [{ angle: 108, width: 3.2 }] },
   { p: [-25, 40, -300], R: 10, seed: 2, falls: [{ angle: 70, width: 2.6 }] },
   { p: [25, 80, -480], R: 9, seed: 3, falls: [{ angle: 96, width: 2.2 }] },
 ];
 
-function islandRadius(noise, R, a) {
+function islandRadius(noise: Noise2, R: number, a: number) {
   return R * (1 + 0.14 * noise(Math.cos(a) * 1.4, Math.sin(a) * 1.4) + 0.05 * noise(Math.cos(a) * 4 + 3, Math.sin(a) * 4));
 }
 
-function buildIsland({ R, seed }) {
+function buildIsland({ R, seed }: IslandConfig) {
   const noise = makeNoise2(seed * 13 + 7);
   const NA = 48;
-  const rows = [];
+  const rows: { k: number; y: (a: number) => number; under?: number }[] = [];
   // Domed top from the centre to the rim, then the rocky cone down to a tip.
   for (let i = 0; i <= 5; i++) {
     const k = i / 5;
@@ -33,8 +36,8 @@ function buildIsland({ R, seed }) {
     const s = i / 12;
     rows.push({ k: Math.pow(1 - s, 0.75) * (1 - 0.08 * Math.sin(s * 9)), y: () => -R * 1.5 * Math.pow(s, 1.15) - 0.3, under: s });
   }
-  const pos = [];
-  const idx = [];
+  const pos: number[] = [];
+  const idx: number[] = [];
   rows.forEach((row) => {
     for (let i = 0; i <= NA; i++) {
       const a = (i / NA) * Math.PI * 2;
@@ -59,11 +62,13 @@ function buildIsland({ R, seed }) {
   return { g, noise };
 }
 
-function Island({ cfg, index, material }) {
+interface IslandProps { cfg: IslandConfig; index: number; material: THREE.Material }
+
+function Island({ cfg, index, material }: IslandProps) {
   const built = useDisposable(() => buildIsland(cfg), [cfg]);
   const { trees, sites } = useMemo(() => {
     const rand = makeRandom(cfg.seed * 7);
-    const list = [];
+    const list: Tree[] = [];
     const n = Math.round(cfg.R * 0.5) + 2;
     for (let i = 0; i < n; i++) {
       const a = rand.range(0, Math.PI * 2);
@@ -71,7 +76,7 @@ function Island({ cfg, index, material }) {
       const y = cfg.R * 0.16 * (1 - k * k);
       list.push(makeTree(rand, Math.cos(a) * cfg.R * k, y - 0.2, Math.sin(a) * cfg.R * k, rand.range(0.16, 0.26) * cfg.R));
     }
-    const falls = cfg.falls.map((f) => {
+    const falls = cfg.falls.map((f): FallSheet => {
       const a = THREE.MathUtils.degToRad(f.angle);
       const dir = new THREE.Vector2(Math.cos(a), Math.sin(a));
       const r = islandRadius(built.noise, cfg.R, a);
@@ -80,8 +85,9 @@ function Island({ cfg, index, material }) {
     });
     return { trees: list, sites: falls };
   }, [cfg, built]);
-  const group = useRef();
+  const group = useRef<THREE.Group>(null);
   useFrame((state) => {
+    if (!group.current) return;
     const t = state.clock.elapsedTime;
     group.current.position.set(cfg.p[0], cfg.p[1] + Math.sin(t * 0.32 + index * 2.1) * 0.9, cfg.p[2]);
     group.current.rotation.y = Math.sin(t * 0.05 + index) * 0.08;
@@ -103,7 +109,7 @@ export function FloatingIslands() {
 /** Cloud wisps hanging beneath the islands (fed to the Mist batch). */
 export function islandWisps() {
   const rand = makeRandom(5);
-  const out = [];
+  const out: MistWisp[] = [];
   for (const cfg of ISLANDS) {
     for (let i = 0; i < 5; i++) {
       out.push({

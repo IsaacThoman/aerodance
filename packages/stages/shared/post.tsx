@@ -8,12 +8,33 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { tickBeat } from './hooks.ts';
 
+declare global {
+  interface Window {
+    /** Development only: the last frame's renderer counts. */
+    __aeroStats?: THREE.WebGLInfo['render'] & { geometries: number; textures: number };
+  }
+}
+
+export interface PostSettings {
+  bloomStrength: number;
+  bloomRadius: number;
+  bloomThreshold: number;
+  exposure: number;
+  toneMapping: THREE.ToneMapping;
+  vignette: number;
+  saturation: number;
+  tint: readonly [r: number, g: number, b: number];
+}
+
+/** A stage's changes to the defaults (StageMeta.post). */
+export type PostOverrides = Partial<PostSettings>;
+
 export const RENDER_WIDTH = 640;
 export const RENDER_HEIGHT = 480;
 
 // The glass dancers were tuned under ACES, so every stage keeps it. Bloom runs on
 // linear HDR before tone mapping: lit surfaces brighter than the threshold glow too.
-export const POST_DEFAULTS = {
+export const POST_DEFAULTS: Readonly<PostSettings> = {
   bloomStrength: 0.3,
   bloomRadius: 0.45,
   bloomThreshold: 2.0,
@@ -26,15 +47,15 @@ export const POST_DEFAULTS = {
 
 // Live post-processing settings. Stages may mutate these every frame
 // (for example to pulse bloom on the beat); the host resets them per stage.
-export const post = { ...POST_DEFAULTS };
+export const post: PostSettings = { ...POST_DEFAULTS };
 
-export function resetPost(overrides = {}) {
+export function resetPost(overrides: PostOverrides = {}): void {
   Object.assign(post, POST_DEFAULTS, overrides);
 }
 
 const GradeShader = {
   uniforms: {
-    tDiffuse: { value: null },
+    tDiffuse: { value: null } as THREE.IUniform<THREE.Texture | null>,
     uVignette: { value: 0.2 },
     uAspect: { value: 16 / 9 },
     uSaturation: { value: 1 },
@@ -64,6 +85,19 @@ const GradeShader = {
   `,
 };
 
+type GradeUniforms = typeof GradeShader.uniforms;
+
+export interface RenderPipelineProps {
+  /** Drawn after post-processing, on top. */
+  hudScene?: THREE.Scene;
+  hudCamera?: THREE.Camera;
+  /** The render buffer. */
+  width?: number;
+  height?: number;
+  /** The frame the buffer is displayed at. */
+  aspect?: number;
+}
+
 /**
  * Takes over rendering: stage -> bloom -> grade -> tone mapping, then the HUD
  * layer (optional) on top without post-processing so its text stays crisp.
@@ -71,7 +105,7 @@ const GradeShader = {
  * It renders the scene and camera of the store it is mounted in, so inside a
  * createPortal it draws that portal's stage.
  */
-export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect = 16 / 9 }) {
+export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect = 16 / 9 }: RenderPipelineProps) {
   const gl = useThree((s) => s.gl);
 
   const fx = useMemo(() => {
@@ -90,12 +124,14 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
     const render = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
     const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.5, 0.5, 0.8);
     const grade = new ShaderPass(GradeShader);
+    // ShaderPass clones GradeShader.uniforms, so its uniforms have the same shape.
+    const gradeUniforms = grade.uniforms as GradeUniforms;
     const output = new OutputPass();
     composer.addPass(render);
     composer.addPass(bloom);
     composer.addPass(grade);
     composer.addPass(output);
-    return { composer, render, bloom, grade, output };
+    return { composer, render, bloom, grade, gradeUniforms, output };
   }, [gl, width, height]);
 
   useEffect(
@@ -110,17 +146,17 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
 
   useFrame((state, delta) => {
     tickBeat(Math.min(delta, 0.1));
-    const { composer, render, bloom, grade } = fx;
+    const { composer, render, bloom, gradeUniforms } = fx;
     render.scene = state.scene;
     render.camera = state.camera;
     bloom.enabled = post.bloomStrength > 0;
     bloom.strength = post.bloomStrength;
     bloom.radius = post.bloomRadius;
     bloom.threshold = post.bloomThreshold;
-    grade.uniforms.uVignette.value = post.vignette;
-    grade.uniforms.uAspect.value = aspect;
-    grade.uniforms.uSaturation.value = post.saturation;
-    grade.uniforms.uTint.value.setRGB(...post.tint);
+    gradeUniforms.uVignette.value = post.vignette;
+    gradeUniforms.uAspect.value = aspect;
+    gradeUniforms.uSaturation.value = post.saturation;
+    gradeUniforms.uTint.value.setRGB(...post.tint);
     gl.toneMapping = post.toneMapping;
     gl.toneMappingExposure = post.exposure;
     gl.info.autoReset = false;
@@ -134,7 +170,7 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
       };
     }
 
-    if (hudScene) {
+    if (hudScene && hudCamera) {
       gl.autoClear = false;
       gl.clearDepth();
       gl.render(hudScene, hudCamera);

@@ -1,10 +1,11 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { beat, useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
-import { heightAt, PLATFORM_R } from './terrain.ts';
+import { heightAt, PLATFORM_R, type Clearing } from './terrain.ts';
 
 const AQUA = new THREE.Color('#38f2ff');
 const LIME = new THREE.Color('#a8ff5a');
@@ -16,6 +17,7 @@ function makeFloorTexture() {
   c.width = s;
   c.height = s;
   const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
   const m = s / 2;
   const R = m;
   const g = ctx.createRadialGradient(m, m, 0, m, m, R);
@@ -163,7 +165,7 @@ export function Platform() {
       tmp.copy(AQUA).lerp(LIME, (i % 4) / 6).multiplyScalar(0.7 + k * 3.2 + p * 0.5);
       studs.mesh.setColorAt(i, tmp);
     }
-    studs.mesh.instanceColor.needsUpdate = true;
+    studs.mesh.instanceColor!.needsUpdate = true;
   });
   return (
     <group>
@@ -188,6 +190,7 @@ function makePetalTexture() {
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
   const g = ctx.createLinearGradient(0, h, 0, 0);
   g.addColorStop(0, '#9af6ff');
   g.addColorStop(0.35, '#33c2ff');
@@ -229,11 +232,11 @@ function makePetalTexture() {
 }
 
 /** Tube with a radius that tapers along a curve. */
-export function taperedTube(points, r0, r1, radial = 8, steps = 20) {
+export function taperedTube(points: THREE.Vector3[], r0: number, r1: number, radial = 8, steps = 20) {
   const curve = new THREE.CatmullRomCurve3(points);
   const frames = curve.computeFrenetFrames(steps, false);
-  const pos = [];
-  const norm = [];
+  const pos: number[] = [];
+  const norm: number[] = [];
   const v = new THREE.Vector3();
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
@@ -246,7 +249,7 @@ export function taperedTube(points, r0, r1, radial = 8, steps = 20) {
       pos.push(c.x + v.x * r, c.y + v.y * r, c.z + v.z * r);
     }
   }
-  const index = [];
+  const index: number[] = [];
   for (let i = 0; i < steps; i++) {
     for (let j = 0; j < radial; j++) {
       const a = i * (radial + 1) + j;
@@ -261,20 +264,20 @@ export function taperedTube(points, r0, r1, radial = 8, steps = 20) {
   return g;
 }
 
-const stripUv = (g) => {
+const stripUv = (g: THREE.BufferGeometry) => {
   const n = g.index ? g.toNonIndexed() : g;
   n.deleteAttribute('uv');
   return n;
 };
 
 function buildFlowerSculpture() {
-  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
   const stem = taperedTube([V(0, 0, 0), V(0.18, 2.0, 0.05), V(-0.12, 4.2, 0.14), V(0.12, 6.5, 0.24)], 0.13, 0.06, 10, 32);
   const collar = new THREE.CylinderGeometry(0.22, 0.32, 0.25, 16);
   collar.translate(0, 0.12, 0);
   const white = mergeGeometries([stripUv(stem), stripUv(collar)]);
   // Two glossy leaves.
-  const leaves = [];
+  const leaves: THREE.BufferGeometry[] = [];
   for (const [y, side, tilt] of [[1.7, 1, 0.7], [3.1, -1, 0.6]]) {
     const leaf = new THREE.SphereGeometry(0.5, 16, 8);
     leaf.scale(1, 0.08, 0.32);
@@ -286,7 +289,7 @@ function buildFlowerSculpture() {
   }
   const hub = new THREE.SphereGeometry(0.3, 24, 16);
   hub.scale(1, 1, 0.75);
-  const petals = [];
+  const petals: THREE.BufferGeometry[] = [];
   for (let i = 0; i < 7; i++) {
     const shape = new THREE.Shape();
     shape.moveTo(0, 0.12);
@@ -309,7 +312,10 @@ function buildFlowerSculpture() {
   };
 }
 
-export function SolarFlowers({ sites }) {
+/** [x, z, yaw] of a solar-flower sculpture on the meadow. */
+export type SolarFlowerSite = readonly [x: number, z: number, yaw: number];
+
+export function SolarFlowers({ sites }: { sites: readonly SolarFlowerSite[] }) {
   const geo = useDisposable(buildFlowerSculpture);
   const petalMap = useDisposable(makePetalTexture);
   const mats = useDisposable(() => ({
@@ -321,11 +327,11 @@ export function SolarFlowers({ sites }) {
     }),
     ring: new THREE.MeshBasicMaterial({ color: AQUA.clone(), toneMapped: false }),
   }));
-  const heads = useRef([]);
+  const heads = useRef<(THREE.Group | null)[]>([]);
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
     heads.current.forEach((h, i) => {
-      if (!h) return;
+      if (!h?.parent) return;
       h.rotation.z -= delta * (0.45 + 0.08 * i);
       h.parent.rotation.x = -0.25 + Math.sin(t * 0.7 + i) * 0.03;
     });
@@ -350,13 +356,16 @@ export function SolarFlowers({ sites }) {
 
 const BLOOMS = ['#ff5fa8', '#ffd23a', '#ffffff', '#ff7a3d', '#c27bff', '#ff3d6e', '#7fd8ff'];
 
-/** Glossy white planters overflowing with flowers. beds: [{ x, z, r, arc }] */
-export function FlowerBeds({ beds }) {
+/** A round planter; arc (radians, default full circle) and rot (yaw) shape a partial rim. */
+export interface FlowerBed extends Clearing { arc?: number; rot?: number }
+
+/** Glossy white planters overflowing with flowers. */
+export function FlowerBeds({ beds }: { beds: FlowerBed[] }) {
   const built = useDisposable(() => {
     const rand = makeRandom(404);
-    const rims = [];
-    const soils = [];
-    const blooms = [];
+    const rims: THREE.BufferGeometry[] = [];
+    const soils: THREE.BufferGeometry[] = [];
+    const blooms: { p: Vec3; s: number; c: string }[] = [];
     for (const b of beds) {
       const y = heightAt(b.x, b.z);
       const rim = new THREE.TorusGeometry(b.r, 0.12, 8, 48, b.arc ?? Math.PI * 2);

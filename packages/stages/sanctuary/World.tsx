@@ -2,15 +2,21 @@ import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
-import { noise } from '../shared/glsl.ts';
+import { noise, shaderMaterial } from '../shared/glsl.ts';
+import type { City, TreeSpot, TreeType, Waterfall } from './city.ts';
 import { CAMERA, COLORS, GROUND, RIVER } from './layout.ts';
 import { makeCityMaterial, makeFoliageMaterial, stageUniforms } from './materials.ts';
+import type { EnvMapProps } from './materials.ts';
 import { makeConeTree, makePalm, makeRoundTree, TREE_GREENS } from './trees.ts';
 
 // The static city far below the terrace: towers, ground with parks and river,
 // trees, the biodome, tower waterfalls and the green hills on the horizon.
 
-export function CityMesh({ city, envMap }) {
+export interface CityProps {
+  city: City;
+}
+
+export function CityMesh({ city, envMap }: CityProps & EnvMapProps) {
   const material = useDisposable(() => makeCityMaterial(envMap), [envMap]);
   return <mesh geometry={city.geometry} material={material} frustumCulled={false} />;
 }
@@ -30,7 +36,7 @@ float riverSDF(vec2 p) {
 }
 `;
 
-function makeGroundMaterial(envMap) {
+function makeGroundMaterial(envMap: THREE.Texture) {
   const mat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, metalness: 0, envMap });
   const river = RIVER.map(([x, z, w]) => new THREE.Vector3(x, z, w));
   mat.onBeforeCompile = (shader) => {
@@ -98,18 +104,20 @@ function makeGroundMaterial(envMap) {
   return mat;
 }
 
-export function Ground({ envMap }) {
+export function Ground({ envMap }: EnvMapProps) {
   const material = useDisposable(() => makeGroundMaterial(envMap), [envMap]);
   const geometry = useDisposable(() => new THREE.PlaneGeometry(10000, 10000).rotateX(-Math.PI / 2));
   return <mesh geometry={geometry} material={material} position={[0, GROUND, -3000]} frustumCulled={false} />;
 }
 
-export function Trees({ city, envMap }) {
+const TREE_TYPES: readonly TreeType[] = ['round', 'cone', 'palm'];
+
+export function Trees({ city, envMap }: CityProps & EnvMapProps) {
   const models = useDisposable(() => ({ round: makeRoundTree(1), cone: makeConeTree(), palm: makePalm() }));
   const material = useDisposable(() => makeFoliageMaterial({ sway: 0.25, envMap }), [envMap]);
   const meshes = useMemo(() => {
     const rand = makeRandom(77);
-    const groups = { round: [], cone: [], palm: [] };
+    const groups: Record<TreeType, TreeSpot[]> = { round: [], cone: [], palm: [] };
     city.trees.forEach((t) => groups[t.type].push(t));
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -117,9 +125,9 @@ export function Trees({ city, envMap }) {
     const p = new THREE.Vector3();
     const s = new THREE.Vector3();
     const c = new THREE.Color();
-    return Object.entries(groups)
-      .filter(([, list]) => list.length)
-      .map(([type, list]) => {
+    return TREE_TYPES.filter((type) => groups[type].length)
+      .map((type) => {
+        const list = groups[type];
         const mesh = new THREE.InstancedMesh(models[type], material, list.length);
         list.forEach((t, i) => {
           e.set(0, rand.range(0, Math.PI * 2), 0);
@@ -137,14 +145,15 @@ export function Trees({ city, envMap }) {
   return meshes.map((m, i) => <primitive key={i} object={m} />);
 }
 
-const fogMerge = (uniforms) => THREE.UniformsUtils.merge([THREE.UniformsLib.fog, uniforms]);
+// Fog uniforms plus the given ones, kept by reference so shared uniforms (uTime) stay live.
+const fogMerge = <U extends Record<string, THREE.IUniform>>(uniforms: U) => ({ ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...uniforms });
 
-export function Biodome({ city }) {
+export function Biodome({ city }: CityProps) {
   const dome = city.domes[0];
   const geometry = useDisposable(() => new THREE.SphereGeometry(1, 64, 20, 0, Math.PI * 2, 0, Math.PI / 2));
   const material = useDisposable(
     () =>
-      new THREE.ShaderMaterial({
+      shaderMaterial({
         transparent: true,
         depthWrite: false,
         fog: true,
@@ -199,10 +208,10 @@ export function Biodome({ city }) {
   );
 }
 
-function makeFallsGeometry(falls) {
-  const pos = [];
-  const uv = [];
-  const idx = [];
+function makeFallsGeometry(falls: readonly Waterfall[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
   const segs = 10;
   for (const f of falls) {
     const base = pos.length / 3;
@@ -234,7 +243,7 @@ function makeFallsGeometry(falls) {
   return g;
 }
 
-export function Waterfalls({ city }) {
+export function Waterfalls({ city }: CityProps) {
   const geometry = useDisposable(() => makeFallsGeometry(city.falls), [city]);
   const material = useDisposable(
     () =>
@@ -279,7 +288,7 @@ export function Waterfalls({ city }) {
 const HILL_ROWS = [2700, 3100, 3600, 4300];
 const HILL_PHASE = [2.1, 5.7, 8.3];
 
-function hillHeight(az, k) {
+function hillHeight(az: number, k: number): number {
   const a = az * 0.06;
   const ridge = 0.55 + 0.25 * Math.sin(a * 1.3 + HILL_PHASE[0] + k) + 0.15 * Math.sin(a * 3.1 + HILL_PHASE[1] - k) + 0.08 * Math.sin(a * 7.3 + HILL_PHASE[2]);
   const valley = 0.45 + 0.55 * THREE.MathUtils.smoothstep(Math.abs(az + 8), 4, 30);
@@ -287,9 +296,17 @@ function hillHeight(az, k) {
   return GROUND + ridge * valley * (180 + k * 90) * lift;
 }
 
+/** A point on a hill ridge at azimuth az (degrees). */
+export interface RidgePoint {
+  az: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
 /** Points along the second hill ridge (for wind turbines). */
-export function hillRidge(count = 90) {
-  const out = [];
+export function hillRidge(count = 90): RidgePoint[] {
+  const out: RidgePoint[] = [];
   for (let i = 0; i <= count; i++) {
     const az = -95 + (i / count) * 190;
     const a = THREE.MathUtils.degToRad(az);
@@ -298,12 +315,12 @@ export function hillRidge(count = 90) {
   return out;
 }
 
-function makeHills() {
+function makeHills(): THREE.BufferGeometry {
   const rand = makeRandom(404);
   const cols = 90;
-  const pos = [];
-  const col = [];
-  const idx = [];
+  const pos: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
   const green = new THREE.Color('#3f9a3a');
   const light = new THREE.Color('#8fd25a');
   const haze = new THREE.Color(COLORS.fog);
@@ -334,7 +351,7 @@ function makeHills() {
   return g;
 }
 
-export function Hills({ envMap }) {
+export function Hills({ envMap }: EnvMapProps) {
   const geometry = useDisposable(() => makeHills());
   const material = useDisposable(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, fog: false, envMap }), [envMap]);
   return <mesh geometry={geometry} material={material} frustumCulled={false} />;

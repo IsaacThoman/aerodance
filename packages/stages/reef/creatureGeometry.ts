@@ -1,6 +1,25 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { Vec2, Vec3 } from '../catalog.ts';
 import { blob, color, finalize, place, ss } from './geometry.ts';
+import type { Paint } from './geometry.ts';
+
+/** Fish body proportions (see fishGeometry). */
+export interface FishShape {
+  height?: number;
+  width?: number;
+  tailH?: number;
+  tailLen?: number;
+  /** Tail fork depth, 0..1 of tailLen. */
+  fork?: number;
+  dorsalH?: number;
+  /** [start, end] along the body, 0 nose -> 1 tail. */
+  dorsalSpan?: Vec2;
+  analH?: number;
+  analSpan?: Vec2;
+  rings?: number;
+  segs?: number;
+}
 
 /**
  * Stylised reef fish, nose at +z (z = 0.5), tail fin behind z = -0.3.
@@ -18,15 +37,15 @@ export function fishGeometry({
   analSpan = [0.5, 0.8],
   rings = 12,
   segs = 8,
-} = {}) {
+}: FishShape = {}): THREE.BufferGeometry {
   const positions = [];
   const normals = [];
   const fins = [];
   const indices = [];
   const total = 0.8 + tailLen;
-  const profile = (u) => (u < 0.32 ? Math.sqrt(Math.max(0, 1 - ((0.32 - u) / 0.32) ** 2)) : 1 - 0.82 * ss((u - 0.32) / 0.68, 0, 1));
-  const zAt = (u) => 0.5 - u * 0.8;
-  const halfH = (u, lower) => (height / 2) * profile(u) * (lower ? 0.9 : 1);
+  const profile = (u: number) => (u < 0.32 ? Math.sqrt(Math.max(0, 1 - ((0.32 - u) / 0.32) ** 2)) : 1 - 0.82 * ss((u - 0.32) / 0.68, 0, 1));
+  const zAt = (u: number) => 0.5 - u * 0.8;
+  const halfH = (u: number, lower: boolean) => (height / 2) * profile(u) * (lower ? 0.9 : 1);
   const n = new THREE.Vector3();
   for (let i = 0; i <= rings; i++) {
     const u = i / rings;
@@ -47,7 +66,7 @@ export function fishGeometry({
       indices.push(a, a + 1, b, b, a + 1, b + 1);
     }
   }
-  const addVert = (x, y, z) => {
+  const addVert = (x: number, y: number, z: number) => {
     positions.push(x, y, z);
     normals.push(1, 0, 0);
     fins.push(1);
@@ -66,7 +85,7 @@ export function fishGeometry({
   const mb = addVert(0, -tailH * 0.3, z0 - tailLen * 0.55);
   indices.push(bt, mt, tm, mt, tt, tm, bt, tm, bb, bb, tm, mb, mb, tm, tb);
   // Dorsal / anal fins as strips along the ridge.
-  const finStrip = (span, h, lower) => {
+  const finStrip = (span: Vec2, h: number, lower: boolean) => {
     const steps = 6;
     let prevBase = -1;
     let prevTip = -1;
@@ -104,7 +123,7 @@ export function fishGeometry({
   return g;
 }
 
-function setAU(g, zHead, length) {
+function setAU(g: THREE.BufferGeometry, zHead: number, length: number): THREE.BufferGeometry {
   const pos = g.attributes.position;
   const a = new Float32Array(pos.count);
   for (let i = 0; i < pos.count; i++) a[i] = Math.min(1, Math.max(0, (zHead - pos.getZ(i)) / length));
@@ -113,10 +132,12 @@ function setAU(g, zHead, length) {
 }
 
 /** Loft along z through elliptical sections: [u, halfWidth, halfHeight, yCenter]. */
-function loft(sections, length, segs = 16, rings = 40) {
-  const positions = [];
-  const indices = [];
-  const sample = (u) => {
+type LoftSection = readonly [u: number, halfWidth: number, halfHeight: number, yCenter: number];
+
+function loft(sections: readonly LoftSection[], length: number, segs = 16, rings = 40): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const sample = (u: number): Vec3 => {
     let i = 0;
     while (i < sections.length - 2 && sections[i + 1][0] < u) i++;
     const a = sections[i];
@@ -147,7 +168,7 @@ function loft(sections, length, segs = 16, rings = 40) {
 }
 
 /** Bottlenose dolphin, ~2.4 m, nose at +z. Countershaded vertex colors + aU. */
-export function dolphinGeometry() {
+export function dolphinGeometry(): THREE.BufferGeometry {
   const L = 2.4;
   const body = loft(
     [
@@ -169,7 +190,7 @@ export function dolphinGeometry() {
   const back = color('#3f73aa');
   const side = color('#93bcdc');
   const belly = color('#f4f9fb');
-  const paintBody = (p, n, out) => {
+  const paintBody: Paint = (p, n, out) => {
     out.copy(belly).lerp(side, ss(p.y + n.y * 0.08, -0.12, 0.02)).lerp(back, ss(p.y + n.y * 0.1, 0.02, 0.2));
     if (Math.abs(p.z - 0.86) < 0.035 && Math.abs(p.y - 0.035) < 0.03 && Math.abs(p.x) > 0.1) out.set('#0a1420');
   };
@@ -203,9 +224,9 @@ export function dolphinGeometry() {
 }
 
 /** Green sea turtle with patterned shell; aPart: 0 body, 1 front flipper, 2 rear flipper. */
-export function turtleGeometry() {
-  const parts = [];
-  const tag = (g, part, pivot) => {
+export function turtleGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const tag = (g: THREE.BufferGeometry, part: number, pivot: Vec3) => {
     const count = g.attributes.position.count;
     g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(count).fill(part), 1));
     const pv = new Float32Array(count * 3);
@@ -240,7 +261,7 @@ export function turtleGeometry() {
   parts.push(tag(finalize(plastron, { paint: '#e8d9a0' }), 0, [0, 0, 0]));
   const skin = color('#c2b060');
   const skinDark = color('#6f6a35');
-  const paintSkin = (p, n, out) => out.copy(skinDark).lerp(skin, 0.5 + 0.5 * Math.sin(p.x * 40) * Math.sin(p.z * 40));
+  const paintSkin: Paint = (p, n, out) => out.copy(skinDark).lerp(skin, 0.5 + 0.5 * Math.sin(p.x * 40) * Math.sin(p.z * 40));
   const head = blob({ radius: 1, detail: 2, squash: [0.13, 0.11, 0.18], amount: 0.02, seed: 2 });
   place(head, { position: [0, 0.03, 0.86] });
   parts.push(tag(finalize(head, { paint: paintSkin }), 0, [0, 0, 0]));
@@ -258,15 +279,15 @@ export function turtleGeometry() {
 }
 
 /** Manta ray, wingspan 2, nose at +z; aSway = signed span (-1 left tip .. 1 right tip). */
-export function mantaGeometry() {
+export function mantaGeometry(): THREE.BufferGeometry {
   const cols = 24;
   const rows = 10;
   const top = color('#16294a');
   const edge = color('#2c4c78');
   const belly = color('#e9f3f7');
-  const lead = (x) => 0.42 - 0.5 * Math.pow(Math.abs(x), 1.15);
-  const trail = (x) => -0.42 + 0.42 * Math.pow(Math.abs(x), 0.8);
-  const thick = (x, v) => 0.1 * Math.pow(1 - Math.abs(x), 1.6) * Math.sin(Math.PI * v) + 0.006;
+  const lead = (x: number) => 0.42 - 0.5 * Math.pow(Math.abs(x), 1.15);
+  const trail = (x: number) => -0.42 + 0.42 * Math.pow(Math.abs(x), 0.8);
+  const thick = (x: number, v: number) => 0.1 * Math.pow(1 - Math.abs(x), 1.6) * Math.sin(Math.PI * v) + 0.006;
   const parts = [];
   for (const side of [1, -1]) {
     const positions = [];
@@ -317,7 +338,7 @@ export function mantaGeometry() {
 }
 
 /** Jellyfish bell (scalloped cap) + frilly oral arms; aU = 0 at the apex -> 1 at the rim, > 1 on the arms. */
-export function jellyGeometry() {
+export function jellyGeometry(): THREE.BufferGeometry {
   const bell = new THREE.SphereGeometry(1, 28, 10, 0, Math.PI * 2, 0, Math.PI * 0.58);
   const pos = bell.attributes.position;
   const v = new THREE.Vector3();
@@ -332,7 +353,7 @@ export function jellyGeometry() {
   const bu = new Float32Array(pos.count);
   for (let i = 0; i < pos.count; i++) bu[i] = Math.min(1, (0.85 - pos.getY(i)) / 1.1);
   bell.setAttribute('aU', new THREE.BufferAttribute(bu, 1));
-  const keep = (g) => {
+  const keep = (g: THREE.BufferGeometry) => {
     for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'aU'].includes(name)) g.deleteAttribute(name);
     return g.index ? g.toNonIndexed() : g;
   };
@@ -371,7 +392,7 @@ export function jellyGeometry() {
 }
 
 /** Jellyfish tentacles as line segments; aU = 0 at the rim -> 1 at the tip. */
-export function tentacleLines(count = 14, segs = 12, length = 2.6) {
+export function tentacleLines(count = 14, segs = 12, length = 2.6): THREE.BufferGeometry {
   const positions = [];
   const us = [];
   for (let k = 0; k < count; k++) {

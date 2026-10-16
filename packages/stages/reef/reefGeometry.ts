@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import { makeRandom } from '../shared/random.ts';
+import type { Vec3 } from '../catalog.ts';
 import { blob, color, fbm3, finalize, makeNoise3, place, ss, taperedTube } from './geometry.ts';
+import type { Paint } from './geometry.ts';
+
+type Color = THREE.ColorRepresentation;
+type Palette = readonly Color[];
 
 // Procedural reef pieces. All return finalized (mergeable) geometry.
 
-export function rock({ radius = 1.5, seed = 1, squash = [1.2, 0.8, 1], amount = 0.34 } = {}) {
+export function rock({ radius = 1.5, seed = 1, squash = [1.2, 0.8, 1], amount = 0.34 }: { radius?: number; seed?: number; squash?: Vec3; amount?: number } = {}): THREE.BufferGeometry {
   const g = blob({ radius, detail: radius < 0.6 ? 1 : radius < 1.3 ? 2 : 3, squash, amount, freq: 1.3, seed, flatBottom: true });
   // Second, finer octave of lumps so rocks read as porous reef rock.
   const bump = makeNoise3(seed + 900);
@@ -21,7 +26,7 @@ export function rock({ radius = 1.5, seed = 1, squash = [1.2, 0.8, 1], amount = 
   return finalize(g, { paint: rockPaint(seed) });
 }
 
-function rockPaint(seed) {
+function rockPaint(seed: number): Paint {
   const noise = makeNoise3(seed + 500);
   const base = color('#e6cfa6');
   const dark = color('#9c7f66');
@@ -38,7 +43,7 @@ function rockPaint(seed) {
 }
 
 /** Natural rock arch: a lumpy tube bent over a sandy gap. */
-export function rockArch({ span = 8, height = 5, seed = 3 } = {}) {
+export function rockArch({ span = 8, height = 5, seed = 3 } = {}): THREE.BufferGeometry {
   const h = span / 2;
   const curve = new THREE.CatmullRomCurve3([
     new THREE.Vector3(-h - 0.6, -1.2, 0.3),
@@ -65,7 +70,7 @@ export function rockArch({ span = 8, height = 5, seed = 3 } = {}) {
   return finalize(g, { paint: rockPaint(seed + 1) });
 }
 
-export function brainCoral({ radius = 0.8, seed = 1, palette = ['#c5d65f', '#7f9a32'] } = {}) {
+export function brainCoral({ radius = 0.8, seed = 1, palette = ['#c5d65f', '#7f9a32'] }: { radius?: number; seed?: number; palette?: Palette } = {}): THREE.BufferGeometry {
   const g = blob({ radius, detail: 3, squash: [1, 0.72, 1], amount: 0.12, freq: 1.2, seed, flatBottom: true });
   const noise = makeNoise3(seed + 77);
   const a = color(palette[0]);
@@ -80,12 +85,13 @@ export function brainCoral({ radius = 0.8, seed = 1, palette = ['#c5d65f', '#7f9
 }
 
 /** Branching (staghorn / acropora) coral colony. */
-export function branchingCoral({ size = 1, seed = 1, base = '#d14f93', tip = '#ffc1e3', branches = 7, depth = 2 } = {}) {
+export function branchingCoral({ size = 1, seed = 1, base = '#d14f93', tip = '#ffc1e3', branches = 7, depth = 2 }:
+  { size?: number; seed?: number; base?: Color; tip?: Color; branches?: number; depth?: number } = {}): THREE.BufferGeometry[] {
   const rand = makeRandom(seed);
-  const parts = [];
+  const parts: THREE.BufferGeometry[] = [];
   const cBase = color(base);
   const cTip = color(tip);
-  const grow = (start, dir, len, radius, level) => {
+  const grow = (start: THREE.Vector3, dir: THREE.Vector3, len: number, radius: number, level: number) => {
     const bend = new THREE.Vector3(rand.range(-0.3, 0.3), rand.range(0.05, 0.3), rand.range(-0.3, 0.3));
     const mid = start.clone().addScaledVector(dir, len * 0.5).addScaledVector(bend, len * 0.25);
     const end = start.clone().addScaledVector(dir, len).addScaledVector(bend, len * 0.4);
@@ -118,7 +124,8 @@ export function branchingCoral({ size = 1, seed = 1, base = '#d14f93', tip = '#f
 }
 
 /** Plate / table coral on a short stalk with an upturned, wavy rim. */
-export function tableCoral({ radius = 1.2, seed = 1, top = '#7fd3a6', rim = '#d8ffe6', height = 0.6 } = {}) {
+export function tableCoral({ radius = 1.2, seed = 1, top = '#7fd3a6', rim = '#d8ffe6', height = 0.6 }:
+  { radius?: number; seed?: number; top?: Color; rim?: Color; height?: number } = {}): THREE.BufferGeometry {
   const noise = makeNoise3(seed);
   const pts = [
     [0.0, 0], [0.16, 0], [0.12, height * 0.6], [0.25, height * 0.9], [radius * 0.6, height * 0.98], [radius * 0.95, height * 1.06],
@@ -148,9 +155,9 @@ export function tableCoral({ radius = 1.2, seed = 1, top = '#7fd3a6', rim = '#d8
 }
 
 /** Cluster of open tube sponges. */
-export function tubeSponges({ count = 4, seed = 1, palette = ['#ffcf3a', '#ff9a3c'] } = {}) {
+export function tubeSponges({ count = 4, seed = 1, palette = ['#ffcf3a', '#ff9a3c'] }: { count?: number; seed?: number; palette?: Palette } = {}): THREE.BufferGeometry[] {
   const rand = makeRandom(seed);
-  const parts = [];
+  const parts: THREE.BufferGeometry[] = [];
   for (let i = 0; i < count; i++) {
     const h = rand.range(0.5, 1.2);
     const r0 = rand.range(0.11, 0.17);
@@ -177,9 +184,10 @@ export function tubeSponges({ count = 4, seed = 1, palette = ['#ffcf3a', '#ff9a3
 }
 
 /** Swaying sea whips (thin soft corals). */
-export function seaWhips({ count = 6, seed = 1, palette = ['#ff6a3d', '#ffb13b'], height = 1.4 } = {}) {
+export function seaWhips({ count = 6, seed = 1, palette = ['#ff6a3d', '#ffb13b'], height = 1.4 }:
+  { count?: number; seed?: number; palette?: Palette; height?: number } = {}): THREE.BufferGeometry[] {
   const rand = makeRandom(seed);
-  const parts = [];
+  const parts: THREE.BufferGeometry[] = [];
   for (let i = 0; i < count; i++) {
     const a = rand.range(0, Math.PI * 2);
     const d = rand.range(0, 0.3);
@@ -205,7 +213,7 @@ export function seaWhips({ count = 6, seed = 1, palette = ['#ff6a3d', '#ffb13b']
   return parts;
 }
 
-export function starfish({ size = 0.25, seed = 1, paint = '#ff7a2e' } = {}) {
+export function starfish({ size = 0.25, seed = 1, paint = '#ff7a2e' }: { size?: number; seed?: number; paint?: Color } = {}): THREE.BufferGeometry {
   const shape = new THREE.Shape();
   for (let i = 0; i <= 10; i++) {
     const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
@@ -221,8 +229,8 @@ export function starfish({ size = 0.25, seed = 1, paint = '#ff7a2e' } = {}) {
 }
 
 /** Giant clam: two ribbed shell halves around a glowing blue-teal mantle. */
-export function giantClam({ size = 0.5 } = {}) {
-  const parts = [];
+export function giantClam({ size = 0.5 } = {}): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
   for (const s of [-1, 1]) {
     const g = new THREE.SphereGeometry(1, 20, 8, 0, Math.PI, 0, Math.PI / 2);
     const pos = g.attributes.position;
@@ -251,15 +259,15 @@ export function giantClam({ size = 0.5 } = {}) {
 }
 
 /** Anemone column (tentacles are instanced separately). */
-export function anemoneBase({ radius = 0.45, paint = '#d9487f' } = {}) {
+export function anemoneBase({ radius = 0.45, paint = '#d9487f' }: { radius?: number; paint?: Paint } = {}): THREE.BufferGeometry {
   const pts = [[0, 0], [radius * 0.8, 0], [radius * 0.7, 0.25], [radius * 0.95, 0.42], [radius * 0.6, 0.46], [0, 0.44]].map(([x, y]) => new THREE.Vector2(x, y));
   return finalize(new THREE.LatheGeometry(pts, 20), { paint });
 }
 
 /** Pillar coral: cluster of upright rounded columns. */
-export function pillarCoral({ count = 6, size = 1, seed = 1, paint = '#e8c46a' } = {}) {
+export function pillarCoral({ count = 6, size = 1, seed = 1, paint = '#e8c46a' }: { count?: number; size?: number; seed?: number; paint?: Color } = {}): THREE.BufferGeometry[] {
   const rand = makeRandom(seed);
-  const parts = [];
+  const parts: THREE.BufferGeometry[] = [];
   const c = color(paint);
   const tip = c.clone().lerp(color('#fff6d8'), 0.5);
   for (let i = 0; i < count; i++) {
@@ -275,7 +283,8 @@ export function pillarCoral({ count = 6, size = 1, seed = 1, paint = '#e8c46a' }
 }
 
 /** Leather / mushroom coral: lobed, ruffled cap on a short stalk. */
-export function leatherCoral({ radius = 0.6, seed = 1, paint = '#c8e07a', rim = '#f4ffd0' } = {}) {
+export function leatherCoral({ radius = 0.6, seed = 1, paint = '#c8e07a', rim = '#f4ffd0' }:
+  { radius?: number; seed?: number; paint?: Color; rim?: Color } = {}): THREE.BufferGeometry {
   const noise = makeNoise3(seed);
   const pts = [[0, 0], [0.14, 0], [0.12, 0.25], [0.2, 0.35], [radius * 0.7, 0.4], [radius, 0.36], [radius * 0.98, 0.42], [radius * 0.6, 0.5], [0, 0.52]].map(
     ([x, y]) => new THREE.Vector2(x, y),
@@ -298,11 +307,11 @@ export function leatherCoral({ radius = 0.6, seed = 1, paint = '#c8e07a', rim = 
 }
 
 /** Seagrass / kelp blade: bent strip along +y, aSway = height fraction. */
-export function bladeGeometry({ seg = 5, width = 0.05, bend = 0.25, ruffle = 0 } = {}) {
-  const positions = [];
-  const normals = [];
-  const sways = [];
-  const indices = [];
+export function bladeGeometry({ seg = 5, width = 0.05, bend = 0.25, ruffle = 0 } = {}): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const sways: number[] = [];
+  const indices: number[] = [];
   for (let i = 0; i <= seg; i++) {
     const t = i / seg;
     const w = width * (1 - t * 0.7) * (1 + ruffle * Math.sin(t * 37) * 0.35) * (ruffle ? Math.min(1, t * 8 + 0.25) : 1);
@@ -324,7 +333,7 @@ export function bladeGeometry({ seg = 5, width = 0.05, bend = 0.25, ruffle = 0 }
 }
 
 /** Anemone tentacle: tapered capsule along +y with sway weight and color. */
-export function tentacleGeometry(base = '#f0e2a0', tip = '#ff7fd1') {
+export function tentacleGeometry(base: Color = '#f0e2a0', tip: Color = '#ff7fd1'): THREE.BufferGeometry {
   const g = new THREE.CapsuleGeometry(0.05, 0.42, 2, 6);
   g.translate(0, 0.23, 0);
   const pos = g.attributes.position;
@@ -344,7 +353,7 @@ export function tentacleGeometry(base = '#f0e2a0', tip = '#ff7fd1') {
 }
 
 /** Gorgonian sea fan: a gently cupped fan-shaped sheet (lace comes from a texture). */
-export function fanGeometry() {
+export function fanGeometry(): THREE.BufferGeometry {
   const g = new THREE.PlaneGeometry(1, 1, 8, 8);
   g.translate(0, 0.5, 0);
   const pos = g.attributes.position;
@@ -361,24 +370,25 @@ export function fanGeometry() {
 }
 
 /** Reticulated sea-fan lace, white on transparent (tinted per instance). */
-export function makeLaceTexture(seed = 9) {
+export function makeLaceTexture(seed = 9): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D is unavailable');
   const rand = makeRandom(seed);
   ctx.strokeStyle = '#ffffff';
   ctx.lineCap = 'round';
   const ox = size / 2;
   const oy = size - 4;
-  const inFan = (x, y) => {
+  const inFan = (x: number, y: number) => {
     const dx = (x - ox) / (size * 0.48);
     const dy = (oy - y) / (size * 0.95);
     return dy > 0 && dx * dx + (dy - 0.45) * (dy - 0.45) * 3.2 < 0.75;
   };
   // Branch skeleton.
-  const grow = (x, y, ang, len, w, depth) => {
+  const grow = (x: number, y: number, ang: number, len: number, w: number, depth: number): void => {
     const ex = x + Math.sin(ang) * len;
     const ey = y - Math.cos(ang) * len;
     if (!inFan(ex, ey)) return;

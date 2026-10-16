@@ -1,11 +1,15 @@
 import { useEffect, useRef } from 'react';
+import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
+import type { ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
 import { StageCamera, beat } from '../shared/hooks.ts';
 import { StageEnvironment } from '../shared/Environment.tsx';
+import type { EnvironmentLight } from '../shared/Environment.tsx';
 import { post } from '../shared/post.tsx';
 import meta from './meta.ts';
 import { C, tickClub } from './clock.ts';
+import type { Vec3 } from '../catalog.ts';
 import Room from './Room.tsx';
 import DanceFloor from './DanceFloor.tsx';
 import VideoWall from './VideoWall.tsx';
@@ -28,7 +32,7 @@ function ClubClock() {
   return null;
 }
 
-const ENV_LIGHTS = [
+const ENV_LIGHTS: EnvironmentLight[] = [
   { position: [0, 7, 22], color: '#eef8ff', intensity: 5, size: [18, 7] },
   { position: [-13, 6, -12], color: '#3ff0ff', intensity: 3.5, size: [6, 10] },
   { position: [13, 6, -12], color: '#ff5ae0', intensity: 3.5, size: [6, 10] },
@@ -40,11 +44,18 @@ const ENV_LIGHTS = [
   { position: [-10, -4, 14], color: '#9dff3a', intensity: 1.6, size: [6, 4] },
 ];
 
+type SpotProps = Omit<ThreeElements['spotLight'], 'ref' | 'target'> & {
+  target: Vec3;
+  aimRef: RefObject<THREE.Object3D | null>;
+  lightRef: RefObject<THREE.SpotLight | null>;
+};
+
 // Spot light whose target lives in the scene so its direction updates.
-function Spot({ target, aimRef, lightRef, ...props }) {
-  const light = useRef();
-  const aim = useRef();
+function Spot({ target, aimRef, lightRef, ...props }: SpotProps) {
+  const light = useRef<THREE.SpotLight>(null);
+  const aim = useRef<THREE.Object3D>(null);
   useEffect(() => {
+    if (!light.current || !aim.current) return;
     light.current.target = aim.current;
     lightRef.current = light.current;
     aimRef.current = aim.current;
@@ -60,8 +71,8 @@ function Spot({ target, aimRef, lightRef, ...props }) {
 const RIM = [new THREE.Color(C.aqua), new THREE.Color(C.magenta), new THREE.Color(C.lime), new THREE.Color(C.violet)];
 
 function Lights() {
-  const lights = [useRef(), useRef()];
-  const aims = [useRef(), useRef()];
+  const lights = [useRef<THREE.SpotLight>(null), useRef<THREE.SpotLight>(null)];
+  const aims = [useRef<THREE.Object3D>(null), useRef<THREE.Object3D>(null)];
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     // Rim spots drift with the dancers and trade colors every four bars.

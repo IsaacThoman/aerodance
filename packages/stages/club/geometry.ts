@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Horizontal tube following a circular arc around the y axis, using cylinder
 // thetas (x = r sin(theta), z = r cos(theta)).
-export function arcTube(r, thetaStart, length, tube, y = 0, segments = 64) {
+export function arcTube(r: number, thetaStart: number, length: number, tube: number, y = 0, segments = 64) {
   const g = new THREE.TorusGeometry(r, tube, 10, segments, length);
   g.rotateX(Math.PI / 2);
   g.rotateY(thetaStart - (Math.PI / 2 - length));
@@ -12,13 +12,13 @@ export function arcTube(r, thetaStart, length, tube, y = 0, segments = 64) {
 }
 
 // Open cylinder band (a slice of wall) between y0 and y1.
-export function arcBand(r, thetaStart, length, y0, y1, segments = 64) {
+export function arcBand(r: number, thetaStart: number, length: number, y0: number, y1: number, segments = 64) {
   return new THREE.CylinderGeometry(r, r, y1 - y0, segments, 1, true, thetaStart, length).translate(0, (y0 + y1) / 2, 0);
 }
 
 // Teardrop gumdrop body for aeroling blobs, base at y = 0, height 1.
 export function blobGeometry(segments = 20) {
-  const pts = [];
+  const pts: THREE.Vector2[] = [];
   const n = 14;
   for (let i = 0; i <= n; i++) {
     const t = i / n;
@@ -33,7 +33,7 @@ export function blobGeometry(segments = 20) {
 
 // Merge geometries into one, reconciling indexed/non-indexed inputs and
 // attribute sets, and dispose of the inputs.
-export function mergeAll(list) {
+export function mergeAll(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const mixed = list.some((g) => g.index) && list.some((g) => !g.index);
   const prepared = mixed ? list.map((g) => (g.index ? g.toNonIndexed() : g)) : list;
   const names = Object.keys(prepared[0].attributes).filter((n) => prepared.every((g) => g.attributes[n]));

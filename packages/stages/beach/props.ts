@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { makeRandom } from '../shared/random.ts';
 import { blob, color, finalize, lathe, merge, mesh, place, taperedTube } from './geometry.ts';
+import type { PaintFn } from './geometry.ts';
+import type { Vec3 } from '../catalog.ts';
 
 const _c = new THREE.Color();
 const _a = new THREE.Vector3();
@@ -10,7 +12,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const ss = THREE.MathUtils.smoothstep;
 
 /** Per-triangle paint (by centroid) so stripes and gores stay crisp. */
-export function paintFaces(geo, fn, sway = 0) {
+export function paintFaces(geo: THREE.BufferGeometry, fn: (centroid: THREE.Vector3, out: THREE.Color) => void, sway = 0) {
   const g = finalize(geo, { sway });
   const pos = g.attributes.position;
   const col = g.attributes.color;
@@ -203,7 +205,7 @@ export function sailboatGeometry({ hull = '#26b3d9', stripe = '#ff7a8a' } = {}) 
   const mast = new THREE.CylinderGeometry(0.05, 0.07, 7.5, 6);
   place(mast, { position: [0, 3.75, 0.6] });
   parts.push(finalize(mast, { paint: '#e9eef2' }));
-  const sail = (pts, paint, belly) => {
+  const sail = (pts: Vec3[], paint: PaintFn, belly: number) => {
     const [a, b, c] = pts.map((v) => new THREE.Vector3(...v));
     const n = 6;
     const positions = [];
@@ -293,7 +295,7 @@ export function dolphinGeometry() {
 
 /** White cruise liner (~90 long, bow at +x). Returns { body, windows }. */
 export function cruiseShipGeometry() {
-  const outline = (len, wid, bow) => {
+  const outline = (len: number, wid: number, bow: number) => {
     const s = new THREE.Shape();
     s.moveTo(-len / 2, -wid / 2);
     s.lineTo(len / 2 - bow, -wid / 2);

@@ -7,10 +7,11 @@ import { C } from './clock.ts';
 import { patchClub } from './patch.ts';
 import { mergeAll } from './geometry.ts';
 import { FLOOR } from './layout.ts';
+import type { Vec3 } from '../catalog.ts';
 
 // Glossy white speaker stacks with pumping woofers and glowing trim rings.
 // Both stacks share merged cabinets and instanced woofers.
-const STACKS = [
+const STACKS: { position: Vec3; rotationY: number }[] = [
   { position: [-6.9, FLOOR, -3.3], rotationY: 0.5 },
   { position: [6.9, FLOOR, -3.3], rotationY: -0.5 },
 ];
@@ -21,12 +22,12 @@ const WOOFERS = [
 ];
 const RINGS = [new THREE.Color(C.aqua), new THREE.Color(C.magenta)];
 
-const stackMatrix = ({ position, rotationY }) => new THREE.Matrix4().makeRotationY(rotationY).setPosition(...position);
-const at = (x, y, z, rx = 0) => new THREE.Matrix4().makeRotationX(rx).setPosition(x, y, z);
+const stackMatrix = ({ position, rotationY }: (typeof STACKS)[number]) => new THREE.Matrix4().makeRotationY(rotationY).setPosition(...position);
+const at = (x: number, y: number, z: number, rx = 0) => new THREE.Matrix4().makeRotationX(rx).setPosition(x, y, z);
 
 // Merge one part placed at each local matrix in every stack.
-function placeAll(make, locals) {
-  const parts = [];
+function placeAll(make: () => THREE.BufferGeometry, locals: THREE.Matrix4[]) {
+  const parts: THREE.BufferGeometry[] = [];
   STACKS.forEach((stack) => {
     const sm = stackMatrix(stack);
     locals.forEach((m) => parts.push(make().applyMatrix4(new THREE.Matrix4().multiplyMatrices(sm, m))));
@@ -44,13 +45,13 @@ function cabinet() {
 }
 
 export default function Speakers() {
-  const cones = useRef();
-  const caps = useRef();
-  const trims = useRef();
-  const surrounds = useRef();
+  const cones = useRef<THREE.InstancedMesh>(null);
+  const caps = useRef<THREE.InstancedMesh>(null);
+  const trims = useRef<THREE.InstancedMesh>(null);
+  const surrounds = useRef<THREE.InstancedMesh>(null);
 
   const res = useDisposable(() => {
-    const bases = [];
+    const bases: ((typeof WOOFERS)[number] & { m: THREE.Matrix4 })[] = [];
     STACKS.forEach((stack) => {
       const sm = stackMatrix(stack);
       WOOFERS.forEach((w) => bases.push({ ...w, m: new THREE.Matrix4().multiplyMatrices(sm, at(0, w.y, w.z)) }));
@@ -85,31 +86,35 @@ export default function Speakers() {
   const n = res.bases.length;
 
   useLayoutEffect(() => {
+    const [sm, tm] = [surrounds.current, trims.current];
+    if (!sm || !tm) return;
     res.bases.forEach((b, i) => {
       tmp.m.copy(b.m).multiply(tmp.pump.makeScale(b.r, b.r, b.r));
-      surrounds.current.setMatrixAt(i, tmp.m);
-      trims.current.setMatrixAt(i, tmp.m);
-      trims.current.setColorAt(i, RINGS[b.ring]);
+      sm.setMatrixAt(i, tmp.m);
+      tm.setMatrixAt(i, tmp.m);
+      tm.setColorAt(i, RINGS[b.ring]);
     });
-    surrounds.current.instanceMatrix.needsUpdate = true;
-    trims.current.instanceMatrix.needsUpdate = true;
+    sm.instanceMatrix.needsUpdate = true;
+    tm.instanceMatrix.needsUpdate = true;
   }, [res, tmp]);
 
   useFrame(() => {
+    const [cm, pm, tm] = [cones.current, caps.current, trims.current];
+    if (!cm || !pm || !tm) return;
     for (let i = 0; i < n; i++) {
       const b = res.bases[i];
       const p = Math.exp(-((beat.phase + b.phase) % 1) * 7);
       const s = b.r * (1 + p * 0.03);
       tmp.pump.makeScale(s, s, s).setPosition(0, 0, p * 0.12 * b.r);
       tmp.m.multiplyMatrices(b.m, tmp.pump);
-      cones.current.setMatrixAt(i, tmp.m);
-      caps.current.setMatrixAt(i, tmp.m);
+      cm.setMatrixAt(i, tmp.m);
+      pm.setMatrixAt(i, tmp.m);
       const k = b.ring ? 1.1 + beat.pulse * 1.4 : 1.3 + beat.pulse * 2.2;
-      trims.current.setColorAt(i, tmp.c.copy(RINGS[b.ring]).multiplyScalar(k));
+      tm.setColorAt(i, tmp.c.copy(RINGS[b.ring]).multiplyScalar(k));
     }
-    cones.current.instanceMatrix.needsUpdate = true;
-    caps.current.instanceMatrix.needsUpdate = true;
-    trims.current.instanceColor.needsUpdate = true;
+    cm.instanceMatrix.needsUpdate = true;
+    pm.instanceMatrix.needsUpdate = true;
+    if (tm.instanceColor) tm.instanceColor.needsUpdate = true;
   });
 
   return (

@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { useDisposable } from '../shared/hooks.ts';
-import { makeRandom } from '../shared/random.ts';
+import { makeRandom, type Random } from '../shared/random.ts';
 import { fx, lightGLSL, windGLSL } from './fx.ts';
 import {
-  CAMERA, distToRiver, lakeMask, LAKE_Y, lawnMask, makeNoise2, meadowEdge, MESAS, mesaRadius, smooth, valleyHeight,
+  CAMERA, distToRiver, lakeMask, LAKE_Y, lawnMask, makeNoise2, meadowEdge, MESAS, mesaRadius, smooth, valleyHeight, type Clearing,
 } from './terrain.ts';
 
 // Unit tree: trunk (uv.x = 0) of height 1, crown (uv.x = 1) as a unit sphere at
 // y = 0. The vertex shader stretches them per instance.
-function unitTree(detail, lumpy) {
+function unitTree(detail: number, lumpy: boolean) {
   const trunk = new THREE.CylinderGeometry(0.5, 0.8, 1, 6, 1, true);
   trunk.translate(0, 0.5, 0);
   trunk.deleteAttribute('uv');
@@ -127,7 +127,7 @@ function useTreeMaterial() {
   );
 }
 
-function instanced(base, trees) {
+function instanced(base: THREE.BufferGeometry, trees: Tree[]) {
   const g = new THREE.InstancedBufferGeometry();
   g.index = base.index;
   for (const k of ['position', 'normal', 'uv']) g.setAttribute(k, base.attributes[k]);
@@ -139,7 +139,11 @@ function instanced(base, trees) {
 
 const forestN = makeNoise2(303);
 
-export function makeTree(rand, x, y, z, r, opts = {}) {
+/** One instance: base position, crown radius, trunk height, crown stretch, hue variation, sway phase. */
+export interface Tree { x: number; y: number; z: number; r: number; trunk: number; stretch: number; hue: number; phase: number }
+export interface TreeLayout { near: Tree[]; mid: Tree[]; far: Tree[] }
+
+export function makeTree(rand: Random, x: number, y: number, z: number, r: number, opts: { trunk?: number; stretch?: number } = {}): Tree {
   return { x, y, z, r, trunk: opts.trunk ?? r * rand.range(0.5, 0.9), stretch: opts.stretch ?? rand.range(0.95, 1.35), hue: rand.next(), phase: rand.next() };
 }
 
@@ -147,13 +151,13 @@ export function makeTree(rand, x, y, z, r, opts = {}) {
  * Deterministic tree layout for the valley floor and mesa tops, split into
  * level-of-detail tiers by distance from the camera. avoid: [{ x, z, r }]
  */
-export function layoutTrees(avoid = []) {
+export function layoutTrees(avoid: Clearing[] = []): TreeLayout {
   const rand = makeRandom(77);
-  const near = [];
-  const mid = [];
-  const far = [];
+  const near: Tree[] = [];
+  const mid: Tree[] = [];
+  const far: Tree[] = [];
   const [cx, , cz] = CAMERA.position;
-  const add = (list, x, y, z, r) => list.push(makeTree(rand, x, y, z, r));
+  const add = (list: Tree[], x: number, y: number, z: number, r: number) => list.push(makeTree(rand, x, y, z, r));
 
   // Valley forests: clumps on the hills, open lawns between, none in water.
   let guard = 0;
@@ -194,14 +198,14 @@ export function layoutTrees(avoid = []) {
 }
 
 /** A small standalone batch of trees (e.g. riding on a floating island). */
-export function TreeGroup({ trees, detail = 2 }) {
+export function TreeGroup({ trees, detail = 2 }: { trees: Tree[]; detail?: number }) {
   const material = useTreeMaterial();
   const base = useDisposable(() => unitTree(detail, detail > 2), [detail]);
   const geometry = useDisposable(() => instanced(base, trees), [base, trees]);
   return <mesh geometry={geometry} material={material} frustumCulled={false} />;
 }
 
-export function Trees({ layout }) {
+export function Trees({ layout }: { layout: TreeLayout }) {
   const material = useTreeMaterial();
   const farBase = useDisposable(() => unitTree(1, false));
   const midBase = useDisposable(() => unitTree(2, false));

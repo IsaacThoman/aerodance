@@ -4,13 +4,13 @@ import { makeNoise3 } from './geometry.ts';
 
 // Signed distance (along z) to the shoreline, positive on land. The beach runs
 // straight across the frame with a little wobble so it doesn't read as a ruler line.
-export function shoreDistance(x, z) {
+export function shoreDistance(x: number, z: number) {
   const zs = SHORE.z0 + 0.9 * Math.sin(x * 0.31) * Math.min(Math.abs(x) * 0.25, 1) + 0.5 * Math.sin(x * 0.83 + 1.3);
   return z - zs;
 }
 
 // Beach / seabed height. Mirrored in GLSL below so the water knows its depth.
-export function groundHeight(x, z) {
+export function groundHeight(x: number, z: number) {
   const d = shoreDistance(x, z);
   const h = d > 0 ? WATER_Y + 1.5 * (1 - Math.exp(-d / 20)) + smoothstep(9, 30, d) * 2.2 : WATER_Y + 0.085 * d;
   return Math.max(h, -4);
@@ -18,7 +18,7 @@ export function groundHeight(x, z) {
 
 // Ground plus the small dune bumps baked into the sand mesh (for placing props).
 const bumpNoise = makeNoise3(17);
-export function sandHeight(x, z) {
+export function sandHeight(x: number, z: number) {
   const d = shoreDistance(x, z);
   return groundHeight(x, z) + 0.14 * bumpNoise(x * 0.12, z * 0.12) * smoothstep(1, 6, d);
 }

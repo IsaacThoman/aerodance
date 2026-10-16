@@ -6,6 +6,7 @@ import { club } from './clock.ts';
 import { patchClub } from './patch.ts';
 import { arcBand, mergeAll } from './geometry.ts';
 import { FLOOR, polar } from './layout.ts';
+import type { Vec3 } from '../catalog.ts';
 
 const D = Math.PI / 180;
 const START = Math.PI - 77 * D;
@@ -67,15 +68,15 @@ void main() {
 `;
 
 function bottleGeometry() {
-  const pts = [[0, 0], [0.075, 0], [0.085, 0.02], [0.085, 0.27], [0.06, 0.33], [0.03, 0.38], [0.03, 0.46], [0.036, 0.47], [0, 0.48]];
+  const pts: [number, number][] = [[0, 0], [0.075, 0], [0.085, 0.02], [0.085, 0.27], [0.06, 0.33], [0.03, 0.38], [0.03, 0.46], [0.036, 0.47], [0, 0.48]];
   return new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), 12);
 }
 
 export default function Bar() {
-  const bottles = useRef();
+  const bottles = useRef<THREE.InstancedMesh>(null);
   const res = useDisposable(() => {
     const rand = makeRandom(515);
-    const placements = [];
+    const placements: { pos: Vec3; s: number }[] = [];
     SHELVES.forEach((y) => {
       for (let a = START + 1.2 * D; a < START + LEN - 1.2 * D; a += rand.range(1.0, 1.6) * D) {
         if (rand.chance(0.15)) continue;
@@ -83,14 +84,14 @@ export default function Bar() {
       }
     });
     // Ring sectors: RingGeometry runs counterclockwise from +x; map to cylinder thetas.
-    const sector = (r0, r1, y) =>
+    const sector = (r0: number, r1: number, y: number) =>
       new THREE.RingGeometry(r0, r1, 40, 1, 0, LEN)
         .rotateX(-Math.PI / 2)
         .rotateY(START - Math.PI / 2)
         .translate(0, y, 0);
-    const stools = [];
-    const lamps = [];
-    const cords = [];
+    const stools: THREE.BufferGeometry[] = [];
+    const lamps: THREE.BufferGeometry[] = [];
+    const cords: THREE.BufferGeometry[] = [];
     BAR_STOOLS.forEach(([x, , z]) => {
       stools.push(new THREE.CylinderGeometry(0.05, 0.05, 0.8, 8).translate(x, FLOOR + 0.42, z));
       stools.push(new THREE.CylinderGeometry(0.22, 0.26, 0.04, 16).translate(x, FLOOR + 0.03, z));
@@ -129,16 +130,18 @@ export default function Bar() {
   });
 
   useLayoutEffect(() => {
+    const mesh = bottles.current;
+    if (!mesh) return;
     const m = new THREE.Matrix4();
     const c = new THREE.Color();
     const rand = makeRandom(77);
     const tints = ['#9dff3a', '#1ee8ff', '#ff3fd2', '#ffb43a', '#8d5cff', '#4dffc3'];
     res.placements.forEach((b, i) => {
-      bottles.current.setMatrixAt(i, m.makeScale(b.s, b.s, b.s).setPosition(...b.pos));
-      bottles.current.setColorAt(i, c.set(rand.pick(tints)).multiplyScalar(1.3));
+      mesh.setMatrixAt(i, m.makeScale(b.s, b.s, b.s).setPosition(...b.pos));
+      mesh.setColorAt(i, c.set(rand.pick(tints)).multiplyScalar(1.3));
     });
-    bottles.current.instanceMatrix.needsUpdate = true;
-    bottles.current.instanceColor.needsUpdate = true;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }, [res]);
 
   return (

@@ -3,8 +3,12 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { beat, useDisposable } from '../shared/hooks.ts';
+import type { Vec2, Vec3 } from '../catalog.ts';
 import { causticsGLSL, patchUnderwater, waterGLSL } from './shaders.ts';
+import type { SharedUniforms } from './shaders.ts';
 import { SAND_Y } from './Reef.tsx';
+import type { FloorHeight } from './Reef.tsx';
+import type { BubbleSource } from './Water.tsx';
 
 export const DOME_R = 6.4;
 // Vertical radius: a slightly flattened dome keeps its crown in frame.
@@ -16,7 +20,7 @@ const RIBS = [45, 90, 135, 180, 225, 270, 315];
 const CROWN_LAT = 74;
 
 const deg = THREE.MathUtils.degToRad;
-const onDome = (az, lat, grow = 0) =>
+const onDome = (az: number, lat: number, grow = 0) =>
   new THREE.Vector3(
     Math.sin(deg(az)) * Math.cos(deg(lat)) * (DOME_R + grow),
     Math.sin(deg(lat)) * (DOME_H + grow),
@@ -25,7 +29,7 @@ const onDome = (az, lat, grow = 0) =>
 const CROWN = { r: DOME_R * Math.cos(deg(CROWN_LAT)), y: DOME_H * Math.sin(deg(CROWN_LAT)) };
 
 // Glass tube leading off into the reef (starts inside the dome wall).
-export const TUNNEL = [
+export const TUNNEL: readonly Vec3[] = [
   [-4.25, 1.4, -4.25],
   [-10.0, 1.4, -7.4],
   [-14.6, 1.5, -11.8],
@@ -98,7 +102,16 @@ void main() {
 `;
 
 // streakDir: reflected direction of the softbox; [-0.77, 0.3, -0.56] lands on the dome's left flank, clear of the dancers.
-function makeGlass(shared, { tint = '#9ff6ff', edge = 0.35, base = 0.015, streak = 1, streakDir = [-0.77, 0.3, -0.56] } = {}) {
+interface GlassOptions {
+  tint?: THREE.ColorRepresentation;
+  /** Fresnel edge strength. */
+  edge?: number;
+  base?: number;
+  streak?: number;
+  streakDir?: Vec3;
+}
+
+function makeGlass(shared: SharedUniforms, { tint = '#9ff6ff', edge = 0.35, base = 0.015, streak = 1, streakDir = [-0.77, 0.3, -0.56] }: GlassOptions = {}) {
   return new THREE.ShaderMaterial({
     uniforms: {
       ...shared,
@@ -159,7 +172,11 @@ void main() {
 }
 `;
 
-function FloorRings({ shared }) {
+interface DomeProps {
+  shared: SharedUniforms;
+}
+
+function FloorRings({ shared }: DomeProps) {
   const material = useDisposable(
     () =>
       new THREE.ShaderMaterial({
@@ -190,7 +207,7 @@ function FloorRings({ shared }) {
 }
 
 function domeFrameGeometry() {
-  const parts = [];
+  const parts: THREE.BufferGeometry[] = [];
   for (const az of RIBS) {
     const pts = [];
     for (let i = 0; i <= 14; i++) pts.push(onDome(az, (i / 14) * CROWN_LAT, 0.03));
@@ -215,15 +232,15 @@ function plinthGeometry() {
   return new THREE.LatheGeometry(pts.reverse(), 128);
 }
 
-function tunnelParts(floorHeight) {
+function tunnelParts(floorHeight: FloorHeight) {
   const curve = new THREE.CatmullRomCurve3(TUNNEL.map((p) => new THREE.Vector3(...p)));
   const glass = new THREE.TubeGeometry(curve, 90, TUNNEL_R, 24, false);
   // Walkway ribbon with a light strip down its middle.
   const len = curve.getLength();
   const steps = 90;
-  const walk = [];
-  const strip = [];
-  const idx = [];
+  const walk: number[] = [];
+  const strip: number[] = [];
+  const idx: number[] = [];
   const P = new THREE.Vector3();
   const T = new THREE.Vector3();
   const S = new THREE.Vector3();
@@ -240,7 +257,7 @@ function tunnelParts(floorHeight) {
       idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
     }
   }
-  const ribbon = (arr) => {
+  const ribbon = (arr: number[]) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
     g.setIndex(idx);
@@ -248,8 +265,8 @@ function tunnelParts(floorHeight) {
     return g;
   };
   // Ring ribs + legs.
-  const rings = [];
-  const legs = [];
+  const rings: THREE.BufferGeometry[] = [];
+  const legs: THREE.BufferGeometry[] = [];
   const ringGeo = new THREE.TorusGeometry(TUNNEL_R + 0.04, 0.085, 8, 32);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -271,7 +288,7 @@ function tunnelParts(floorHeight) {
     }
   }
   ringGeo.dispose();
-  const flat = (list) => {
+  const flat = (list: THREE.BufferGeometry[]) => {
     list.forEach((g) => g.deleteAttribute('uv'));
     const merged = mergeGeometries(list, false);
     list.forEach((g) => g.dispose());
@@ -281,7 +298,7 @@ function tunnelParts(floorHeight) {
 }
 
 /** The dome hall: plinth, pearl floor + ring inlays, glass dome, chrome ribs, tunnel, benches and bubble lamps. */
-export function Dome({ shared, floorHeight }) {
+export function Dome({ shared, floorHeight }: DomeProps & { floorHeight: FloorHeight }) {
   const mats = useDisposable(() => ({
     floor: patchUnderwater(
       new THREE.MeshPhysicalMaterial({
@@ -358,9 +375,12 @@ export function Dome({ shared, floorHeight }) {
   );
 }
 
-function Tunnel({ geo, mats, floorHeight }) {
+// The dome materials the tunnel and benches share.
+type DomeMaterials = Record<'white' | 'chrome' | 'cushion' | 'strip' | 'tunnel', THREE.Material>;
+
+function Tunnel({ geo, mats, floorHeight }: { geo: ReturnType<typeof tunnelParts>; mats: DomeMaterials; floorHeight: FloorHeight }) {
   const end = TUNNEL[TUNNEL.length - 1];
-  const pod = [end[0] - 0.6, 0, end[2] - 3.2];
+  const pod: [number, number, number] = [end[0] - 0.6, 0, end[2] - 3.2];
   pod[1] = floorHeight(pod[0], pod[2]) - 0.3;
   return (
     <group>
@@ -381,7 +401,7 @@ function Tunnel({ geo, mats, floorHeight }) {
 }
 
 // Long low bench pods with aqua cushions and backrests along the side walls.
-function Furniture({ mats }) {
+function Furniture({ mats }: { mats: DomeMaterials }) {
   return (
     <group>
       {[-105, 105].map((az) => {
@@ -412,7 +432,7 @@ const LAMPS = [
   { az: 80, r: DOME_R - 0.8, h: 1.9, color: '#7ff8ff' },
 ];
 // Floating bubble lights, kept inside the glass (x, y, z, radius, color).
-const FLOATERS = [
+const FLOATERS: readonly (readonly [x: number, y: number, z: number, radius: number, color: string])[] = [
   [-1.7, 4.45, -1.2, 0.2, '#9ffbff'],
   [1.5, 4.5, -1.8, 0.18, '#d6ff8a'],
   [-0.2, 4.85, -0.6, 0.15, '#ffffff'],
@@ -421,7 +441,7 @@ const FLOATERS = [
 ];
 
 // Glowing gel orb: bright core facing the viewer, colored rim, glossy highlight.
-function makeOrb(shared, color) {
+function makeOrb(shared: SharedUniforms, color: THREE.ColorRepresentation) {
   return new THREE.ShaderMaterial({
     uniforms: { uBeat: shared.uBeat, uColor: { value: new THREE.Color(color) } },
     vertexShader: glassVertex,
@@ -446,11 +466,11 @@ function makeOrb(shared, color) {
 }
 
 // Glossy orb lamps on chrome stems plus a few floating bubble lights.
-function BubbleLamps({ shared }) {
+function BubbleLamps({ shared }: DomeProps) {
   const orbs = useDisposable(() => Object.fromEntries(['#7ff8ff', '#c8ff7a', '#9ffbff', '#d6ff8a', '#ffffff'].map((c) => [c, makeOrb(shared, c)])));
   const stemMat = useDisposable(() => patchUnderwater(new THREE.MeshPhysicalMaterial({ color: '#dff6ff', metalness: 1, roughness: 0.15 }), shared));
-  const floaters = useRef([]);
-  const lights = useRef([]);
+  const floaters = useRef<(THREE.Mesh | null)[]>([]);
+  const lights = useRef<(THREE.PointLight | null)[]>([]);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     FLOATERS.forEach(([x, y, z], i) => {
@@ -476,12 +496,12 @@ function BubbleLamps({ shared }) {
             <mesh position={[0, h + 0.32, 0]} material={orbs[color]}>
               <sphereGeometry args={[0.34, 24, 16]} />
             </mesh>
-            {i < 2 && <pointLight ref={(el) => (lights.current[i] = el)} position={[0, h + 0.3, 0]} color={color} intensity={3} distance={8} decay={2} />}
+            {i < 2 && <pointLight ref={(el) => { lights.current[i] = el; }} position={[0, h + 0.3, 0]} color={color} intensity={3} distance={8} decay={2} />}
           </group>
         );
       })}
       {FLOATERS.map(([x, y, z, s, color], i) => (
-        <mesh key={i} ref={(el) => (floaters.current[i] = el)} position={[x, y, z]} material={orbs[color]}>
+        <mesh key={i} ref={(el) => { floaters.current[i] = el; }} position={[x, y, z]} material={orbs[color]}>
           <sphereGeometry args={[s, 20, 12]} />
         </mesh>
       ))}
@@ -490,7 +510,7 @@ function BubbleLamps({ shared }) {
 }
 
 // A ring of round port lights around the plinth that chase on the beat.
-function PortLights({ shared, count = 72 }) {
+function PortLights({ shared, count = 72 }: DomeProps & { count?: number }) {
   const geometry = useDisposable(() => new THREE.CircleGeometry(0.055, 12));
   const material = useDisposable(
     () =>
@@ -533,8 +553,8 @@ function PortLights({ shared, count = 72 }) {
 }
 
 /** Glint points for the sparkle layer: dome glass (off the front), ribs and crown. */
-export function domeSparklePoints() {
-  const pts = [];
+export function domeSparklePoints(): Vec3[] {
+  const pts: Vec3[] = [];
   for (let i = 0; i < 70; i++) {
     const az = 40 + ((i * 137.5) % 280);
     const lat = 8 + ((i * 53.3) % 70);
@@ -546,10 +566,10 @@ export function domeSparklePoints() {
 }
 
 // Little vents on the plinth rim, each feeding a bubble stream.
-const RIM_VENTS = [-150, -78, -36, 36, 78, 150].map((az) => [Math.sin(deg(az)) * (DOME_R + 0.3), Math.cos(deg(az)) * (DOME_R + 0.3)]);
+const RIM_VENTS = [-150, -78, -36, 36, 78, 150].map((az): Vec2 => [Math.sin(deg(az)) * (DOME_R + 0.3), Math.cos(deg(az)) * (DOME_R + 0.3)]);
 
 /** Bubble sources the dome adds: a vent column from the crown and streams from the rim vents. */
-export const DOME_BUBBLES = [
+export const DOME_BUBBLES: readonly BubbleSource[] = [
   { x: 0, y: DOME_H + 0.6, z: 0, count: 22, size: 1.1 },
   ...RIM_VENTS.map(([x, z], i) => ({ x, y: 0.05, z, count: i % 2 ? 9 : 7, size: 0.75 })),
 ];

@@ -76,7 +76,7 @@ void main() {
 export default function BubbleColumns() {
   const res = useDisposable(() => {
     const h = CEILING - FLOOR;
-    const caps = [];
+    const caps: THREE.BufferGeometry[] = [];
     COLUMNS.forEach((theta) => {
       const [x, , z] = polar(DIST, theta);
       caps.push(
@@ -84,7 +84,7 @@ export default function BubbleColumns() {
         new THREE.CylinderGeometry(R + 0.16, R + 0.1, 0.4, 32).translate(x, CEILING - 0.2, z),
       );
     });
-    const rings = [];
+    const rings: THREE.BufferGeometry[] = [];
     COLUMNS.forEach((theta) => {
       const [x, , z] = polar(DIST, theta);
       rings.push(

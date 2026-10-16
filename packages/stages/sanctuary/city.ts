@@ -1,7 +1,11 @@
 import * as THREE from 'three';
+import type { Vec2 } from '../catalog.ts';
 import { makeRandom, smoothstep } from '../shared/random.ts';
+import type { Random } from '../shared/random.ts';
 import { Builder, EMIT, KIND, LEAF, PAINT, SOLAR, circleProfile, hexToLinear, loft, mat4, roundedProfile, superR, sweep } from './geometry.ts';
+import type { ProfilePoint, RGB, Section, Vec4 } from './geometry.ts';
 import { CAMERA, GROUND, MONORAILS, MONO_Y, polar, riverSDF } from './layout.ts';
+import type { XZ } from './layout.ts';
 
 // Builds every static piece of the city into one merged geometry, plus the
 // placement data other systems need (trees, waterfalls, domes, monorail path).
@@ -10,15 +14,106 @@ const WHITE = hexToLinear('#f6f9fc');
 const OFFWHITE = hexToLinear('#dfe9ee');
 const GRASS = hexToLinear('#5fb83a');
 const AQUA = hexToLinear('#7ff0ff');
-const RED = [1, 0.3, 0.25];
+const RED: RGB = [1, 0.3, 0.25];
 
-const rotated = (rot) => {
+export type TowerType = 'cyl' | 'ellipse' | 'twist' | 'sail' | 'bulge' | 'lobed' | 'block' | 'stepped';
+export type CrownType = 'spire' | 'petals' | 'crown' | 'dome' | 'solar' | 'flat' | 'garden';
+
+/** One tower for addTower(): footprint center, half-extents a/b and look. */
+export interface Tower {
+  x: number;
+  z: number;
+  /** Height above GROUND. */
+  h: number;
+  type: TowerType;
+  a: number;
+  b?: number;
+  rot?: number;
+  twist?: number;
+  crown?: CrownType;
+  /** aFacade overrides: glass tint, window style, greenery. */
+  tint?: number;
+  style?: number;
+  green?: number;
+  bands?: number;
+  podium?: boolean;
+  /** Distant: fewer segments. */
+  far?: boolean;
+}
+
+/** A hand-placed tower: azimuth (degrees) and distance from the camera, top height above the terrace. */
+interface Landmark extends Omit<Tower, 'x' | 'z' | 'h'> {
+  az: number;
+  d: number;
+  top: number;
+}
+
+export type TreeType = 'round' | 'cone' | 'palm';
+
+/** A tree instance: base position, size and model. */
+export interface TreeSpot {
+  x: number;
+  y: number;
+  z: number;
+  s: number;
+  type: TreeType;
+}
+
+export interface Footprint {
+  x: number;
+  z: number;
+  r: number;
+}
+
+/** A waterfall arc from a tier lip at radius r around (cx, cz), centered on angle th. */
+export interface Waterfall {
+  cx: number;
+  cz: number;
+  r: number;
+  th: number;
+  span: number;
+  y0: number;
+  y1: number;
+}
+
+/** The biodome: radius r, height ratio hy, floor height base above GROUND. */
+export interface Dome {
+  x: number;
+  z: number;
+  r: number;
+  hy: number;
+  base: number;
+}
+
+/** A closed monorail loop sampled every `step` units. */
+export interface MonorailTrack {
+  points: THREE.Vector3[];
+  total: number;
+  step: number;
+}
+
+/** Placement data other systems need. */
+export interface CityLayout {
+  trees: TreeSpot[];
+  footprints: Footprint[];
+  falls: Waterfall[];
+  domes: Dome[];
+  monorails: MonorailTrack[];
+}
+
+export interface City extends CityLayout {
+  geometry: THREE.BufferGeometry;
+}
+
+const rotated = (rot: number) => {
   const c = Math.cos(rot);
   const s = Math.sin(rot);
-  return (x, z) => [x * c - z * s, x * s + z * c];
+  return (x: number, z: number): Vec2 => [x * c - z * s, x * s + z * c];
 };
 
-function towerSection(T) {
+const scale2 = ([x, z]: Vec2, k: number): Vec2 => [x * k, z * k];
+
+function towerSection(T: Tower): Section {
   const { type, a, b = a, rot = 0, twist = 0 } = T;
   const R = rotated(rot);
   switch (type) {
@@ -63,7 +158,7 @@ function towerSection(T) {
   }
 }
 
-function perimeter(section, t, n = 48) {
+function perimeter(section: Section, t: number, n = 48): number {
   let p = 0;
   let prev = section(0, t);
   for (let i = 1; i <= n; i++) {
@@ -74,12 +169,23 @@ function perimeter(section, t, n = 48) {
   return p;
 }
 
-const scaled = (section, k, tFixed = null) => (th, t) => section(th, tFixed ?? t).map((v) => v * k);
+const scaled = (section: Section, k: number, tFixed: number | null = null): Section => (th, t) => scale2(section(th, tFixed ?? t), k);
 
-function addGardenTop(b, rand, { cx, cz, y, section, inner, trees, count = 5, scale = 1 }) {
+interface GardenTop {
+  cx: number;
+  cz: number;
+  y: number;
+  section: Section;
+  inner: number;
+  trees: TreeSpot[];
+  count?: number;
+  scale?: number;
+}
+
+function addGardenTop(b: Builder, rand: Random, { cx, cz, y, section, inner, trees, count = 5, scale = 1 }: GardenTop) {
   loft(b, {
     cx, cz, y0: y, y1: y + 1.4, segments: 40,
-    section: (th) => section(th, 1).map((v) => v * 1.02),
+    section: (th) => scale2(section(th, 1), 1.02),
     color: WHITE, st: PAINT(),
     capTop: [{ lift: -0.7, scale: 0.94, color: GRASS, st: LEAF }],
   });
@@ -90,7 +196,7 @@ function addGardenTop(b, rand, { cx, cz, y, section, inner, trees, count = 5, sc
   }
 }
 
-function addSolarRoof(b, { cx, cz, y, a, bb, rot = 0 }) {
+function addSolarRoof(b: Builder, { cx, cz, y, a, bb, rot = 0 }: { cx: number; cz: number; y: number; a: number; bb: number; rot?: number }) {
   const R = rotated(rot);
   const panel = new THREE.BoxGeometry(5, 0.2, 2.8);
   const nx = Math.max(1, Math.floor((a * 1.3) / 6));
@@ -104,7 +210,7 @@ function addSolarRoof(b, { cx, cz, y, a, bb, rot = 0 }) {
   panel.dispose();
 }
 
-function addSpire(b, cx, cz, y, height) {
+function addSpire(b: Builder, cx: number, cz: number, y: number, height: number) {
   const cone = new THREE.CylinderGeometry(0.25, 2.4, height, 10, 1);
   b.add(cone, mat4([cx, y + height / 2, cz]), { color: WHITE, st: PAINT(0.25, 0.2) });
   const ring = new THREE.TorusGeometry(3.6, 0.6, 6, 24);
@@ -114,13 +220,13 @@ function addSpire(b, cx, cz, y, height) {
   [cone, ring, tip].forEach((g) => g.dispose());
 }
 
-function addTower(b, T, rand, out) {
+function addTower(b: Builder, T: Tower, rand: Random, out: CityLayout) {
   const { x: cx, z: cz, h, a } = T;
   const bb = T.b ?? a;
   const floorH = 5;
   const seed = rand.next();
-  const fa = [T.tint ?? rand.next(), T.style ?? rand.int(0, 3), seed, T.green ?? 0];
-  const st = [KIND.GLASS, T.bands ?? 0, 0, 0];
+  const fa: Vec4 = [T.tint ?? rand.next(), T.style ?? rand.int(0, 3), seed, T.green ?? 0];
+  const st: Vec4 = [KIND.GLASS, T.bands ?? 0, 0, 0];
   const g0 = GROUND;
   out.footprints.push({ x: cx, z: cz, r: Math.max(a, bb) });
 
@@ -134,7 +240,7 @@ function addTower(b, T, rand, out) {
     ];
     const toCam = Math.atan2(CAMERA.position[2] - cz, CAMERA.position[0] - cx);
     tiers.forEach(([t0, t1, s], k) => {
-      const section = (th) => {
+      const section = (th: number) => {
         const r = superR(th, a * s, bb * s, 5);
         return R(Math.cos(th) * r, Math.sin(th) * r);
       };
@@ -143,7 +249,7 @@ function addTower(b, T, rand, out) {
       loft(b, { cx, cz, y0, y1, segments: 48, section, cols: Math.round(perimeter(section, 0) / 3.2), floorH, fa, st });
       loft(b, {
         cx, cz, y0: y1 - 0.6, y1: y1 + 1.6, segments: 48,
-        section: (th) => section(th).map((v) => v * 1.05),
+        section: (th) => scale2(section(th), 1.05),
         color: WHITE, st: PAINT(),
         capTop: [{ lift: -0.4, scale: 0.97, color: GRASS, st: LEAF }],
       });
@@ -171,7 +277,8 @@ function addTower(b, T, rand, out) {
   const perim = perimeter(section, 0);
   const colW = fa[1] === 3 ? 3.6 : fa[1] === 2 ? 2.8 : 3.2;
   const cols = Math.max(8, Math.round(perim / colW));
-  const levels = { cyl: 2, ellipse: 2, twist: Math.ceil(h / 10), sail: 18, bulge: 30, lobed: Math.ceil(h / 10) }[T.type] ?? 1;
+  const levelsByType: Partial<Record<TowerType, number>> = { cyl: 2, ellipse: 2, twist: Math.ceil(h / 10), sail: 18, bulge: 30, lobed: Math.ceil(h / 10) };
+  const levels = levelsByType[T.type] ?? 1;
   const segments = T.far ? 24 : T.type === 'twist' || T.type === 'lobed' ? 48 : 40;
 
   // Planted podium.
@@ -229,7 +336,7 @@ function addTower(b, T, rand, out) {
     case 'crown':
       loft(b, {
         cx, cz, y0: top - 6, y1: top + 10, levels: 4, segments,
-        section: (th, t) => section(th, 1).map((v) => v * (1.02 + 0.1 * t * t)),
+        section: (th, t) => scale2(section(th, 1), 1.02 + 0.1 * t * t),
         color: WHITE, st: PAINT(0.22, 0.1), capTop: [{ lift: -12, color: GRASS, st: LEAF, scale: 0.95 }],
       });
       for (let i = 0; i < 6; i++) {
@@ -243,7 +350,7 @@ function addTower(b, T, rand, out) {
         loft(b, {
           cx, cz, levels: 8, segments, cols, floorH, fa, st,
           yAt: (u) => top + Math.sin(u * Math.PI * 0.5) * topR * 0.7,
-          section: (th, u) => section(th, 1).map((v) => v * Math.max(0.04, Math.cos(u * Math.PI * 0.5))),
+          section: (th, u) => scale2(section(th, 1), Math.max(0.04, Math.cos(u * Math.PI * 0.5))),
         });
       }
       {
@@ -279,7 +386,7 @@ function addTower(b, T, rand, out) {
 // Hand-placed landmarks: tall towers frame both sides of the shot, the middle
 // stays low so the space behind the dancers' heads is calm haze and river.
 // az/d are degrees and distance from the camera; top is height above the terrace.
-const LANDMARKS = [
+const LANDMARKS: readonly Landmark[] = [
   { az: -31, d: 250, type: 'twist', a: 22, b: 17, top: 150, crown: 'petals', style: 1, tint: 0.05, green: 0.5, twist: 0.9 },
   { az: -45, d: 440, type: 'bulge', a: 30, top: 95, crown: 'dome', style: 0, tint: 0.62, podium: true },
   { az: -25, d: 600, type: 'cyl', a: 22, top: 60, crown: 'spire', style: 3, tint: 0.88, bands: 6 },
@@ -302,7 +409,7 @@ const BRIDGES = [
   [5, 7, 4],
 ];
 
-function distToPath(x, z, pts) {
+function distToPath(x: number, z: number, pts: readonly THREE.Vector3[]): number {
   let best = Infinity;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
@@ -315,15 +422,15 @@ function distToPath(x, z, pts) {
   return best;
 }
 
-function addMonorail(b, loop, out) {
+function addMonorail(b: Builder, loop: readonly XZ[], out: CityLayout) {
   const curve = new THREE.CatmullRomCurve3(loop.map(([x, z]) => new THREE.Vector3(x, MONO_Y, z)), true, 'centripetal');
   const total = curve.getLength();
   const n = Math.round(total / 6);
   const pts = curve.getSpacedPoints(n).slice(0, n);
-  const track = { points: pts, total, step: total / n };
+  const track: MonorailTrack = { points: pts, total, step: total / n };
   out.monorails.push(track);
   sweep(b, pts, roundedProfile(4.2, 2.6, 1.0, 3), { closed: true, color: (j) => (j > 3 && j < 9 ? WHITE : OFFWHITE), st: PAINT(0.25, 0.05) });
-  const stripe = roundedProfile(4.4, 0.4, 0.15, 1).map(([x, y, nx, ny]) => [x, y - 0.5, nx, ny]);
+  const stripe = roundedProfile(4.4, 0.4, 0.15, 1).map(([x, y, nx, ny]): ProfilePoint => [x, y - 0.5, nx, ny]);
   sweep(b, pts, stripe, { closed: true, color: hexToLinear('#2fd2ea'), st: EMIT(1.2) });
   const pylon = new THREE.CylinderGeometry(1.2, 1.8, 1, 12, 1);
   const cap = new THREE.CapsuleGeometry(1.4, 4.5, 4, 8);
@@ -339,25 +446,25 @@ function addMonorail(b, loop, out) {
   cap.dispose();
 }
 
-function addBridges(b, rand, towers) {
+function addBridges(b: Builder, rand: Random, towers: readonly Tower[]) {
   const tube = circleProfile(3.4, 14);
   for (const [i, j, y] of BRIDGES) {
     const A = towers[i];
     const B = towers[j];
-    const path = [];
+    const path: THREE.Vector3[] = [];
     for (let k = 0; k <= 16; k++) {
       const t = k / 16;
       path.push(new THREE.Vector3(A.x + (B.x - A.x) * t, y - Math.sin(t * Math.PI) * 4, A.z + (B.z - A.z) * t));
     }
     sweep(b, path, tube, { fa: [0.15, 3, rand.next(), 0], st: [KIND.GLASS, 0, 0, 0], uvLen: 4 });
-    const spine = roundedProfile(8.4, 1.2, 0.5, 2).map(([x, yy, nx, ny]) => [x, yy - 3.4, nx, ny]);
+    const spine = roundedProfile(8.4, 1.2, 0.5, 2).map(([x, yy, nx, ny]): ProfilePoint => [x, yy - 3.4, nx, ny]);
     sweep(b, path, spine, { color: WHITE, st: PAINT() });
-    const glow = roundedProfile(8.6, 0.3, 0.1, 1).map(([x, yy, nx, ny]) => [x, yy - 2.9, nx, ny]);
+    const glow = roundedProfile(8.6, 0.3, 0.1, 1).map(([x, yy, nx, ny]): ProfilePoint => [x, yy - 2.9, nx, ny]);
     sweep(b, path, glow, { color: AQUA, st: EMIT(1.8) });
   }
 }
 
-function addDomeBase(b, dome) {
+function addDomeBase(b: Builder, dome: Dome) {
   const ring = new THREE.CylinderGeometry(dome.r * 1.04, dome.r * 1.08, 3, 64, 1, true);
   b.add(ring, mat4([dome.x, GROUND + 1.5, dome.z]), { color: WHITE, st: PAINT() });
   const rim = new THREE.TorusGeometry(dome.r * 1.04, 0.8, 6, 64);
@@ -366,22 +473,22 @@ function addDomeBase(b, dome) {
   rim.dispose();
 }
 
-export function buildCity() {
+export function buildCity(): City {
   const rand = makeRandom(20260611);
   const b = new Builder();
-  const out = { trees: [], footprints: [], falls: [], domes: [], monorails: [] };
+  const out: CityLayout = { trees: [], footprints: [], falls: [], domes: [], monorails: [] };
 
   MONORAILS.forEach((loop) => addMonorail(b, loop, out));
   const rails = out.monorails.map((m) => m.points);
 
   const [dx, dz] = polar(-21, 470);
-  const dome = { x: dx, z: dz, r: 54, hy: 0.78, base: 22 };
+  const dome: Dome = { x: dx, z: dz, r: 54, hy: 0.78, base: 22 };
   out.domes.push(dome);
   addDomeBase(b, dome);
 
   const placed = LANDMARKS.map((L) => {
     const [x, z] = polar(L.az, L.d);
-    const T = { ...L, x, z, h: L.top - GROUND };
+    const T: Tower = { ...L, x, z, h: L.top - GROUND };
     addTower(b, T, rand, out);
     return T;
   });
@@ -389,7 +496,7 @@ export function buildCity() {
 
   // Fill the city with lower rounded towers whose rooftops sit below the terrace,
   // rising toward the flanks. Nothing tall right behind the dancers.
-  const blocked = (x, z, r) =>
+  const blocked = (x: number, z: number, r: number) =>
     out.footprints.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + r + 16) ||
     riverSDF(x, z) < r + 18 ||
     rails.some((rail) => distToPath(x, z, rail) < r + 12) ||
@@ -406,8 +513,8 @@ export function buildCity() {
     let top = d < 650 ? -60 + flank * 85 + rand.range(-20, 35) : -30 + flank * 70 + rand.range(-25, 55);
     // Calm middle: only low pavilions behind the dancers until the far haze.
     if (Math.abs(az) < 14) top = Math.min(top, d < 1300 ? -78 : 10);
-    const type = rand.pick(['cyl', 'ellipse', 'twist', 'block', 'lobed', 'block', 'ellipse']);
-    const crown = top < 0 ? rand.pick(['garden', 'garden', 'solar', 'flat', 'garden']) : rand.pick(['garden', 'dome', 'crown', 'spire', 'flat']);
+    const type = rand.pick<TowerType>(['cyl', 'ellipse', 'twist', 'block', 'lobed', 'block', 'ellipse']);
+    const crown = top < 0 ? rand.pick<CrownType>(['garden', 'garden', 'solar', 'flat', 'garden']) : rand.pick<CrownType>(['garden', 'dome', 'crown', 'spire', 'flat']);
     addTower(b, {
       x, z, type, a, b: bb, h: top - GROUND, rot: rand.range(-0.6, 0.6), twist: rand.range(-0.8, 0.8),
       crown, green: rand.chance(0.45) ? rand.range(0.3, 0.8) : 0, bands: rand.chance(0.3) ? 5 : 0, podium: d < 900 && rand.chance(0.35),
@@ -424,7 +531,7 @@ export function buildCity() {
     const a = rand.range(16, 30);
     const center = 1 - smoothstep(4, 20, Math.abs(az));
     const top = rand.range(-10, 120) * (1 - 0.5 * center);
-    addTower(b, { x, z, type: rand.pick(['cyl', 'ellipse', 'twist', 'block']), a, b: a * rand.range(0.7, 1), h: top - GROUND, crown: rand.pick(['flat', 'dome', 'spire']), far: true }, rand, out);
+    addTower(b, { x, z, type: rand.pick<TowerType>(['cyl', 'ellipse', 'twist', 'block']), a, b: a * rand.range(0.7, 1), h: top - GROUND, crown: rand.pick<CrownType>(['flat', 'dome', 'spire']), far: true }, rand, out);
   }
 
   // Park trees on visible ground: along the river banks and in green blocks.

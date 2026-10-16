@@ -3,6 +3,7 @@
 // and a gentle touch of eco-tech (solar flowers, turbines, observatory).
 import { useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
+import type { Vec3 } from '../catalog.ts';
 import { StageEnvironment } from '../shared/Environment.tsx';
 import { beat, reducedMotion, StageCamera, useDisposable } from '../shared/hooks.ts';
 import { post } from '../shared/post.tsx';
@@ -12,20 +13,20 @@ import { fx, HAZE, makeNoiseTexture, SUN, tickFalls } from './fx.ts';
 import { Meadow, Mesas, Mountains, Valley } from './Land.tsx';
 import { GrassField, makeGrassMask, Wildflowers } from './Grass.tsx';
 import { FloatingIslands, islandWisps } from './Islands.tsx';
-import { Birds, Butterflies, Floaters } from './Life.tsx';
-import { Balloons, Observatory, Turbines } from './Props.tsx';
-import { FlowerBeds, Platform, SolarFlowers } from './Platform.tsx';
+import { Birds, Butterflies, Floaters, type Flock } from './Life.tsx';
+import { Balloons, Observatory, Turbines, type Balloon, type TurbineSite } from './Props.tsx';
+import { FlowerBeds, Platform, SolarFlowers, type SolarFlowerSite } from './Platform.tsx';
 import { CAMERA, fallSites, OBSERVATORY } from './terrain.ts';
 import { layoutTrees, Trees } from './Trees.tsx';
-import { Lake, Mist, Rainbow, River, Waterfalls } from './Water.tsx';
+import { Lake, Mist, Rainbow, River, Waterfalls, type MistWisp } from './Water.tsx';
 
-const SCULPTURES = [
+const SCULPTURES: SolarFlowerSite[] = [
   [-7.2, -0.6, 0.35],
   [7.2, -0.6, -0.35],
 ];
 const BEDS = SCULPTURES.map(([x, z]) => ({ x, z, r: 1.25 }));
 
-const FLOCKS = [
+const FLOCKS: Flock[] = [
   { center: [-10, -10, -165], radius: 62, count: 9, speed: 0.11, size: 2.2, color: 0, spread: 1 },
   { center: [52, -2, -118], radius: 30, count: 5, speed: -0.16, size: 1.8, color: 0, spread: 0.8 },
   { center: [-6, 21, -46], radius: 24, count: 4, speed: 0.22, size: 0.7, color: 0, spread: 0.6 },
@@ -33,18 +34,20 @@ const FLOCKS = [
 // Low cloud banks drifting in the valley below the clifftop (sells the height).
 const VALLEY_WISPS = [
   [-36, -20, -62, 16], [-64, -25, -98, 22], [-22, -27, -112, 18], [44, -21, -70, 16], [76, -26, -104, 22], [26, -28, -124, 18],
-].map(([x, y, z, s], i) => ({ c: [x, y, z], p: [s, 2, i / 6, 0.014], aspect: 2.6 }));
+].map(([x, y, z, s], i): MistWisp => ({ c: [x, y, z], p: [s, 2, i / 6, 0.014], aspect: 2.6 }));
 // Wind turbines on the far mesa tops, standing against the sky.
-const TURBINES = [
+const TURBINES: TurbineSite[] = [
   { x: 100, z: -508, y: 31, s: 0.7 }, { x: 128, z: -516, y: 31, s: 0.62 },
   { x: -34, z: -440, y: 21, s: 0.7 }, { x: 18, z: -452, y: 21, s: 0.6 },
   { x: -238, z: -352, y: 27, s: 0.75 }, { x: -210, z: -366, y: 27, s: 0.65 },
   { x: 244, z: -400, y: 23, s: 0.75 }, { x: 274, z: -392, y: 23, s: 0.65 },
 ];
-const BALLOONS = [
+const BALLOONS: Balloon[] = [
   { p: [-18, 8, -64], s: 2.2, look: 1, drift: 4 },
   { p: [-120, 40, -330], s: 3, look: 0, drift: 10 },
 ];
+
+const scale = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
 
 function Driver() {
   useFrame((state) => {
@@ -62,7 +65,7 @@ export default function FallsStage() {
   fx.uSunDir.value.set(...sun).normalize();
   const sites = useMemo(fallSites, []);
   const trees = useMemo(() => layoutTrees([{ x: OBSERVATORY[0], z: OBSERVATORY[2], r: 11 }]), []);
-  const sunPos = useMemo(() => sun.map((v) => v * 30), [sun]);
+  const sunPos = useMemo(() => scale(sun, 30), [sun]);
   const wisps = useMemo(() => [...islandWisps(), ...VALLEY_WISPS], []);
   const free = useMemo(() => makeGrassMask([...BEDS.map((b) => ({ ...b, r: b.r + 0.25 })), ...SCULPTURES.map(([x, z]) => ({ x, z, r: 0.4 }))]), []);
 
@@ -78,7 +81,7 @@ export default function FallsStage() {
         bottom="#5c9a46"
         intensity={1}
         lights={[
-          { position: sun.map((v) => v * 40), color: '#fff1d6', intensity: 7, size: [10, 10] },
+          { position: scale(sun, 40), color: '#fff1d6', intensity: 7, size: [10, 10] },
           { position: [0, 45, 10], color: '#ffffff', intensity: 1.4, size: [40, 16] },
           { position: [30, 10, -30], color: '#c8f4ff', intensity: 1.6, size: [20, 10] },
         ]}

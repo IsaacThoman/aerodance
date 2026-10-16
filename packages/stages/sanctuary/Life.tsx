@@ -3,10 +3,14 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
+import type { MonorailTrack } from './city.ts';
 import { GROUND, MONO_Y, RIVER, polar } from './layout.ts';
+import type { XZ } from './layout.ts';
 import { stageUniforms } from './materials.ts';
+import type { EnvMapProps } from './materials.ts';
 import { makeBalloon, makeBirdGeometry, makeBlimp, makePod, makeSailboat, makeTrainCar, makeTurbine, makeVehicleMaterial } from './vehicles.ts';
 import { hillRidge } from './World.tsx';
+import type { CityProps } from './World.tsx';
 
 // Everything that moves in the city: the monorail, eco pods, the airship with
 // its screen, hot-air balloons, gull flocks and the wind farm on the hills.
@@ -17,7 +21,7 @@ const tmpE = new THREE.Euler();
 const tmpP = new THREE.Vector3();
 const tmpS = new THREE.Vector3(1, 1, 1);
 
-function useInstanced(geometry, material, count, setup) {
+function useInstanced(geometry: THREE.BufferGeometry, material: THREE.Material, count: number, setup?: (mesh: THREE.InstancedMesh) => void): THREE.InstancedMesh {
   const mesh = useMemo(() => {
     const m = new THREE.InstancedMesh(geometry, material, count);
     m.frustumCulled = false;
@@ -28,13 +32,19 @@ function useInstanced(geometry, material, count, setup) {
   return mesh;
 }
 
+/** A train's speed (units/s, sign = direction) and start offset along its loop. */
+interface TrainRun {
+  speed: number;
+  offset: number;
+}
+
 // One train per monorail loop, running in opposite directions.
-const TRAINS = [
+const TRAINS: readonly TrainRun[] = [
   { speed: 46, offset: 300 },
   { speed: -40, offset: 900 },
 ];
 
-export function Trains({ city, envMap }) {
+export function Trains({ city, envMap }: CityProps & EnvMapProps) {
   const geometry = useDisposable(() => makeTrainCar());
   const material = useDisposable(() => makeVehicleMaterial('train', envMap), [envMap]);
   const cars = 4;
@@ -46,7 +56,7 @@ export function Trains({ city, envMap }) {
   return <primitive object={mesh} />;
 }
 
-function placeTrain(mesh, first, cars, loop, { speed, offset }, t) {
+function placeTrain(mesh: THREE.InstancedMesh, first: number, cars: number, loop: MonorailTrack, { speed, offset }: TrainRun, t: number) {
   const n = loop.points.length;
   const dir = Math.sign(speed);
   const head = (((t * speed + offset) % loop.total) + loop.total) % loop.total;
@@ -68,11 +78,13 @@ function placeTrain(mesh, first, cars, loop, { speed, offset }, t) {
 
 const POD_COLORS = ['#ffffff', '#7ed957', '#38c6f4', '#ffd23f', '#ff8fb1', '#9ff0e2', '#ffffff', '#2d8cf0', '#ffffff', '#7ed957', '#38c6f4', '#ffffff'];
 
+type PodRoute = [cx: number, cz: number, rx: number, rz: number, speed: number, phase: number, y: number, bob: number];
+
 // Elliptical flight loops between the towers: [cx, cz, rx, rz, speed, phase, y, bob].
 const POD_ROUTES = (() => {
   const rand = makeRandom(31);
-  const routes = [];
-  const add = (az, d, rx, rz, y, n) => {
+  const routes: PodRoute[] = [];
+  const add = (az: number, d: number, rx: number, rz: number, y: number, n: number) => {
     const [cx, cz] = polar(az, d);
     const speed = rand.range(0.05, 0.09) * rand.sign();
     for (let i = 0; i < n; i++) routes.push([cx, cz, rx, rz, speed, i / n + rand.range(-0.05, 0.05), y + rand.range(-6, 6), rand.range(1, 3)]);
@@ -85,7 +97,7 @@ const POD_ROUTES = (() => {
   return routes;
 })();
 
-export function Pods({ envMap }) {
+export function Pods({ envMap }: EnvMapProps) {
   const geometry = useDisposable(() => makePod().scale(1.4, 1.4, 1.4));
   const material = useDisposable(() => makeVehicleMaterial('pod', envMap), [envMap]);
   const mesh = useInstanced(geometry, material, POD_ROUTES.length, (m) => {
@@ -153,17 +165,19 @@ function makeScreenGeometry() {
   return g;
 }
 
-export function Blimp({ envMap }) {
-  const group = useRef();
+export function Blimp({ envMap }: EnvMapProps) {
+  const group = useRef<THREE.Group>(null);
   const body = useDisposable(() => makeBlimp());
   const bodyMat = useDisposable(() => makeVehicleMaterial('blimp', envMap), [envMap]);
   const screenGeo = useDisposable(() => makeScreenGeometry());
   const screenMat = useDisposable(() => makeScreenMaterial());
   useFrame((state) => {
+    const g = group.current;
+    if (!g) return;
     const t = state.clock.elapsedTime;
     const x = -620 + ((t * 4.5 + 420) % 1240);
-    group.current.position.set(x, 64 + Math.sin(t * 0.3) * 2, -520);
-    group.current.rotation.set(0, Math.sin(t * 0.05) * 0.06, Math.sin(t * 0.4) * 0.015);
+    g.position.set(x, 64 + Math.sin(t * 0.3) * 2, -520);
+    g.rotation.set(0, Math.sin(t * 0.05) * 0.06, Math.sin(t * 0.4) * 0.015);
   });
   return (
     <group ref={group}>
@@ -182,9 +196,9 @@ const BALLOONS = [
   { az: 47, d: 700, size: 12, color: '#3f8fff', speed: 1.1, phase: 0.2 },
 ];
 
-const tmpXZ = [0, 0];
+const tmpXZ: XZ = [0, 0];
 
-export function Balloons({ envMap }) {
+export function Balloons({ envMap }: EnvMapProps) {
   const geometry = useDisposable(() => makeBalloon());
   const material = useDisposable(() => makeVehicleMaterial('balloon', envMap), [envMap]);
   const mesh = useInstanced(geometry, material, BALLOONS.length, (m) => {
@@ -216,7 +230,7 @@ const flock = {
 };
 
 // One flock wheels in front of the terrace above the pool, two over the city.
-function flockPath(i, t, out) {
+function flockPath(i: number, t: number, out: THREE.Vector3): THREE.Vector3 {
   if (i === 0) return out.set(4 + 40 * Math.cos(t * 0.12), 9 + 3 * Math.sin(t * 0.23), -58 + 18 * Math.sin(t * 0.12));
   if (i === 1) return out.set(-120 + 150 * Math.cos(t * 0.05 + 2), 22 + 8 * Math.sin(t * 0.1), -360 + 120 * Math.sin(t * 0.05 + 2));
   return out.set(180 + 120 * Math.cos(-t * 0.06 + 1), -20 + 6 * Math.sin(t * 0.13), -300 + 90 * Math.sin(-t * 0.06 + 1));
@@ -305,7 +319,7 @@ export function Birds() {
   return <primitive object={mesh} />;
 }
 
-export function Turbines({ envMap }) {
+export function Turbines({ envMap }: EnvMapProps) {
   const { base, rotor } = useDisposable(() => makeTurbine());
   // Unfogged so the white turbines stand out against the hazy hills.
   const material = useDisposable(() => new THREE.MeshStandardMaterial({ color: '#e8f4fb', roughness: 0.4, fog: false, envMap }), [envMap]);
@@ -356,7 +370,7 @@ const riverPath = (() => {
   return { curve, length: curve.getLength() };
 })();
 
-function makeTintMaterial(envMap) {
+function makeTintMaterial(envMap: THREE.Texture): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05, side: THREE.DoubleSide, envMap });
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -373,7 +387,11 @@ function makeTintMaterial(envMap) {
   return m;
 }
 
-export function Sailboats({ envMap, count = 12 }) {
+export interface SailboatsProps extends EnvMapProps {
+  count?: number;
+}
+
+export function Sailboats({ envMap, count = 12 }: SailboatsProps) {
   const geometry = useDisposable(() => makeSailboat());
   const material = useDisposable(() => makeTintMaterial(envMap), [envMap]);
   const boats = useMemo(() => {

@@ -1,3 +1,5 @@
+import type { StageMeta } from '../catalog.ts';
+
 // Name card, dancer placement and post settings, loaded before the stage itself.
 const meta = {
   id: 'reef',
@@ -14,6 +16,6 @@ const meta = {
     saturation: 1.15,
     tint: [0.98, 1.0, 1.02],
   },
-};
+} satisfies StageMeta;
 
 export default meta;

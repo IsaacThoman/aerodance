@@ -3,6 +3,7 @@ import { useDisposable } from '../shared/hooks.ts';
 import { clubCommon, fogUniforms, patchClub } from './patch.ts';
 import { arcBand, arcTube } from './geometry.ts';
 import { FLOOR, SCREEN } from './layout.ts';
+import type { Vec3 } from '../catalog.ts';
 
 const W = SCREEN.r * SCREEN.length;
 const H = SCREEN.y1 - SCREEN.y0;
@@ -129,7 +130,7 @@ export default function VideoWall() {
       end: new THREE.CylinderGeometry(0.16, 0.16, y1 - y0, 12).translate(0, (y0 + y1) / 2, 0),
     };
   });
-  const ends = [SCREEN.theta, SCREEN.theta + SCREEN.length].map((t) => [(SCREEN.r - 0.05) * Math.sin(t), 0, (SCREEN.r - 0.05) * Math.cos(t)]);
+  const ends = [SCREEN.theta, SCREEN.theta + SCREEN.length].map((t): Vec3 => [(SCREEN.r - 0.05) * Math.sin(t), 0, (SCREEN.r - 0.05) * Math.cos(t)]);
 
   return (
     <group>

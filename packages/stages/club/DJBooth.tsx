@@ -7,8 +7,9 @@ import { patchClub } from './patch.ts';
 import { gelMaterial } from './gel.ts';
 import { arcTube, blobGeometry } from './geometry.ts';
 import { FLOOR } from './layout.ts';
+import type { Vec3 } from '../catalog.ts';
 
-const BOOTH = [0, 0, -8.3];
+const BOOTH: Vec3 = [0, 0, -8.3];
 const RISER_TOP = 0.45;
 const DESK_R = 2.3;
 const DESK_TOP = 1.8;
@@ -38,7 +39,7 @@ const deskEmissive = /* glsl */ `
 `;
 
 // Position on the desk top at an angle (degrees) around the booth.
-function deskAt(deg, r = DESK_R - 0.42) {
+function deskAt(deg: number, r = DESK_R - 0.42): [x: number, z: number, yaw: number] {
   const a = (deg * Math.PI) / 180;
   return [BOOTH[0] + Math.sin(a) * r, BOOTH[2] + Math.cos(a) * r, -a];
 }
@@ -54,9 +55,19 @@ function makeDeskGeometry() {
   };
 }
 
-function Turntable({ parts, x, z, angle, flip }) {
-  const platter = useRef();
+interface TurntableProps {
+  parts: BoothParts;
+  x: number;
+  z: number;
+  angle: number;
+  /** Spin direction, 1 or -1. */
+  flip: number;
+}
+
+function Turntable({ parts, x, z, angle, flip }: TurntableProps) {
+  const platter = useRef<THREE.Group>(null);
   useFrame((_, delta) => {
+    if (!platter.current) return;
     platter.current.rotation.y -= delta * 3.6 * flip;
   });
   return (
@@ -72,14 +83,15 @@ function Turntable({ parts, x, z, angle, flip }) {
   );
 }
 
-function DJ({ parts }) {
-  const body = useRef();
-  const handL = useRef();
-  const handR = useRef();
+function DJ({ parts }: { parts: BoothParts }) {
+  const body = useRef<THREE.Group>(null);
+  const handL = useRef<THREE.Mesh>(null);
+  const handR = useRef<THREE.Mesh>(null);
   useFrame((state) => {
+    const b = body.current;
+    if (!b || !handL.current || !handR.current) return;
     const t = state.clock.elapsedTime;
     const p = beat.pulse;
-    const b = body.current;
     b.scale.set(1 + p * 0.05, 1 - p * 0.07, 1 + p * 0.05);
     b.rotation.x = 0.12 * p;
     b.rotation.z = Math.sin(t * 1.3) * 0.05;
@@ -106,64 +118,68 @@ function DJ({ parts }) {
   );
 }
 
+function makeParts() {
+  const mats = {
+    desk: patchClub(new THREE.MeshPhysicalMaterial({ color: '#c9d3f2', roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 0.45 }), {
+      key: 'dj-desk',
+      emissive: deskEmissive,
+      dots: 0.6,
+    }),
+    top: new THREE.MeshPhysicalMaterial({ color: '#141a4a', roughness: 0.2, clearcoat: 1 }),
+    riser: patchClub(new THREE.MeshPhysicalMaterial({ color: '#10175a', roughness: 0.25, clearcoat: 1, envMapIntensity: 0.5 }), {
+      key: 'dj-riser',
+      emissive: /* glsl */ `
+        float y = vClubWorld.y;
+        float a = atan(vClubWorld.x - ${BOOTH[0].toFixed(2)}, vClubWorld.z - ${BOOTH[2].toFixed(2)});
+        float k = fract(a * 6.0 - uBeat * 0.5);
+        totalEmissiveRadiance += vec3(0.5, 0.35, 1.0) * exp(-pow((y - ${(FLOOR + 0.35).toFixed(2)}) * 20.0, 2.0)) * (0.6 + 0.8 * step(0.5, k));
+      `,
+      dots: 0.8,
+    }),
+    chrome: new THREE.MeshStandardMaterial({ color: '#e4ecff', metalness: 1, roughness: 0.12 }),
+    deck: new THREE.MeshPhysicalMaterial({ color: '#d9e3f7', roughness: 0.25, clearcoat: 1 }),
+    platter: patchClub(new THREE.MeshPhysicalMaterial({ color: '#0b0e22', roughness: 0.2, clearcoat: 1 }), {
+      key: 'dj-platter',
+      emissive: 'totalEmissiveRadiance += vec3(0.2, 0.9, 1.0) * (1.0 - abs(normalize(vClubNormal).y)) * (1.2 + uPulse);',
+    }),
+    strobe: new THREE.MeshBasicMaterial({ color: new THREE.Color('#bff8ff').multiplyScalar(3) }),
+    mixer: patchClub(new THREE.MeshPhysicalMaterial({ color: '#1a2050', roughness: 0.3, clearcoat: 1 }), {
+      key: 'dj-mixer',
+      emissive: /* glsl */ `
+        vec2 g = fract(vClubWorld.xy * vec2(14.0, 18.0)) - 0.5;
+        float led = smoothstep(0.3, 0.1, length(g)) * step(0.5, hash12(floor(vClubWorld.xy * vec2(14.0, 18.0)) + floor(uBeat * 2.0)));
+        totalEmissiveRadiance += clubHue(vClubWorld.x * 0.8 + 0.2) * led * 2.0;
+      `,
+    }),
+    lid: new THREE.MeshPhysicalMaterial({ color: '#dfe6f5', metalness: 0.6, roughness: 0.2, clearcoat: 1 }),
+    logo: new THREE.MeshBasicMaterial({ color: new THREE.Color('#c8fbff').multiplyScalar(2.4) }),
+    dj: gelMaterial({ key: 'dj', color: '#7dff4a', rim: 1.6 }),
+    visor: new THREE.MeshPhysicalMaterial({ color: '#05060f', roughness: 0.05, metalness: 0.4, clearcoat: 1, envMapIntensity: 2 }),
+    white: new THREE.MeshPhysicalMaterial({ color: '#f4f8ff', roughness: 0.2, clearcoat: 1 }),
+  };
+  const geo = {
+    ...makeDeskGeometry(),
+    deck: new RoundedBoxGeometry(1.0, 0.14, 0.8, 2, 0.05),
+    platter: new THREE.CylinderGeometry(0.37, 0.37, 0.06, 32),
+    strobe: new THREE.SphereGeometry(0.025, 6, 4),
+    arm: new THREE.BoxGeometry(0.03, 0.03, 0.34),
+    mixer: new RoundedBoxGeometry(0.6, 0.2, 0.62, 2, 0.05),
+    laptopBase: new RoundedBoxGeometry(0.75, 0.035, 0.52, 2, 0.014),
+    lid: new RoundedBoxGeometry(0.75, 0.5, 0.03, 2, 0.012),
+    blob: blobGeometry(24),
+    visor: new THREE.CapsuleGeometry(0.13, 0.6, 4, 12).rotateZ(Math.PI / 2).scale(1, 0.9, 0.5),
+    band: new THREE.TorusGeometry(0.62, 0.045, 8, 32, Math.PI),
+    cup: new THREE.CylinderGeometry(0.2, 0.2, 0.14, 20),
+    hand: new THREE.SphereGeometry(0.16, 16, 12),
+    logo: new THREE.CircleGeometry(0.06, 20),
+  };
+  return { mats, geo };
+}
+
+type BoothParts = ReturnType<typeof makeParts>;
+
 export default function DJBooth() {
-  const parts = useDisposable(() => {
-    const mats = {
-      desk: patchClub(new THREE.MeshPhysicalMaterial({ color: '#c9d3f2', roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 0.45 }), {
-        key: 'dj-desk',
-        emissive: deskEmissive,
-        dots: 0.6,
-      }),
-      top: new THREE.MeshPhysicalMaterial({ color: '#141a4a', roughness: 0.2, clearcoat: 1 }),
-      riser: patchClub(new THREE.MeshPhysicalMaterial({ color: '#10175a', roughness: 0.25, clearcoat: 1, envMapIntensity: 0.5 }), {
-        key: 'dj-riser',
-        emissive: /* glsl */ `
-          float y = vClubWorld.y;
-          float a = atan(vClubWorld.x - ${BOOTH[0].toFixed(2)}, vClubWorld.z - ${BOOTH[2].toFixed(2)});
-          float k = fract(a * 6.0 - uBeat * 0.5);
-          totalEmissiveRadiance += vec3(0.5, 0.35, 1.0) * exp(-pow((y - ${(FLOOR + 0.35).toFixed(2)}) * 20.0, 2.0)) * (0.6 + 0.8 * step(0.5, k));
-        `,
-        dots: 0.8,
-      }),
-      chrome: new THREE.MeshStandardMaterial({ color: '#e4ecff', metalness: 1, roughness: 0.12 }),
-      deck: new THREE.MeshPhysicalMaterial({ color: '#d9e3f7', roughness: 0.25, clearcoat: 1 }),
-      platter: patchClub(new THREE.MeshPhysicalMaterial({ color: '#0b0e22', roughness: 0.2, clearcoat: 1 }), {
-        key: 'dj-platter',
-        emissive: 'totalEmissiveRadiance += vec3(0.2, 0.9, 1.0) * (1.0 - abs(normalize(vClubNormal).y)) * (1.2 + uPulse);',
-      }),
-      strobe: new THREE.MeshBasicMaterial({ color: new THREE.Color('#bff8ff').multiplyScalar(3) }),
-      mixer: patchClub(new THREE.MeshPhysicalMaterial({ color: '#1a2050', roughness: 0.3, clearcoat: 1 }), {
-        key: 'dj-mixer',
-        emissive: /* glsl */ `
-          vec2 g = fract(vClubWorld.xy * vec2(14.0, 18.0)) - 0.5;
-          float led = smoothstep(0.3, 0.1, length(g)) * step(0.5, hash12(floor(vClubWorld.xy * vec2(14.0, 18.0)) + floor(uBeat * 2.0)));
-          totalEmissiveRadiance += clubHue(vClubWorld.x * 0.8 + 0.2) * led * 2.0;
-        `,
-      }),
-      lid: new THREE.MeshPhysicalMaterial({ color: '#dfe6f5', metalness: 0.6, roughness: 0.2, clearcoat: 1 }),
-      logo: new THREE.MeshBasicMaterial({ color: new THREE.Color('#c8fbff').multiplyScalar(2.4) }),
-      dj: gelMaterial({ key: 'dj', color: '#7dff4a', rim: 1.6 }),
-      visor: new THREE.MeshPhysicalMaterial({ color: '#05060f', roughness: 0.05, metalness: 0.4, clearcoat: 1, envMapIntensity: 2 }),
-      white: new THREE.MeshPhysicalMaterial({ color: '#f4f8ff', roughness: 0.2, clearcoat: 1 }),
-    };
-    const geo = {
-      ...makeDeskGeometry(),
-      deck: new RoundedBoxGeometry(1.0, 0.14, 0.8, 2, 0.05),
-      platter: new THREE.CylinderGeometry(0.37, 0.37, 0.06, 32),
-      strobe: new THREE.SphereGeometry(0.025, 6, 4),
-      arm: new THREE.BoxGeometry(0.03, 0.03, 0.34),
-      mixer: new RoundedBoxGeometry(0.6, 0.2, 0.62, 2, 0.05),
-      laptopBase: new RoundedBoxGeometry(0.75, 0.035, 0.52, 2, 0.014),
-      lid: new RoundedBoxGeometry(0.75, 0.5, 0.03, 2, 0.012),
-      blob: blobGeometry(24),
-      visor: new THREE.CapsuleGeometry(0.13, 0.6, 4, 12).rotateZ(Math.PI / 2).scale(1, 0.9, 0.5),
-      band: new THREE.TorusGeometry(0.62, 0.045, 8, 32, Math.PI),
-      cup: new THREE.CylinderGeometry(0.2, 0.2, 0.14, 20),
-      hand: new THREE.SphereGeometry(0.16, 16, 12),
-      logo: new THREE.CircleGeometry(0.06, 20),
-    };
-    return { mats, geo };
-  });
+  const parts = useDisposable(makeParts);
   const { mats, geo } = parts;
   const [lx, lz] = deskAt(56);
   // Lid on the far side from the DJ, its glowing logo facing the room.

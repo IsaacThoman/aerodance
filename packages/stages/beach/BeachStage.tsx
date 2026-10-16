@@ -2,6 +2,7 @@ import { useFrame } from '@react-three/fiber';
 import { StageCamera, beat, reducedMotion } from '../shared/hooks.ts';
 import { post } from '../shared/post.tsx';
 import { StageEnvironment } from '../shared/Environment.tsx';
+import type { EnvironmentLight } from '../shared/Environment.tsx';
 import { SUN_DIR, WATER_Y, world } from './palette.ts';
 import { SunFlare, SunsetClouds, SunsetSky } from './Sky.tsx';
 import { Sea } from './Sea.tsx';
@@ -17,7 +18,7 @@ const sunPanel = SUN_DIR.clone().multiplyScalar(40).toArray();
 
 // Warm sunset reflections for the glass dancers: the sun low ahead of them,
 // a soft pink-white sky behind the camera for front fill.
-const ENV_LIGHTS = [
+const ENV_LIGHTS: EnvironmentLight[] = [
   { position: sunPanel, color: '#ffc878', intensity: 9, size: [9, 5] },
   { position: [0, 16, 34], color: '#ffe0ea', intensity: 2.8, size: [48, 18] },
   // Low, wide warm glow behind the camera: what the dancers' torsos reflect.

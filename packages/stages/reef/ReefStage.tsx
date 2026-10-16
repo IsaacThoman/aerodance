@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { StageCamera, beat } from '../shared/hooks.ts';
 import { StageEnvironment } from '../shared/Environment.tsx';
+import type { EnvironmentLight } from '../shared/Environment.tsx';
+import type { Vec3 } from '../catalog.ts';
 import { post } from '../shared/post.tsx';
 import meta from './meta.ts';
 import { makeShared } from './shaders.ts';
@@ -11,11 +13,11 @@ import { DOME_BUBBLES, Dome, domeSparklePoints } from './Dome.tsx';
 import { Life } from './Life.tsx';
 import { Bubbles, GodRays, MarineSnow, Sparkles, WaterBackground } from './Water.tsx';
 
-const SUN_POSITION = SUN_TRAVEL.map((v) => -v * 15);
+const SUN_POSITION: Vec3 = [-SUN_TRAVEL[0] * 15, -SUN_TRAVEL[1] * 15, -SUN_TRAVEL[2] * 15];
 
 // The glass dancers mostly reflect this, so it stays bright and aqua all
 // round (a dark lower half makes their gel read murky).
-const ENV_LIGHTS = [
+const ENV_LIGHTS: readonly EnvironmentLight[] = [
   // The bright surface overhead, a sun-shaft panel, aqua bounce from the reef
   // and a soft front fill that keeps the dancers' gel luminous.
   { position: [0, 24, 4], color: '#f2ffff', intensity: 5, size: [26, 26] },
@@ -29,7 +31,12 @@ const ENV_LIGHTS = [
  * "Coral Dome": a glass dance hall resting on a sunlit tropical reef ~10 m down.
  * With dome={false} ("Open Reef") the dancers stand on the open sand instead.
  */
-export default function ReefStage({ dome = true }) {
+export interface ReefStageProps {
+  /** false: "Open Reef", the dancers on the open sand. */
+  dome?: boolean;
+}
+
+export default function ReefStage({ dome = true }: ReefStageProps) {
   const shared = useMemo(() => makeShared(), []);
   const floorHeight = useMemo(() => makeFloorHeight(), []);
   const sparkles = useMemo(() => (dome ? domeSparklePoints() : null), [dome]);

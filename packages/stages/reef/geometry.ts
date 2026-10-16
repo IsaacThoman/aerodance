@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeRandom } from '../shared/random.ts';
+import type { Vec3 } from '../catalog.ts';
 
 // Small procedural toolkit: builders return non-indexed geometry with
 // position, normal, color (linear) and aSway so pieces merge into few draws.
@@ -11,12 +12,14 @@ const _n = new THREE.Vector3();
 
 export const ss = THREE.MathUtils.smoothstep;
 
-export function color(hex) {
+export function color(hex: THREE.ColorRepresentation): THREE.Color {
   return new THREE.Color(hex);
 }
 
+export type Noise3 = (x: number, y: number, z?: number) => number;
+
 /** Smooth 3D value noise in [-1, 1]. */
-export function makeNoise3(seed = 1) {
+export function makeNoise3(seed = 1): Noise3 {
   const rand = makeRandom(seed);
   const perm = new Uint16Array(512);
   const vals = new Float32Array(256);
@@ -27,9 +30,9 @@ export function makeNoise3(seed = 1) {
   }
   for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
   for (let i = 0; i < 256; i++) vals[i] = rand.next() * 2 - 1;
-  const fade = (t) => t * t * (3 - 2 * t);
-  const lerp = (a, b, t) => a + (b - a) * t;
-  const h = (x, y, z) => vals[perm[perm[perm[x & 255] + (y & 255)] + (z & 255)]];
+  const fade = (t: number) => t * t * (3 - 2 * t);
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+  const h = (x: number, y: number, z: number) => vals[perm[perm[perm[x & 255] + (y & 255)] + (z & 255)]];
   return (x, y, z = 0) => {
     const xi = Math.floor(x);
     const yi = Math.floor(y);
@@ -45,7 +48,7 @@ export function makeNoise3(seed = 1) {
   };
 }
 
-export function fbm3(noise, x, y, z, octaves = 3) {
+export function fbm3(noise: Noise3, x: number, y: number, z: number, octaves = 3): number {
   let v = 0;
   let a = 0.5;
   let f = 1;
@@ -62,7 +65,14 @@ export function fbm3(noise, x, y, z, octaves = 3) {
  * paint: hex string, THREE.Color, or fn(p, n, outColor) in object space.
  * sway: number or fn(p) -> weight (0 = rigid).
  */
-export function finalize(geo, { paint = '#ffffff', sway = 0 } = {}) {
+export type Paint = THREE.ColorRepresentation | ((p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color) => void);
+
+export interface FinalizeOptions {
+  paint?: Paint;
+  sway?: number | ((p: THREE.Vector3) => number);
+}
+
+export function finalize(geo: THREE.BufferGeometry, { paint = '#ffffff', sway = 0 }: FinalizeOptions = {}): THREE.BufferGeometry {
   let g = geo;
   if (!g.attributes.normal) g.computeVertexNormals();
   if (g.index) {
@@ -107,7 +117,7 @@ export function finalize(geo, { paint = '#ffffff', sway = 0 } = {}) {
   return g;
 }
 
-export function merge(list) {
+export function merge(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const g = mergeGeometries(list, false);
   list.forEach((x) => x.dispose());
   g.computeBoundingSphere();
@@ -121,7 +131,14 @@ const _s = new THREE.Vector3();
 const _t = new THREE.Vector3();
 
 /** Apply a matrix built from position / euler / scale. */
-export function place(geo, { position = [0, 0, 0], rotation = [0, 0, 0], scale = 1 } = {}) {
+export interface Placement {
+  position?: Vec3;
+  /** Euler angles (XYZ). */
+  rotation?: Vec3;
+  scale?: number | Vec3;
+}
+
+export function place<G extends THREE.BufferGeometry>(geo: G, { position = [0, 0, 0], rotation = [0, 0, 0], scale = 1 }: Placement = {}): G {
   _m.compose(
     _t.set(...position),
     _q.setFromEuler(_e.set(...rotation)),
@@ -135,13 +152,19 @@ export function place(geo, { position = [0, 0, 0], rotation = [0, 0, 0], scale =
  * Tube along a curve with a radius function; colorFn(t, angle, outColor) and
  * swayFn(t) give per-vertex color and sway.
  */
-export function taperedTube(curve, tubular, radial, radiusFn, { colorFn = null, swayFn = null } = {}) {
+export interface TubeOptions {
+  colorFn?: ((t: number, angle: number, out: THREE.Color) => void) | null;
+  swayFn?: ((t: number) => number) | null;
+}
+
+export function taperedTube(curve: THREE.Curve<THREE.Vector3>, tubular: number, radial: number, radiusFn: (t: number) => number,
+  { colorFn = null, swayFn = null }: TubeOptions = {}): THREE.BufferGeometry {
   const frames = curve.computeFrenetFrames(tubular, false);
-  const positions = [];
-  const normals = [];
-  const colors = [];
-  const sways = [];
-  const indices = [];
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const sways: number[] = [];
+  const indices: number[] = [];
   const P = new THREE.Vector3();
   const N = new THREE.Vector3();
   for (let i = 0; i <= tubular; i++) {
@@ -177,7 +200,18 @@ export function taperedTube(curve, tubular, radial, radiusFn, { colorFn = null, 
 }
 
 /** Noise-displaced, squashed sphere ("blob") for rocks and coral heads. */
-export function blob({ radius = 1, detail = 3, squash = [1, 1, 1], amount = 0.18, freq = 1.4, seed = 1, flatBottom = false } = {}) {
+export interface BlobOptions {
+  radius?: number;
+  detail?: number;
+  squash?: Vec3;
+  /** Noise displacement, relative to the radius. */
+  amount?: number;
+  freq?: number;
+  seed?: number;
+  flatBottom?: boolean;
+}
+
+export function blob({ radius = 1, detail = 3, squash = [1, 1, 1], amount = 0.18, freq = 1.4, seed = 1, flatBottom = false }: BlobOptions = {}): THREE.BufferGeometry {
   const noise = makeNoise3(seed);
   const ico = new THREE.IcosahedronGeometry(radius, detail);
   ico.deleteAttribute('normal');

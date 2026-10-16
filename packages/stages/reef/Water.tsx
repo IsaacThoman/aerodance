@@ -3,12 +3,14 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
+import type { Vec3 } from '../catalog.ts';
 import { causticsGLSL, waterGLSL } from './shaders.ts';
+import type { SharedUniforms } from './shaders.ts';
 import { CAMERA, SUN_TRAVEL, SURFACE_Y } from './constants.ts';
 
 // Returns a test: would a shaft from (x, SURFACE_Y, z) cross the dancers on
 // screen? Additive light over the transparent dancers washes them out.
-function makeShaftTest() {
+function makeShaftTest(): (x: number, z: number) => boolean {
   const cam = new THREE.PerspectiveCamera(CAMERA.fov, 16 / 9, 0.1, 500);
   cam.position.set(...CAMERA.position);
   cam.lookAt(...CAMERA.target);
@@ -29,8 +31,12 @@ function makeShaftTest() {
  * sun, and the rippling bright underside of the surface above with Snell's
  * window. Follows the camera.
  */
-export function WaterBackground({ shared }) {
-  const mesh = useRef();
+interface WaterProps {
+  shared: SharedUniforms;
+}
+
+export function WaterBackground({ shared }: WaterProps) {
+  const mesh = useRef<THREE.Mesh>(null);
   const material = useDisposable(
     () =>
       new THREE.ShaderMaterial({
@@ -76,7 +82,7 @@ export function WaterBackground({ shared }) {
         `,
       }),
   );
-  useFrame((state) => mesh.current.position.copy(state.camera.position));
+  useFrame((state) => mesh.current?.position.copy(state.camera.position));
   return (
     <mesh ref={mesh} material={material} renderOrder={-1000} frustumCulled={false}>
       <sphereGeometry args={[400, 48, 24]} />
@@ -85,7 +91,7 @@ export function WaterBackground({ shared }) {
 }
 
 /** Shimmering light shafts slanting down from the surface. */
-export function GodRays({ shared, count = 22 }) {
+export function GodRays({ shared, count = 22 }: WaterProps & { count?: number }) {
   const geometry = useDisposable(() => {
     const plane = new THREE.PlaneGeometry(1, 1, 1, 8);
     const g = new THREE.InstancedBufferGeometry();
@@ -95,8 +101,8 @@ export function GodRays({ shared, count = 22 }) {
     const data = new Float32Array(count * 4);
     const shaftCrossesDancers = makeShaftTest();
     for (let i = 0; i < count; i++) {
-      let x;
-      let z;
+      let x: number;
+      let z: number;
       do {
         x = rand.range(-34, 30);
         z = rand.range(-44, -2);
@@ -165,13 +171,27 @@ export function GodRays({ shared, count = 22 }) {
  * Rising bubbles: columns from vents (x, y, z, rate) plus loose singles.
  * Shaded as glassy rims with a sparkling highlight.
  */
-export function Bubbles({ shared, sources, loose = 60 }) {
+/** A bubble column rising from (x, y, z) to top. */
+export interface BubbleSource {
+  x: number;
+  y: number;
+  z: number;
+  /** Bubbles in the column. */
+  count?: number;
+  /** Bubble size multiplier. */
+  size?: number;
+  top?: number;
+}
+
+type Bubble = [x: number, z: number, speed: number, size: number, phase: number, y0: number, y1: number];
+
+export function Bubbles({ shared, sources, loose = 60 }: WaterProps & { sources: readonly BubbleSource[]; loose?: number }) {
   const geometry = useDisposable(() => {
     const ico = new THREE.IcosahedronGeometry(1, 1);
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', ico.attributes.position);
     const rand = makeRandom(31);
-    const items = [];
+    const items: Bubble[] = [];
     for (const v of sources) {
       const n = v.count ?? 16;
       for (let i = 0; i < n; i++) {
@@ -248,7 +268,7 @@ export function Bubbles({ shared, sources, loose = 60 }) {
 }
 
 /** Drifting marine snow / plankton motes, wrapped in a box around the camera. */
-export function MarineSnow({ shared, count = 700 }) {
+export function MarineSnow({ shared, count = 700 }: WaterProps & { count?: number }) {
   const geometry = useDisposable(() => {
     const g = new THREE.BufferGeometry();
     const rand = makeRandom(55);
@@ -309,7 +329,7 @@ export function MarineSnow({ shared, count = 700 }) {
 }
 
 /** Four-point star glints that flash briefly at fixed points (dome glass, chrome, bubbles). */
-export function Sparkles({ shared, points, size = 1 }) {
+export function Sparkles({ shared, points, size = 1 }: WaterProps & { points: readonly Vec3[]; size?: number }) {
   const geometry = useDisposable(() => {
     const g = new THREE.BufferGeometry();
     const rand = makeRandom(101);

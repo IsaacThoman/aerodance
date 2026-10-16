@@ -14,11 +14,13 @@ const SAILBOATS = [
 ];
 
 function Sailboats() {
-  const mesh = useRef();
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const geometry = useDisposable(() => sailboatGeometry());
   const material = useDisposable(() => makeLitMaterial({ shininess: 60, specular: 0.4, rim: 0.6, side: THREE.DoubleSide }));
   const dummy = useMemo(() => new THREE.Object3D(), []);
   useFrame(() => {
+    const m = mesh.current;
+    if (!m) return;
     const t = world.uTime.value;
     SAILBOATS.forEach((b, i) => {
       const span = 260;
@@ -27,22 +29,23 @@ function Sailboats() {
       dummy.rotation.set(0.04 * Math.sin(t * 1.3 + i), b.speed > 0 ? Math.PI / 2 : -Math.PI / 2, 0.06 * Math.sin(t * 0.9 + i * 1.7) - 0.08 * Math.sign(b.speed));
       dummy.scale.setScalar(b.scale);
       dummy.updateMatrix();
-      mesh.current.setMatrixAt(i, dummy.matrix);
+      m.setMatrixAt(i, dummy.matrix);
     });
-    mesh.current.instanceMatrix.needsUpdate = true;
+    m.instanceMatrix.needsUpdate = true;
   });
   return <instancedMesh ref={mesh} args={[geometry, material, SAILBOATS.length]} frustumCulled={false} />;
 }
 
 /** White cruise liner gliding across the horizon with its decks lit up. */
 function CruiseShip() {
-  const group = useRef();
+  const group = useRef<THREE.Group>(null);
   const { body, windows } = useDisposable(() => cruiseShipGeometry());
   const mats = useDisposable(() => ({
     body: makeLitMaterial({ shininess: 60, specular: 0.3, rim: 0.4 }),
     windows: makeLitMaterial({ emissive: '#ffffff', emissiveIntensity: 2.2, specular: 0, rim: 0 }),
   }));
   useFrame(() => {
+    if (!group.current) return;
     const t = world.uTime.value;
     group.current.position.set(-170 + ((t * 1.4) % 420), WATER_Y - 0.6 + Math.sin(t * 0.4) * 0.15, -690);
   });

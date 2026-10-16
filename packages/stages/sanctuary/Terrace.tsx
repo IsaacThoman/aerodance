@@ -5,6 +5,7 @@ import { beat, useDisposable } from '../shared/hooks.ts';
 import { noise } from '../shared/glsl.ts';
 import { COLORS } from './layout.ts';
 import { stageUniforms } from './materials.ts';
+import type { EnvMapProps } from './materials.ts';
 import {
   CANOPY,
   DAIS_R,
@@ -28,7 +29,7 @@ import {
 // pool, fountain basin, planters with topiary and flowers, petal canopy,
 // wind flowers and glass balustrades.
 
-function makeFloorMaterial(envMap) {
+function makeFloorMaterial(envMap: THREE.Texture) {
   const mat = new THREE.MeshPhysicalMaterial({ color: '#cfdee5', roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04, envMap });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = stageUniforms.uTime;
@@ -91,7 +92,7 @@ function makeFloorMaterial(envMap) {
   return mat;
 }
 
-function makeDeckMaterial(envMap) {
+function makeDeckMaterial(envMap: THREE.Texture) {
   const mat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.45, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.2, envMap });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -124,7 +125,7 @@ function makeDeckMaterial(envMap) {
   return mat;
 }
 
-function makeLawnMaterial(envMap) {
+function makeLawnMaterial(envMap: THREE.Texture) {
   const mat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.85, envMap });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -201,7 +202,7 @@ function makeWaterMaterial() {
   });
 }
 
-function makePetalMaterial(envMap) {
+function makePetalMaterial(envMap: THREE.Texture) {
   const mat = new THREE.MeshPhysicalMaterial({ color: '#f6fbfd', roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.1, side: THREE.DoubleSide, envMap });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uBeat = stageUniforms.uBeat;
@@ -232,7 +233,7 @@ function makePetalMaterial(envMap) {
 
 const FLOWER_COLORS = ['#ff6fb5', '#ffe14a', '#ffffff', '#e64fd0', '#ff8a5c', '#b98cff'];
 
-function Flowers({ envMap }) {
+function Flowers({ envMap }: EnvMapProps) {
   const geometry = useDisposable(() => new THREE.IcosahedronGeometry(0.12, 1));
   const material = useDisposable(() => new THREE.MeshStandardMaterial({ roughness: 0.45, envMap }), [envMap]);
   const mesh = useMemo(() => {
@@ -251,7 +252,11 @@ function Flowers({ envMap }) {
   return <primitive object={mesh} />;
 }
 
-function Canopy({ material }) {
+interface CanopyProps {
+  material: THREE.Material;
+}
+
+function Canopy({ material }: CanopyProps) {
   const geometry = useDisposable(() => makePetalGeometry());
   const petals = [-35, 18, 70, 125, 185, 245, 300];
   return (
@@ -263,10 +268,10 @@ function Canopy({ material }) {
   );
 }
 
-function WindFlowers({ envMap }) {
+function WindFlowers({ envMap }: EnvMapProps) {
   const geometry = useDisposable(() => makeRotorGeometry());
   const material = useDisposable(() => new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.08, envMap }), [envMap]);
-  const refs = useRef([]);
+  const refs = useRef<(THREE.Mesh | null)[]>([]);
   useFrame((_, delta) => {
     refs.current.forEach((m, i) => {
       if (m) m.rotation.z += WIND_FLOWERS[i].speed * Math.min(delta, 0.1);
@@ -275,12 +280,12 @@ function WindFlowers({ envMap }) {
   // Rotors face the camera, slightly turned toward the terrace middle.
   return WIND_FLOWERS.map((W, i) => (
     <group key={i} position={[W.x, DECK_Y + W.h + 0.25, W.z + 0.2]} rotation={[0, -0.35 - i * 0.12, 0]} scale={W.r}>
-      <mesh ref={(m) => (refs.current[i] = m)} geometry={geometry} material={material} castShadow />
+      <mesh ref={(m) => { refs.current[i] = m; }} geometry={geometry} material={material} castShadow />
     </group>
   ));
 }
 
-export function Terrace({ envMap }) {
+export function Terrace({ envMap }: EnvMapProps) {
   const deck = useDisposable(() => makeDeckGeometry());
   const pools = useDisposable(() => makePoolGeometry());
   const whiteGeo = useDisposable(() => makeWhiteGeometry());

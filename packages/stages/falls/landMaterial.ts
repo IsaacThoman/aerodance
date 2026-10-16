@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { fx, lightGLSL, windGLSL } from './fx.ts';
 import { LAKE_Y } from './terrain.ts';
 
-export const LAND_KIND = { meadow: 0, valley: 1, mesa: 2, mountain: 3, island: 4 };
+export const LAND_KIND = { meadow: 0, valley: 1, mesa: 2, mountain: 3, island: 4 } as const;
+export type LandKind = (typeof LAND_KIND)[keyof typeof LAND_KIND];
 
 const vertex = /* glsl */ `
   attribute float aRel;
@@ -115,7 +116,7 @@ const fragment = /* glsl */ `
   }
 `;
 
-export function makeLandMaterial(kind, hazeMul = 1) {
+export function makeLandMaterial(kind: LandKind, hazeMul = 1) {
   return new THREE.ShaderMaterial({
     uniforms: { ...fx, uHazeMul: { value: hazeMul } },
     vertexShader: vertex,

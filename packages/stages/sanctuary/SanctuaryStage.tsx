@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import type * as THREE from 'three';
 import { beat, StageCamera, useDisposable } from '../shared/hooks.ts';
 import { StageEnvironment } from '../shared/Environment.tsx';
+import type { EnvironmentLight } from '../shared/Environment.tsx';
 import { CloudField, SkyDome } from '../shared/Sky.tsx';
 import { post } from '../shared/post.tsx';
 import meta from './meta.ts';
@@ -21,7 +23,7 @@ const LIGHT = LIGHT_DIR.clone().multiplyScalar(40).toArray();
 // Reflections for the dancers only (every other material has its own map):
 // their gel is mostly metallic and 28% see-through, so a pale environment in
 // front of this bright scene greys them out. Saturated blues keep them vivid.
-const ENV_LIGHTS = [
+const ENV_LIGHTS: readonly EnvironmentLight[] = [
   { position: [0, 24, 6], color: '#e8f6ff', intensity: 4, size: [26, 26] },
   { position: SUN_DIR.clone().multiplyScalar(40).toArray(), color: '#fff2d8', intensity: 6, size: [6, 6] },
   { position: [-18, 4, 8], color: '#5fe8ff', intensity: 2, size: [8, 10] },
@@ -39,12 +41,17 @@ function Clock() {
   return null;
 }
 
+interface ReflectionMaps {
+  city: THREE.Texture;
+  near: THREE.Texture;
+}
+
 // Cloudy-sky reflection maps: a sunny one for the distant city glass, a soft
 // one for the glossy terrace. Effect-owned so a remount never reuses a
 // disposed PMREM target.
-function useReflectionMaps() {
+function useReflectionMaps(): ReflectionMaps | null {
   const gl = useThree((s) => s.gl);
-  const [maps, setMaps] = useState(null);
+  const [maps, setMaps] = useState<ReflectionMaps | null>(null);
   useEffect(() => {
     const city = makeCityEnv(gl, SUN_DIR, 25);
     const near = makeCityEnv(gl, SUN_DIR, 1.5);

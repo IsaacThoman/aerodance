@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeRandom } from '../shared/random.ts';
+import type { Vec3 } from '../catalog.ts';
+import { lerp, makeRandom } from '../shared/random.ts';
 import { Builder, circleProfile, hexToLinear, mat4, superR, sweep } from './geometry.ts';
+import type { ProfilePoint, RGB } from './geometry.ts';
 
 // Static terrace geometry, grouped by material. Floor plan (top view, camera at +z):
 // round dance dais in the middle, a crescent infinity pool behind it, planters
@@ -11,11 +13,42 @@ import { Builder, circleProfile, hexToLinear, mat4, superR, sweep } from './geom
 export const DAIS_R = 6.2;
 export const DECK_Y = -0.3;
 export const DECK = { a: 20, b: 13.8, n: 2.6 };
-export const deckR = (phi) => superR(phi, DECK.a, DECK.b, DECK.n);
+export const deckR = (phi: number): number => superR(phi, DECK.a, DECK.b, DECK.n);
 export const POOL = { inner: 6.85, phi0: THREE.MathUtils.degToRad(-148), phi1: THREE.MathUtils.degToRad(-32), y: -0.34 };
 export const FOUNTAIN = { x: 8.9, z: -2.6, r: 2.0, y: 0.06 };
 
-export const PLANTERS = [
+export type PlantKind = 'flowers' | 'lollipop' | 'stack' | 'cone' | 'cloud';
+
+/** A planter pot at (x, z) with radius r and height h. */
+export interface Planter {
+  x: number;
+  z: number;
+  r: number;
+  h: number;
+  plant: PlantKind;
+}
+
+/** A wind flower: stem height h, rotor radius r, spin speed (rad/s). */
+export interface WindFlower {
+  x: number;
+  z: number;
+  h: number;
+  r: number;
+  speed: number;
+}
+
+/** A lawn bed: [from, to] angles (degrees), inner and outer radius. */
+export interface LawnBed {
+  from: number;
+  to: number;
+  inner: number;
+  outer: number;
+}
+
+/** Flower head for instancing: position and FLOWER_COLORS index. */
+export type FlowerSpot = [x: number, y: number, z: number, colorIndex: number];
+
+export const PLANTERS: readonly Planter[] = [
   { x: -6.5, z: 5.6, r: 1.1, h: 0.75, plant: 'flowers' },
   { x: 6.7, z: 5.3, r: 1.05, h: 0.7, plant: 'flowers' },
   { x: -9.8, z: -0.8, r: 1.35, h: 0.95, plant: 'lollipop' },
@@ -27,14 +60,14 @@ export const PLANTERS = [
 
 export const CANOPY = { x: -13.6, z: -11.2, h: 7.2 };
 // Two stand on little islands in the pool, one on the deck.
-export const WIND_FLOWERS = [
+export const WIND_FLOWERS: readonly WindFlower[] = [
   { x: 10.6, z: -10.4, h: 5.4, r: 0.95, speed: 1.3 },
   { x: 7.2, z: -12.8, h: 3.8, r: 0.7, speed: -1.7 },
   { x: 14.0, z: -7.0, h: 4.4, r: 0.8, speed: 1.0 },
 ];
 
 // Lawn beds flanking the dais: [phiStart, phiEnd] (degrees), inner and outer radius.
-export const LAWNS = [
+export const LAWNS: readonly LawnBed[] = [
   { from: -28, to: 34, inner: 7.9, outer: 12.2 },
   { from: 146, to: 212, inner: 7.9, outer: 12.6 },
 ];
@@ -44,9 +77,9 @@ const SOFT = hexToLinear('#e3edf0');
 const GLOW = hexToLinear('#5ff3ff');
 
 /** Deck slab with holes for the pool; shape coordinates are (x, -z). */
-export function makeDeckGeometry() {
-  const outline = (r, n, from = -Math.PI, to = Math.PI) => {
-    const pts = [];
+export function makeDeckGeometry(): THREE.BufferGeometry {
+  const outline = (r: number | ((phi: number) => number), n: number, from = -Math.PI, to = Math.PI) => {
+    const pts: THREE.Vector2[] = [];
     for (let i = 0; i <= n; i++) {
       const phi = from + ((to - from) * i) / n;
       const rr = typeof r === 'function' ? r(phi) : r;
@@ -63,8 +96,8 @@ export function makeDeckGeometry() {
   return g;
 }
 
-export function makePoolGeometry() {
-  const pts = [];
+export function makePoolGeometry(): THREE.BufferGeometry {
+  const pts: THREE.Vector2[] = [];
   const n = 60;
   for (let i = 0; i <= n; i++) {
     const phi = POOL.phi0 + ((POOL.phi1 - POOL.phi0) * i) / n;
@@ -91,7 +124,7 @@ export function makePoolGeometry() {
 }
 
 /** Glossy white parts: dais body, fascia, coping, planters, basin, masts, stems. */
-export function makeWhiteGeometry() {
+export function makeWhiteGeometry(): THREE.BufferGeometry {
   const b = new Builder();
   const dais = new THREE.CylinderGeometry(DAIS_R, DAIS_R + 0.08, 0.3, 96, 1, true);
   b.add(dais, mat4([0, -0.15, 0]), { color: WHITE });
@@ -109,7 +142,7 @@ export function makeWhiteGeometry() {
     cap.dispose();
   }
   // Low rounded curbs around the lawn beds.
-  const curb = [
+  const curb: ProfilePoint[] = [
     [0.12, 0, 1, 0],
     [0.1, 0.1, 0.7, 0.7],
     [0, 0.13, 0, 1],
@@ -117,9 +150,9 @@ export function makeWhiteGeometry() {
     [-0.12, 0, -1, 0],
   ];
   for (const L of LAWNS) {
-    const pts = [];
+    const pts: THREE.Vector3[] = [];
     const n = 48;
-    const at = (deg, r) => new THREE.Vector3(Math.cos(THREE.MathUtils.degToRad(deg)) * r, DECK_Y, Math.sin(THREE.MathUtils.degToRad(deg)) * r);
+    const at = (deg: number, r: number) => new THREE.Vector3(Math.cos(THREE.MathUtils.degToRad(deg)) * r, DECK_Y, Math.sin(THREE.MathUtils.degToRad(deg)) * r);
     for (let i = 0; i <= n; i++) pts.push(at(L.from + ((L.to - L.from) * i) / n, L.outer));
     for (let i = 1; i < 8; i++) pts.push(at(L.to, L.outer + ((L.inner - L.outer) * i) / 8));
     for (let i = 0; i <= n; i++) pts.push(at(L.to - ((L.to - L.from) * i) / n, L.inner));
@@ -127,12 +160,12 @@ export function makeWhiteGeometry() {
     sweep(b, pts, curb, { closed: true, color: WHITE });
   }
   // Fascia: the deck's thick rounded edge.
-  const fasciaPts = [];
+  const fasciaPts: THREE.Vector3[] = [];
   for (let i = 0; i < 160; i++) {
     const phi = (i / 160) * Math.PI * 2;
     fasciaPts.push(new THREE.Vector3(Math.cos(phi) * deckR(phi), 0, Math.sin(phi) * deckR(phi)));
   }
-  const fasciaProfile = [
+  const fasciaProfile: ProfilePoint[] = [
     [-1.2, -2.3, 0, -1],
     [0.0, -2.0, 0.5, -0.8],
     [0.24, -1.6, 1, 0],
@@ -188,12 +221,12 @@ export function makeWhiteGeometry() {
 }
 
 /** Chrome: balustrade posts and rails, dais rim, planter bands, spouts. */
-export function makeChromeGeometry() {
+export function makeChromeGeometry(): THREE.BufferGeometry {
   const b = new Builder();
   const rim = new THREE.TorusGeometry(DAIS_R + 0.02, 0.05, 6, 128).rotateX(Math.PI / 2);
   b.add(rim, mat4([0, 0, 0]));
   rim.dispose();
-  const rail = [];
+  const rail: THREE.Vector3[][] = [];
   const post = new THREE.CylinderGeometry(0.05, 0.05, 1.15, 8);
   // Rails along the deck edge except behind the pool (infinity edge).
   const runs = [
@@ -201,7 +234,7 @@ export function makeChromeGeometry() {
     [Math.PI * 0.5, Math.PI * 2 + POOL.phi0 - 0.04],
   ];
   for (const [from, to] of runs) {
-    const pts = [];
+    const pts: THREE.Vector3[] = [];
     const n = Math.round((to - from) * 30);
     for (let i = 0; i <= n; i++) {
       const phi = from + ((to - from) * i) / n;
@@ -224,7 +257,7 @@ export function makeChromeGeometry() {
 }
 
 /** Curved glass balustrade panels following the rails. */
-export function makeGlassGeometry() {
+export function makeGlassGeometry(): THREE.BufferGeometry {
   const b = new Builder();
   const runs = [
     [POOL.phi1 + 0.04, Math.PI * 0.5],
@@ -238,7 +271,7 @@ export function makeGlassGeometry() {
       const r = deckR(phi) - 0.25;
       const x = Math.cos(phi) * r;
       const z = Math.sin(phi) * r;
-      const nrm = [Math.cos(phi), 0, Math.sin(phi)];
+      const nrm: Vec3 = [Math.cos(phi), 0, Math.sin(phi)];
       b.vertex([x, DECK_Y + 0.08, z], nrm, [i / n, 0], [1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]);
       b.vertex([x, DECK_Y + 1.1, z], nrm, [i / n, 1], [1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]);
     }
@@ -252,12 +285,12 @@ export function makeGlassGeometry() {
 }
 
 /** Emissive aqua strips: dais skirt, deck fascia line, planter lips. */
-export function makeGlowGeometry() {
+export function makeGlowGeometry(): THREE.BufferGeometry {
   const b = new Builder();
   const skirt = new THREE.CylinderGeometry(DAIS_R + 0.085, DAIS_R + 0.085, 0.06, 128, 1, true);
   b.add(skirt, mat4([0, -0.17, 0]), { color: GLOW });
   skirt.dispose();
-  const fascia = [];
+  const fascia: THREE.Vector3[] = [];
   for (let i = 0; i < 160; i++) {
     const phi = (i / 160) * Math.PI * 2;
     const r = deckR(phi) + 0.25;
@@ -270,8 +303,8 @@ export function makeGlowGeometry() {
   return b.build();
 }
 
-function lumpy(radius, detail, seed, squash = [1, 1, 1], lump = 0.1) {
-  let g = new THREE.IcosahedronGeometry(radius, detail);
+function lumpy(radius: number, detail: number, seed: number, squash: Vec3 = [1, 1, 1], lump = 0.1): THREE.BufferGeometry {
+  let g: THREE.BufferGeometry = new THREE.IcosahedronGeometry(radius, detail);
   g.deleteAttribute('normal');
   g.deleteAttribute('uv');
   g = mergeVertices(g);
@@ -288,7 +321,7 @@ function lumpy(radius, detail, seed, squash = [1, 1, 1], lump = 0.1) {
 }
 
 /** Lawn bed surfaces (flat rings at deck level). */
-export function makeLawnGeometry() {
+export function makeLawnGeometry(): THREE.BufferGeometry {
   const b = new Builder();
   for (const L of LAWNS) {
     const from = THREE.MathUtils.degToRad(L.from);
@@ -302,17 +335,17 @@ export function makeLawnGeometry() {
 }
 
 /** Topiary greens and planter soil/grass tops (vertex colored). */
-export function makeLeafGeometry() {
+export function makeLeafGeometry(): THREE.BufferGeometry {
   const b = new Builder();
   const rand = makeRandom(91);
   const greens = ['#3fae3a', '#58c23c', '#2f9a3f', '#6fcf3f'].map(hexToLinear);
   const trunk = hexToLinear('#8a6a4c');
   // Shade topiary from a deep underside to a sunlit top.
-  const shaded = (c) => (p, n) => {
+  const shaded = (c: RGB) => (p: THREE.Vector3, n: THREE.Vector3): RGB => {
     const k = THREE.MathUtils.smoothstep(n.y, -0.7, 0.9);
     return [c[0] * (0.45 + 0.75 * k), c[1] * (0.55 + 0.6 * k), c[2] * (0.5 + 0.6 * k)];
   };
-  const put = (geo, pos, color) => {
+  const put = (geo: THREE.BufferGeometry, pos: Vec3, color: RGB) => {
     b.add(geo, mat4(pos), { color: color === trunk ? color : shaded(color) });
     geo.dispose();
   };
@@ -353,9 +386,9 @@ export function makeLeafGeometry() {
 }
 
 /** Flower heads for instancing: [x, y, z, colorIndex]. */
-export function flowerSpots() {
+export function flowerSpots(): FlowerSpot[] {
   const rand = makeRandom(5);
-  const spots = [];
+  const spots: FlowerSpot[] = [];
   for (const P of PLANTERS) {
     const top = DECK_Y + P.h * 0.96;
     const mound = P.plant === 'flowers';
@@ -371,12 +404,12 @@ export function flowerSpots() {
 }
 
 /** One canopy petal: a cupped, tapering sail rising from the mast top, uv.y across. */
-export function makePetalGeometry() {
+export function makePetalGeometry(): THREE.BufferGeometry {
   const nu = 18;
   const nv = 8;
-  const pos = [];
-  const uv = [];
-  const idx = [];
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
   const L = 8.5;
   for (let i = 0; i <= nu; i++) {
     const u = i / nu;
@@ -404,7 +437,7 @@ export function makePetalGeometry() {
 }
 
 /** Wind-flower rotor: five glossy petals around a hub, facing +z, spinning about z. */
-export function makeRotorGeometry() {
+export function makeRotorGeometry(): THREE.BufferGeometry {
   const b = new Builder();
   const tip = hexToLinear('#2fc4e6');
   const lime = hexToLinear('#9be24a');
@@ -421,7 +454,7 @@ export function makeRotorGeometry() {
     b.add(petal, m, {
       color: (p) => {
         const t = THREE.MathUtils.smoothstep(Math.hypot(p.x, p.y), 0.4, 1.9);
-        return WHITE.map((w, i) => w + (c[i] - w) * t);
+        return [lerp(WHITE[0], c[0], t), lerp(WHITE[1], c[1], t), lerp(WHITE[2], c[2], t)];
       },
     });
   }

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { mergeTagged } from './geometry.ts';
+import type { RGB, TaggedPart } from './geometry.ts';
 import { stageUniforms } from './materials.ts';
 
 // Shader-painted vehicles: livery is computed from object-space position so the
@@ -64,7 +66,9 @@ const PAINT = {
   `,
 };
 
-export function makeVehicleMaterial(kind, envMap = null) {
+export type VehicleKind = keyof typeof PAINT;
+
+export function makeVehicleMaterial(kind: VehicleKind, envMap: THREE.Texture | null = null): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.1, envMap });
   if (kind === 'blimp' || kind === 'balloon') mat.vertexColors = true;
   mat.onBeforeCompile = (shader) => {
@@ -92,7 +96,7 @@ export function makeVehicleMaterial(kind, envMap = null) {
 }
 
 /** Monorail car: rounded capsule ~18 units long along x. */
-export function makeTrainCar() {
+export function makeTrainCar(): THREE.BufferGeometry {
   const g = new THREE.CapsuleGeometry(2.0, 14, 6, 20);
   g.rotateZ(Math.PI / 2);
   g.scale(1, 1.15, 1);
@@ -100,7 +104,7 @@ export function makeTrainCar() {
 }
 
 /** Eco pod: glossy egg ~4.5 units long along x. */
-export function makePod() {
+export function makePod(): THREE.BufferGeometry {
   const g = new THREE.CapsuleGeometry(0.9, 2.6, 6, 14);
   g.rotateZ(Math.PI / 2);
   g.scale(1, 0.8, 0.95);
@@ -108,8 +112,8 @@ export function makePod() {
 }
 
 /** Airship body with fins and gondola, nose toward +x. */
-export function makeBlimp() {
-  const pts = [];
+export function makeBlimp(): THREE.BufferGeometry {
+  const pts: THREE.Vector2[] = [];
   const L = 64;
   for (let i = 0; i <= 32; i++) {
     const u = i / 32;
@@ -119,12 +123,12 @@ export function makeBlimp() {
   const body = new THREE.LatheGeometry(pts, 40);
   body.rotateZ(Math.PI / 2);
   body.rotateX(Math.PI / 2);
-  const parts = [{ geometry: body, color: [1, 1, 1] }];
+  const parts: TaggedPart[] = [{ geometry: body, color: [1, 1, 1] }];
   const fin = new THREE.BoxGeometry(11, 0.5, 8, 4, 1, 1);
   const fp = fin.attributes.position;
   for (let i = 0; i < fp.count; i++) fp.setZ(i, fp.getZ(i) * (0.35 + 0.65 * ((fp.getX(i) + 5.5) / 11)));
   fin.computeVertexNormals();
-  const fins = [];
+  const fins: THREE.BufferGeometry[] = [];
   for (let k = 0; k < 4; k++) {
     const f = fin.clone();
     f.translate(-25, 0, 7.8);
@@ -142,8 +146,8 @@ export function makeBlimp() {
 }
 
 /** Hot-air balloon: teardrop envelope (local y in -1..1) with a basket, ~1 unit radius. */
-export function makeBalloon() {
-  const pts = [];
+export function makeBalloon(): THREE.BufferGeometry {
+  const pts: THREE.Vector2[] = [];
   for (let i = 0; i <= 24; i++) {
     const t = i / 24;
     const y = -1 + t * 2;
@@ -165,13 +169,20 @@ export function makeBalloon() {
  * Wind turbine tower+nacelle (static) and a three-blade rotor centered on the hub.
  * Chunkier than real ones so they still read on the far hills at 640x480.
  */
-export function makeTurbine() {
+export interface TurbineGeometry {
+  /** Tower + nacelle. */
+  base: THREE.BufferGeometry;
+  /** Blades + hub, centered on the hub. */
+  rotor: THREE.BufferGeometry;
+}
+
+export function makeTurbine(): TurbineGeometry {
   const tower = new THREE.CylinderGeometry(1.6, 3.4, 72, 10, 1).translate(0, 36, 0);
   const nacelle = new THREE.CapsuleGeometry(1.5, 6, 4, 10).rotateX(Math.PI / 2).translate(0, 72.5, -1.2);
   const base = mergeTagged([{ geometry: tower }, { geometry: nacelle }]);
   tower.dispose();
   nacelle.dispose();
-  const blades = [];
+  const blades: TaggedPart[] = [];
   for (let k = 0; k < 3; k++) {
     const b = new THREE.BoxGeometry(4.4, 31, 0.6, 1, 6, 1);
     const p = b.attributes.position;
@@ -192,10 +203,10 @@ export function makeTurbine() {
 }
 
 /** Gull: body + two-segment wings; aWing = signed span position for flapping. */
-export function makeBirdGeometry() {
-  const v = [];
-  const w = [];
-  const quad = (a, b, c, d, wa, wb, wc, wd) => {
+export function makeBirdGeometry(): THREE.BufferGeometry {
+  const v: number[] = [];
+  const w: number[] = [];
+  const quad = (a: Vec3, b: Vec3, c: Vec3, d: Vec3, wa: number, wb: number, wc: number, wd: number) => {
     v.push(...a, ...b, ...c, ...a, ...c, ...d);
     w.push(wa, wb, wc, wa, wc, wd);
   };
@@ -213,8 +224,8 @@ export function makeBirdGeometry() {
 }
 
 /** Sailboat ~10 units long along x: hull, mast, mainsail and jib (aPart = 1 gets the instance tint). */
-export function makeSailboat() {
-  const parts = [];
+export function makeSailboat(): THREE.BufferGeometry {
+  const parts: TaggedPart[] = [];
   const shape = new THREE.Shape();
   shape.moveTo(-4, -1.3);
   shape.lineTo(1.4, -1.35);
@@ -229,7 +240,7 @@ export function makeSailboat() {
   const mast = new THREE.CylinderGeometry(0.08, 0.12, 12, 5);
   mast.translate(0.9, 6.2, 0);
   parts.push({ geometry: mast, color: [0.85, 0.88, 0.9], extra: { aPart: 0 } });
-  const sail = (a, b, c, color, part) => {
+  const sail = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, color: RGB, part: number) => {
     const g = new THREE.BufferGeometry().setFromPoints([a, b, c]);
     g.computeVertexNormals();
     parts.push({ geometry: g, color, extra: { aPart: part } });

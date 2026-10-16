@@ -1,10 +1,14 @@
 import { useMemo, useRef } from 'react';
+import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
+import type { Vec2, Vec3 } from '../catalog.ts';
 import { causticsGLSL, makeLitMaterial, waterGLSL } from './shaders.ts';
+import type { SharedUniforms } from './shaders.ts';
 import { dolphinGeometry, fishGeometry, jellyGeometry, mantaGeometry, tentacleLines, turtleGeometry } from './creatureGeometry.ts';
+import type { FishShape } from './creatureGeometry.ts';
 
 // ---------------------------------------------------------------------------
 // Fish schools: path, tail beat and orientation are computed on the GPU from
@@ -166,7 +170,25 @@ void main() {
 }
 `;
 
-const SPECIES = {
+interface Species {
+  geo: FishShape & { height: number };
+  body: string;
+  belly: string;
+  fin: string;
+  tailFin: string;
+  stripe: string;
+  /** Stripe pattern parameters (see fishFragment). */
+  pattern: readonly [number, number, number, number];
+  /** Eye position along the body, height and size. */
+  eye: Vec3;
+  irid: number;
+  gloss: number;
+  wiggle: number;
+}
+
+type SpeciesName = 'bait' | 'chromis' | 'yellowTang' | 'blueTang' | 'butterfly' | 'clown' | 'parrot' | 'neon';
+
+const SPECIES: Record<SpeciesName, Species> = {
   bait: {
     geo: { height: 0.24, width: 0.11, tailH: 0.34, tailLen: 0.2, fork: 0.5, dorsalH: 0.07, analH: 0.05 },
     body: '#3a7fc0', belly: '#ffffff', fin: '#d8eefa', tailFin: '#c8e6f8', stripe: '#ffffff',
@@ -209,7 +231,23 @@ const SPECIES = {
   },
 };
 
-const SCHOOLS = [
+interface School {
+  species: SpeciesName;
+  count: number;
+  /** 0: groups streaming around a loop; 1: a milling ball. */
+  mode: 0 | 1;
+  center: Vec3;
+  radius: Vec3;
+  speed: number;
+  size: number;
+  /** Loop phases the groups start at (mode 0). */
+  groups?: readonly number[];
+  spreadLong?: number;
+  spreadLat?: Vec2;
+  seed: number;
+}
+
+const SCHOOLS: readonly School[] = [
   // Big silver bait ball milling off to the back-right of the dome.
   { species: 'bait', count: 170, mode: 1, center: [11.5, 5.2, -13.0], radius: [3.4, 2.2, 1.6], speed: 0.45, size: 0.42, seed: 1 },
   // Aqua chromis hovering over the left bommie.
@@ -226,7 +264,11 @@ const SCHOOLS = [
   { species: 'parrot', count: 4, mode: 0, center: [0, 0.6, -4.0], radius: [15.0, 0.5, 13.0], speed: 0.06, size: 0.95, groups: [0.1, 0.35, 0.6, 0.85], spreadLong: 0.2, spreadLat: [0.6, 0.3], seed: 6 },
 ];
 
-function FishSchool({ shared, school }) {
+interface LifeProps {
+  shared: SharedUniforms;
+}
+
+function FishSchool({ shared, school }: LifeProps & { school: School }) {
   const spec = SPECIES[school.species];
   const geometry = useDisposable(() => {
     const base = fishGeometry(spec.geo);
@@ -287,7 +329,16 @@ function FishSchool({ shared, school }) {
 // ---------------------------------------------------------------------------
 
 /** Drives an InstancedMesh along path(t, k, out) facing its direction of travel. */
-function usePathInstances(ref, count, path, { lead = 0.1, roll = () => 0, scale = 1 } = {}) {
+type Path = (t: number, k: number, out: THREE.Vector3) => THREE.Vector3;
+
+interface PathOptions {
+  /** Seconds ahead to look along the path. */
+  lead?: number;
+  roll?: (t: number, k: number) => number;
+  scale?: number;
+}
+
+function usePathInstances(ref: RefObject<THREE.InstancedMesh | null>, count: number, path: Path, { lead = 0.1, roll = () => 0, scale = 1 }: PathOptions = {}) {
   const tmp = useMemo(() => ({ dummy: new THREE.Object3D(), ahead: new THREE.Vector3() }), []);
   useFrame((state) => {
     const mesh = ref.current;
@@ -308,7 +359,7 @@ function usePathInstances(ref, count, path, { lead = 0.1, roll = () => 0, scale 
 }
 
 // A pair arcing in a long loop behind the dome, swooping over its back.
-const dolphinPath = (t, k, out) => {
+const dolphinPath: Path = (t, k, out) => {
   const th = (t / 44) * Math.PI * 2 - k * 0.1 + 1.2;
   return out.set(
     Math.cos(th) * 18 + k * 1.0,
@@ -317,8 +368,8 @@ const dolphinPath = (t, k, out) => {
   );
 };
 
-function Dolphins({ shared }) {
-  const mesh = useRef();
+function Dolphins({ shared }: LifeProps) {
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const geometry = useDisposable(() => {
     const g = dolphinGeometry();
     g.setAttribute('aPhase', new THREE.InstancedBufferAttribute(new Float32Array([0, 0.37]), 1));
@@ -331,13 +382,13 @@ function Dolphins({ shared }) {
   return <instancedMesh ref={mesh} args={[geometry, material, 2]} frustumCulled={false} />;
 }
 
-const turtlePath = (t, k, out) => {
+const turtlePath: Path = (t, k, out) => {
   const th = -(t / 75) * Math.PI * 2 + 2.6;
   return out.set(2 + Math.cos(th) * 17, 5.0 + Math.sin(th * 2) * 0.5 + Math.sin(t * 0.4) * 0.2, -12.5 + Math.sin(th) * 5);
 };
 
-function Turtle({ shared }) {
-  const mesh = useRef();
+function Turtle({ shared }: LifeProps) {
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const geometry = useDisposable(() => {
     const g = turtleGeometry();
     g.setAttribute('aPhase', new THREE.InstancedBufferAttribute(new Float32Array([0]), 1));
@@ -349,13 +400,13 @@ function Turtle({ shared }) {
 }
 
 // Far off in the blue: a manta gliding a slow arc near the surface.
-const mantaPath = (t, k, out) => {
+const mantaPath: Path = (t, k, out) => {
   const th = (t / 110) * Math.PI * 2 + 2.2;
   return out.set(Math.cos(th) * 30, 8.0 + Math.sin(t * 0.13) * 0.5, -40 + Math.sin(th) * 8);
 };
 
-function Manta({ shared }) {
-  const mesh = useRef();
+function Manta({ shared }: LifeProps) {
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const geometry = useDisposable(() => {
     const g = mantaGeometry();
     g.setAttribute('aPhase', new THREE.InstancedBufferAttribute(new Float32Array([0]), 1));
@@ -425,7 +476,7 @@ void main() {
 }
 `;
 
-const JELLY_SPOTS = [
+const JELLY_SPOTS: readonly Vec3[] = [
   [-13.5, 8.0, -9.0],
   [-9.0, 9.0, -20.0],
   [14.0, 7.5, -16.0],
@@ -435,7 +486,7 @@ const JELLY_SPOTS = [
   [-4.0, 9.5, -32.0],
 ];
 
-function Jellyfish({ shared }) {
+function Jellyfish({ shared }: LifeProps) {
   const count = JELLY_SPOTS.length;
   const inst = useMemo(() => {
     const rand = makeRandom(404);
@@ -553,7 +604,7 @@ function Jellyfish({ shared }) {
   );
 }
 
-export function Life({ shared }) {
+export function Life({ shared }: LifeProps) {
   return (
     <>
       {SCHOOLS.map((s, i) => (

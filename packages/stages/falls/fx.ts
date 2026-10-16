@@ -7,10 +7,12 @@ import { mulberry32 } from '../shared/random.ts';
 export const HAZE = '#c9e8fc';
 export const SUN = { elevation: 46, azimuth: -122 };
 
+const noise: THREE.IUniform<THREE.Texture | null> = { value: null };
+
 export const fx = {
   uTime: { value: 0 },
   uWindDir: { value: new THREE.Vector2(1, 0.3).normalize() },
-  uNoise: { value: null },
+  uNoise: noise,
   uBeat: { value: 0 },
   uSunDir: { value: new THREE.Vector3(0, 1, 0) },
   // Sun / sky radiance already scaled to roughly match three's physical lights.
@@ -29,7 +31,7 @@ export const fx = {
 export function makeNoiseTexture(size = 256) {
   const data = new Uint8Array(size * size * 4);
   const field = new Float32Array(size * size);
-  const smooth = (t) => t * t * (3 - 2 * t);
+  const smooth = (t: number) => t * t * (3 - 2 * t);
   for (let ch = 0; ch < 4; ch++) {
     const rand = mulberry32(211 + ch * 977);
     field.fill(0);
@@ -116,7 +118,7 @@ vec3 applyHaze(vec3 col, vec3 world, float strength) {
 }
 `;
 
-export function tickFalls(t, beatPulse) {
+export function tickFalls(t: number, beatPulse: number) {
   fx.uTime.value = t;
   fx.uBeat.value = beatPulse;
 }

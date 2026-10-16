@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import type { DependencyList } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import type { RootState } from '@react-three/fiber';
 import * as THREE from 'three';
+import type { Vec2, Vec3 } from '../catalog.ts';
 import { damp } from './random.ts';
 
 // The canvas buffer is 640x480 but displayed at 16:9, so cameras project at
@@ -9,23 +12,42 @@ export const ASPECT = 16 / 9;
 
 // Create something disposable (geometry, material, texture, render target) once
 // and dispose of it when the component unmounts or deps change.
-export function useDisposable(factory, deps = []) {
+export function useDisposable<T>(factory: () => T, deps: DependencyList = []): T {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const value = useMemo(factory, deps);
   useEffect(() => () => disposeDeep(value), [value]);
   return value;
 }
 
-export function disposeDeep(value) {
-  if (!value) return;
+// Disposes of anything with dispose(), and of the contents of arrays and plain objects.
+export function disposeDeep(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
   if (Array.isArray(value)) return value.forEach(disposeDeep);
-  if (typeof value.dispose === 'function') return value.dispose();
-  if (typeof value === 'object' && value.constructor === Object) Object.values(value).forEach(disposeDeep);
+  if ('dispose' in value && typeof value.dispose === 'function') return value.dispose();
+  if (value.constructor === Object) Object.values(value).forEach(disposeDeep);
 }
 
 // Extra yaw (radians) around every stage camera's target, on top of its own swing. The game
 // turns it to circle the dancers in Song Select's preview and back to 0 for the song.
-export const stageOrbit = { yaw: 0 };
+export const stageOrbit: { yaw: number } = { yaw: 0 };
+
+export interface StageCameraProps {
+  position?: Vec3;
+  target?: Vec3;
+  fov?: number;
+  near?: number;
+  far?: number;
+  /** [yawAmplitude, pitchAmplitude] radians of slow swing around the target. */
+  orbit?: Vec2;
+  /** Swing speed multiplier. */
+  orbitSpeed?: number;
+  /** [x, y, z] world-unit idle drift. */
+  sway?: Vec3;
+  /** [x, y] world-unit offset from the pointer. */
+  parallax?: Vec2;
+  /** Custom control after the rig. */
+  onFrame?: (camera: THREE.PerspectiveCamera, state: RootState, delta: number) => void;
+}
 
 /**
  * Stage camera that becomes the default camera while mounted.
@@ -48,11 +70,12 @@ export function StageCamera({
   sway = [0.08, 0.05, 0],
   parallax = [0.35, 0.2],
   onFrame,
-}) {
+}: StageCameraProps): null {
   const set = useThree((s) => s.set);
   const get = useThree((s) => s.get);
   const camera = useMemo(() => {
-    const cam = new THREE.PerspectiveCamera(fov, ASPECT, near, far);
+    // R3F's `manual` flag keeps it from fitting the projection to the canvas.
+    const cam: THREE.PerspectiveCamera & { manual?: boolean } = new THREE.PerspectiveCamera(fov, ASPECT, near, far);
     cam.manual = true;
     return cam;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -104,9 +127,23 @@ export function StageCamera({
 
 // Shared music clock so beat-reactive lights stay in sync across a stage.
 // The capture is silent, so this is a steady 118 bpm pulse.
-export const beat = { bpm: 118, time: 0, beat: 0, phase: 0, pulse: 0, bar: 0 };
+export interface BeatClock {
+  bpm: number;
+  /** Seconds. */
+  time: number;
+  /** Whole beats so far. */
+  beat: number;
+  /** 0..1 through the current beat. */
+  phase: number;
+  /** 1 on the beat, decaying quickly. */
+  pulse: number;
+  /** Whole bars (4 beats) so far. */
+  bar: number;
+}
 
-export function tickBeat(delta) {
+export const beat: BeatClock = { bpm: 118, time: 0, beat: 0, phase: 0, pulse: 0, bar: 0 };
+
+export function tickBeat(delta: number): void {
   beat.time += delta;
   const b = (beat.time * beat.bpm) / 60;
   beat.beat = Math.floor(b);
@@ -117,5 +154,5 @@ export function tickBeat(delta) {
 }
 
 // Respect reduced motion for big ambient movement (dancers pause separately).
-export const reducedMotion =
+export const reducedMotion: boolean =
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;

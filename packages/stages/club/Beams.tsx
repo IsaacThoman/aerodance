@@ -120,11 +120,11 @@ void main() {
 `;
 
 function laserGeometry() {
-  const along = [];
-  const side = [];
-  const id = [];
-  const src = [];
-  const index = [];
+  const along: number[] = [];
+  const side: number[] = [];
+  const id: number[] = [];
+  const src: number[] = [];
+  const index: number[] = [];
   for (let s = 0; s < 2; s++) {
     for (let i = 0; i < LASERS; i++) {
       const base = along.length;
@@ -148,13 +148,13 @@ function laserGeometry() {
 const additive = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
 
 export default function Beams() {
-  const heads = useRef();
-  const lenses = useRef();
-  const beams = useRef();
-  const pools = useRef();
+  const heads = useRef<THREE.InstancedMesh>(null);
+  const lenses = useRef<THREE.InstancedMesh>(null);
+  const beams = useRef<THREE.InstancedMesh>(null);
+  const pools = useRef<THREE.InstancedMesh>(null);
 
   const res = useDisposable(() => {
-    const fixtures = [new THREE.CylinderGeometry(0.07, 0.07, TRUSS.half * 2, 8).rotateZ(Math.PI / 2)];
+    const fixtures: THREE.BufferGeometry[] = [new THREE.CylinderGeometry(0.07, 0.07, TRUSS.half * 2, 8).rotateZ(Math.PI / 2)];
     fixtures.push(fixtures[0].clone().translate(0, 0, 0.32), fixtures[0].clone().translate(0, 0.26, 0.16));
     HEADS.forEach((x) => fixtures.push(new RoundedBoxGeometry(0.55, 0.12, 0.3, 2, 0.05).translate(x, -0.12, 0.16)));
     const truss = mergeAll(fixtures).translate(0, TRUSS.y, TRUSS.z - 0.16);
@@ -190,14 +190,18 @@ export default function Beams() {
 
   useLayoutEffect(() => {
     // Seed instance colors before the first frame so the shaders compile with them.
+    const [lm, bm, pm] = [lenses.current, beams.current, pools.current];
+    if (!lm || !bm || !pm) return;
     HEADS.forEach((_, i) => {
-      lenses.current.setColorAt(i, tmp.c.set('#ffffff'));
-      beams.current.setColorAt(i, tmp.c);
-      pools.current.setColorAt(i, tmp.c);
+      lm.setColorAt(i, tmp.c.set('#ffffff'));
+      bm.setColorAt(i, tmp.c);
+      pm.setColorAt(i, tmp.c);
     });
   }, [tmp]);
 
   useFrame((state) => {
+    const [hm, lm, bm, pm] = [heads.current, lenses.current, beams.current, pools.current];
+    if (!hm || !lm || !bm || !pm) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
     const { o, target, c } = tmp;
     const mode = Math.floor(beat.bar / 4) % 3;
@@ -226,30 +230,30 @@ export default function Beams() {
       o.scale.set(1, 1, 1);
       o.lookAt(target);
       o.updateMatrix();
-      heads.current.setMatrixAt(i, o.matrix);
-      lenses.current.setMatrixAt(i, o.matrix);
+      hm.setMatrixAt(i, o.matrix);
+      lm.setMatrixAt(i, o.matrix);
       o.scale.set(1, 1, o.position.distanceTo(target) / BEAM_LEN);
       o.updateMatrix();
-      beams.current.setMatrixAt(i, o.matrix);
+      bm.setMatrixAt(i, o.matrix);
       o.position.set(target.x, floorY + 0.02, target.z);
       o.rotation.set(0, 0, 0);
       o.scale.setScalar(follow ? 0 : 1); // the floor shader already pools light under the dancers
       o.updateMatrix();
-      pools.current.setMatrixAt(i, o.matrix);
+      pm.setMatrixAt(i, o.matrix);
       hue(beat.bar * 0.17 + i * 0.06, c);
-      lenses.current.setColorAt(i, c.multiplyScalar(3 + beat.pulse * 3));
+      lm.setColorAt(i, c.multiplyScalar(3 + beat.pulse * 3));
       if (follow) c.setRGB(0.75, 0.9, 1.0).multiplyScalar(0.6);
       else hue(beat.bar * 0.17 + i * 0.06, c);
-      beams.current.setColorAt(i, c.multiplyScalar((follow ? 0.3 : 0.55) * pulse));
-      pools.current.setColorAt(i, c.multiplyScalar(0.6 / 0.55));
+      bm.setColorAt(i, c.multiplyScalar((follow ? 0.3 : 0.55) * pulse));
+      pm.setColorAt(i, c.multiplyScalar(0.6 / 0.55));
     }
-    heads.current.instanceMatrix.needsUpdate = true;
-    lenses.current.instanceMatrix.needsUpdate = true;
-    beams.current.instanceMatrix.needsUpdate = true;
-    pools.current.instanceMatrix.needsUpdate = true;
-    lenses.current.instanceColor.needsUpdate = true;
-    beams.current.instanceColor.needsUpdate = true;
-    pools.current.instanceColor.needsUpdate = true;
+    hm.instanceMatrix.needsUpdate = true;
+    lm.instanceMatrix.needsUpdate = true;
+    bm.instanceMatrix.needsUpdate = true;
+    pm.instanceMatrix.needsUpdate = true;
+    if (lm.instanceColor) lm.instanceColor.needsUpdate = true;
+    if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
+    if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
     // Lasers fire on the second half of every four bars.
     const lu = res.laserMat.uniforms;
     lu.uTime.value = t;

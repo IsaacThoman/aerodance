@@ -1,3 +1,5 @@
+import type { Vec3 } from '../catalog.ts';
+
 // Room layout. Angles are three.js cylinder thetas (0 = +z, PI = -z, back wall).
 const D = Math.PI / 180;
 
@@ -13,4 +15,4 @@ export const PILLARS = [Math.PI + 81 * D, Math.PI - 81 * D];
 // Glass bubble columns flanking the video wall.
 export const COLUMNS = [Math.PI + 35 * D, Math.PI - 35 * D];
 
-export const polar = (r, theta, y = 0) => [r * Math.sin(theta), y, r * Math.cos(theta)];
+export const polar = (r: number, theta: number, y = 0): Vec3 => [r * Math.sin(theta), y, r * Math.cos(theta)];

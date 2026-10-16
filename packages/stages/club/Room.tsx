@@ -79,7 +79,7 @@ export default function Room() {
 
   const geo = useDisposable(() => {
     const h = CEILING - FLOOR;
-    const wall = (start, length) =>
+    const wall = (start: number, length: number) =>
       new THREE.CylinderGeometry(ROOM_R, ROOM_R, h, 96, 1, true, start, length).translate(0, FLOOR + h / 2, 0);
     const back = TANK_CENTERS[1] + TANK.half;
     const sideStart = TANK_CENTERS[0] + TANK.half;

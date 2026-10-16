@@ -2,12 +2,13 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { beat, useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
+import type { Random } from '../shared/random.ts';
 import { club } from './clock.ts';
 import { bubbleSpriteGLSL, hueGLSL } from './patch.ts';
 
 const additive = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
 
-function seededGeometry(count, seed, fill) {
+function seededGeometry(count: number, seed: number, fill: (rand: Random, i: number) => ArrayLike<number>) {
   const rand = makeRandom(seed);
   const data = new Float32Array(count * 4);
   for (let i = 0; i < count; i++) data.set(fill(rand, i), i * 4);

@@ -64,7 +64,7 @@ const ledEmissive = /* glsl */ `
 `;
 
 // Chasing bulb band around a cylinder side, between y0 and y1.
-const bulbEmissive = (y0, y1, n, color) => /* glsl */ `
+const bulbEmissive = (y0: number, y1: number, n: number, color: string) => /* glsl */ `
   vec3 w = vClubWorld;
   float a = atan(w.z, w.x) / 6.2831853 + 0.5;
   float k = a * ${n.toFixed(1)};

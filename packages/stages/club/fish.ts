@@ -6,13 +6,13 @@ import * as THREE from 'three';
  *   aFin: 1 on fins
  */
 export function fishGeometry({ height = 0.42, width = 0.14, tailH = 0.44, tailLen = 0.22, dorsalH = 0.14, rings = 10, segs = 8 } = {}) {
-  const positions = [];
-  const normals = [];
-  const us = [];
-  const fins = [];
-  const indices = [];
-  const profile = (u) => (u < 0.3 ? Math.sqrt(Math.max(0, 1 - ((0.3 - u) / 0.3) ** 2)) : 1 - 0.8 * THREE.MathUtils.smoothstep((u - 0.3) / 0.7, 0, 1));
-  const zAt = (u) => 0.5 - u * 0.8;
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const us: number[] = [];
+  const fins: number[] = [];
+  const indices: number[] = [];
+  const profile = (u: number) => (u < 0.3 ? Math.sqrt(Math.max(0, 1 - ((0.3 - u) / 0.3) ** 2)) : 1 - 0.8 * THREE.MathUtils.smoothstep((u - 0.3) / 0.7, 0, 1));
+  const zAt = (u: number) => 0.5 - u * 0.8;
   for (let i = 0; i <= rings; i++) {
     const u = i / rings;
     const p = profile(u);
@@ -33,7 +33,7 @@ export function fishGeometry({ height = 0.42, width = 0.14, tailH = 0.44, tailLe
       indices.push(a, a + 1, b, b, a + 1, b + 1);
     }
   }
-  const vert = (x, y, z, u) => {
+  const vert = (x: number, y: number, z: number, u: number) => {
     positions.push(x, y, z);
     normals.push(1, 0, 0);
     us.push(u);

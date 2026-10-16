@@ -1,12 +1,31 @@
 import { Suspense, useMemo } from 'react';
+import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import Character from '../../character/Character.tsx';
+import type { CharacterAppearance } from '../../character/Character.tsx';
 import { sampleSong } from '../../pose/song.ts';
+import type { SongBundle } from '../../pose/song.ts';
+import type { PlayerCount, Pose } from '../../pose/choreography.ts';
+import type { MotionTake } from '../../pose/legacy.ts';
+import type { DancerPlacement } from '../catalog.ts';
 import DancerEntrance from './DancerEntrance.tsx';
+
+export type DancerLook = CharacterAppearance;
+
+/** A song's choreography for the dancers to follow. */
+export interface DancerRoutine {
+  bundle: SongBundle;
+  /** One player dances alone in the middle. */
+  playerCount: PlayerCount;
+  /** The song clock. */
+  timeMs: () => number;
+  /** Reveals the dancers at the first beat. */
+  entranceTimeMs?: () => number;
+}
 
 // A little more solid than the menu's dancers (default gel opacity 0.72) so they
 // hold up against busy stage backgrounds.
-export const DANCER_LOOKS = [
+export const DANCER_LOOKS: readonly DancerLook[] = [
   { color: '#078fff', gloss: 85, accessory: 'None', opacity: 0.85 },
   { color: '#b86bff', gloss: 85, accessory: 'None', opacity: 0.85 },
 ];
@@ -15,9 +34,9 @@ export const DANCER_LOOKS = [
 const FOOT_CLEARANCE = 0.015;
 
 // One pose ref per player, sampled from a song's choreography at its current time each frame.
-function useRoutinePoses(routine) {
-  const refs = useMemo(() => [{ current: null }, { current: null }], []);
-  const opening = useMemo(() => {
+function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<Pose | null>[] {
+  const refs = useMemo((): RefObject<Pose | null>[] => [{ current: null }, { current: null }], []);
+  const opening = useMemo((): ({ time: number; pose: Pose } | null)[] => {
     if (!routine?.entranceTimeMs) return [];
     const { song, choreography } = routine.bundle;
     // Capture/export can leave a few empty frames before the first pose. Prepare that
@@ -26,7 +45,8 @@ function useRoutinePoses(routine) {
       const sample = choreography.samples.find((s) => s.songTimeMs >= song.playableStartMs &&
         s.songTimeMs <= song.playableStartMs + choreography.sampling.maxInterpolationGapMs &&
         s.poses.some((p) => p.playerId === id));
-      return sample ? { time: sample.songTimeMs, pose: sample.poses.find((p) => p.playerId === id) } : null;
+      const pose = sample?.poses.find((p) => p.playerId === id);
+      return sample && pose ? { time: sample.songTimeMs, pose } : null;
     });
   }, [routine]);
   useFrame(() => {
@@ -51,7 +71,15 @@ function useRoutinePoses(routine) {
  *   spacing: distance between the two dancers
  *   scale: uniform scale (1 = ~2.6 units tall)
  */
-export default function Dancers({ motion, playback, routine, position = [0, 0, 0], rotationY = 0, spacing = 4, scale = 1, looks = DANCER_LOOKS }) {
+export interface DancersProps extends Partial<DancerPlacement> {
+  motion?: MotionTake | null;
+  /** Seconds into the motion take. */
+  playback?: RefObject<number>;
+  routine?: DancerRoutine | null;
+  looks?: readonly DancerLook[];
+}
+
+export default function Dancers({ motion, playback, routine, position = [0, 0, 0], rotationY = 0, spacing = 4, scale = 1, looks = DANCER_LOOKS }: DancersProps) {
   const poses = useRoutinePoses(routine);
   const solo = routine?.playerCount === 1;
   return (

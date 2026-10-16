@@ -3,7 +3,24 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useDisposable } from './hooks.ts';
 import { makeRandom } from './random.ts';
-import { noise } from './glsl.ts';
+import { noise, shaderMaterial, uniform } from './glsl.ts';
+import type { Vec2, Vec3 } from '../catalog.ts';
+
+export interface SkyDomeProps {
+  top?: THREE.ColorRepresentation;
+  horizon?: THREE.ColorRepresentation;
+  bottom?: THREE.ColorRepresentation;
+  /** Gradient falloff above the horizon. */
+  exponent?: number;
+  sunDirection?: Vec3;
+  sunColor?: THREE.ColorRepresentation;
+  sunDisc?: number;
+  sunGlow?: number;
+  sunSize?: number;
+  /** Star brightness (0 = none). */
+  stars?: number;
+  radius?: number;
+}
 
 /**
  * Infinite gradient sky dome with a sun disc + glow. Follows the camera.
@@ -21,11 +38,11 @@ export function SkyDome({
   sunSize = 1,
   stars = 0,
   radius = 1800,
-}) {
-  const mesh = useRef();
+}: SkyDomeProps) {
+  const mesh = useRef<THREE.Mesh>(null);
   const material = useDisposable(
     () =>
-      new THREE.ShaderMaterial({
+      shaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
         fog: false,
@@ -92,7 +109,7 @@ export function SkyDome({
   u.uStars.value = stars;
 
   useFrame((state) => {
-    mesh.current.position.copy(state.camera.position);
+    mesh.current?.position.copy(state.camera.position);
     u.uTime.value = state.clock.elapsedTime;
   });
 
@@ -107,11 +124,11 @@ export function SkyDome({
  * 2x2 atlas of fluffy cumulus clouds. RGB (premultiplied) encodes lighting
  * (1 = sunlit top, 0 = shaded underside); alpha encodes density.
  */
-export function makeCloudAtlas(seed = 7, cell = 512) {
+export function makeCloudAtlas(seed = 7, cell = 512): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = cell * 2;
   canvas.height = cell * 2;
-  const ctx = canvas.getContext('2d');
+  const ctx = context2d(canvas);
   const rand = makeRandom(seed);
   for (let i = 0; i < 4; i++) {
     const ox = (i % 2) * cell;
@@ -119,9 +136,9 @@ export function makeCloudAtlas(seed = 7, cell = 512) {
     const layer = document.createElement('canvas');
     layer.width = cell;
     layer.height = cell;
-    const l = layer.getContext('2d');
+    const l = context2d(layer);
     const base = cell * 0.7;
-    const puffs = [];
+    const puffs: { x: number; y: number; r: number }[] = [];
     const spread = cell * (0.28 + 0.08 * (i % 2));
     for (let p = 0; p < 34; p++) {
       const t = rand.range(-1, 1);
@@ -165,6 +182,33 @@ export function makeCloudAtlas(seed = 7, cell = 512) {
   return texture;
 }
 
+function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D is unavailable');
+  return ctx;
+}
+
+export interface CloudFieldProps {
+  count?: number;
+  /** Centre of the box the clouds live in. */
+  center?: Vec3;
+  /** [width, depth] of that box. */
+  area?: Vec2;
+  heightJitter?: number;
+  /** [min, max] billboard size. */
+  size?: Vec2;
+  /** Drift along +x, units per second. */
+  speed?: number;
+  seed?: number;
+  lit?: THREE.ColorRepresentation;
+  shade?: THREE.ColorRepresentation;
+  fogColor?: THREE.ColorRepresentation;
+  fogNear?: number;
+  fogFar?: number;
+  opacity?: number;
+  renderOrder?: number;
+}
+
 /**
  * Field of camera-facing cumulus billboards drifting along +x and wrapping.
  * center/area define the box clouds live in: area = [width, depth].
@@ -184,7 +228,7 @@ export function CloudField({
   fogFar = 1500,
   opacity = 1,
   renderOrder = -500,
-}) {
+}: CloudFieldProps) {
   const texture = useDisposable(() => makeCloudAtlas(seed), [seed]);
   const geometry = useDisposable(() => {
     const rand = makeRandom(seed * 13 + 1);
@@ -223,12 +267,12 @@ export function CloudField({
 
   const material = useDisposable(
     () =>
-      new THREE.ShaderMaterial({
+      shaderMaterial({
         transparent: true,
         depthWrite: false,
         premultipliedAlpha: true,
         uniforms: {
-          uMap: { value: null },
+          uMap: uniform<THREE.Texture | null>(null),
           uTime: { value: 0 },
           uSpeed: { value: 0 },
           uMinX: { value: 0 },
@@ -301,8 +345,8 @@ export function CloudField({
   return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={renderOrder} />;
 }
 
-export function useSunDirection(elevationDeg, azimuthDeg) {
-  return useMemo(() => {
+export function useSunDirection(elevationDeg: number, azimuthDeg: number): Vec3 {
+  return useMemo((): Vec3 => {
     const e = THREE.MathUtils.degToRad(elevationDeg);
     const a = THREE.MathUtils.degToRad(azimuthDeg);
     return [Math.sin(a) * Math.cos(e), Math.sin(e), -Math.cos(a) * Math.cos(e)];

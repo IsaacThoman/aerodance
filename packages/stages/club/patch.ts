@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { WebGLProgramParametersWithUniforms } from 'three';
 import { hash } from '../shared/glsl.ts';
 import { club } from './clock.ts';
 
@@ -74,8 +75,20 @@ float bubbleSprite(vec2 pc) {
  *   dots: mirror-ball dot strength
  *   shadowEmissive: how much the key light's shadow dims the emissive (0..1)
  */
-export function patchClub(material, { key, uniforms = {}, head = '', emissive = '', dots = 0, shadowEmissive = 0 } = {}) {
-  material.onBeforeCompile = (shader) => {
+export interface ClubPatch {
+  /** Distinguishes this patch's program in three's cache. */
+  key: string;
+  uniforms?: Uniforms;
+  head?: string;
+  emissive?: string;
+  dots?: number;
+  shadowEmissive?: number;
+}
+
+export type Uniforms = Record<string, THREE.IUniform>;
+
+export function patchClub<M extends THREE.Material>(material: M, { key, uniforms = {}, head = '', emissive = '', dots = 0, shadowEmissive = 0 }: ClubPatch): M {
+  material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, club, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vClubWorld;\nvarying vec3 vClubNormal;')
@@ -120,6 +133,6 @@ export function patchClub(material, { key, uniforms = {}, head = '', emissive = 
 }
 
 // Uniforms + chunks for custom ShaderMaterials that want scene fog.
-export function fogUniforms(extra = {}) {
+export function fogUniforms(extra: Uniforms = {}): Uniforms {
   return { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...club, ...extra };
 }

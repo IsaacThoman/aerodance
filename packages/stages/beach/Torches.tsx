@@ -2,11 +2,12 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { beat, useDisposable } from '../shared/hooks.ts';
-import { hash, simplex } from '../shared/glsl.ts';
+import { hash, shaderMaterial, simplex } from '../shared/glsl.ts';
 import { world } from './palette.ts';
 import { patchMaterial } from './shaders.ts';
 import { sandHeight } from './terrain.ts';
 import { finalize, lathe, merge, place } from './geometry.ts';
+import type { Vec3 } from '../catalog.ts';
 import { TORCHES } from './layout.ts';
 
 /** Tiki torches: banded bamboo poles with a woven cup. */
@@ -47,7 +48,7 @@ function Flames() {
   });
   const material = useDisposable(
     () =>
-      new THREE.ShaderMaterial({
+      shaderMaterial({
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -99,8 +100,8 @@ function Flames() {
 
 /** Warm practical lights from the torches; they flicker and breathe with the beat. */
 function TorchLights() {
-  const refs = useRef([]);
-  const spots = useMemo(() => TORCHES.map(([x, z]) => [x, sandHeight(x, z) + 2.6, z + 0.2]), []);
+  const refs = useRef<(THREE.PointLight | null)[]>([]);
+  const spots = useMemo(() => TORCHES.map(([x, z]): Vec3 => [x, sandHeight(x, z) + 2.6, z + 0.2]), []);
   useFrame(() => {
     const t = world.uTime.value;
     refs.current.forEach((l, i) => {

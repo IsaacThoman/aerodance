@@ -1,4 +1,6 @@
 // Name card, dancer placement and post settings, loaded before the stage itself.
+import type { StageMeta } from '../catalog.ts';
+
 const meta = {
   id: 'falls',
   name: 'Emerald Falls',
@@ -14,6 +16,6 @@ const meta = {
     saturation: 1.15,
     tint: [1.02, 1.0, 0.97],
   },
-};
+} satisfies StageMeta;
 
 export default meta;

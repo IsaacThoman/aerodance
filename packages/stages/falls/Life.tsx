@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { Vec3 } from '../catalog.ts';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import { fx, lightGLSL, windGLSL } from './fx.ts';
@@ -14,6 +15,7 @@ function makeWingAtlas() {
   c.width = cw * 3;
   c.height = ch;
   const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
   const designs = [
     { base: '#2fb8ff', edge: '#0b2f6b', spot: '#dffbff', inner: '#9af0ff' },
     { base: '#ff9a1f', edge: '#3a1d0a', spot: '#ffffff', inner: '#ffd16a' },
@@ -21,7 +23,7 @@ function makeWingAtlas() {
   ];
   designs.forEach((d, i) => {
     const ox = i * cw;
-    const wing = (path) => {
+    const wing = (path: () => void) => {
       ctx.save();
       ctx.translate(ox, 0);
       path();
@@ -76,9 +78,9 @@ const BUTTERFLY_SPOTS = [
 export function Butterflies() {
   const texture = useDisposable(makeWingAtlas);
   const geometry = useDisposable(() => {
-    const pos = [];
-    const uv = [];
-    const side = [];
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const side: number[] = [];
     for (const s of [-1, 1]) {
       pos.push(0, -0.5, 0, 1, -0.5, 0, 0, 0.5, 0, 1, 0.5, 0);
       uv.push(0, 0, 1, 0, 0, 1, 1, 1);
@@ -90,8 +92,8 @@ export function Butterflies() {
     g.setAttribute('aSide', new THREE.Float32BufferAttribute(side, 1));
     g.setIndex([0, 1, 2, 1, 3, 2, 4, 5, 6, 5, 7, 6]);
     const rand = makeRandom(8);
-    const home = [];
-    const params = [];
+    const home: number[] = [];
+    const params: number[] = [];
     for (const [x, z, r, type] of BUTTERFLY_SPOTS) {
       home.push(x, Math.max(heightAt(x, z), 0) + rand.range(0.7, 1.5), z);
       params.push(r, type, rand.range(0, 100), rand.range(0.8, 1.2));
@@ -161,16 +163,29 @@ export function Butterflies() {
 
 // ------------------------------------------------------------------- birds
 
-/** Loose flocks gliding in wide loops over the valley. flocks: [{ center, radius, count, speed, size, color }] */
-export function Birds({ flocks }) {
+export interface Flock {
+  center: Vec3;
+  radius: number;
+  count: number;
+  /** Loop speed; negative circles the other way. */
+  speed: number;
+  size: number;
+  /** 0 = dark silhouette .. 1 = sunlit white. */
+  color: number;
+  /** How loosely the birds fly around the loop (default 1). */
+  spread?: number;
+}
+
+/** Loose flocks gliding in wide loops over the valley. */
+export function Birds({ flocks }: { flocks: Flock[] }) {
   const geometry = useDisposable(() => {
     const pos = [0, 0, 0.14, -1, 0, -0.05, 0, 0, -0.2, 0, 0, 0.14, 1, 0, -0.05, 0, 0, -0.2];
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     const rand = makeRandom(55);
-    const a = [];
-    const b = [];
-    const c = [];
+    const a: number[] = [];
+    const b: number[] = [];
+    const c: number[] = [];
     for (const f of flocks) {
       for (let i = 0; i < f.count; i++) {
         a.push(...f.center, f.radius);
@@ -249,6 +264,7 @@ function makeSeedTexture() {
   c.width = s;
   c.height = s;
   const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
   const cx = s / 2;
   const cy = s * 0.42;
   ctx.strokeStyle = 'rgba(255,255,255,0.95)';
@@ -285,7 +301,7 @@ function makeSeedTexture() {
 const FOCAL = 480 * 0.5 / Math.tan(THREE.MathUtils.degToRad(25));
 
 /** Dandelion seeds drifting downwind and twinkling pollen motes. */
-export function Floaters({ seeds = 90, motes = 140 }) {
+export function Floaters({ seeds = 90, motes = 140 }: { seeds?: number; motes?: number }) {
   const texture = useDisposable(makeSeedTexture);
   const geometry = useDisposable(() => {
     const rand = makeRandom(31);

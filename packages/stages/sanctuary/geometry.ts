@@ -1,34 +1,96 @@
 import * as THREE from 'three';
+import type { Vec2, Vec3 } from '../catalog.ts';
 
 // Geometry accumulation helpers. Static scenery is merged into a few buffers
 // that share one material; per-vertex attributes pick the surface kind.
 
 export const KIND = { GLASS: 0, PAINT: 1, LEAF: 2, SOLAR: 3, GROUND: 4, EMIT: 5 };
 
-const DEFAULT_FA = [0, 0, 0, 0];
+/** Linear RGB. */
+export type RGB = readonly [r: number, g: number, b: number];
+/** A four-float vertex attribute: aFacade [tint, style, seed, green] or aStyle [kind, a, b, c]. */
+export type Vec4 = readonly [number, number, number, number];
+/** A sweep() profile point in the plane normal to the path: [x, y, nx, ny]. */
+export type ProfilePoint = readonly [x: number, y: number, nx: number, ny: number];
+/** Closed cross-section for loft(): [x, z] offset at angle theta and normalized height t. */
+export type Section = (theta: number, t: number) => Vec2;
 
-export const PAINT = (rough = 0.3, metal = 0.05) => [KIND.PAINT, 0, rough, metal];
-export const LEAF = [KIND.LEAF, 0, 0, 0];
-export const SOLAR = [KIND.SOLAR, 0, 0, 0];
+const DEFAULT_FA: Vec4 = [0, 0, 0, 0];
+
+export const PAINT = (rough = 0.3, metal = 0.05): Vec4 => [KIND.PAINT, 0, rough, metal];
+export const LEAF: Vec4 = [KIND.LEAF, 0, 0, 0];
+export const SOLAR: Vec4 = [KIND.SOLAR, 0, 0, 0];
 // Emissive accents: strength, blink, beat-reactive.
-export const EMIT = (strength, blink = false, beat = false) => [KIND.EMIT, blink ? 1 : 0, beat ? 1 : 0, strength];
+export const EMIT = (strength: number, blink = false, beat = false): Vec4 => [KIND.EMIT, blink ? 1 : 0, beat ? 1 : 0, strength];
+
+export interface AddOptions {
+  color?: RGB | ((p: THREE.Vector3, n: THREE.Vector3) => RGB);
+  fa?: Vec4;
+  st?: Vec4;
+  uvScale?: Vec2;
+  flip?: boolean;
+}
+
+/** A flat cap over loft()'s top ring. */
+export interface CapOptions {
+  lift?: number;
+  scale?: number;
+  color?: RGB;
+  fa?: Vec4;
+  st?: Vec4;
+}
+
+export interface LoftOptions {
+  cx?: number;
+  cz?: number;
+  y0?: number;
+  y1?: number;
+  levels?: number;
+  segments?: number;
+  section: Section;
+  /** Height for normalized t; overrides y0/y1. */
+  yAt?: ((t: number) => number) | null;
+  cols?: number;
+  floorH?: number;
+  color?: RGB | ((p: Vec3, t: number) => RGB);
+  fa?: Vec4;
+  st?: Vec4;
+  capTop?: CapOptions | CapOptions[] | null;
+}
+
+export interface SweepOptions {
+  closed?: boolean;
+  /** Color, or fn(profileIndex, pathIndex). */
+  color?: RGB | ((j: number, i: number) => RGB);
+  fa?: Vec4;
+  st?: Vec4;
+  uvLen?: number;
+}
+
+/** A geometry for mergeTagged(): flat vertex color plus constant extra float attributes. */
+export interface TaggedPart {
+  geometry: THREE.BufferGeometry;
+  color?: RGB;
+  extra?: Record<string, number>;
+}
+
+/** Per-instance attribute for instanced(): [itemSize, data]. */
+export type InstancedAttr = readonly [itemSize: number, array: Float32Array];
 
 export class Builder {
-  constructor() {
-    this.pos = [];
-    this.nor = [];
-    this.uv = [];
-    this.col = [];
-    this.fa = [];
-    this.st = [];
-    this.idx = [];
-  }
+  pos: number[] = [];
+  nor: number[] = [];
+  uv: number[] = [];
+  col: number[] = [];
+  fa: number[] = [];
+  st: number[] = [];
+  idx: number[] = [];
 
-  get count() {
+  get count(): number {
     return this.pos.length / 3;
   }
 
-  vertex(p, n, uv, col, fa, st) {
+  vertex(p: Vec3, n: Vec3, uv: Vec2, col: RGB, fa: Vec4, st: Vec4): number {
     this.pos.push(p[0], p[1], p[2]);
     this.nor.push(n[0], n[1], n[2]);
     this.uv.push(uv[0], uv[1]);
@@ -38,12 +100,12 @@ export class Builder {
     return this.count - 1;
   }
 
-  tri(a, b, c) {
+  tri(a: number, b: number, c: number): void {
     this.idx.push(a, b, c);
   }
 
   /** Append a three.js geometry transformed by `matrix`; color may be fn(pos, normal). */
-  add(geometry, matrix, { color = [1, 1, 1], fa = DEFAULT_FA, st = PAINT(), uvScale = [1, 1], flip = false } = {}) {
+  add(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4, { color = [1, 1, 1], fa = DEFAULT_FA, st = PAINT(), uvScale = [1, 1], flip = false }: AddOptions = {}): void {
     const p = geometry.attributes.position;
     const n = geometry.attributes.normal;
     const u = geometry.attributes.uv;
@@ -76,7 +138,7 @@ export class Builder {
     }
   }
 
-  build() {
+  build(): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
@@ -91,7 +153,7 @@ export class Builder {
 }
 
 /** Superellipse radius for direction theta. n=2 ellipse, n~4 rounded rectangle. */
-export function superR(theta, a, b, n) {
+export function superR(theta: number, a: number, b: number, n: number): number {
   const c = Math.abs(Math.cos(theta)) / a;
   const s = Math.abs(Math.sin(theta)) / b;
   return Math.pow(Math.pow(c, n) + Math.pow(s, n), -1 / n);
@@ -102,7 +164,7 @@ export function superR(theta, a, b, n) {
  * section(theta, t) -> [x, z] offsets from (cx, cz) at normalized height t.
  * Facade grid uv: u counts window columns around the perimeter, v counts floors.
  */
-export function loft(b, {
+export function loft(b: Builder, {
   cx = 0,
   cz = 0,
   y0 = 0,
@@ -117,19 +179,19 @@ export function loft(b, {
   fa = DEFAULT_FA,
   st = [KIND.GLASS, 0, 0, 0],
   capTop = null,
-}) {
-  const ring = [];
+}: LoftOptions): Vec3[][] {
+  const ring: Vec3[][] = [];
   for (let j = 0; j <= levels; j++) {
     const t = j / levels;
     const y = yAt ? yAt(t) : y0 + (y1 - y0) * t;
-    const row = [];
+    const row: Vec3[] = [];
     for (let i = 0; i < segments; i++) {
       const [x, z] = section((i / segments) * Math.PI * 2, t);
       row.push([cx + x, y, cz + z]);
     }
     ring.push(row);
   }
-  const P = (i, j) => ring[Math.max(0, Math.min(levels, j))][((i % segments) + segments) % segments];
+  const P = (i: number, j: number) => ring[Math.max(0, Math.min(levels, j))][((i % segments) + segments) % segments];
   const base = b.count;
   for (let j = 0; j <= levels; j++) {
     for (let i = 0; i <= segments; i++) {
@@ -195,7 +257,12 @@ export function loft(b, {
  * Sweep a 2D profile ([x, y, nx, ny] in the plane normal to the path, x = right
  * of travel, y = up) along a 3D path.
  */
-export function sweep(b, path, profile, { closed = false, color = [1, 1, 1], fa = DEFAULT_FA, st = PAINT(), uvLen = 1 } = {}) {
+export function sweep(
+  b: Builder,
+  path: readonly THREE.Vector3[],
+  profile: readonly ProfilePoint[],
+  { closed = false, color = [1, 1, 1], fa = DEFAULT_FA, st = PAINT(), uvLen = 1 }: SweepOptions = {},
+): void {
   const n = path.length;
   const m = profile.length;
   const base = b.count;
@@ -214,8 +281,8 @@ export function sweep(b, path, profile, { closed = false, color = [1, 1, 1], fa 
     U.crossVectors(S, T).normalize();
     for (let j = 0; j < m; j++) {
       const [sx, sy, nx, ny] = profile[j];
-      const pos = [p.x + S.x * sx + U.x * sy, p.y + S.y * sx + U.y * sy, p.z + S.z * sx + U.z * sy];
-      const nor = [S.x * nx + U.x * ny, S.y * nx + U.y * ny, S.z * nx + U.z * ny];
+      const pos: Vec3 = [p.x + S.x * sx + U.x * sy, p.y + S.y * sx + U.y * sy, p.z + S.z * sx + U.z * sy];
+      const nor: Vec3 = [S.x * nx + U.x * ny, S.y * nx + U.y * ny, S.z * nx + U.z * ny];
       b.vertex(pos, nor, [j / (m - 1), along / uvLen], typeof color === 'function' ? color(j, i) : color, fa, st);
     }
   }
@@ -233,8 +300,8 @@ export function sweep(b, path, profile, { closed = false, color = [1, 1, 1], fa 
 }
 
 /** Rounded-rectangle profile for sweep(), counter-clockwise. */
-export function roundedProfile(w, h, r, seg = 3) {
-  const pts = [];
+export function roundedProfile(w: number, h: number, r: number, seg = 3): ProfilePoint[] {
+  const pts: ProfilePoint[] = [];
   const corners = [
     [w / 2 - r, h / 2 - r, 0],
     [-w / 2 + r, h / 2 - r, Math.PI / 2],
@@ -252,8 +319,8 @@ export function roundedProfile(w, h, r, seg = 3) {
 }
 
 /** Circle profile for tubes. */
-export function circleProfile(r, seg = 8) {
-  const pts = [];
+export function circleProfile(r: number, seg = 8): ProfilePoint[] {
+  const pts: ProfilePoint[] = [];
   for (let i = 0; i <= seg; i++) {
     const a = (i / seg) * Math.PI * 2;
     pts.push([Math.cos(a) * r, Math.sin(a) * r, Math.cos(a), Math.sin(a)]);
@@ -266,7 +333,7 @@ export const mat4 = (() => {
   const e = new THREE.Euler();
   const p = new THREE.Vector3();
   const s = new THREE.Vector3();
-  return (pos, rot = [0, 0, 0], scale = [1, 1, 1]) => {
+  return (pos: Vec3, rot: Vec3 = [0, 0, 0], scale: number | Vec3 = [1, 1, 1]): THREE.Matrix4 => {
     e.set(rot[0], rot[1], rot[2]);
     q.setFromEuler(e);
     p.set(pos[0], pos[1], pos[2]);
@@ -276,7 +343,7 @@ export const mat4 = (() => {
   };
 })();
 
-export function hexToLinear(hex) {
+export function hexToLinear(hex: THREE.ColorRepresentation): RGB {
   const c = new THREE.Color(hex);
   return [c.r, c.g, c.b];
 }
@@ -285,7 +352,7 @@ export function hexToLinear(hex) {
  * Merge non-indexed copies of geometries, giving each a flat vertex color and
  * optional extra float attributes ({ name: value }). Only position/normal/color/extras are kept.
  */
-export function mergeTagged(parts) {
+export function mergeTagged(parts: readonly TaggedPart[]): THREE.BufferGeometry {
   const prepared = parts.map(({ geometry, color = [1, 1, 1], extra = {} }) => {
     const g = geometry.index ? geometry.toNonIndexed() : geometry.clone();
     const n = g.attributes.position.count;
@@ -314,7 +381,7 @@ export function mergeTagged(parts) {
 }
 
 /** Instanced copy of a base geometry with per-instance float attributes: { name: [itemSize, Float32Array] }. */
-export function instanced(base, count, attrs) {
+export function instanced(base: THREE.BufferGeometry, count: number, attrs: Record<string, InstancedAttr>): THREE.InstancedBufferGeometry {
   const g = new THREE.InstancedBufferGeometry();
   if (base.index) g.setIndex(base.index);
   for (const [name, attr] of Object.entries(base.attributes)) g.setAttribute(name, attr);
