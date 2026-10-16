@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.env
+**/node_modules
+**/dist
+**/.venv
+**/.cache
+!.cache/pose-assets/*/*.task
+**/__pycache__
+**/tracking-output
+studio-data
