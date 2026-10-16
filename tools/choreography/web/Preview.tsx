@@ -1,12 +1,39 @@
 import { Component, Suspense, useEffect, useMemo, useRef } from "react";
+import type { PointerEvent, ReactNode } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { PMREMGenerator } from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import Character from "../../../packages/character/Character.tsx";
+import type { CharacterAppearance } from "../../../packages/character/Character.tsx";
 import {
   CONNECTIONS,
   JOINT_NAMES,
 } from "../../../packages/pose/choreography.ts";
+import type { Landmark, Pose, TrackCalibration } from "../../../packages/pose/choreography.ts";
+import type { PreviewMode } from "./useWorkspace.ts";
+
+/** A dancer to draw as a character: its calibration maps poses onto the rig. */
+export interface PreviewTrack { playerId: number; calibration: TrackCalibration; }
+export interface PreviewProps {
+  snapshot: { poses: Pose[] };
+  /** Unedited poses drawn faintly behind the skeleton. */
+  raw: { poses: Pose[] } | null;
+  tracks: readonly PreviewTrack[];
+  mode: PreviewMode;
+  playerId: number;
+  joint: number;
+  selectedJoints?: readonly number[];
+  onSelect: (playerId: number, joint: number) => void;
+  /** A joint moved to `value`; `commit` is false while dragging. */
+  onEdit: (playerId: number, joint: number, value: Landmark, commit: boolean) => void;
+  readOnly?: boolean;
+  readOnlyLabel?: string;
+  /** Shows the camera frame mirrored, as dancers see themselves. */
+  mirrored?: boolean;
+  emptyMessage?: string;
+  emptyHint?: string;
+}
+interface ActorProps { pose: Pose | undefined; calibration: TrackCalibration; id: number; mirrored: boolean; live: boolean; }
 function Environment() {
   const { gl, scene, camera } = useThree();
   useEffect(() => {
@@ -24,13 +51,13 @@ function Environment() {
   }, [gl, scene, camera]);
   return null;
 }
-function Actor({ pose, calibration, id, mirrored, live }) {
+function Actor({ pose, calibration, id, mirrored, live }: ActorProps) {
   const invalidate = useThree((state) => state.invalidate);
-  const poseRef = useRef(pose);
-  poseRef.current = pose;
+  const poseRef = useRef<Pose | null>(null);
+  poseRef.current = pose ?? null;
   useEffect(() => invalidate(), [pose, calibration, invalidate]);
   const appearance = useMemo(
-    () => ({
+    (): CharacterAppearance => ({
       color: id === 0 ? "#32c6ea" : "#b79bff",
       gloss: 85,
       accessory: "None",
@@ -51,7 +78,7 @@ function Actor({ pose, calibration, id, mirrored, live }) {
     </group>
   );
 }
-class Boundary extends Component {
+class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -82,31 +109,34 @@ export default function Preview({
   mirrored = false,
   emptyMessage = "No pose at this time",
   emptyHint = "Import a take or start the webcam to start capturing.",
-}) {
-  const svg = useRef(null);
+}: PreviewProps) {
+  const svg = useRef<SVGSVGElement>(null);
   // Reflect the whole camera frame. The same involution converts pointer
   // coordinates back to source coordinates when editing the flipped preview.
-  const viewX = (x) => (mirrored ? 1 - x : x);
-  function drag(event, index, pose) {
+  const viewX = (x: number) => (mirrored ? 1 - x : x);
+  type JointEvent = PointerEvent<SVGCircleElement>;
+  function drag(event: JointEvent, index: number, pose: Pose) {
     event.preventDefault();
     event.stopPropagation();
     onSelect(pose.playerId, index);
     if (readOnly) return;
     event.currentTarget.setPointerCapture(event.pointerId);
   }
-  function move(event, index, pose) {
+  function move(event: JointEvent, index: number, pose: Pose) {
     if (readOnly) return;
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-    const r = svg.current.getBoundingClientRect();
+    const r = svg.current?.getBoundingClientRect();
+    if (!r) return;
     const x = viewX((event.clientX - r.left) / r.width),
       y = (event.clientY - r.top) / r.height;
     onEdit(pose.playerId, index, { ...pose.landmarks[index], x, y }, false);
   }
-  function end(event, index, pose) {
+  function end(event: JointEvent, index: number, pose: Pose) {
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
     if (readOnly) return;
-    const r = svg.current.getBoundingClientRect();
+    const r = svg.current?.getBoundingClientRect();
+    if (!r) return;
     onEdit(
       pose.playerId,
       index,

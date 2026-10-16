@@ -22,12 +22,17 @@ import {
   trackDataIds,
   sourceLabel,
 } from "../core.ts";
+import type { CaptureMetadata, CompiledChoreography, StudioAssets, Take } from "../core.ts";
 import {
   sampleSnapshot,
   mirrorPose,
   validateChoreography,
 } from "../../../packages/pose/choreography.ts";
-const pose = (playerId, x = 0.2) => ({
+import type { Pose } from "../../../packages/pose/choreography.ts";
+import { found } from "./helpers.ts";
+const sampleAt = (data: CompiledChoreography, songTimeMs: number) =>
+  found(data.samples.find((s) => s.songTimeMs === songTimeMs));
+const pose = (playerId: number, x = 0.2): Pose => ({
   playerId,
   landmarks: Array.from({ length: 33 }, (_, i) => ({
     x: x + (i % 2) * 0.02,
@@ -39,7 +44,7 @@ const pose = (playerId, x = 0.2) => ({
 });
 test('webcam take timing follows frames despite variable inference latency and retains model provenance', () => {
   const model = poseModel('full');
-  const metadata = { sourceKind: 'webcam', takeId: 'webcam-take', status: {
+  const metadata: CaptureMetadata = { sourceKind: 'webcam', takeId: 'webcam-take', status: {
     modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION, delegate: 'CPU',
   } };
   const records = [20, 180, 30].map((delay, i) => ({
@@ -54,24 +59,25 @@ test('webcam take timing follows frames despite variable inference latency and r
   const take = takeFromRecords(records, metadata);
   assert.equal(take.source, 'webcam'); assert.equal(take.offsetMs, 2000);
   assert.deepEqual(take.samples.map(s => s.takeTimeMs), [0, 100, 200]);
-  assert.equal(take.provenance.modelHash, model.sha256);
+  assert.equal(take.provenance?.modelHash, model.sha256);
   const changed = structuredClone(records); changed[1].record.modelId = 'lite';
   assert.throws(() => takeFromRecords(changed, metadata), /changed/);
-  const wire = structuredClone(records); wire[1].record.schema = undefined; wire[1].record.protocolVersion = 2;
+  const wire = records.map((r, i) => i === 1 ? { ...r, record: { ...r.record, schema: undefined, protocolVersion: 2 } } : r);
   assert.throws(() => takeFromRecords(wire, metadata), /Invalid webcam/);
 });
 test('unsupported project tracks and null clips fail validation before the editor renders them', () => {
   const project=newProject('format-fixture', 1);
-  const future=structuredClone(project); future.schemaVersion=3;
+  // Loose views of copies: these tests build projects the types rule out.
+  const future: { schemaVersion: number; tracks: { playerId: number; label: string }[] } = structuredClone(project); future.schemaVersion=3;
   future.tracks=future.tracks.map(({playerId,label})=>({playerId,label,dataId:'edited',originalDataId:'original',offsetMs:0}));
   assert.throws(()=>validateProject(future),/Unsupported project format 3/);
-  const broken=structuredClone(project); broken.tracks[0].clips=[null,{takeId:'missing'}];
+  const broken: { tracks: { clips?: unknown[] }[] }=structuredClone(project); broken.tracks[0].clips=[null,{takeId:'missing'}];
   assert.throws(()=>validateProject(broken),/Invalid clips/);
-  const missing=structuredClone(project); delete missing.tracks[0].clips;
+  const missing: { tracks: { clips?: unknown[] }[] }=structuredClone(project); delete missing.tracks[0].clips;
   assert.throws(()=>validateProject(missing),/Invalid clips/);
 });
 function fixture() {
-  const take = {
+  const take: Take = {
     schema: "aerodance.take",
     schemaVersion: 1,
     takeId: "take-a",
@@ -85,15 +91,16 @@ function fixture() {
       poses: [pose(0), pose(1, 0.7)],
     })),
   };
-  let p = addTake(newProject("project-a", 1), take);
+  const p = addTake(newProject("project-a", 1), take);
   p.durationMs = 1000;
   p.playableEndMs = 1000;
-  p.audio = { sha256: "a".repeat(64), extension: "wav", mimeType: "audio/wav" };
+  p.audio = { sha256: "a".repeat(64), extension: "wav", mimeType: "audio/wav", durationMs: 1000, name: "song.wav" };
   p.metadata.artist = "Artist";
   p.metadata.rights.audio.license = "CC0";
   p.metadata.rights.choreography.license = "CC0";
   p.alignmentReviewed = true;
-  return { p, take, takes: new Map([[take.takeId, take]]) };
+  const takes: StudioAssets = new Map([[take.takeId, take]]);
+  return { p, take, takes };
 }
 test("finite playback preserves explicit identity and never bridges missing snapshots", () => {
   const samples = [
@@ -129,14 +136,14 @@ test("pose edit is reversible, preserves measured confidence and needs review", 
     value: { x: 0.44, y: 0.23, z: -0.1 },
   });
   const data = compileProject(edited, takes),
-    s = data.samples.find((s) => s.songTimeMs === 500);
+    s = sampleAt(data, 500);
   assert.equal(s.poses[0].landmarks[15].x, 0.44);
   assert.equal(s.poses[0].landmarks[15].visibility, 0.9);
   assert.equal(s.quality[0].scoreEligible[15], false);
   assert.equal(JSON.stringify(take), raw);
   edited.operationCursor = 0;
   assert.equal(
-    compileProject(edited, takes).samples.find((s) => s.songTimeMs === 500)
+    sampleAt(compileProject(edited, takes), 500)
       .poses[0].landmarks[15].x,
     take.samples[5].poses[0].landmarks[15].x,
   );
@@ -159,8 +166,7 @@ test("exclusions override approvals and single-player track 0 matches the two-pl
   });
   const data = compileProject(edited, takes);
   assert.ok(
-    data.samples
-      .find((s) => s.songTimeMs === 500)
+    sampleAt(data, 500)
       .quality[0].scoreEligible.every((v) => !v),
   );
   const reference = sampleSnapshot(data.samples, 250).poses.find(
@@ -192,7 +198,7 @@ test("phrase replacement splits previous clips and mapping remains explicit", ()
     })),
   };
   takes.set(b.takeId, b);
-  p.takes.push({ takeId: b.takeId });
+  p.takes.push({ takeId: b.takeId, name: b.name, source: b.source, input: b.input });
   const edited = replaceRange(p, 0, b, 300, 600, 100, 400),
     data = compileProject(edited, takes);
   assert.equal(edited.tracks[0].clips.length, 3);
@@ -216,7 +222,7 @@ test("legacy migration keeps both original confidence fields unknown", async () 
   assert.equal(take.samples[0].poses[0].landmarks[0].visibility, null);
   assert.equal(take.samples[0].poses[0].landmarks[0].presence, null);
   assert.equal(take.samples[1].takeTimeMs, legacy.times[1] * 1000);
-  assert.ok(take.samples[0].legacyConfidence[0].length === 33);
+  assert.ok(take.samples[0].legacyConfidence?.[0].length === 33);
 });
 test("captures need a webcam or video source; protocol-v2 records no longer create takes", () => {
   const records = [0, 1].map((i) => ({
@@ -281,7 +287,7 @@ test("gap repair requires bounded endpoints and never invents measured confidenc
     endMs: 600,
   });
   const data = compileProject(edited, takes),
-    s = data.samples.find((s) => s.songTimeMs === 500);
+    s = sampleAt(data, 500);
   assert.equal(s.poses[0].playerId, 0);
   assert.equal(s.poses[0].landmarks[0].visibility, null);
   assert.ok(s.quality[0].landmarkOrigins.every((v) => v === "gap-repaired"));
@@ -297,9 +303,7 @@ test("gap repair requires bounded endpoints and never invents measured confidenc
 
 test("grouped keyframes translate points together, preserve confidence and undo as one edit", () => {
   const { p, takes } = fixture();
-  const original = compileProject(p, takes).samples.find(
-    (s) => s.songTimeMs === 500,
-  );
+  const original = sampleAt(compileProject(p, takes), 500);
   const indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const targets = indices.map((joint) => ({
     joint,
@@ -320,7 +324,7 @@ test("grouped keyframes translate points together, preserve confidence and undo 
     endMs: 650,
   });
   const compiled = compileProject(edited, takes);
-  const frame = compiled.samples.find((s) => s.songTimeMs === 500);
+  const frame = sampleAt(compiled, 500);
   for (const i of indices) {
     assert.ok(
       Math.abs(
@@ -349,23 +353,25 @@ test("songs dance on Open Reef unless the project picks another stage", () => {
   assert.equal(p.metadata.stage, "openreef");
   p.metadata.stage = "club";
   validateProject(p);
-  p.metadata.stage = "moon";
+  // Loose view: these steps store stages the types rule out.
+  const metadata: { stage?: string } = p.metadata;
+  metadata.stage = "moon";
   assert.throws(() => validateProject(p), /dance stages/);
   // Projects saved before songs had stages pick up the default.
-  delete p.metadata.stage;
+  delete metadata.stage;
   validateProject(p);
   assert.equal(p.metadata.stage, "openreef");
 });
 
 function independent(take = fixture().take) {
-  const assets = new Map([[take.takeId, take]]);
+  const assets: StudioAssets = new Map([[take.takeId, take]]);
   let p = addTake(newProject("independent"), take);
   assert.ok(p.tracks.every((t) => t.dataId === null));
   p = overwriteTracks(p, take, [0, 1], assets);
   return { p, take, assets };
 }
 test("tracks own copied data, survive take deletion, and support atomic overwrite/undo", () => {
-  let { p, take, assets } = independent();
+  const { p, take, assets } = independent();
   p.alignmentReviewed = true;
   const libraryOnly = addTake(p, { ...take, takeId: "unassigned" });
   assert.equal(libraryOnly.alignmentReviewed, true);
@@ -394,7 +400,8 @@ test("tracks own copied data, survive take deletion, and support atomic overwrit
   assert.ok(both.tracks.every((t) => t.offsetMs === -100));
 });
 test("independent negative offsets crop export and recover poses and edits on realignment", () => {
-  let { p, assets } = independent();
+  const { p: initial, assets } = independent();
+  let p = initial;
   p = appendOperation(
     p,
     {
@@ -454,7 +461,8 @@ test("interpolation fills short and long bounded gaps, preserves existing poses,
     { takeTimeMs: 2000, poses: [pose(0, 0.8), pose(1)] },
     { takeTimeMs: 2100, poses: [] },
   ];
-  let { p, assets } = independent(take);
+  const { p: initial, assets } = independent(take);
+  let p = initial;
   assert.equal(missingIntervals(p, assets, 0).length, 2);
   const before = compileProject(p, assets);
   const repaired = interpolateTrack(p, assets, 0);
@@ -463,15 +471,15 @@ test("interpolation fills short and long bounded gaps, preserves existing poses,
   const data = compileProject(p, assets);
   assert.equal(missingIntervals(p, assets, 0).length, 0);
   assert.deepEqual(data.samples[0].poses, []);
-  assert.deepEqual(data.samples.at(-1).poses, []);
+  assert.deepEqual(found(data.samples.at(-1)).poses, []);
   for (const time of [100, 400, 2000])
     assert.deepEqual(
       sampleSnapshot(data.samples, time).poses[0],
       sampleSnapshot(before.samples, time).poses[0],
     );
-  const q = sampleSnapshot(data.samples, 1000).quality.find(
+  const q = found(sampleSnapshot(data.samples, 1000).quality.find(
     (q) => q.playerId === 0,
-  );
+  ));
   assert.ok(q.landmarkOrigins.every((v) => v === "gap-repaired"));
   assert.ok(q.scoreEligible.every((v) => !v));
   assert.equal(
@@ -480,7 +488,7 @@ test("interpolation fills short and long bounded gaps, preserves existing poses,
   );
   assert.deepEqual(
     p.tracks[1],
-    repaired.project.operations.at(-1).beforeTracks[1],
+    found(repaired.project.operations.at(-1)).beforeTracks[1],
   );
   assert.deepEqual(
     compileProject(historyStep(p, -1), assets).samples,
@@ -489,7 +497,8 @@ test("interpolation fills short and long bounded gaps, preserves existing poses,
   assert.throws(() => interpolateTrack(p, assets, 0), /No bounded/);
 });
 test("stored exclusions override later approvals and move with their track", () => {
-  let { p, assets } = independent();
+  const { p: initial, assets } = independent();
+  let p = initial;
   p = appendOperation(
     p,
     {
@@ -527,7 +536,7 @@ test("legacy projects migrate their edited poses, negative source timing and ori
   const migrated = migrateProject(edited, takes);
   assert.equal(migrated.schemaVersion, 2);
   assert.deepEqual(compileProject(migrated, takes).samples, before.samples);
-  assert.ok(takes.get(migrated.tracks[0].dataId).samples[0].takeTimeMs < 0);
+  assert.ok(found(takes.get(found(migrated.tracks[0].dataId))).samples[0].takeTimeMs < 0);
   assert.ok(trackDataIds(migrated).length >= 2);
   migrated.takes = [];
   takes.delete("take-a");

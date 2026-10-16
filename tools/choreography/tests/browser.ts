@@ -3,8 +3,19 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
+import type { Page } from "playwright";
 import { createStudio } from "../server/index.ts";
 import { readZip } from "../server/zip.ts";
+import { validateProject, validateTake } from "../core.ts";
+import type { ProjectV2 } from "../core.ts";
+import type { PoseWorker } from "../../../packages/pose/browser/WebcamPoseSource.ts";
+import type { PoseWorkerResponse } from "../../../packages/pose/browser/pose.worker.ts";
+import { found } from "./helpers.ts";
+
+interface FakePose { ready: boolean; visible: number[]; liveX: number; }
+declare global {
+  interface Window { fakePose: FakePose; }
+}
 
 const dataDir = await mkdtemp(path.join(tmpdir(), "studio-browser-")),
   { app } = createStudio({ dataDir }),
@@ -30,6 +41,7 @@ function fakeWebcam() {
     getUserMedia: async () => {
       const canvas = Object.assign(document.createElement("canvas"), { width: 640, height: 480 });
       const g = canvas.getContext("2d");
+      if (!g) throw Error("No 2D canvas");
       let frame = 0;
       const draw = () => { g.fillStyle = frame++ % 2 ? "#fff" : "#eee"; g.fillRect(0, 0, 640, 480); };
       draw();
@@ -42,26 +54,28 @@ function fakeWebcam() {
     },
   } });
   const NativeWorker = window.Worker;
-  window.Worker = function Worker(url, options) {
+  // Called with `new`: returns a real worker, or the fake pose worker object.
+  Object.defineProperty(window, "Worker", { value: function Worker(url: string | URL, options?: WorkerOptions) {
     if (!String(url).includes("pose.worker")) return new NativeWorker(url, options);
-    let sessionId, waiting;
-    const worker = {
+    let sessionId: string | undefined, waiting: ReturnType<typeof setInterval> | undefined;
+    const worker: PoseWorker = {
       onmessage: null,
       onerror: null,
       terminate() { clearInterval(waiting); },
       postMessage(data) {
-        const reply = (message) => setTimeout(() => worker.onmessage?.({ data: { sessionId, ...message } }));
+        const reply = (message: PoseWorkerResponse) => setTimeout(() => worker.onmessage?.(new MessageEvent("message", { data: message })));
         if (data.type === "initialize") {
-          sessionId = data.sessionId;
+          const id = data.sessionId;
+          sessionId = id;
           waiting = setInterval(() => {
             if (!window.fakePose.ready) return;
             clearInterval(waiting);
-            reply({ type: "ready", delegate: "CPU" });
+            reply({ type: "ready", sessionId: id, delegate: "CPU", fallback: "" });
           }, 20);
         } else if (data.type === "frame") {
           data.bitmap.close();
           const { visible, liveX } = window.fakePose;
-          reply({ type: "result", seq: data.seq, inferenceMs: 1, landmarks: visible.map((playerId) =>
+          reply({ type: "result", sessionId, seq: data.seq, inferenceMs: 1, landmarks: visible.map((playerId) =>
             Array.from({ length: 33 }, (_, i) => ({
               x: playerId === 0 ? liveX : 0.25,
               y: i < 11 ? 0.2 : i < 23 ? 0.4 : i < 27 ? 0.6 : 0.9,
@@ -73,18 +87,24 @@ function fakeWebcam() {
       },
     };
     return worker;
-  };
+  } });
 }
-let testPage;
+/** A project as the studio API returns it, which is always format 2. */
+async function savedProject(page: Page, projectId: string): Promise<ProjectV2> {
+  const p = validateProject(await (await page.request.get(`http://127.0.0.1:4175/api/projects/${projectId}`)).json());
+  assert.ok(p.schemaVersion === 2);
+  return p;
+}
+let testPage: Page | undefined;
 try {
   const page = await browser.newPage({
       viewport: { width: 1500, height: 1050 },
     }),
-    errors = [];
+    errors: string[] = [];
   testPage = page;
   page.setDefaultTimeout(60000);
   await page.addInitScript(fakeWebcam);
-  const setPoses = (patch) => page.evaluate((p) => Object.assign(window.fakePose, p), patch);
+  const setPoses = (patch: Partial<FakePose>) => page.evaluate((p) => Object.assign(window.fakePose, p), patch);
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://127.0.0.1:4175");
   await page.getByRole("heading", { name: "Make every move yours." }).waitFor();
@@ -126,11 +146,7 @@ try {
   await page
     .getByRole("button", { name: "Pause playback", exact: true })
     .click();
-  const beforeAssign = await (
-    await page.request.get(
-      `http://127.0.0.1:4175/api/projects/${await page.getByLabel("Open project").inputValue()}`,
-    )
-  ).json();
+  const beforeAssign = await savedProject(page, await page.getByLabel("Open project").inputValue());
   assert.ok(beforeAssign.tracks.every((t) => t.dataId === null));
   await page.getByLabel("Take actions: dance.json", { exact: true }).click();
   await page
@@ -172,8 +188,8 @@ try {
     Math.abs(Number(await editedJoint.getAttribute("cx")) - 580) < 1e-5,
   );
   // A drag in mirrored display space must write the inverse source coordinate.
-  const stage = await page.getByLabel("Editable pose skeleton").boundingBox();
-  const handle = await editedJoint.boundingBox();
+  const stage = found(await page.getByLabel("Editable pose skeleton").boundingBox());
+  const handle = found(await editedJoint.boundingBox());
   await page.mouse.move(
     handle.x + handle.width / 2,
     handle.y + handle.height / 2,
@@ -205,7 +221,7 @@ try {
   const headBefore = await head.evaluateAll((points) =>
     points.slice(0, 12).map((p) => Number(p.getAttribute("cx"))),
   );
-  const headBox = await head.first().boundingBox();
+  const headBox = found(await head.first().boundingBox());
   await page.mouse.move(
     headBox.x + headBox.width / 2,
     headBox.y + headBox.height / 2,
@@ -248,8 +264,8 @@ try {
       await page.evaluate(() => {
         const timeline = document
           .querySelector(".timeline")
-          .getBoundingClientRect();
-        return timeline.bottom <= innerHeight && timeline.top >= 0;
+          ?.getBoundingClientRect();
+        return !!timeline && timeline.bottom <= innerHeight && timeline.top >= 0;
       }),
     );
   }
@@ -264,14 +280,14 @@ try {
   });
   await endHandle.focus();
   await page.keyboard.press("End");
-  const bounds = await page.locator(".timeline-content").boundingBox();
-  const startBox = await startHandle.boundingBox();
+  const bounds = found(await page.locator(".timeline-content").boundingBox());
+  const startBox = found(await startHandle.boundingBox());
   await page.mouse.move(startBox.x + startBox.width / 2, startBox.y + 12);
   await page.mouse.down();
   await page.mouse.move(bounds.x + bounds.width * 0.2, startBox.y + 12);
   await page.mouse.up();
   assert.ok(Number(await startHandle.getAttribute("aria-valuenow")) > 1000);
-  const endBox = await endHandle.boundingBox();
+  const endBox = found(await endHandle.boundingBox());
   await page.mouse.move(endBox.x + endBox.width / 2, endBox.y + 12);
   await page.mouse.down();
   await page.mouse.move(bounds.x + bounds.width * 0.8, endBox.y + 12);
@@ -416,7 +432,7 @@ try {
   await setPoses({ liveX: 0.65 });
   await page.waitForFunction(
     () =>
-      document.querySelector('[aria-label="Landmark X"]').value === "0.65000",
+      document.querySelector<HTMLInputElement>('[aria-label="Landmark X"]')?.value === "0.65000",
   );
   assert.ok(
     Math.abs(
@@ -431,7 +447,7 @@ try {
     ) < 1e-5,
   );
   const liveJoint = liveSkeleton.locator("circle").first();
-  const jointBox = await liveJoint.boundingBox();
+  const jointBox = found(await liveJoint.boundingBox());
   await page.mouse.move(
     jointBox.x + jointBox.width / 2,
     jointBox.y + jointBox.height / 2,
@@ -504,19 +520,15 @@ try {
     .click();
   await page.getByText(/Imported \d+ samples/).waitFor();
   const projectId = await page.getByLabel("Open project").inputValue();
-  const latest = await (
-    await page.request.get(`http://127.0.0.1:4175/api/projects/${projectId}`)
-  ).json();
+  const latest = await savedProject(page, projectId);
   await page.waitForTimeout(1500);
-  const saved = await (
-    await page.request.get(`http://127.0.0.1:4175/api/projects/${projectId}`)
-  ).json();
+  const saved = await savedProject(page, projectId);
   assert.equal(saved.takes.length, 2);
-  const capture = await (
+  const capture = validateTake(await (
     await page.request.get(
       `http://127.0.0.1:4175/api/projects/${projectId}/takes/${saved.takes[1].takeId}`,
     )
-  ).json();
+  ).json());
   assert.equal(
     await page
       .getByRole("button", { name: "Take view", exact: true })
@@ -561,9 +573,7 @@ try {
       })
       .waitFor();
   }
-  const withoutTakes = await (
-    await page.request.get(`http://127.0.0.1:4175/api/projects/${projectId}`)
-  ).json();
+  const withoutTakes = await savedProject(page, projectId);
   assert.equal(withoutTakes.takes.length, 0);
   assert.deepEqual(withoutTakes.tracks, saved.tracks);
   await page.reload();
@@ -611,7 +621,7 @@ try {
     ).status(),
     404,
   );
-  const gapPose = (playerId, x) => ({
+  const gapPose = (playerId: number, x: number) => ({
     playerId,
     landmarks: Array.from({ length: 33 }, () => ({
       x,

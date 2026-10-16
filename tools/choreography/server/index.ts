@@ -1,25 +1,54 @@
 import express from "express";
+import type { ErrorRequestHandler, Request } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { Store, sha, json, id } from "./store.ts";
+import { Store, sha, json, id, httpError, isMissing } from "./store.ts";
 import { makeZip, readZip } from "./zip.ts";
 import {
+  CAPTURE_SOURCES,
   newProject,
   takeFromRecords,
-  validateProject,
+  assertCaptureMetadata,
+  assertProject,
   validateTake,
   trackDataIds,
   migrateProject,
 } from "../core.ts";
+import type { AudioExtension, CaptureMetadata, Project, ProjectAudio } from "../core.ts";
+import { finite, isArray, isObject, oneOf } from '../../../packages/pose/choreography.ts';
 import { validateWebcamRecord } from '../../../packages/pose/webcamRecord.ts';
 import { validateVideoRecord } from '../../../packages/pose/videoRecord.ts';
+
+export interface StudioOptions { dataDir?: string; distDir?: string; }
+const AUDIO_TYPES: Readonly<Record<string, AudioExtension>> = {
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/ogg": "ogg",
+  "audio/mp4": "m4a",
+  "audio/flac": "flac",
+};
+// Request bodies are untrusted: routes narrow what they read.
+function jsonBody(req: Request): Record<string, unknown> {
+  const body: unknown = req.body;
+  if (!isObject(body)) throw Error("Expected a JSON object");
+  return body;
+}
+const bodyOf = (req: Request): unknown => req.body;
+const count = (v: unknown, min: number, max = Number.MAX_SAFE_INTEGER): v is number =>
+  typeof v === "number" && Number.isSafeInteger(v) && v >= min && v <= max;
+async function readCapture(folder: string): Promise<CaptureMetadata> {
+  const metadata: unknown = JSON.parse(await fs.readFile(path.join(folder, "capture.json"), "utf8"));
+  assertCaptureMetadata(metadata);
+  return metadata;
+}
 
 export function createStudio({
   dataDir = process.env.STUDIO_DATA_DIR || path.resolve("studio-data"),
   distDir = path.resolve("tools/choreography/dist"),
-} = {}) {
+}: StudioOptions = {}) {
   const app = express(),
     store = new Store(dataDir);
   // Browser writes are same-origin.
@@ -48,22 +77,23 @@ export function createStudio({
   );
   app.get("/api/projects/:projectId", async (req, res) => {
     const project = await store.open(req.params.projectId);
-    validateProject(project);
+    assertProject(project);
     res.json(project);
   });
   app.put("/api/projects/:projectId", body, async (req, res) => {
-    if (req.body.projectId !== req.params.projectId)
+    const project = jsonBody(req);
+    if (project.projectId !== req.params.projectId)
       throw Error("Project ID mismatch");
-    res.json(await store.save(req.body, req.body.revision));
+    res.json(await store.save(project, project.revision));
   });
   app.delete("/api/projects/:projectId", body, async (req, res) =>
-    res.json(await store.remove(id(req.params.projectId), req.body.revision)),
+    res.json(await store.remove(id(req.params.projectId), jsonBody(req).revision)),
   );
   app.delete("/api/projects/:projectId/takes/:takeId", body, async (req, res) =>
     res.json(
       await store.remove(
         id(req.params.projectId),
-        req.body.revision,
+        jsonBody(req).revision,
         id(req.params.takeId),
       ),
     ),
@@ -71,7 +101,7 @@ export function createStudio({
   app.post("/api/projects/:projectId/tracks", body, async (req, res) =>
     res
       .status(201)
-      .json(await store.writeTrack(id(req.params.projectId), req.body, true)),
+      .json(await store.writeTrack(id(req.params.projectId), bodyOf(req), true)),
   );
   app.get("/api/projects/:projectId/tracks/:dataId", async (req, res) =>
     res.json(
@@ -94,45 +124,35 @@ export function createStudio({
   app.post("/api/projects/:projectId/import", body, async (req, res) => {
     const projectId = id(req.params.projectId);
     const take = await store.locked(projectId, async () => {
-      validateProject(await store.read(projectId, "project.json"));
-      return store.writeTake(projectId, req.body);
+      await store.project(projectId);
+      return store.writeTake(projectId, bodyOf(req));
     });
     res.status(201).json(take);
   });
   app.post("/api/projects/:projectId/audio", raw, async (req, res) => {
     const projectId = id(req.params.projectId),
-      types = {
-        "audio/mpeg": "mp3",
-        "audio/wav": "wav",
-        "audio/x-wav": "wav",
-        "audio/ogg": "ogg",
-        "audio/mp4": "m4a",
-        "audio/flac": "flac",
-      },
       mime = req.get("content-type")?.split(";")[0],
-      extension = types[mime];
-    if (!extension) throw Error("Upload MP3, WAV, Ogg, M4A or FLAC audio");
+      extension = mime && Object.hasOwn(AUDIO_TYPES, mime) ? AUDIO_TYPES[mime] : undefined;
+    if (!mime || !extension) throw Error("Upload MP3, WAV, Ogg, M4A or FLAC audio");
     const durationMs = Math.round(Number(req.query.durationMs));
     if (!(durationMs > 0 && durationMs <= 3600000))
       throw Error("Invalid decoded duration");
-    const audio = {
-      sha256: sha(req.body),
+    const bytes: unknown = req.body;
+    if (!Buffer.isBuffer(bytes)) throw Error("Upload MP3, WAV, Ogg, M4A or FLAC audio");
+    const audio: ProjectAudio = {
+      sha256: sha(bytes),
       extension,
       mimeType: mime,
       durationMs,
       name: String(req.query.name || "Song audio").slice(0, 200),
     };
     const next = await store.locked(projectId, async () => {
-      const p = await store.read(projectId, "project.json");
-      validateProject(p);
+      const p = await store.project(projectId);
       if (p.revision !== Number(req.query.revision))
-        throw Object.assign(
-          Error("Project changed. Save/reload before uploading."),
-          { status: 409 },
-        );
+        throw httpError("Project changed. Save/reload before uploading.", 409);
       await store.atomic(
         store.location(projectId, "assets", `${audio.sha256}.${extension}`),
-        req.body,
+        bytes,
       );
       p.audio = audio;
       p.durationMs = durationMs;
@@ -151,7 +171,7 @@ export function createStudio({
     res.json(next);
   });
   app.get("/api/projects/:projectId/audio", async (req, res) => {
-    const p = await store.read(req.params.projectId, "project.json");
+    const p = await store.project(req.params.projectId);
     if (!p.audio) return res.sendStatus(404);
     res
       .type(p.audio.mimeType)
@@ -164,18 +184,19 @@ export function createStudio({
       );
   });
   app.post("/api/projects/:projectId/takes", body, async (req, res) => {
-    if (!['webcam', 'video'].includes(req.body.sourceKind)) throw Error('Invalid capture source');
+    const request = jsonBody(req), sourceKind = request.sourceKind;
+    if (!oneOf(CAPTURE_SOURCES, sourceKind)) throw Error('Invalid capture source');
     const projectId = id(req.params.projectId);
     const metadata = await store.locked(projectId, async () => {
-      validateProject(await store.read(projectId, "project.json"));
+      await store.project(projectId);
       const takeId = randomUUID(),
-        metadata = {
+        metadata: CaptureMetadata = {
           takeId,
           projectId,
-          name: String(req.body.name || (req.body.sourceKind === 'video' ? 'Video take' : 'Webcam take')).slice(0, 200),
+          name: String(request.name || (sourceKind === 'video' ? 'Video take' : 'Webcam take')).slice(0, 200),
           createdAt: new Date().toISOString(),
-          status: req.body.status || null,
-          sourceKind: req.body.sourceKind,
+          status: request.status || null,
+          sourceKind,
         };
       const folder = store.location(projectId, "capture", takeId);
       await fs.mkdir(path.join(folder, "batches"), { recursive: true });
@@ -191,31 +212,30 @@ export function createStudio({
       const projectId = id(req.params.projectId),
         takeId = id(req.params.takeId),
         folder = store.location(projectId, "capture", takeId),
-        { batchId, records } = req.body;
+        { batchId, records } = jsonBody(req);
       if (
-        !Number.isSafeInteger(batchId) ||
-        batchId < 0 ||
-        !Array.isArray(records) ||
+        !count(batchId, 0) ||
+        !isArray(records) ||
         records.length > 500
       )
         throw Error("Invalid record batch");
-      const metadata = JSON.parse(await fs.readFile(path.join(folder, 'capture.json'), 'utf8'));
+      const metadata = await readCapture(folder);
       // Captures left unfinished by older editors cannot be resumed.
-      if (!['webcam', 'video'].includes(metadata.sourceKind)) throw Error('Unsupported capture source');
+      if (!oneOf(CAPTURE_SOURCES, metadata.sourceKind)) throw Error('Unsupported capture source');
       for (const e of records) {
         if (metadata.sourceKind === 'video') {
-          if (!Number.isSafeInteger(e.ordinal) || e.ordinal < 0 || !e.record ||
+          if (!isObject(e) || !count(e.ordinal, 0) || !e.record ||
             Buffer.byteLength(JSON.stringify(e.record)) > 16384) throw Error('Invalid video record envelope');
           validateVideoRecord(e.record);
           continue;
         }
         if (
-          !Number.isSafeInteger(e.ordinal) ||
-          e.ordinal < 0 ||
+          !isObject(e) ||
+          !count(e.ordinal, 0) ||
           !Number.isFinite(e.receivedBrowserTimeMs) ||
           !Number.isFinite(e.audioPositionAtReceiptMs) ||
           (e.audioPlaybackRate != null &&
-            (!Number.isFinite(e.audioPlaybackRate) || e.audioPlaybackRate <= 0))
+            (!finite(e.audioPlaybackRate) || e.audioPlaybackRate <= 0))
         )
           throw Error("Invalid recorder timing");
         if (e.record) {
@@ -242,7 +262,7 @@ export function createStudio({
           if (!previous.equals(bytes))
             throw Error("Batch retry differs from saved content");
         } catch (e) {
-          if (e.code !== "ENOENT") throw e;
+          if (!isMissing(e)) throw e;
           await store.atomic(filename, bytes);
         }
       });
@@ -255,7 +275,8 @@ export function createStudio({
     async (req, res) => {
       const projectId = id(req.params.projectId),
         takeId = id(req.params.takeId),
-        folder = store.location(projectId, "capture", takeId);
+        folder = store.location(projectId, "capture", takeId),
+        request = jsonBody(req);
       const take = await store.locked(projectId, async () => {
         await store.read(projectId, "project.json");
         if (
@@ -265,42 +286,37 @@ export function createStudio({
           )
         )
           return store.read(projectId, "takes", `${takeId}.json`);
-        const metadata = JSON.parse(
-            await fs.readFile(path.join(folder, "capture.json"), "utf8"),
-          ),
-          records = [];
-        if (
-          !Number.isInteger(req.body.batchCount) ||
-          req.body.batchCount < 1 ||
-          req.body.batchCount > 5000
-        )
+        const metadata = await readCapture(folder),
+          records: Record<string, unknown>[] = [],
+          batchCount = request.batchCount;
+        if (!count(batchCount, 1, 5000))
           throw Error("Invalid batch count");
-        for (let n = 0; n < req.body.batchCount; n++) {
-          const batch = JSON.parse(
+        for (let n = 0; n < batchCount; n++) {
+          const batch: unknown = JSON.parse(
             await fs.readFile(
               path.join(folder, "batches", `${n}.json`),
               "utf8",
             ),
           );
+          if (!isArray(batch)) throw Error("Missing/out-of-order recorder records");
           for (const e of batch) {
-            if (e.ordinal !== records.length)
+            if (!isObject(e) || e.ordinal !== records.length)
               throw Error("Missing/out-of-order recorder records");
             records.push(e);
           }
         }
-        if (records.length !== req.body.recordCount)
+        if (records.length !== request.recordCount)
           throw Error("Incomplete take");
-        metadata.interruptionReason = req.body.interruptionReason || null;
-        if (metadata.sourceKind === 'video') metadata.calibrationFrame = req.body.calibrationFrame;
+        const reason = request.interruptionReason;
+        metadata.interruptionReason = typeof reason === "string" && reason ? reason : null;
+        if (metadata.sourceKind === 'video') metadata.calibrationFrame = request.calibrationFrame;
         const result = takeFromRecords(records, metadata);
-        result.provenance.rawSha256 = sha(
-          Buffer.from(records.map((e) => JSON.stringify(e) + "\n").join("")),
-        );
-        await store.atomic(
-          path.join(folder, "records.ndjson"),
-          Buffer.from(records.map((e) => JSON.stringify(e) + "\n").join("")),
-        );
-        const saved = await store.writeTake(projectId, result);
+        const raw = Buffer.from(records.map((e) => JSON.stringify(e) + "\n").join(""));
+        await store.atomic(path.join(folder, "records.ndjson"), raw);
+        const saved = await store.writeTake(projectId, {
+          ...result,
+          provenance: { ...result.provenance, rawSha256: sha(raw) },
+        });
         await store.atomic(path.join(folder, "sealed"), Buffer.from("sealed"));
         return saved;
       });
@@ -308,15 +324,13 @@ export function createStudio({
     },
   );
   app.post("/api/projects/:projectId/compile", body, async (req, res) => {
-    const p = await store.read(req.params.projectId, "project.json");
-    if (p.revision !== req.body.revision)
-      throw Object.assign(Error("Compile requires the saved revision"), {
-        status: 409,
-      });
+    const p = await store.project(req.params.projectId);
+    if (p.revision !== jsonBody(req).revision)
+      throw httpError("Compile requires the saved revision", 409);
     res.json(await store.compile(p));
   });
   app.get("/api/projects/:projectId/export", async (req, res) => {
-    const p = await store.read(req.params.projectId, "project.json");
+    const p = await store.project(req.params.projectId);
     const { files } = await store.bundle(p);
     res
       .attachment(`${p.songId}-r${p.revision}.aerodance-song.zip`)
@@ -324,7 +338,7 @@ export function createStudio({
       .send(makeZip(files));
   });
   app.get("/api/projects/:projectId/backup", async (req, res) => {
-    const p = await store.read(req.params.projectId, "project.json"),
+    const p = await store.project(req.params.projectId),
       files = new Map([["project.json", json(p)]]);
     for (const t of p.takes) {
       files.set(
@@ -342,7 +356,7 @@ export function createStudio({
       try {
         files.set(`raw/${t.takeId}.ndjson`, await fs.readFile(rawFile));
       } catch (e) {
-        if (e.code !== "ENOENT") throw e;
+        if (!isMissing(e)) throw e;
       }
     }
     for (const dataId of trackDataIds(p))
@@ -369,14 +383,16 @@ export function createStudio({
       .send(makeZip(files));
   });
   app.post("/api/restore", raw, async (req, res) => {
-    const files = readZip(req.body),
-      restored = JSON.parse(files.get("project.json")?.toString() || "null");
-    let p = restored;
-    validateProject(p);
+    const archive: unknown = req.body;
+    if (!Buffer.isBuffer(archive)) throw Error("Invalid ZIP");
+    const files = readZip(archive),
+      restored: unknown = JSON.parse(files.get("project.json")?.toString() || "null");
+    assertProject(restored);
+    let p: Project = restored;
     p.projectId = randomUUID();
     p.revision = 0;
     for (const ref of p.takes) {
-      const take = JSON.parse(
+      const take: unknown = JSON.parse(
         files.get(`takes/${ref.takeId}.json`)?.toString() || "null",
       );
       validateTake(take);
@@ -395,10 +411,10 @@ export function createStudio({
         await store.writeTrack(p.projectId, assets.get(dataId));
     } else {
       for (const dataId of trackDataIds(p)) {
-        const data = JSON.parse(
+        const data: unknown = JSON.parse(
           files.get(`tracks/${dataId}.json`)?.toString() || "null",
         );
-        if (data?.dataId !== dataId)
+        if (!isObject(data) || data.dataId !== dataId)
           throw Error("Backup track reference mismatch");
         await store.writeTrack(p.projectId, data);
       }
@@ -430,12 +446,13 @@ export function createStudio({
   app.get("/{*splat}", (_req, res) =>
     res.sendFile(path.join(distDir, "index.html")),
   );
-  app.use((err, _req, res, _next) => {
-    const status = err.status || (err.code === "ENOENT" ? 404 : 400);
+  const handleError: ErrorRequestHandler = (err: unknown, _req, res, _next) => {
+    const status = isObject(err) && typeof err.status === "number" && err.status ? err.status : isMissing(err) ? 404 : 400;
     res.status(status).json({
-      error: status === 404 ? "Project/asset not found" : err.message,
+      error: status === 404 ? "Project/asset not found" : isObject(err) ? err.message : undefined,
     });
-  });
+  };
+  app.use(handleError);
   return { app, store };
 }
 if (

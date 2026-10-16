@@ -1,36 +1,57 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
+import type { BinaryLike } from "node:crypto";
 import {
   COMPILER_VERSION,
-  validateProject,
+  assertProject,
+  assertTake,
+  assertTrackData,
   validateTake,
+  validateTrackData,
   compileProject,
   reviewReport,
   trackDataIds,
-  validateTrackData,
   migrateProject,
 } from "../core.ts";
-export const sha = (b) => createHash("sha256").update(b).digest("hex");
-export const json = (v) => Buffer.from(JSON.stringify(v, null, 2) + "\n");
-export const id = (value) => {
-  if (!/^[a-zA-Z0-9-]{1,80}$/.test(value)) throw Error("Invalid ID");
+import type { CompiledChoreography, Project, ProjectSummary, ProjectV2, ReviewReport, StudioAssets, Take, TrackData } from "../core.ts";
+import { isObject } from "../../../packages/pose/choreography.ts";
+import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";
+
+/** An error the API answers with this HTTP status. */
+export type HttpError = Error & { status: number };
+export const httpError = (message: string, status: number): HttpError => Object.assign(Error(message), { status });
+/** Whether a file system error means the file does not exist. */
+export const isMissing = (e: unknown) => isObject(e) && e.code === "ENOENT";
+export const sha = (b: BinaryLike) => createHash("sha256").update(b).digest("hex");
+export const json = (v: unknown) => Buffer.from(JSON.stringify(v, null, 2) + "\n");
+export const id = (value: unknown): string => {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(value)) throw Error("Invalid ID");
   return value;
 };
+export interface CompileResult { data: CompiledChoreography; report: ReviewReport; }
+export interface SongBundleFiles { files: Map<string, Buffer>; report: ReviewReport; }
 export class Store {
-  constructor(root) {
+  root: string;
+  queues = new Map<string, Promise<unknown>>();
+  constructor(root: string) {
     this.root = path.resolve(root);
-    this.queues = new Map();
   }
-  location(projectId, ...parts) {
+  location(projectId: string, ...parts: string[]) {
     return path.join(this.root, "projects", id(projectId), ...parts);
   }
-  async read(projectId, ...parts) {
+  async read(projectId: string, ...parts: string[]): Promise<unknown> {
     return JSON.parse(
       await fs.readFile(this.location(projectId, ...parts), "utf8"),
     );
   }
-  async atomic(filename, bytes) {
+  /** project.json, validated. */
+  async project(projectId: string): Promise<Project> {
+    const p = await this.read(projectId, "project.json");
+    assertProject(p);
+    return p;
+  }
+  async atomic(filename: string, bytes: string | Uint8Array) {
     await fs.mkdir(path.dirname(filename), { recursive: true });
     const tmp = `${filename}.${randomUUID()}.tmp`;
     try {
@@ -40,7 +61,7 @@ export class Store {
       await fs.rm(tmp, { force: true });
     }
   }
-  async locked(key, fn) {
+  async locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const previous = this.queues.get(key) || Promise.resolve();
     const next = previous.catch(() => {}).then(fn);
     this.queues.set(key, next);
@@ -50,25 +71,25 @@ export class Store {
       if (this.queues.get(key) === next) this.queues.delete(key);
     }
   }
-  async save(project, expectedRevision, alreadyLocked = false) {
-    validateProject(project);
+  /** Stores the next revision; resolves with the stored project (same format as the one given). */
+  async save<P>(project: P, expectedRevision: unknown, alreadyLocked = false): Promise<P & Project> {
+    assertProject(project);
     const persist = async () => {
-      let current;
+      // The stored revision is checked as written, without validating the rest.
+      let current: Record<string, unknown> | undefined;
       try {
-        current = await this.read(project.projectId, "project.json");
+        const stored = await this.read(project.projectId, "project.json");
+        current = isObject(stored) ? stored : undefined;
       } catch (e) {
-        if (e.code !== "ENOENT") throw e;
+        if (!isMissing(e)) throw e;
       }
       if (
         (current && current.revision !== expectedRevision) ||
         (!current && expectedRevision !== null)
       )
-        throw Object.assign(
-          Error("Project changed in another window. Reload before saving."),
-          { status: 409 },
-        );
+        throw httpError("Project changed in another window. Reload before saving.", 409);
       if (current?.audio) {
-        if (project.audio?.sha256 !== current.audio.sha256)
+        if (project.audio?.sha256 !== (isObject(current.audio) ? current.audio.sha256 : undefined))
           throw Error("Upload audio through the asset API");
       } else if (project.audio) {
         await fs.access(
@@ -90,21 +111,21 @@ export class Store {
       if (project.schemaVersion === 2) {
         for (const track of project.tracks)
           for (const dataId of new Set(
-            [track.dataId, track.originalDataId].filter(Boolean),
+            [track.dataId, track.originalDataId].filter((v): v is string => Boolean(v)),
           )) {
             const data = await this.read(
               project.projectId,
               "tracks",
               `${id(dataId)}.json`,
             );
-            if (data.playerId !== track.playerId || data.dataId !== dataId)
+            if (!isObject(data) || data.playerId !== track.playerId || data.dataId !== dataId)
               throw Error("Track snapshot belongs to another player");
           }
       }
       const next = {
         ...project,
-        revision: (current?.revision || 0) + 1,
-        createdAt: current?.createdAt || project.createdAt,
+        revision: (typeof current?.revision === "number" ? current.revision : 0) + 1,
+        createdAt: typeof current?.createdAt === "string" && current.createdAt ? current.createdAt : project.createdAt,
         updatedAt: new Date().toISOString(),
       };
       await this.atomic(
@@ -119,56 +140,59 @@ export class Store {
     };
     return alreadyLocked ? persist() : this.locked(project.projectId, persist);
   }
-  async list() {
+  async list(): Promise<ProjectSummary[]> {
     await fs.mkdir(path.join(this.root, "projects"), { recursive: true });
     const folders = await fs.readdir(path.join(this.root, "projects"));
-    const projects = [];
+    const projects: ProjectSummary[] = [];
+    const text = (v: unknown) => (typeof v === "string" ? v : "");
     for (const folder of folders) {
       try {
+        // Listed without validation: projects in formats this editor can't open stay visible.
         const p = await this.read(folder, "project.json");
+        if (!isObject(p) || !isObject(p.metadata) || typeof p.projectId !== "string" || typeof p.updatedAt !== "string") continue;
         projects.push({
           projectId: p.projectId,
           schemaVersion: p.schemaVersion,
-          title: p.metadata.title,
-          artist: p.metadata.artist,
+          title: text(p.metadata.title),
+          artist: text(p.metadata.artist),
           updatedAt: p.updatedAt,
         });
       } catch { /* skip unreadable project folders */ }
     }
     return projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  async writeTake(projectId, take) {
-    validateTake(take);
+  async writeTake(projectId: string, take: unknown): Promise<Take> {
+    assertTake(take);
     const { sha256: _oldHash, ...content } = take;
     const bytes = json(content);
-    take = { ...content, sha256: sha(bytes) };
+    const stored = { ...content, sha256: sha(bytes) };
     const filename = this.location(
       projectId,
       "takes",
-      `${id(take.takeId)}.json`,
+      `${id(stored.takeId)}.json`,
     );
     await fs.mkdir(path.dirname(filename), { recursive: true });
-    await fs.writeFile(filename, json(take), { flag: "wx" });
-    return take;
+    await fs.writeFile(filename, json(stored), { flag: "wx" });
+    return stored;
   }
-  async takes(p) {
+  /** The project's takes and track snapshots, validated. */
+  async takes(p: Project): Promise<StudioAssets> {
     const entries = await Promise.all(
-      p.takes.map(async (t) => [
+      p.takes.map(async (t): Promise<[string, Take | TrackData]> => [
         t.takeId,
-        await this.read(p.projectId, "takes", `${id(t.takeId)}.json`),
+        validateTake(await this.read(p.projectId, "takes", `${id(t.takeId)}.json`)),
       ]),
     );
     for (const dataId of trackDataIds(p))
       entries.push([
         dataId,
-        await this.read(p.projectId, "tracks", `${id(dataId)}.json`),
+        validateTrackData(await this.read(p.projectId, "tracks", `${id(dataId)}.json`)),
       ]);
     return new Map(entries);
   }
-  async open(projectId) {
+  async open(projectId: string): Promise<ProjectV2> {
     return this.locked(projectId, async () => {
-      const p = await this.read(projectId, "project.json");
-      validateProject(p);
+      const p = await this.project(projectId);
       if (p.schemaVersion === 2) return p;
       const assets = await this.takes(p),
         next = migrateProject(p, assets);
@@ -178,12 +202,12 @@ export class Store {
     });
   }
   async writeTrack(
-    projectId,
-    data,
+    projectId: string,
+    data: unknown,
     requireProject = false,
     alreadyLocked = false,
-  ) {
-    validateTrackData(data);
+  ): Promise<{ dataId: string }> {
+    assertTrackData(data);
     const persist = async () => {
       if (requireProject) await this.read(projectId, "project.json");
       const filename = this.location(
@@ -196,28 +220,29 @@ export class Store {
         if (!current.equals(json(data)))
           throw Error("Track snapshot is immutable");
       } catch (e) {
-        if (e.code !== "ENOENT") throw e;
+        if (!isMissing(e)) throw e;
         await this.atomic(filename, json(data));
       }
       return { dataId: data.dataId };
     };
     return alreadyLocked ? persist() : this.locked(projectId, persist);
   }
-  async remove(projectId, expectedRevision, takeId = null) {
+  async remove(projectId: string, expectedRevision: unknown, takeId: string | null = null): Promise<Project | { deleted: true }> {
     return this.locked(projectId, async () => {
-      const p = await this.read(projectId, "project.json");
-      if (p.revision !== expectedRevision)
-        throw Object.assign(Error("Project changed. Reload before deleting."), {
-          status: 409,
-        });
+      // Deleting a whole project needs only its revision, so formats this editor can't open can be removed.
+      const stored = await this.read(projectId, "project.json");
+      if (!isObject(stored) || stored.revision !== expectedRevision)
+        throw httpError("Project changed. Reload before deleting.", 409);
       if (!takeId) {
         await fs.rm(this.location(projectId), { recursive: true });
         return { deleted: true };
       }
-      if (p.schemaVersion !== 2)
+      if (stored.schemaVersion !== 2)
         throw Error("Open the project before deleting takes");
+      const p = stored;
+      assertProject(p);
       if (!p.takes.some((t) => t.takeId === takeId))
-        throw Object.assign(Error("Take not found"), { status: 404 });
+        throw httpError("Take not found", 404);
       p.takes = p.takes.filter((t) => t.takeId !== takeId);
       p.revision++;
       p.updatedAt = new Date().toISOString();
@@ -236,7 +261,7 @@ export class Store {
       return p;
     });
   }
-  async compile(p) {
+  async compile(p: Project): Promise<CompileResult> {
     const data = compileProject(p, await this.takes(p));
     data.provenance.settingsHash = sha(
       json({
@@ -246,10 +271,11 @@ export class Store {
     );
     return { data, report: reviewReport(p, data) };
   }
-  async bundle(p) {
+  async bundle(p: Project): Promise<SongBundleFiles> {
     const { data, report } = await this.compile(p);
     if (report.blockers.length)
-      throw Object.assign(Error(report.blockers.join("\n")), { status: 422 });
+      throw httpError(report.blockers.join("\n"), 422);
+    if (!p.audio) throw httpError("Import song audio", 422);
     const extension = p.audio.extension,
       filename = `audio.${extension}`,
       audio = await fs.readFile(
@@ -257,7 +283,7 @@ export class Store {
       );
     if (sha(audio) !== p.audio.sha256)
       throw Error("Audio integrity check failed");
-    const song = {
+    const song: Song = {
       schema: "aerodance.song",
       schemaVersion: 1,
       songId: p.songId,
@@ -280,7 +306,7 @@ export class Store {
       ["choreography.json", Buffer.from(JSON.stringify(data) + "\n")],
       [filename, audio],
     ]);
-    const checksums = {
+    const checksums: ChecksumManifest = {
       schema: "aerodance.checksums",
       schemaVersion: 1,
       files: [...files].map(([name, bytes]) => ({

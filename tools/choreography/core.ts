@@ -2,115 +2,280 @@ import {
   copy,
   finite,
   clamp,
-  validatePoses,
+  isArray,
+  isObject,
+  oneOf,
+  assertPoses,
   qualityFor,
   sampleSnapshot,
   mirrorPose,
   PAIRS,
+  assertChoreography,
   validateChoreography,
 } from "../../packages/pose/choreography.ts";
+import type {
+  CaptureInput,
+  ChoreographySample,
+  FrameSize,
+  LandmarkOrigin,
+  Point3,
+  Pose,
+  PoseQuality,
+  TrackCalibration,
+} from "../../packages/pose/choreography.ts";
+import type { MotionTake, TakeSample } from "../../packages/pose/legacy.ts";
+import type { RightsStatement, ScoreExclusion, SongChoreography, SongTrack } from "../../packages/pose/song.ts";
 import { calibratePoses, reliableBodyPose } from "../../packages/character/calibration.ts";
-import { DEFAULT_STAGE, STAGE_LIST } from "../../packages/stages/catalog.ts";
+import { DEFAULT_STAGE, isStageId } from "../../packages/stages/catalog.ts";
+import type { StageId } from "../../packages/stages/catalog.ts";
 import { validateWebcamRecord } from '../../packages/pose/webcamRecord.ts';
+import type { WebcamRecord } from '../../packages/pose/webcamRecord.ts';
 import { validateVideoRecord } from '../../packages/pose/videoRecord.ts';
+import type { VideoRecord } from '../../packages/pose/videoRecord.ts';
 import { poseModel, MEDIAPIPE_VERSION } from '../../packages/pose/browser/models.ts';
 export const COMPILER_VERSION='1.2.0';
 
-export function newProject(id = crypto.randomUUID(), schemaVersion = 2) {
+export type Difficulty = "easy" | "normal" | "hard";
+export type AudioExtension = "mp3" | "wav" | "ogg" | "m4a" | "flac";
+/** The song audio, stored once as assets/<sha256>.<extension>. */
+export interface ProjectAudio { sha256: string; extension: AudioExtension; mimeType: string; durationMs: number; name: string; }
+export interface ProjectMetadata {
+  title: string; artist: string; songwriters: string[]; choreographers: string[];
+  difficulty: Difficulty;
+  /** The dance stage the game shows this song on. */
+  stage: StageId;
+  tags: string[]; bpm: number | null; description: string;
+  rights: { audio: RightsStatement; choreography: RightsStatement };
+}
+export interface Marker { songTimeMs: number; kind: "beat" | "phrase" | "note"; label: string; }
+/** A library take as the project lists it; the take itself is stored in takes/<takeId>.json. */
+export interface TakeSummary {
+  takeId: string; name: string; source: string; input: CaptureInput;
+  /** Webcam and video takes: copied from the take's provenance. */
+  modelId?: unknown; sourceRateHz?: unknown;
+}
+/** Project format 1: a track is a list of clips cut from library takes. */
+export interface Clip {
+  clipId: string; takeId: string; sourcePlayerId: number;
+  sourceStartMs: number; sourceEndMs: number; songStartMs: number; timeScale: number;
+}
+export interface ClipTrack { playerId: number; label: string; clips: Clip[]; }
+/** Project format 2: a track points at an immutable snapshot (tracks/<dataId>.json) placed at offsetMs. */
+export interface Track { playerId: number; label: string; dataId: string | null; originalDataId: string | null; offsetMs: number; }
+
+/** Edits apply over [startMs, endMs) on the song clock; a null playerId means both players. */
+interface RangeEdit { startMs: number; endMs: number; playerId: number | null; }
+export interface JointTarget { joint: number; value: Point3; }
+/** Moves one joint (or a group, `targets`) at timeMs, blended in and out over the range. */
+export interface JointEdit extends RangeEdit { type: "joint"; joint: number; value: Point3; timeMs: number; targets?: JointTarget[]; }
+export interface PoseEdit extends RangeEdit { type: "swap" | "mirror" | "repair"; }
+export interface SmoothEdit extends RangeEdit { type: "smooth"; windowMs: number; }
+export interface ReviewEdit extends RangeEdit { type: "exclude" | "approve"; reason: string; }
+export type EditCommand = JointEdit | PoseEdit | SmoothEdit | ReviewEdit;
+export type EditType = EditCommand["type"];
+/** Format 1 history: the edits themselves, replayed by every compile. */
+export type EditOperation = EditCommand & { operationId: string };
+export interface TrackEdit { type: "overwrite" | "clear" | "offset" | "interpolate"; playerId: number | null; }
+export type TrackCommand = EditCommand | TrackEdit;
+export type OperationType = TrackCommand["type"];
+/** Format 2 history: each change keeps the track references before and after it. */
+export type TrackChange = TrackCommand & { operationId: string; beforeTracks: Track[]; afterTracks: Track[] };
+
+interface ProjectBase {
+  schema: "aerodance.project";
+  projectId: string; songId: string; revision: number;
+  createdAt: string; updatedAt: string;
+  metadata: ProjectMetadata;
+  audio: ProjectAudio | null;
+  durationMs: number; playableStartMs: number; playableEndMs: number;
+  takes: TakeSummary[];
+  operationCursor: number;
+  markers: Marker[];
+  alignmentReviewed: boolean;
+}
+export interface ProjectV1 extends ProjectBase { schemaVersion: 1; tracks: ClipTrack[]; operations: EditOperation[]; }
+export interface ProjectV2 extends ProjectBase { schemaVersion: 2; tracks: Track[]; operations: TrackChange[]; }
+/** aerodance.project: format 1 projects are migrated to 2 when opened. */
+export type Project = ProjectV1 | ProjectV2;
+/** A project as the project list shows it; unsupported formats are listed too. */
+export interface ProjectSummary { projectId: string; schemaVersion: unknown; title: string; artist: string; updatedAt: string; }
+
+export interface StudioTakeSample extends TakeSample { /** Webcam/video: the capture record's seq. */ sourceSeq?: number; }
+export interface CalibrationFrame { mediaTimeMs: number; poses: Pose[]; }
+/** Capture details; the shape depends on the source and is not validated. */
+export type TakeProvenance = Record<string, unknown>;
+/** aerodance.take v1 as Dance Studio stores it. Unlike a game motion take it has no durationMs. */
+export interface Take extends Omit<MotionTake, "durationMs" | "samples"> {
+  takeId: string; name: string;
+  /** "webcam", "video", "legacy-demo", "choreography", or "android" for stored legacy captures. */
+  source: string;
+  samples: StudioTakeSample[];
+  /** Song position of take time zero, and the take's playback rate. */
+  offsetMs: number; timeScale: number;
+  createdAt?: string;
+  /** Required for video takes: the frame the dancers were calibrated on. */
+  calibrationFrame?: CalibrationFrame;
+  /** The pose model configuration the capture reported. */
+  status?: unknown;
+  interruptionReason?: string | null;
+  provenance?: TakeProvenance | null;
+  /** SHA-256 of the stored take file, added by the server. */
+  sha256?: string;
+}
+export interface SourceRef { takeId: string; name?: string; source: string; sha256: string | null; provenance: TakeProvenance | null; }
+export interface TrackSample extends StudioTakeSample { quality: PoseQuality[]; }
+/** aerodance.track v1: an immutable snapshot of one player's poses, on its own clock. */
+export interface TrackData {
+  schema: "aerodance.track"; schemaVersion: 1;
+  dataId: string; playerId: number; input: CaptureInput;
+  samples: TrackSample[];
+  sources: SourceRef[];
+  exclusions: ScoreExclusion[];
+  calibration?: TrackCalibration;
+}
+/** Takes by takeId and track snapshots by dataId. */
+export type StudioAssets = Map<string, Take | TrackData>;
+export const isTake = (asset: Take | TrackData | undefined): asset is Take => asset?.schema === "aerodance.take";
+export const isTrackData = (asset: Take | TrackData | undefined): asset is TrackData => asset?.schema === "aerodance.track";
+
+export interface CompileProvenance {
+  compilerVersion: string; projectRevision: number; qualityPolicyVersion: 1;
+  sources: SourceRef[];
+  /** Added by the server: a hash of the edits and track references compiled. */
+  settingsHash?: string;
+}
+/** The compiled choreography.json: the song bundle format plus markers and provenance. */
+export interface CompiledChoreography extends SongChoreography { markers: Marker[]; provenance: CompileProvenance; }
+export interface CompileOptions {
+  /** Compile everything the tracks hold rather than the playable range; skips final validation. */
+  fullTimeline?: boolean;
+  /** Format 2: the edit to apply. */
+  editOperation?: EditCommand | null;
+}
+export interface TrackCoverage { playerId: number; missingMs: number; eligibleMs: number; editedMs: number; }
+export interface ReviewReport { blockers: string[]; warnings: string[]; coverage: TrackCoverage[]; }
+export interface Interval { startMs: number; endMs: number; }
+
+export type CaptureSourceKind = "webcam" | "video";
+export const CAPTURE_SOURCES: readonly CaptureSourceKind[] = ["webcam", "video"];
+/** capture/<takeId>/capture.json, written when a capture starts; finalize adds the last two fields. */
+export interface CaptureMetadata {
+  takeId: string; projectId?: string; name?: string; createdAt?: string;
+  /** "webcam" or "video"; captures left by older editors have another or none. */
+  sourceKind?: unknown;
+  /** The pose model configuration the browser reported; checked when the take is built. */
+  status?: unknown;
+  interruptionReason?: string | null;
+  calibrationFrame?: unknown;
+}
+export type CaptureEvent =
+  | { type: "audio-start-scheduled"; audioContextStartTime: number; positionMs: number; rate: number }
+  | { type: "audio-stop"; reason: string | null }
+  | { type: "source-stopped"; reason: string };
+interface EnvelopeTiming { ordinal: number; receivedBrowserTimeMs: number; audioPositionAtReceiptMs: number; }
+/** A webcam pose record as the recorder uploads it, anchored to the song audio clock. */
+export interface PoseEnvelope extends EnvelopeTiming { audioPlaybackRate: number; audioPositionAtFrameMs: number; record: WebcamRecord; }
+export interface EventEnvelope extends EnvelopeTiming { event: CaptureEvent; }
+export type WebcamEnvelope = PoseEnvelope | EventEnvelope;
+export interface VideoEnvelope { ordinal: number; record: VideoRecord; }
+
+const DIFFICULTIES: readonly Difficulty[] = ["normal", "easy", "hard"];
+const AUDIO_EXTENSIONS: readonly AudioExtension[] = ["mp3", "wav", "ogg", "m4a", "flac"];
+const EDIT_TYPES: readonly EditType[] = ["joint", "swap", "mirror", "smooth", "repair", "exclude", "approve"];
+const MARKER_KINDS: readonly Marker["kind"][] = ["beat", "phrase", "note"];
+const ORIGINS: readonly LandmarkOrigin[] = ["measured", "resampled", "edited", "gap-repaired", "missing-confidence"];
+const DELEGATES = ["GPU", "CPU"] as const;
+const AXES = ["x", "y", "z"] as const;
+const ID = /^[a-zA-Z0-9-]{1,80}$/;
+const isId = (v: unknown): v is string => typeof v === "string" && ID.test(v);
+const strings = (v: unknown) => isArray(v) && v.every((s) => typeof s === "string");
+const point3 = (v: unknown): v is Point3 => isObject(v) && finite(v.x) && finite(v.y) && finite(v.z);
+const isPlayerId = (v: unknown): v is number => v === 0 || v === 1;
+const lastOf = <T>(items: readonly T[]): T => items[items.length - 1];
+
+export function newProject(id?: string, schemaVersion?: 2): ProjectV2;
+export function newProject(id: string, schemaVersion: 1): ProjectV1;
+export function newProject(id: string = crypto.randomUUID(), schemaVersion: 1 | 2 = 2): Project {
   const now = new Date().toISOString();
-  return {
-    schema: "aerodance.project",
-    schemaVersion,
+  const metadata: ProjectMetadata = {
+    title: "Untitled routine",
+    artist: "",
+    songwriters: [],
+    choreographers: [],
+    difficulty: "normal",
+    stage: DEFAULT_STAGE,
+    tags: [],
+    bpm: null,
+    description: "",
+    rights: {
+      audio: { license: "unknown", attribution: "" },
+      choreography: { license: "unknown", attribution: "" },
+    },
+  };
+  const head = {
     projectId: id,
     songId: `song-${id.slice(0, 8)}`,
     revision: 0,
     createdAt: now,
     updatedAt: now,
-    metadata: {
-      title: "Untitled routine",
-      artist: "",
-      songwriters: [],
-      choreographers: [],
-      difficulty: "normal",
-      // The dance stage the game shows this song on.
-      stage: DEFAULT_STAGE,
-      tags: [],
-      bpm: null,
-      description: "",
-      rights: {
-        audio: { license: "unknown", attribution: "" },
-        choreography: { license: "unknown", attribution: "" },
-      },
-    },
+    metadata,
     audio: null,
     durationMs: 0,
     playableStartMs: 0,
     playableEndMs: 0,
     takes: [],
-    tracks: [
-      ...[0, 1].map((playerId) => ({
-        playerId,
-        label: `Player ${playerId + 1}`,
-        ...(schemaVersion === 1
-          ? { clips: [] }
-          : { dataId: null, originalDataId: null, offsetMs: 0 }),
-      })),
-    ],
-    operations: [],
-    operationCursor: 0,
-    markers: [],
-    alignmentReviewed: false,
   };
+  const tail = { operationCursor: 0, markers: [], alignmentReviewed: false };
+  const label = (playerId: number) => `Player ${playerId + 1}`;
+  return schemaVersion === 1
+    ? { schema: "aerodance.project", schemaVersion, ...head,
+        tracks: [0, 1].map((playerId) => ({ playerId, label: label(playerId), clips: [] })), operations: [], ...tail }
+    : { schema: "aerodance.project", schemaVersion, ...head,
+        tracks: [0, 1].map((playerId) => ({ playerId, label: label(playerId), dataId: null, originalDataId: null, offsetMs: 0 })),
+        operations: [], ...tail };
 }
-const assert = (ok, message) => {
+function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw Error(message);
-};
-export function validateProject(p) {
+}
+const isTakeRef = (t: unknown): t is { takeId: string } => isObject(t) && isId(t.takeId);
+const isJointTarget = (t: unknown): t is JointTarget =>
+  isObject(t) && typeof t.joint === "number" && Number.isInteger(t.joint) && t.joint >= 0 && t.joint < 33 && point3(t.value);
+/** Checks a stored project. Fills in the default stage for projects saved before songs had stages. */
+export function assertProject(p: unknown): asserts p is Project {
+  const version = isObject(p) ? p.schemaVersion ?? "unknown" : "unknown";
   assert(
-    p?.schema === "aerodance.project" && [1, 2].includes(p.schemaVersion),
-    `Unsupported project format ${p?.schemaVersion ?? "unknown"}. This editor supports project formats 1 and 2.`,
+    isObject(p) && p.schema === "aerodance.project" && (p.schemaVersion === 1 || p.schemaVersion === 2),
+    `Unsupported project format ${version}. This editor supports project formats 1 and 2.`,
   );
-  assert(/^[a-zA-Z0-9-]{1,80}$/.test(p.projectId), "Invalid project ID");
+  assert(isId(p.projectId), "Invalid project ID");
   assert(
-    /^[a-z0-9][a-z0-9-]{0,79}$/.test(p.songId),
+    typeof p.songId === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(p.songId),
     "Song ID must use lowercase letters, digits and hyphens",
   );
   assert(
-    Number.isSafeInteger(p.revision) && p.revision >= 0,
+    typeof p.revision === "number" && Number.isSafeInteger(p.revision) && p.revision >= 0,
     "Invalid revision",
   );
+  const m = p.metadata;
   assert(
-    p.metadata &&
-      typeof p.metadata.title === "string" &&
-      typeof p.metadata.artist === "string",
+    isObject(m) && typeof m.title === "string" && typeof m.artist === "string",
     "Missing title/artist",
   );
-  assert(
-    ["normal", "easy", "hard"].includes(p.metadata.difficulty),
-    "Invalid difficulty",
-  );
+  assert(oneOf(DIFFICULTIES, m.difficulty), "Invalid difficulty");
   // Projects saved before songs had stages dance on the default one.
-  p.metadata.stage ??= DEFAULT_STAGE;
+  m.stage ??= DEFAULT_STAGE;
+  assert(isStageId(m.stage), "Choose one of the dance stages");
   assert(
-    STAGE_LIST.some((stage) => stage.id === p.metadata.stage),
-    "Choose one of the dance stages",
-  );
-  assert(
-    ["songwriters", "choreographers", "tags"].every(
-      (k) =>
-        Array.isArray(p.metadata[k]) &&
-        p.metadata[k].every((v) => typeof v === "string"),
-    ),
+    strings(m.songwriters) && strings(m.choreographers) && strings(m.tags),
     "Invalid credits/tags",
   );
-  assert(
-    p.metadata.bpm === null || (finite(p.metadata.bpm) && p.metadata.bpm > 0),
-    "Invalid BPM",
-  );
+  assert(m.bpm === null || (finite(m.bpm) && m.bpm > 0), "Invalid BPM");
   if (p.audio)
     assert(
-      /^[a-f0-9]{64}$/.test(p.audio.sha256) &&
-        ["mp3", "wav", "ogg", "m4a", "flac"].includes(p.audio.extension),
+      isObject(p.audio) &&
+        typeof p.audio.sha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(p.audio.sha256) &&
+        oneOf(AUDIO_EXTENSIONS, p.audio.extension),
       "Invalid audio asset reference",
     );
   assert(
@@ -126,46 +291,45 @@ export function validateProject(p) {
     "Invalid playable range",
   );
   assert(
-    Array.isArray(p.tracks) &&
+    isArray(p.tracks) &&
       p.tracks.length === 2 &&
-      p.tracks[0]?.playerId === 0 &&
-      p.tracks[1]?.playerId === 1,
+      isObject(p.tracks[0]) && p.tracks[0].playerId === 0 &&
+      isObject(p.tracks[1]) && p.tracks[1].playerId === 1,
     "Two ordered tracks required",
   );
   assert(
-    Array.isArray(p.takes) &&
-      p.takes.every(t => t && typeof t.takeId === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(t.takeId)) &&
+    isArray(p.takes) &&
+      p.takes.every(isTakeRef) &&
       new Set(p.takes.map((t) => t.takeId)).size === p.takes.length,
     "Invalid takes",
   );
   const ids = new Set(p.takes.map((t) => t.takeId));
   for (const track of p.tracks) {
     if (p.schemaVersion === 2) {
-      validateTrackRefs([track], false);
+      assertTrackRefs([track], false);
       continue;
     }
-    assert(Array.isArray(track.clips) && track.clips.every(c => c && typeof c === "object"), "Invalid clips");
-    const clips = [...track.clips].sort(
-      (a, b) => a.songStartMs - b.songStartMs,
-    );
-    let end = -Infinity;
-    for (const c of clips) {
+    assert(isObject(track) && isArray(track.clips) && track.clips.every(isObject), "Invalid clips");
+    const spans = track.clips.map((c) => {
       assert(
-        c && ids.has(c.takeId) &&
-          [0, 1].includes(c.sourcePlayerId) &&
-          ["sourceStartMs", "sourceEndMs", "songStartMs", "timeScale"].every(
-            (k) => finite(c[k]),
-          ) &&
+        typeof c.takeId === "string" && ids.has(c.takeId) &&
+          isPlayerId(c.sourcePlayerId) &&
+          finite(c.sourceStartMs) && finite(c.sourceEndMs) && finite(c.songStartMs) && finite(c.timeScale) &&
           c.sourceEndMs > c.sourceStartMs &&
           c.timeScale > 0,
         "Invalid source clip",
       );
-      assert(c.songStartMs >= end, "Overlapping clips must be split first");
-      end = c.songStartMs + (c.sourceEndMs - c.sourceStartMs) * c.timeScale;
+      return [c.songStartMs, c.songStartMs + (c.sourceEndMs - c.sourceStartMs) * c.timeScale] as const;
+    }).sort((a, b) => a[0] - b[0]);
+    let end = -Infinity;
+    for (const [start, stop] of spans) {
+      assert(start >= end, "Overlapping clips must be split first");
+      end = stop;
     }
   }
   assert(
-    Array.isArray(p.operations) &&
+    isArray(p.operations) &&
+      typeof p.operationCursor === "number" &&
       Number.isInteger(p.operationCursor) &&
       p.operationCursor >= 0 &&
       p.operationCursor <= p.operations.length,
@@ -173,57 +337,40 @@ export function validateProject(p) {
   );
   for (const op of p.operations) {
     if (p.schemaVersion === 2) {
-      assert(typeof op.type === "string", "Invalid history entry");
-      validateTrackRefs(op.beforeTracks);
-      validateTrackRefs(op.afterTracks);
+      assert(isObject(op) && typeof op.type === "string", "Invalid history entry");
+      assertTrackRefs(op.beforeTracks);
+      assertTrackRefs(op.afterTracks);
       continue;
     }
-    assert(
-      [
-        "joint",
-        "swap",
-        "mirror",
-        "smooth",
-        "repair",
-        "exclude",
-        "approve",
-      ].includes(op.type),
-      "Unknown edit operation",
-    );
+    assert(isObject(op) && oneOf(EDIT_TYPES, op.type), "Unknown edit operation");
     assert(
       finite(op.startMs) && finite(op.endMs) && op.endMs >= op.startMs,
       "Invalid edit range",
     );
-    assert(
-      op.playerId === null || [0, 1].includes(op.playerId),
-      "Invalid edit track",
-    );
+    assert(op.playerId === null || isPlayerId(op.playerId), "Invalid edit track");
     if (op.type === "joint")
       assert(
-        Number.isInteger(op.joint) &&
+        typeof op.joint === "number" &&
+          Number.isInteger(op.joint) &&
           op.joint >= 0 &&
           op.joint < 33 &&
-          ["x", "y", "z"].every((k) => finite(op.value?.[k])) &&
+          point3(op.value) &&
           finite(op.timeMs) &&
           op.timeMs >= op.startMs &&
           op.timeMs <= op.endMs,
         "Invalid joint keyframe",
       );
-    if (op.type === "joint" && op.targets !== undefined)
+    if (op.type === "joint" && op.targets !== undefined) {
+      const targets = op.targets;
       assert(
-        Array.isArray(op.targets) &&
-          op.targets.length > 0 &&
-          op.targets.length <= 33 &&
-          new Set(op.targets.map((t) => t.joint)).size === op.targets.length &&
-          op.targets.every(
-            (t) =>
-              Number.isInteger(t.joint) &&
-              t.joint >= 0 &&
-              t.joint < 33 &&
-              ["x", "y", "z"].every((k) => finite(t.value?.[k])),
-          ),
+        isArray(targets) &&
+          targets.length > 0 &&
+          targets.length <= 33 &&
+          targets.every(isJointTarget) &&
+          new Set(targets.map((t) => t.joint)).size === targets.length,
         "Invalid grouped joint keyframe",
       );
+    }
     if (op.type === "smooth")
       assert(
         finite(op.windowMs) && op.windowMs > 0 && op.windowMs <= 1000,
@@ -234,55 +381,56 @@ export function validateProject(p) {
         op.endMs - op.startMs <= 1000,
         "Repair at most one second; replace longer gaps with another take",
       );
-    if (["exclude", "approve"].includes(op.type))
+    if (op.type === "exclude" || op.type === "approve")
       assert(
         typeof op.reason === "string" && op.reason.trim(),
         "Review decisions require a reason",
       );
   }
   assert(
-    Array.isArray(p.markers) &&
+    isArray(p.markers) &&
       p.markers.every(
         (m) =>
+          isObject(m) &&
           finite(m.songTimeMs) &&
-          ["beat", "phrase", "note"].includes(m.kind) &&
+          oneOf(MARKER_KINDS, m.kind) &&
           typeof m.label === "string",
       ),
     "Invalid markers",
   );
+}
+export function validateProject(p: unknown): Project {
+  assertProject(p);
   return p;
 }
-export function validateTake(take) {
+export function assertTake(take: unknown): asserts take is Take {
   assert(
-    take?.schema === "aerodance.take" && take.schemaVersion === 1,
+    isObject(take) && take.schema === "aerodance.take" && take.schemaVersion === 1,
     "Unsupported take schema",
   );
+  assert(isId(take.takeId), "Invalid take ID");
+  const input = take.input;
+  const dimension = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v > 0;
   assert(
-    typeof take.takeId === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(take.takeId),
-    "Invalid take ID",
-  );
-  assert(
-    take.input &&
-      ["width", "height"].every(
-        (k) => Number.isInteger(take.input[k]) && take.input[k] > 0,
-      ) &&
-      take.input.mirrored === false,
+    isObject(input) && dimension(input.width) && dimension(input.height) && input.mirrored === false,
     "Takes must use unmirrored inference geometry",
   );
   assert(
-    Array.isArray(take.samples) &&
+    isArray(take.samples) &&
       take.samples.length >= 2 &&
       take.samples.length <= 150000,
     "Expected between 2 and 150000 take samples",
   );
   let last = -Infinity;
+  const players = new Set<number>();
   for (const s of take.samples) {
     assert(
-      finite(s.takeTimeMs) && s.takeTimeMs > last,
+      isObject(s) && finite(s.takeTimeMs) && s.takeTimeMs > last,
       "Take times must increase",
     );
     last = s.takeTimeMs;
-    validatePoses(s.poses);
+    assertPoses(s.poses);
+    for (const p of s.poses) players.add(p.playerId);
   }
   assert(
     finite(take.offsetMs) && finite(take.timeScale) && take.timeScale > 0,
@@ -290,67 +438,84 @@ export function validateTake(take) {
   );
   if (take.calibrationFrame !== undefined) {
     const frame = take.calibrationFrame;
-    assert(frame && finite(frame.mediaTimeMs) && frame.mediaTimeMs >= 0 &&
-      frame.mediaTimeMs <= (take.provenance?.durationMs ?? take.samples.at(-1).takeTimeMs), 'Invalid calibration frame time');
-    validatePoses(frame.poses);
+    const limit = (isObject(take.provenance) ? take.provenance.durationMs : undefined) ?? last;
+    assert(isObject(frame) && finite(frame.mediaTimeMs) && frame.mediaTimeMs >= 0 &&
+      typeof limit === 'number' && frame.mediaTimeMs <= limit, 'Invalid calibration frame time');
+    assertPoses(frame.poses);
     assert(frame.poses.length && frame.poses.every(reliableBodyPose), 'Choose a calibration frame with shoulders, hips and feet clearly visible');
-    const players = new Set(take.samples.flatMap(s => s.poses.map(p => p.playerId)));
-    assert([...players].every(id => frame.poses.some(p => p.playerId === id)), 'Choose a calibration frame with every captured dancer clearly visible');
+    const poses = frame.poses;
+    assert([...players].every(id => poses.some(p => p.playerId === id)), 'Choose a calibration frame with every captured dancer clearly visible');
   }
   assert(take.source !== 'video' || take.calibrationFrame, 'Video takes require a calibration frame');
+}
+export function validateTake(take: unknown): Take {
+  assertTake(take);
   return take;
 }
 
-export function takeCalibration(take, playerId) {
+export function takeCalibration(take: Take, playerId: number): TrackCalibration {
   return calibratePoses(take.calibrationFrame
     ? take.calibrationFrame.poses.filter(p => p.playerId === playerId)
     : take.samples.flatMap(s => s.poses.filter(p => p.playerId === playerId)), take.input,
   { adaptiveDistance: ['webcam', 'video'].includes(take.source) });
 }
 export function importMotion(
-  data,
+  data: unknown,
   name = "Imported take",
-  id = crypto.randomUUID(),
-) {
-  let samples, input, source;
+  id: string = crypto.randomUUID(),
+): Take {
+  const unsupported = "Import a legacy dance.json, choreography.json or take.json";
+  assert(isObject(data), unsupported);
+  let samples: StudioTakeSample[], input: unknown, source: string;
   if (data.version === 1 && data.times && data.poses) {
+    const { times, poses: legacyPoses } = data;
     assert(
-      data.times.length === data.poses.length && data.times.length >= 2,
+      isArray(times) && isArray(legacyPoses) &&
+        times.length === legacyPoses.length && times.length >= 2,
       "Invalid legacy arrays",
     );
     input = {
-      width: data.source?.width,
-      height: data.source?.height,
+      width: isObject(data.source) ? data.source.width : undefined,
+      height: isObject(data.source) ? data.source.height : undefined,
       mirrored: false,
     };
     source = "legacy-demo";
-    samples = data.times.map((time, i) => {
-      assert(data.poses[i]?.length === 2, "Legacy recording needs two people");
-      const poses = data.poses[i].map((points, playerId) => ({
-        playerId,
-        landmarks: points.map((j) => {
-          assert(j.length === 4 && j.every(finite), "Invalid legacy joint");
-          return {
-            x: j[0],
-            y: j[1],
-            z: j[2],
-            visibility: null,
-            presence: null,
-          };
-        }),
-      }));
+    samples = times.map((time, i) => {
+      const players = legacyPoses[i];
+      assert(isArray(players) && players.length === 2, "Legacy recording needs two people");
+      const legacyConfidence: number[][] = [];
+      const poses = players.map((points, playerId) => {
+        assert(isArray(points), "Invalid legacy joint");
+        const confidence: number[] = [];
+        legacyConfidence.push(confidence);
+        return {
+          playerId,
+          landmarks: points.map((j) => {
+            assert(isArray(j) && j.length === 4 && j.every(finite), "Invalid legacy joint");
+            confidence.push(j[3]);
+            return {
+              x: j[0],
+              y: j[1],
+              z: j[2],
+              visibility: null,
+              presence: null,
+            };
+          }),
+        };
+      });
+      assert(finite(time), "Take times must increase");
       return {
         takeTimeMs: time * 1000,
         poses,
         quality: qualityFor(poses),
-        legacyConfidence: data.poses[i].map((p) => p.map((j) => j[3])),
+        legacyConfidence,
       };
     });
   } else if (data.schema === "aerodance.choreography") {
-    validateChoreography(data);
-    const c = data.tracks[0].calibration;
+    const choreography = validateChoreography(data);
+    const c = choreography.tracks[0].calibration;
     assert(
-      data.tracks.every(
+      choreography.tracks.every(
         (t) =>
           t.calibration.inputWidth === c.inputWidth &&
           t.calibration.inputHeight === c.inputHeight,
@@ -359,7 +524,7 @@ export function importMotion(
     );
     input = { width: c.inputWidth, height: c.inputHeight, mirrored: false };
     source = "choreography";
-    samples = data.samples.map((s) => ({
+    samples = choreography.samples.map((s) => ({
       takeTimeMs: s.songTimeMs,
       poses: copy(s.poses),
       quality: copy(s.quality),
@@ -370,9 +535,7 @@ export function importMotion(
     take.name = name;
     return validateTake(take);
   } else
-    throw Error(
-      "Import a legacy dance.json, choreography.json or take.json",
-    );
+    throw Error(unsupported);
   return validateTake({
     schema: "aerodance.take",
     schemaVersion: 1,
@@ -391,23 +554,29 @@ export function importMotion(
     },
   });
 }
-export function takeFromRecords(records, metadata) {
+export function assertCaptureMetadata(metadata: unknown): asserts metadata is CaptureMetadata {
+  const text = (v: unknown) => v === undefined || typeof v === 'string';
+  assert(isObject(metadata) && typeof metadata.takeId === 'string' && text(metadata.name) && text(metadata.createdAt) &&
+    (metadata.interruptionReason === null || text(metadata.interruptionReason)), 'Invalid capture metadata');
+}
+export function takeFromRecords(records: readonly unknown[], metadata: CaptureMetadata): Take {
   if (metadata.sourceKind === 'video') return videoTakeFromRecords(records, metadata);
   if (metadata.sourceKind === 'webcam') return webcamTakeFromRecords(records, metadata);
   throw Error('Unsupported capture source');
 }
 // Projects saved before webcam capture keep their stored "android" takes.
-export const sourceLabel = (source) => source === 'android' ? 'legacy capture' : source;
-export function webcamTakeFromRecords(records, metadata) {
-  const envelopes = records.filter(e => e.record);
+export const sourceLabel = (source: string) => source === 'android' ? 'legacy capture' : source;
+export function webcamTakeFromRecords(records: readonly unknown[], metadata: CaptureMetadata): Take {
+  const envelopes = records.filter(isObject).filter(e => e.record);
   assert(envelopes.length >= 2, 'Take needs at least two pose records');
-  const first = envelopes[0], input = first.record.input, session = first.record.sessionId;
-  const model = poseModel(first.record.modelId), config = metadata.status;
-  assert(config?.modelId === model.id && config.modelHash === model.sha256 &&
-    config.packageVersion === MEDIAPIPE_VERSION && ['GPU', 'CPU'].includes(config.delegate), 'Invalid webcam model configuration');
+  const first = envelopes[0], firstRecord = validateWebcamRecord(first.record);
+  const input = firstRecord.input, session = firstRecord.sessionId;
+  const model = poseModel(firstRecord.modelId), config = metadata.status;
+  assert(isObject(config) && config.modelId === model.id && config.modelHash === model.sha256 &&
+    config.packageVersion === MEDIAPIPE_VERSION && oneOf(DELEGATES, config.delegate), 'Invalid webcam model configuration');
   const rate = first.audioPlaybackRate;
   assert(finite(rate) && rate > 0, 'Invalid capture audio rate');
-  const samples = [];
+  const samples: StudioTakeSample[] = [];
   let lastSeq = 0, lastTime = -Infinity, lastBrowserTime = -Infinity, sequenceGaps = 0;
   for (const e of envelopes) {
     const r = validateWebcamRecord(e.record);
@@ -418,9 +587,10 @@ export function webcamTakeFromRecords(records, metadata) {
       finite(e.audioPositionAtFrameMs) && finite(e.receivedBrowserTimeMs) &&
       e.receivedBrowserTimeMs >= r.resultBrowserTimeMs, 'Invalid webcam frame/audio timing');
     if (lastSeq) sequenceGaps += Math.max(0, r.seq - lastSeq - 1);
-    const t = r.mediaTimeMs - first.record.mediaTimeMs;
-    if (samples.length && t - samples.at(-1).takeTimeMs > 200)
-      samples.push({ takeTimeMs: samples.at(-1).takeTimeMs + 200, poses: [], quality: [] });
+    const t = r.mediaTimeMs - firstRecord.mediaTimeMs;
+    const previous = samples.at(-1);
+    if (previous && t - previous.takeTimeMs > 200)
+      samples.push({ takeTimeMs: previous.takeTimeMs + 200, poses: [], quality: [] });
     samples.push({ takeTimeMs: t, poses: copy(r.poses), quality: qualityFor(r.poses), sourceSeq: r.seq });
     lastSeq = r.seq; lastTime = r.mediaTimeMs; lastBrowserTime = r.frameBrowserTimeMs;
   }
@@ -430,42 +600,46 @@ export function webcamTakeFromRecords(records, metadata) {
     status: config, interruptionReason: metadata.interruptionReason || null,
     provenance: { sessionId: session, sequenceGaps, modelId: model.id, modelHash: model.sha256,
       packageVersion: config.packageVersion, delegate: config.delegate, thresholds: config.thresholds,
-      sourceRateHz: (envelopes.length - 1) * 1000 / (lastTime - first.record.mediaTimeMs),
+      sourceRateHz: (envelopes.length - 1) * 1000 / (lastTime - firstRecord.mediaTimeMs),
       alignmentMethod: 'browser-frame-audio-anchor', frameTimingMethod: 'browser-frame-observation',
       audioAnchor: config.audioAnchor, timingUncertaintyMs: null } });
 }
-export function videoTakeFromRecords(records, metadata) {
+const recordOf = (envelope: unknown) => isObject(envelope) ? envelope.record : undefined;
+export function videoTakeFromRecords(records: readonly unknown[], metadata: CaptureMetadata): Take {
   assert(records.length >= 2 && records.length <= 150000, 'Take needs between 2 and 150000 video frames');
-  const first = validateVideoRecord(records[0].record), config = metadata.status;
+  const first = validateVideoRecord(recordOf(records[0])), config = metadata.status;
   const model = poseModel(first.modelId), input = first.input;
-  assert(config?.modelId === model.id && config.modelHash === model.sha256 &&
-    config.packageVersion === MEDIAPIPE_VERSION && ['GPU', 'CPU'].includes(config.delegate), 'Invalid video model configuration');
-  assert(finite(config.durationMs) && config.durationMs > 0 && config.durationMs <= 3600000, 'Invalid video duration');
-  let lastTime = -Infinity, lastSeq = 0;
-  const samples = records.map(e => {
-    const r = validateVideoRecord(e.record);
+  assert(isObject(config) && config.modelId === model.id && config.modelHash === model.sha256 &&
+    config.packageVersion === MEDIAPIPE_VERSION && oneOf(DELEGATES, config.delegate), 'Invalid video model configuration');
+  const durationMs = config.durationMs;
+  assert(finite(durationMs) && durationMs > 0 && durationMs <= 3600000, 'Invalid video duration');
+  let lastTime = -Infinity, lastSeq = 0, seekTime = false;
+  const samples = records.map((e): StudioTakeSample => {
+    const r = validateVideoRecord(recordOf(e));
     assert(r.sessionId === first.sessionId && r.modelId === first.modelId &&
       r.input.width === input.width && r.input.height === input.height, 'Video source/session/model/geometry changed');
-    assert(r.seq === lastSeq + 1 && r.mediaTimeMs > lastTime && r.mediaTimeMs <= config.durationMs, 'Invalid video frame sequence or timing');
+    assert(r.seq === lastSeq + 1 && r.mediaTimeMs > lastTime && r.mediaTimeMs <= durationMs, 'Invalid video frame sequence or timing');
     lastTime = r.mediaTimeMs; lastSeq = r.seq;
+    if (r.timingMethod === 'seek-time') seekTime = true;
     return { takeTimeMs: r.mediaTimeMs, poses: copy(r.poses), quality: qualityFor(r.poses), sourceSeq: r.seq };
   });
   assert(samples.some(s => s.poses.length), 'No dancers detected in this video');
+  const frame = metadata.calibrationFrame;
   return validateTake({ schema: 'aerodance.take', schemaVersion: 1, takeId: metadata.takeId,
     name: metadata.name || 'Video take', source: 'video', input, samples, offsetMs: 0, timeScale: 1,
-    createdAt: metadata.createdAt, calibrationFrame: copy(metadata.calibrationFrame), status: config,
+    createdAt: metadata.createdAt, calibrationFrame: copy(frame), status: config,
     provenance: { sessionId: first.sessionId, modelId: model.id, modelHash: model.sha256,
       packageVersion: config.packageVersion, delegate: config.delegate, thresholds: config.thresholds,
-      filename: config.filename, durationMs: config.durationMs, targetRateHz: config.targetRateHz ?? 30,
+      filename: config.filename, durationMs, targetRateHz: config.targetRateHz ?? 30,
       inferenceMethod: config.inferenceMethod || 'full-frame',
-      calibrationFrameTimeMs: metadata.calibrationFrame?.mediaTimeMs,
+      calibrationFrameTimeMs: isObject(frame) ? frame.mediaTimeMs : undefined,
       sourceRateHz: (samples.length - 1) * 1000 / (lastTime - first.mediaTimeMs),
-      alignmentMethod: 'video-time-zero', frameTimingMethod: records.some(e => e.record.timingMethod === 'seek-time') ? 'seek-time' : 'decoded-frame' } });
+      alignmentMethod: 'video-time-zero', frameTimingMethod: seekTime ? 'seek-time' : 'decoded-frame' } });
 }
 
-export function addTake(project, take) {
-  const p = copy(project);
-  p.takes.push({
+export function addTake<P extends Project>(project: P, take: Take): P {
+  const p = copy(project), q: Project = p;
+  q.takes.push({
     takeId: take.takeId,
     name: take.name,
     source: take.source,
@@ -473,26 +647,31 @@ export function addTake(project, take) {
     ...(['webcam', 'video'].includes(take.source) ? { modelId: take.provenance?.modelId, sourceRateHz: take.provenance?.sourceRateHz } : {}),
   });
   const first = take.samples[0].takeTimeMs,
-    last = take.samples.at(-1).takeTimeMs;
-  if (!p.durationMs) {
-    p.durationMs = Math.ceil(last);
-    p.playableEndMs = p.durationMs;
+    last = lastOf(take.samples).takeTimeMs;
+  if (!q.durationMs) {
+    q.durationMs = Math.ceil(last);
+    q.playableEndMs = q.durationMs;
   }
-  for (const track of p.schemaVersion === 1 ? p.tracks : [])
-    if (!track.clips.length)
-      track.clips.push({
-        clipId: crypto.randomUUID(),
-        takeId: take.takeId,
-        sourcePlayerId: track.playerId,
-        sourceStartMs: first,
-        sourceEndMs: last,
-        songStartMs: take.offsetMs + first * take.timeScale,
-        timeScale: take.timeScale,
-      });
-  if (p.schemaVersion === 1) p.alignmentReviewed = false;
+  if (q.schemaVersion === 1) {
+    for (const track of q.tracks)
+      if (!track.clips.length)
+        track.clips.push({
+          clipId: crypto.randomUUID(),
+          takeId: take.takeId,
+          sourcePlayerId: track.playerId,
+          sourceStartMs: first,
+          sourceEndMs: last,
+          songStartMs: take.offsetMs + first * take.timeScale,
+          timeScale: take.timeScale,
+        });
+    q.alignmentReviewed = false;
+  }
   return p;
 }
-export function appendOperation(project, operation, assets) {
+export function appendOperation(project: ProjectV2, operation: EditCommand, assets: StudioAssets): ProjectV2;
+export function appendOperation(project: ProjectV1, operation: EditCommand, assets?: StudioAssets): ProjectV1;
+export function appendOperation(project: Project, operation: EditCommand, assets?: StudioAssets): Project;
+export function appendOperation(project: Project, operation: EditCommand, assets?: StudioAssets): Project {
   if (project.schemaVersion === 2)
     return editTracks(project, operation, assets);
   const p = copy(project);
@@ -501,14 +680,25 @@ export function appendOperation(project, operation, assets) {
   p.operationCursor = p.operations.length;
   return p;
 }
-function rawSample(p, takes, time) {
-  const poses = [],
-    quality = [];
-  for (const track of p.tracks) {
-    if (p.schemaVersion === 2) {
+function trackAsset(assets: StudioAssets, dataId: string): TrackData {
+  const data = assets.get(dataId);
+  assert(data, "Missing track data");
+  assert(isTrackData(data), "Invalid track snapshot");
+  return data;
+}
+function takeAsset(assets: StudioAssets, takeId: string, missing = "Missing take"): Take {
+  const take = assets.get(takeId);
+  assert(take, missing);
+  assert(isTake(take), "Unsupported take schema");
+  return take;
+}
+function rawSample(p: Project, takes: StudioAssets, time: number): ChoreographySample {
+  const poses: Pose[] = [],
+    quality: PoseQuality[] = [];
+  if (p.schemaVersion === 2) {
+    for (const track of p.tracks) {
       if (!track.dataId) continue;
-      const data = takes.get(track.dataId);
-      assert(data, "Missing track data");
+      const data = trackAsset(takes, track.dataId);
       const snapshot = sampleSnapshot(
         data.samples,
         time - track.offsetMs,
@@ -516,16 +706,17 @@ function rawSample(p, takes, time) {
       );
       poses.push(...snapshot.poses);
       quality.push(...snapshot.quality);
-      continue;
     }
+    return { songTimeMs: time, poses, quality };
+  }
+  for (const track of p.tracks) {
     const clip = track.clips.find(
       (c) =>
         time >= c.songStartMs &&
         time <= c.songStartMs + (c.sourceEndMs - c.sourceStartMs) * c.timeScale,
     );
     if (!clip) continue;
-    const take = takes.get(clip.takeId);
-    if (!take) throw Error("Missing source take");
+    const take = takeAsset(takes, clip.takeId, "Missing source take");
     const sourceTime =
       clip.sourceStartMs + (time - clip.songStartMs) / clip.timeScale;
     const s = sampleSnapshot(take.samples, sourceTime, "takeTimeMs");
@@ -533,95 +724,106 @@ function rawSample(p, takes, time) {
     if (!pose) continue;
     pose.playerId = track.playerId;
     const q = s.quality.find((v) => v.playerId === clip.sourcePlayerId);
+    assert(q, "Missing pose quality");
     q.playerId = track.playerId;
     poses.push(pose);
     quality.push(q);
   }
   return { songTimeMs: time, poses, quality };
 }
+// What a compiled track draws on: its input frames, stored calibration and stored exclusions.
+interface TrackSources {
+  track: ClipTrack | Track;
+  inputs: FrameSize[];
+  calibration?: TrackCalibration;
+  adaptiveDistance: boolean;
+  exclusions: ReviewEdit[];
+}
+const isExclusion = (o: EditCommand): o is ReviewEdit => o.type === "exclude";
 export function compileProject(
-  project,
-  takes,
-  { fullTimeline = false, editOperation = null } = {},
-) {
-  validateProject(project);
+  project: Project,
+  takes: StudioAssets,
+  { fullTimeline = false, editOperation = null }: CompileOptions = {},
+): CompiledChoreography {
+  assertProject(project);
   const p = project,
-    ops =
+    ops: readonly EditCommand[] =
       p.schemaVersion === 2
         ? editOperation
           ? [editOperation]
           : []
         : p.operations.slice(0, p.operationCursor),
-    bounds = fullTimeline
+    [start, end] = fullTimeline
       ? projectBounds(p, takes)
-      : [p.playableStartMs, p.playableEndMs],
-    start = bounds[0],
-    end = bounds[1];
+      : [p.playableStartMs, p.playableEndMs];
   if (!(end > start)) throw Error("Import a recording or audio first");
   const times = new Set([start, end]);
   for (let i = 1; start + (i * 1000) / 30 < end; i++)
     times.add(Number((start + (i * 1000) / 30).toFixed(6)));
-  for (const track of p.tracks) {
-    if (p.schemaVersion === 2) {
-      if (track.dataId) {
-        const data = takes.get(track.dataId);
-        assert(data, "Missing track data");
-        validateTrackData(data);
-        for (const sample of data.samples)
-          times.add(Number((sample.takeTimeMs + track.offsetMs).toFixed(6)));
+  if (p.schemaVersion === 2) {
+    for (const track of p.tracks) {
+      if (!track.dataId) continue;
+      const data = trackAsset(takes, track.dataId);
+      assertTrackData(data);
+      for (const sample of data.samples)
+        times.add(Number((sample.takeTimeMs + track.offsetMs).toFixed(6)));
+    }
+  } else
+    for (const track of p.tracks)
+      for (const clip of track.clips) {
+        const take = takeAsset(takes, clip.takeId);
+        assertTake(take);
+        for (const s of take.samples)
+          if (
+            s.takeTimeMs >= clip.sourceStartMs &&
+            s.takeTimeMs <= clip.sourceEndMs
+          )
+            times.add(
+              Number(
+                (
+                  clip.songStartMs +
+                  (s.takeTimeMs - clip.sourceStartMs) * clip.timeScale
+                ).toFixed(6),
+              ),
+            );
       }
-      continue;
-    }
-    for (const clip of track.clips) {
-      const take = takes.get(clip.takeId);
-      assert(take, "Missing take");
-      validateTake(take);
-      for (const s of take.samples)
-        if (
-          s.takeTimeMs >= clip.sourceStartMs &&
-          s.takeTimeMs <= clip.sourceEndMs
-        )
-          times.add(
-            Number(
-              (
-                clip.songStartMs +
-                (s.takeTimeMs - clip.sourceStartMs) * clip.timeScale
-              ).toFixed(6),
-            ),
-          );
-    }
-  }
   for (const op of ops)
-    for (const t of [op.startMs, op.endMs, op.timeMs])
+    for (const t of [op.startMs, op.endMs, op.type === "joint" ? op.timeMs : undefined])
       if (finite(t)) times.add(t);
-  let samples = [...times]
+  const samples = [...times]
     .filter((t) => t >= start && t <= end)
     .sort((a, b) => a - b)
     .map((t) => rawSample(p, takes, t));
   for (const op of ops) {
     const before = op.type === "smooth" ? copy(samples) : null;
-    let repairEndpoints;
+    let repair: { a: ChoreographySample; b: ChoreographySample; left: Pose; right: Pose; playerId: number } | undefined;
     if (op.type === "repair") {
+      const id = op.playerId;
       const a = [...samples]
         .reverse()
         .find(
           (s) =>
             s.songTimeMs <= op.startMs &&
-            s.poses.some((v) => v.playerId === op.playerId),
+            s.poses.some((v) => v.playerId === id),
         );
       const b = samples.find(
         (s) =>
           s.songTimeMs >= op.endMs &&
-          s.poses.some((v) => v.playerId === op.playerId),
+          s.poses.some((v) => v.playerId === id),
       );
+      const left = a?.poses.find((v) => v.playerId === id),
+        right = b?.poses.find((v) => v.playerId === id);
       assert(
-        a &&
+        id !== null &&
+          a &&
           b &&
+          left &&
+          right &&
           b.songTimeMs > a.songTimeMs &&
           b.songTimeMs - a.songTimeMs <= 1000,
         "Gap repair needs two endpoint poses within one second",
       );
-      repairEndpoints = [a, b];
+      repair = { a, b, left, right, playerId: id };
     }
     for (let si = 0; si < samples.length; si++) {
       const s = samples[si],
@@ -642,13 +844,11 @@ export function compileProject(
         s.quality.sort((a, b) => a.playerId - b.playerId);
         continue;
       }
-      if (op.type === "repair") {
-        const [a, b] = repairEndpoints,
-          alpha = (time - a.songTimeMs) / (b.songTimeMs - a.songTimeMs),
-          left = a.poses.find((v) => v.playerId === op.playerId),
-          right = b.poses.find((v) => v.playerId === op.playerId);
+      if (repair) {
+        const { a, b, left, right, playerId } = repair,
+          alpha = (time - a.songTimeMs) / (b.songTimeMs - a.songTimeMs);
         const repaired = {
-          playerId: op.playerId,
+          playerId,
           landmarks: left.landmarks.map((j, i) => ({
             x: j.x + (right.landmarks[i].x - j.x) * alpha,
             y: j.y + (right.landmarks[i].y - j.y) * alpha,
@@ -657,11 +857,11 @@ export function compileProject(
             presence: null,
           })),
         };
-        const index = s.poses.findIndex((v) => v.playerId === op.playerId),
-          q = {
-            playerId: op.playerId,
-            landmarkOrigins: Array(33).fill("gap-repaired"),
-            scoreEligible: Array(33).fill(false),
+        const index = s.poses.findIndex((v) => v.playerId === playerId),
+          q: PoseQuality = {
+            playerId,
+            landmarkOrigins: Array<LandmarkOrigin>(33).fill("gap-repaired"),
+            scoreEligible: Array<boolean>(33).fill(false),
             reviewed: false,
           };
         if (index < 0) {
@@ -689,7 +889,7 @@ export function compileProject(
           for (const target of op.targets || [
             { joint: op.joint, value: op.value },
           ]) {
-            for (const k of ["x", "y", "z"])
+            for (const k of AXES)
               pose.landmarks[target.joint][k] +=
                 (target.value[k] - pose.landmarks[target.joint][k]) *
                 clamp(weight, 0, 1);
@@ -700,9 +900,10 @@ export function compileProject(
         }
         if (op.type === "mirror") {
           s.poses[i] = mirrorPose(pose);
-          for (const [a, b] of PAIRS)
-            for (const key of ["landmarkOrigins", "scoreEligible"])
-              [q[key][a], q[key][b]] = [q[key][b], q[key][a]];
+          for (const [a, b] of PAIRS) {
+            [q.landmarkOrigins[a], q.landmarkOrigins[b]] = [q.landmarkOrigins[b], q.landmarkOrigins[a]];
+            [q.scoreEligible[a], q.scoreEligible[b]] = [q.scoreEligible[b], q.scoreEligible[a]];
+          }
           q.landmarkOrigins.fill("edited");
           q.scoreEligible.fill(false);
           q.reviewed = false;
@@ -712,8 +913,8 @@ export function compileProject(
           q.scoreEligible.fill(true);
           q.reviewed = true;
         }
-        if (op.type === "smooth") {
-          const neighbors = [];
+        if (op.type === "smooth" && before) {
+          const neighbors: Pose[] = [];
           for (let n = si; n >= 0; n--) {
             if (time - before[n].songTimeMs > op.windowMs / 2) break;
             const v = before[n].poses.find((v) => v.playerId === pose.playerId);
@@ -727,7 +928,7 @@ export function compileProject(
             neighbors.push(v);
           }
           pose.landmarks.forEach((j, index) => {
-            for (const key of ["x", "y", "z"])
+            for (const key of AXES)
               j[key] =
                 neighbors.reduce((sum, v) => sum + v.landmarks[index][key], 0) /
                 neighbors.length;
@@ -752,13 +953,37 @@ export function compileProject(
         )
       )
         q.scoreEligible.fill(false);
-  const tracks = p.tracks.map((t) => {
-    const inputs =
-      p.schemaVersion === 2
-        ? t.dataId
-          ? [takes.get(t.dataId).input]
-          : []
-        : t.clips.map((c) => takes.get(c.takeId).input);
+  const sources: TrackSources[] =
+    p.schemaVersion === 2
+      ? p.tracks.map((t) => {
+          const data = t.dataId ? trackAsset(takes, t.dataId) : null;
+          return {
+            track: t,
+            inputs: data ? [data.input] : [],
+            calibration: data?.calibration,
+            adaptiveDistance: Boolean(data && data.sources.length &&
+              data.sources.every(s => s.source === "webcam")),
+            exclusions: data
+              ? data.exclusions.map((o) => ({
+                  ...o,
+                  startMs: o.startMs + t.offsetMs,
+                  endMs: o.endMs + t.offsetMs,
+                  type: "exclude" as const,
+                  playerId: t.playerId,
+                }))
+              : [],
+          };
+        })
+      : p.tracks.map((t) => {
+          const clipTakes = t.clips.map((c) => takeAsset(takes, c.takeId));
+          return {
+            track: t,
+            inputs: clipTakes.map((take) => take.input),
+            adaptiveDistance: clipTakes.length > 0 && clipTakes.every(take => take.source === "webcam"),
+            exclusions: [],
+          };
+        });
+  const tracks: SongTrack[] = sources.map(({ track: t, inputs, calibration, adaptiveDistance, exclusions }) => {
     const input = inputs[0] || { width: 640, height: 480 };
     assert(
       inputs.every((v) => v.width === input.width && v.height === input.height),
@@ -767,34 +992,17 @@ export function compileProject(
     return {
       playerId: t.playerId,
       label: t.label,
-      calibration: p.schemaVersion === 2 && t.dataId && takes.get(t.dataId).calibration
-        ? copy(takes.get(t.dataId).calibration) : calibratePoses(
+      calibration: calibration
+        ? copy(calibration) : calibratePoses(
         samples.flatMap((s) =>
           s.poses.filter((v) => v.playerId === t.playerId),
         ),
         input,
-        { adaptiveDistance: p.schemaVersion === 2
-            ? Boolean(t.dataId && takes.get(t.dataId).sources.length &&
-                takes.get(t.dataId).sources.every(s => s.source === "webcam"))
-            : t.clips.length > 0 && t.clips.every(c => takes.get(c.takeId).source === "webcam") },
+        { adaptiveDistance },
       ),
-      unscorableIntervals: [
-        ...(p.schemaVersion === 2 && t.dataId
-          ? takes
-              .get(t.dataId)
-              .exclusions.map((o) => ({
-                ...o,
-                startMs: o.startMs + t.offsetMs,
-                endMs: o.endMs + t.offsetMs,
-                type: "exclude",
-                playerId: t.playerId,
-              }))
-          : []),
-        ...ops,
-      ]
+      unscorableIntervals: [...exclusions, ...ops.filter(isExclusion)]
         .filter(
           (o) =>
-            o.type === "exclude" &&
             (o.playerId === null || o.playerId === t.playerId) &&
             o.endMs > start &&
             o.startMs < end,
@@ -806,7 +1014,7 @@ export function compileProject(
         })),
     };
   });
-  const result = {
+  const result: CompiledChoreography = {
     schema: "aerodance.choreography",
     schemaVersion: 1,
     songId: p.songId,
@@ -840,16 +1048,19 @@ export function compileProject(
           ? [
               ...new Map(
                 p.tracks
-                  .flatMap((t) => (t.dataId ? takes.get(t.dataId).sources : []))
-                  .map((source) => [source.takeId, source]),
+                  .flatMap((t) => (t.dataId ? trackAsset(takes, t.dataId).sources : []))
+                  .map((source) => [source.takeId, source] as const),
               ).values(),
             ]
-          : p.takes.map((t) => ({
-              takeId: t.takeId,
-              source: t.source,
-              sha256: takes.get(t.takeId)?.sha256 || null,
-              provenance: takes.get(t.takeId)?.provenance || null,
-            })),
+          : p.takes.map((t) => {
+              const take = takes.get(t.takeId), stored = isTake(take) ? take : undefined;
+              return {
+                takeId: t.takeId,
+                source: t.source,
+                sha256: stored?.sha256 || null,
+                provenance: stored?.provenance || null,
+              };
+            }),
     },
   };
   // Stored exclusions always win, including after an explicit approval.
@@ -861,7 +1072,8 @@ export function compileProject(
         )
       )
         q.scoreEligible.fill(false);
-  return fullTimeline ? result : validateChoreography(result);
+  if (!fullTimeline) assertChoreography(result);
+  return result;
 }
 // Whether the intervals together cover [startMs, endMs]; adjacent or overlapping reviews count jointly.
 // Compiled sample times are rounded to the microsecond and review bounds aren't, so allow that much.
@@ -875,10 +1087,10 @@ export function intervalsCover(intervals: readonly { startMs: number; endMs: num
   }
   return reached + COVER_TOLERANCE_MS >= endMs;
 }
-export function reviewReport(project, data) {
-  const blockers = [],
-    warnings = [],
-    coverage = [];
+export function reviewReport(project: Project, data: CompiledChoreography): ReviewReport {
+  const blockers: string[] = [],
+    warnings: string[] = [],
+    coverage: TrackCoverage[] = [];
   if (!project.audio) blockers.push("Import song audio");
   if (!project.metadata.artist.trim() || !project.metadata.title.trim())
     blockers.push("Add song title and artist");
@@ -888,7 +1100,7 @@ export function reviewReport(project, data) {
     blockers.push(
       "Synthetic tracking takes cannot be published as song choreography",
     );
-  for (const k of ["audio", "choreography"])
+  for (const k of ["audio", "choreography"] as const)
     if (
       !project.metadata.rights?.[k]?.license?.trim() ||
       project.metadata.rights[k].license === "unknown"
@@ -898,7 +1110,7 @@ export function reviewReport(project, data) {
     let missing = 0,
       eligible = 0,
       edited = 0,
-      gapStart = null,
+      gapStart: number | null = null,
       unreviewedGap = 0;
     const excludes = data.tracks[id].unscorableIntervals;
     for (let i = 0; i < data.samples.length - 1; i++) {
@@ -922,6 +1134,7 @@ export function reviewReport(project, data) {
           );
         gapStart = null;
         unreviewedGap = 0;
+        assert(q, "Missing pose quality");
         if (q.scoreEligible.filter(Boolean).length >= 8) eligible += dt;
         if (q.landmarkOrigins.includes("edited")) edited += dt;
       }
@@ -964,21 +1177,21 @@ export function reviewReport(project, data) {
   return { blockers: [...new Set(blockers)], warnings, coverage };
 }
 export function replaceRange(
-  project,
-  playerId,
-  take,
-  start,
-  end,
-  sourceStart,
-  sourceEnd,
-) {
+  project: ProjectV1,
+  playerId: number,
+  take: Pick<Take, "takeId">,
+  start: number,
+  end: number,
+  sourceStart: number,
+  sourceEnd: number,
+): ProjectV1 {
   assert(
     end > start && sourceEnd > sourceStart,
     "Choose nonempty source and destination ranges",
   );
   const p = copy(project),
     track = p.tracks[playerId],
-    clips = [];
+    clips: Clip[] = [];
   for (const c of track.clips) {
     const cend =
       c.songStartMs + (c.sourceEndMs - c.sourceStartMs) * c.timeScale;
@@ -1015,27 +1228,24 @@ export function replaceRange(
 }
 
 // Track snapshots have no dependency on a library take. History only stores refs.
-function validateTrackRefs(tracks, ordered = true) {
+function assertTrackRefs(tracks: unknown, ordered = true): asserts tracks is Track[] {
   assert(
-    Array.isArray(tracks) && (!ordered || tracks.length === 2),
+    isArray(tracks) && (!ordered || tracks.length === 2),
     "Invalid track state",
   );
   tracks.forEach((t, i) => {
     assert(
-      [0, 1].includes(t.playerId) &&
+      isObject(t) &&
+        isPlayerId(t.playerId) &&
         (!ordered || t.playerId === i) &&
         finite(t.offsetMs) &&
         Math.abs(t.offsetMs) <= 3600000 &&
-        [t.dataId, t.originalDataId].every(
-          (id) =>
-            id === null ||
-            (typeof id === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(id)),
-        ),
+        [t.dataId, t.originalDataId].every((id) => id === null || isId(id)),
       "Invalid track reference/offset",
     );
   });
 }
-export function trackDataIds(project) {
+export function trackDataIds(project: Project): string[] {
   if (project.schemaVersion !== 2) return [];
   return [
     ...new Set(
@@ -1046,19 +1256,20 @@ export function trackDataIds(project) {
         .flatMap((tracks) =>
           tracks.flatMap((t) => [t.dataId, t.originalDataId]),
         )
-        .filter(Boolean),
+        .filter((id): id is string => Boolean(id)),
     ),
   ];
 }
-export function validateTrackData(data) {
+export function assertTrackData(data: unknown): asserts data is TrackData {
   assert(
-    data?.schema === "aerodance.track" &&
+    isObject(data) &&
+      data.schema === "aerodance.track" &&
       data.schemaVersion === 1 &&
-      /^[a-zA-Z0-9-]{1,80}$/.test(data.dataId) &&
-      [0, 1].includes(data.playerId),
+      isId(data.dataId) &&
+      isPlayerId(data.playerId),
     "Invalid track snapshot",
   );
-  validateTake({
+  const take = validateTake({
     ...data,
     schema: "aerodance.take",
     takeId: data.dataId,
@@ -1067,49 +1278,46 @@ export function validateTrackData(data) {
   });
   if (data.calibration !== undefined) {
     const c = data.calibration;
-    assert(c && c.profileVersion === 2 && c.cameraScaleMode === 'body-relative' &&
-      c.inputWidth === data.input.width && c.inputHeight === data.input.height &&
+    assert(isObject(c) && c.profileVersion === 2 && c.cameraScaleMode === 'body-relative' &&
+      c.inputWidth === take.input.width && c.inputHeight === take.input.height &&
       finite(c.torsoLength) && c.torsoLength > 0 && finite(c.bodyTorsoLength) && c.bodyTorsoLength > 0 &&
-      finite(c.floorY) && ['x', 'y', 'z'].every(k => finite(c.baseHip?.[k])), 'Invalid track calibration');
+      finite(c.floorY) && point3(c.baseHip), 'Invalid track calibration');
   }
-  for (const sample of data.samples) {
+  const player = data.playerId;
+  for (const sample of take.samples) {
     assert(
-      sample.poses.every((p) => p.playerId === data.playerId),
+      sample.poses.every((p) => p.playerId === player),
       "Track contains another player",
     );
+    const quality: unknown = sample.quality;
     assert(
-      sample.quality?.length === sample.poses.length,
+      isArray(quality) && quality.length === sample.poses.length,
       "Missing track quality",
     );
-    sample.quality.forEach((q) =>
+    for (const q of quality)
       assert(
-        q.playerId === data.playerId &&
-          q.landmarkOrigins?.length === 33 &&
-          q.landmarkOrigins.every((v) =>
-            [
-              "measured",
-              "resampled",
-              "edited",
-              "gap-repaired",
-              "missing-confidence",
-            ].includes(v),
-          ) &&
-          q.scoreEligible?.length === 33 &&
+        isObject(q) &&
+          q.playerId === player &&
+          isArray(q.landmarkOrigins) &&
+          q.landmarkOrigins.length === 33 &&
+          q.landmarkOrigins.every((v) => oneOf(ORIGINS, v)) &&
+          isArray(q.scoreEligible) &&
+          q.scoreEligible.length === 33 &&
           q.scoreEligible.every((v) => typeof v === "boolean") &&
           typeof q.reviewed === "boolean",
         "Invalid track quality",
-      ),
-    );
+      );
   }
   assert(
-    Array.isArray(data.sources) &&
-      data.sources.every((s) => /^[a-zA-Z0-9-]{1,80}$/.test(s.takeId)),
+    isArray(data.sources) &&
+      data.sources.every((s) => isObject(s) && isId(s.takeId)),
     "Invalid track provenance",
   );
   assert(
-    Array.isArray(data.exclusions) &&
+    isArray(data.exclusions) &&
       data.exclusions.every(
         (o) =>
+          isObject(o) &&
           finite(o.startMs) &&
           finite(o.endMs) &&
           o.endMs >= o.startMs &&
@@ -1117,9 +1325,19 @@ export function validateTrackData(data) {
       ),
     "Invalid track exclusions",
   );
+}
+export function validateTrackData(data: unknown): TrackData {
+  assertTrackData(data);
   return data;
 }
-function trackSnapshot(playerId, input, samples, sources, exclusions = [], calibration) {
+function trackSnapshot(
+  playerId: number,
+  input: CaptureInput,
+  samples: TrackSample[],
+  sources: SourceRef[],
+  exclusions: ScoreExclusion[] = [],
+  calibration?: TrackCalibration,
+): TrackData {
   return validateTrackData({
     schema: "aerodance.track",
     schemaVersion: 1,
@@ -1132,7 +1350,7 @@ function trackSnapshot(playerId, input, samples, sources, exclusions = [], calib
     ...(calibration ? { calibration: copy(calibration) } : {}),
   });
 }
-function recordTrackChange(project, tracks, operation) {
+function recordTrackChange(project: ProjectV2, tracks: Track[], operation: TrackCommand): ProjectV2 {
   const p = copy(project);
   p.operations = p.operations.slice(0, p.operationCursor);
   p.operations.push({
@@ -1143,30 +1361,31 @@ function recordTrackChange(project, tracks, operation) {
   });
   p.operationCursor = p.operations.length;
   p.tracks = tracks;
-  if (!["approve", "exclude"].includes(operation.type))
+  if (operation.type !== "approve" && operation.type !== "exclude")
     p.alignmentReviewed = false;
   return p;
 }
-export function historyStep(project, delta) {
+export function historyStep<P extends Project>(project: P, delta: number): P {
   const p = copy(project),
-    cursor = clamp(p.operationCursor + delta, 0, p.operations.length);
-  if (p.schemaVersion === 2 && cursor !== p.operationCursor)
-    p.tracks = copy(
+    q: Project = p,
+    cursor = clamp(q.operationCursor + delta, 0, q.operations.length);
+  if (q.schemaVersion === 2 && cursor !== q.operationCursor)
+    q.tracks = copy(
       delta < 0
-        ? p.operations[cursor].beforeTracks
-        : p.operations[cursor - 1].afterTracks,
+        ? q.operations[cursor].beforeTracks
+        : q.operations[cursor - 1].afterTracks,
     );
-  p.operationCursor = cursor;
-  p.alignmentReviewed = false;
+  q.operationCursor = cursor;
+  q.alignmentReviewed = false;
   return p;
 }
-export function overwriteTracks(project, take, playerIds, assets) {
-  validateTake(take);
+export function overwriteTracks(project: ProjectV2, take: Take, playerIds: readonly number[], assets: StudioAssets): ProjectV2 {
+  assertTake(take);
   assert(
-    playerIds.length &&
+    playerIds.length > 0 &&
       playerIds.every(
         (id) =>
-          [0, 1].includes(id) &&
+          isPlayerId(id) &&
           take.samples.some((s) => s.poses.some((p) => p.playerId === id)),
       ),
     "Take has no poses for the requested player",
@@ -1202,7 +1421,7 @@ export function overwriteTracks(project, take, playerIds, assets) {
     playerId: playerIds.length === 2 ? null : playerIds[0],
   });
 }
-export function clearTrack(project, playerId) {
+export function clearTrack(project: ProjectV2, playerId: number): ProjectV2 {
   const tracks = copy(project.tracks);
   tracks[playerId] = {
     ...tracks[playerId],
@@ -1212,7 +1431,7 @@ export function clearTrack(project, playerId) {
   };
   return recordTrackChange(project, tracks, { type: "clear", playerId });
 }
-export function offsetTrack(project, playerId, offsetMs) {
+export function offsetTrack(project: ProjectV2, playerId: number, offsetMs: number): ProjectV2 {
   assert(
     finite(offsetMs) && Math.abs(offsetMs) <= 3600000,
     "Offset must be finite and within one hour",
@@ -1221,18 +1440,18 @@ export function offsetTrack(project, playerId, offsetMs) {
   tracks[playerId].offsetMs = offsetMs;
   return recordTrackChange(project, tracks, { type: "offset", playerId });
 }
-function projectBounds(project, assets) {
+function projectBounds(project: Project, assets: StudioAssets): [number, number] {
   let start = 0,
     end = project.durationMs;
-  for (const t of project.tracks) {
-    if (project.schemaVersion === 2) {
+  if (project.schemaVersion === 2) {
+    for (const t of project.tracks)
       if (t.dataId) {
-        const data = assets.get(t.dataId);
-        assert(data, "Missing track data");
+        const data = trackAsset(assets, t.dataId);
         start = Math.min(start, data.samples[0].takeTimeMs + t.offsetMs);
-        end = Math.max(end, data.samples.at(-1).takeTimeMs + t.offsetMs);
+        end = Math.max(end, lastOf(data.samples).takeTimeMs + t.offsetMs);
       }
-    } else
+  } else
+    for (const t of project.tracks)
       for (const c of t.clips) {
         start = Math.min(start, c.songStartMs);
         end = Math.max(
@@ -1240,14 +1459,20 @@ function projectBounds(project, assets) {
           c.songStartMs + (c.sourceEndMs - c.sourceStartMs) * c.timeScale,
         );
       }
-  }
   return [start, end];
 }
-function storeEditedTracks(project, assets, data, playerIds, operation) {
+function storeEditedTracks(
+  project: ProjectV2,
+  assets: StudioAssets,
+  data: CompiledChoreography,
+  playerIds: readonly number[],
+  operation: TrackCommand,
+): ProjectV2 {
   const tracks = copy(project.tracks);
   for (const id of playerIds) {
     const track = tracks[id],
-      previous = track.dataId && assets.get(track.dataId);
+      stored = track.dataId ? assets.get(track.dataId) : undefined,
+      previous = isTrackData(stored) ? stored : undefined;
     const samples = data.samples.map((s) => ({
       takeTimeMs: s.songTimeMs - track.offsetMs,
       poses: copy(s.poses.filter((p) => p.playerId === id)),
@@ -1258,8 +1483,8 @@ function storeEditedTracks(project, assets, data, playerIds, operation) {
         ? [
             ...new Map(
               project.tracks
-                .flatMap((t) => (t.dataId ? assets.get(t.dataId).sources : []))
-                .map((s) => [s.takeId, s]),
+                .flatMap((t) => (t.dataId ? trackAsset(assets, t.dataId).sources : []))
+                .map((s) => [s.takeId, s] as const),
             ).values(),
           ]
         : previous?.sources || [];
@@ -1285,7 +1510,7 @@ function storeEditedTracks(project, assets, data, playerIds, operation) {
   }
   return recordTrackChange(project, tracks, operation);
 }
-function editTracks(project, operation, assets) {
+function editTracks(project: ProjectV2, operation: EditCommand, assets: StudioAssets | undefined): ProjectV2 {
   assert(assets instanceof Map, "Track assets are required for editing");
   // Apply the existing editing algorithms to the entire retained timeline, then
   // save independent snapshots. Negative/out-of-range poses remain recoverable.
@@ -1301,10 +1526,10 @@ function editTracks(project, operation, assets) {
     operation,
   );
 }
-export function missingIntervals(project, assets, playerId) {
+export function missingIntervals(project: Project, assets: StudioAssets, playerId: number): Interval[] {
   const data = compileProject(project, assets),
-    gaps = [];
-  let left = null,
+    gaps: Interval[] = [];
+  let left: number | null = null,
     missing = false;
   for (const s of data.samples) {
     const present = s.poses.some((p) => p.playerId === playerId);
@@ -1317,7 +1542,7 @@ export function missingIntervals(project, assets, playerId) {
   }
   return gaps;
 }
-export function interpolateTrack(project, assets, playerId) {
+export function interpolateTrack(project: ProjectV2, assets: StudioAssets, playerId: number): { project: ProjectV2; filled: number } {
   const gaps = missingIntervals(project, assets, playerId);
   assert(gaps.length, "No bounded missing intervals to interpolate");
   const data = compileProject(project, assets, { fullTimeline: true });
@@ -1328,6 +1553,7 @@ export function interpolateTrack(project, assets, playerId) {
     const right = rawSample(project, assets, gap.endMs).poses.find(
       (p) => p.playerId === playerId,
     );
+    assert(left && right, "No bounded missing intervals to interpolate");
     for (const s of data.samples) {
       if (
         s.songTimeMs <= gap.startMs ||
@@ -1348,8 +1574,8 @@ export function interpolateTrack(project, assets, playerId) {
       });
       s.quality.push({
         playerId,
-        landmarkOrigins: Array(33).fill("gap-repaired"),
-        scoreEligible: Array(33).fill(false),
+        landmarkOrigins: Array<LandmarkOrigin>(33).fill("gap-repaired"),
+        scoreEligible: Array<boolean>(33).fill(false),
         reviewed: false,
       });
       s.poses.sort((a, b) => a.playerId - b.playerId);
@@ -1364,7 +1590,7 @@ export function interpolateTrack(project, assets, playerId) {
     filled: gaps.length,
   };
 }
-export function migrateProject(project, assets) {
+export function migrateProject(project: Project, assets: StudioAssets): ProjectV2 {
   if (project.schemaVersion === 2) return project;
   const p = copy(project);
   const raw =
@@ -1377,38 +1603,43 @@ export function migrateProject(project, assets) {
     project.durationMs > 0
       ? compileProject(p, assets, { fullTimeline: true })
       : null;
-  p.schemaVersion = 2;
-  p.operations = [];
-  p.operationCursor = 0;
-  p.tracks = project.tracks.map((t) => {
-    const track = {
-      playerId: t.playerId,
-      label: t.label,
-      dataId: null,
-      originalDataId: null,
-      offsetMs: 0,
-    };
-    if (!t.clips.length) return track;
-    const input = assets.get(t.clips[0].takeId).input;
-    for (const [key, data] of [
-      ["originalDataId", raw],
-      ["dataId", current],
-    ]) {
-      const snapshot = trackSnapshot(
-        t.playerId,
-        input,
-        data.samples.map((s) => ({
-          takeTimeMs: s.songTimeMs,
-          poses: copy(s.poses.filter((p) => p.playerId === t.playerId)),
-          quality: copy(s.quality.filter((q) => q.playerId === t.playerId)),
-        })),
-        data.provenance.sources,
-        data.tracks[t.playerId].unscorableIntervals,
-      );
-      assets.set(snapshot.dataId, snapshot);
-      track[key] = snapshot.dataId;
-    }
-    return track;
-  });
-  return validateProject(p);
+  const next: ProjectV2 = {
+    ...p,
+    schemaVersion: 2,
+    operations: [],
+    operationCursor: 0,
+    tracks: project.tracks.map((t) => {
+      const track: Track = {
+        playerId: t.playerId,
+        label: t.label,
+        dataId: null,
+        originalDataId: null,
+        offsetMs: 0,
+      };
+      if (!t.clips.length) return track;
+      const input = takeAsset(assets, t.clips[0].takeId).input;
+      for (const [key, data] of [
+        ["originalDataId", raw],
+        ["dataId", current],
+      ] as const) {
+        assert(data, "Import a recording or audio first");
+        const snapshot = trackSnapshot(
+          t.playerId,
+          input,
+          data.samples.map((s) => ({
+            takeTimeMs: s.songTimeMs,
+            poses: copy(s.poses.filter((p) => p.playerId === t.playerId)),
+            quality: copy(s.quality.filter((q) => q.playerId === t.playerId)),
+          })),
+          data.provenance.sources,
+          data.tracks[t.playerId].unscorableIntervals,
+        );
+        assets.set(snapshot.dataId, snapshot);
+        track[key] = snapshot.dataId;
+      }
+      return track;
+    }),
+  };
+  assertProject(next);
+  return next;
 }

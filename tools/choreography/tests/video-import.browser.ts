@@ -3,57 +3,74 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import type { Page } from 'playwright';
 import { createStudio } from '../server/index.ts';
-import { newProject, addTake, overwriteTracks, trackDataIds, takeCalibration } from '../core.ts';
+import { newProject, addTake, overwriteTracks, trackDataIds, takeCalibration, validateTake, validateTrackData } from '../core.ts';
+import type { Project, StudioAssets, Take } from '../core.ts';
+import type { ImportWorkerRequest } from '../web/videoImport.ts';
+import type { PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { readZip } from '../server/zip.ts';
+import { baseUrl, found, read, zipJson } from './helpers.ts';
+
+declare global {
+  interface Window {
+    /** getUserMedia calls the page made. */
+    cameraRequests: number;
+    /** 'weak-left' lowers P1's ankle confidence in worker results. */
+    calibrationFixture: 'weak-left' | 'normal';
+  }
+}
 
 const root = await mkdtemp(path.join(tmpdir(), 'studio-video-browser-'));
 const { app, store } = createStudio({ dataDir: root });
 // A take stored by an earlier Android-capable editor must still open beside new video takes.
-const source = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'android', name: 'Original take',
+const source: Take = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'android', name: 'Original take',
   input: { width: 640, height: 480, mirrored: false }, offsetMs: 0, timeScale: 1,
   samples: Array.from({ length: 9 }, (_, i) => ({ takeTimeMs: i * 100, poses: [0, 1].map(playerId => ({ playerId,
     landmarks: Array.from({ length: 33 }, (_, j) => ({ x: playerId ? .25 : .75, y: j < 23 ? .4 : .8,
       z: 0, visibility: .95, presence: .95 })) })) })) };
-const original = await store.writeTake('video-browser', source), assets = new Map([[original.takeId, original]]);
-let p = overwriteTracks(addTake(newProject('video-browser'), original), original, [0, 1], assets);
+const original = await store.writeTake('video-browser', source), assets: StudioAssets = new Map([[original.takeId, original]]);
+let p: Project = overwriteTracks(addTake(newProject('video-browser'), original), original, [0, 1], assets);
 for (const dataId of trackDataIds(p)) await store.writeTrack(p.projectId, assets.get(dataId));
 p = await store.save(p, null);
 const initialTracks = structuredClone(p.tracks);
 const server = app.listen(0, '127.0.0.1');
 await new Promise(resolve => server.once('listening', resolve));
-const base = `http://127.0.0.1:${server.address().port}`;
+const base = baseUrl(server);
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-accelerated-video-decode'] });
-let page;
+let page: Page | undefined;
 try {
   page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(60000);
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
     // The worker's graphics context still runs actual model inference.
     for (const Type of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
       if (!Type) continue;
       for (const name of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced'])
-        if (Type.prototype[name]) Type.prototype[name] = () => {};
+        if (name in Type.prototype) Reflect.set(Type.prototype, name, () => {});
     }
     window.cameraRequests = 0;
     navigator.mediaDevices.getUserMedia = async () => { window.cameraRequests++; throw Error('Video import must not request a camera'); };
     window.calibrationFixture = 'weak-left';
     const NativeWorker = window.Worker;
     window.Worker = class extends NativeWorker {
-      constructor(...args) {
+      regionId?: number;
+      constructor(...args: ConstructorParameters<typeof Worker>) {
         super(...args);
-        this.addEventListener('message', ({ data }) => {
+        this.addEventListener('message', ({ data }: MessageEvent<PoseWorkerResponse>) => {
           if (data.type !== 'result' || window.calibrationFixture !== 'weak-left') return;
           const left = this.regionId === 0 ? data.landmarks[0] : this.regionId === 1 ? null
             : data.landmarks.find(p => (p[23].x + p[24].x) / 2 > .5);
           if (left) left[27].visibility = .1;
         });
       }
-      postMessage(data, ...args) {
+      postMessage(data: ImportWorkerRequest, transfer: Transferable[]): void;
+      postMessage(data: ImportWorkerRequest, options?: StructuredSerializeOptions): void;
+      postMessage(data: ImportWorkerRequest, transfer?: Transferable[] | StructuredSerializeOptions) {
         this.regionId = data.regionId;
-        return super.postMessage(data, ...args);
+        return Array.isArray(transfer) ? super.postMessage(data, transfer) : super.postMessage(data, transfer);
       }
     };
   });
@@ -68,20 +85,23 @@ try {
   audio.writeUInt16LE(2, 32); audio.writeUInt16LE(16, 34); audio.write('data', 36); audio.writeUInt32LE(audio.length - 44, 40);
   await page.getByLabel('Import song audio', { exact: true }).setInputFiles({ name: 'song.wav', mimeType: 'audio/wav', buffer: audio });
   await page.getByText(/Audio imported/).waitFor();
-  const audioBefore = (await store.read(p.projectId, 'project.json')).audio;
+  const audioBefore = (await store.project(p.projectId)).audio;
   await page.getByLabel('Import video', { exact: true }).setInputFiles({ name: 'bad.webm', mimeType: 'video/webm', buffer: Buffer.from('not video') });
   await page.getByRole('alert').filter({ hasText: /could not decode/ }).waitFor();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('dialog', { name: 'Import video' }).waitFor({ state: 'hidden' });
-  assert.equal((await store.read(p.projectId, 'project.json')).takes.length, 1);
+  assert.equal((await store.project(p.projectId)).takes.length, 1);
   await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
   const panel = page.getByRole('dialog', { name: 'Import video' });
   await panel.waitFor();
   assert.equal(await page.getByRole('button', { name: 'Process video', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).waitFor();
-  await page.waitForFunction(() => document.querySelector('dialog video')?.readyState >= 2);
-  await page.locator('dialog video').evaluate(v => { v.currentTime = .3; });
-  await page.waitForFunction(() => Math.abs(document.querySelector('dialog video').currentTime - .3) < .01 && !document.querySelector('dialog video').seeking);
+  await page.waitForFunction(() => (document.querySelector<HTMLVideoElement>('dialog video')?.readyState ?? 0) >= 2);
+  await page.locator('dialog video').evaluate((v: HTMLVideoElement) => { v.currentTime = .3; });
+  await page.waitForFunction(() => {
+    const video = document.querySelector<HTMLVideoElement>('dialog video');
+    return !!video && Math.abs(video.currentTime - .3) < .01 && !video.seeking;
+  });
   await page.getByRole('button', { name: 'Use current frame for calibration' }).click();
   await page.getByText('P1 detected · needs clearer shoulders, hips and feet', { exact: true }).waitFor();
   await page.getByText('P2 detected · ready', { exact: true }).waitFor();
@@ -98,11 +118,11 @@ try {
   await panel.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'View take: video-fixture.webm', exact: true }).waitFor();
   await page.getByText('Saved', { exact: true }).waitFor();
-  let saved = await store.read(p.projectId, 'project.json');
+  let saved = await store.project(p.projectId);
   assert.equal(saved.takes.length, 2); assert.deepEqual(saved.tracks, initialTracks); assert.deepEqual(saved.audio, audioBefore);
-  const imported = await store.read(p.projectId, 'takes', `${saved.takes[1].takeId}.json`);
-  assert.equal(imported.source, 'video'); assert.equal(imported.provenance.modelId, 'full');
-  assert.ok(Math.abs(imported.calibrationFrame.mediaTimeMs - 300) < 1);
+  const imported = validateTake(await store.read(p.projectId, 'takes', `${saved.takes[1].takeId}.json`));
+  assert.equal(imported.source, 'video'); assert.equal(imported.provenance?.modelId, 'full');
+  assert.ok(Math.abs(found(imported.calibrationFrame).mediaTimeMs - 300) < 1);
   assert.ok(imported.samples.length >= 2);
   assert.ok(imported.samples.some(s => s.poses.length === 2));
   assert.ok(imported.samples.every((s, i, all) => !i || s.takeTimeMs > all[i - 1].takeTimeMs));
@@ -112,27 +132,28 @@ try {
   await page.getByLabel('Take actions: video-fixture.webm', { exact: true }).click();
   await page.getByRole('menuitem', { name: 'Overwrite both tracks' }).click();
   await page.getByText('Saved', { exact: true }).waitFor();
-  saved = await store.read(p.projectId, 'project.json');
+  saved = await store.project(p.projectId);
+  assert.ok(saved.schemaVersion === 2);
   for (const track of saved.tracks) {
-    const data = await store.read(p.projectId, 'tracks', `${track.dataId}.json`);
+    const data = validateTrackData(await store.read(p.projectId, 'tracks', `${track.dataId}.json`));
     assert.deepEqual(data.calibration, takeCalibration(imported, track.playerId));
   }
   // Check publication uses the selected frame, without requiring metadata clicks.
   saved.metadata.artist = 'Fixture'; saved.metadata.rights.audio.license = 'CC0'; saved.metadata.rights.choreography.license = 'CC0';
-  saved.playableEndMs = imported.samples.at(-1).takeTimeMs;
+  saved.playableEndMs = found(imported.samples.at(-1)).takeTimeMs;
   saved.alignmentReviewed = true; saved = await store.save(saved, saved.revision);
   const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
   assert.equal(exported.status, 200, await exported.clone().text());
-  const choreography = JSON.parse(readZip(Buffer.from(await exported.arrayBuffer())).get(`${saved.songId}/choreography.json`));
-  assert.deepEqual(choreography.tracks[0].calibration, takeCalibration(imported, 0));
+  const choreography = zipJson(readZip(Buffer.from(await exported.arrayBuffer())), `${saved.songId}/choreography.json`);
+  assert.deepEqual(read(choreography, 'tracks', 0, 'calibration'), takeCalibration(imported, 0));
   assert.deepEqual(errors, []);
-  console.log(`Video import browser passed: actual Lite/Full calibration and Full inference, ${imported.samples.length} samples (${imported.provenance.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
+  console.log(`Video import browser passed: actual Lite/Full calibration and Full inference, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
 } catch (error) {
   if (page) {
-    console.error(error.message);
+    console.error(error instanceof Error ? error.message : error);
     if (await page.locator('dialog').count()) {
       console.error(await page.locator('dialog').innerText());
-      console.error(await page.locator('dialog video').evaluate(async v => ({ error: v.error?.message,
+      console.error(await page.locator('dialog video').evaluate(async (v: HTMLVideoElement) => ({ error: v.error?.message,
         code: v.error?.code, bytes: await fetch(v.src).then(r => r.blob()).then(b => b.size).catch(() => null) })));
     }
     await page.screenshot({ path: '/tmp/aerodance-video-import-failure.png' });

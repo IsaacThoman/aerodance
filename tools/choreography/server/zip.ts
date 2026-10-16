@@ -4,12 +4,12 @@ const table = Array.from({ length: 256 }, (_, i) => {
   for (let j = 0; j < 8; j++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
   return n >>> 0;
 });
-function crc(buffer) {
+function crc(buffer: Uint8Array) {
   let n = 0xffffffff;
   for (const byte of buffer) n = table[(n ^ byte) & 255] ^ (n >>> 8);
   return (n ^ 0xffffffff) >>> 0;
 }
-export function safePath(name) {
+export function safePath(name: unknown): name is string {
   return (
     typeof name === "string" &&
     name.length <= 240 &&
@@ -21,9 +21,9 @@ export function safePath(name) {
   );
 }
 // Stored ZIP entries with fixed DOS timestamp; no external process or package required.
-export function makeZip(files) {
-  const local = [],
-    central = [];
+export function makeZip(files: ReadonlyMap<string, Uint8Array>): Buffer {
+  const local: Buffer[] = [],
+    central: Buffer[] = [];
   let offset = 0;
   for (const [name, value] of files) {
     if (!safePath(name)) throw Error("Unsafe archive path");
@@ -63,7 +63,7 @@ export function makeZip(files) {
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...local, directory, end]);
 }
-export function readZip(buffer, maxBytes = 256 * 1024 * 1024) {
+export function readZip(buffer: Buffer, maxBytes = 256 * 1024 * 1024): Map<string, Buffer> {
   let end = buffer.length - 22;
   while (
     end >= Math.max(0, buffer.length - 65557) &&
@@ -76,7 +76,7 @@ export function readZip(buffer, maxBytes = 256 * 1024 * 1024) {
   if (count > 500) throw Error("Too many archive entries");
   let cursor = buffer.readUInt32LE(end + 16),
     total = 0;
-  const files = new Map();
+  const files = new Map<string, Buffer>();
   for (let i = 0; i < count; i++) {
     if (
       cursor + 46 > buffer.length ||

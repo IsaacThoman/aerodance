@@ -1,13 +1,56 @@
+import type { WebcamRecordEvent } from "../../../packages/pose/browser/WebcamPoseSource.ts";
+import type { FrameSize } from "../../../packages/pose/choreography.ts";
+import type { PoseEnvelope, WebcamEnvelope } from "../core.ts";
+import type { AudioTransport } from "./audio.ts";
+import { takeIdOf } from "./api.ts";
+import type { ApiRequest } from "./api.ts";
+
+/** The part of the pose source a recording reads (PoseSourceController). */
+export interface RecorderSource {
+  view: {
+    sourceKind?: string; model?: string; modelConfig?: object;
+    snapshot: { sessionId?: string; input?: FrameSize } | null;
+  };
+  subscribeRecords(listener: (event: WebcamRecordEvent) => void): () => void;
+}
+export type RecorderTransport = Pick<AudioTransport, "active" | "rate" | "positionMs" | "startTime" | "audioAnchor" | "current" | "atBrowserTime">;
+export interface RecorderOptions {
+  source: RecorderSource;
+  transport: RecorderTransport;
+  request: ApiRequest;
+  projectId: string;
+  onFailure: (message: string) => void;
+}
 export class Recorder {
-  constructor({ source, transport, request, projectId, onFailure }) {
-    Object.assign(this, { source, transport, request, projectId, onFailure });
-    this.pending = [];
-    this.batchId = 0;
-    this.ordinal = 0;
-    this.poseCount = 0;
-    this.bytes = 0;
-    this.chain = Promise.resolve();
-    this.failure = null;
+  source: RecorderSource;
+  transport: RecorderTransport;
+  request: ApiRequest;
+  projectId: string;
+  onFailure: (message: string) => void;
+  pending: WebcamEnvelope[] = [];
+  batchId = 0;
+  ordinal = 0;
+  poseCount = 0;
+  bytes = 0;
+  chain: Promise<void> = Promise.resolve();
+  failure: Error | null = null;
+  running = false;
+  sourceKind?: string;
+  modelId?: string;
+  session?: string;
+  input?: FrameSize;
+  takeId?: string;
+  unsubscribe?: () => void;
+  timer?: ReturnType<typeof setInterval>;
+  startedAt = 0;
+  lastAck = 0;
+  captureStartedAt?: number;
+  constructor({ source, transport, request, projectId, onFailure }: RecorderOptions) {
+    this.source = source;
+    this.transport = transport;
+    this.request = request;
+    this.projectId = projectId;
+    this.onFailure = onFailure;
   }
   async start() {
     this.sourceKind = this.source.view.sourceKind;
@@ -17,7 +60,7 @@ export class Recorder {
     const snapshot = this.source.view.snapshot;
     this.session = snapshot?.sessionId;
     this.input = snapshot?.input;
-    this.metadata = await this.request(
+    this.takeId = takeIdOf(await this.request(
       `/api/projects/${this.projectId}/takes`,
       {
         method: "POST",
@@ -27,7 +70,7 @@ export class Recorder {
           status: { ...this.source.view.modelConfig, audioAnchor: this.transport.audioAnchor },
         },
       },
-    );
+    ));
     this.running = true;
     this.pending.push({
       ordinal: this.ordinal++,
@@ -42,7 +85,7 @@ export class Recorder {
     });
     this.unsubscribe = this.source.subscribeRecords((e) => {
       if (!this.running) return;
-      if (e.event) {
+      if ("event" in e) {
         this.pending.push({ ordinal: this.ordinal++, receivedBrowserTimeMs: e.receivedBrowserTimeMs,
           audioPositionAtReceiptMs: this.transport.current(), event: e.event });
         if (e.event.type === 'source-stopped') this.onFailure(e.event.reason || 'Pose source stopped');
@@ -54,8 +97,8 @@ export class Recorder {
         e.record.modelId !== this.modelId ||
         (e.record.type === "pose" &&
           (e.record.playerCount !== 2 ||
-            e.record.input.width !== this.input.width ||
-            e.record.input.height !== this.input.height ||
+            e.record.input.width !== this.input?.width ||
+            e.record.input.height !== this.input?.height ||
             e.record.input.mirrored !== false))
       ) {
         this.onFailure("Capture source, session, model, player mode or geometry changed");
@@ -73,7 +116,7 @@ export class Recorder {
         return;
       this.captureStartedAt ??= performance.now();
       if (e.record.type === "pose") this.poseCount++;
-      const envelope = {
+      const envelope: PoseEnvelope = {
         ordinal: this.ordinal++,
         receivedBrowserTimeMs: e.receivedBrowserTimeMs,
         audioPositionAtReceiptMs,
@@ -105,24 +148,26 @@ export class Recorder {
         const options = { method: "POST", body: { batchId, records } };
         try {
           await this.request(
-            `/api/projects/${this.projectId}/takes/${this.metadata.takeId}/batches`,
+            `/api/projects/${this.projectId}/takes/${this.takeId}/batches`,
             options,
           );
         } catch {
           await this.request(
-            `/api/projects/${this.projectId}/takes/${this.metadata.takeId}/batches`,
+            `/api/projects/${this.projectId}/takes/${this.takeId}/batches`,
             options,
           );
         }
         this.lastAck = performance.now();
         this.bytes -= JSON.stringify(records).length;
       })
-      .catch((error) => {
-        this.failure = error;
-        this.onFailure(error.message);
+      .catch((error: unknown) => {
+        const failure = error instanceof Error ? error : Error(String(error));
+        this.failure = failure;
+        this.onFailure(failure.message);
       });
   }
-  async stop(reason = null) {
+  /** Resolves with the finalized take (unvalidated), or null when nothing was captured. */
+  async stop(reason: string | null = null): Promise<unknown> {
     if (!this.running) throw Error("No recording is active");
     this.running = false;
     this.unsubscribe?.();
@@ -140,7 +185,7 @@ export class Recorder {
     // A cancelled countdown has no pose samples to finalize into a take.
     if (this.poseCount < 2) return null;
     return this.request(
-      `/api/projects/${this.projectId}/takes/${this.metadata.takeId}/finalize`,
+      `/api/projects/${this.projectId}/takes/${this.takeId}/finalize`,
       {
         method: "POST",
         body: {

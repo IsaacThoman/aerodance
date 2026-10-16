@@ -3,14 +3,25 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { VideoImporter, sampleTimes, seekVideoFrame, videoCalibrationPreview, videoRegionCrop, restoreVideoLandmarks } from '../web/videoImport.ts';
+import type { BitmapFn, Crop, DecodedFrame, DecodeOptions, ErrorListener, ImportWorker, ImportWorkerRequest, MessageListener } from '../web/videoImport.ts';
 import { createStudio } from '../server/index.ts';
 import { readZip } from '../server/zip.ts';
 import { MEDIAPIPE_VERSION, poseModel } from '../../../packages/pose/browser/models.ts';
+import type { PoseRunningMode, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
+import type { Landmark } from '../../../packages/pose/choreography.ts';
+import { validateVideoRecord } from '../../../packages/pose/videoRecord.ts';
+import type { VideoRecord } from '../../../packages/pose/videoRecord.ts';
 import { newProject, addTake, takeFromRecords, takeCalibration, overwriteTracks, appendOperation,
-  offsetTrack, historyStep, compileProject, validateTake, validateTrackData, trackDataIds } from '../core.ts';
+  offsetTrack, historyStep, compileProject, validateTake, validateTrackData, trackDataIds, isTrackData } from '../core.ts';
+import type { StudioAssets } from '../core.ts';
+import { takeIdOf } from '../web/api.ts';
+import { baseUrl, fake, found, projectOf, read, takeOf, zipJson } from './helpers.ts';
 
-const pose = (playerId, hipY = .6) => ({ playerId, landmarks: Array.from({ length: 33 }, (_, i) => ({
+/** Both a stored landmark and one the pose worker reports. */
+type TestLandmark = Landmark & NormalizedLandmark;
+const pose = (playerId: number, hipY = .6): { playerId: number; landmarks: TestLandmark[] } => ({ playerId, landmarks: Array.from({ length: 33 }, (_, i) => ({
   x: playerId ? .25 : .75, y: i < 11 ? .15 : i < 23 ? .4 : i < 27 ? hipY : .9,
   z: 0, visibility: .95, presence: .95,
 })) });
@@ -26,6 +37,24 @@ function fixture() {
   } }));
   return { metadata, records, take: takeFromRecords(records, metadata) };
 }
+interface Call { url: string; body: unknown; }
+/** The records of each batch upload. */
+const uploadedRecords = (calls: readonly Call[]): VideoRecord[][] => calls.filter(c => c.url.endsWith('/batches')).map(c => {
+  const records = read(c.body, 'records');
+  assert.ok(Array.isArray(records));
+  return records.map(e => validateVideoRecord(read(e, 'record')));
+});
+const canvas = (fields: object) => fake<HTMLCanvasElement>(fields);
+const video = (fields: Partial<HTMLVideoElement>) => fake<HTMLVideoElement>({ pause() {}, ...fields });
+/** The bitmap the importer sends the worker, remembering the crop it was cut from. */
+class Bitmap implements ImageBitmap {
+  width = 0; height = 0;
+  crop?: Crop;
+  constructor(crop?: Crop) { this.crop = crop; }
+  close() {}
+}
+const bitmap: BitmapFn = async (_source, ...crop) => new Bitmap(crop.length === 4
+  ? { x: crop[0], y: crop[1], width: crop[2], height: crop[3] } : undefined);
 
 test('calibration preview keeps the left dancer visible when calibration confidence is insufficient', () => {
   const left = pose(0), right = pose(1);
@@ -59,36 +88,30 @@ test('region recovery focuses on small dancers and restores full-frame XYZ coord
 });
 
 test('missing P1 is recovered without changing P2, file timing or primary video tracking', async () => {
-  const diagnostics = { active: 0, maxActive: 0, terminated: 0, modes: [] }, calls = [];
+  const diagnostics = newDiagnostics(), calls: Call[] = [];
   class MissingLeftWorker extends PoseWorker {
-    constructor() {
-      super(diagnostics);
-      this.addEventListener('message', ({ data }) => {
-        if (data.type !== 'result') return;
-        if (this.frame.regionId === undefined) data.landmarks = [pose(1).landmarks];
-        else {
-          const crop = this.frame.bitmap.crop;
-          data.landmarks = [pose(0).landmarks.map(p => ({ ...p, x: (p.x * 640 - crop.x) / crop.width,
-            y: (p.y * 480 - crop.y) / crop.height, z: p.z * 640 / crop.width }))];
-        }
-      });
+    landmarks(frame: FrameRequest) {
+      if (frame.regionId === undefined) return [pose(1).landmarks];
+      assert.ok(frame.bitmap instanceof Bitmap && frame.bitmap.crop);
+      const crop = frame.bitmap.crop;
+      return [pose(0).landmarks.map(p => ({ ...p, x: (p.x * 640 - crop.x) / crop.width,
+        y: (p.y * 480 - crop.y) / crop.height, z: p.z * 640 / crop.width }))];
     }
-    postMessage(data) { this.frame = data; super.postMessage(data); }
   }
-  const job = new VideoImporter({ video: { videoWidth: 640, videoHeight: 480, currentTime: 0, duration: .1, pause() {} },
-    modelId: 'lite', projectId: 'project', createWorker: () => new MissingLeftWorker(), assetUrl: () => 'http://localhost/',
-    bitmap: async (_video, x, y, width, height) => ({ crop: { x, y, width, height }, close() {} }),
+  const job = new VideoImporter({ video: video({ videoWidth: 640, videoHeight: 480, currentTime: 0, duration: .1 }),
+    modelId: 'lite', projectId: 'project', createWorker: () => new MissingLeftWorker(diagnostics), assetUrl: () => 'http://localhost/',
+    bitmap,
     seek: async (_video, time) => ({ mediaTimeMs: time * 1000, timingMethod: 'decoded-frame' }),
-    request: async (url, options) => { calls.push({ url, body: structuredClone(options.body) }); return { takeId: 'capture' }; },
+    request: async (url, options) => { calls.push({ url, body: structuredClone(options?.body) }); return { takeId: 'capture' }; },
   });
   const calibration = await job.calibrate();
   assert.deepEqual(calibration.poses.map(p => p.playerId), [0, 1]);
   assert.deepEqual(calibration.poses[1], pose(1));
   await job.process('duet.webm');
-  const records = calls.find(c => c.url.endsWith('/batches')).body.records;
-  assert.deepEqual(records.at(-1).record.poses.map(p => p.playerId), [0, 1]);
-  assert.deepEqual(records.at(-1).record.poses[1], pose(1));
-  assert.deepEqual(records.map(e => e.record.mediaTimeMs), [...sampleTimes(100)].map(t => t * 1000));
+  const records = uploadedRecords(calls)[0];
+  assert.deepEqual(found(records.at(-1)).poses.map(p => p.playerId), [0, 1]);
+  assert.deepEqual(found(records.at(-1)).poses[1], pose(1));
+  assert.deepEqual(records.map(r => r.mediaTimeMs), [...sampleTimes(100)].map(t => t * 1000));
   assert.deepEqual(diagnostics.modes, ['IMAGE', 'IMAGE', 'VIDEO', 'IMAGE']);
   assert.equal(diagnostics.terminated, 4);
   assert.equal(diagnostics.maxActive, 1);
@@ -99,14 +122,14 @@ test('video takes use file timestamps, preserve absences and validate calibratio
   assert.equal(take.source, 'video'); assert.equal(take.offsetMs, 0); assert.equal(take.timeScale, 1);
   assert.deepEqual(take.samples.map(s => s.takeTimeMs), records.map(e => e.record.mediaTimeMs));
   assert.deepEqual(take.samples[3].poses, []);
-  assert.equal(take.provenance.modelHash, poseModel('full').sha256);
-  assert.equal(take.provenance.calibrationFrameTimeMs, 400);
+  assert.equal(take.provenance?.modelHash, poseModel('full').sha256);
+  assert.equal(take.provenance?.calibrationFrameTimeMs, 400);
   assert.equal(takeCalibration(take, 0).torsoLength, .6 - .4);
-  const missing = structuredClone(take); missing.calibrationFrame.poses.pop();
+  const missing = structuredClone(take); found(missing.calibrationFrame).poses.pop();
   assert.throws(() => validateTake(missing), /every captured dancer/);
-  const weak = structuredClone(take); weak.calibrationFrame.poses[0].landmarks[27].visibility = .1;
+  const weak = structuredClone(take); found(weak.calibrationFrame).poses[0].landmarks[27].visibility = .1;
   assert.throws(() => validateTake(weak), /shoulders, hips and feet/);
-  const late = structuredClone(take); late.calibrationFrame.mediaTimeMs = 1001;
+  const late = structuredClone(take); found(late.calibrationFrame).mediaTimeMs = 1001;
   assert.throws(() => validateTake(late), /calibration frame time/);
   const changed = structuredClone(records); changed[1].record.modelId = 'lite';
   assert.throws(() => takeFromRecords(changed, metadata), /changed/);
@@ -117,7 +140,7 @@ test('video takes use file timestamps, preserve absences and validate calibratio
 });
 
 test('explicit calibration survives independent snapshots, edits, offsets, undo and removing the library take', () => {
-  const { take } = fixture(), assets = new Map([[take.takeId, take]]);
+  const { take } = fixture(), assets: StudioAssets = new Map([[take.takeId, take]]);
   let p = addTake(newProject('video-project'), take);
   assert.ok(p.tracks.every(t => t.dataId === null), 'import only adds a library take');
   p = overwriteTracks(p, take, [0, 1], assets);
@@ -125,42 +148,57 @@ test('explicit calibration survives independent snapshots, edits, offsets, undo 
   p = appendOperation(p, { type: 'mirror', playerId: 0, startMs: 0, endMs: 1000 }, assets);
   p = offsetTrack(p, 0, -100);
   assert.deepEqual(compileProject(p, assets).tracks[0].calibration, expected);
-  const bad = structuredClone(assets.get(p.tracks[0].dataId)); bad.calibration.torsoLength = NaN;
+  const data = assets.get(found(p.tracks[0].dataId));
+  assert.ok(isTrackData(data));
+  const bad = structuredClone(data); found(bad.calibration).torsoLength = NaN;
   assert.throws(() => validateTrackData(bad), /Invalid track calibration/);
   p = historyStep(p, -1); p = historyStep(p, 1);
   p.takes = []; assets.delete(take.takeId);
   assert.deepEqual(compileProject(p, assets).tracks[0].calibration, expected);
 });
 
-class PoseWorker extends EventTarget {
-  constructor(diagnostics) { super(); this.diagnostics = diagnostics; }
-  postMessage(data) {
+interface Diagnostics { active: number; maxActive: number; terminated: number; modes: (PoseRunningMode | undefined)[]; }
+const newDiagnostics = (): Diagnostics => ({ active: 0, maxActive: 0, terminated: 0, modes: [] });
+type FrameRequest = Extract<ImportWorkerRequest, { type: 'frame' }>;
+type ListenerArgs = ['message', MessageListener] | ['error', ErrorListener];
+class PoseWorker implements ImportWorker {
+  diagnostics: Diagnostics;
+  sessionId?: string;
+  listeners = new Set<MessageListener>();
+  constructor(diagnostics: Diagnostics) { this.diagnostics = diagnostics; }
+  addEventListener(...[type, listener]: ListenerArgs) { if (type === 'message') this.listeners.add(listener); }
+  removeEventListener(...[type, listener]: ListenerArgs) { if (type === 'message') this.listeners.delete(listener); }
+  /** The detections a frame yields. */
+  landmarks(_frame: FrameRequest): NormalizedLandmark[][] { return [pose(0).landmarks, pose(1).landmarks]; }
+  respond(data: PoseWorkerResponse) {
+    const event = new MessageEvent('message', { data });
+    for (const listener of [...this.listeners]) listener(event);
+  }
+  postMessage(data: ImportWorkerRequest) {
     if (data.type === 'initialize') {
       this.diagnostics.modes.push(data.runningMode);
-      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: { type: 'ready', sessionId: data.sessionId, delegate: 'CPU' } })));
-    } else {
+      queueMicrotask(() => this.respond({ type: 'ready', sessionId: data.sessionId, delegate: 'CPU', fallback: '' }));
+      this.sessionId = data.sessionId;
+    } else if (data.type === 'frame') {
       this.diagnostics.active++; this.diagnostics.maxActive = Math.max(this.diagnostics.maxActive, this.diagnostics.active);
-      const seq = data.seq;
+      const seq = data.seq, landmarks = this.landmarks(data);
       setTimeout(() => {
         this.diagnostics.active--;
-        this.dispatchEvent(new MessageEvent('message', { data: { type: 'result', sessionId: this.sessionId,
-          seq, landmarks: [pose(0).landmarks, pose(1).landmarks] } }));
+        this.respond({ type: 'result', sessionId: this.sessionId, seq, landmarks, inferenceMs: 0 });
       }, seq % 2 ? 8 : 1);
     }
-    this.sessionId = data.sessionId || this.sessionId;
   }
   terminate() { this.diagnostics.terminated++; }
 }
 test('video processing awaits inference, skips duplicate decoded frames and retries bounded uploads', async () => {
-  const calls = [], diagnostics = { active: 0, maxActive: 0, terminated: 0, modes: [] };
+  const calls: Call[] = [], diagnostics = newDiagnostics();
   let failed = false;
-  const video = { duration: .5, videoWidth: 640, videoHeight: 480, currentTime: .2, pause() {} };
-  const job = new VideoImporter({ video, modelId: 'lite', projectId: 'project',
-    assetUrl: () => 'http://localhost/pose-assets/', bitmap: async () => ({ close() {} }),
+  const job = new VideoImporter({ video: video({ duration: .5, videoWidth: 640, videoHeight: 480, currentTime: .2 }), modelId: 'lite', projectId: 'project',
+    assetUrl: () => 'http://localhost/pose-assets/', bitmap,
     createWorker: () => new PoseWorker(diagnostics),
     seek: async (_v, time) => ({ mediaTimeMs: Math.floor((time + 1e-8) * 10) * 100, timingMethod: 'decoded-frame' }),
     request: async (url, options) => {
-      calls.push({ url, body: structuredClone(options.body) });
+      calls.push({ url, body: structuredClone(options?.body) });
       if (url.endsWith('/batches') && !failed) { failed = true; throw Error('temporary upload failure'); }
       return { takeId: 'capture' };
     },
@@ -170,18 +208,19 @@ test('video processing awaits inference, skips duplicate decoded frames and retr
   assert.equal(diagnostics.maxActive, 1); assert.deepEqual(diagnostics.modes, ['IMAGE', 'VIDEO']);
   const batches = calls.filter(c => c.url.endsWith('/batches'));
   assert.equal(batches.length, 2); assert.deepEqual(batches[0].body, batches[1].body);
-  assert.deepEqual(batches[1].body.records.map(e => e.record.mediaTimeMs), [0, 100, 200, 300, 400]);
-  assert.deepEqual(batches[1].body.records[0].record.poses, [], 'two-player acquisition needs consecutive evidence');
+  const records = uploadedRecords(calls)[1];
+  assert.deepEqual(records.map(r => r.mediaTimeMs), [0, 100, 200, 300, 400]);
+  assert.deepEqual(records[0].poses, [], 'two-player acquisition needs consecutive evidence');
   await assert.rejects(job.finalize({ ...calibration, poses: [calibration.poses[0]] }), /P2/);
   await job.finalize(calibration);
-  assert.deepEqual(calls.at(-1).body.calibrationFrame, calibration);
+  assert.deepEqual(read(found(calls.at(-1)).body, 'calibrationFrame'), calibration);
   assert.equal(diagnostics.terminated, 2);
 });
 
 test('cancelling inference releases the worker and does not finalize a partial take', async () => {
-  const diagnostics = { active: 0, maxActive: 0, terminated: 0, modes: [] }, calls = [];
-  const job = new VideoImporter({ video: { duration: .5, videoWidth: 640, videoHeight: 480, pause() {} },
-    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap: async () => ({ close() {} }),
+  const diagnostics = newDiagnostics(), calls: string[] = [];
+  const job = new VideoImporter({ video: video({ duration: .5, videoWidth: 640, videoHeight: 480 }),
+    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap,
     seek: async (_video, time) => ({ mediaTimeMs: time * 1000, timingMethod: 'seek-time' }),
     createWorker: () => new PoseWorker(diagnostics),
     request: async url => { calls.push(url); return { takeId: 'cancelled' }; },
@@ -203,32 +242,31 @@ test('samples are taken mid-window so rounded container timestamps are not skipp
 });
 
 test('decoded frames are processed in order, prefetched during inference and released', async () => {
-  const diagnostics = { active: 0, maxActive: 0, terminated: 0, modes: [] }, calls = [], bitmaps = [];
-  const state = { pulled: 0, returned: false, options: null };
-  const video = { duration: .3, videoWidth: 640, videoHeight: 480, pause() {} };
-  const file = { name: 'decoded.webm' };
+  const diagnostics = newDiagnostics(), calls: Call[] = [], bitmaps: { source: DecodedFrame['source']; pulled: number }[] = [];
+  const state: { pulled: number; returned: boolean; options: DecodeOptions | null } = { pulled: 0, returned: false, options: null };
+  const file = fake<Blob>({ name: 'decoded.webm' });
   // 33 ms appears twice: a source frame shown across two sample windows.
   // 310 ms is a final frame stamped past the reported duration.
   const order = [0, 33, 33, 67, 100, 133, 167, 200, 233, 267, 310];
-  const job = new VideoImporter({ video, file, modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/',
+  const job = new VideoImporter({ video: video({ duration: .3, videoWidth: 640, videoHeight: 480 }), file, modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/',
     createWorker: () => new PoseWorker(diagnostics),
-    bitmap: async source => { bitmaps.push({ source, pulled: state.pulled }); return { close() {} }; },
+    bitmap: async (source, ..._crop) => { bitmaps.push({ source, pulled: state.pulled }); return new Bitmap(); },
     seek: async () => { throw Error('decoded frames must not seek'); },
     decodeFrames: async (source, options) => {
       assert.equal(source, file); state.options = options;
       return (async function* () {
         try {
           for (const ms of order) {
-            state.pulled++; yield { source: { ms }, mediaTimeMs: ms, timingMethod: 'decoded-frame', method: 'WebCodecs' };
+            state.pulled++; yield { source: canvas({ ms }), mediaTimeMs: ms, timingMethod: 'decoded-frame', method: 'WebCodecs' };
           }
         } finally { state.returned = true; }
       })();
     },
-    request: async (url, options) => { calls.push({ url, body: structuredClone(options.body) }); return { takeId: 'decoded' }; },
+    request: async (url, options) => { calls.push({ url, body: structuredClone(options?.body) }); return { takeId: 'decoded' }; },
   });
   await job.process('decoded.webm');
   assert.deepEqual(state.options, { width: 640, height: 480, durationMs: 300, rate: 30 });
-  const records = calls.filter(c => c.url.endsWith('/batches')).flatMap(c => c.body.records.map(e => e.record));
+  const records = uploadedRecords(calls).flat();
   assert.deepEqual(records.map(r => r.mediaTimeMs), [0, 33, 67, 100, 133, 167, 200, 233, 267]);
   assert.ok(records.every(r => r.timingMethod === 'decoded-frame'));
   // The following frame is already decoding when each frame's pixels are read.
@@ -238,13 +276,13 @@ test('decoded frames are processed in order, prefetched during inference and rel
 });
 
 test('cancelling decoded processing releases the decoder and does not finalize', async () => {
-  const diagnostics = { active: 0, maxActive: 0, terminated: 0, modes: [] }, calls = [];
+  const diagnostics = newDiagnostics(), calls: string[] = [];
   let returned = false;
-  const job = new VideoImporter({ video: { duration: 10, videoWidth: 640, videoHeight: 480, pause() {} }, file: {},
-    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap: async () => ({ close() {} }),
+  const job = new VideoImporter({ video: video({ duration: 10, videoWidth: 640, videoHeight: 480 }), file: fake<Blob>({}),
+    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap,
     createWorker: () => new PoseWorker(diagnostics),
     decodeFrames: async () => (async function* () {
-      try { for (let i = 0; ; i++) yield { source: {}, mediaTimeMs: i * 33, timingMethod: 'decoded-frame', method: 'WebCodecs' }; }
+      try { for (let i = 0; ; i++) yield { source: canvas({}), mediaTimeMs: i * 33, timingMethod: 'decoded-frame', method: 'WebCodecs' }; }
       finally { returned = true; }
     })(),
     request: async url => { calls.push(url); return { takeId: 'cancelled' }; },
@@ -257,16 +295,16 @@ test('cancelling decoded processing releases the decoder and does not finalize',
 });
 
 test('undecodable files fall back to seeking the video element', async () => {
-  const diagnostics = { active: 0, maxActive: 0, terminated: 0, modes: [] }, seeks = [], calls = [];
-  const job = new VideoImporter({ video: { duration: .2, videoWidth: 640, videoHeight: 480, pause() {} }, file: {},
-    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap: async () => ({ close() {} }),
+  const diagnostics = newDiagnostics(), seeks: number[] = [], calls: Call[] = [];
+  const job = new VideoImporter({ video: video({ duration: .2, videoWidth: 640, videoHeight: 480 }), file: fake<Blob>({}),
+    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap,
     createWorker: () => new PoseWorker(diagnostics), decodeFrames: async () => null,
     seek: async (_v, time) => { seeks.push(time); return { mediaTimeMs: time * 1000, timingMethod: 'seek-time' }; },
-    request: async (url, options) => { calls.push({ url, body: options.body }); return { takeId: 'fallback' }; },
+    request: async (url, options) => { calls.push({ url, body: options?.body }); return { takeId: 'fallback' }; },
   });
   await job.process('fixture.webm');
   assert.deepEqual(seeks, [...sampleTimes(200)]);
-  const records = calls.filter(c => c.url.endsWith('/batches')).flatMap(c => c.body.records.map(e => e.record));
+  const records = uploadedRecords(calls).flat();
   assert.equal(records.length, 6);
   assert.ok(records.every(r => r.timingMethod === 'seek-time'));
 });
@@ -274,27 +312,29 @@ test('undecodable files fall back to seeking the video element', async () => {
 test('video seeking waits for decoded pixels and supports browsers without frame callbacks', async () => {
   class Video extends EventTarget {
     readyState = 2;
+    time = 0;
     pause() {}
-    set currentTime(value) { this.time = value; queueMicrotask(() => this.dispatchEvent(new Event('seeked'))); }
+    set currentTime(value: number) { this.time = value; queueMicrotask(() => this.dispatchEvent(new Event('seeked'))); }
     get currentTime() { return this.time; }
   }
-  const controller = new AbortController(), video = new Video();
+  const controller = new AbortController(), video = fake<HTMLVideoElement>(new Video());
   assert.deepEqual(await seekVideoFrame(video, .5, controller.signal), { mediaTimeMs: 500, timingMethod: 'seek-time' });
   controller.abort();
   await assert.rejects(seekVideoFrame(video, 1, controller.signal), { name: 'AbortError' });
   class DecodedVideo extends Video {
-    requestVideoFrameCallback(callback) { this.callback = callback; return 7; }
-    cancelVideoFrameCallback(id) { assert.equal(id, 7); }
-    set currentTime(value) {
+    callback?: VideoFrameRequestCallback;
+    requestVideoFrameCallback(callback: VideoFrameRequestCallback) { this.callback = callback; return 7; }
+    cancelVideoFrameCallback(id: number) { assert.equal(id, 7); }
+    set currentTime(value: number) {
       this.time = value;
       queueMicrotask(() => {
         this.dispatchEvent(new Event('seeked'));
-        this.callback(0, { mediaTime: .4 });
+        this.callback?.(0, fake<VideoFrameCallbackMetadata>({ mediaTime: .4 }));
       });
     }
     get currentTime() { return this.time; }
   }
-  assert.deepEqual(await seekVideoFrame(new DecodedVideo(), .45, new AbortController().signal),
+  assert.deepEqual(await seekVideoFrame(fake<HTMLVideoElement>(new DecodedVideo()), .45, new AbortController().signal),
     { mediaTimeMs: 400, timingMethod: 'decoded-frame' });
 });
 
@@ -303,13 +343,13 @@ test('video batches finalize with calibration and survive export and backup afte
   const { app } = createStudio({ dataDir: root }), server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(async () => { await new Promise(resolve => server.close(resolve)); await rm(root, { recursive: true, force: true }); });
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const api = async (url, body, method = 'POST') => fetch(base + url, { method,
+  const base = baseUrl(server);
+  const api = async (url: string, body: unknown, method = 'POST') => fetch(base + url, { method,
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  let p = await (await api('/api/projects', {})).json();
+  let p = await projectOf(await api('/api/projects', {}));
   const { metadata, records } = fixture();
-  const capture = await (await api(`/api/projects/${p.projectId}/takes`, metadata)).json();
-  const url = `/api/projects/${p.projectId}/takes/${capture.takeId}`;
+  const capture: unknown = await (await api(`/api/projects/${p.projectId}/takes`, metadata)).json();
+  const url = `/api/projects/${p.projectId}/takes/${takeIdOf(capture)}`;
   const mixed = structuredClone(records); mixed[0].record.schema = 'aerodance.webcam-record';
   assert.equal((await api(`${url}/batches`, { batchId: 0, records: mixed })).status, 400);
   assert.equal((await api(`${url}/batches`, { batchId: 0, records })).status, 200);
@@ -318,53 +358,53 @@ test('video batches finalize with calibration and survive export and backup afte
   assert.equal((await api(`${url}/finalize`, { ...finish, calibrationFrame: { mediaTimeMs: 0, poses: [] } })).status, 400);
   const result = await api(`${url}/finalize`, finish);
   assert.equal(result.status, 200, await result.clone().text());
-  const take = await result.json();
+  const take = await takeOf(result);
   assert.deepEqual((await (await api(`${url}/finalize`, finish)).json()), take);
   p = addTake(p, take);
-  const assets = new Map([[take.takeId, take]]);
+  const assets: StudioAssets = new Map([[take.takeId, take]]);
   p = overwriteTracks(p, take, [0, 1], assets);
   // Explicitly review the deliberate gap for this publication fixture.
   p = appendOperation(p, { type: 'approve', playerId: null, startMs: 200, endMs: 401, reason: 'Reviewed fixture gap' }, assets);
   for (const dataId of trackDataIds(p)) assert.equal((await api(`/api/projects/${p.projectId}/tracks`, assets.get(dataId))).status, 201);
   p.metadata.artist = 'Fixture'; p.metadata.rights.audio.license = 'CC0'; p.metadata.rights.choreography.license = 'CC0';
-  p = await (await api(`/api/projects/${p.projectId}`, p, 'PUT')).json();
-  p = await (await fetch(`${base}/api/projects/${p.projectId}/audio?durationMs=1000&revision=${p.revision}`, {
+  p = await projectOf(await api(`/api/projects/${p.projectId}`, p, 'PUT'));
+  p = await projectOf(await fetch(`${base}/api/projects/${p.projectId}/audio?durationMs=1000&revision=${p.revision}`, {
     method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: Buffer.from('fixture audio'),
-  })).json();
+  }));
   p.alignmentReviewed = true;
-  p = await (await api(`/api/projects/${p.projectId}`, p, 'PUT')).json();
+  p = await projectOf(await api(`/api/projects/${p.projectId}`, p, 'PUT'));
   const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
   assert.equal(exported.status, 200, await exported.clone().text());
-  const choreography = JSON.parse(readZip(Buffer.from(await exported.arrayBuffer())).get(`${p.songId}/choreography.json`));
-  assert.deepEqual(choreography.tracks[0].calibration, takeCalibration(take, 0));
+  const choreography = zipJson(readZip(Buffer.from(await exported.arrayBuffer())), `${p.songId}/choreography.json`);
+  assert.deepEqual(read(choreography, 'tracks', 0, 'calibration'), takeCalibration(take, 0));
   const backup = await fetch(`${base}/api/projects/${p.projectId}/backup`);
   const restored = await fetch(`${base}/api/restore`, { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: await backup.arrayBuffer() });
   assert.equal(restored.status, 201);
-  const rp = await restored.json();
-  const saved = await (await fetch(`${base}/api/projects/${rp.projectId}/takes/${take.takeId}`)).json();
+  const rp = await projectOf(restored);
+  const saved = await takeOf(await fetch(`${base}/api/projects/${rp.projectId}/takes/${take.takeId}`));
   assert.deepEqual(saved.calibrationFrame, take.calibrationFrame);
-  p = await (await api(`/api/projects/${p.projectId}/takes/${take.takeId}`, { revision: p.revision }, 'DELETE')).json();
+  p = await projectOf(await api(`/api/projects/${p.projectId}/takes/${take.takeId}`, { revision: p.revision }, 'DELETE'));
   const afterDelete = await fetch(`${base}/api/projects/${p.projectId}/backup`);
   const restoredDeleted = await fetch(`${base}/api/restore`, { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: await afterDelete.arrayBuffer() });
   assert.equal(restoredDeleted.status, 201);
-  const dp = await restoredDeleted.json();
+  const dp = await projectOf(restoredDeleted);
   assert.equal(dp.takes.length, 0);
-  const snapshot = await (await fetch(`${base}/api/projects/${dp.projectId}/tracks/${dp.tracks[0].dataId}`)).json();
+  const snapshot = validateTrackData(await (await fetch(`${base}/api/projects/${dp.projectId}/tracks/${dp.tracks[0].dataId}`)).json());
   assert.deepEqual(snapshot.calibration, takeCalibration(take, 0));
 });
 
 test('video import can sample at 15 fps', async () => {
   assert.deepEqual([...sampleTimes(200, 0, 15)], [.5 / 15, 1.5 / 15, 2.5 / 15]);
-  const diagnostics = { active: 0, maxActive: 0, terminated: 0, modes: [] }, seeks = [], calls = [];
-  const job = new VideoImporter({ video: { duration: .2, videoWidth: 640, videoHeight: 480, pause() {} }, file: {},
-    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap: async () => ({ close() {} }),
+  const diagnostics = newDiagnostics(), seeks: number[] = [], calls: Call[] = [];
+  const job = new VideoImporter({ video: video({ duration: .2, videoWidth: 640, videoHeight: 480 }), file: fake<Blob>({}),
+    modelId: 'lite', projectId: 'project', assetUrl: () => 'http://localhost/', bitmap,
     createWorker: () => new PoseWorker(diagnostics), decodeFrames: async () => null, sampleRate: 15,
     seek: async (_v, time) => { seeks.push(time); return { mediaTimeMs: time * 1000, timingMethod: 'seek-time' }; },
-    request: async (url, options) => { calls.push({ url, body: options.body }); return { takeId: 'half-rate' }; },
+    request: async (url, options) => { calls.push({ url, body: options?.body }); return { takeId: 'half-rate' }; },
   });
   await job.process('fixture.webm');
   assert.deepEqual(seeks, [...sampleTimes(200, 0, 15)]);
-  assert.equal(calls.find(c => c.url.endsWith('/takes')).body.status.targetRateHz, 15);
-  const records = calls.filter(c => c.url.endsWith('/batches')).flatMap(c => c.body.records);
+  assert.equal(read(found(calls.find(c => c.url.endsWith('/takes'))).body, 'status', 'targetRateHz'), 15);
+  const records = uploadedRecords(calls).flat();
   assert.equal(records.length, 3);
 });

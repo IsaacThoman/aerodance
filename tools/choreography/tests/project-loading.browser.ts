@@ -10,11 +10,11 @@ const dataDir=await mkdtemp(path.join(tmpdir(),'studio-format-'));
 const {app,store}=createStudio({dataDir});
 const supported=await store.save(newProject('supported-project'),null);
 const second=await store.save(newProject('second-v2-project'),null);
-const future=newProject('unsupported-project');
-future.schemaVersion=3;
-future.metadata.title='Future format fixture';
-future.updatedAt='9999-01-01T00:00:00.000Z';
-future.tracks=future.tracks.map(({playerId,label})=>({playerId,label,dataId:'edited',originalDataId:'original',offsetMs:0}));
+const created=newProject('unsupported-project');
+created.metadata.title='Future format fixture';
+created.updatedAt='9999-01-01T00:00:00.000Z';
+const future={...created,schemaVersion:3,
+  tracks:created.tracks.map(({playerId,label})=>({playerId,label,dataId:'edited',originalDataId:'original',offsetMs:0}))};
 const futureBytes=Buffer.from(JSON.stringify(future));
 await store.atomic(store.location(future.projectId,'project.json'),futureBytes);
 const server=app.listen(4193,'127.0.0.1');
@@ -23,12 +23,12 @@ const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||u
 try {
   const page=await browser.newPage({viewport:{width:1280,height:900}});
   page.setDefaultTimeout(30000);
-  const errors=[]; page.on('pageerror',error=>errors.push(error.message));
+  const errors: string[]=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(()=>{
     for(const Type of [window.WebGLRenderingContext,window.WebGL2RenderingContext]) {
       if(!Type) continue;
       for(const name of ['drawArrays','drawElements','drawArraysInstanced','drawElementsInstanced'])
-        if(Type.prototype[name]) Type.prototype[name]=()=>{};
+        if(name in Type.prototype) Reflect.set(Type.prototype,name,()=>{});
     }
   });
   await page.goto('http://127.0.0.1:4193');
@@ -40,7 +40,7 @@ try {
     assert.equal(await option.isDisabled(),false);
     assert.equal(await option.textContent(),project.metadata.title);
     await page.getByLabel('Open project').selectOption(project.projectId);
-    await page.waitForFunction(id=>document.querySelector('[aria-label="Open project"]').value===id,project.projectId);
+    await page.waitForFunction(id=>document.querySelector<HTMLSelectElement>('[aria-label="Open project"]')?.value===id,project.projectId);
     assert.equal(await page.getByRole('alert').count(),0);
   }
   // A library containing only supported v2 projects opens without a warning.

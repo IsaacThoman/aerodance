@@ -1,25 +1,89 @@
 import { ASSET_PATH, MEDIAPIPE_VERSION, poseModel } from '../../../packages/pose/browser/models.ts';
+import type { PoseModel } from '../../../packages/pose/browser/models.ts';
 import { assignPlayerSlots, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
+import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
+import type { PoseDelegate, PoseRunningMode, PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { reliableBodyPose } from '../../../packages/character/calibration.ts';
 import { validateVideoRecord } from '../../../packages/pose/videoRecord.ts';
+import type { VideoTimingMethod } from '../../../packages/pose/videoRecord.ts';
 import { validatePoses } from '../../../packages/pose/choreography.ts';
+import type { CalibrationFrame, VideoEnvelope } from '../core.ts';
+import type { Landmark, Pose } from '../../../packages/pose/choreography.ts';
+import { takeIdOf } from './api.ts';
+import type { ApiRequest } from './api.ts';
+import type { Input as MediaInput } from 'mediabunny';
 
 const cancelled = () => new DOMException('Video import cancelled', 'AbortError');
 export const DEFAULT_SAMPLE_RATE = 30;
 
+/** A rectangle of the video frame, in pixels. */
+export interface Crop { x: number; y: number; width: number; height: number; }
+/** A detection shown on the calibration frame, whether or not it can be used. */
+export interface DetectedPose extends Pose { ready: boolean; reason: string; }
+export interface CalibrationPreview { poses: Pose[]; detectedPoses: DetectedPose[]; }
+export interface CalibrationResult extends CalibrationPreview { mediaTimeMs: number; }
+export interface FrameTiming { mediaTimeMs: number; timingMethod: VideoTimingMethod; }
+/** A decoded frame to run inference on: the <video> itself when seeking, or a decoded canvas. */
+export interface DecodedFrame extends FrameTiming {
+  source: HTMLVideoElement | HTMLCanvasElement | OffscreenCanvas;
+  method: string;
+}
+export interface DecodeOptions { width: number; height: number; durationMs: number; rate: number; }
+export interface ImportProgress { fraction: number; message: string; }
+/** The pose model configuration a video take records. */
+export interface VideoModelStatus {
+  modelId: string; modelHash: string; packageVersion: string; delegate: PoseDelegate;
+  thresholds: { detection: number; presence: number; tracking: number };
+  inferenceMethod: string;
+}
+/** Region frames carry the region they were cropped for. */
+export type ImportWorkerRequest = PoseWorkerRequest & { regionId?: number };
+export type MessageListener = (event: MessageEvent<PoseWorkerResponse>) => void;
+export type ErrorListener = (event: ErrorEvent) => void;
+/** The part of a pose Worker the importer uses; replaceable in tests. */
+export interface ImportWorker {
+  postMessage(message: ImportWorkerRequest, transfer: Transferable[]): void;
+  addEventListener(type: 'message', listener: MessageListener): void;
+  addEventListener(type: 'error', listener: ErrorListener): void;
+  removeEventListener(type: 'message', listener: MessageListener): void;
+  removeEventListener(type: 'error', listener: ErrorListener): void;
+  terminate(): void;
+}
+export type BitmapFn = (source: DecodedFrame['source'], ...crop: [] | [x: number, y: number, width: number, height: number]) => Promise<ImageBitmap>;
+export type SeekFn = (video: HTMLVideoElement, time: number, signal: AbortSignal) => Promise<FrameTiming>;
+export type DecodeFn = (file: Blob | null | undefined, options: DecodeOptions) => Promise<AsyncGenerator<DecodedFrame, void> | null>;
+export interface VideoImporterOptions {
+  video: HTMLVideoElement;
+  file?: Blob | null;
+  modelId: string;
+  request: ApiRequest;
+  projectId: string;
+  onProgress?: (progress: ImportProgress) => void;
+  /** Samples per second, 1 to 30. */
+  sampleRate?: number;
+  createWorker?: () => ImportWorker;
+  bitmap?: BitmapFn;
+  seek?: SeekFn;
+  decodeFrames?: DecodeFn;
+  assetUrl?: () => string;
+}
+type ReadyResponse = Extract<PoseWorkerResponse, { type: 'ready' }>;
+type ResultResponse = Extract<PoseWorkerResponse, { type: 'result' }>;
+type InitializeRequest = Extract<PoseWorkerRequest, { type: 'initialize' }>;
+
 // Sample the middle of each 1/rate s window. Container timestamps are rounded
 // (67 ms for 66.7 ms), so sampling exactly k/rate often selects the prior frame.
-export function* sampleTimes(durationMs, start = 0, rate = DEFAULT_SAMPLE_RATE) {
+export function* sampleTimes(durationMs: number, start = 0, rate = DEFAULT_SAMPLE_RATE): Generator<number, void> {
   for (let k = 0; k < Math.ceil(durationMs * rate / 1000); k++) yield start + (k + .5) / rate;
 }
 
-export function videoRegionCrop(detections, playerId, width, height) {
+const confident = (p: DetectedLandmark | undefined) => Math.min(p?.visibility ?? 0, p?.presence ?? 0) >= .5;
+export function videoRegionCrop(detections: readonly (readonly DetectedLandmark[])[], playerId: number, width: number, height: number): Crop {
   // Small dancers in portrait footage need a vertical crop as well as a side
   // crop. Use reliable detections to locate the common dancing area.
   const ys = detections.flatMap(points => {
-    const visible = points.filter(p => Number.isFinite(p.y) && p.y >= 0 && p.y <= 1 &&
-      Math.min(p.visibility ?? 0, p.presence ?? 0) >= .5).map(p => p.y * height);
-    if ([11, 12, 23, 24].some(i => !points[i] || Math.min(points[i].visibility ?? 0, points[i].presence ?? 0) < .5)) return visible;
+    const visible = points.filter(p => Number.isFinite(p.y) && p.y >= 0 && p.y <= 1 && confident(p)).map(p => p.y * height);
+    if ([11, 12, 23, 24].some(i => !confident(points[i]))) return visible;
     const shoulderY = (points[11].y + points[12].y) * height / 2, hipY = (points[23].y + points[24].y) * height / 2;
     const dx = (points[23].x + points[24].x - points[11].x - points[12].x) * width / 2;
     const torso = Math.hypot(dx, hipY - shoulderY);
@@ -36,17 +100,17 @@ export function videoRegionCrop(detections, playerId, width, height) {
     height: Math.max(1, Math.ceil(bottom - top)) };
 }
 
-export function restoreVideoLandmarks(points, crop, width, height) {
+export function restoreVideoLandmarks<T extends DetectedLandmark>(points: readonly T[], crop: Crop, width: number, height: number): T[] {
   return points.map(p => ({ ...p, x: (crop.x + p.x * crop.width) / width,
     y: (crop.y + p.y * crop.height) / height, z: p.z * crop.width / width }));
 }
 
 // Display every valid detection, even when confidence or framing prevents using
 // it for calibration. Otherwise a detected dancer looks completely missing.
-export function videoCalibrationPreview(detections) {
+export function videoCalibrationPreview(detections: readonly (readonly DetectedLandmark[])[]): CalibrationPreview {
   const accepted = assignPlayerSlots(detections, 2).filter(reliableBodyPose);
-  const detectedPoses = detections.flatMap(points => {
-    const landmarks = points.map(p => ({ x: p.x, y: p.y, z: p.z,
+  const detectedPoses = detections.flatMap((points): DetectedPose[] => {
+    const landmarks: Landmark[] = points.map(p => ({ x: p.x, y: p.y, z: p.z,
       visibility: p.visibility ?? null, presence: p.presence ?? null }));
     try { validatePoses([{ playerId: 0, landmarks }]); } catch { return []; }
     const x = (landmarks[23].x + landmarks[24].x) / 2;
@@ -62,9 +126,10 @@ export function videoCalibrationPreview(detections) {
 
 // Seek before copying pixels. Frame callbacks supply presentation timestamps;
 // older browsers (and seeks that do not present a new frame) use seek time.
-export function seekVideoFrame(video, time, signal) {
+export function seekVideoFrame(video: HTMLVideoElement, time: number, signal: AbortSignal): Promise<FrameTiming> {
   return new Promise((resolve, reject) => {
-    let callback, frameTimer, timeout, frame;
+    let callback: number | undefined, frameTimer: ReturnType<typeof setTimeout> | undefined, frame: FrameTiming | undefined;
+    const timeout = setTimeout(() => { cleanup(); reject(Error('Video decoding timed out. Try another video format.')); }, 15000);
     const cleanup = () => {
       clearTimeout(timeout); clearTimeout(frameTimer);
       if (callback !== undefined) video.cancelVideoFrameCallback?.(callback);
@@ -87,30 +152,30 @@ export function seekVideoFrame(video, time, signal) {
       frame = { mediaTimeMs: metadata.mediaTime * 1000, timingMethod: 'decoded-frame' };
       if (!video.seeking && video.readyState >= 2) finish();
     });
-    timeout = setTimeout(() => { cleanup(); reject(Error('Video decoding timed out. Try another video format.')); }, 15000);
     video.pause();
     try { video.currentTime = time; } catch { failed(); }
   });
 }
 
 // Fallback when WebCodecs cannot decode the file: one seek per sample.
-export async function* seekFrames(video, seek, durationMs, signal, rate) {
+export async function* seekFrames(video: HTMLVideoElement, seek: SeekFn, durationMs: number, signal: AbortSignal, rate?: number): AsyncGenerator<DecodedFrame, void> {
   for (const time of sampleTimes(durationMs, 0, rate)) yield { source: video, method: 'seeking', ...await seek(video, time, signal) };
 }
 
 // Decodes the file sequentially, avoiding a decoder reset for every sample.
 // Returns null when this browser or file needs the seeking fallback.
-export async function webCodecsFrames(file, { width, height, durationMs, rate }) {
+export async function webCodecsFrames(file: Blob | null | undefined, { width, height, durationMs, rate }: DecodeOptions): Promise<AsyncGenerator<DecodedFrame, void> | null> {
   if (!file || typeof VideoDecoder === 'undefined') return null;
-  let input;
+  let input: MediaInput | undefined;
   try {
     const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
-    input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-    const track = await input.getPrimaryVideoTrack();
+    const source = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    input = source;
+    const track = await source.getPrimaryVideoTrack();
     // CanvasSink applies rotation metadata; the size must match what <video>
     // reports, which calibration and region crops use.
     if (!track || !await track.canDecode() || track.displayWidth !== width || track.displayHeight !== height) {
-      input.dispose(); return null;
+      source.dispose(); return null;
     }
     // Timestamps stay in file time, matching the <video> frame callbacks that
     // calibration uses, but files may start after zero.
@@ -121,24 +186,53 @@ export async function webCodecsFrames(file, { width, height, durationMs, rate })
       try {
         for await (const frame of sink.canvasesAtTimestamps(sampleTimes(durationMs, start, rate))) {
           if (frame && frame.timestamp >= 0) yield { source: frame.canvas, mediaTimeMs: frame.timestamp * 1000,
-            timingMethod: 'decoded-frame', method: 'WebCodecs' };
+            timingMethod: 'decoded-frame' as const, method: 'WebCodecs' };
         }
-      } finally { input.dispose(); }
+      } finally { source.dispose(); }
     })();
   } catch { input?.dispose(); return null; }
 }
 
+const createPoseWorker = (): ImportWorker =>
+  new Worker(new URL('../../../packages/pose/browser/pose.worker.ts', import.meta.url), { type: 'module' });
+const createBitmap: BitmapFn = (source, ...crop) =>
+  crop.length === 4 ? createImageBitmap(source, ...crop) : createImageBitmap(source);
+const defaultAssetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href;
+
 export class VideoImporter {
+  video: HTMLVideoElement;
+  file: Blob | null | undefined;
+  modelId: string;
+  request: ApiRequest;
+  projectId: string;
+  onProgress: (progress: ImportProgress) => void;
+  sampleRate: number;
+  createWorker: () => ImportWorker;
+  bitmap: BitmapFn;
+  seek: SeekFn;
+  decodeFrames: DecodeFn;
+  assetUrl: () => string;
+  model: PoseModel;
+  controller = new AbortController();
+  sessionId: string = crypto.randomUUID();
+  seq = 0;
+  worker: ImportWorker | null = null;
+  regionWorker: ImportWorker | null = null;
+  workerConfig?: InitializeRequest;
+  /** The capture's API path once processing has started it. */
+  path?: string;
+  players = new Set<number>();
+  batchCount = 0;
+  recordCount = 0;
+  processed?: boolean;
   constructor({ video, file, modelId, request, projectId, onProgress = () => {}, sampleRate = DEFAULT_SAMPLE_RATE,
-    createWorker = () => new Worker(new URL('../../../packages/pose/browser/pose.worker.ts', import.meta.url), { type: 'module' }),
-    bitmap = (...args) => createImageBitmap(...args), seek = seekVideoFrame, decodeFrames = webCodecsFrames,
-    assetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href,
-  }) {
-    Object.assign(this, { video, file, modelId, request, projectId, onProgress, sampleRate, createWorker, bitmap, seek, decodeFrames, assetUrl });
+    createWorker = createPoseWorker, bitmap = createBitmap, seek = seekVideoFrame, decodeFrames = webCodecsFrames,
+    assetUrl = defaultAssetUrl,
+  }: VideoImporterOptions) {
+    this.video = video; this.file = file; this.modelId = modelId; this.request = request; this.projectId = projectId;
+    this.onProgress = onProgress; this.sampleRate = sampleRate; this.createWorker = createWorker; this.bitmap = bitmap;
+    this.seek = seek; this.decodeFrames = decodeFrames; this.assetUrl = assetUrl;
     this.model = poseModel(modelId);
-    this.controller = new AbortController();
-    this.sessionId = crypto.randomUUID();
-    this.seq = 0;
   }
   abort() {
     this.controller.abort(); this.closeWorker(); this.video.pause();
@@ -147,30 +241,33 @@ export class VideoImporter {
     this.worker?.terminate(); this.worker = null;
     this.regionWorker?.terminate(); this.regionWorker = null;
   }
-  waitForMessage(send, type, worker = this.worker) {
+  waitForMessage(send: ImportWorkerRequest, type: 'ready', worker?: ImportWorker | null): Promise<ReadyResponse>;
+  waitForMessage(send: ImportWorkerRequest, type: 'result', worker?: ImportWorker | null): Promise<ResultResponse>;
+  waitForMessage(send: ImportWorkerRequest, type: 'ready' | 'result', worker = this.worker): Promise<ReadyResponse | ResultResponse> {
     const signal = this.controller.signal;
     return new Promise((resolve, reject) => {
-      let timer;
+      if (!worker) { reject(Error('Video pose worker is not running')); return; }
+      const timer = setTimeout(() => fail(Error('Pose processing timed out. Try Lite or another browser.')), 60000);
       const cleanup = () => {
         clearTimeout(timer); worker.removeEventListener('message', message); worker.removeEventListener('error', error);
         signal.removeEventListener('abort', abort);
       };
-      const fail = e => { cleanup(); reject(e); };
+      const fail = (e: unknown) => { cleanup(); reject(e); };
       const abort = () => fail(cancelled());
-      const error = e => fail(Error(e.message || 'Video pose worker failed'));
-      const message = ({ data }) => {
+      const error = (e: ErrorEvent) => fail(Error(e.message || 'Video pose worker failed'));
+      const message = ({ data }: MessageEvent<PoseWorkerResponse>) => {
         if (data.sessionId !== this.sessionId) return;
         if (data.type === 'error') fail(Error(data.message));
-        else if (data.type === type && (type !== 'result' || data.seq === send.seq)) { cleanup(); resolve(data); }
+        else if (data.type === type && (data.type !== 'result' || send.type === 'frame' && data.seq === send.seq)) { cleanup(); resolve(data); }
       };
       if (signal.aborted) { abort(); return; }
       worker.addEventListener('message', message); worker.addEventListener('error', error);
       signal.addEventListener('abort', abort, { once: true });
-      timer = setTimeout(() => fail(Error('Pose processing timed out. Try Lite or another browser.')), 60000);
-      try { worker.postMessage(send, send.bitmap ? [send.bitmap] : []); } catch (e) { send.bitmap?.close(); fail(e); }
+      const bitmap = send.type === 'frame' ? send.bitmap : undefined;
+      try { worker.postMessage(send, bitmap ? [bitmap] : []); } catch (e) { bitmap?.close(); fail(e); }
     });
   }
-  async initialize(runningMode) {
+  async initialize(runningMode: PoseRunningMode): Promise<VideoModelStatus> {
     this.closeWorker(); this.worker = this.createWorker();
     const base = this.assetUrl();
     this.workerConfig = { type: 'initialize', sessionId: this.sessionId, playerCount: 2, runningMode,
@@ -181,25 +278,27 @@ export class VideoImporter {
       delegate: ready.delegate, thresholds: { detection: .5, presence: .5, tracking: .5 },
       inferenceMethod: 'full-frame-with-region-recovery' };
   }
-  async ensureRegionWorker() {
+  async ensureRegionWorker(): Promise<ImportWorker> {
     if (!this.regionWorker) {
+      if (!this.workerConfig) throw Error('Initialize video tracking first');
       // Separate IMAGE inference preserves the full-frame VIDEO tracking state
       // and avoids sharing MediaPipe's Wasm loader globals between task instances.
-      this.regionWorker = this.createWorker();
-      await this.waitForMessage({ ...this.workerConfig, runningMode: 'IMAGE', playerCount: 1 }, 'ready', this.regionWorker);
+      const worker = this.createWorker();
+      this.regionWorker = worker;
+      await this.waitForMessage({ ...this.workerConfig, runningMode: 'IMAGE', playerCount: 1 }, 'ready', worker);
     }
     return this.regionWorker;
   }
-  async infer(mediaTimeMs, crop, regionId, source = this.video) {
+  async infer(mediaTimeMs: number, crop: Crop | null, regionId: number | null, source: DecodedFrame['source'] = this.video): Promise<ResultResponse> {
     const worker = crop ? await this.ensureRegionWorker() : this.worker;
     const bitmap = crop ? await this.bitmap(source, crop.x, crop.y, crop.width, crop.height) : await this.bitmap(source);
     if (this.controller.signal.aborted) { bitmap.close(); throw cancelled(); }
     return this.waitForMessage({ type: 'frame', bitmap, seq: ++this.seq,
-      timestampMs: mediaTimeMs, ...(crop ? { regionId } : {}) }, 'result', worker);
+      timestampMs: mediaTimeMs, ...(crop && regionId !== null ? { regionId } : {}) }, 'result', worker);
   }
-  async detectDancers(mediaTimeMs, calibration = false, source = this.video) {
+  async detectDancers(mediaTimeMs: number, calibration = false, source: DecodedFrame['source'] = this.video): Promise<DetectedLandmark[][]> {
     const result = await this.infer(mediaTimeMs, null, null, source);
-    let detections = result.landmarks;
+    let detections: DetectedLandmark[][] = result.landmarks;
     const accepted = assignPlayerSlots(detections, 2).filter(p => !calibration || reliableBodyPose(p));
     const width = this.video.videoWidth, height = this.video.videoHeight;
     for (const id of [0, 1]) {
@@ -216,7 +315,7 @@ export class VideoImporter {
     }
     return detections;
   }
-  async calibrate(time = this.video.currentTime) {
+  async calibrate(time = this.video.currentTime): Promise<CalibrationResult> {
     try {
       await this.initialize('IMAGE');
       const frame = await this.seek(this.video, time, this.controller.signal);
@@ -225,15 +324,15 @@ export class VideoImporter {
       return { mediaTimeMs: frame.mediaTimeMs, ...preview };
     } finally { this.closeWorker(); }
   }
-  async upload(path, body) {
+  async upload(path: string, body: unknown): Promise<unknown> {
     const options = { method: 'POST', body, signal: this.controller.signal };
     try { return await this.request(path, options); }
-    catch (error) {
+    catch {
       if (this.controller.signal.aborted) throw cancelled();
       return this.request(path, options);
     }
   }
-  async process(filename) {
+  async process(filename: string) {
     const durationMs = this.video.duration * 1000;
     if (!(durationMs > 0 && durationMs <= 3600000) || !this.video.videoWidth || !this.video.videoHeight)
       throw Error('Choose a decodable video between zero and one hour long');
@@ -242,27 +341,30 @@ export class VideoImporter {
     try {
       const status = { ...await this.initialize('VIDEO'), filename, durationMs, targetRateHz: this.sampleRate };
       const capture = await this.upload(`/api/projects/${this.projectId}/takes`, { sourceKind: 'video', name: filename, status });
-      this.path = `/api/projects/${this.projectId}/takes/${capture.takeId}`;
+      const path = `/api/projects/${this.projectId}/takes/${takeIdOf(capture)}`;
+      this.path = path;
       this.players = new Set(); this.batchCount = 0; this.recordCount = 0;
       const slots = new PlayerSlotMapper();
-      let lastTime = -Infinity, pending = [];
+      let lastTime = -Infinity, pending: VideoEnvelope[] = [];
       const flush = async () => {
         if (!pending.length) return;
-        await this.upload(`${this.path}/batches`, { batchId: this.batchCount, records: pending });
+        await this.upload(`${path}/batches`, { batchId: this.batchCount, records: pending });
         this.batchCount++; pending = [];
       };
       const frames = await this.decodeFrames(this.file, { width: input.width, height: input.height, durationMs,
         rate: this.sampleRate }) ?? seekFrames(this.video, this.seek, durationMs, this.controller.signal, this.sampleRate);
-      let next = frames.next(), firstTime;
+      let next = frames.next(), firstTime: number | undefined;
       try {
-        for (let result; !(result = await next).done;) {
+        for (;;) {
+          const result = await next;
+          if (result.done) break;
           if (this.controller.signal.aborted) throw cancelled();
           const { source, method, mediaTimeMs, timingMethod } = result.value;
           // Decoded canvases come from a pool, so the next frame can decode
           // during inference. The seeking fallback must not move the video yet.
           const prefetch = source !== this.video;
-          next = prefetch ? frames.next() : null;
-          next?.catch(() => {});
+          const upcoming = prefetch ? frames.next() : null;
+          upcoming?.catch(() => {});
           // The last sample window can reach past the container duration, and
           // the final frame's timestamp may exceed it; the take rejects those.
           if (mediaTimeMs > lastTime && mediaTimeMs <= durationMs) {
@@ -279,7 +381,7 @@ export class VideoImporter {
               message: `Processing video · ${this.recordCount} samples · ${method} · ${status.delegate}` });
             if (pending.length >= 100) await flush();
           }
-          next ??= frames.next();
+          next = upcoming ?? frames.next();
         }
       } finally { await frames.return(); }
       await flush();
@@ -288,7 +390,8 @@ export class VideoImporter {
       this.processed = true;
     } finally { this.closeWorker(); }
   }
-  async finalize(calibrationFrame) {
+  /** Resolves with the saved take (unvalidated). */
+  async finalize(calibrationFrame: CalibrationFrame | null): Promise<unknown> {
     if (!this.processed) throw Error('Process the video first');
     const missing = [...this.players].filter(id => !calibrationFrame?.poses.some(p => p.playerId === id));
     if (missing.length) throw Error(`Choose a calibration frame with ${missing.map(id => `P${id + 1}`).join(' and ')} clearly visible. Processed poses are ready to save.`);

@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AudioTransport } from "../web/audio.ts";
+import { fake } from "./helpers.ts";
+
+const bufferSource = () => fake<AudioBufferSourceNode>({ playbackRate: {}, connect() {}, start() {}, stop() {}, disconnect() {} });
 
 test('browser/audio anchor includes the scheduled lead-in and playback rate', async t => {
   t.mock.method(performance, 'now', () => 1000);
   const transport = new AudioTransport();
-  transport.buffer = {};
-  transport.context = { state: 'running', currentTime: 5,
-    createBufferSource: () => ({ playbackRate: {}, connect() {}, start() {}, stop() {}, disconnect() {} }) };
+  transport.buffer = fake<AudioBuffer>({});
+  transport.context = fake<AudioContext>({ state: 'running', currentTime: 5, createBufferSource: bufferSource });
   await transport.play(2000, 3, 2);
   assert.equal(transport.atBrowserTime(3500), 1000, 'countdown frames precede the starting song position');
   assert.equal(transport.atBrowserTime(4000), 2000);
@@ -17,18 +19,16 @@ test('browser/audio anchor includes the scheduled lead-in and playback rate', as
 
 test("saved audio loads while autoplay is blocked; playback resumes on demand", async () => {
   let resumes = 0;
-  const buffer = { duration: 1, getChannelData: () => new Float32Array(300) };
+  const buffer = fake<AudioBuffer>({ duration: 1, getChannelData: () => new Float32Array(300) });
   const context = {
     state: "suspended",
     currentTime: 0,
     decodeAudioData: async () => buffer,
     resume: async () => { resumes++; context.state = "running"; },
-    createBufferSource: () => ({
-      playbackRate: {}, connect() {}, start() {}, stop() {}, disconnect() {},
-    }),
+    createBufferSource: bufferSource,
   };
   const transport = new AudioTransport();
-  transport.context = context;
+  transport.context = fake<AudioContext>(context);
   const decoded = await transport.load(new ArrayBuffer(8));
   assert.equal(decoded.durationMs, 1000);
   assert.equal(transport.buffer, buffer);

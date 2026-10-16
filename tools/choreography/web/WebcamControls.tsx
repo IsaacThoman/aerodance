@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
+import type { PoseSourceController, PoseSourceView } from '../../../packages/pose/browser/PoseSourceController.ts';
+import type { WebcamConfigureOptions } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 
-export default function WebcamControls({ source, connection, disabled }) {
-  const canvas = useRef(null);
+export interface WebcamControlsProps { source: PoseSourceController; connection: PoseSourceView; disabled: boolean; }
+export default function WebcamControls({ source, connection, disabled }: WebcamControlsProps) {
+  const canvas = useRef<HTMLCanvasElement>(null);
   const state = useRef({ source, connection }); state.current = { source, connection };
   useEffect(() => {
-    let frame;
+    let frame: number;
     const draw = () => {
       const { source, connection } = state.current;
       const g = canvas.current?.getContext('2d');
@@ -15,7 +18,7 @@ export default function WebcamControls({ source, connection, disabled }) {
     };
     draw(); return () => cancelAnimationFrame(frame);
   }, []);
-  const configure = options => { void source.configure(options).catch(() => {}); };
+  const configure = (options: WebcamConfigureOptions) => { void source.configure(options).catch(() => {}); };
   return <div className="webcam-controls">
     <label>Camera<select aria-label="Webcam camera" value={connection.cameraId || ''} disabled={disabled}
       onChange={e => configure({ cameraId: e.target.value })}>

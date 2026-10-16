@@ -2,31 +2,49 @@ import { useEffect, useRef, useState } from 'react';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
 import { CONNECTIONS } from '../../../packages/pose/choreography.ts';
 import { VideoImporter } from './videoImport.ts';
+import type { DetectedPose, ImportProgress } from './videoImport.ts';
+import { isObject } from '../../../packages/pose/choreography.ts';
+import type { CalibrationFrame } from '../core.ts';
+import { errorMessage } from './api.ts';
+import type { ApiRequest } from './api.ts';
 
-export default function VideoImportPanel({ file, projectId, request, onImported, onClose, onBusy }) {
+export interface VideoImportPanelProps {
+  file: File;
+  projectId: string;
+  request: ApiRequest;
+  /** Receives the saved take as the server returned it. */
+  onImported: (take: unknown) => void | Promise<void>;
+  onClose: () => void;
+  onBusy: (busy: boolean) => void;
+}
+const aborted = (e: unknown) => isObject(e) && e.name === 'AbortError';
+export default function VideoImportPanel({ file, projectId, request, onImported, onClose, onBusy }: VideoImportPanelProps) {
   const [url] = useState(() => URL.createObjectURL(file));
   const [model, setModel] = useState('lite'), [fps, setFps] = useState('30');
   const rate = /^\d+$/.test(fps) && +fps >= 1 && +fps <= 30 ? +fps : null;
   const [ready, setReady] = useState(false), [working, setWorking] = useState(false);
-  const [processed, setProcessed] = useState(false), [calibration, setCalibration] = useState(null);
-  const [detections, setDetections] = useState([]);
-  const [error, setError] = useState(''), [progress, setProgress] = useState(null);
-  const dialog = useRef(null), video = useRef(null), canvas = useRef(null), importer = useRef(null);
+  const [processed, setProcessed] = useState(false), [calibration, setCalibration] = useState<CalibrationFrame | null>(null);
+  const [detections, setDetections] = useState<DetectedPose[]>([]);
+  const [error, setError] = useState(''), [progress, setProgress] = useState<ImportProgress | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null), video = useRef<HTMLVideoElement>(null), canvas = useRef<HTMLCanvasElement>(null),
+    importer = useRef<VideoImporter | null>(null);
   const active = useRef(true);
   useEffect(() => {
     active.current = true;
-    dialog.current.showModal();
+    dialog.current?.showModal();
     return () => { active.current = false; importer.current?.abort(); URL.revokeObjectURL(url); onBusy(false); };
   }, [url, onBusy]);
   const close = () => { active.current = false; importer.current?.abort(); onClose(); };
   const getImporter = () => {
-    importer.current ||= new VideoImporter({ video: video.current, file, modelId: model, sampleRate: rate, projectId, request, onProgress: setProgress });
+    const element = video.current;
+    if (!element || !rate) throw Error('Choose a video and a sample rate first');
+    importer.current ||= new VideoImporter({ video: element, file, modelId: model, sampleRate: rate, projectId, request, onProgress: setProgress });
     return importer.current;
   };
-  const run = async action => {
+  const run = async (action: () => Promise<void>) => {
     setWorking(true); onBusy(true); setError('');
     try { await action(); }
-    catch (e) { if (active.current && e.name !== 'AbortError') setError(e.message); }
+    catch (e) { if (active.current && !aborted(e)) setError(errorMessage(e)); }
     finally { if (active.current) { setWorking(false); onBusy(false); } }
   };
   const selectFrame = () => run(async () => {
@@ -35,9 +53,10 @@ export default function VideoImportPanel({ file, projectId, request, onImported,
     setProgress(null);
     setCalibration({ mediaTimeMs: frame.mediaTimeMs, poses: frame.poses });
     setDetections(frame.detectedPoses);
-    const c = canvas.current, g = c.getContext('2d');
-    c.width = 480; c.height = Math.round(480 * video.current.videoHeight / video.current.videoWidth);
-    g.drawImage(video.current, 0, 0, c.width, c.height);
+    const c = canvas.current, g = c?.getContext('2d'), v = video.current;
+    if (!c || !g || !v) return;
+    c.width = 480; c.height = Math.round(480 * v.videoHeight / v.videoWidth);
+    g.drawImage(v, 0, 0, c.width, c.height);
     for (const pose of frame.detectedPoses) {
       g.strokeStyle = pose.ready ? pose.playerId ? '#be9cff' : '#51daf0' : '#ffc66d'; g.lineWidth = 2;
       for (const [a, b] of CONNECTIONS) {
@@ -49,7 +68,7 @@ export default function VideoImportPanel({ file, projectId, request, onImported,
     }
   });
   const process = () => run(async () => {
-    video.current.pause();
+    video.current?.pause();
     const job = getImporter();
     if (!job.processed) {
       await job.process(file.name);
@@ -84,6 +103,7 @@ export default function VideoImportPanel({ file, projectId, request, onImported,
     <video ref={video} src={url} controls={!working} muted playsInline preload="auto" aria-label="Source video"
       onLoadedData={() => {
         const v = video.current;
+        if (!v) return;
         const valid = v.duration > 0 && v.duration <= 3600 && v.videoWidth > 0 && v.videoHeight > 0;
         setReady(valid);
         if (!valid) setError('Choose a video between zero and one hour long');
