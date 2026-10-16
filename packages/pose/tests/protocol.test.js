@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {MAX_BYTES, NdjsonDecoder, validate} from '../src/pose/protocol.js';
+import {MAX_BYTES, NdjsonDecoder, validate} from '../protocol.js';
 const pose = (seq = 1, sessionId = 'session') => ({protocolVersion:2,type:'pose',sessionId,seq,frameReceivedTimeMs:10,resultTimeMs:20,playerCount:1,input:{width:480,height:640,mirrored:false},poses:[{playerId:0,landmarks:Array.from({length:33},()=>({x:.5,y:.4,z:-.1,visibility:.99,presence:null}))}]});
 const heartbeat = {protocolVersion:2,type:'heartbeat',sessionId:'session',producerTimeMs:30,lastPoseSeq:1,pipelineState:'running'};
 const bytes = value => new TextEncoder().encode(value);

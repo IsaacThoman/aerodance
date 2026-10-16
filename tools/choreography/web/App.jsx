@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PoseSourceController } from "../../../client/src/pose/PoseSourceController.js";
+import { PoseSourceController } from "../../../packages/pose/browser/PoseSourceController.js";
 import WebcamControls from './WebcamControls.jsx';
 import VideoImportPanel from './VideoImportPanel.jsx';
 import { DEFAULT_STAGE, STAGE_LIST } from "../../../packages/stages/catalog.js";
-import { NdjsonDecoder } from "../../../client/src/pose/protocol.js";
+import { NdjsonDecoder } from "../../../packages/pose/protocol.js";
 import {
   JOINT_NAMES,
   copy,

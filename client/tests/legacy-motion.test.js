@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { migrateLegacyMotion, validateMotionTake } from '../../packages/pose/legacy.js';
-import { validate } from '../src/pose/protocol.js';
+import { validate } from '../../packages/pose/protocol.js';
 const legacy = () => ({version:1,duration:1,source:{width:640,height:480,sha256:'source'},times:[0,.5],poses:Array.from({length:2},()=>Array.from({length:2},()=>Array.from({length:33},()=>[1.1,.5,-.2,.75])))});
 test('legacy migration preserves timing, IDs, out-of-image coordinates and combined confidence without inventing scores',()=>{
   const data=legacy(),take=migrateLegacyMotion(data);

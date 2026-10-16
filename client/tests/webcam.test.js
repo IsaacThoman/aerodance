@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { GameSession } from '../src/game/GameSession.js';
 import { parseRecording, standingPose } from '../src/pose/ReplayPoseSource.js';
-import { PoseSourceController } from '../src/pose/PoseSourceController.js';
+import { PoseSourceController } from '../../packages/pose/browser/PoseSourceController.js';
 import { sampleSong } from '../../packages/pose/song.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

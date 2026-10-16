@@ -14,7 +14,7 @@ import { recordResults } from './game/bestScores.js';
 import { PLAYERS, winnerOf } from './game/results.js';
 import StageView from './stage/StageView.jsx';
 import { resolveStage } from '../../packages/stages/catalog.js';
-import { PoseSourceController } from './pose/PoseSourceController.js';
+import { PoseSourceController } from '../../packages/pose/browser/PoseSourceController.js';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.js';
 
 function FixedRenderResolution() {

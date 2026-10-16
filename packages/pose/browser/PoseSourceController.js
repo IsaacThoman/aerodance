@@ -1,4 +1,4 @@
-import { WebcamPoseSource } from '../../../packages/pose/browser/WebcamPoseSource.js';
+import { WebcamPoseSource } from './WebcamPoseSource.js';
 
 // The live pose input the game and Dance Studio share: the browser webcam, tracked in a worker.
 export class PoseSourceController {

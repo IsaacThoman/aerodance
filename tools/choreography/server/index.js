@@ -13,7 +13,7 @@ import {
   trackDataIds,
   migrateProject,
 } from "../core.js";
-import { validate as validateWire } from "../../../client/src/pose/protocol.js";
+import { validate as validateWire } from "../../../packages/pose/protocol.js";
 import { validateWebcamRecord } from '../../../packages/pose/webcamRecord.js';
 import { validateVideoRecord } from '../../../packages/pose/videoRecord.js';
 
