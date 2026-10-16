@@ -1,7 +1,10 @@
+/** One ripple: whole-number frequencies (kx, ky) so the map tiles, a phase and an amplitude. */
+export type LakeWave = readonly [kx: number, ky: number, phase: number, amplitude: number];
+
 // Generate the same seamless ripple field without evaluating a cosine per texel
 // per wave. cos(x + y) = cos(x)cos(y) - sin(x)sin(y); the Float32 accumulators
-// retain the original rounding between waves.
-export function createLakeNormalPixels(size, waves, pixels = new Uint8ClampedArray(size * size * 4)) {
+// retain the original rounding between waves. Fills `pixels` (RGBA) and returns it.
+export function createLakeNormalPixels(size: number, waves: readonly LakeWave[], pixels: Uint8ClampedArray = new Uint8ClampedArray(size * size * 4)) {
   const hx = new Float32Array(size * size), hy = new Float32Array(size * size);
   const cosX = new Float64Array(size), sinX = new Float64Array(size);
   for (const [kx, ky, phase, amplitude] of waves) {

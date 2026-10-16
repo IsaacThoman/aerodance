@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLakeNormalPixels } from '../src/aero/lakeNormals.ts';
+import { createLakeNormalPixels, type LakeWave } from '../src/aero/lakeNormals.ts';
 import { lakeWaves, referenceLakeNormalPixels } from './helpers/lakeNormalsReference.ts';
 
 test('the production 512x512 lake normal map matches every original texture byte', () => {
@@ -11,7 +11,8 @@ test('the production 512x512 lake normal map matches every original texture byte
 });
 
 test('ripple directions, phase offsets and flat water match the direct wave formula', () => {
-  for (const waves of [[], [[0, 3, 1.2, 0.8]], [[-4, 0, -0.4, 1.1]], [[2, -3, 4.2, 0.7], [-5, -1, 0, 0.3]]]) {
+  const cases: LakeWave[][] = [[], [[0, 3, 1.2, 0.8]], [[-4, 0, -0.4, 1.1]], [[2, -3, 4.2, 0.7], [-5, -1, 0, 0.3]]];
+  for (const waves of cases) {
     assert.deepEqual(createLakeNormalPixels(32, waves), referenceLakeNormalPixels(32, waves));
   }
 });

@@ -6,23 +6,25 @@ for (const [radius, height] of [[380, 380], [620, 720], [440.0683428533375, 575.
   test(`mountain ${radius} × ${height} has a continuous silhouette without rock under the snow`, () => {
     const geometry = createMountainGeometry(radius, height);
     const positions = geometry.attributes.position, indices = geometry.index;
+    assert.ok(indices);
     const rimY = height * 0.2, epsilon = 0.0001;
     assert.deepEqual(geometry.groups.map((g) => g.materialIndex), [0, 1]);
 
-    const rims = [new Set(), new Set()];
+    const rims = [new Set<string>(), new Set<string>()];
     let next = 0;
     for (const group of geometry.groups) {
       assert.equal(group.start, next, 'every triangle has exactly one material');
       next += group.count;
+      const material = group.materialIndex === 0 ? 0 : 1;
       for (let i = group.start; i < next; i++) {
         const v = indices.getX(i), y = positions.getY(v);
-        if (group.materialIndex === 0) assert.ok(y <= rimY + epsilon, 'rock stops at the snow line');
+        if (material === 0) assert.ok(y <= rimY + epsilon, 'rock stops at the snow line');
         else assert.ok(y >= rimY - epsilon, 'snow starts at the snow line');
         // Every vertex stays on the original cone, including the shared rim.
         const r = Math.hypot(positions.getX(v), positions.getZ(v));
         assert.ok(Math.abs(r - radius * (0.5 - y / height)) < epsilon);
         if (Math.abs(y - rimY) < epsilon) {
-          rims[group.materialIndex].add([positions.getX(v), y, positions.getZ(v)].map((n) => n.toFixed(4)).join(','));
+          rims[material].add([positions.getX(v), y, positions.getZ(v)].map((n) => n.toFixed(4)).join(','));
         }
       }
     }
@@ -30,6 +32,7 @@ for (const [radius, height] of [[380, 380], [620, 720], [440.0683428533375, 575.
     assert.ok(rims[0].size >= 7);
     assert.deepEqual(rims[0], rims[1], 'rock and snow meet without a gap');
     geometry.computeBoundingBox();
+    assert.ok(geometry.boundingBox);
     assert.ok(Math.abs(geometry.boundingBox.min.y + height / 2) < epsilon);
     assert.ok(Math.abs(geometry.boundingBox.max.y - height / 2) < epsilon);
     geometry.dispose();

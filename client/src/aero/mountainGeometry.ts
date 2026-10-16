@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Material 0 is rock, material 1 is snow. Both sections share the same rim;
 // a full mountain cone underneath a snow cone would fight for depth at distance.
-export function createMountainGeometry(radius, height) {
+export function createMountainGeometry(radius: number, height: number) {
   const snowHeight = height * 0.3, rimRadius = radius * 0.3;
   const rock = new THREE.CylinderGeometry(rimRadius, radius, height - snowHeight, 7, 1, true);
   rock.translate(0, -snowHeight / 2, 0);

@@ -1,5 +1,7 @@
+import type { LakeWave } from '../../src/aero/lakeNormals.ts';
+
 // The production scene's fixed seed and 48 original wave coefficients.
-export function lakeWaves() {
+export function lakeWaves(): LakeWave[] {
   let seed = 8080;
   const random = () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -7,14 +9,14 @@ export function lakeWaves() {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  return Array.from({ length: 48 }, () => {
+  return Array.from({ length: 48 }, (): LakeWave => {
     const k = 2 + Math.floor(random() ** 2 * 40), angle = random() * Math.PI * 2;
     return [Math.round(Math.cos(angle) * k), Math.round(Math.sin(angle) * k), random() * Math.PI * 2, 1 / k ** 1.1];
   });
 }
 
 // Direct per-texel formula from aeroBackground.js before the performance audit.
-export function referenceLakeNormalPixels(size, waves) {
+export function referenceLakeNormalPixels(size: number, waves: readonly LakeWave[]) {
   const hx = new Float32Array(size * size), hy = new Float32Array(size * size);
   for (const [kx, ky, phase, amplitude] of waves) {
     const fx = kx * Math.PI * 2 / size, fy = ky * Math.PI * 2 / size;

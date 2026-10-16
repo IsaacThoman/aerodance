@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createAeroWorld } from './aeroBackground.ts';
+import { createAeroWorld, type AeroQuality, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
+
+export interface AeroWorldProps {
+  speed?: number;
+  quality?: AeroQuality;
+  /** Caps how often the world renders; omit to render every frame. */
+  fps?: number;
+  paused?: boolean;
+  onTelemetry?: (telemetry: AeroTelemetry) => void;
+}
 
 /**
  * Puts the Aero drone flight inside the surrounding <Canvas>.
@@ -16,11 +25,11 @@ import { createAeroWorld } from './aeroBackground.ts';
  *
  * <AeroWorld speed={1} quality="auto" fps={15} paused={false} onTelemetry={(t) => ...} />
  */
-export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = false, onTelemetry }) {
+export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = false, onTelemetry }: AeroWorldProps) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
-  const worldRef = useRef(null);
+  const worldRef = useRef<AeroWorldHandle | null>(null);
   const shownRef = useRef(false);
   const teleRef = useRef(onTelemetry);
   teleRef.current = onTelemetry;
@@ -28,11 +37,15 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
   pausedRef.current = paused;
 
   useEffect(() => {
+    if (!(camera instanceof THREE.PerspectiveCamera)) {
+      console.warn('AeroWorld needs a perspective camera');
+      return;
+    }
     const canvas = gl.domElement;
     canvas.style.transition = 'opacity 1.2s ease';
     canvas.style.opacity = '0';
     shownRef.current = false;
-    let world = null;
+    let world: AeroWorldHandle | null = null;
     // Deferred one tick so StrictMode's mount/unmount/mount only builds the scene once.
     const timer = setTimeout(() => {
       world = createAeroWorld({ renderer: gl, scene, camera, speed, quality, onTelemetry: (t) => teleRef.current?.(t) });
@@ -58,7 +71,7 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
     quad.frustumCulled = false;
     const scene2 = new THREE.Scene();
     scene2.add(quad);
-    return { target, material, quad, scene: scene2, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1), due: Infinity, fresh: false };
+    return { target, material, quad, scene: scene2, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1), interval: 1 / fps, due: Infinity, fresh: false };
   }, [fps]);
   useEffect(() => () => {
     if (!cache) return;
@@ -80,7 +93,7 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
         cache.target.setSize(buf.x, buf.y);
         cache.fresh = false;
       }
-      if (!cache.fresh || cache.due >= 1 / fps) {
+      if (!cache.fresh || cache.due >= cache.interval) {
         // update() clamps each step to 50ms; step through the whole gap so speed holds.
         let left = Math.min(cache.fresh ? cache.due : delta, 1);
         while (left > 0) { const d = Math.min(left, 0.05); world.update(d); left -= d; }

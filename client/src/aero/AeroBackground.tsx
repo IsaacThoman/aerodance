@@ -1,5 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { createAeroBackground } from './aeroBackground.ts';
+import { createAeroBackground, type AeroBackgroundHandle, type AeroQuality, type AeroTelemetry } from './aeroBackground.ts';
+
+export interface AeroBackgroundProps {
+  speed?: number;
+  paused?: boolean;
+  quality?: AeroQuality;
+  onTelemetry?: (telemetry: AeroTelemetry) => void;
+  className?: string;
+}
 
 /**
  * Full-screen Frutiger Aero drone flight that sits behind the rest of the app.
@@ -9,16 +17,18 @@ import { createAeroBackground } from './aeroBackground.ts';
  * A fresh <canvas> is created on every mount so React StrictMode's
  * mount → unmount → mount cycle never reuses a lost WebGL context.
  */
-export default function AeroBackground({ speed = 1, paused = false, quality = 'auto', onTelemetry, className = '' }) {
-  const hostRef = useRef(null);
-  const aeroRef = useRef(null);
+export default function AeroBackground({ speed = 1, paused = false, quality = 'auto', onTelemetry, className = '' }: AeroBackgroundProps) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const aeroRef = useRef<AeroBackgroundHandle | null>(null);
   const teleRef = useRef(onTelemetry);
   teleRef.current = onTelemetry;
 
   useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
     const canvas = document.createElement('canvas');
-    hostRef.current.appendChild(canvas);
-    let aero = null;
+    host.appendChild(canvas);
+    let aero: AeroBackgroundHandle | null = null;
     try {
       aero = createAeroBackground(canvas, {
         speed,
