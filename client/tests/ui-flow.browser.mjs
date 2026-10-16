@@ -98,14 +98,14 @@ try {
   await until({ connectReady: 'true' });
   await click(MODEL_RECTS[1]);
   await until({ connectModel: 'full' });
-  assert.equal(await page.evaluate(() => webcamRequests), 0);
+  assert.equal(await page.evaluate(() => window.webcamRequests), 0);
   await page.keyboard.press('ArrowDown');
   await page.waitForTimeout(300);
   assert.equal((await data()).menuScreen, 'settings');
   await page.mouse.move(frame.x + 10, frame.y + 10);
   await click(PRIMARY);
   await until({ connectStatus: 'error', connectMessage: /permission was denied/ });
-  assert.equal(await page.evaluate(() => webcamRequests), 1);
+  assert.equal(await page.evaluate(() => window.webcamRequests), 1);
   await page.keyboard.press('Escape');
   await until({ connectOpen: 'false' });
   await click(MENU_BACK);

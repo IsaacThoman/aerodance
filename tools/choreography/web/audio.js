@@ -68,7 +68,7 @@ export class AudioTransport {
     this.active = false;
     try {
       this.source?.stop();
-    } catch {}
+    } catch { /* already stopped */ }
     this.source?.disconnect();
     this.source = null;
     return this.positionMs;

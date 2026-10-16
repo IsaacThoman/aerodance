@@ -687,7 +687,7 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   function lakeNormals() {
     // Seamless ripple normal map: a sum of waves with whole-number frequencies so it tiles.
     const S = 512, c = cv(S, S), g = c.getContext('2d'), im = g.createImageData(S, S);
-    const waves = withRng(8080, () => Array.from({ length: 48 }, (_, i) => {
+    const waves = withRng(8080, () => Array.from({ length: 48 }, () => {
       const k = 2 + Math.floor(R(0, 1) ** 2 * 40), a = R(0, TAU);
       return [Math.round(Math.cos(a) * k), Math.round(Math.sin(a) * k), R(0, TAU), 1 / (k ** 1.1)];
     }));

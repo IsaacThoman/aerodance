@@ -91,15 +91,15 @@ try {
 
   await click(DANCE); await until('gamePhase', 'calibrating');
   if (process.env.UI_ARTIFACTS) await page.screenshot({ path: `${process.env.UI_ARTIFACTS}/webcam-calibration.png` });
-  await page.evaluate(() => { cameraVisible = true; });
+  await page.evaluate(() => { window.cameraVisible = true; });
   await page.waitForFunction(() => Number(document.querySelector('canvas').dataset.gameCalibrationProgress) > 0.15);
-  await page.evaluate(() => { cameraVisible = false; });
+  await page.evaluate(() => { window.cameraVisible = false; });
   await until('gameCalibrationPlayers', 'missing|missing'); await until('gameCalibrationProgress', '0.000');
-  const freshHoldStart = await page.evaluate(() => { cameraVisible = true; return performance.now(); });
+  const freshHoldStart = await page.evaluate(() => { window.cameraVisible = true; return performance.now(); });
   await until('gamePhase', 'countdown');
   assert.ok(await page.evaluate(() => performance.now()) - freshHoldStart >= 2500, 'fresh full-body evidence must span 2.5 seconds');
   await until('gamePhase', 'playing'); await until('gamePhase', 'results');
-  await page.evaluate(() => { cameraVisible = false; });
+  await page.evaluate(() => { window.cameraVisible = false; });
   await click(RESULTS_RETRY); await until('gamePhase', 'calibrating'); await until('gameCalibrationProgress', '0.000');
   await page.keyboard.press('Escape'); await until('songReady', 'true');
   assert.deepEqual(errors, []);

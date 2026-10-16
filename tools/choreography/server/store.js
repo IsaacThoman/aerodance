@@ -133,7 +133,7 @@ export class Store {
           artist: p.metadata.artist,
           updatedAt: p.updatedAt,
         });
-      } catch {}
+      } catch { /* skip unreadable project folders */ }
     }
     return projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }

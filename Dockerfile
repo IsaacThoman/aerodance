@@ -11,7 +11,6 @@ RUN npm test
 FROM mcr.microsoft.com/playwright:v1.58.2-noble AS ui-test
 WORKDIR /app
 COPY --from=build /app ./
-RUN npm install --no-save --package-lock=false playwright@1.58.2
 CMD ["node", "client/tests/ui-flow.browser.mjs"]
 
 FROM ui-test AS webcam-test

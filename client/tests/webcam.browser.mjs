@@ -82,10 +82,10 @@ try {
   };
   const until = (key, value) => game.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
   await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true'); await click(PILL); await until('connectReady', 'true');
-  assert.equal(await game.evaluate(() => cameraRequests), 0, 'opening Connect Client does not request permission');
-  await game.evaluate(() => { cameraMode = 'denied'; }); await click(PRIMARY); await until('connectStatus', 'error');
+  assert.equal(await game.evaluate(() => window.cameraRequests), 0, 'opening Connect Client does not request permission');
+  await game.evaluate(() => { window.cameraMode = 'denied'; }); await click(PRIMARY); await until('connectStatus', 'error');
   assert.match(await game.locator('canvas').getAttribute('data-connect-message'), /permission was denied/);
-  await game.evaluate(() => { cameraMode = 'normal'; }); await click(PRIMARY);
+  await game.evaluate(() => { window.cameraMode = 'normal'; }); await click(PRIMARY);
   await until('connectStatus', 'connected');
   for (const [index, model] of ['lite', 'full', 'heavy'].entries()) {
     await click(MODEL_RECTS[index]); await until('connectModel', model); await until('connectStatus', 'connected');
@@ -100,11 +100,11 @@ try {
   await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
   await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true');
   await click(PILL); await until('connectReady', 'true'); await click(PRIMARY); await until('connectStatus', 'disconnected');
-  assert.ok(await game.evaluate(() => cameraStops >= 4), 'switches and Stop release camera tracks');
+  assert.ok(await game.evaluate(() => window.cameraStops >= 4), 'switches and Stop release camera tracks');
 
   studio = await pageFor(4181);
   await studio.getByRole('heading', { name: 'Make every move yours.' }).waitFor();
-  assert.equal(await studio.evaluate(() => cameraRequests), 0);
+  assert.equal(await studio.evaluate(() => window.cameraRequests), 0);
   // Keep Studio capture responsive in software CI; all three models were exercised above.
   await studio.getByLabel('Webcam pose model').selectOption('lite');
   await studio.getByRole('button', { name: 'Start camera', exact: true }).click();

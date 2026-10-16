@@ -65,7 +65,7 @@ const swayGLSL = /* glsl */ `
 export function patchMaterial(material, { sway = 0, key = 'base', fragment = null, ibl = 0.6, haze = 1, translucency = 0 } = {}) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, skyUniforms(), { uTime: world.uTime, uWaterY: world.uWaterY, uSwayAmp: { value: sway }, uIbl: { value: ibl }, uHazeScale: { value: haze }, uTranslucency: { value: translucency } });
-    fragment?.uniforms && Object.assign(shader.uniforms, fragment.uniforms);
+    if (fragment?.uniforms) Object.assign(shader.uniforms, fragment.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',

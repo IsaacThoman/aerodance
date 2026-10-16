@@ -4,6 +4,7 @@
   "description": "Webcam dance game: React + three.js canvas with in-browser pose tracking, built as a static site",
   "scripts": {
     "dev": "vite",
+    "lint": "eslint .",
     "test": "node --test client/tests/*.test.js packages/*/tests/*.test.js",
     "build": "vite build",
     "preview": "vite preview",
@@ -18,16 +19,23 @@
     "express": "^5.3.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@fontsource/exo-2": "^5.3.0",
     "@fontsource/nunito": "^5.3.0",
     "@mediapipe/tasks-vision": "1.1.0",
     "@react-three/fiber": "^9.8.1",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
     "mediabunny": "^1.61.3",
+    "playwright": "1.58.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "three": "^0.186.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.2",
     "vite": "^8.3.4"
   },
   "private": true

@@ -33,6 +33,8 @@ export default function Character({
     [model, motion, person],
   );
   const applyPose = useMemo(() => calibration ? createPoseApplier(model, calibration, {smoothDistance:live}) : null, [model, calibration, live]);
+  // A fresh filter for each model/calibration/live session, so old smoothing never carries over.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const poseFilter=useMemo(()=>new LivePoseFilter(),[model,calibration,live]);
   const invalidate=useThree(state=>state.invalidate);
   const mixer = useMemo(() => new AnimationMixer(model), [model]);

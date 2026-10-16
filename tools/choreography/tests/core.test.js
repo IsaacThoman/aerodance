@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { poseModel, MEDIAPIPE_VERSION } from '../../../packages/pose/browser/models.js';
 import {
   newProject,

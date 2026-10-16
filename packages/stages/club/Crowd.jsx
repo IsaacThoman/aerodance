@@ -109,7 +109,7 @@ export default function Crowd() {
       const ph = (((beat.phase + b.offset) % 1) + 1) % 1;
       const kick = Math.exp(-ph * 6);
       let y = 0;
-      let sy = 1;
+      let sy;
       let lean = 0;
       if (b.style < 0.55) {
         // Hop: airborne mid-beat, squash on landing.

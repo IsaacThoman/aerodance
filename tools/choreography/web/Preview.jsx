@@ -1,5 +1,5 @@
 import { Component, Suspense, useEffect, useMemo, useRef } from "react";
-import { Canvas, useThree, useFrame } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { PMREMGenerator } from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import Character from "../../../packages/character/Character.jsx";

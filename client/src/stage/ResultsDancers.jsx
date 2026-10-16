@@ -129,8 +129,8 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
   const count = s0.results.length;
   const solo = count === 1;
   const seats = Array.from({ length: count }, (_, i) => i);
-  const groups = useMemo(() => seats.map(() => createRef()), [count]);
-  const halo = useMemo(() => seats.map(() => ({ current: 0 })), [count]);
+  const groups = useMemo(() => Array.from({ length: count }, () => createRef()), [count]);
+  const halo = useMemo(() => Array.from({ length: count }, () => ({ current: 0 })), [count]);
   const column = useRef(0);
   const winColor = s0.winner === null ? GOLD : PLAYERS[s0.winner % PLAYERS.length].color;
   const confettiColors = useMemo(() => (s0.winner === null ? [GOLD, '#ffffff', accent[0]] : [PLAYERS[s0.winner % PLAYERS.length].color, PLAYERS[s0.winner % PLAYERS.length].light, '#ffffff', accent[0], GOLD]), [s0.winner, accent]);

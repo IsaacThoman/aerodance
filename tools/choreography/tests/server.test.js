@@ -10,7 +10,6 @@ import {
   addTake,
   overwriteTracks,
   trackDataIds,
-  compileProject,
   newProject,
 } from "../core.js";
 import { poseModel, MEDIAPIPE_VERSION } from '../../../packages/pose/browser/models.js';
@@ -355,7 +354,7 @@ test("project deletion rejects stale revisions and queued writes cannot recreate
   assert.deepEqual(await store.list(), []);
 });
 test("opening and restoring legacy projects migrates their independent tracks", async (t) => {
-  const { api, base, store } = await setup(t);
+  const { base, store } = await setup(t);
   const uploaded = take();
   let p = addTake(newProject("legacy-project", 1), uploaded);
   await store.writeTake(p.projectId, uploaded);
