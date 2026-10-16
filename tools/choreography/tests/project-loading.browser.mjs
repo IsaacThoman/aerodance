@@ -19,7 +19,7 @@ const futureBytes=Buffer.from(JSON.stringify(future));
 await store.atomic(store.location(future.projectId,'project.json'),futureBytes);
 const server=app.listen(4193,'127.0.0.1');
 await new Promise(resolve=>server.once('listening',resolve));
-const browser=await chromium.launch({args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||undefined,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 try {
   const page=await browser.newPage({viewport:{width:1280,height:900}});
   page.setDefaultTimeout(30000);

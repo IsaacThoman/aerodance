@@ -15,7 +15,7 @@ app.use(express.static('tools/choreography/dist'));
 const server = app.listen(0, '127.0.0.1');
 await new Promise(resolve => server.once('listening', resolve));
 const workerFile = (await readdir('tools/choreography/dist/assets')).find(name => name.startsWith('pose.worker-'));
-const browser = await chromium.launch({ args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 try {
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${server.address().port}/probe`);
@@ -83,7 +83,8 @@ try {
   for (const report of reports) {
     assert.deepEqual(report.calibrationPlayers, [0, 1], `${report.model}: both dancers must calibrate`);
     assert.deepEqual(report.processedPlayers, [0, 1], `${report.model}: both dancers must survive video processing`);
-    assert.ok(report.hipX[0] < .5 && report.hipX[1] > .5, 'restored coordinates retain the original regions');
+    // Unmirrored camera coordinates: player 1 (id 0) is on the right, shown on the left of the mirrored view.
+    assert.ok(report.hipX[0] > .5 && report.hipX[1] < .5, 'restored coordinates retain the original regions');
   }
   console.log('Portrait duet regression passed for Lite, Full and Heavy: both calibration and video processing.');
 } finally {

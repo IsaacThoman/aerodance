@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createStudio } from "../server/index.js";
@@ -23,12 +23,12 @@ const pose = (id) => ({
     presence: 1,
   })),
 });
-const take = () => ({
+const take = (source = "choreography") => ({
   schema: "aerodance.take",
   schemaVersion: 1,
   takeId: crypto.randomUUID(),
   name: "Fixture",
-  source: "android",
+  source,
   input: { width: 640, height: 480, mirrored: false },
   offsetMs: 0,
   timeScale: 1,
@@ -37,7 +37,21 @@ const take = () => ({
     poses: [pose(0), pose(1)],
   })),
 });
-test('webcam batches reject Android records and preserve a finalized take through export and backup', async t => {
+const webcamStatus = () => {
+  const model = poseModel('lite');
+  return { modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION, delegate: 'CPU' };
+};
+const webcamRecords = (count) => Array.from({ length: count }, (_, i) => ({ ordinal: i, receivedBrowserTimeMs: 1000 + i * 100 + 20,
+  audioPositionAtReceiptMs: i * 100 + 20, audioPositionAtFrameMs: 500 + i * 100, audioPlaybackRate: 1,
+  record: { schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 'webcam', seq: i + 1,
+    playerCount: 2, input: { width: 640, height: 480, mirrored: false }, modelId: 'lite',
+    frameBrowserTimeMs: 1000 + i * 100, resultBrowserTimeMs: 1000 + i * 100 + 20,
+    mediaTimeMs: i * 100, timingMethod: 'browser-frame-observation', poses: [pose(0), pose(1)] } }));
+const wireRecords = (count) => Array.from({ length: count }, (_, i) => ({ ordinal: i, receivedBrowserTimeMs: i * 100,
+  audioPositionAtReceiptMs: i * 100, record: { protocolVersion: 2, type: 'pose', sessionId: 's', seq: i + 1,
+    frameReceivedTimeMs: i * 100, resultTimeMs: i * 100 + 20, playerCount: 2,
+    input: { width: 640, height: 480, mirrored: false }, poses: [pose(0), pose(1)] } }));
+test('webcam batches reject protocol-v2 records and preserve a finalized take through export and backup', async t => {
   const { api, base } = await setup(t);
   let p = await (await api('/api/projects', {})).json();
   const model = poseModel('lite');
@@ -188,7 +202,7 @@ test('stored unsupported projects remain listed but cannot be opened or mutated 
     method:'POST',headers:{'Content-Type':'audio/wav'},body:Buffer.from('audio'),
   });
   assert.equal(audio.status,400);
-  assert.equal((await api(`/api/projects/${p.projectId}/takes`,{})).status,400);
+  assert.equal((await api(`/api/projects/${p.projectId}/takes`,{sourceKind:'webcam'})).status,400);
   assert.equal((await api(`/api/projects/${p.projectId}`,p,'PUT')).status,400);
   assert.deepEqual(await store.read(p.projectId,'project.json'),p);
 });
@@ -196,26 +210,11 @@ test("record batches are idempotent and finalization rejects missing ordinals", 
   const { api } = await setup(t),
     p = await (await api("/api/projects", {})).json();
   const capture = await (
-    await api(`/api/projects/${p.projectId}/takes`, {})
+    await api(`/api/projects/${p.projectId}/takes`, { sourceKind: "webcam", status: webcamStatus() })
   ).json();
+  assert.equal(capture.name, "Webcam take");
   const url = `/api/projects/${p.projectId}/takes/${capture.takeId}`;
-  const records = [0, 1].map((i) => ({
-    ordinal: i,
-    receivedBrowserTimeMs: i * 100,
-    audioPositionAtReceiptMs: i * 100,
-    record: {
-      protocolVersion: 2,
-      type: "pose",
-      sessionId: "s",
-      seq: i + 1,
-      frameReceivedTimeMs: i * 100,
-      resultTimeMs: i * 100 + 20,
-      playerCount: 2,
-      input: { width: 640, height: 480, mirrored: false },
-      poses: [pose(0), pose(1)],
-    },
-  }));
-  const body = { batchId: 0, records };
+  const body = { batchId: 0, records: webcamRecords(2) };
   assert.equal((await api(`${url}/batches`, body)).status, 200);
   assert.equal((await api(`${url}/batches`, body)).status, 200);
   assert.equal(
@@ -226,9 +225,81 @@ test("record batches are idempotent and finalization rejects missing ordinals", 
   assert.equal(done.status, 200);
   const take = await done.json();
   assert.equal(take.samples.length, 2);
-  assert.equal(take.offsetMs, -20);
-  assert.equal(take.provenance.processingDelayMs, 20);
+  assert.equal(take.offsetMs, 500);
+  assert.equal(take.source, "webcam");
   assert.equal((await api(`${url}/batches`, body)).status, 400);
+});
+test("capture uploads require a webcam or video source and stale Android captures cannot resume", async (t) => {
+  const { api, store } = await setup(t),
+    p = await (await api("/api/projects", {})).json();
+  for (const body of [{}, { sourceKind: "android" }, { sourceKind: "bogus" }]) {
+    const response = await api(`/api/projects/${p.projectId}/takes`, body);
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, "Invalid capture source");
+  }
+  // Capture folders left by older editors: Android, and before sourceKind existed.
+  for (const sourceKind of ["android", undefined]) {
+    const takeId = crypto.randomUUID(),
+      folder = store.location(p.projectId, "capture", takeId);
+    await store.atomic(path.join(folder, "capture.json"),
+      Buffer.from(JSON.stringify({ takeId, projectId: p.projectId, name: "Android take", sourceKind })));
+    await store.atomic(path.join(folder, "batches", "0.json"), Buffer.from(JSON.stringify(wireRecords(2))));
+    const url = `/api/projects/${p.projectId}/takes/${takeId}`;
+    for (const records of [wireRecords(2), []]) {
+      const response = await api(`${url}/batches`, { batchId: 1, records });
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error, "Unsupported capture source");
+    }
+    const finalized = await api(`${url}/finalize`, { batchCount: 1, recordCount: 2 });
+    assert.equal(finalized.status, 400);
+    assert.equal((await finalized.json()).error, "Unsupported capture source");
+  }
+  assert.deepEqual((await store.read(p.projectId, "project.json")).takes, []);
+});
+test("projects with stored Android takes open, compile, export, back up and restore", async (t) => {
+  const { api, base, store } = await setup(t);
+  const stored = take("android");
+  stored.provenance = { sessionId: "s", sequenceGaps: 0, synthetic: false, alignmentMethod: "receipt-estimate" };
+  const assets = new Map([[stored.takeId, stored]]);
+  let p = overwriteTracks(addTake(newProject("android-project"), stored), stored, [0, 1], assets);
+  p.metadata.artist = "Artist";
+  p.metadata.rights.audio.license = "CC0";
+  p.metadata.rights.choreography.license = "CC0";
+  await store.writeTake(p.projectId, stored);
+  for (const dataId of trackDataIds(p)) await store.writeTrack(p.projectId, assets.get(dataId));
+  // The raw capture an Android take was finalized from travels with backups.
+  const raw = Buffer.from(wireRecords(2).map((e) => JSON.stringify(e) + "\n").join(""));
+  await store.atomic(store.location(p.projectId, "capture", stored.takeId, "records.ndjson"), raw);
+  p = await store.save(p, null);
+  const opened = await fetch(`${base}/api/projects/${p.projectId}`);
+  assert.equal(opened.status, 200);
+  p = await opened.json();
+  assert.equal(p.takes[0].source, "android");
+  p = await (await fetch(`${base}/api/projects/${p.projectId}/audio?durationMs=1000&revision=${p.revision}`, {
+    method: "POST", headers: { "Content-Type": "audio/wav" }, body: Buffer.from("fixture audio"),
+  })).json();
+  p.alignmentReviewed = true;
+  p = await (await api(`/api/projects/${p.projectId}`, p, "PUT")).json();
+  const compiled = await api(`/api/projects/${p.projectId}/compile`, { revision: p.revision });
+  assert.equal(compiled.status, 200, await compiled.clone().text());
+  const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
+  assert.equal(exported.status, 200, await exported.clone().text());
+  const files = readZip(Buffer.from(await exported.arrayBuffer()));
+  const choreography = JSON.parse(files.get(`${p.songId}/choreography.json`));
+  assert.equal(choreography.provenance.sources[0].source, "android");
+  assert.ok(choreography.samples.some((s) => s.poses.length === 2));
+  const backup = Buffer.from(await (await fetch(`${base}/api/projects/${p.projectId}/backup`)).arrayBuffer());
+  assert.deepEqual(readZip(backup).get(`raw/${stored.takeId}.ndjson`), raw);
+  const restored = await fetch(`${base}/api/restore`, { method: "POST", headers: { "Content-Type": "application/zip" }, body: backup });
+  assert.equal(restored.status, 201);
+  const rp = await restored.json();
+  const saved = await (await fetch(`${base}/api/projects/${rp.projectId}/takes/${stored.takeId}`)).json();
+  assert.equal(saved.source, "android");
+  assert.deepEqual(
+    (await store.compile(rp)).data.samples,
+    (await store.compile(p)).data.samples,
+  );
+  assert.deepEqual(await readFile(store.location(rp.projectId, "capture", stored.takeId, "records.ndjson")), raw);
 });
 test("write API rejects cross-origin requests and ZIP reader rejects corruption/traversal", async (t) => {
   const { base } = await setup(t);
@@ -355,7 +426,7 @@ test("project deletion rejects stale revisions and queued writes cannot recreate
 });
 test("opening and restoring legacy projects migrates their independent tracks", async (t) => {
   const { base, store } = await setup(t);
-  const uploaded = take();
+  const uploaded = take("android");
   let p = addTake(newProject("legacy-project", 1), uploaded);
   await store.writeTake(p.projectId, uploaded);
   p = await store.save(p, null);

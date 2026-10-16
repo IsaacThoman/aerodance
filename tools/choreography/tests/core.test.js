@@ -19,6 +19,7 @@ import {
   interpolateTrack,
   migrateProject,
   trackDataIds,
+  sourceLabel,
 } from "../core.js";
 import {
   sampleSnapshot,
@@ -55,8 +56,8 @@ test('webcam take timing follows frames despite variable inference latency and r
   assert.equal(take.provenance.modelHash, model.sha256);
   const changed = structuredClone(records); changed[1].record.modelId = 'lite';
   assert.throws(() => takeFromRecords(changed, metadata), /changed/);
-  const android = structuredClone(records); android[1].record.schema = undefined; android[1].record.protocolVersion = 2;
-  assert.throws(() => takeFromRecords(android, metadata), /Invalid webcam/);
+  const wire = structuredClone(records); wire[1].record.schema = undefined; wire[1].record.protocolVersion = 2;
+  assert.throws(() => takeFromRecords(wire, metadata), /Invalid webcam/);
 });
 test('unsupported project tracks and null clips fail validation before the editor renders them', () => {
   const project=newProject('format-fixture', 1);
@@ -74,7 +75,7 @@ function fixture() {
     schemaVersion: 1,
     takeId: "take-a",
     name: "A",
-    source: "android",
+    source: "choreography",
     input: { width: 640, height: 480, mirrored: false },
     offsetMs: 0,
     timeScale: 1,
@@ -216,73 +217,47 @@ test("legacy migration keeps both original confidence fields unknown", async () 
   assert.equal(take.samples[1].takeTimeMs, legacy.times[1] * 1000);
   assert.ok(take.samples[0].legacyConfidence[0].length === 33);
 });
-test("Android capture retains mode identity, distinguishes clocks, and rejects restarts", () => {
-  const record = (seq, t, poses) => ({
-    protocolVersion: 2,
-    type: "pose",
-    sessionId: "s",
-    seq,
-    frameReceivedTimeMs: t,
-    resultTimeMs: t + 100,
-    playerCount: 2,
-    input: { width: 640, height: 480, mirrored: false },
-    poses,
-  });
-  const records = [
-    { record: record(1, 9000, [pose(1)]), audioPositionAtReceiptMs: -3000 },
-    { record: record(3, 9600, [pose(1)]) },
-  ];
-  const take = takeFromRecords(records, { takeId: "capture-a" });
-  assert.equal(take.samples[0].takeTimeMs, 0);
-  assert.equal(take.offsetMs, -3100);
-  assert.equal(take.provenance.processingDelayMs, 100);
-  assert.equal(
-    take.provenance.alignmentMethod,
-    "processing-delay-compensated-receipt-estimate",
-  );
-  assert.equal(take.samples[0].poses[0].playerId, 1);
-  assert.equal(take.samples[1].poses.length, 0);
-  assert.equal(take.provenance.sequenceGaps, 1);
-  records[1].record.sessionId = "restarted";
-  assert.throws(
-    () => takeFromRecords(records, { takeId: "capture-b" }),
-    /session/,
-  );
-});
-test("capture compensates processing delay without distorting frame intervals", () => {
-  const records = [100, 180, 260].map((time, i) => ({
-    audioPositionAtReceiptMs: 1000 + (time - 100) * 2,
-    audioPlaybackRate: 2,
+test("captures need a webcam or video source; protocol-v2 records no longer create takes", () => {
+  const records = [0, 1].map((i) => ({
+    audioPositionAtReceiptMs: i * 100,
     record: {
+      protocolVersion: 2,
       type: "pose",
       sessionId: "s",
       seq: i + 1,
-      frameReceivedTimeMs: time,
-      resultTimeMs: time + [120, 30, 180][i],
+      frameReceivedTimeMs: i * 100,
+      resultTimeMs: i * 100 + 20,
       playerCount: 2,
       input: { width: 640, height: 480, mirrored: false },
       poses: [pose(0), pose(1)],
     },
   }));
-  const take = takeFromRecords(records, { takeId: "timed" });
-  assert.equal(take.offsetMs, 760);
-  assert.equal(take.timeScale, 2);
-  assert.deepEqual(
-    take.samples.map((s) => s.takeTimeMs),
-    [0, 80, 160],
-  );
-  for (const e of records) {
-    delete e.audioPositionAtReceiptMs;
-    delete e.audioPlaybackRate;
-  }
-  const raw = takeFromRecords(records, { takeId: "raw" });
-  assert.equal(raw.offsetMs, 0);
-  assert.equal(raw.timeScale, 1);
-  assert.equal(raw.provenance.alignmentMethod, "unanchored-frame-timing");
-  records[1].record.resultTimeMs = 179;
-  assert.throws(
-    () => takeFromRecords(records, { takeId: "bad" }),
-    /timestamps/,
+  for (const sourceKind of [undefined, "android", "bogus"])
+    assert.throws(
+      () => takeFromRecords(records, { takeId: "capture", sourceKind }),
+      /Unsupported capture source/,
+    );
+});
+test("stored legacy captures still import, compile, review and validate", () => {
+  const take = {
+    ...fixture().take,
+    takeId: "legacy-capture",
+    source: "android",
+    provenance: { sessionId: "s", sequenceGaps: 0, synthetic: false, alignmentMethod: "receipt-estimate" },
+  };
+  assert.equal(sourceLabel(take.source), "legacy capture");
+  assert.equal(sourceLabel("webcam"), "webcam");
+  // An exported take.json keeps its stored source on import.
+  assert.equal(importMotion(structuredClone(take), "old.json", "imported").source, "android");
+  const { p, assets } = independent(take);
+  assert.equal(p.takes[0].source, "android");
+  validateProject(p);
+  const data = compileProject(p, assets);
+  validateChoreography(data);
+  assert.deepEqual(data.provenance.sources.map((s) => s.source), ["android"]);
+  assert.ok(data.samples.some((s) => s.poses.length === 2));
+  assert.ok(
+    reviewReport(p, data).warnings.some((w) => /Legacy capture timing/.test(w)),
   );
 });
 test("runtime validation rejects corrupt payloads and timestamps", () => {

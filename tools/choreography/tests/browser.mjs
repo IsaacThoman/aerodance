@@ -11,6 +11,7 @@ const dataDir = await mkdtemp(path.join(tmpdir(), "studio-browser-")),
   server = app.listen(4175, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const browser = await chromium.launch({
+  executablePath: process.env.CHROMIUM_PATH || undefined,
   args: [
     "--no-sandbox",
     "--use-gl=angle",

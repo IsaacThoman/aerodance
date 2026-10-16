@@ -3,7 +3,6 @@ import { PoseSourceController } from "../../../packages/pose/browser/PoseSourceC
 import WebcamControls from './WebcamControls.jsx';
 import VideoImportPanel from './VideoImportPanel.jsx';
 import { DEFAULT_STAGE, STAGE_LIST } from "../../../packages/stages/catalog.js";
-import { NdjsonDecoder } from "../../../packages/pose/protocol.js";
 import {
   JOINT_NAMES,
   copy,
@@ -14,7 +13,7 @@ import {
   compileProject,
   reviewReport,
   importMotion,
-  takeFromRecords,
+  sourceLabel,
   addTake,
   appendOperation,
   validateProject,
@@ -661,34 +660,7 @@ export default function App() {
         await refresh();
         return;
       }
-      const text = await file.text();
-      let take;
-      if (file.name.endsWith(".ndjson") || file.name.endsWith(".jsonl")) {
-        const lines = text.trim().split("\n"),
-          records = lines.map((line, i) => {
-            const parsed = JSON.parse(line);
-            return parsed.record
-              ? { ...parsed, ordinal: i }
-              : {
-                  ordinal: i,
-                  receivedBrowserTimeMs:
-                    parsed.resultTimeMs ?? parsed.producerTimeMs ?? i,
-                  record: parsed,
-                };
-          });
-        const validator = new NdjsonDecoder(() => {});
-        for (const e of records)
-          if (e.record)
-            validator.push(
-              new TextEncoder().encode(JSON.stringify(e.record) + "\n"),
-            );
-        validator.finish();
-        take = takeFromRecords(records, {
-          takeId: crypto.randomUUID(),
-          name: file.name,
-          createdAt: new Date().toISOString(),
-        });
-      } else take = importMotion(JSON.parse(text), file.name);
+      const take = importMotion(JSON.parse(await file.text()), file.name);
       await request(`/api/projects/${project.projectId}/import`, {
         method: "POST",
         body: take,
@@ -1033,11 +1005,11 @@ export default function App() {
             <span>⌁</span>
             <div>
               Import pose recording
-              <small>JSON, NDJSON or project ZIP</small>
+              <small>JSON or project ZIP</small>
             </div>
             <input
               type="file"
-              accept=".json,.ndjson,.jsonl,.zip"
+              accept=".json,.zip"
               disabled={recording || busy}
               aria-label="Import pose recording"
               onChange={(e) => {
@@ -1084,7 +1056,7 @@ export default function App() {
                     <span>
                       <strong>{t.name}</strong>
                       <small>
-                        {t.source} · {take?.samples.length || 0} samples
+                        {sourceLabel(t.source)} · {take?.samples.length || 0} samples
                          {t.modelId ? ` · ${t.modelId}${Number.isFinite(t.sourceRateHz) ? ` · ${t.sourceRateHz.toFixed(1)} poses/s` : ""}` : ""}
                       </small>
                     </span>
@@ -1682,7 +1654,7 @@ export default function App() {
                           }}
                         >
                           {data.sources
-                            .map((s) => s.name || s.source)
+                            .map((s) => s.name || sourceLabel(s.source))
                             .join(", ")}
                         </div>
                       )}

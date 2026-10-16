@@ -9,6 +9,7 @@ import { readZip } from '../server/zip.js';
 
 const root = await mkdtemp(path.join(tmpdir(), 'studio-video-browser-'));
 const { app, store } = createStudio({ dataDir: root });
+// A take stored by an earlier Android-capable editor must still open beside new video takes.
 const source = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'android', name: 'Original take',
   input: { width: 640, height: 480, mirrored: false }, offsetMs: 0, timeScale: 1,
   samples: Array.from({ length: 9 }, (_, i) => ({ takeTimeMs: i * 100, poses: [0, 1].map(playerId => ({ playerId,
@@ -22,7 +23,7 @@ const initialTracks = structuredClone(p.tracks);
 const server = app.listen(0, '127.0.0.1');
 await new Promise(resolve => server.once('listening', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-accelerated-video-decode'] });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-accelerated-video-decode'] });
 let page;
 try {
   page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -58,6 +59,7 @@ try {
   });
   await page.goto(base);
   await page.getByRole('heading', { name: 'Make every move yours.' }).waitFor();
+  await page.getByText('legacy capture · 9 samples').waitFor();
   // Keep a real song audio asset while importing video poses.
   const sampleRate = 8000, audio = Buffer.alloc(44 + sampleRate * 2);
   audio.write('RIFF', 0); audio.writeUInt32LE(audio.length - 8, 4); audio.write('WAVEfmt ', 8);

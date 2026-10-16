@@ -11,7 +11,7 @@ RUN npm test && npm run studio:test
 FROM mcr.microsoft.com/playwright:v1.58.2-noble AS ui-test
 WORKDIR /app
 COPY --from=build /app ./
-CMD ["sh", "-c", "node tools/choreography/tests/browser.mjs && node tools/choreography/tests/video-import.browser.mjs && node tools/choreography/tests/video-duet.browser.mjs"]
+CMD ["sh", "-c", "node tools/choreography/tests/browser.mjs && node tools/choreography/tests/video-import.browser.mjs && node tools/choreography/tests/video-duet.browser.mjs && node tools/choreography/tests/project-loading.browser.mjs"]
 
 FROM node:24-alpine AS runtime
 WORKDIR /app

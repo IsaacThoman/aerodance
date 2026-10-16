@@ -13,7 +13,6 @@ import {
   trackDataIds,
   migrateProject,
 } from "../core.js";
-import { validate as validateWire } from "../../../packages/pose/protocol.js";
 import { validateWebcamRecord } from '../../../packages/pose/webcamRecord.js';
 import { validateVideoRecord } from '../../../packages/pose/videoRecord.js';
 
@@ -165,7 +164,7 @@ export function createStudio({
       );
   });
   app.post("/api/projects/:projectId/takes", body, async (req, res) => {
-    if (!['android', 'webcam', 'video'].includes(req.body.sourceKind || 'android')) throw Error('Invalid capture source');
+    if (!['webcam', 'video'].includes(req.body.sourceKind)) throw Error('Invalid capture source');
     const projectId = id(req.params.projectId);
     const metadata = await store.locked(projectId, async () => {
       validateProject(await store.read(projectId, "project.json"));
@@ -173,10 +172,10 @@ export function createStudio({
         metadata = {
           takeId,
           projectId,
-          name: String(req.body.name || "Android take").slice(0, 200),
+          name: String(req.body.name || (req.body.sourceKind === 'video' ? 'Video take' : 'Webcam take')).slice(0, 200),
           createdAt: new Date().toISOString(),
           status: req.body.status || null,
-          sourceKind: req.body.sourceKind || "android",
+          sourceKind: req.body.sourceKind,
         };
       const folder = store.location(projectId, "capture", takeId);
       await fs.mkdir(path.join(folder, "batches"), { recursive: true });
@@ -201,6 +200,8 @@ export function createStudio({
       )
         throw Error("Invalid record batch");
       const metadata = JSON.parse(await fs.readFile(path.join(folder, 'capture.json'), 'utf8'));
+      // Captures left unfinished by older editors cannot be resumed.
+      if (!['webcam', 'video'].includes(metadata.sourceKind)) throw Error('Unsupported capture source');
       for (const e of records) {
         if (metadata.sourceKind === 'video') {
           if (!Number.isSafeInteger(e.ordinal) || e.ordinal < 0 || !e.record ||
@@ -219,11 +220,9 @@ export function createStudio({
           throw Error("Invalid recorder timing");
         if (e.record) {
           if (Buffer.byteLength(JSON.stringify(e.record)) > 16384)
-            throw Error("Wire record exceeds 16 KiB");
-          if (metadata.sourceKind === 'webcam') {
-            validateWebcamRecord(e.record);
-            if (!Number.isFinite(e.audioPositionAtFrameMs)) throw Error('Missing webcam audio anchor');
-          } else validateWire(e.record);
+            throw Error("Pose record exceeds 16 KiB");
+          validateWebcamRecord(e.record);
+          if (!Number.isFinite(e.audioPositionAtFrameMs)) throw Error('Missing webcam audio anchor');
         } else if (!e.event) throw Error("Missing record/event");
       }
       await store.locked(projectId, async () => {

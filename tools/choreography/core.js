@@ -371,7 +371,7 @@ export function importMotion(
     return validateTake(take);
   } else
     throw Error(
-      "Import a legacy dance.json, choreography.json, take.json, or Android NDJSON",
+      "Import a legacy dance.json, choreography.json or take.json",
     );
   return validateTake({
     schema: "aerodance.take",
@@ -394,100 +394,10 @@ export function importMotion(
 export function takeFromRecords(records, metadata) {
   if (metadata.sourceKind === 'video') return videoTakeFromRecords(records, metadata);
   if (metadata.sourceKind === 'webcam') return webcamTakeFromRecords(records, metadata);
-  const poses = records.filter((e) => e.record?.type === "pose");
-  assert(poses.length >= 2, "Take needs at least two pose records");
-  const first = poses[0],
-    session = first.record.sessionId,
-    input = first.record.input;
-  assert(input.mirrored === false, "Unmirrored capture is required");
-  const audioRate = first.audioPlaybackRate ?? 1;
-  assert(finite(audioRate) && audioRate > 0, "Invalid capture audio rate");
-  const hasAudioAnchor = first.audioPositionAtReceiptMs != null;
-  assert(
-    !hasAudioAnchor || finite(first.audioPositionAtReceiptMs),
-    "Invalid capture audio position",
-  );
-  const processingDelayMs =
-    first.record.resultTimeMs - first.record.frameReceivedTimeMs;
-  let lastSeq = 0,
-    lastTime = -Infinity;
-  const samples = [];
-  let sequenceGaps = 0;
-  for (const e of poses) {
-    const r = e.record;
-    assert(
-      finite(r.frameReceivedTimeMs) &&
-        finite(r.resultTimeMs) &&
-        r.resultTimeMs >= r.frameReceivedTimeMs,
-      "Invalid capture processing timestamps",
-    );
-    assert(
-      (e.audioPlaybackRate ?? audioRate) === audioRate,
-      "Capture audio rate changed",
-    );
-    assert(
-      r.sessionId === session &&
-        r.playerCount === 2 &&
-        r.input.width === input.width &&
-        r.input.height === input.height &&
-        r.input.mirrored === false,
-      "Capture session/mode/geometry changed",
-    );
-    assert(
-      r.seq > lastSeq && r.frameReceivedTimeMs > lastTime,
-      "Capture sequence/time must increase",
-    );
-    if (lastSeq) sequenceGaps += Math.max(0, r.seq - lastSeq - 1);
-    const t = r.frameReceivedTimeMs - first.record.frameReceivedTimeMs;
-    // Insert absence on silence; never interpolate over an inference/receipt gap.
-    if (samples.length && t - samples.at(-1).takeTimeMs > 200)
-      samples.push({
-        takeTimeMs:
-          samples.at(-1).takeTimeMs +
-          Math.min(200, (t - samples.at(-1).takeTimeMs) / 2),
-        poses: [],
-        quality: [],
-      });
-    samples.push({
-      takeTimeMs: t,
-      poses: copy(r.poses),
-      quality: qualityFor(r.poses),
-      sourceSeq: r.seq,
-    });
-    lastSeq = r.seq;
-    lastTime = r.frameReceivedTimeMs;
-  }
-  return validateTake({
-    schema: "aerodance.take",
-    schemaVersion: 1,
-    takeId: metadata.takeId,
-    name: metadata.name || "Android take",
-    source: "android",
-    input,
-    samples,
-    // The audio anchor was measured after inference. Both device timestamps
-    // share a clock, so their difference needs no browser/device clock sync.
-    // Keep frame deltas for subsequent samples: variable inference latency
-    // must not change the timing of the captured movement.
-    offsetMs: hasAudioAnchor
-      ? first.audioPositionAtReceiptMs - processingDelayMs * audioRate
-      : 0,
-    timeScale: audioRate,
-    createdAt: metadata.createdAt,
-    status: metadata.status || null,
-    interruptionReason: metadata.interruptionReason || null,
-    provenance: {
-      sessionId: session,
-      sequenceGaps,
-      synthetic: metadata.status?.poseModel === "synthetic",
-      alignmentMethod: hasAudioAnchor
-        ? "processing-delay-compensated-receipt-estimate"
-        : "unanchored-frame-timing",
-      processingDelayMs: hasAudioAnchor ? processingDelayMs : null,
-      timingUncertaintyMs: null,
-    },
-  });
+  throw Error('Unsupported capture source');
 }
+// Projects saved before webcam capture keep their stored "android" takes.
+export const sourceLabel = (source) => source === 'android' ? 'legacy capture' : source;
 export function webcamTakeFromRecords(records, metadata) {
   const envelopes = records.filter(e => e.record);
   assert(envelopes.length >= 2, 'Take needs at least two pose records');
@@ -1041,7 +951,7 @@ export function reviewReport(project, data) {
     )
   )
     warnings.push(
-      "Android timing is manually aligned; calibrated device-to-audio mapping is unavailable",
+      "Legacy capture timing is manually aligned; calibrated device-to-audio mapping is unavailable",
     );
   return { blockers: [...new Set(blockers)], warnings, coverage };
 }
