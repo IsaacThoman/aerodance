@@ -6,7 +6,7 @@
 
 The game draws a 640×480 buffer and shows it at 16:9, so each of its pixels is 4:3 wide. These thumbnails use that same pixel grid cropped to 3:2: a 540×480 buffer with the same pixel size and shape, the same bloom, grade and ACES tone mapping, and the same 4× MSAA. Each buffer pixel is written as an exact 4×3 block of the PNG, with no filtering, resampling or compression loss. You can check it: downsampling any image to 540×480 and back with nearest-neighbour gives the identical file.
 
-The wordmark is the title screen's own (`drawTitle` in `client/src/ui/draw.js`, Inter 800/200), drawn at the title menu's scale into a buffer-sized canvas and composited with nearest filtering, exactly as the game's canvas UI draws it. Each `with-logo` image is the matching `no-logo` frame with the wordmark added on top.
+The wordmark is the title screen's own (`drawTitle` in `client/src/ui/draw.ts`, Inter 800/200), drawn at the title menu's scale into a buffer-sized canvas and composited with nearest filtering, exactly as the game's canvas UI draws it. Each `with-logo` image is the matching `no-logo` frame with the wordmark added on top.
 
 ## Shots
 
@@ -27,17 +27,17 @@ From the repository root, after `npm ci`:
 
 ```sh
 npm --prefix tools/thumbnails ci
-node tools/thumbnails/scripts/render.mjs                         # all shots, into this folder
-node tools/thumbnails/scripts/render.mjs --only club-dj,beach-hero
-node tools/thumbnails/scripts/render.mjs --spec my-shots.json --out /tmp/thumbs   # one-off shots
+node tools/thumbnails/scripts/render.ts                         # all shots, into this folder
+node tools/thumbnails/scripts/render.ts --only club-dj,beach-hero
+node tools/thumbnails/scripts/render.ts --spec my-shots.tson --out /tmp/thumbs   # one-off shots
 ```
 
 It needs Google Chrome (driven headless by `playwright-core`, with GPU WebGL) and network access for the Inter font. A full run takes under 2 minutes on an M3 Pro. Renders are deterministic: re-rendering on the same machine gives byte-identical files. A different GPU or driver may differ slightly.
 
 ## Code
 
-- `client/src/shots.js`: the shot list. Each shot has a stage, how long the stage plays before the capture (`time`), the dance-capture moment the dancers hold (`pose`), a camera, optional dancer placement, and the wordmark's position and size. Add or tweak a shot here and re-render it with `--only`.
-- `client/src/App.jsx`: the capture page. It mounts one stage with the dancers, swaps in the shot's 3:2 camera for the stage's orbiting 16:9 one, steps the clock by hand at 60 fps to the shot's time (`frameloop="never"`), and reads back the frame with and without the wordmark. `?shot=<id>` opens a shot in the browser (`npx vite --config tools/thumbnails/vite.config.js`, port 5179).
-- `scripts/render.mjs`: builds the page, drives Chrome, upscales each frame into exact 4×3 blocks and writes the PNGs with its own encoder.
+- `client/src/shots.ts`: the shot list. Each shot has a stage, how long the stage plays before the capture (`time`), the dance-capture moment the dancers hold (`pose`), a camera, optional dancer placement, and the wordmark's position and size. Add or tweak a shot here and re-render it with `--only`.
+- `client/src/App.tsx`: the capture page. It mounts one stage with the dancers, swaps in the shot's 3:2 camera for the stage's orbiting 16:9 one, steps the clock by hand at 60 fps to the shot's time (`frameloop="never"`), and reads back the frame with and without the wordmark. `?shot=<id>` opens a shot in the browser (`npx vite --config tools/thumbnails/vite.config.ts`, port 5179).
+- `scripts/render.ts`: builds the page, drives Chrome, upscales each frame into exact 4×3 blocks and writes the PNGs with its own encoder.
 
-The stages needed two small, backward-compatible changes to render at 3:2: `RenderPipeline` takes an optional buffer size and display aspect (`stages/shared/post.jsx`), and the sanctuary and beach lens flares follow the camera's aspect. The game always renders at the old defaults, so it looks the same as before.
+The stages needed two small, backward-compatible changes to render at 3:2: `RenderPipeline` takes an optional buffer size and display aspect (`stages/shared/post.tsx`), and the sanctuary and beach lens flares follow the camera's aspect. The game always renders at the old defaults, so it looks the same as before.

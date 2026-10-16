@@ -1,0 +1,30 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { discoverSongs, songCatalogMiddleware } from './scripts/songCatalog.ts';
+import { poseAssetsPlugin } from './scripts/poseAssets.ts';
+
+export default defineConfig({
+  root: 'client',
+  plugins: [react(), poseAssetsPlugin(), {
+    name: 'song-discovery',
+    configureServer(server) {
+      server.middlewares.use('/songs/manifest.json', songCatalogMiddleware(fileURLToPath(new URL('./client/public/songs/', import.meta.url))));
+    },
+    async writeBundle(options) {
+      const catalog = await discoverSongs(fileURLToPath(new URL('./client/public/songs/', import.meta.url)));
+      await mkdir(`${options.dir}/songs`, { recursive: true });
+      await writeFile(`${options.dir}/songs/manifest.json`, JSON.stringify(catalog, null, 2) + '\n');
+    },
+  }],
+  // The menu dancers import code from packages/character; keep one copy of each runtime.
+  resolve: { dedupe: ['react', 'react-dom', 'three', '@react-three/fiber'] },
+  build: {
+    outDir: '../dist',
+    emptyOutDir: true,
+  },
+  server: {
+    port: 5173,
+  },
+});

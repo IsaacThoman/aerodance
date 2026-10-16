@@ -198,8 +198,8 @@ npm test
 npm run studio:test
 npm run studio:build
 npm run build
-node tools/choreography/tests/video-import.browser.mjs
-node tools/choreography/tests/video-duet.browser.mjs
+node tools/choreography/tests/video-import.browser.ts
+node tools/choreography/tests/video-duet.browser.ts
 docker build -f tools/choreography/Dockerfile --target test -t studio-test .
 docker build -f tools/choreography/Dockerfile --target ui-test -t studio-browser-test .
 docker run --rm studio-browser-test

@@ -1,7 +1,7 @@
 # How scores are calculated
 
 This document describes scorer version 1 (`SCORER_VERSION` in
-[`packages/score/scorer.js`](../packages/score/scorer.js)). Any change that would move
+[`packages/score/scorer.ts`](../packages/score/scorer.ts)). Any change that would move
 scores must bump that version; best scores are saved per version.
 
 ## In one paragraph
@@ -30,7 +30,7 @@ which drives the pop-ups and the combo.
 
 ## Features
 
-[`packages/score/features.js`](../packages/score/features.js) turns a pose into unit
+[`packages/score/features.ts`](../packages/score/features.ts) turns a pose into unit
 direction vectors, in image space corrected for aspect ratio, for ten limbs:
 
 | Limb | Joints (MediaPipe pose-33) | Weight |
@@ -86,7 +86,7 @@ limb weight is **lost**: it scores 0.
 
 ## Evidence and limits
 
-[`packages/score/tests/scorer.test.js`](../packages/score/tests/scorer.test.js) uses the
+[`packages/score/tests/scorer.test.ts`](../packages/score/tests/scorer.test.ts) uses the
 captured test routine's real tracking data. It checks these orderings:
 
 | Attempt (both tracks) | Scorer v1 |

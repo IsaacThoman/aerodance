@@ -11,7 +11,7 @@ The glass dancer shared by the game, Dance Studio and the thumbnail renderer.
 - `assets/dance.json`: the two-dancer capture behind the menu dancers, results screen and thumbnails.
 - `source/`: the editable Blender file and the deterministic generator that exports the GLB.
 
-`npm test` covers the model (`tests/model.test.js`) and capture playback and retargeting (`tests/motion.test.js`).
+`npm test` covers the model (`tests/model.test.ts`) and capture playback and retargeting (`tests/motion.test.ts`).
 
 ## Retargeting
 

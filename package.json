@@ -6,14 +6,14 @@
     "dev": "vite",
     "lint": "eslint .",
     "typecheck": "tsc -p .",
-    "test": "node --test client/tests/*.test.js packages/*/tests/*.test.js",
+    "test": "node --test client/tests/*.test.ts packages/*/tests/*.test.ts",
     "build": "vite build",
     "preview": "vite preview",
     "character:build": "blender -b -t 2 -P packages/character/source/build-character.py",
-    "studio:dev": "concurrently -n studio-api,studio-web \"STUDIO_PORT=8082 node --watch tools/choreography/server/index.js\" \"vite --config tools/choreography/vite.config.js\"",
-    "studio:build": "vite build --config tools/choreography/vite.config.js",
-    "studio:start": "node tools/choreography/server/index.js",
-    "studio:test": "node --test tools/choreography/tests/*.test.js"
+    "studio:dev": "concurrently -n studio-api,studio-web \"STUDIO_PORT=8082 node --watch tools/choreography/server/index.ts\" \"vite --config tools/choreography/vite.config.ts\"",
+    "studio:build": "vite build --config tools/choreography/vite.config.ts",
+    "studio:start": "node tools/choreography/server/index.ts",
+    "studio:test": "node --test tools/choreography/tests/*.test.ts"
   },
   "type": "module",
   "dependencies": {

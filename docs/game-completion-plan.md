@@ -39,7 +39,7 @@ gameplay in the middle had not been built.
 | Browser pose transport (`client/src/pose/`) | Done. Live poses only decide whether a Song Select slot reads "Detected". |
 | Dance Studio (record, edit, compile, export bundles) | Done, except video upload and calibrated timing. |
 | Song bundles and verified loading | Done. **One song** ships, titled as a test, 28 s long, with uncalibrated timing. |
-| Audio-clock song playback (`client/src/audio/songPlayer.js`) | Done for preview. No scheduled start and no game-level pause. |
+| Audio-clock song playback (`client/src/audio/songPlayer.ts`) | Done for preview. No scheduled start and no game-level pause. |
 | Battles, phones, Solana receipts, NFTs, iMessage agent | Done, but scores come from `client/src/battle/fakeDance.js` (a 5 s timer reporting random scores). |
 | Countdown, gameplay screen, pause, results | **Missing.** The results screens exist only as a mock in `temp/win-screens/`. |
 | Live player characters | **Missing.** `createPoseApplier` already accepts any pose; there is no live calibration and no live panels. |
@@ -90,7 +90,7 @@ critical path; 5–8 can overlap once milestone 2 lands.
 
 - **CI.** Add a GitHub Actions workflow running `npm test`,
   `npm run studio:test`, the root build, and the Docker `test` stage on every PR.
-  Add Playwright as a devDependency and run `client/tests/ui-flow.browser.mjs`
+  Add Playwright as a devDependency and run `client/tests/ui-flow.browser.ts`
   in CI. Run the Android host tests (`./gradlew :shared:testAndroidHostTest`)
   when `client-android/` changes.
 - **PoseSource interface.** Extract the shape `AndroidPoseSource` already

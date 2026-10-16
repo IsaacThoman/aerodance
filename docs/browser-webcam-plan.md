@@ -57,13 +57,13 @@ scoring, and ranked results remain the work in the game integration plan.
 
 | Area | Existing behavior and planned change |
 | --- | --- |
-| `client/src/App.jsx` | Owns one `AndroidPoseSource` and constructs a synthetic `dummy` connection for Webcam. Replace this branch with an active source controller. |
-| `client/src/connect/ConnectionPanel.jsx`, `layout.js` | Canvas UI currently closes the webcam card without starting anything. Add camera/model choices, Start/Stop, setup preview, and loading/error states. |
-| `client/src/game/SongSelect.jsx` | Reads pose IDs for readiness, but grants Webcam dummy preview readiness. Use fresh poses from either real source. |
+| `client/src/App.tsx` | Owns one `AndroidPoseSource` and constructs a synthetic `dummy` connection for Webcam. Replace this branch with an active source controller. |
+| `client/src/connect/ConnectionPanel.tsx`, `layout.js` | Canvas UI currently closes the webcam card without starting anything. Add camera/model choices, Start/Stop, setup preview, and loading/error states. |
+| `client/src/game/SongSelect.tsx` | Reads pose IDs for readiness, but grants Webcam dummy preview readiness. Use fresh poses from either real source. |
 | `client/src/pose/AndroidPoseSource.js`, `protocol.js` | Already expose UI subscriptions, record subscriptions, lifecycle, and 500 ms freshness. Preserve Android wire validation and configuration boundaries. |
-| `tools/choreography/web/App.jsx` | Constructs Android directly and builds live calibration from session/sequence/input. Subscribe to the selected source and reset calibration at source boundaries. |
-| `tools/choreography/web/recorder.js` | Hardcodes protocol v2, Android session fields, two players, geometry, and processing-delay timing. Add source-aware recording. |
-| `tools/choreography/server/index.js`, `core.js` | Batch validation accepts Android wire records; `takeFromRecords` always creates an Android take. Dispatch validation/finalization by capture kind. |
+| `tools/choreography/web/App.tsx` | Constructs Android directly and builds live calibration from session/sequence/input. Subscribe to the selected source and reset calibration at source boundaries. |
+| `tools/choreography/web/recorder.ts` | Hardcodes protocol v2, Android session fields, two players, geometry, and processing-delay timing. Add source-aware recording. |
+| `tools/choreography/server/index.ts`, `core.js` | Batch validation accepts Android wire records; `takeFromRecords` always creates an Android take. Dispatch validation/finalization by capture kind. |
 | `packages/pose`, `packages/character` | Reuse pose validation, quality masks, calibration, and character mapping. Keep the song/choreography runtime format compatible. |
 
 ## Shared source and model assets
