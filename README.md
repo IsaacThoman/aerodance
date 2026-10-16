@@ -48,6 +48,13 @@ docker run --rm aerodance-webcam-test
 
 CI runs the game's browser flow and Dance Studio's project-loading, video-import and duet tests. The tests that need real-time tracking (`webcam`, `webcam-calibration` and Studio's `browser.ts`) drop stale frames on CI's 2-core runners, so run them locally or with the Docker targets above before merging changes to capture, calibration or recording.
 
+To run the browser flow against the production image instead of its own server, share the container's network so the page is still on `localhost` (camera access needs a secure origin):
+
+```sh
+docker build -t aerodance-app . && docker run -d --name aerodance-nginx aerodance-app
+docker run --rm --network container:aerodance-nginx -e UI_BASE_URL=http://127.0.0.1:3000 aerodance-ui-browser-test
+```
+
 The browser flow (`client/tests/ui-flow.browser.ts`) clicks the canvas in design units and reads the state each overlay reports on its `data-*` attributes. It skips GPU rasterization in software-only containers; set `UI_RENDER=1` for a full rendered check on a capable GPU.
 
 Webcam requires **HTTPS or localhost**; a plain HTTP LAN address cannot request
