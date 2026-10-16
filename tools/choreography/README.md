@@ -194,12 +194,16 @@ export does not deploy or publish automatically. The game owns character assets.
 ## Checks
 
 ```sh
+npm run lint
+npm run typecheck
 npm test
 npm run studio:test
 npm run studio:build
 npm run build
+node tools/choreography/tests/browser.ts
 node tools/choreography/tests/video-import.browser.ts
 node tools/choreography/tests/video-duet.browser.ts
+node tools/choreography/tests/project-loading.browser.ts
 docker build -f tools/choreography/Dockerfile --target test -t studio-test .
 docker build -f tools/choreography/Dockerfile --target ui-test -t studio-browser-test .
 docker run --rm studio-browser-test

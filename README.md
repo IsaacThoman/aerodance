@@ -76,6 +76,7 @@ The dance stages live in [`packages/stages`](packages/stages/README.md) and the 
 
 | Layer    | Tech                                      |
 | -------- | ----------------------------------------- |
+| Language | TypeScript (strict), run directly by Node 24 and Vite |
 | Client   | React 19, three.js, @react-three/fiber, Vite |
 | Hosting  | Static build served by nginx              |
 | Runtime  | Docker Compose                            |
@@ -131,3 +132,12 @@ npm run dev
 
 - Vite dev server: http://localhost:5173
 - `npm run build` builds the game into `dist/`; `npm run preview` serves the build locally.
+- `npm run lint`, `npm run typecheck` and `npm test` are what CI runs first. Browser tests run in Docker in CI (see above); to run one locally after `npm run build`, use `node client/tests/ui-flow.browser.ts`, with `CHROMIUM_PATH` pointing at a Chromium if Playwright's own isn't installed.
+
+### TypeScript
+
+Everything is TypeScript with `strict` on, and nothing is compiled ahead of time: Vite bundles the browser code, and Node runs `.ts` files directly by stripping their types (the Studio server, unit tests and scripts). So:
+
+- Use only erasable syntax (no `enum`, `namespace` or constructor parameter properties; `tsconfig.json` enforces this), and `import type` for type-only imports.
+- Write relative imports with their real `.ts`/`.tsx` extension. Node can't run `.tsx`, so anything Node imports stays `.ts`.
+- Validate untrusted data (JSON files, API bodies, recordings) with the assertion functions next to each format, such as `assertSong` in `packages/pose/song.ts`, instead of casting.
