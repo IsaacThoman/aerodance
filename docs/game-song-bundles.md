@@ -26,8 +26,9 @@ difficulty, stage, optional cover, and a SHA-256 pin for `song.json`. The previe
 opens on the song's stage, or Open Reef when it has none. Re-exported songs
 are discovered with their updated revision. Install the complete directory before
 opening Song Select. The game does not extract ZIP files or publish editor
-projects. The repo ships no songs; `client/public/songs/` holds only the generated
-catalog until you add exported folders.
+projects. The repo ships one song, **Demo Track 1** (`client/public/songs/demo-track-1/`):
+a 30-second duet we recorded ourselves on the Club Aquarium stage, set to generated
+brown noise so the bundle carries no licensed music.
 
 Catalog paths resolve relative to the catalog; media paths resolve relative to
 `song.json`. Only safe relative file paths are accepted. The loader checks
