@@ -161,7 +161,7 @@ stays in browser storage. Failed captures retain their acknowledged batches unti
 the project is deleted; do not clear site data to recover from a recording error.
 
 The committed capture at
-`packages/character/assets/dance.json` is useful for trying the
+`packages/character/assets/dance.adpose` is useful for trying the
 editor. It has no per-joint confidence, so review/approve its reference poses
 explicitly before publication. It has no music.
 

@@ -159,9 +159,9 @@ test('webcam capture times drive scored gameplay and recordings through the cont
   assert.doesNotThrow(() => source.disconnect(), 'camera shutdown reaches game and recorder safely');
   const recorder = recording();
   assert.ok(recorder);
-  const { entries } = parseRecording(recorder.stop());
+  const { header, entries } = parseRecording(recorder.stop());
   session.recording = null;
   assert.equal(entries.length, seq - calibrationFrames);
   assert.equal(entries[0].songTimeMs, bundle.song.playableStartMs, 'recorded at capture, not arrival');
-  assert.equal(entries[0].timing, 'browser-frame-observation');
+  assert.equal(header.timing, 'browser-frame-observation');
 });

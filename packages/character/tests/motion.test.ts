@@ -7,23 +7,21 @@ import { createPoseApplier, calibratePoses } from '../retarget.ts';
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import {
-  validateMotion,
+  loadMotion,
   samplePose,
   createRetargeter,
 } from "../motion.ts";
-import type { MotionTake } from "../../pose/legacy.ts";
+import { isObject } from "../../pose/choreography.ts";
 import type { FrameSize, Pose } from "../../pose/choreography.ts";
 
-/** The demo capture, with the tracking report the legacy migration preserved. */
-interface DanceCapture extends MotionTake {
-  provenance: { report: { reliableJointFraction: number[]; longestMissingRun: number[] } };
-}
-const data: DanceCapture = JSON.parse(
-  await readFile(
-    new URL("../assets/dance.json", import.meta.url),
-    "utf8",
-  ),
-);
+const bytes = await readFile(new URL("../assets/dance.adpose", import.meta.url));
+const data = loadMotion(bytes);
+/** A tracking report figure the legacy migration preserved in the provenance. */
+const report = (key: string): number[] => {
+  const value = isObject(data.provenance) && isObject(data.provenance.report) ? data.provenance.report[key] : undefined;
+  assert.ok(Array.isArray(value) && value.every((n) => typeof n === "number"));
+  return value;
+};
 const buffer = await readFile(
   new URL("../assets/aero-character.glb", import.meta.url),
 );
@@ -118,11 +116,11 @@ test('live distance smoothing damps torso noise without changing recorded playba
 
 
 test("capture has two finite, timestamped tracks and usable tracking coverage", () => {
-  assert.equal(validateMotion(data), data);
+  assert.deepEqual(loadMotion(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)), data);
   assert.ok(data.samples.length > 300);
-  assert.ok(data.provenance.report.reliableJointFraction.every((n) => n > 0.9));
-  assert.ok(data.provenance.report.longestMissingRun.every((n) => n <= 10));
-  assert.throws(() => validateMotion({ ...data, samples: [] }));
+  assert.ok(report("reliableJointFraction").every((n) => n > 0.9));
+  assert.ok(report("longestMissingRun").every((n) => n <= 10));
+  assert.throws(() => loadMotion(bytes.subarray(0, 1000)));
 });
 
 test("timestamp interpolation, negative time and loop seam remain continuous", () => {

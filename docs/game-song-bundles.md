@@ -55,29 +55,24 @@ Code:
 
 ## Migrated silent capture
 
-The menu dancers' capture (`packages/character/assets/dance.json`) uses `aerodance.take`, schema version 1, with
-`durationMs`, unmirrored `input`, and `samples: [{takeTimeMs, poses, quality,
-legacyConfidence}]`. Pose entries use the `{playerId, landmarks}` shape with
-33 `{x,y,z,visibility,presence}` landmarks. Capture clocks remain separate from
-wire envelopes; no session/sequence/device timestamps are invented.
+The menu dancers' capture (`packages/character/assets/dance.adpose`) is a `take`
+pose file ([docs/pose-binary-format.md](pose-binary-format.md)) of 420 two-player
+frames on the take clock. A take file has no duration, so its provenance records
+the 14 s loop as `durationMs`; the loader falls back to one frame past the last.
 
-The old tuple's fourth component combined visibility/presence. Migration sets
-both new fields to `null`, retains every combined value in `legacyConfidence`,
-and makes those joints unscorable. Source/model/settings/report remain provenance,
-including the limitation that the old smoothed capture cannot recover original
-gaps or repairs. This silent take is a preview, not a published song.
+The old tuple's fourth component was a combined, smoothed confidence. Migration
+doesn't keep it: every joint's confidence is unknown (byte 255), which makes it
+unscorable. Source/model/settings/report remain provenance, including the
+limitation that the old smoothed capture cannot recover original gaps or repairs.
+This silent take is a preview, not a published song.
 
-Convert an older capture with:
+Convert an older capture (the version 1 tuple format or take JSON) with:
 
 ```sh
-node tools/pose/migrate-legacy.ts old-dance.json new-take.json
+node tools/pose/migrate-legacy.ts old-dance.json new-take.adpose
 ```
 
-The demo loader retains explicit legacy import compatibility. Its playback and
-retargeting use object landmarks. The offline video tracker exports only the new
-take structure, retains separate original confidence fields, omits absent players,
-and flags interpolated/smoothed joints for review. Its diagnostics retain raw
-samples separately. Runtime preview still loops, while game bundle sampling is finite.
+Runtime preview still loops, while game bundle sampling is finite.
 
 ## Checks
 

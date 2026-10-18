@@ -1,14 +1,15 @@
 import { createHash } from 'node:crypto';
 import { readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { migrateLegacyMotion } from '../../packages/pose/legacy.ts';
+import { migrateLegacyMotion, validateMotionTake } from '../../packages/pose/legacy.ts';
+import { decodeMotion, encodeMotion } from '../../packages/pose/motion.ts';
 import { assertSongTimeline, songChoreographyFromTimeline, validateSong } from '../../packages/pose/song.ts';
 import { encodePoseFile } from '../../packages/pose/binary.ts';
 import { isObject } from '../../packages/pose/choreography.ts';
 
 const usage = `Usage:
   node tools/pose/migrate-legacy.ts <song bundle directory>   convert choreography.json to choreography.adpose
-  node tools/pose/migrate-legacy.ts input.json output.json     migrate a legacy dance capture to a take`;
+  node tools/pose/migrate-legacy.ts input.json output.adpose   convert a dance capture (legacy or take JSON) to a take file`;
 const [input, output] = process.argv.slice(2);
 if (!input) throw Error(usage);
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -47,8 +48,12 @@ async function convertBundle(directory: string) {
 
 if ((await stat(input)).isDirectory()) await convertBundle(input);
 else {
-  if (!output) throw Error(usage);
-  const take = migrateLegacyMotion(JSON.parse(await readFile(input, 'utf8')));
-  await writeFile(output, JSON.stringify(take) + '\n');
-  console.log(`Migrated ${take.samples.length} samples to ${output}`);
+  if (!output?.endsWith('.adpose')) throw Error(usage);
+  const data: unknown = JSON.parse(await readFile(input, 'utf8'));
+  const take = isObject(data) && data.version === 1 ? migrateLegacyMotion(data) : validateMotionTake(data);
+  const bytes = encodeMotion(take);
+  // The file must read back as the same loop.
+  if (decodeMotion(bytes).durationMs !== take.durationMs) throw Error('Converted take lost its duration');
+  await writeFile(output, bytes);
+  console.log(`Converted ${take.samples.length} samples to ${output}, ${bytes.length} bytes`);
 }

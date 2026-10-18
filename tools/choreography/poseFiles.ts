@@ -193,8 +193,11 @@ export function legacyCaptureFile(text: string, sourceKind: unknown, calibration
 /** A take or song choreography file imported into the library; unvalidated. */
 export function importedPoseFile(bytes: Uint8Array, name: string, takeId: string = crypto.randomUUID()): Take {
   const f = decodePoseFile(bytes), createdAt = new Date().toISOString();
-  if (f.kind === "take")
-    return decodeTake(bytes, { takeId, name, source: "imported", input: captureInput(f), offsetMs: 0, timeScale: 1, createdAt });
+  if (f.kind === "take") {
+    // The menu capture keeps the legacy demo's provenance, so review still flags it.
+    const source = isObject(f.provenance) && f.provenance.legacySmoothed === true ? "legacy-demo" : "imported";
+    return decodeTake(bytes, { takeId, name, source, input: captureInput(f), offsetMs: 0, timeScale: 1, createdAt });
+  }
   if (f.kind !== "choreography") throw Error("Import a take or choreography .adpose file");
   return {
     schema: "aerodance.take", schemaVersion: 1, takeId, name, source: "choreography", input: captureInput(f),

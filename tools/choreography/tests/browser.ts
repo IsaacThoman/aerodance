@@ -115,7 +115,7 @@ try {
   await page.getByRole("button", { name: "Playback", exact: true }).click();
   await page
     .getByLabel("Import pose recording")
-    .setInputFiles("packages/character/assets/dance.json");
+    .setInputFiles("packages/character/assets/dance.adpose");
   await page.getByText(/Imported 420 samples/).waitFor();
   assert.equal(
     await page
@@ -144,7 +144,7 @@ try {
     .click();
   const beforeAssign = await savedProject(page, await page.getByLabel("Open project").inputValue());
   assert.ok(beforeAssign.tracks.every((t) => t.dataId === null));
-  await page.getByLabel("Take actions: dance.json", { exact: true }).click();
+  await page.getByLabel("Take actions: dance.adpose", { exact: true }).click();
   await page
     .getByRole("menuitem", { name: "Overwrite both tracks", exact: true })
     .click();
@@ -547,7 +547,7 @@ try {
   await page.getByText("Live view · disconnected", { exact: false }).waitFor();
   await expectCount(page.getByLabel("Live pose skeleton").locator("circle"), 0);
   // Deleting either a newly recorded or assigned take preserves player tracks.
-  for (const name of [saved.takes[1].name, "dance.json"]) {
+  for (const name of [saved.takes[1].name, "dance.adpose"]) {
     await page
       .getByRole("button", { name: `View take: ${name}`, exact: true })
       .click();

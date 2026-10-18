@@ -5,9 +5,9 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../packages/character/Character.tsx';
 import type { CharacterAppearance } from '../../../packages/character/Character.tsx';
-import { validateMotion } from '../../../packages/character/motion.ts';
+import { loadMotion } from '../../../packages/character/motion.ts';
 import type { MotionTake } from '../../../packages/pose/legacy.ts';
-import motionUrl from '../../../packages/character/assets/dance.json?url';
+import motionUrl from '../../../packages/character/assets/dance.adpose?url';
 
 /**
  * The two captured Frutiger dancers on a glass puck, pinned to the right of the screen.
@@ -115,9 +115,9 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
     fetch(motionUrl, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error('Dance capture unavailable');
-        return response.json();
+        return response.arrayBuffer();
       })
-      .then((data) => setMotion(validateMotion(data)))
+      .then((bytes) => setMotion(loadMotion(bytes)))
       .catch((e: unknown) => { if (!(e instanceof Error && e.name === 'AbortError')) console.warn('Menu dancers could not load', e); });
     return () => controller.abort();
   }, []);
