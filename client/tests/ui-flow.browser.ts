@@ -142,11 +142,11 @@ try {
   await shot('song-select');
 
   // Keyboard: Escape leaves Song Select, arrows and Enter pick Two Players again (the cursor
-  // starts on One Player).
+  // starts on the player count picked last).
   await page.mouse.move(frame.x + 10, frame.y + 10);
   await page.keyboard.press('Escape');
   await menuOn('players');
-  for (const k of ['ArrowDown', 'ArrowDown', 'Enter']) await page.keyboard.press(k);
+  for (const k of ['ArrowDown', 'ArrowUp', 'ArrowDown', 'Enter']) await page.keyboard.press(k);
   await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Connect Client|Connect Client' });
 
   // The letterboxed frame on a phone.
