@@ -1,5 +1,6 @@
 // The pairing server on its own (the `pairing` Compose service; nginx proxies /pair/ to it):
-// node packages/pairing/main.ts. PORT (default 3001); PAIRING_ICE_SERVERS: a JSON array of
+// node packages/pairing/main.ts. PAIRING_PORT (default 3001; not PORT: Coolify gives every
+// service in the stack the app's variables); PAIRING_ICE_SERVERS: a JSON array of
 // RTCIceServer entries handed to both sides, e.g. to add a TURN server (default: a public STUN server).
 import http from 'node:http';
 import { DEFAULT_ICE_SERVERS, createPairingServer } from './server.ts';
@@ -22,7 +23,7 @@ const server = http.createServer((req, res) => {
     if (!handled) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"Not found"}'); }
   });
 });
-const port = Number(process.env.PORT) || 3001;
+const port = Number(process.env.PAIRING_PORT) || 3001;
 server.listen(port, () => console.log(`Pairing server listening on ${port}`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => { pairing.close(); server.close(() => process.exit(0)); server.closeAllConnections(); });

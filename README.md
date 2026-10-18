@@ -121,7 +121,7 @@ This script deploys locally; public hosting uses Coolify below.
 docker compose -f compose.yaml -f compose.local.yaml up --build
 ```
 
-Open http://localhost:3000. Compose also runs the `pairing` service for the phone camera; nginx reaches it as `pairing:3001` (`PAIRING_UPSTREAM`, or Coolify's `SERVICE_NAME_PAIRING` in PR previews, where the service is `pairing-pr-<id>`), and the site still serves without it. The local Compose file publishes the app on `127.0.0.1:3000` (override with `PORT`, for example in `.env` copied from `.env.example`). The app always listens on port `3000` inside its container, where nginx serves the build (`nginx.conf`).
+Open http://localhost:3000. Compose also runs the `pairing` service for the phone camera; nginx reaches it as `pairing:3001` (`PAIRING_UPSTREAM`; in Coolify PR previews, where the service is renamed `pairing-pr-<id>`, the app works the name out from `COOLIFY_BRANCH`), and the site still serves without it. The local Compose file publishes the app on `127.0.0.1:3000` (override with `PORT`, for example in `.env` copied from `.env.example`). The app always listens on port `3000` inside its container, where nginx serves the build (`nginx.conf`).
 
 ## Deploy with Coolify
 

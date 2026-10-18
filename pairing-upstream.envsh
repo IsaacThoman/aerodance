@@ -1,4 +1,21 @@
 #!/bin/sh
 # Where nginx.conf finds the pairing service. Coolify renames Compose services in PR previews
-# (pairing-pr-12) and tells every container the real name as SERVICE_NAME_PAIRING.
-export PAIRING_UPSTREAM="${PAIRING_UPSTREAM:-${SERVICE_NAME_PAIRING:-pairing}:3001}"
+# (pairing-pr-12) and tells every container its branch (pull/12/head), so derive the name
+# from that before the image's entrypoint renders the template.
+if [ -z "${PAIRING_UPSTREAM:-}" ]; then
+  pairing_host=pairing
+  coolify_branch=${COOLIFY_BRANCH:-}
+  coolify_branch=${coolify_branch#\"}
+  coolify_branch=${coolify_branch%\"}
+  case "$coolify_branch" in
+    pull/*/head)
+      preview_id=${coolify_branch#pull/}
+      preview_id=${preview_id%/head}
+      case "$preview_id" in
+        ''|*[!0-9]*) ;;
+        *) pairing_host="pairing-pr-$preview_id" ;;
+      esac
+      ;;
+  esac
+  export PAIRING_UPSTREAM="$pairing_host:3001"
+fi
