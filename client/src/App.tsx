@@ -213,6 +213,7 @@ export default function App() {
           visible={screen === 'game' && !!game}
           blocked={connectOpen}
           session={game}
+          camera={source}
           onQuit={quitGame}
           onRetry={retryGame}
         />
