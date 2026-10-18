@@ -63,14 +63,14 @@ export class Workspace extends Store {
       if (!oneOf(CAPTURE_SOURCES, metadata.sourceKind)) throw Error("Unsupported capture source");
       for (const e of records) {
         if (metadata.sourceKind === "video") {
-          if (!isObject(e) || !count(e.ordinal, 0) || !e.record || json(e.record).length > 16384) throw Error("Invalid video record envelope");
+          if (!isObject(e) || !count(e.ordinal, 0) || !e.record || new TextEncoder().encode(JSON.stringify(e.record)).length > 16384) throw Error("Invalid video record envelope");
           validateVideoRecord(e.record); continue;
         }
         if (!isObject(e) || !count(e.ordinal, 0) || !Number.isFinite(e.receivedBrowserTimeMs) ||
           !Number.isFinite(e.audioPositionAtReceiptMs) || (e.audioPlaybackRate != null && (!finite(e.audioPlaybackRate) || e.audioPlaybackRate <= 0)))
           throw Error("Invalid recorder timing");
         if (e.record) {
-          if (json(e.record).length > 16384) throw Error("Pose record exceeds 16 KiB");
+          if (new TextEncoder().encode(JSON.stringify(e.record)).length > 16384) throw Error("Pose record exceeds 16 KiB");
           validateWebcamRecord(e.record);
           if (!Number.isFinite(e.audioPositionAtFrameMs)) throw Error("Missing webcam audio anchor");
         } else if (!e.event) throw Error("Missing record/event");

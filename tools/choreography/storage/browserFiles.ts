@@ -104,19 +104,19 @@ export class BrowserFiles implements WorkspaceFiles {
           request.onsuccess = () => { if (request.result && "blob" in request.result) obsolete.push(request.result.blob); };
         };
         try {
-        for (const name of remove) {
-          if (name.endsWith("/")) {
-            const cursor = store.openCursor(range(name));
-            cursor.onsuccess = () => {
-              const entry = cursor.result;
-              if (!entry) return;
-              const value: Entry = entry.value;
-              if ("blob" in value) obsolete.push(value.blob);
-              entry.delete(); entry.continue();
-            };
-          } else { collect(store.get(name)); store.delete(name); }
-        }
-        for (const [path, entry] of prepared) { collect(store.get(path)); store.put(entry, path); }
+          for (const name of remove) {
+            if (name.endsWith("/")) {
+              const cursor = store.openCursor(range(name));
+              cursor.onsuccess = () => {
+                const entry = cursor.result;
+                if (!entry) return;
+                const value: Entry = entry.value;
+                if ("blob" in value) obsolete.push(value.blob);
+                entry.delete(); entry.continue();
+              };
+            } else { collect(store.get(name)); store.delete(name); }
+          }
+          for (const [path, entry] of prepared) { collect(store.get(path)); store.put(entry, path); }
         } catch (error) { tx.abort(); await done.catch(() => {}); throw error; }
         await done;
       } catch (error) {
