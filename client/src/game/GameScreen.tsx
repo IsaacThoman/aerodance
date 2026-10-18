@@ -222,8 +222,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       else if (calibrating()) camera.activate(wdg);
       s.invalidate();
     },
-    // Left/Right on a camera arrow switch camera (once per press: each switch restarts it).
-    onStep: (wdg, dir, _s, repeat) => !!wdg.cameraDelta && (repeat || camera.activate({ ...wdg, cameraDelta: dir })),
+    onStep: (wdg, dir, _s, repeat) => camera.step(wdg, dir, repeat),
     onKey: (e, s) => {
       if (!live() || e.repeat) return;
       const session = props.current.session;
@@ -248,7 +247,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       if (session !== st.session || screen !== st.screen) {
         st.session = session;
         st.screen = screen;
-        s.focus(null);
+        if (s.keyFocus) s.focus(null);
       }
       if (!p.visible || !session) return;
       session.update(performance.now());

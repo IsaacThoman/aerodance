@@ -73,7 +73,7 @@ export interface CanvasUI<W extends Widget = Widget> {
   readonly keyFocus: string | null;
   /** The keyboard cursor is out, on this overlay or another. */
   readonly keyboard: boolean;
-  /** Puts the keyboard cursor on a widget (taking it from any other overlay), or takes it off this overlay (null). */
+  /** Puts the keyboard cursor on a widget (taking it from any other overlay), or takes it away (null), wherever it is. */
   focus(wdg: Widget | null): void;
   /** The slider being dragged. */
   drag: W | null;
@@ -202,9 +202,10 @@ function createState<W extends Widget>(): CanvasUI<W> {
         keyCursor = { ui: this, id: wdg.id };
         this.pointer = center(wdg);
         this.pointerKind = 'key';
-      } else if (keyCursor?.ui === this) {
+      } else if (keyCursor) {
+        keyCursor.ui.pointer = null;
+        keyCursor.ui.invalidate();
         keyCursor = null;
-        this.pointer = null;
       }
       this.invalidate();
     },

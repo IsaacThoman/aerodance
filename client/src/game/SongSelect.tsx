@@ -108,7 +108,9 @@ export default function SongSelect({
   const pages = () => Math.max(1, Math.ceil(songs().length / ROWS.perPage));
   const pageSongs = () => songs().slice(st.page * ROWS.perPage, (st.page + 1) * ROWS.perPage);
   const live = () => props.current.visible && !props.current.blocked && st.alpha > 0.3 && st.screen === st.next;
-  const songWidget = (song: CatalogSong, i: number): SongWidget => ({ id: `song-${song.id}`, song, rect: rowRect(i), primary: i === 0 });
+  // The song opened last is the primary one while it's on the page, else the first.
+  const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.id === st.chosen));
+  const songWidget = (song: CatalogSong, i: number): SongWidget => ({ id: `song-${song.id}`, song, rect: rowRect(i), primary: i === primaryRow() });
   // The keyboard cursor starts over on the next screen; back on the list (also by Escape), on
   // the song it opened.
   const go = (screen: SongScreen, key = ui.keyboard) => {
@@ -244,12 +246,13 @@ export default function SongSelect({
       if (wdg.song) chooseSong(wdg.song);
       else if (wdg.id === 'back') back();
       else if (wdg.id === 'page-up' || wdg.id === 'page-down') {
-        st.page = Math.min(pages() - 1, Math.max(0, st.page + (wdg.id === 'page-up' ? -1 : 1)));
+        const up = wdg.id === 'page-up';
+        st.page = Math.min(pages() - 1, Math.max(0, st.page + (up ? -1 : 1)));
         // The keyboard cursor stays on the arrow, or once it's gone (the first or last page),
-        // goes to the first song.
-        const first = pageSongs()[0];
-        const arrow = wdg.id === 'page-up' ? st.page > 0 : st.page < pages() - 1;
-        if (s.keyboard && !arrow && first) s.focus(songWidget(first, 0));
+        // goes to the song beside it: the last one going up, the first going down.
+        const arrow = up ? st.page > 0 : st.page < pages() - 1;
+        const row = up ? pageSongs().length - 1 : 0;
+        if (s.keyboard && !arrow && row >= 0) s.focus(songWidget(pageSongs()[row], row));
       }
       else if (wdg.id === 'retry') fetchCatalog();
       else if (wdg.id === 'dance') dance();
