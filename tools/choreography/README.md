@@ -59,14 +59,18 @@ are not part of the production image.
    **Stage** the game shows the routine on (`openreef` by default), and
    distribution licenses or permissions.
 2. Import a pose JSON, or start the webcam and **Record new take**.
-   Choose a camera and **Lite / Full / Heavy**, then **Start camera**
+   Choose **Both players**, **P1 only**, or **P2 only**, a camera and
+   **Lite / Full / Heavy**, then **Start camera**
    and allow permission. Recording stays disabled until the first pose result
    arrives, even if neither player is detected. You can start the countdown and
    then step into position. **Cancel connection** stops the wait. Set
    **Recording delay (seconds)** from 0 to 60 (default 3). A visible countdown
    gives you time to get into position before music and movement capture start.
    **Cancel countdown** stops the wait without adding a take. The mirrored setup preview labels the two camera-side
-   slots. Camera/model preferences are remembered in this browser. Changes restart
+   slots. Solo mode follows one dancer anywhere in the whole frame and labels
+   them as the selected player; only that player's calibration is needed.
+   Switching player mode restarts tracking and calibration.
+   Camera/model preferences are remembered in this browser. Changes restart
    tracking; controls are locked during recording and countdown. Use HTTPS or
    localhost for camera access. Models run in a worker; the status shows GPU/CPU
    and measured pose cadence. Video stays local; recording saves pose records.
@@ -78,7 +82,8 @@ are not part of the production image.
    the same distance compensation for playback; older bundles retain
    their original calibration mode. This handles body size in the image, rather
    than correcting optical lens distortion.
-   For a prerecorded video, choose **Import video**, select **Lite / Full / Heavy**,
+   For a prerecorded video, choose **Import video**, choose **Both players** or
+   solo **P1 only / P2 only**, select **Lite / Full / Heavy** (Heavy is the default),
    and scrub or play the source until you find an upright stance with shoulders,
    hips, and feet clearly visible. Choose **Use current frame for calibration**,
    then **Process video**. The selected frame calibrates every captured dancer;
@@ -86,16 +91,33 @@ are not part of the production image.
    body confidence is too low. Each label explains whether that dancer is ready
    or needs a clearer frame; processing requires every shown dancer to be ready.
    if another dancer appears later, choose a frame containing both and **Save take**
-   without processing the poses again. Detection uses the webcam's two left/right
-   regions. The importer creates a new library take; use its menu to assign tracks.
+   without processing the poses again. Two-player detection uses the webcam's
+   left/right regions; solo detection uses the whole frame. The importer creates
+   a new library take; use its menu to assign tracks.
    Inference runs locally and waits for each sampled frame, up to 30 samples/second.
-   When whole-frame inference misses a dancer, the importer searches that side
-   more closely, including the body area in portrait footage. Recovered poses
-   retain the original video coordinates and the selected model.
+   Two-player imports continuously track each side in separate VIDEO workers
+   alongside the whole-frame pass. Crops stay fixed from calibration, including
+   room for raised arms and feet. Recovery checks torso continuity and retains
+   the original video coordinates and selected model. Left/right slot assignment
+   is unchanged; this does not track identities across the center divider.
+   **Clean up poses after detection** defaults on: it rejects isolated joint spikes,
+   repairs supported gaps bounded by reliable poses no more than 200 ms apart, and
+   applies centered confidence-weighted smoothing (120 ms XY, 180 ms depth).
+   Fast linear movements retain their timing. Longer gaps and abrupt torso changes
+   are not bridged; unresolved joints and gaps are reported for review.
+   Raw captures remain unchanged in backups. Cleaned takes store the cleanup version,
+   settings, and counts. Smoothed reliable measurements keep their confidence and
+   previous scoring eligibility. Repaired joints have unknown confidence and require
+   explicit approval before scoring. Uncheck cleanup to save original detections.
    Slow models take longer rather than losing samples. Progress and **Cancel import**
    are available. MP4, WebM, MOV, and other formats work when the browser supports
-   their codecs; videos must be no longer than one hour. Song audio stays unchanged,
-   and video timestamps start at song time zero; adjust alignment with track offsets.
+   their codecs; videos must be no longer than one hour. Song audio stays unchanged
+   unless you check **Use video audio as song audio**. That option extracts the
+   primary audio track into a WAV asset and replaces music only when the take and
+   audio can be saved together. Missing or unsupported audio and the 128 MiB audio
+   size limit report an error; uncheck the option to import poses alone.
+   Audio timestamps retain their alignment with video, including leading silence.
+   Video timestamps start at song time zero; adjust alignment with track offsets.
    Source footage is available only while the import panel is open. Saved projects
    and backups retain poses, model provenance, and the selected calibration, including
    after track edits or deleting the library take.
@@ -113,6 +135,15 @@ are not part of the production image.
    the source take. Drag the selection start/end handles on the waveform to select a timeline
    range (arrow keys adjust a focused handle) to swap tracks, mirror, smooth, repair
    a short gap, approve references, or exclude reference scoring.
+   **Clean up selected range** applies the same cleanup to the selected player's
+   existing track as one undoable edit. It reads context outside the selection but
+   only changes samples inside it. **Smooth** uses confidence-aware smoothing without
+   filling gaps. Existing scoring exclusions and the source library take are preserved.
+   To update a track's body calibration while editing, scrub to an upright pose,
+   open the selected player's **Options**, and choose **Recalibrate body from
+   current frame**. It uses the edited skeleton at the playhead, with shoulders,
+   hips, and ankles clearly tracked, as the body reference for the whole track.
+   Calibration is saved with the track and supports undo/redo.
 5. Select a take to open **Take view**, a read-only preview immediately before
    **Live view**. Scrub, step, and play the take without changing the routine.
    Take playback also works without music. A completed recording opens its new
@@ -121,6 +152,13 @@ are not part of the production image.
    **Overwrite both tracks**. Each action copies the corresponding source player
    into independent track storage and uses the take's original audio alignment;
    it replaces the entire destination track, including its edits.
+   To create a two-person dance from one dancer, assign the solo take to its player,
+   open that player's **Options**, then choose **Mirror P1 track to P2** or
+   **Mirror P2 track to P1**. This replaces the other track with a reflected copy
+   of the complete edited source, preserving timing and gaps. It is one undo step.
+   The tracks are independent afterward; source changes require mirroring again.
+   Review and approve reflected poses before scoring. All exported bundles still
+   contain both player tracks and require coverage for both players.
    Adjust each track's **Offset (seconds)** independently in Playback. Positive
    offsets delay poses; negative offsets advance them. Poses before song time zero
    are omitted from playback/export but retained for later realignment. Track
@@ -249,6 +287,17 @@ docker build -f tools/choreography/Dockerfile --target test -t studio-test .
 docker build -f tools/choreography/Dockerfile --target ui-test -t studio-browser-test .
 docker run --rm studio-browser-test
 ```
+
+To validate local moving footage without adding it to the repository, build the
+Studio and run `node tools/choreography/tests/video-quality.browser.ts "/path/video.mp4" .cache/video-quality`.
+The harness processes the complete source with Heavy at 30 fps in solo P1 mode,
+saves raw/cleaned `.adpose` captures, checks timing and scoring invariants, and
+writes `report.html` with metrics and source overlays. Set `VALIDATION_GPU=1` to
+use an available local GPU; the default uses software graphics and CPU inference.
+An optional `--range=25:278` separates an explicitly reviewed dance window from
+menus and credits. `--reuse` regenerates the report from saved captures without
+repeating inference. Review frames use FFmpeg because browser seeking can be
+unreliable for AV1. Temporal stability measurements are not labeled pose accuracy.
 
 The browser test uses a real decoded WAV, imports the committed take, edits a
 joint, checks undo/redo, reviews both tracks, saves/reopens, plays music, exports

@@ -45,7 +45,8 @@ export const createRequest = (workspace: Workspace): ApiRequest => async (url, {
   if (action === "audio" && method === "POST" && body instanceof Blob) {
     if (body.size > 128 * 1024 * 1024) throw Error("Audio exceeds 128 MiB");
     return await workspace.uploadAudio(projectId, new Uint8Array(await body.arrayBuffer()), headers?.["Content-Type"]?.split(";")[0] || body.type,
-      Math.round(Number(parsed.searchParams.get("durationMs"))), Number(parsed.searchParams.get("revision")), parsed.searchParams.get("name") || "Song audio");
+      Math.round(Number(parsed.searchParams.get("durationMs"))), Number(parsed.searchParams.get("revision")), parsed.searchParams.get("name") || "Song audio",
+      parsed.searchParams.has('takeId') ? id(parsed.searchParams.get('takeId')) : undefined);
   }
   if (action === "tracks") {
     if (method === "POST") return await workspace.writeTrack(projectId, body, true);

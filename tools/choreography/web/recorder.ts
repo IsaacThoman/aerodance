@@ -7,6 +7,8 @@ import type { CaptureStart } from "../poseFiles.ts";
 import type { AudioTransport } from "./audio.ts";
 import { takeIdOf } from "./api.ts";
 import type { ApiRequest } from "./api.ts";
+import { capturePoses, detectionCount } from './captureMode.ts';
+import type { CaptureMode } from './captureMode.ts';
 
 /** The part of the pose source a recording reads (PoseSourceController). */
 export interface RecorderSource {
@@ -23,10 +25,12 @@ export interface RecorderOptions {
   request: ApiRequest;
   projectId: string;
   onFailure: (message: string) => void;
+  captureMode?: CaptureMode;
 }
 /** A pose frame or a lifecycle event waiting for upload, in capture order. */
 export type PendingRecord = { frame: FrameInput } | { event: TimedCaptureEvent };
 export class Recorder {
+  captureMode: CaptureMode;
   source: RecorderSource;
   transport: RecorderTransport;
   request: ApiRequest;
@@ -54,7 +58,8 @@ export class Recorder {
   startedAt = 0;
   lastAck = 0;
   captureStartedAt?: number;
-  constructor({ source, transport, request, projectId, onFailure }: RecorderOptions) {
+  constructor({ source, transport, request, projectId, onFailure, captureMode = 'both' }: RecorderOptions) {
+    this.captureMode = captureMode;
     this.source = source;
     this.transport = transport;
     this.request = request;
@@ -87,7 +92,7 @@ export class Recorder {
         body: {
           name: `Take · ${new Date().toLocaleTimeString()}`,
           sourceKind: this.sourceKind,
-          status: { ...this.source.view.modelConfig, audioAnchor: this.transport.audioAnchor },
+          status: { ...this.source.view.modelConfig, audioAnchor: this.transport.audioAnchor, captureMode: this.captureMode },
           header,
         },
       },
@@ -115,7 +120,7 @@ export class Recorder {
         e.record.schema !== 'aerodance.webcam-record' ||
         e.record.modelId !== this.modelId ||
         (e.record.type === "pose" &&
-          (e.record.playerCount !== 2 ||
+          (e.record.playerCount !== detectionCount(this.captureMode) ||
             e.record.input.width !== this.input?.width ||
             e.record.input.height !== this.input?.height ||
             e.record.input.mirrored !== false))
@@ -137,7 +142,7 @@ export class Recorder {
       const r = e.record;
       this.poseCount++;
       this.ordinal++;
-      this.pending.push({ frame: { timeMs: r.mediaTimeMs, poses: r.poses, seq: r.seq, extensions: {
+      this.pending.push({ frame: { timeMs: r.mediaTimeMs, poses: capturePoses(r.poses, this.captureMode), seq: r.seq, extensions: {
         [EXTENSION.frameBrowserTimeMs]: r.frameBrowserTimeMs,
         [EXTENSION.resultBrowserTimeMs]: r.resultBrowserTimeMs,
         [EXTENSION.receivedBrowserTimeMs]: e.receivedBrowserTimeMs,

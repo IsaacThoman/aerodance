@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { cleanupSummary } from '../poseCleanup.ts';
 import { PoseSourceController } from "../../../packages/pose/browser/PoseSourceController.ts";
 import { request } from "./api.ts";
 import { AudioTransport } from "./audio.ts";
@@ -15,13 +16,14 @@ import { usePoseEditor } from "./usePoseEditor.ts";
 import { useStudioProject } from "./useStudioProject.ts";
 import { useWorkspace } from "./useWorkspace.ts";
 import VideoImportPanel from "./VideoImportPanel.tsx";
+import { validateTake } from '../core.ts';
 
 export default function App() {
   const [source] = useState(() => new PoseSourceController()),
     [transport] = useState(() => new AudioTransport());
   const studio = useStudioProject(transport);
   const live = useLiveCapture(source);
-  const workspace = useWorkspace({ transport, source, connection: live.connection, studio });
+  const workspace = useWorkspace({ transport, source, connection: live.connection, studio, captureMode: live.captureMode });
   const { compiled, original, fillable } = useCompiled(studio.project, studio.takes);
   const editor = usePoseEditor({ studio, workspace, compiled, connection: live.connection });
   const [panel, setPanel] = useState<LibraryPanel>("assets");
@@ -32,7 +34,20 @@ export default function App() {
   return (
     <div className="studio">
       {videoFile && <VideoImportPanel key={`${videoFile.name}-${videoFile.lastModified}-${videoFile.size}`} file={videoFile} projectId={project.projectId} request={request}
-        onBusy={studio.setBusy} onImported={value => { workspace.attachTake(value); setPanel("assets"); }} onClose={() => setVideoFile(null)} />}
+        onBusy={studio.setBusy} onImported={async (value, audio) => {
+          if (audio) {
+            const take = validateTake(value), saved = await studio.saveProject();
+            const query = new URLSearchParams({ durationMs: String(audio.durationMs), revision: String(saved.revision), name: audio.file.name, takeId: take.takeId });
+            const next = await request(`/api/projects/${saved.projectId}/audio?${query}`, { method: 'POST', body: audio.file, headers: { 'Content-Type': 'audio/wav' } });
+            await workspace.openProject(next);
+            await studio.refresh();
+            workspace.selectTake(take.takeId);
+            setNotice('Video take and song audio imported. Review alignment and confidence before exporting.');
+          } else workspace.attachTake(value);
+          const summary = cleanupSummary(validateTake(value).provenance);
+          if (summary) setNotice(`${audio ? 'Video take and song audio imported. ' : 'Video take imported. '}${summary}`);
+          setPanel("assets");
+        }} onClose={() => setVideoFile(null)} />}
       <ProjectHeader project={project} studio={studio} workspace={workspace} canExport={Boolean(compiled.data)} />
       <MessageBar
         error={error}

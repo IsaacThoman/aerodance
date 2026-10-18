@@ -4,13 +4,16 @@ import { Dot } from "./ui.tsx";
 import type { LiveCapture } from "./useLiveCapture.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
+import { capturePlayers, detectionCount } from './captureMode.ts';
+import type { CaptureMode } from './captureMode.ts';
 
 export interface CapturePanelProps { source: PoseSourceController; live: LiveCapture; studio: StudioProject; workspace: Workspace; }
 
 // Webcam setup, body calibration and recording a new take.
 export default function CapturePanel({ source, live, studio, workspace }: CapturePanelProps) {
   const { busy, execute } = studio;
-  const { connection, calibrationCounts, recalibrate } = live;
+  const { connection, calibrationCounts, recalibrate, captureMode, setCaptureMode } = live;
+  const players = capturePlayers(captureMode);
   const { recording, recordDelay, setRecordDelay } = workspace;
   return (
     <div className="capture">
@@ -18,7 +21,11 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
         Webcam{" "}
         <Dot color={connection.status === "connected" ? "green" : ""} />
       </div>
-      <WebcamControls source={source} connection={connection} disabled={recording || busy} />
+      <label>Players<select aria-label="Webcam players" value={captureMode} disabled={recording || busy}
+        onChange={e => void execute(() => setCaptureMode(e.target.value as CaptureMode))}>
+        <option value="both">Both players</option><option value="p1">P1 only</option><option value="p2">P2 only</option>
+      </select></label>
+      <WebcamControls source={source} connection={connection} captureMode={captureMode} disabled={recording || busy} />
       <button
         disabled={recording || busy}
         onClick={() =>
@@ -31,7 +38,7 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
               source.disconnect();
               return;
             }
-            await source.setPlayerCount(2);
+            await source.setPlayerCount(detectionCount(captureMode));
             await source.connect();
           })
         }
@@ -44,10 +51,10 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
       </button>
       <p className="connection-status">
         {connection.status} ·{" "}
-        {connection.message || "Two players, one camera"}
+        {connection.message || (captureMode === 'both' ? "Two players, one camera" : `P${players[0] + 1} · whole-frame tracking`)}
       </p>
       <div className="tracking">
-        {[0, 1].map((id) => (
+        {players.map((id) => (
           <span key={id}>
             <Dot color={connection.snapshot?.poses.some((p) => p.playerId === id) ? "green" : ""} />
             P{id + 1}{" "}
@@ -60,9 +67,9 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
       <div className="body-calibration">
         <button disabled={recording || busy || connection.status !== 'connected'}
           onClick={recalibrate}>Recalibrate body</button>
-        <small role="status">{calibrationCounts.every(count => count >= 20)
+        <small role="status">{players.every(id => calibrationCounts[id] >= 20)
           ? 'Body calibration ready · distance compensation on'
-          : `Stand upright with feet visible · P1 ${calibrationCounts[0]}/20 · P2 ${calibrationCounts[1]}/20`}</small>
+          : `Stand upright with feet visible · ${players.map(id => `P${id + 1} ${calibrationCounts[id]}/20`).join(' · ')}`}</small>
       </div>
       <label>
         Recording delay (seconds)

@@ -1,6 +1,6 @@
 import { Store, decode, equal, httpError, id, isMissing, json, sha } from "./store.ts";
 import { makeZip, readZip } from "./zip.ts";
-import { CAPTURE_SOURCES, assertCaptureMetadata, assertProject, takeFromRecords, takeSummary, trackDataIds } from "../core.ts";
+import { CAPTURE_SOURCES, addTake, assertCaptureMetadata, assertProject, takeFromRecords, takeSummary, trackDataIds } from "../core.ts";
 import type { AudioExtension, CalibrationFrame, CaptureMetadata, ProjectAudio, Take } from "../core.ts";
 import { captureHead, captureHeader, concatBytes, decodeCaptureBatch } from "../poseFiles.ts";
 import { decodePoseFile } from "../../../packages/pose/binary.ts";
@@ -27,15 +27,23 @@ const calibrationFrameOf = (value: unknown): CalibrationFrame | undefined => {
 
 /** Local authoring operations. Both revision checks and mutations run under a project lock. */
 export class Workspace extends Store {
-  async uploadAudio(projectId: string, bytes: Uint8Array, mime: string, durationMs: number, revision: number, name: string) {
+  async uploadAudio(projectId: string, bytes: Uint8Array, mime: string, durationMs: number, revision: number, name: string, videoTakeId?: string) {
     const extension = Object.hasOwn(AUDIO_TYPES, mime) ? AUDIO_TYPES[mime] : undefined;
     if (!extension) throw Error("Import MP3, WAV, Ogg, M4A or FLAC audio");
     if (!(durationMs > 0 && durationMs <= 3600000)) throw Error("Invalid decoded duration");
     if (bytes.length > 128 * 1024 * 1024) throw Error("Audio exceeds 128 MiB");
     const audio: ProjectAudio = { sha256: await sha(bytes), extension, mimeType: mime, durationMs, name: name.slice(0, 200) };
     return this.locked(projectId, async () => {
-      const p = await this.project(projectId);
+      let p = await this.project(projectId);
+      // Retrying a completed video/audio commit must not duplicate its library entry.
+      if (videoTakeId && p.audio?.sha256 === audio.sha256 && p.takes.some(t => t.takeId === videoTakeId)) return p;
       if (p.revision !== revision) throw httpError("Project changed. Save/reload before importing.", 409);
+      if (videoTakeId) {
+        const metadata = await this.capture(projectId, id(videoTakeId));
+        if (metadata.sourceKind !== 'video' || !metadata.take || !await this.exists(this.location(projectId, 'capture', videoTakeId, 'sealed')))
+          throw Error('Finalize the video take before importing its audio');
+        if (!p.takes.some(t => t.takeId === videoTakeId)) p = addTake(p, await this.take(projectId, metadata.take));
+      }
       p.audio = audio; p.durationMs = durationMs; p.playableEndMs = durationMs;
       p.playableStartMs = 0; p.alignmentReviewed = false; p.revision++; p.updatedAt = new Date().toISOString();
       await this.files.commit(new Map([

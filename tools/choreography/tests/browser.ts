@@ -709,6 +709,43 @@ try {
       .isEnabled(),
     true,
   );
+  // A centered solo dancer can record either logical player while only that
+  // player's calibration is required, including a P1 -> P2 camera-mode restart.
+  await page.setViewportSize({ width: 1500, height: 1050 });
+  await openSidebar(page, 'Import');
+  await page.getByLabel('Import song audio').setInputFiles({ name: 'solo.wav', mimeType: 'audio/wav', buffer: bytes });
+  await page.getByText(/Audio imported/).waitFor();
+  await setPoses({ ready: true, visible: [0], liveX: .5 });
+  for (const mode of ['p1', 'p2'] as const) {
+    await page.getByRole('button', { name: 'Live view', exact: true }).click();
+    await openSidebar(page, 'Configuration');
+    const cameraRunning = await page.getByRole('button', { name: 'Disconnect', exact: true }).count() > 0;
+    await page.getByLabel('Webcam players').selectOption(mode);
+    await page.waitForFunction(() => !document.querySelector<HTMLSelectElement>('[aria-label="Webcam players"]')?.disabled);
+    if (!cameraRunning)
+      await page.getByRole('button', { name: 'Start camera', exact: true }).click();
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).waitFor();
+    const playerId = mode === 'p1' ? 0 : 1;
+    await page.getByText(`P${playerId + 1} detected`, { exact: false }).waitFor();
+    await page.locator('.body-calibration small').filter({ hasText: 'Body calibration ready' }).waitFor();
+    assert.equal(await page.getByText(`P${2 - playerId} waiting`, { exact: false }).count(), 0);
+    const soloProjectId = await page.getByLabel('Open project').inputValue();
+    const count = (await savedProject(page, soloProjectId)).takes.length;
+    await page.getByLabel('Recording delay (seconds)').fill('0');
+    await page.getByRole('button', { name: 'Record new take', exact: false }).click();
+    await page.getByRole('button', { name: 'Stop recording', exact: false }).waitFor();
+    assert.equal(await page.getByLabel('Webcam players').isDisabled(), true);
+    await page.waitForTimeout(900);
+    await page.getByRole('button', { name: 'Stop recording', exact: false }).click();
+    await page.getByText(/Imported \d+ samples/).waitFor();
+    await page.getByText('Saved', { exact: true }).waitFor();
+    const soloProject = await savedProject(page, soloProjectId);
+    assert.equal(soloProject.takes.length, count + 1);
+    const solo = validateTake(await browserStore(page).take(soloProjectId, found(soloProject.takes.at(-1)).takeId));
+    assert.equal(solo.provenance?.captureMode, mode);
+    assert.ok(solo.samples.some(s => s.poses.length));
+    assert.ok(solo.samples.every(s => s.poses.every(p => p.playerId === playerId)));
+  }
   assert.deepEqual(errors, []);
   console.log(
     "Studio browser flow passed: read-only take preview and silent playback, atomic track assignment, independent negative offsets, confirmed project/track/take deletion, track survival after deleting all takes, interpolation, joint/group edits, undo/redo, save/reopen, ZIP export, live pose updates, timed recording into Take view, and desktop/mobile layout.",

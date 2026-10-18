@@ -32,6 +32,8 @@ import { EXTENSION, SEEK_TIME, framesToPoses, framesToSamples } from '../../pack
 import type { PoseFrames } from '../../packages/pose/binary.ts';
 import { poseModel, MEDIAPIPE_VERSION } from '../../packages/pose/browser/models.ts';
 import { storedTrack } from './poseFiles.ts';
+import { cleanupPoses, CLEANUP_SETTINGS } from './poseCleanup.ts';
+import type { CleanupCounts } from './poseCleanup.ts';
 export const COMPILER_VERSION='1.2.0';
 
 export type Difficulty = "easy" | "normal" | "hard";
@@ -68,11 +70,14 @@ export interface JointTarget { joint: number; value: Point3; }
 export interface JointEdit extends RangeEdit { type: "joint"; joint: number; value: Point3; timeMs: number; targets?: JointTarget[]; }
 export interface PoseEdit extends RangeEdit { type: "swap" | "mirror" | "repair"; }
 export interface SmoothEdit extends RangeEdit { type: "smooth"; windowMs: number; }
+export interface CleanupEdit extends RangeEdit { type: "cleanup"; }
 export interface ReviewEdit extends RangeEdit { type: "exclude" | "approve"; reason: string; }
-export type EditCommand = JointEdit | PoseEdit | SmoothEdit | ReviewEdit;
+export type EditCommand = JointEdit | PoseEdit | SmoothEdit | ReviewEdit | CleanupEdit;
 export type EditType = EditCommand["type"];
 export interface TrackEdit { type: "overwrite" | "clear" | "offset" | "interpolate"; playerId: number | null; }
-export type TrackCommand = EditCommand | TrackEdit;
+export interface MirrorTrackEdit { type: "mirror-track"; playerId: number; sourcePlayerId: number; }
+export interface RecalibrateTrackEdit { type: "recalibrate-body"; playerId: number; timeMs: number; }
+export type TrackCommand = EditCommand | TrackEdit | MirrorTrackEdit | RecalibrateTrackEdit;
 export type OperationType = TrackCommand["type"];
 /** History: each change keeps the track references before and after it. */
 export type TrackChange = TrackCommand & { operationId: string; beforeTracks: Track[]; afterTracks: Track[] };
@@ -169,7 +174,7 @@ export interface CaptureMetadata {
 
 const DIFFICULTIES: readonly Difficulty[] = ["normal", "easy", "hard"];
 const AUDIO_EXTENSIONS: readonly AudioExtension[] = ["mp3", "wav", "ogg", "m4a", "flac"];
-const EDIT_TYPES: readonly EditType[] = ["joint", "swap", "mirror", "smooth", "repair", "exclude", "approve"];
+const EDIT_TYPES: readonly EditType[] = ["joint", "swap", "mirror", "smooth", "cleanup", "repair", "exclude", "approve"];
 const MARKER_KINDS: readonly Marker["kind"][] = ["beat", "phrase", "note"];
 const ORIGINS: readonly LandmarkOrigin[] = ["measured", "resampled", "edited", "gap-repaired", "missing-confidence"];
 const DELEGATES = ["GPU", "CPU"] as const;
@@ -564,7 +569,7 @@ export function webcamTakeFromRecords(capture: PoseFrames, metadata: CaptureMeta
       packageVersion: config.packageVersion, delegate: config.delegate, thresholds: config.thresholds,
       sourceRateHz: (n - 1) * 1000 / (capture.times[n - 1] - capture.times[0]),
       alignmentMethod: 'browser-frame-audio-anchor', frameTimingMethod: 'browser-frame-observation',
-      audioAnchor: config.audioAnchor, timingUncertaintyMs: null } });
+      audioAnchor: config.audioAnchor, timingUncertaintyMs: null, captureMode: config.captureMode ?? 'both' } });
 }
 export function videoTakeFromRecords(capture: PoseFrames, metadata: CaptureMetadata): Take {
   const n = capture.times.length;
@@ -573,7 +578,7 @@ export function videoTakeFromRecords(capture: PoseFrames, metadata: CaptureMetad
   const durationMs = config.durationMs;
   assert(finite(durationMs) && durationMs > 0 && durationMs <= 3600000, 'Invalid video duration');
   let seekTime = false;
-  const samples = framesToSamples(capture, 'takeTimeMs').map((s, i): StudioTakeSample => {
+  let samples = framesToSamples(capture, 'takeTimeMs').map((s, i): StudioTakeSample => {
     assert(capture.seq[i] === i + 1 && capture.times[i] >= 0 && capture.times[i] <= durationMs, 'Invalid video frame sequence or timing');
     if (capture.frameFlags[i] & SEEK_TIME) seekTime = true;
     return s;
@@ -581,13 +586,21 @@ export function videoTakeFromRecords(capture: PoseFrames, metadata: CaptureMetad
   assert(samples.some(s => s.poses.length), 'No dancers detected in this video');
   const calibration = capture.calibrationFrame;
   const frame = calibration ? { mediaTimeMs: calibration.times[0], poses: framesToPoses(calibration, 0).poses } : undefined;
+  let cleanupCounts: CleanupCounts | undefined;
+  if (config.cleanup !== undefined && config.cleanup !== false) {
+    assert(isObject(config.cleanup) && config.cleanup.version === 1, 'Unsupported pose cleanup settings');
+    const cleaned = cleanupPoses(samples, capture.input);
+    samples = cleaned.samples;
+    cleanupCounts = cleaned.counts;
+  }
   return validateTake({ schema: 'aerodance.take', schemaVersion: 1, takeId: metadata.takeId,
     name: metadata.name || 'Video take', source: 'video', input: { ...capture.input, mirrored: false }, samples, offsetMs: 0, timeScale: 1,
     createdAt: metadata.createdAt, calibrationFrame: frame, status: config,
-    provenance: { sessionId: capture.capture!.sessionId, modelId: model.id, modelHash: model.sha256,
+    provenance: { sessionId: capture.capture!.sessionId, captureMode: config.captureMode ?? 'both', modelId: model.id, modelHash: model.sha256,
       packageVersion: config.packageVersion, delegate: config.delegate, thresholds: config.thresholds,
       filename: config.filename, durationMs, targetRateHz: config.targetRateHz ?? 30,
       inferenceMethod: config.inferenceMethod || 'full-frame',
+      ...(cleanupCounts ? { cleanup: { ...CLEANUP_SETTINGS }, cleanupCounts } : {}),
       calibrationFrameTimeMs: frame?.mediaTimeMs,
       sourceRateHz: (n - 1) * 1000 / (capture.times[n - 1] - capture.times[0]),
       alignmentMethod: 'video-time-zero', frameTimingMethod: seekTime ? 'seek-time' : 'decoded-frame' } });
@@ -679,7 +692,16 @@ export function compileProject(
     .sort((a, b) => a - b)
     .map((t) => rawSample(p, takes, t));
   for (const op of ops) {
-    const before = op.type === "smooth" ? copy(samples) : null;
+    if (op.type === 'smooth' || op.type === 'cleanup') {
+      for (const track of p.tracks) {
+        if (!track.dataId || op.playerId !== null && op.playerId !== track.playerId) continue;
+        const result = cleanupPoses(samples.map(s => ({ ...s, takeTimeMs: s.songTimeMs })), trackAsset(takes, track.dataId).input,
+          { startMs: op.startMs, endMs: op.endMs, playerId: track.playerId, smoothOnly: op.type === 'smooth',
+            ...(op.type === 'smooth' ? { windowMs: op.windowMs } : {}) });
+        result.samples.forEach((s, i) => { samples[i].poses = s.poses; samples[i].quality = s.quality; });
+      }
+      continue;
+    }
     let repair: { a: ChoreographySample; b: ChoreographySample; left: Pose; right: Pose; playerId: number } | undefined;
     if (op.type === "repair") {
       const id = op.playerId;
@@ -795,30 +817,6 @@ export function compileProject(
         if (op.type === "approve") {
           q.scoreEligible.fill(true);
           q.reviewed = true;
-        }
-        if (op.type === "smooth" && before) {
-          const neighbors: Pose[] = [];
-          for (let n = si; n >= 0; n--) {
-            if (time - before[n].songTimeMs > op.windowMs / 2) break;
-            const v = before[n].poses.find((v) => v.playerId === pose.playerId);
-            if (!v) break;
-            neighbors.push(v);
-          }
-          for (let n = si + 1; n < before.length; n++) {
-            if (before[n].songTimeMs - time > op.windowMs / 2) break;
-            const v = before[n].poses.find((v) => v.playerId === pose.playerId);
-            if (!v) break;
-            neighbors.push(v);
-          }
-          pose.landmarks.forEach((j, index) => {
-            for (const key of AXES)
-              j[key] =
-                neighbors.reduce((sum, v) => sum + v.landmarks[index][key], 0) /
-                neighbors.length;
-          });
-          q.landmarkOrigins.fill("edited");
-          q.scoreEligible.fill(false);
-          q.reviewed = false;
         }
       }
     }
@@ -1221,6 +1219,42 @@ export function overwriteTracks(project: ProjectV3, take: Take, playerIds: reado
     playerId: playerIds.length === 2 ? null : playerIds[0],
   });
 }
+/** Copies the complete edited source, including retained off-timeline data, into a reflected independent track. */
+export function mirrorTrack(project: ProjectV3, assets: StudioAssets, sourcePlayerId: number): ProjectV3 {
+  assert(isPlayerId(sourcePlayerId), 'Invalid source player');
+  const source = project.tracks[sourcePlayerId];
+  assert(source.dataId, 'Source track has no poses');
+  const data = trackAsset(assets, source.dataId), playerId = 1 - sourcePlayerId;
+  assert(data.samples.some(s => s.poses.length), 'Source track has no poses');
+  const samples = data.samples.map(s => ({ ...copy(s),
+    poses: s.poses.map(p => ({ ...mirrorPose(p), playerId })),
+    quality: s.quality.map(q => ({ ...copy(q), playerId,
+      landmarkOrigins: Array<LandmarkOrigin>(33).fill('edited'), scoreEligible: Array<boolean>(33).fill(false), reviewed: false })),
+  }));
+  const calibration = data.calibration ? { ...copy(data.calibration),
+    baseHip: { ...data.calibration.baseHip, x: 1 - data.calibration.baseHip.x } } : undefined;
+  const snapshot = trackSnapshot(playerId, data.input, samples, data.sources, data.exclusions, calibration);
+  assets.set(snapshot.dataId, snapshot);
+  const tracks = copy(project.tracks);
+  tracks[playerId] = { ...tracks[playerId], dataId: snapshot.dataId, originalDataId: snapshot.dataId, offsetMs: source.offsetMs };
+  return recordTrackChange(project, tracks, { type: 'mirror-track', playerId, sourcePlayerId });
+}
+/** Uses the edited song skeleton at the playhead as this track's body reference. */
+export function recalibrateTrack(project: ProjectV3, assets: StudioAssets, playerId: number, timeMs: number): ProjectV3 {
+  assert(isPlayerId(playerId), 'Invalid calibration player');
+  assert(finite(timeMs) && timeMs >= project.playableStartMs && timeMs <= project.playableEndMs, 'Choose a frame within the playable range');
+  const track = project.tracks[playerId];
+  assert(track.dataId, 'Track has no poses');
+  const data = trackAsset(assets, track.dataId);
+  const pose = sampleSnapshot(compileProject(project, assets).samples, timeMs).poses.find(p => p.playerId === playerId);
+  assert(pose && reliableBodyPose(pose), 'Choose a frame with shoulders, hips and ankles clearly visible');
+  const calibration = calibratePoses([pose], data.input, { adaptiveDistance: true });
+  const snapshot = trackSnapshot(playerId, data.input, data.samples, data.sources, data.exclusions, calibration);
+  assets.set(snapshot.dataId, snapshot);
+  const tracks = copy(project.tracks);
+  tracks[playerId].dataId = snapshot.dataId;
+  return recordTrackChange(project, tracks, { type: 'recalibrate-body', playerId, timeMs });
+}
 export function clearTrack(project: ProjectV3, playerId: number): ProjectV3 {
   const tracks = copy(project.tracks);
   tracks[playerId] = {
@@ -1315,6 +1349,24 @@ function editTracks(project: ProjectV3, operation: EditCommand, assets: StudioAs
     operation.playerId === null ? [0, 1] : [operation.playerId],
     operation,
   );
+}
+/** Clean one immutable track snapshot on its own clock, retaining selection context. */
+export function cleanupTrack(project: ProjectV3, assets: StudioAssets, playerId: number, startMs: number, endMs: number): { project: ProjectV3; counts: CleanupCounts } {
+  const operation: CleanupEdit = { type: 'cleanup', playerId, startMs, endMs };
+  assertEditCommand(operation);
+  const track = project.tracks[playerId];
+  assert(track?.dataId, 'Track has no poses');
+  const data = trackAsset(assets, track.dataId);
+  // Expand sparse storage onto the authoring grid before repairing empty intervals.
+  const timeline = compileProject(project, assets, { fullTimeline: true });
+  const input = timeline.samples.map(s => ({ takeTimeMs: s.songTimeMs - track.offsetMs,
+    poses: s.poses.filter(p => p.playerId === playerId), quality: s.quality.filter(q => q.playerId === playerId) }));
+  const result = cleanupPoses(input, data.input, { startMs: startMs-track.offsetMs, endMs: endMs-track.offsetMs, playerId });
+  const snapshot = trackSnapshot(playerId, data.input, result.samples as TrackSample[], data.sources, data.exclusions, data.calibration);
+  assets.set(snapshot.dataId, snapshot);
+  const tracks = copy(project.tracks);
+  tracks[playerId].dataId = snapshot.dataId;
+  return { project: recordTrackChange(project, tracks, operation), counts: result.counts };
 }
 export function missingIntervals(project: Project, assets: StudioAssets, playerId: number): Interval[] {
   return missingIntervalsFromTimeline(compileProject(project, assets), playerId);

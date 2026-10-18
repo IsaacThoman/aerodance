@@ -1341,6 +1341,8 @@ small {
 .video-import-heading, .video-import-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .video-import-heading p { overflow-wrap: anywhere; }
 .video-import > p, .video-import label { margin: 16px 0; }
+.video-import .check { font-size: 12px; }
+.video-import .check input { flex-shrink: 0; padding: 0; }
 .video-import video { display: block; width: 100%; max-height: 360px; background: #000; border-radius: 8px; margin: 12px 0; }
 .video-calibration canvas { display: block; width: min(100%, 320px); height: auto; max-height: 280px; object-fit: contain; margin-top: 14px; border-radius: 8px; }
 .video-calibration p, .video-progress p { margin: 8px 0; }

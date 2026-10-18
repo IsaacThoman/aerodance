@@ -94,6 +94,8 @@ try {
   await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
   const panel = page.getByRole('dialog', { name: 'Import video' });
   await panel.waitFor();
+  assert.equal(await page.getByLabel('Video pose model').inputValue(), 'heavy');
+  assert.equal(await page.getByRole('checkbox', {name: 'Clean up poses after detection'}).isChecked(), true);
   assert.equal(await page.getByRole('button', { name: 'Process video', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).waitFor();
   await page.waitForFunction(() => (document.querySelector<HTMLVideoElement>('dialog video')?.readyState ?? 0) >= 2);
@@ -122,6 +124,7 @@ try {
   assert.equal(saved.takes.length, 2); assert.deepEqual(saved.tracks, initialTracks); assert.deepEqual(saved.audio, audioBefore);
   const imported = validateTake(await store.take(p.projectId, saved.takes[1].takeId));
   assert.equal(imported.source, 'video'); assert.equal(imported.provenance?.modelId, 'full');
+  assert.ok(imported.provenance?.cleanupCounts);
   assert.ok(Math.abs(found(imported.calibrationFrame).mediaTimeMs - 300) < 1);
   assert.ok(imported.samples.length >= 2);
   assert.ok(imported.samples.some(s => s.poses.length === 2));
@@ -146,7 +149,7 @@ try {
   const choreography = zipPose(files, `${songFolder(files)}/choreography.adpose`);
   assert.deepEqual(found(choreography.tracks)[0].calibration, storedCalibration(takeCalibration(imported, 0)));
   assert.deepEqual(errors, []);
-  console.log(`Video import browser passed: actual Lite/Full calibration and Full inference, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
+  console.log(`Video import browser passed: actual Heavy/Full calibration and Full inference with cleanup, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
 } catch (error) {
   if (page) {
     console.error(error instanceof Error ? error.message : error);

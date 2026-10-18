@@ -6,12 +6,14 @@ import type { AudioTransport } from "./audio.ts";
 import { Recorder } from "./recorder.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { PreviewMode, View } from "./useWorkspace.ts";
+import type { CaptureMode } from './captureMode.ts';
 
 export interface RecordingOptions {
   transport: AudioTransport;
   source: PoseSourceController;
   connection: PoseSourceView;
   studio: StudioProject;
+  captureMode?: CaptureMode;
   /** Stops song and take playback. */
   pause: () => void;
   setView: Dispatch<SetStateAction<View>>;
@@ -24,7 +26,7 @@ export interface RecordingOptions {
 export type Recording = ReturnType<typeof useRecording>;
 
 // Records a webcam take against the song: a countdown, then pose records anchored to the audio clock.
-export function useRecording({ transport, source, connection, studio, pause, setView, setPlaying, setCursor, setMode, attachTake }: RecordingOptions) {
+export function useRecording({ transport, source, connection, studio, captureMode = 'both', pause, setView, setPlaying, setCursor, setMode, attachTake }: RecordingOptions) {
   const { project, projectRef, execute, saveProject, setBusy, setError, setNotice } = studio;
   const [recording, setRecording] = useState(false),
     [recordCount, setRecordCount] = useState(0),
@@ -83,6 +85,7 @@ export function useRecording({ transport, source, connection, studio, pause, set
       await transport.play(project.playableStartMs, recordDelay, 1);
       const r = new Recorder({
         source,
+        captureMode,
         transport,
         request,
         projectId: project.projectId,

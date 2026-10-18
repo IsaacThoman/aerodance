@@ -109,7 +109,7 @@ export default function Library({ project, studio, workspace, live, source, tran
             <button key={id} onClick={() => setPanel(id)}>{PANEL_NAMES[id]} <span aria-hidden="true">›</span></button>)}
         </nav>
         <div className="asset-audio"><strong>{project.audio?.name || "No song audio"}</strong>
-          <button onClick={() => setPanel("import")}>{project.audio ? "Replace audio" : "Import audio"}</button>
+          {!project.audio && <button onClick={() => setPanel("import")}>Import audio</button>}
         </div>
         <TakeList project={project} studio={studio} workspace={workspace} />
       </>}
@@ -157,9 +157,12 @@ export default function Library({ project, studio, workspace, live, source, tran
             disabled={recording || busy} onChange={e => {
               const file = e.target.files?.[0]; e.target.value = '';
               if (file) {
-                pause();
-                source.disconnect();
-                onImportVideo(file);
+                void execute(async () => {
+                  pause();
+                  await saveProject();
+                  source.disconnect();
+                  onImportVideo(file);
+                });
               }
             }} />
         </label>

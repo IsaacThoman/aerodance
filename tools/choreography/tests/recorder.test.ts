@@ -4,13 +4,43 @@ import { Recorder } from "../web/recorder.ts";
 import type { RecorderTransport } from "../web/recorder.ts";
 import type { WebcamRecordEvent } from "../../../packages/pose/browser/WebcamPoseSource.ts";
 import type { WebcamRecord } from "../../../packages/pose/webcamRecord.ts";
-import { EXTENSION } from "../../../packages/pose/binary.ts";
+import { EXTENSION, framesToPoses } from "../../../packages/pose/binary.ts";
+import type { CaptureMode } from '../web/captureMode.ts';
 import { found, uploadedFrames } from "./helpers.ts";
 import type { Call } from "./helpers.ts";
 
 const transport = (fields: Partial<RecorderTransport>): RecorderTransport => ({
   active: false, rate: 1, positionMs: 0, startTime: 0, audioAnchor: null,
   current: () => 0, atBrowserTime: time => time, ...fields,
+});
+test('solo recording writes the selected logical player into a two-slot capture and rejects mode changes', async t => {
+  for (const captureMode of ['p1', 'p2'] as const satisfies readonly CaptureMode[]) {
+    let listener: ((event: WebcamRecordEvent) => void) | undefined;
+    const calls: Call[] = [], failures: string[] = [], input = { width: 640, height: 480, mirrored: false };
+    const recorder = new Recorder({ captureMode, source: {
+      view: { sourceKind: 'webcam', model: 'lite', snapshot: { sessionId: 'solo', input } },
+      subscribeRecords(callback) { listener = callback; return () => {}; },
+    }, transport: transport({}), projectId: 'project', onFailure: message => failures.push(message),
+    request: async (url, options) => { calls.push({ url, body: options?.body }); return { takeId: 'solo' }; } });
+    await recorder.start(); t.after(() => clearInterval(recorder.timer));
+    const emit = found(listener);
+    for (let i = 0; i < 2; i++) {
+      const record: WebcamRecord = { schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 'solo', seq: i + 1,
+        modelId: 'lite', playerCount: 1, input, mediaTimeMs: i * 100, frameBrowserTimeMs: i * 100,
+        resultBrowserTimeMs: i * 100, timingMethod: 'browser-frame-observation',
+        poses: [{ playerId: 0, landmarks: Array.from({ length: 33 }, () => ({ x: .5, y: .5, z: 0, confidence: .9 })) }] };
+      emit({ record, receivedBrowserTimeMs: performance.now(), captureBrowserTimeMs: record.frameBrowserTimeMs, timing: { method: record.timingMethod } });
+      if (i === 1) emit({ record: { ...record, playerCount: 2 }, receivedBrowserTimeMs: performance.now(), captureBrowserTimeMs: record.frameBrowserTimeMs, timing: { method: record.timingMethod } });
+    }
+    await recorder.stop();
+    const batches = uploadedFrames(calls);
+    assert.ok(batches.every(b => b.playerSlots === 2));
+    const poses = batches.flatMap(b => Array.from(b.times, (_, i) => framesToPoses(b, i).poses).flat());
+    assert.equal(poses.length, 2);
+    assert.ok(poses.every(p => p.playerId === (captureMode === 'p1' ? 0 : 1)));
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /player mode/);
+  }
 });
 
 test('webcam recorder preserves its session across startup snapshot expiry and uses the frame audio anchor', async t => {

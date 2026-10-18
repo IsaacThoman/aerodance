@@ -21,8 +21,10 @@ import {
   interpolateTrack,
   validateTake,
   isTrackData,
+  mirrorTrack,
+  recalibrateTrack,
 } from "../core.ts";
-import { encodeTake, encodeTrack, importedPoseFile } from "../poseFiles.ts";
+import { encodeTake, encodeTrack, decodeTrack, importedPoseFile } from "../poseFiles.ts";
 import { readFileSync } from "node:fs";
 import type { CaptureMetadata, CompiledChoreography, StudioAssets, Take } from "../core.ts";
 import {
@@ -106,6 +108,101 @@ function fixture(edit?: (take: Take) => void) {
   p.alignmentReviewed = true;
   return { p, take, takes };
 }
+test('body recalibration uses the edited frame with offsets, persists, and supports undo/redo without changing poses', () => {
+  for (const playerId of [0, 1]) {
+    const { p: initial, takes, take } = fixture();
+    let p = offsetTrack(initial, playerId, -100);
+    p = appendOperation(p, { type: 'joint', playerId, joint: 23, value: { x: .4, y: .7, z: -.1 },
+      startMs: 100, endMs: 500, timeMs: 300 }, takes);
+    const before = structuredClone(p), originalTake = structuredClone(take);
+    const source = takes.get(found(p.tracks[playerId].dataId));
+    assert.ok(isTrackData(source));
+    const beforeSource = structuredClone(source);
+    const frame = found(sampleSnapshot(compileProject(p, takes).samples, 300).poses.find(v => v.playerId === playerId));
+    p = recalibrateTrack(p, takes, playerId, 300);
+    const data = takes.get(found(p.tracks[playerId].dataId));
+    assert.ok(isTrackData(data));
+    const calibration = found(data.calibration);
+    assert.equal(calibration.profileVersion, 2);
+    assert.equal(calibration.cameraScaleMode, 'body-relative');
+    assert.ok(Math.abs(calibration.baseHip.x - (frame.landmarks[23].x + frame.landmarks[24].x) / 2) < 1e-6);
+    assert.ok(Math.abs(calibration.baseHip.y - (frame.landmarks[23].y + frame.landmarks[24].y) / 2) < 1e-6);
+    assert.deepEqual(data.samples, source.samples);
+    assert.deepEqual(data.sources, source.sources);
+    assert.deepEqual(data.exclusions, source.exclusions);
+    assert.deepEqual(takes.get(source.dataId), beforeSource);
+    assert.deepEqual(take, originalTake);
+    assert.deepEqual(p.tracks[1 - playerId], before.tracks[1 - playerId]);
+    assert.equal(p.tracks[playerId].originalDataId, before.tracks[playerId].originalDataId);
+    assert.equal(p.tracks[playerId].offsetMs, -100);
+    assert.deepEqual(historyStep(p, -1).tracks, before.tracks);
+    assert.deepEqual(historyStep(historyStep(p, -1), 1).tracks, p.tracks);
+    const reloaded = decodeTrack(encodeTrack(data));
+    assert.ok(isTrackData(reloaded));
+    assert.deepEqual(reloaded.calibration, calibration);
+    assert.deepEqual(compileProject(validateProject(JSON.parse(JSON.stringify(p))), takes).tracks[playerId].calibration, calibration);
+  }
+});
+test('body recalibration rejects missing, low confidence, and out-of-frame skeletons', () => {
+  for (const change of [
+    (take: Take) => { take.samples[5].poses = []; },
+    (take: Take) => { take.samples[5].poses[0].landmarks[27].confidence = .1; },
+    (take: Take) => { take.samples[5].poses[0].landmarks[11].x = -0.1; },
+  ]) {
+    const { p, takes } = fixture(change), size = takes.size;
+    assert.throws(() => recalibrateTrack(p, takes, 0, 500), /clearly visible/);
+    assert.equal(takes.size, size);
+  }
+  const { p, takes } = fixture();
+  assert.throws(() => recalibrateTrack(p, takes, 2, 500), /Invalid calibration player/);
+  assert.throws(() => recalibrateTrack(p, takes, 0, NaN), /playable range/);
+  assert.throws(() => recalibrateTrack(p, takes, 0, 1100), /playable range/);
+  assert.throws(() => recalibrateTrack(clearTrack(p, 0), takes, 0, 500), /no poses/);
+});
+test('mirroring a complete edited track preserves timing and gaps, reflects calibration, and is independent and undoable', () => {
+  for (const sourcePlayerId of [0, 1]) {
+    const { p: initial, takes } = fixture(take => { take.samples[5].poses = []; });
+    let p = appendOperation(initial, { type: 'joint', playerId: sourcePlayerId, joint: 11, value: { x: .1, y: .2, z: -.3 },
+      startMs: 0, endMs: 300, timeMs: 100 }, takes);
+    p = appendOperation(p, { type: 'exclude', playerId: sourcePlayerId, startMs: 200, endMs: 400, reason: 'occluded' }, takes);
+    p = offsetTrack(p, sourcePlayerId, -200);
+    const source = takes.get(found(p.tracks[sourcePlayerId].dataId));
+    assert.ok(isTrackData(source));
+    source.calibration = { inputWidth: 640, inputHeight: 480, baseHip: { x: .2, y: .6, z: -.1 }, floorY: .9, torsoLength: .2,
+      profileVersion: 2, cameraScaleMode: 'body-relative', bodyTorsoLength: .25 };
+    const before = structuredClone(p), beforeSource = structuredClone(source), destination = 1 - sourcePlayerId;
+    p = mirrorTrack(p, takes, sourcePlayerId);
+    const reflected = takes.get(found(p.tracks[destination].dataId));
+    assert.ok(isTrackData(reflected));
+    assert.deepEqual(takes.get(source.dataId), beforeSource);
+    assert.deepEqual(p.tracks[sourcePlayerId], before.tracks[sourcePlayerId]);
+    assert.equal(p.tracks[destination].offsetMs, -200);
+    assert.deepEqual(reflected.samples.map(s => s.takeTimeMs), source.samples.map(s => s.takeTimeMs));
+    assert.deepEqual(reflected.samples.map(s => s.poses.length), source.samples.map(s => s.poses.length));
+    for (const [i, sample] of reflected.samples.entries()) {
+      if (!sample.poses.length) continue;
+      const landmarks = sample.poses[0].landmarks, original = source.samples[i].poses[0].landmarks;
+      assert.equal(sample.poses[0].playerId, destination);
+      assert.ok(Math.abs(landmarks[12].x - (1 - original[11].x)) < .0001);
+      assert.ok(Math.abs(landmarks[12].z - original[11].z) < .0001);
+      assert.ok(sample.quality[0].landmarkOrigins.every(o => o === 'edited'));
+      assert.ok(sample.quality[0].scoreEligible.every(v => !v));
+      assert.equal(sample.quality[0].reviewed, false);
+    }
+    assert.deepEqual(reflected.exclusions, source.exclusions);
+    assert.deepEqual(reflected.sources, source.sources);
+    assert.ok(Math.abs(found(reflected.calibration).baseHip.x - .8) < 1e-6);
+    assert.equal(found(reflected.calibration).cameraScaleMode, 'body-relative');
+    assert.equal(p.alignmentReviewed, false);
+    assert.deepEqual(historyStep(p, -1).tracks, before.tracks);
+    assert.deepEqual(historyStep(historyStep(p, -1), 1).tracks, p.tracks);
+    const after = appendOperation(p, { type: 'mirror', playerId: sourcePlayerId, startMs: 0, endMs: 500 }, takes);
+    assert.equal(after.tracks[destination].dataId, reflected.dataId);
+    assert.deepEqual(validateProject(JSON.parse(JSON.stringify(p))).tracks, p.tracks);
+  }
+  assert.throws(() => mirrorTrack(newProject(), new Map(), 0), /no poses/);
+  assert.throws(() => mirrorTrack(newProject(), new Map(), 2), /Invalid source/);
+});
 test("finite playback preserves explicit identity and never bridges missing snapshots", () => {
   const samples = [
     { songTimeMs: 0, poses: [pose(1)] },

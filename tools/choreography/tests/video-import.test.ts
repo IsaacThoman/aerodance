@@ -12,6 +12,7 @@ import { MEDIAPIPE_VERSION, poseModel } from '../../../packages/pose/browser/mod
 import type { PoseRunningMode, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import type { Landmark } from '../../../packages/pose/choreography.ts';
 import { PoseFileWriter, SEEK_TIME, framesToPoses } from '../../../packages/pose/binary.ts';
+import { CLEANUP_SETTINGS } from '../poseCleanup.ts';
 import type { PoseFrames } from '../../../packages/pose/binary.ts';
 import { captureHead, captureHeader } from '../poseFiles.ts';
 import type { CaptureStart } from '../poseFiles.ts';
@@ -115,8 +116,8 @@ test('missing P1 is recovered without changing P2, file timing or primary video 
   assert.deepEqual(found(records.at(-1)).poses.map(p => p.playerId), [0, 1]);
   assert.deepEqual(found(records.at(-1)).poses[1], storedPose(pose(1)));
   assert.deepEqual(records.map(r => r.mediaTimeMs), [...sampleTimes(100)].map(t => t * 1000));
-  assert.deepEqual(diagnostics.modes, ['IMAGE', 'IMAGE', 'VIDEO', 'IMAGE']);
-  assert.equal(diagnostics.terminated, 4);
+  assert.deepEqual(diagnostics.modes, ['IMAGE', 'IMAGE', 'VIDEO', 'VIDEO', 'VIDEO']);
+  assert.equal(diagnostics.terminated, 5);
   assert.equal(diagnostics.maxActive, 1);
 });
 
@@ -196,6 +197,98 @@ class PoseWorker implements ImportWorker {
   }
   terminate() { this.diagnostics.terminated++; }
 }
+test('continuous region workers keep separate VIDEO histories and frozen crops, even when full-frame tracking succeeds', async () => {
+  const diagnostics = newDiagnostics(), workers: TrackedWorker[] = [];
+  class TrackedWorker extends PoseWorker {
+    times: number[] = [];
+    regions = new Set<number | undefined>();
+    crops: (Crop | undefined)[] = [];
+    postMessage(data: ImportWorkerRequest) {
+      if (data.type === 'frame') {
+        this.times.push(data.timestampMs); this.regions.add(data.regionId);
+        this.crops.push(data.bitmap instanceof Bitmap ? data.bitmap.crop : undefined);
+      }
+      super.postMessage(data);
+    }
+  }
+  const job = new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'full',projectId:'project',
+    bitmap,decodeFrames:async()=>null,seek:async(_v,time)=>({mediaTimeMs:time*1000,timingMethod:'decoded-frame'}),assetUrl:()=> 'http://localhost/',
+    createWorker:()=>{const worker=new TrackedWorker(diagnostics);workers.push(worker);return worker;},request:async()=>({takeId:'continuous'})});
+  await job.process('duet.webm');
+  assert.equal(workers.length,3);
+  assert.deepEqual(diagnostics.modes,['VIDEO','VIDEO','VIDEO']);
+  for (const [i,worker] of workers.entries()) {
+    assert.deepEqual(worker.times,[...sampleTimes(200)].map(t=>t*1000));
+    assert.deepEqual([...worker.regions],[i===0 ? undefined : i-1]);
+    assert.ok(worker.crops.every(c=>JSON.stringify(c)===JSON.stringify(worker.crops[0])));
+  }
+  assert.equal(diagnostics.terminated,3);
+});
+
+test('crop worker failure stops the import and releases every initialized worker', async () => {
+  const diagnostics = newDiagnostics();
+  class FailedCrop extends PoseWorker {
+    postMessage(data: ImportWorkerRequest) {
+      if (data.type==='frame' && data.regionId===1) {
+        queueMicrotask(()=>this.respond({type:'error',sessionId:this.sessionId,message:'Crop inference failed'}));
+        return;
+      }
+      super.postMessage(data);
+    }
+  }
+  const job=new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'full',projectId:'project',
+    bitmap,decodeFrames:async()=>null,seek:async(_v,time)=>({mediaTimeMs:time*1000,timingMethod:'decoded-frame'}),assetUrl:()=> 'http://localhost/',
+    createWorker:()=>new FailedCrop(diagnostics),request:async()=>({takeId:'failure'})});
+  await assert.rejects(job.process('duet.webm'),/Crop inference failed/);
+  assert.equal(diagnostics.terminated,3);
+  assert.equal(job.processed,undefined);
+});
+
+test('cancelling a running crop tracker releases all workers and does not finalize', async () => {
+  const diagnostics=newDiagnostics();
+  class CancelCrop extends PoseWorker {
+    postMessage(data: ImportWorkerRequest) {
+      if(data.type==='frame' && data.regionId===1) { queueMicrotask(()=>job.abort()); return; }
+      super.postMessage(data);
+    }
+  }
+  const job=new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'full',projectId:'project',
+    bitmap,decodeFrames:async()=>null,seek:async(_v,time)=>({mediaTimeMs:time*1000,timingMethod:'decoded-frame'}),assetUrl:()=> 'http://localhost/',
+    createWorker:()=>new CancelCrop(diagnostics),request:async()=>({takeId:'cancel-crop'})});
+  await assert.rejects(job.process('duet.webm'),{name:'AbortError'});
+  assert.equal(diagnostics.terminated,3);
+  assert.equal(job.regionWorkers.size,0);
+  assert.equal(job.processed,undefined);
+});
+test('solo video detection uses one whole-frame model and maps centered or side dancers to P1 or P2', async () => {
+  for (const captureMode of ['p1', 'p2'] as const) for (const x of [.2, .5, .8]) {
+    const calls: Call[] = [], diagnostics = newDiagnostics();
+    const dancer = detected(pose(0)).map(p => ({ ...p, x }));
+    class SoloWorker extends PoseWorker {
+      landmarks() { return [dancer]; }
+      postMessage(data: ImportWorkerRequest) {
+        if (data.type === 'initialize') assert.equal(data.playerCount, 1);
+        if (data.type === 'frame') assert.equal(data.regionId, undefined);
+        super.postMessage(data);
+      }
+    }
+    const job = new VideoImporter({ video: video({ duration: .3, videoWidth: 640, videoHeight: 480, currentTime: .1 }),
+      modelId: 'lite', captureMode, projectId: 'project', sampleRate: 10, bitmap,
+      assetUrl: () => 'http://localhost/pose-assets/', createWorker: () => new SoloWorker(diagnostics),
+      seek: async (_v, time) => ({ mediaTimeMs: time * 1000, timingMethod: 'seek-time' }), decodeFrames: async () => null,
+      request: async (url, options) => { calls.push({ url, body: structuredClone(options?.body) }); return { takeId: 'capture' }; } });
+    const calibration = await job.calibrate();
+    const playerId = captureMode === 'p1' ? 0 : 1;
+    assert.deepEqual(calibration.poses.map(p => p.playerId), [playerId]);
+    assert.ok(calibration.detectedPoses.every(p => p.ready));
+    await job.process('solo.webm'); await job.finalize(calibration);
+    const records = uploadedRecords(calls).flat();
+    assert.equal(records.length, 3);
+    assert.ok(records.every(r => r.poses.length === 1 && r.poses[0].playerId === playerId));
+    assert.ok(records.every(r => Math.abs(r.poses[0].landmarks[23].x - x) < .0001));
+    assert.deepEqual(diagnostics.modes, ['IMAGE', 'VIDEO']);
+  }
+});
 test('video processing awaits inference, skips duplicate decoded frames and retries bounded uploads', async () => {
   const calls: Call[] = [], diagnostics = newDiagnostics();
   let failed = false;
@@ -211,7 +304,7 @@ test('video processing awaits inference, skips duplicate decoded frames and retr
   });
   const calibration = await job.calibrate();
   await job.process('fixture.webm');
-  assert.equal(diagnostics.maxActive, 1); assert.deepEqual(diagnostics.modes, ['IMAGE', 'VIDEO']);
+  assert.equal(diagnostics.maxActive, 1); assert.deepEqual(diagnostics.modes, ['IMAGE', 'VIDEO', 'VIDEO', 'VIDEO']);
   const batches = calls.filter(c => c.url.includes('/batches'));
   assert.equal(batches.length, 2); assert.deepEqual(batches[0].body, batches[1].body);
   const records = uploadedRecords(calls)[1];
@@ -220,7 +313,7 @@ test('video processing awaits inference, skips duplicate decoded frames and retr
   await assert.rejects(job.finalize({ ...calibration, poses: [calibration.poses[0]] }), /P2/);
   await job.finalize(calibration);
   assert.deepEqual(read(found(calls.at(-1)).body, 'calibrationFrame'), calibration);
-  assert.equal(diagnostics.terminated, 2);
+  assert.equal(diagnostics.terminated, 4);
 });
 
 test('cancelling inference releases the worker and does not finalize a partial take', async () => {
@@ -276,7 +369,8 @@ test('decoded frames are processed in order, prefetched during inference and rel
   assert.deepEqual(records.map(r => r.mediaTimeMs), [0, 33, 67, 100, 133, 167, 200, 233, 267]);
   assert.ok(records.every(r => r.timingMethod === 'decoded-frame'));
   // The following frame is already decoding when each frame's pixels are read.
-  assert.deepEqual(bitmaps.slice(0, -1).map(b => b.pulled), records.slice(0, -1).map(r => order.indexOf(r.mediaTimeMs) + 2));
+  assert.deepEqual(bitmaps.filter((_,i) => i%3===0).slice(0, -1).map(b => b.pulled), records.slice(0, -1).map(r => order.indexOf(r.mediaTimeMs) + 2));
+  assert.equal(bitmaps.length,records.length*3, 'each source frame feeds all three continuous trackers');
   assert.equal(diagnostics.maxActive, 1);
   assert.equal(state.returned, true);
 });
@@ -401,6 +495,57 @@ test('video batches finalize with calibration and survive export and backup afte
   assert.equal(dp.takes.length, 0);
   const snapshot = validateTrackData(await (await fetch(`${base}/api/projects/${dp.projectId}/tracks/${dp.tracks[0].dataId}`)).json());
   assert.deepEqual(snapshot.calibration, storedCalibration(takeCalibration(take, 0)));
+});
+
+test('video audio and library attachment commit with revision checks and idempotent retry', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'studio-video-audio-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { store } = createStudio({ dataDir: root });
+  let project = await store.save(newProject('video-audio-project'), null);
+  project = await store.uploadAudio(project.projectId, new Uint8Array([1, 2]), 'audio/wav', 1000, project.revision, 'old.wav');
+  const { metadata, records, header } = fixture();
+  const capture = await store.startCapture(project.projectId, { ...metadata, header });
+  await store.appendBatch(project.projectId, capture.takeId, 0,
+    new PoseFileWriter(captureHeader(header)).frames(records.map(({ record }) => ({ timeMs: record.mediaTimeMs, poses: record.poses, seq: record.seq }))));
+  await store.finalize(project.projectId, capture.takeId, { batchCount: 1, recordCount: records.length, calibrationFrame: metadata.calibrationFrame });
+  const bytes = new Uint8Array([3, 4]);
+  await assert.rejects(store.uploadAudio(project.projectId, bytes, 'audio/wav', 1000, project.revision - 1, 'video.wav', capture.takeId), /Project changed/);
+  assert.deepEqual(await store.project(project.projectId), project);
+  const completed = await store.uploadAudio(project.projectId, bytes, 'audio/wav', 1000, project.revision, 'video.wav', capture.takeId);
+  assert.equal(completed.takes.length, 1);
+  assert.equal(completed.takes[0].takeId, capture.takeId);
+  assert.equal(completed.audio?.name, 'video.wav');
+  assert.equal(completed.revision, project.revision + 1);
+  assert.equal(completed.alignmentReviewed, false);
+  const retry = await store.uploadAudio(project.projectId, bytes, 'audio/wav', 1000, project.revision, 'video.wav', capture.takeId);
+  assert.deepEqual(retry, completed);
+  assert.deepEqual(new Uint8Array(await (await store.audio(project.projectId)).arrayBuffer()), bytes);
+});
+
+test('cleaned video takes preserve original capture bytes and quality through backup restore', async t => {
+  const root=await mkdtemp(path.join(tmpdir(),'studio-cleanup-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const {store}=createStudio({dataDir:root});
+  let project=await store.save(newProject('cleanup-project'),null);
+  const {metadata,records,header}=fixture();
+  records[5].record.poses[0].landmarks[15].x=1.7;
+  const capture=await store.startCapture(project.projectId,{...metadata,status:{...metadata.status,cleanup:{...CLEANUP_SETTINGS}},header});
+  const batch=new PoseFileWriter(captureHeader(header)).frames(records.map(({record:r})=>({timeMs:r.mediaTimeMs,poses:r.poses,seq:r.seq})));
+  await store.appendBatch(project.projectId,capture.takeId,0,batch);
+  const take=await store.finalize(project.projectId,capture.takeId,{batchCount:1,recordCount:records.length,calibrationFrame:metadata.calibrationFrame});
+  assert.equal(take.samples[5].quality![0].landmarkOrigins[15],'gap-repaired');
+  assert.equal(take.samples[5].quality![0].scoreEligible[15],false);
+  assert.ok(take.samples[5].poses[0].landmarks[15].x<1);
+  project=await store.save(addTake(project,take),project.revision);
+  const backup=await store.download(project.projectId,'backup'),files=readZip(Buffer.from(backup));
+  const raw=zipPose(files,`raw/${take.takeId}.adpose`);
+  assert.ok(framesToPoses(raw,5).poses[0].landmarks[15].x>1.6);
+  assert.equal(raw.jointFlags,null);
+  const rawBytes=files.get(`raw/${take.takeId}.adpose`)!;
+  assert.equal(Buffer.from(await crypto.subtle.digest('SHA-256',new Uint8Array(rawBytes))).toString('hex'),take.provenance?.rawSha256);
+  const restored=await store.restore(backup),saved=await store.takeById(restored.projectId,take.takeId);
+  assert.deepEqual(saved.samples,take.samples);
+  assert.deepEqual(saved.provenance,take.provenance);
 });
 
 test('video import can sample at 15 fps', async () => {
