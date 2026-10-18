@@ -59,7 +59,7 @@ export async function createRoom(base = PAIRING_BASE, fetchFn?: Fetch): Promise<
 
 /**
  * The phone's place in the room with this code (pass the token from an earlier join to keep
- * it). session names this page, so its closing can't end a later page's place.
+ * it). session names this join, so closing it can't end a later join's place.
  */
 export async function joinRoom(code: string, token: string | null, session = '', base = PAIRING_BASE, fetchFn?: Fetch): Promise<JoinedRoom> {
   const joined = await post<JoinedRoom>(`${base}/rooms/${code}/join`, { token, session }, fetchFn);

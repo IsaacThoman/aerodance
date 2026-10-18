@@ -249,8 +249,10 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url || '/', 'http://pairing');
     const parts = url.pathname.split('/').filter(Boolean);
-    // Exact paths only, so every form of a path meets the proxy's limits for it.
-    if (url.pathname !== `/${parts.join('/')}`) return false;
+    // Exact paths only, as sent (URL parsing turns \ into / and resolves ..), so every form of a
+    // path meets the proxy's limits for it.
+    const raw = (req.url || '/').split('?')[0];
+    if (raw !== url.pathname || raw !== `/${parts.join('/')}`) return false;
     const route = `${req.method} ${parts[0] === 'rooms' ? ['rooms', parts[1] && ':code', parts[2]].filter(Boolean).join('/') : parts.join('/')}`;
     const known = ['POST rooms', 'GET rooms/:code', 'POST rooms/:code/join', 'GET rooms/:code/events', 'POST rooms/:code/messages',
       'POST rooms/:code/release', 'POST rooms/:code/close', 'GET health'];

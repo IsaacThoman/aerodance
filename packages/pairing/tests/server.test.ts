@@ -275,11 +275,23 @@ test('an events stream nobody reads is closed instead of buffered without end', 
 });
 
 test('every form of a path meets the same limits: no trailing slashes or malformed codes', async (t) => {
-  const { post } = await serve(t);
+  const { base, post } = await serve(t);
   assert.equal((await post('/rooms/')).status, 404);
   assert.equal((await post('/rooms//')).status, 404);
   const room = await (await post('/rooms')).json();
   assert.equal((await post(`/rooms/${room.code}/join/`)).status, 404);
+  // Backslashes and dot segments, sent as they are (fetch would tidy them), which URL parsing
+  // would quietly turn into a real path.
+  const { port } = new URL(base);
+  const rawPath = (path: string) => new Promise<number>((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: `/pair${path}`, method: 'POST' }, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+    req.on('error', reject);
+    req.end('{}');
+  });
+  assert.equal(await rawPath(`/rooms\\${room.code}\\join`), 404);
+  assert.equal(await rawPath('/x\\..\\rooms'), 404);
+  assert.equal(await rawPath('/x/../rooms'), 404);
+  assert.equal(await rawPath('/x/%2e%2e/rooms'), 404);
   // Malformed codes don't count towards the wrong-code throttle.
   for (let i = 0; i < 350; i++) assert.equal((await post('/rooms/abc/join')).status, 404);
   assert.equal((await post(`/rooms/${room.code}/join`)).status, 200);
