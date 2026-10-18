@@ -7,7 +7,7 @@ import { chromium } from 'playwright';
 import { bundleFixture } from './fixtures/songBundle.ts';
 import { PILL, PRIMARY } from '../src/connect/layout.ts';
 import { BACK as MENU_BACK, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
-import { DANCE, GAME_READY_START, RESULTS_RETRY, rowRect } from '../src/game/layout.ts';
+import { DANCE, GAME_CALIBRATION_CAMERA, GAME_READY_START, RESULTS_RETRY, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 
 /** What the page script adds to window: whether the synthetic dancers are in shot. */
@@ -91,10 +91,14 @@ try {
   await click(TWO_PLAYERS); await until('songReady', 'true'); await click(rowRect(0));
   await until('previewState', 'playing'); await until('stageReady', 'true');
 
-  await click(DANCE); await until('gamePhase', 'calibrating'); await until('gameCalibrationPreview', 'true');
+  await click(DANCE); await until('gamePhase', 'calibrating'); await until('gameReady', 'true'); await until('gameCalibrationPreview', 'true');
   await until('gameCalibrationPlayers', 'missing|missing');
   await click(GAME_READY_START); await page.waitForTimeout(400);
   assert.equal(await page.locator('canvas').getAttribute('data-game-phase'), 'calibrating', 'the old Start now position cannot bypass calibration');
+  // The calibration screen stops and restarts the camera itself.
+  await click(GAME_CALIBRATION_CAMERA.primary); await until('gameCameraStatus', 'disconnected'); await until('gameCalibrationPreview', 'false');
+  await click(GAME_CALIBRATION_CAMERA.primary); await until('gameCameraStatus', 'connected'); await until('gameCalibrationPreview', 'true');
+  await until('gameCalibrationPlayers', 'missing|missing');
   await page.keyboard.press('Escape'); await until('songReady', 'true'); await until('songScreen', 'list');
   await click(rowRect(0)); await until('previewState', 'playing'); await until('stageReady', 'true');
 
@@ -112,7 +116,7 @@ try {
   await click(RESULTS_RETRY); await until('gamePhase', 'calibrating'); await until('gameCalibrationProgress', '0.000');
   await page.keyboard.press('Escape'); await until('songReady', 'true');
   assert.deepEqual(errors, []);
-  console.log('Webcam calibration passed: real two-player tracking, required hold, preview, Back, tracking-loss reset, countdown, gameplay, fresh calibration on retry.');
+  console.log('Webcam calibration passed: real two-player tracking, required hold, preview, camera restart from calibration, Back, tracking-loss reset, countdown, gameplay, fresh calibration on retry.');
 } catch (error) {
   console.error('Game state:', await page.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
   throw error;

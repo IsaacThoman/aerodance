@@ -16,3 +16,4 @@ export const CAMERA_PREV = { x: COLUMN.x, y: CARD.y + 114, w: 80, h: 58 };
 export const CAMERA_NEXT = { x: CARD.x + CARD.w - 112, y: CAMERA_PREV.y, w: 80, h: 58 };
 export const MODEL_RECTS: Rect[] = [0, 1, 2].map(i => ({ x: COLUMN.x + i * 235, y: CAMERA_PREV.y + 88, w: 222, h: 58 }));
 export const WEBCAM_PREVIEW = { x: COLUMN.x, y: CAMERA_PREV.y + 160, w: 280, h: 150 };
+export const CAMERA = { prev: CAMERA_PREV, next: CAMERA_NEXT, models: MODEL_RECTS, primary: PRIMARY };

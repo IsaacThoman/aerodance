@@ -1,20 +1,26 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, ellipsize, ICONS,
+  FONT, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, drawStatusDot,
+  ellipsize, ICONS, paragraph, text,
 } from '../ui/draw.ts';
 import type { Face } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
-import type { Widget } from '../ui/useCanvasUI.ts';
+import type { CanvasUI } from '../ui/useCanvasUI.ts';
+import {
+  CameraSetup, cameraWidgets, drawCameraButton, drawCameraPicker, drawModelPicker, modelDescription,
+} from '../connect/cameraSetup.ts';
+import type { CameraWidget } from '../connect/cameraSetup.ts';
 import { COUNTDOWN_MS, READY_HOLD_MS } from './GameSession.ts';
 import type { GamePhase, GameSession, Readiness } from './GameSession.ts';
 import { WEBCAM_STILL_MS } from './webcamCalibration.ts';
-import type { CalibrationPlayerStatus } from './webcamCalibration.ts';
+import type { CalibrationPlayerStatus, CalibrationStatus } from './webcamCalibration.ts';
 import type { JudgementEvent, PlayerResult, WindowJudgement } from '../../../packages/score/scorer.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
+import type { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import {
-  GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
+  GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_COLUMN, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
   LIVE_PANEL, livePanelCenterX,
 } from './layout.ts';
 
@@ -22,7 +28,9 @@ import {
  * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers
  * and the players' live characters):
  *
- *   calibrating webcam preview: every player holds still together for 2.5 seconds
+ *   calibrating webcam setup: the camera, tracking model and Start camera (shared with
+ *              Connect Client) beside the preview; every player holds still together
+ *              for 2.5 seconds
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
@@ -31,15 +39,18 @@ import {
  *   paused     Resume (with a fresh countdown), Restart, Song select
  *   results    hands the overlay to ResultsScreen
  *
- * The canvas reports data-game-phase, -game-countdown, -game-time-ms and -game-scores for tests.
+ * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms and -game-scores for tests,
+ * and while calibrating -game-calibration-* and the camera's -game-camera-status / -model / -message.
  *
- * <GameScreen visible session={GameSession} onQuit onRetry />
+ * <GameScreen visible session={GameSession} camera={source} onQuit onRetry />
  */
 
 export interface GameScreenProps {
   visible?: boolean;
   blocked?: boolean;
   session: GameSession | null;
+  /** The webcam input, set up from the calibration screen. */
+  camera: PoseSourceController;
   onQuit?: () => void;
   onRetry?: () => void;
 }
@@ -92,24 +103,72 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerRe
   }
 }
 
-export default function GameScreen({ visible = false, blocked = false, session, onQuit, onRetry }: GameScreenProps) {
+// The webcam setup card: camera controls on the left, the mirrored preview with each
+// player's status and the shared hold on the right.
+function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
+  const h = s.hover;
+  const { connection } = camera.target();
+  const col = GAME_CALIBRATION_COLUMN;
+  const cam = GAME_CALIBRATION_CAMERA;
+  drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
+  drawGlassPanel(g, GAME_CALIBRATION_CARD, 30);
+
+  drawCaps(g, 'CAMERA', col.x + 4, cam.prev.y - 26, { size: 20 });
+  drawCameraPicker(g, cam, connection, h);
+  drawCaps(g, 'TRACKING', col.x + 4, cam.models[0].y - 26, { size: 20 });
+  drawModelPicker(g, cam, connection, h);
+  const below = cam.models[2].y + cam.models[2].h + 28;
+  paragraph(g, modelDescription(connection), col.x + 4, below, col.w - 8, { size: 19, lineH: 24, color: '#bff4ff' });
+  drawStatusDot(g, col.x + 14, below + 62, connection.status, 10);
+  paragraph(g, camera.message(), col.x + 36, below + 62, col.w - 40, { size: 19, lineH: 24, color: camera.failed() ? '#ffb38a' : '#ffffff' });
+  drawCameraButton(g, cam, camera, h.primary ?? 0, s.press * (h.primary ?? 0));
+
+  const preview = GAME_CALIBRATION_PREVIEW;
+  const mid = preview.x + preview.w / 2;
+  text(g, 'Stand still for 2.5 seconds', mid, preview.y - 56, { size: 32, weight: 800, align: 'center' });
+  text(g, session.playerCount === 2 ? 'Both players: stand upright with your feet visible.' : 'Stand upright with your feet visible.',
+    mid, preview.y - 22, { size: 20, color: '#e6f8ff', align: 'center' });
+  drawWebcamPreview(g, camera.target().source.video, connection.snapshot, preview, session.playerCount);
+  // The setup preview is mirrored: player 1 is on its left-hand side.
+  const xs = session.playerCount === 2 ? [preview.x + preview.w / 4, preview.x + preview.w * 3 / 4] : [mid];
+  const live = connection.status === 'connected';
+  calibration.players.forEach((status, id) => {
+    const [label, color] = live ? CALIBRATION_STATUS[status] : ['Camera off', 'rgba(255,255,255,0.7)'];
+    drawCaps(g, `PLAYER ${id + 1}`, xs[id], preview.y + preview.h + 26, { size: 18, align: 'center' });
+    text(g, label, xs[id], preview.y + preview.h + 56, { size: 22, weight: 700, align: 'center', color });
+  });
+  drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
+  const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
+  const message = !live ? 'Start the camera, then step back until it can see your feet.'
+    : calibration.complete ? 'Calibrated! Starting…'
+    : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
+    : 'The countdown starts automatically once everyone is calibrated.';
+  text(g, message, mid, GAME_CALIBRATION_PROGRESS.y + 42, { size: 21, align: 'center', color: '#e6f8ff' });
+}
+
+export default function GameScreen({ visible = false, blocked = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ visible, blocked, session, onQuit, onRetry });
-  props.current = { visible, blocked, session, onQuit, onRetry };
+  const props = useRef({ visible, blocked, session, source, onQuit, onRetry });
+  props.current = { visible, blocked, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string }>({ alpha: 0, popups: [], reported: '' }).current;
+  // The calibration screen's camera controls (the source's view is always current).
+  const [camera] = useState(() => new CameraSetup(() => ({ source: props.current.source, connection: props.current.source.view })));
 
   const live = () => props.current.visible && !props.current.blocked && phase() !== 'results' && st.alpha > 0.3;
   const phase = (): GamePhase => props.current.session?.phase ?? 'loading';
+  // Webcam sessions calibrate before the ready check.
+  const calibrating = () => !!props.current.session?.webcamCalibration && ['calibrating', 'ready'].includes(phase());
 
-  const ui = useCanvasUI({
+  const ui = useCanvasUI<CameraWidget>({
     priority: 2,
     active: live,
     keyNav: () => ['loading', 'calibrating', 'ready', 'error', 'paused', 'results'].includes(phase()),
-    widgets: (): Widget[] => {
+    widgets: (): CameraWidget[] => {
       const ph = phase();
+      if (calibrating()) return [{ id: 'quit', circle: GAME_READY_BACK }, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
       if (['ready', 'calibrating', 'loading', 'error'].includes(ph)) {
-        const list: Widget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
-        if (ph === 'ready' && !props.current.session?.webcamCalibration) list.push({ id: 'start', rect: GAME_READY_START });
+        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
+        if (ph === 'ready') list.push({ id: 'start', rect: GAME_READY_START });
         return list;
       }
       if (ph === 'countdown' || ph === 'playing') return [{ id: 'pause', circle: GAME_PAUSE, nav: false }];
@@ -124,6 +183,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       else if (wdg.id === 'resume') session?.resume();
       else if (wdg.id === 'restart' || wdg.id === 'retry') p.onRetry?.();
       else if (wdg.id === 'quit') p.onQuit?.();
+      else if (calibrating()) camera.activate(wdg);
       s.invalidate();
     },
     onKey: (e, s) => {
@@ -150,15 +210,20 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       const now = s.time;
       st.popups = st.popups.filter((j) => now - j.at < POPUP_S);
       const scores = session.scorer.results().map((r) => r.score);
-      const calibration = ['calibrating', 'ready'].includes(session.phase) ? session.calibrationStatus() : null;
+      const calibration = calibrating() ? session.calibrationStatus() : null;
+      const view = p.source.view;
       const report = {
         gamePhase: session.phase,
+        gameReady: String(live()),
         gameCountdown: session.phase === 'countdown' ? String(Math.ceil(session.countdownMs() / 1000)) : '',
         gameTimeMs: session.player ? String(Math.round(session.player.timeMs())) : '',
         gameScores: scores.join('|'),
         gameCalibrationProgress: calibration ? calibration.progress.toFixed(3) : '',
         gameCalibrationPlayers: calibration?.players.join('|') ?? '',
-        gameCalibrationPreview: calibration ? String(!!session.source?.video) : '',
+        gameCalibrationPreview: calibration ? String(!!p.source.video) : '',
+        gameCameraStatus: calibration ? view.status : '',
+        gameCameraModel: calibration ? view.model : '',
+        gameCameraMessage: calibration ? camera.message() : '',
       };
       const json = JSON.stringify(report);
       if (json !== st.reported) { st.reported = json; Object.assign(gl.domElement.dataset, report); }
@@ -175,29 +240,9 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       const now = s.time;
 
       // Webcam sessions calibrate before the ready check (null otherwise).
-      const calibration = ph === 'calibrating' || ph === 'ready' ? session.calibrationStatus() : null;
+      const calibration = calibrating() ? session.calibrationStatus() : null;
       if (calibration) {
-        const source = session.source;
-        drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
-        drawShadowText(g, 'Stand still for 2.5 seconds', 800, 232, { size: 42, weight: 800, align: 'center' });
-        drawShadowText(g, session.playerCount === 2 ? 'Both players: stand upright with your feet visible.' : 'Stand upright with your feet visible.', 800, 270, { size: 24, align: 'center', color: '#e6f8ff' });
-        drawGlassPanel(g, { x: 348, y: 278, w: 904, h: 444 }, 24);
-        drawWebcamPreview(g, source?.video, source?.view.snapshot, GAME_CALIBRATION_PREVIEW, session.playerCount);
-        // The setup preview is mirrored: player 1 is on its left-hand side.
-        const xs = session.playerCount === 2 ? [580, 1020] : [800];
-        calibration.players.forEach((status, id) => {
-          const [label, color] = CALIBRATION_STATUS[status];
-          drawCaps(g, `PLAYER ${id + 1}`, xs[id], 750, { size: 18, align: 'center' });
-          drawShadowText(g, label, xs[id], 784, { size: 22, weight: 700, align: 'center', color });
-        });
-        drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
-        const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
-        const message = source?.view.status === 'error' ? source.view.message
-          : source?.view.status === 'disconnected' ? 'Camera disconnected. Go back to connect your webcam.'
-          : calibration.complete ? 'Calibrated! Starting…'
-          : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
-          : 'The countdown starts automatically once everyone is calibrated.';
-        drawShadowText(g, message, 800, 862, { size: 22, align: 'center', color: '#e6f8ff' });
+        drawCalibration(g, session, calibration, camera, s);
         return;
       }
 
@@ -292,7 +337,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
 
   useEffect(() => {
     if (!visible) {
-      for (const key of ['gamePhase', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview']) delete gl.domElement.dataset[key];
+      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage']) delete gl.domElement.dataset[key];
       st.reported = '';
     }
     ui.invalidate();
