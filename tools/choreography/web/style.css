@@ -1247,9 +1247,16 @@ small {
   border: 0;
   background: transparent;
   padding: 10px;
+  white-space: normal;
 }
 .take-select > span:last-child {
+  flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+.take-select .take-icon,
+.take-menu {
+  flex-shrink: 0;
 }
 .take-menu {
   margin-right: 6px;
@@ -1334,6 +1341,8 @@ small {
 .video-import-heading, .video-import-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .video-import-heading p { overflow-wrap: anywhere; }
 .video-import > p, .video-import label { margin: 16px 0; }
+.video-import .check { font-size: 12px; }
+.video-import .check input { flex-shrink: 0; padding: 0; }
 .video-import video { display: block; width: 100%; max-height: 360px; background: #000; border-radius: 8px; margin: 12px 0; }
 .video-calibration canvas { display: block; width: min(100%, 320px); height: auto; max-height: 280px; object-fit: contain; margin-top: 14px; border-radius: 8px; }
 .video-calibration p, .video-progress p { margin: 8px 0; }
@@ -1342,14 +1351,69 @@ small {
 .video-import-error { color: #ffb6af; }
 .body-calibration small { display: block; margin: 5px 0 8px; color: var(--muted); }
 
-/* Browser storage details use the same compact footer and glass surface as the editor. */
-.storage-status { position: relative; }
+/* Storage help expands inside the scrollable Configuration panel. */
+.storage-status { min-width: 0; overflow-wrap: anywhere; }
 .storage-status summary { cursor: pointer; }
 .storage-status summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
 .storage-status > div {
-  position: absolute; bottom: 28px; right: 0; width: min(360px, 85vw);
-  padding: 16px; border-radius: 14px; background: #142c33; color: #e2f0ed;
+  margin-top: 8px;
+  padding: 12px; border-radius: 14px; background: #142c33; color: #e2f0ed;
   border: 1px solid var(--border); box-shadow: 0 10px 35px #0005;
-  z-index: 20; font-size: 12px; line-height: 1.5;
+  font-size: 12px; line-height: 1.5;
 }
 .storage-status p { margin: 0 0 10px; }
+
+/* Workspace navigation and a single shared player selection. */
+.sidebar-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.sidebar-heading h2:focus { outline: none; }
+.sidebar-heading button { padding: 5px 8px; }
+.sidebar-nav { display: grid; gap: 6px; margin-bottom: 18px; }
+.sidebar-nav button { display: flex; justify-content: space-between; text-align: left; }
+.asset-audio { display: grid; gap: 8px; padding: 12px 0; border-block: 1px solid var(--border); }
+.asset-audio strong { font-size: 12px; overflow-wrap: anywhere; }
+.asset-audio button { justify-self: start; }
+.library .track-tools { grid-template-columns: 1fr; }
+.library h3 { margin: 12px 0; font-size: 13px; }
+.history .undone { opacity: .5; }
+.preview-bar h1 { margin: 0; font-size: 17px; letter-spacing: 0; }
+.player-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.player-selector span { font-size: 12px; color: var(--muted); }
+.player-control { display: flex; align-items: stretch; border: 2px solid transparent; border-radius: 7px; }
+.player-control button { border: 0; background: transparent; color: inherit; }
+.player-control button:focus-visible { outline-offset: -3px; }
+.player-button { min-width: 42px; }
+.player-control .player-options { border-left: 1px solid currentColor; border-radius: 0 4px 4px 0; font-size: 11px; }
+.player-0 { color: #51daf0; }
+.player-1 { color: #be9cff; }
+.player-0.selected { border-color: #51daf0; background: #174854; }
+.player-1.selected { border-color: #be9cff; background: #42335c; }
+.track-lane.selected-track { box-shadow: inset 0 0 0 2px #51daf0; background: #1e505e66; }
+.track-lane.track-1.selected-track { box-shadow: inset 0 0 0 2px #be9cff; background: #49385d66; }
+button.lane-label { top: 4px; font-size: 11px; padding: 3px 6px; z-index: 6; }
+button.lane-label[aria-pressed="true"] { color: white; border-color: currentColor; }
+.playable-overlay { position: absolute; inset: 0 0 24px; pointer-events: none; z-index: 4; overflow: hidden; }
+.outside-playable { position: absolute; top: 0; bottom: 0; background: #050d18a6; }
+.playable-boundary { position: absolute; top: 0; bottom: 0; border-left: 2px dashed #f4cf81; }
+.playable-readout { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: #f4cf81; font-size: 12px; }
+.playable-readout span { font-variant-numeric: tabular-nums; }
+.transport { flex-wrap: wrap; gap: 8px; }
+.transport-right { flex-wrap: wrap; }
+.transport .record-button { width: auto; margin: 0; white-space: nowrap; }
+.capture-status { font-size: 11px; color: #f4cf81; }
+.project-menu { position: relative; flex-shrink: 0; }
+.project-menu summary { cursor: pointer; padding: 8px 10px; border: 1px solid #3b5760; border-radius: 6px; font-size: 12px; }
+.project-menu summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+.project-menu-items { position: absolute; top: calc(100% + 6px); left: 0; display: grid; gap: 5px; min-width: 190px; padding: 8px; border: 1px solid #5b8791; border-radius: 8px; background: #183841; box-shadow: 0 8px 24px #0008; z-index: 30; }
+.project-menu-items button { text-align: left; }
+@media (max-width: 600px) {
+  .topbar { gap: 8px; }
+  .project-menu summary { font-size: 11px; padding: 7px; }
+  .header-actions { flex-wrap: wrap; }
+  .transport-right { justify-content: flex-start; }
+}
+
+.preview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; }
+.preview-controls .preview-source, .preview-controls .player-selector { margin-bottom: 0; }
+@media (min-width: 921px) and (max-height: 850px) {
+  .preview { flex-basis: 100px; min-height: 100px; }
+}

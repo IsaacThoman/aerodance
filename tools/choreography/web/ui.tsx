@@ -1,4 +1,3 @@
-import StorageStatus from "./StorageStatus.tsx";
 import { request } from "./api.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
@@ -47,17 +46,14 @@ export function MessageBar({ error, notice, compileError, onDismiss }: MessageBa
   );
 }
 
-export function StatusBar({ busy, revision }: { busy: boolean; revision: number }) {
+export function StatusBar({ busy }: { busy: boolean }) {
   return (
     <footer className="statusbar">
       <span>
         <i className="dot green" />
-        LOCAL WORKSPACE · {busy ? "Working…" : "Ready"}
+         {busy ? "Working…" : "Ready"}
       </span>
-      <span>
-        Saved in this browser · Download backups to keep your work
-      </span>
-      <StorageStatus revision={revision} busy={busy} />
+      <span>Saved in this browser</span>
     </footer>
   );
 }

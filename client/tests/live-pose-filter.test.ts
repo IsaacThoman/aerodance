@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LivePoseFilter } from '../../packages/character/livePoseFilter.ts';
 import type { Pose } from '../../packages/pose/choreography.ts';
-const pose=(x: number): Pose=>({playerId:0,landmarks:Array.from({length:33},()=>({x,y:.5,z:0,visibility:.8,presence:.9}))});
+const pose=(x: number): Pose=>({playerId:0,landmarks:Array.from({length:33},()=>({x,y:.5,z:0,confidence:.8}))});
 test('live display smoothing reduces jitter, follows movement, and preserves source confidence and coordinates',()=>{
   const filter=new LivePoseFilter(); filter.update(pose(.5),.05);
   let rawMotion=0,displayMotion=0,lastRaw=.5,lastDisplay=.5;
@@ -13,7 +13,7 @@ test('live display smoothing reduces jitter, follows movement, and preserves sou
     rawMotion+=Math.abs(input.landmarks[0].x-lastRaw);
     displayMotion+=Math.abs(result.landmarks[0].x-lastDisplay);
     lastRaw=input.landmarks[0].x; lastDisplay=result.landmarks[0].x;
-    assert.deepEqual(input,original); assert.equal(result.landmarks[0].presence,.9);
+    assert.deepEqual(input,original); assert.equal(result.landmarks[0].confidence,.8);
   }
   assert.ok(displayMotion<rawMotion/3);
   for(let i=0;i<5;i++) filter.update(pose(.7),.05);

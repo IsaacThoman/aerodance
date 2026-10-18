@@ -1,13 +1,13 @@
 import { useEffect } from "react";
 import type { MouseEvent } from "react";
 import { finite } from "../../../packages/pose/choreography.ts";
-import { overwriteTracks, sourceLabel } from "../core.ts";
-import type { ProjectV2, Take, TakeSummary } from "../core.ts";
+import { overwriteTracks } from "../core.ts";
+import type { ProjectV3, Take, TakeSummary } from "../core.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import { takeById } from "./useWorkspace.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
-export interface TakeListProps { project: ProjectV2; studio: StudioProject; workspace: Workspace; }
+export interface TakeListProps { project: ProjectV3; studio: StudioProject; workspace: Workspace; }
 const closeMenu = (e: MouseEvent<HTMLElement>) => {
   const menu = e.currentTarget.closest("details");
   if (menu) menu.open = false;
@@ -86,7 +86,7 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
                 <span>
                   <strong>{t.name}</strong>
                   <small>
-                    {sourceLabel(t.source)} · {take?.samples.length || 0} samples
+                    {t.source} · {take?.samples.length || 0} samples
                      {t.modelId ? ` · ${t.modelId}${finite(t.sourceRateHz) ? ` · ${t.sourceRateHz.toFixed(1)} poses/s` : ""}` : ""}
                   </small>
                 </span>
@@ -134,7 +134,7 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
         })}
         {!project.takes.length && (
           <p className="empty-note">
-            Import a recording or create a new take below.
+            No takes yet. Import a recording or record a take.
           </p>
         )}
       </div>

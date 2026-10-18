@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promises as fs } from "node:fs";
 import { Store, isMissing } from "./store.ts";
+import { downloadName } from "../storage/store.ts";
 import { createRequest } from "../storage/commands.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
 
@@ -32,7 +33,7 @@ export function createStudio({
     app.get(`/api/projects/:projectId/${kind}`, async (req, res) => {
       const p = await store.project(req.params.projectId);
       const bytes = await store.download(p.projectId, kind);
-      res.attachment(`${p.songId}${kind === "backup" ? ".aerodance-project.zip" : `-r${p.revision}.aerodance-song.zip`}`)
+      res.attachment(await downloadName(p, kind, bytes))
         .type("application/zip").send(Buffer.from(bytes));
     });
   }

@@ -9,7 +9,8 @@ import { createServer } from 'vite';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
 import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import type * as VideoImport from '../web/videoImport.ts';
-import type * as VideoRecordFormat from '../../../packages/pose/videoRecord.ts';
+import type * as PoseFiles from '../poseFiles.ts';
+import type * as Binary from '../../../packages/pose/binary.ts';
 import { baseUrl } from './helpers.ts';
 
 interface Probe { crop: VideoImport.Crop | null; regionId: number | null; body: { i: number; x: number; y: number; confidence: number }[][]; }
@@ -48,9 +49,10 @@ try {
       g.drawImage(image, 200, 0, 600, 667, 225, 345, 110, 170);
       image.close(); image = await createImageBitmap(canvas);
     }
-    const videoImportUrl = '/tools/choreography/web/videoImport.ts', videoRecordUrl = '/packages/pose/videoRecord.ts';
+    const videoImportUrl = '/tools/choreography/web/videoImport.ts', poseFilesUrl = '/tools/choreography/poseFiles.ts', binaryUrl = '/packages/pose/binary.ts';
     const { VideoImporter }: typeof VideoImport = await import(videoImportUrl);
-    const { validateVideoRecord }: typeof VideoRecordFormat = await import(videoRecordUrl);
+    const { captureHead, decodeCaptureBatch }: typeof PoseFiles = await import(poseFilesUrl);
+    const { framesToPoses }: typeof Binary = await import(binaryUrl);
     const reports: DuetReport[] = [];
     for (const model of models) {
       const worker = new Worker(`/assets/${workerFile}`, { type: 'module' });
@@ -69,15 +71,20 @@ try {
         fullFrameCounts.push(result.landmarks.length);
       }
       worker.terminate();
-      const records: VideoRecordFormat.VideoRecord[] = [];
+      // The players in the last uploaded frame, decoded with the header the capture started with.
+      let head: Uint8Array | undefined, processedPlayers: number[] | undefined;
       const job = new VideoImporter({ video: fakeVideo({ videoWidth: image.width, videoHeight: image.height, currentTime: 0, duration: .2, pause() {} }),
         modelId: model.id, projectId: 'probe', createWorker: () => new Worker(`/assets/${workerFile}`, { type: 'module' }),
         assetUrl: () => `${location.origin}/pose-assets/mediapipe-1.1.0/`,
         bitmap: (_video, ...crop) => crop.length === 4 ? createImageBitmap(image, ...crop) : createImageBitmap(image),
         seek: async (_video, time) => ({ mediaTimeMs: time * 1000, timingMethod: 'decoded-frame' }),
         request: async (url, options) => {
-          const batch = field(options?.body, 'records');
-          if (url.endsWith('/batches') && Array.isArray(batch)) records.push(...batch.map((e: unknown) => validateVideoRecord(field(e, 'record'))));
+          const body = options?.body;
+          if (url.endsWith('/takes')) head = captureHead(field(body, 'header'));
+          if (url.includes('/batches') && head && body instanceof Uint8Array) {
+            const frames = decodeCaptureBatch(head, body);
+            if (frames.times.length) processedPlayers = framesToPoses(frames, frames.times.length - 1).poses.map(p => p.playerId);
+          }
           return { takeId: 'probe' };
         },
       });
@@ -95,8 +102,8 @@ try {
       await job.process('frame.webm');
       reports.push({ model: model.id, fullFrameCounts, calibrationPlayers: calibration.poses.map(p => p.playerId),
         hipX: calibration.poses.map(p => (p.landmarks[23].x + p.landmarks[24].x) / 2),
-        minBodyConfidence: calibration.poses.map(p => Math.min(...[11, 12, 23, 24, 27, 28].map(i => Math.min(p.landmarks[i].visibility ?? 0, p.landmarks[i].presence ?? 0)))),
-        processedPlayers: records.at(-1)?.poses.map(p => p.playerId),
+        minBodyConfidence: calibration.poses.map(p => Math.min(...[11, 12, 23, 24, 27, 28].map(i => p.landmarks[i].confidence ?? 0))),
+        processedPlayers,
         ...(calibration.poses.length < 2 ? { probes } : {}) });
       job.abort();
     }

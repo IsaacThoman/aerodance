@@ -3,12 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { sampleSong, validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
 import type { PlayerCount, Pose } from '../../packages/pose/choreography.ts';
-import type { ProtocolPoseRecord } from '../../packages/pose/protocol.ts';
 import type { PoseRecordEvent } from '../../packages/pose/browser/WebcamPoseSource.ts';
 import { COUNTDOWN_MS, GameSession, LATE_ALLOWANCE_MS, READY_HOLD_MS } from '../src/game/GameSession.ts';
 import type { GameSessionOptions, SessionPlayer } from '../src/game/GameSession.ts';
 import { ReplayPoseSource, createPoseRecorder, parseRecording, standingPose } from '../src/pose/ReplayPoseSource.ts';
-import type { PoseInputView, PoseSource, PoseSourceEvent, SongClock } from '../src/pose/PoseSource.ts';
+import type { LivePoseRecord, PoseInputView, PoseSource, PoseSourceEvent, SongClock } from '../src/pose/PoseSource.ts';
 import type { LoadedSongBundle } from '../src/songs/loadBundle.ts';
 import { bestScore, recordResults } from '../src/game/bestScores.ts';
 import type { BestScoreStorage, ScoredResult } from '../src/game/bestScores.ts';
@@ -17,7 +16,7 @@ const dir = new URL('./fixtures/song-70c63c8e/', import.meta.url);
 const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
 const song = validateSong(read('song.json'));
 // The session never decodes audio here: createPlayer is faked.
-const bundle: LoadedSongBundle = { song, choreography: validateSongChoreography(song, read('choreography.json')), audio: new Blob([]), cover: null };
+const bundle: LoadedSongBundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null };
 
 interface Clock { now: number; }
 type FakePlayer = SessionPlayer & { tick(): void; disposed?: boolean };
@@ -59,7 +58,7 @@ function fakeSource(sourceKind: PoseInputView['sourceKind'] = 'replay'): FakeSou
     subscribeRecords(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     attachSong(clock) { this.attached = clock; },
     send(poses, captureBrowserTimeMs, playerCount = 1) {
-      const record: ProtocolPoseRecord = { protocolVersion: 2, type: 'pose', sessionId: 's', seq: ++seq, playerCount, frameReceivedTimeMs: 0, resultTimeMs: 0, input: { width: 640, height: 480, mirrored: false }, poses };
+      const record: LivePoseRecord = { type: 'pose', sessionId: 's', seq: ++seq, playerCount, input: { width: 640, height: 480, mirrored: false }, poses };
       for (const fn of listeners) fn({ record, captureBrowserTimeMs, receivedBrowserTimeMs: captureBrowserTimeMs, timing: { method: 'test' } });
     },
   };
@@ -181,8 +180,8 @@ test('a webcam boundary before countdown discards a completed calibration', asyn
   for (let seq = 1; seq <= 26; seq++) {
     clock.now += 100;
     const poses = standing(1); poses[0].landmarks.forEach(j => { j.x += 0.1; });
-    session.onRecord({ record: { protocolVersion: 2, type: 'pose', playerCount: 1, sessionId: 'new-camera', seq,
-      frameReceivedTimeMs: clock.now, resultTimeMs: clock.now, input: { width: 1280, height: 720, mirrored: false }, poses },
+    session.onRecord({ record: { type: 'pose', playerCount: 1, sessionId: 'new-camera', seq,
+      input: { width: 1280, height: 720, mirrored: false }, poses },
     captureBrowserTimeMs: clock.now, receivedBrowserTimeMs: clock.now, timing: { method: 'test' } });
     if (seq === 1) {
       assert.equal(session.phase, 'calibrating');
@@ -284,7 +283,7 @@ test('the entrance follows the first beat and holds through pause and resume', a
 test('the ghost replay dances the routine and stands in its halves without a song', async () => {
   let now = 0;
   const ghost = new ReplayPoseSource({ now: () => now });
-  const records: PoseRecordEvent<ProtocolPoseRecord>[] = [];
+  const records: PoseRecordEvent<LivePoseRecord>[] = [];
   ghost.subscribeRecords((e) => records.push(e));
   await ghost.setPlayerCount(2);
   ghost.tick();

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import Character from '../../../packages/character/Character.tsx';
 import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
 import type { DancerPlacement, StageMeta } from '../../../packages/stages/index.ts';
-import type { MotionTake } from '../../../packages/pose/legacy.ts';
+import type { MotionTake } from '../../../packages/pose/motion.ts';
 import { PLAYERS, REVEAL, easeOut, timeline } from '../game/results.ts';
 import type { ResultsShow } from '../game/results.ts';
 

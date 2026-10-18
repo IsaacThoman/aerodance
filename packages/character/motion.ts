@@ -1,14 +1,12 @@
 import { createPoseApplier, calibratePoses } from './retarget.ts';
-import { migrateLegacyMotion, validateMotionTake } from '../pose/legacy.ts';
-import type { MotionTake } from '../pose/legacy.ts';
-import { isObject, sampleSnapshot } from '../pose/choreography.ts';
+import type { MotionTake } from '../pose/motion.ts';
+import { decodeMotion } from '../pose/motion.ts';
+import { sampleSnapshot } from '../pose/choreography.ts';
 import type { Pose } from '../pose/choreography.ts';
 import type { Object3D } from 'three';
 
-// Compatibility import while older local captures are migrated. Playback is object-only.
-export function validateMotion(data: unknown): MotionTake {
-  return validateMotionTake(isObject(data) && data.version === 1 ? migrateLegacyMotion(data) : data);
-}
+/** Loads a dance capture take file (assets/dance.adpose). */
+export const loadMotion = (bytes: ArrayBuffer | Uint8Array): MotionTake => decodeMotion(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
 
 // Looping and seam blending belong only to the silent menu/demo preview.
 // Runtime songs use the finite shared sampler directly.

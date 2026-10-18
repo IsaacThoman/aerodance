@@ -5,14 +5,14 @@ import type { CalibrationSnapshot } from '../../packages/character/liveCalibrati
 import type { Pose } from '../../packages/pose/choreography.ts';
 
 const pose=(playerId: number): Pose=>({playerId,landmarks:Array.from({length:33},(_,i)=>({
-  x:playerId===0?.25:.75,y:i<23?.3:i<27?.55:.9,z:0,visibility:1,presence:1,
+  x:playerId===0?.25:.75,y:i<23?.3:i<27?.55:.9,z:0,confidence:1,
 }))});
 const snapshot=(seq: number,poses: Pose[],sessionId='camera'): CalibrationSnapshot=>({sourceKind:'webcam',sessionId,seq,input:{width:1280,height:720},poses});
 test('live webcam calibration waits for full-body evidence and calibrates each player independently', () => {
   const history=new LiveCalibration(2), partial=pose(0);
   // Read through a function: accept() replaces the tracks.
   const tracks=()=>history.tracks;
-  partial.landmarks[27].visibility=.1;
+  partial.landmarks[27].confidence=.1;
   assert.equal(history.accept(snapshot(1,[partial])),false);
   assert.deepEqual(tracks(),[]);
   assert.deepEqual(history.counts,[0,0]);
