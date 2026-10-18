@@ -1,4 +1,4 @@
-import { FONT, drawPill, ellipsize, text } from '../ui/draw.ts';
+import { FONT, ICONS, drawDisc, drawPill, ellipsize, text } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
@@ -83,11 +83,26 @@ export class CameraSetup {
   }
 }
 
+// A camera arrow: the blue disc and chevron on their own, centred in the arrow's hit area.
+function drawArrow(g: CanvasRenderingContext2D, rect: Rect, icon: 'left' | 'right', hover: number) {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const r = 24 + hover * 2;
+  drawDisc(g, cx, cy, r);
+  g.save();
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  g.lineWidth = 6;
+  g.strokeStyle = '#ffffff';
+  ICONS[icon](g, cx, cy, r);
+  g.restore();
+}
+
 /** The camera arrows with the chosen camera's name between them. */
 export function drawCameraPicker(g: CanvasRenderingContext2D, layout: CameraLayout, connection: PoseInputView, hover: Record<string, number>) {
   const { prev, next } = layout;
-  drawPill(g, prev, { label: '', icon: 'left', hover: hover['camera-prev'] ?? 0 });
-  drawPill(g, next, { label: '', icon: 'right', hover: hover['camera-next'] ?? 0 });
+  drawArrow(g, prev, 'left', hover['camera-prev'] ?? 0);
+  drawArrow(g, next, 'right', hover['camera-next'] ?? 0);
   const camera = connection.cameras?.find(camera => camera.deviceId === connection.cameraId);
   const left = prev.x + prev.w;
   g.font = `700 24px ${FONT}`;
