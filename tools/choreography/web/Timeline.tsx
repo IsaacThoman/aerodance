@@ -1,12 +1,15 @@
+import { useMemo } from "react";
+import type { PoseSourceView } from "../../../packages/pose/browser/PoseSourceController.ts";
+import type { PoseEditor } from "./usePoseEditor.ts";
 import { clamp } from "../../../packages/pose/choreography.ts";
-import { historyStep, isTrackData, sourceLabel } from "../core.ts";
-import type { ProjectV2, Take } from "../core.ts";
+import { historyStep, isTrackData } from "../core.ts";
+import type { ProjectV3, Take } from "../core.ts";
 import { timeLabel } from "./format.ts";
 import type { Compiled } from "./useCompiled.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
-export interface TimelineProps { project: ProjectV2; studio: StudioProject; workspace: Workspace; compiled: Compiled; }
+export interface TimelineProps { project: ProjectV3; studio: StudioProject; workspace: Workspace; compiled: Compiled; editor: PoseEditor; connection: PoseSourceView; onConfigure: () => void; }
 const SPEEDS = [0.25, 0.5, 1];
 const KEY_STEPS: Readonly<Record<string, number>> = {
   ArrowLeft: -10,
@@ -24,17 +27,68 @@ const takeTimes = (take: Take) =>
   }));
 
 // The transport, waveform, player track lanes and the selected range.
-export default function Timeline({ project, studio, workspace, compiled }: TimelineProps) {
+export default function Timeline({ project, studio, workspace, compiled, editor, connection, onConfigure }: TimelineProps) {
   const { takes, peaks, busy, edit } = studio;
   const {
-    recording, readOnly, showingTake, selectedTake, takeDuration, cursor, takeCursor, playing, loop, setLoop, speed, setSpeed,
-    selection, setSelection, seek, play,
+    recording, readOnly, showingLive, showingTake, selectedTake, takeDuration, cursor, takeCursor, playing, loop, setLoop, speed, setSpeed,
+    selection, setSelection, seek, play, countdown, recordCount, startRecording, stopRecording,
   } = workspace;
   const displayCursor = showingTake ? takeCursor : cursor;
   const duration = (showingTake ? takeDuration : project.durationMs) || 1000,
     percent = clamp((displayCursor / duration) * 100, 0, 100),
     rangeValid = selection[1] > selection[0];
   const samples = () => showingTake && selectedTake ? takeTimes(selectedTake) : compiled.data?.samples || [];
+  const tracks = project.tracks, compiledSamples = compiled.data?.samples,
+    selectedPlayer = editor.playerId, selectPlayer = editor.selectPlayer;
+  const trackLanes = useMemo(() => (
+    tracks.map((t) => {
+      const asset = t.dataId ? takes.get(t.dataId) : undefined;
+      const data = isTrackData(asset) ? asset : undefined;
+      const start = data
+        ? data.samples[0].takeTimeMs + t.offsetMs
+        : 0;
+      const end = data
+        ? data.samples[data.samples.length - 1].takeTimeMs + t.offsetMs
+        : 0;
+      return (
+        <div
+          className={`track-lane track-${t.playerId} ${selectedPlayer === t.playerId ? "selected-track" : ""}`}
+          key={t.playerId}
+        >
+          <button className="lane-label" aria-label={`Select P${t.playerId + 1} timeline track`} aria-pressed={selectedPlayer === t.playerId} onClick={() => selectPlayer(t.playerId)}>P{t.playerId + 1}</button>
+          {data && (
+            <div
+              className="clip"
+              style={{
+                left: `${(Math.max(0, start) / duration) * 100}%`,
+                width: `${(Math.max(0, Math.min(duration, end) - Math.max(0, start)) / duration) * 100}%`,
+              }}
+            >
+              {data.sources
+                .map((s) => s.name || s.source)
+                .join(", ")}
+            </div>
+          )}
+          {compiledSamples
+            ?.filter(
+              (s, i) =>
+                i % 5 === 0 &&
+                !s.poses.some((p) => p.playerId === t.playerId),
+            )
+            .map((s) => (
+              <i
+                key={s.songTimeMs}
+                className="gap-mark"
+                title="Missing pose"
+                style={{
+                  left: `${(s.songTimeMs / duration) * 100}%`,
+                }}
+              />
+            ))}
+        </div>
+      );
+    })
+  ), [tracks, takes, compiledSamples, duration, selectedPlayer, selectPlayer]);
   return (
     <section className="timeline panel">
       <div className="transport">
@@ -83,6 +137,17 @@ export default function Timeline({ project, studio, workspace, compiled }: Timel
           </span>
         </div>
         <div className="transport-right">
+          {showingLive && <>
+            <button className={`record-button ${recording ? "recording" : ""}`}
+              disabled={busy || (!recording && (!project.audio || connection.status !== "connected" || !connection.snapshot))}
+              title={!project.audio ? "Import song audio first" : connection.status !== "connected" ? "Start the camera in Configuration" : undefined}
+              onClick={() => recording ? stopRecording() : startRecording()}>
+              {recording ? countdown ? "Cancel countdown" : "Stop recording" : "Record new take"}
+            </button>
+            {!recording && connection.status !== "connected" && <button onClick={onConfigure}>Camera setup</button>}
+            {recording && <span className="capture-status" role="status">{countdown ? `Recording in ${countdown}s` : `${recordCount} records captured`}</span>}
+          </>}
+
           <label className="check">
             <input
               type="checkbox"
@@ -131,6 +196,12 @@ export default function Timeline({ project, studio, workspace, compiled }: Timel
         ))}
       </div>
       <div className="timeline-content">
+        {!showingTake && project.durationMs > 0 && <div className="playable-overlay" aria-label="Playable range on timeline">
+          <div className="outside-playable" style={{ left: 0, width: `${project.playableStartMs / duration * 100}%` }} />
+          <div className="outside-playable" style={{ left: `${project.playableEndMs / duration * 100}%`, right: 0 }} />
+          <i className="playable-boundary" title={`Playable start ${timeLabel(project.playableStartMs)}`} style={{ left: `clamp(0px, ${project.playableStartMs / duration * 100}%, calc(100% - 2px))` }} />
+          <i className="playable-boundary" title={`Playable end ${timeLabel(project.playableEndMs)}`} style={{ left: `clamp(0px, ${project.playableEndMs / duration * 100}%, calc(100% - 2px))` }} />
+        </div>}
         <div
           className="timeline-playhead"
           style={{ left: `${percent}%` }}
@@ -231,53 +302,8 @@ export default function Timeline({ project, studio, workspace, compiled }: Timel
           ))}
         </svg>
         {!showingTake &&
-          project.tracks.map((t) => {
-            const asset = t.dataId ? takes.get(t.dataId) : undefined;
-            const data = isTrackData(asset) ? asset : undefined;
-            const start = data
-              ? data.samples[0].takeTimeMs + t.offsetMs
-              : 0;
-            const end = data
-              ? data.samples[data.samples.length - 1].takeTimeMs + t.offsetMs
-              : 0;
-            return (
-              <div
-                className={`track-lane track-${t.playerId}`}
-                key={t.playerId}
-              >
-                <span className="lane-label">P{t.playerId + 1}</span>
-                {data && (
-                  <div
-                    className="clip"
-                    style={{
-                      left: `${(Math.max(0, start) / duration) * 100}%`,
-                      width: `${(Math.max(0, Math.min(duration, end) - Math.max(0, start)) / duration) * 100}%`,
-                    }}
-                  >
-                    {data.sources
-                      .map((s) => s.name || sourceLabel(s.source))
-                      .join(", ")}
-                  </div>
-                )}
-                {compiled.data?.samples
-                  .filter(
-                    (s, i) =>
-                      i % 5 === 0 &&
-                      !s.poses.some((p) => p.playerId === t.playerId),
-                  )
-                  .map((s) => (
-                    <i
-                      key={s.songTimeMs}
-                      className="gap-mark"
-                      title="Missing pose"
-                      style={{
-                        left: `${(s.songTimeMs / duration) * 100}%`,
-                      }}
-                    />
-                  ))}
-              </div>
-            );
-          })}
+          trackLanes}
+
         <input
           className="scrubber"
           aria-label={showingTake ? "Take cursor" : "Song cursor"}
@@ -290,12 +316,15 @@ export default function Timeline({ project, studio, workspace, compiled }: Timel
           onChange={(e) => seek(Number(e.target.value))}
         />
       </div>
+      <div className="playable-readout" aria-live="polite">
+        <strong>{showingTake ? "Song playable" : "Playable"}</strong>
+        <span>{timeLabel(project.playableStartMs)} – {timeLabel(project.playableEndMs)}</span>
+      </div>
       <div className="range-controls">
         <span>Selection</span>
         <span aria-live="polite">
           {timeLabel(selection[0])} – {timeLabel(selection[1])}
         </span>
-        <small>Drag the handles to set the bounds</small>
         <button
           disabled={recording || showingTake}
           onClick={() =>

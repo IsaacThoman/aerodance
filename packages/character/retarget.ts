@@ -47,8 +47,8 @@ export function createPoseApplier(model: Object3D, calibration: TrackCalibration
     // limb scale would still pull the feet upward and shift the root.
     let distanceRatio=1;
     if(adaptiveDistance && [11,12,23,24].every(i=>{
-      const {visibility,presence}=p[i];
-      return visibility!==null && presence!==null && Math.min(visibility,presence)>=.5;
+      const c=p[i].confidence;
+      return c!==null && c>=.5;
     })) {
       const length=Math.hypot((h.x-s.x)*aspect,h.y-s.y);
       if(length>.001) distanceRatio=length/torsoLength;

@@ -1,5 +1,7 @@
-import { assertChoreography, finite, isArray, isObject, isPlayerCount, sampleSnapshot } from './choreography.ts';
-import type { Choreography, ChoreographyCoordinates, ChoreographyTrack, PlayerCount, PoseSnapshot } from './choreography.ts';
+import { assertChoreography, finite, isArray, isObject, isPlayerCount } from './choreography.ts';
+import type { Choreography, ChoreographyCoordinates, ChoreographyTrack, PlayerCount, PoseSnapshot, TrackCalibration } from './choreography.ts';
+import { decodePoseFile, framesFromSamples, quantizeConfidence, sampleFrames, sparseSamples } from './binary.ts';
+import type { PoseFrames, PoseMarker, SongHeader, TrackHeader } from './binary.ts';
 
 export interface MediaReference { path: string; mimeType: string; }
 export interface RightsStatement { license: string; attribution: string; }
@@ -15,7 +17,8 @@ export interface Song {
   stage?: string;
   coachMode: 'mirror-player'; rigProfile: 'frutiger-seven-bone-v1';
   audio: MediaReference;
-  choreography: { path: string; schemaVersion: 1 };
+  /** Schema 2 is a binary .adpose choreography; schema 1 JSON is still read for one release. */
+  choreography: { path: string; schemaVersion: 1 | 2 };
   cover?: MediaReference | null;
   rights: { audio: RightsStatement; choreography: RightsStatement };
   createdAt: string; publishedAt: string;
@@ -42,10 +45,13 @@ export interface SamplingPolicy { targetRateHz: number; maxInterpolationGapMs: n
 export interface SongCoordinates extends ChoreographyCoordinates {
   ordering: 'mediapipe-pose-33'; xAxis: 'right'; yAxis: 'down'; zAxis: 'away-from-camera'; depthUnit: 'relative-image-width';
 }
-/** A bundle's choreography.json, checked against its song.json. */
-export interface SongChoreography extends Choreography {
+/** A song choreography as objects: Studio's compiled timeline, and the schema 1 choreography.json. */
+export interface SongTimeline extends Choreography {
   songId: string; coordinates: SongCoordinates; sampling: SamplingPolicy; tracks: SongTrack[];
 }
+export interface SongTrackHeader extends TrackHeader { calibration: TrackCalibration; }
+/** A bundle's decoded choreography, checked against its song.json. */
+export interface SongChoreography extends PoseFrames { kind: 'choreography'; song: SongHeader; tracks: SongTrackHeader[]; }
 /** A loaded, validated song: what the scorer, the sampler and the replay source consume. */
 export interface SongBundle { song: Song; choreography: SongChoreography; }
 
@@ -93,7 +99,7 @@ export function assertSong(song: unknown): asserts song is Song {
   require(stageId(song.stage), 'Invalid song stage');
   require(song.coachMode === 'mirror-player' && song.rigProfile === 'frutiger-seven-bone-v1', 'Unsupported coach or rig profile');
   const { audio, choreography, cover } = song;
-  require(isObject(audio) && text(audio.mimeType) && isObject(choreography) && choreography.schemaVersion === 1, 'Invalid media references');
+  require(isObject(audio) && text(audio.mimeType) && isObject(choreography) && (choreography.schemaVersion === 1 || choreography.schemaVersion === 2), 'Invalid media references');
   validateBundlePath(audio.path); validateBundlePath(choreography.path);
   if (cover) {
     const fields: Record<string, unknown> = isObject(cover) ? cover : {};
@@ -108,9 +114,9 @@ export function validateSong(song: unknown): Song {
   assertSong(song);
   return song;
 }
-export function assertSongChoreography(song: unknown, choreography: unknown): asserts choreography is SongChoreography {
-  assertSong(song); assertChoreography(choreography);
-  checkSongFields(song, choreography);
+export function assertSongTimeline(song: unknown, timeline: unknown): asserts timeline is SongTimeline {
+  assertSong(song); assertChoreography(timeline);
+  checkSongFields(song, timeline);
 }
 // The song-level fields beyond the base choreography format, read from the untrusted object.
 function checkSongFields(song: Song, data: unknown) {
@@ -125,24 +131,58 @@ function checkSongFields(song: Song, data: unknown) {
     s.confidenceThreshold >= 0 && s.confidenceThreshold <= 1, 'Invalid sampling policy');
   for (const track of data.tracks) {
     const calibration = isObject(track) ? track.calibration : undefined;
-    require(isObject(track) && isObject(calibration) && (calibration.profileVersion===1 || calibration.profileVersion===2 && calibration.cameraScaleMode==='body-relative') && text(track.label) && isArray(track.unscorableIntervals), 'Invalid track metadata');
-    for (const interval of track.unscorableIntervals) require(isObject(interval) && finite(interval.startMs) && finite(interval.endMs) &&
-      interval.startMs >= song.playableStartMs && interval.startMs < interval.endMs && interval.endMs <= song.playableEndMs && text(interval.reason), 'Invalid score exclusion');
+    require(isObject(track) && isObject(calibration) && text(track.label) && isArray(track.unscorableIntervals), 'Invalid track metadata');
+    checkTrack(song, calibration, track.unscorableIntervals);
   }
 }
-export function validateSongChoreography(song: unknown, choreography: unknown): SongChoreography {
-  assertSongChoreography(song, choreography);
-  return choreography;
+function checkTrack(song: Song, calibration: Record<string, unknown>, exclusions: unknown[]) {
+  require(calibration.profileVersion === 1 || calibration.profileVersion === 2 && calibration.cameraScaleMode === 'body-relative', 'Invalid track metadata');
+  const positive = (v: unknown) => finite(v) && v > 0;
+  require(positive(calibration.torsoLength) && finite(calibration.floorY) && isObject(calibration.baseHip) &&
+    [calibration.baseHip.x, calibration.baseHip.y, calibration.baseHip.z].every(finite) &&
+    (calibration.cameraScaleMode !== 'body-relative' || positive(calibration.bodyTorsoLength)), 'Invalid track calibration');
+  for (const interval of exclusions) require(isObject(interval) && finite(interval.startMs) && finite(interval.endMs) &&
+    interval.startMs >= song.playableStartMs && interval.startMs < interval.endMs && interval.endMs <= song.playableEndMs && text(interval.reason), 'Invalid score exclusion');
+}
+/** The binary choreography a timeline publishes: interpolated frames are dropped and rebuilt by the sampler. */
+export function songChoreographyFromTimeline(timeline: SongTimeline, extras: { markers?: PoseMarker[]; provenance?: unknown } = {}): SongChoreography {
+  const { inputWidth: width, inputHeight: height } = timeline.tracks[0].calibration;
+  const maxInterpolationGapMs = timeline.sampling.maxInterpolationGapMs;
+  return framesFromSamples({
+    kind: 'choreography', playerSlots: 2, input: { width, height }, modelId: null,
+    song: { songId: timeline.songId, durationMs: timeline.durationMs, playableStartMs: timeline.playableStartMs, playableEndMs: timeline.playableEndMs,
+      maxInterpolationGapMs, confidenceThreshold: quantizeConfidence(timeline.sampling.confidenceThreshold) },
+    tracks: timeline.tracks.map((t, slot) => ({ slot, playerId: t.playerId, label: t.label, calibration: t.calibration, exclusions: t.unscorableIntervals })),
+    ...extras,
+  }, sparseSamples(timeline.samples, 'songTimeMs', maxInterpolationGapMs), 'songTimeMs') as SongChoreography;
+}
+/** Decodes a bundle's choreography file and checks it against song.json. */
+export function validateSongChoreography(song: unknown, bytes: Uint8Array): SongChoreography {
+  assertSong(song);
+  if (song.choreography.schemaVersion === 1) {
+    const timeline: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    assertSongTimeline(song, timeline);
+    return songChoreographyFromTimeline(timeline);
+  }
+  const data = decodePoseFile(bytes);
+  require(data.kind === 'choreography' && data.song && data.tracks, 'Expected a choreography file');
+  const header = data.song;
+  for (const key of ['songId','durationMs','playableStartMs','playableEndMs'] as const) require(song[key] === header[key], `Song/choreography ${key} mismatch`);
+  for (const track of data.tracks) {
+    require(track.calibration && text(track.label), 'Invalid track metadata');
+    checkTrack(song, { ...track.calibration }, track.exclusions);
+  }
+  return data as SongChoreography;
 }
 export function sampleSong(bundle: SongBundle, songTimeMs: number, playerCount: PlayerCount): PoseSnapshot {
   require(isPlayerCount(playerCount), 'Invalid player count');
   const { song, choreography } = bundle;
   if (!finite(songTimeMs) || songTimeMs < song.playableStartMs || songTimeMs >= song.playableEndMs) return { poses:[], quality:[] };
-  const snapshot = sampleSnapshot(choreography.samples, songTimeMs, 'songTimeMs', choreography.sampling.maxInterpolationGapMs);
+  const snapshot = sampleFrames(choreography, songTimeMs, choreography.song.maxInterpolationGapMs);
   snapshot.poses = snapshot.poses.filter(p => p.playerId < playerCount);
   snapshot.quality = snapshot.quality.filter(q => q.playerId < playerCount);
   for (const q of snapshot.quality) {
-    if (choreography.tracks[q.playerId].unscorableIntervals.some(i => songTimeMs >= i.startMs && songTimeMs < i.endMs)) q.scoreEligible.fill(false);
+    if (choreography.tracks[q.playerId].exclusions.some(i => songTimeMs >= i.startMs && songTimeMs < i.endMs)) q.scoreEligible.fill(false);
   }
   return snapshot;
 }

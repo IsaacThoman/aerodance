@@ -7,9 +7,9 @@ import type { DancerPlacement, Stage, StageId, StageMeta } from '../../../packag
 import { RenderPipeline, resetPost } from '../../../packages/stages/shared/post.tsx';
 import Dancers from '../../../packages/stages/shared/Dancers.tsx';
 import { beat, stageOrbit } from '../../../packages/stages/shared/hooks.ts';
-import { validateMotion } from '../../../packages/character/motion.ts';
-import motionUrl from '../../../packages/character/assets/dance.json?url';
-import type { MotionTake } from '../../../packages/pose/legacy.ts';
+import { loadMotion } from '../../../packages/character/motion.ts';
+import motionUrl from '../../../packages/character/assets/dance.adpose?url';
+import type { MotionTake } from '../../../packages/pose/motion.ts';
 import type { SongRoutine } from '../game/GameSession.ts';
 import type { ResultsShow } from '../game/results.ts';
 import LivePanels from './LivePanels.tsx';
@@ -136,8 +136,8 @@ let celebration: Promise<MotionTake> | null = null;
 const loadCelebration = () => {
   celebration ??= fetch(motionUrl).then((r) => {
     if (!r.ok) throw Error('Celebration clip unavailable');
-    return r.json();
-  }).then(validateMotion);
+    return r.arrayBuffer();
+  }).then(loadMotion);
   return celebration;
 };
 

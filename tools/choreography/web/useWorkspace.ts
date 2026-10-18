@@ -8,6 +8,7 @@ import type { AudioTransport } from "./audio.ts";
 import { useRecording } from "./useRecording.ts";
 import { editableProject } from "./useStudioProject.ts";
 import type { StudioProject } from "./useStudioProject.ts";
+import type { CaptureMode } from './captureMode.ts';
 
 /** What the preview shows: the edited song, a library take, or the live camera. */
 export type View = "playback" | "take" | "live";
@@ -21,6 +22,7 @@ export interface WorkspaceOptions {
   source: PoseSourceController;
   connection: PoseSourceView;
   studio: StudioProject;
+  captureMode?: CaptureMode;
 }
 export type Workspace = ReturnType<typeof useWorkspace>;
 
@@ -34,7 +36,7 @@ export const takeLength = (take: Take) =>
 
 // The song transport and what the preview shows: playback, the take view, the selected range,
 // recording, and opening projects (which resets all of it).
-export function useWorkspace({ transport, source, connection, studio }: WorkspaceOptions) {
+export function useWorkspace({ transport, source, connection, studio, captureMode = 'both' }: WorkspaceOptions) {
   const { project, projectRef, dirtyRef, dirty, busy, takes, execute, refresh, saveProject, load, setError, setNotice, setProjects } = studio;
   const [cursor, setCursor] = useState(0),
     [playing, setPlaying] = useState(false),
@@ -82,7 +84,7 @@ export function useWorkspace({ transport, source, connection, studio }: Workspac
       `Imported ${take.samples.length} samples. Review alignment and confidence before exporting.`,
     );
   }, [addTakeToProject, selectTake, setNotice]);
-  const recorder = useRecording({ transport, source, connection, studio, pause, setView, setPlaying, setCursor, setMode, attachTake });
+  const recorder = useRecording({ transport, source, connection, studio, captureMode, pause, setView, setPlaying, setCursor, setMode, attachTake });
   const { recording, recordingRef, stopRecording, setCountdown, tick: recordingTick } = recorder;
   const openProject = useCallback(async (value: unknown) => {
     // Validate saved projects before installing them into render state.

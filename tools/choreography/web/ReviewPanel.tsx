@@ -1,9 +1,9 @@
-import type { ProjectV2 } from "../core.ts";
+import type { ProjectV3 } from "../core.ts";
 import type { Compiled } from "./useCompiled.ts";
 import type { PoseEditor } from "./usePoseEditor.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
-export interface ReviewPanelProps { project: ProjectV2; busy: boolean; workspace: Workspace; editor: PoseEditor; compiled: Compiled; }
+export interface ReviewPanelProps { project: ProjectV3; busy: boolean; workspace: Workspace; editor: PoseEditor; compiled: Compiled; }
 
 // Reference approvals, score exclusions, coverage and the checks song export must pass.
 export default function ReviewPanel({ project, busy, workspace, editor, compiled }: ReviewPanelProps) {

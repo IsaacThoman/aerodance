@@ -23,7 +23,7 @@ export class LivePoseFilter {
         joint[axis]+=(p[axis]-joint[axis])*alpha;
         if(Math.abs(p[axis]-joint[axis])>.0002) this.settling=true;
       }
-      joint.visibility=p.visibility; joint.presence=p.presence;
+      joint.confidence=p.confidence;
     });
     return this.current;
   }

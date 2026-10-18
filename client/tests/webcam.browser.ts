@@ -4,12 +4,13 @@ import path from 'node:path';
 import express from 'express';
 import { chromium } from 'playwright';
 import { staticStudio, browserStore } from '../../tools/choreography/tests/static-helpers.ts';
+import { openSidebar } from '../../tools/choreography/tests/helpers.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import { BACK as MENU_BACK, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { BACK, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { appendOperation, trackDataIds, validateProject, validateTake, validateTrackData } from '../../tools/choreography/core.ts';
-import type { ProjectV2, StudioAssets, Take } from '../../tools/choreography/core.ts';
+import type { ProjectV3, StudioAssets, Take } from '../../tools/choreography/core.ts';
 import { readZip } from '../../tools/choreography/server/zip.ts';
 import { validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
 import type { Page } from 'playwright';
@@ -116,8 +117,10 @@ try {
   assert.ok(await game.evaluate(() => (window as TestWindow).cameraStops >= 4), 'switches and Stop release camera tracks');
 
   studio = await pageFor(4181);
-  await studio.getByRole('heading', { name: 'Make every move yours.' }).waitFor();
+  await studio.getByRole('heading', { name: 'Preview' }).waitFor();
   assert.equal(await studio.evaluate(() => (window as TestWindow).cameraRequests), 0);
+  await studio.getByRole('button', { name: 'Live view', exact: true }).click();
+  await openSidebar(studio, 'Configuration');
   // Keep Studio capture responsive in software rendering; all three models were exercised above.
   await studio.getByLabel('Webcam pose model').selectOption('lite');
   await studio.getByRole('button', { name: 'Start camera', exact: true }).click();
@@ -140,8 +143,11 @@ try {
   wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
   wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
   wav.write('data', 36); wav.writeUInt32LE(wav.length - 44, 40);
+  await openSidebar(studio, 'Import');
   await studio.getByLabel('Import song audio').setInputFiles({ name: 'webcam.wav', mimeType: 'audio/wav', buffer: wav });
   await studio.getByText(/Audio imported/).waitFor();
+  await studio.getByRole('button', { name: 'Live view', exact: true }).click();
+  await openSidebar(studio, 'Configuration');
   await studio.getByLabel('Recording delay (seconds)').fill('0');
   await studio.getByRole('button', { name: 'Record new take', exact: false }).click();
   await studio.getByRole('button', { name: 'Stop recording', exact: false }).waitFor();
@@ -158,28 +164,29 @@ try {
   }
   assert.ok(persisted, 'recorded webcam take was finalized and saved');
   const store = browserStore(studio), summaries = await store.list(), recorded = await store.project(summaries[0].projectId);
-  const take: Take = validateTake(await store.read(recorded.projectId, 'takes', `${recorded.takes.at(-1)?.takeId}.json`));
+  const take: Take = validateTake(await store.take(recorded.projectId, String(recorded.takes.at(-1)?.takeId)));
   assert.equal(take.source, 'webcam'); assert.equal(take.provenance?.modelId, 'lite');
   assert.equal(take.provenance?.alignmentMethod, 'browser-frame-audio-anchor');
   assert.ok(take.samples.length > 5); assert.ok(take.samples.some(s => s.poses.length === 2));
   const lastSample = take.samples[take.samples.length - 1];
   // A recorded take stays in the library until explicitly assigned to the dance tracks.
+  await openSidebar(studio, 'Project');
   await studio.getByLabel('Take actions:', { exact: false }).last().click();
   await studio.getByRole('menuitem', { name: 'Overwrite both tracks', exact: true }).last().click();
   await studio.getByRole('button', { name: 'Save', exact: true }).click();
   await studio.locator('.save-state').filter({ hasText: /^Saved$/ }).waitFor();
   const assigned = await store.project(recorded.projectId);
-  assert.ok(assigned.schemaVersion === 2 && assigned.tracks.every(track => track.dataId));
+  assert.ok(assigned.schemaVersion === 3 && assigned.tracks.every(track => track.dataId));
   const exported = await (async () => {
     // Saved projects are always the current format.
-    const project = (data: unknown): ProjectV2 => {
+    const project = (data: unknown): ProjectV3 => {
       const loaded = validateProject(data);
-      assert.equal(loaded.schemaVersion, 2);
+      assert.equal(loaded.schemaVersion, 3);
       return loaded;
     };
     let p = project(await store.project(recorded.projectId));
     const projectId = p.projectId;
-    const assets: StudioAssets = new Map(await Promise.all(trackDataIds(p).map(async (id) => [id, validateTrackData(await store.read(projectId, 'tracks', `${id}.json`))] as const)));
+    const assets: StudioAssets = new Map(await Promise.all(trackDataIds(p).map(async (id) => [id, validateTrackData(await store.track(projectId, id))] as const)));
     const existing = new Set(assets.keys());
     p.metadata.artist = 'Browser fixture'; p.metadata.title = 'Webcam fixture';
     p.metadata.rights.audio.license = 'test-fixture'; p.metadata.rights.choreography.license = 'test-fixture';
@@ -188,7 +195,7 @@ try {
     p.alignmentReviewed = true;
     p = project(await store.save(p, p.revision));
     // Software CI can miss >200 ms intervals. Apply the production track review
-    // operation, which records v2 track snapshots and history alongside exclusions.
+    // operation, which records track snapshots and history alongside exclusions.
     for (let i = 0; i < take.samples.length - 1; i++) {
       const sample = take.samples[i], next = take.samples[i + 1];
       const gap = next.takeTimeMs - sample.takeTimeMs;
@@ -211,20 +218,20 @@ try {
       await store.writeTrack(p.projectId, assets.get(id));
     }
     p = project(await store.save(p, p.revision));
-    return { songId: p.songId, bytes: Array.from(await store.download(p.projectId, 'export')) };
+    return { bytes: Array.from(await store.download(p.projectId, 'export')) };
   })();
-  const bundle = readZip(Buffer.from(exported.bytes));
+  const bundle = readZip(Buffer.from(exported.bytes)), songId = [...bundle.keys()][0].split('/')[0];
   const zipJson = (name: string): unknown => {
-    const file = bundle.get(`${exported.songId}/${name}`);
+    const file = bundle.get(`${songId}/${name}`);
     assert.ok(file, `exported ${name}`);
     return JSON.parse(file.toString('utf8'));
   };
   const song = validateSong(zipJson('song.json'));
-  const exportedMotion=validateSongChoreography(song, zipJson('choreography.json'));
+  const exportedMotion=validateSongChoreography(song, bundle.get(`${songId}/choreography.adpose`) ?? Buffer.alloc(0));
   assert.equal(exportedMotion.tracks[0].calibration.cameraScaleMode,'body-relative');
   assert.equal(exportedMotion.tracks[0].calibration.profileVersion,2);
   apps[0].use('/songs/webcam-capture', (req, res) => {
-    const file = bundle.get(`${exported.songId}${req.path}`);
+    const file = bundle.get(`${songId}${req.path}`);
     if (!file) return res.sendStatus(404);
     res.type(path.extname(req.path)).send(file);
   });
@@ -237,6 +244,8 @@ try {
   await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
   await click(TWO_PLAYERS); await until('songReady', 'true'); await click(rowRect(0));
   await until('previewState', 'playing'); await until('stageReady', 'true');
+  await studio.getByRole('button', { name: 'Live view', exact: true }).click();
+  await openSidebar(studio, 'Configuration');
   await studio.getByRole('button', { name: 'Disconnect', exact: true }).click();
   await studio.reload(); await studio.getByText(/webcam ·/).first().waitFor();
   assert.deepEqual(errors, []);

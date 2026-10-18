@@ -6,9 +6,9 @@ The glass dancer shared by the game, Dance Studio and the thumbnail renderer.
 - `retarget.ts`: `createPoseApplier`, one pose applier for recorded, edited and live poses.
 - `calibration.ts`, `liveCalibration.ts`: per-player body calibration for recorded and live (webcam) sessions.
 - `livePoseFilter.ts`: display-only smoothing of live poses.
-- `motion.ts`: playback of the silent menu capture (`assets/dance.json`), including the loop seam.
+- `motion.ts`: playback of the silent menu capture (`assets/dance.adpose`), including the loop seam.
 - `assets/aero-character.glb`: the model, with seven bones and four stock clips (Dance, Idle, Walk, Wave). `Character` plays a clip (`Idle` by default) only when it has no pose to apply.
-- `assets/dance.json`: the two-dancer capture behind the menu dancers, results screen and thumbnails.
+- `assets/dance.adpose`: the two-dancer capture behind the menu dancers, results screen and thumbnails.
 - `source/`: the editable Blender file and the deterministic generator that exports the GLB.
 
 `npm test` covers the model (`tests/model.test.ts`) and capture playback and retargeting (`tests/motion.test.ts`).
@@ -23,9 +23,9 @@ This is stylized camera-space 2.5D retargeting of MediaPipe's 33 landmarks, not 
 - MediaPipe's relative depth is damped and clamped for stable hand and foot depth. There is no inferred room trajectory, finger animation, elbow/knee rig, or solved foot contact; the model only has a body, a detached head, two hands and two feet.
 - Anatomical right maps to the asset's screen-left limb for a frontal recording.
 
-## The menu capture (`assets/dance.json`)
+## The menu capture (`assets/dance.adpose`)
 
-An `aerodance.take` (schema version 1) of the two foreground dancers in the first 14 seconds of a supplied 1620×1080 video (SHA-256 `30e427b8185d7b4c80693007bbeca43e911f6c54520b7aabaf7f542d40389857`), 420 samples. It was tracked offline with MediaPipe Pose Landmarker Full, with geometric identity tracking between frames, interpolation of low-confidence joints, and Gaussian smoothing. The file keeps that provenance. The final 0.35 seconds crossfade into the first pose for a continuous loop.
+A `take` pose file ([docs/pose-binary-format.md](../../docs/pose-binary-format.md)) of the two foreground dancers in the first 14 seconds of a supplied 1620×1080 video (SHA-256 `30e427b8185d7b4c80693007bbeca43e911f6c54520b7aabaf7f542d40389857`), 420 samples. It was tracked offline with MediaPipe Pose Landmarker Full, with geometric identity tracking between frames, interpolation of low-confidence joints, and Gaussian smoothing. The file keeps that provenance, plus the 14 s loop length as `durationMs`; joint confidence is unknown. The final 0.35 seconds crossfade into the first pose for a continuous loop.
 
 To capture a new routine, import the video in Dance Studio (`tools/choreography`). The original Python tracker is in this repository's history: `git show 69ff74c:temp/frutiger-character/README.md` describes it, and its code is under `temp/frutiger-character/scripts/` at that commit.
 

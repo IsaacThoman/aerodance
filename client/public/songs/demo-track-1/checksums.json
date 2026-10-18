@@ -4,13 +4,13 @@
   "files": [
     {
       "path": "song.json",
-      "bytes": 1176,
-      "sha256": "b4eaf84d0cab0aba9a01b3c82ad3d8477a517e23a2d5a8cb7ee03655313d4e88"
+      "bytes": 1179,
+      "sha256": "723dccf85d6b7e299d978ca192293a852812be8a83b8b99648d009e1526b9327"
     },
     {
-      "path": "choreography.json",
-      "bytes": 12455997,
-      "sha256": "2486bcd44207b3d49fd61428571e44ac6e8c1757e876a3dbce1c0a8d504072b7"
+      "path": "choreography.adpose",
+      "bytes": 154832,
+      "sha256": "5e73829787921c0a4122e76264ca072c5c6c515c91deacb04d055b5345fba28d"
     },
     {
       "path": "audio.mp3",

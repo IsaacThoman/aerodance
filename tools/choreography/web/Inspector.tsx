@@ -1,4 +1,4 @@
-import type { ProjectV2 } from "../core.ts";
+import type { ProjectV3 } from "../core.ts";
 import PoseInspector from "./PoseInspector.tsx";
 import ReviewPanel from "./ReviewPanel.tsx";
 import SongDetails from "./SongDetails.tsx";
@@ -7,7 +7,7 @@ import type { InspectorTab, PoseEditor } from "./usePoseEditor.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
-export interface InspectorProps { project: ProjectV2; studio: StudioProject; workspace: Workspace; editor: PoseEditor; compiled: Compiled; }
+export interface InspectorProps { project: ProjectV3; studio: StudioProject; workspace: Workspace; editor: PoseEditor; compiled: Compiled; }
 const TABS: readonly (readonly [InspectorTab, string])[] = [
   ["joint", "Pose inspector"],
   ["song", "Song details"],

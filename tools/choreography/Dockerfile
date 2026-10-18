@@ -11,7 +11,7 @@ RUN npm test && npm run studio:test
 FROM mcr.microsoft.com/playwright:v1.58.2-noble AS ui-test
 WORKDIR /app
 COPY --from=build /app ./
-CMD ["sh", "-c", "node tools/choreography/tests/browser-storage.browser.ts && node tools/choreography/tests/browser.ts && node tools/choreography/tests/video-import.browser.ts && node tools/choreography/tests/video-duet.browser.ts && node tools/choreography/tests/project-loading.browser.ts"]
+CMD ["sh", "-c", "node tools/choreography/tests/browser-storage.browser.ts && node tools/choreography/tests/browser.ts && node tools/choreography/tests/video-import.browser.ts && node tools/choreography/tests/solo-workflow.browser.ts && node tools/choreography/tests/video-duet.browser.ts && node tools/choreography/tests/project-loading.browser.ts"]
 
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf

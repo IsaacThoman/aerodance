@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
 import { chromium } from 'playwright';
-import { bundleFixture } from './fixtures/songBundle.ts';
+import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import { START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { DANCE, GAME_CALIBRATION_PREVIEW, GAME_READY_START, RESULTS_RETRY, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
@@ -15,7 +15,7 @@ type TestWindow = typeof window & { cameraVisible: boolean };
 const fixture = bundleFixture();
 const files = new Map([
   ['song.json', Buffer.from(JSON.stringify(fixture.song))],
-  ['choreography.json', Buffer.from(JSON.stringify(fixture.choreography))],
+  ['choreography.adpose', Buffer.from(choreographyBytes(fixture))],
   ['audio.wav', Buffer.from(fixture.audio)],
 ]);
 files.set('checksums.json', Buffer.from(JSON.stringify({ schema: 'aerodance.checksums', schemaVersion: 1,
@@ -27,7 +27,7 @@ app.get('/songs/manifest.json', (_req, res) => res.json({ version: 1, songs: [fi
 app.get('/songs/fixture/:file', (req, res) => {
   const body = files.get(req.params.file);
   if (!body) return res.sendStatus(404);
-  res.type(req.params.file.endsWith('.wav') ? 'audio/wav' : 'application/json').send(body);
+  res.type(req.params.file.endsWith('.wav') ? 'audio/wav' : req.params.file.endsWith('.adpose') ? 'application/octet-stream' : 'application/json').send(body);
 });
 app.use(express.static('dist'));
 const server = app.listen(4182, '127.0.0.1');

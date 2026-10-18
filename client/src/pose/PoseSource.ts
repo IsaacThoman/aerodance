@@ -1,7 +1,5 @@
 import type { CameraInfo, PoseRecordEvent, SourceStoppedEvent, WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
-import type { WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
-import type { ProtocolPoseRecord } from '../../../packages/pose/protocol.ts';
-import type { Pose } from '../../../packages/pose/choreography.ts';
+import type { CaptureInput, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
 import type { SongBundle } from '../../../packages/pose/song.ts';
 
 /*
@@ -10,8 +8,14 @@ import type { SongBundle } from '../../../packages/pose/song.ts';
  * game's screens only use this contract, so both sources are handled the same way.
  */
 
-/** A tracked pose record: the webcam's capture record, or a protocol record replayed. */
-export type LivePoseRecord = WebcamRecord | ProtocolPoseRecord;
+/** A tracked pose record as sources deliver it; the webcam's capture records carry more timing. */
+export interface LivePoseRecord {
+  type: 'pose'; sessionId: string; seq: number; playerCount: PlayerCount;
+  /** Always unmirrored. */
+  input: CaptureInput;
+  /** Ascending playerIds below playerCount; an absent player is omitted. */
+  poses: Pose[];
+}
 /** What record listeners hear: a tracked pose, or the source stopping. */
 export type PoseSourceEvent = PoseRecordEvent<LivePoseRecord> | SourceStoppedEvent;
 

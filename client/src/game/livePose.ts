@@ -15,7 +15,7 @@ const HOLD_MS = 600;           // an unreliable joint holds its last good place 
 const SMOOTH_MS = 70;          // display smoothing time constant
 const MIN_CONFIDENCE = 0.5;
 
-const confident = (j: Landmark) => j.visibility === null || j.presence === null || Math.min(j.visibility, j.presence) >= MIN_CONFIDENCE;
+const confident = (j: Landmark) => j.confidence === null || j.confidence >= MIN_CONFIDENCE;
 const median = (v: readonly number[]) => [...v].sort((a, b) => a - b)[v.length >> 1];
 const mid = (p: readonly Landmark[], a: number, b: number) => ({ x: (p[a].x + p[b].x) / 2, y: (p[a].y + p[b].y) / 2, z: (p[a].z + p[b].z) / 2 });
 
@@ -101,8 +101,7 @@ export function createLivePlayer({ playerId = 0, autoCalibrate = true }: LivePla
         s.x += (t.x - s.x) * k;
         s.y += (t.y - s.y) * k;
         s.z += (t.z - s.z) * k;
-        s.visibility = t.visibility;
-        s.presence = t.presence;
+        s.confidence = t.confidence;
       }
       return { playerId, landmarks: shown };
     },

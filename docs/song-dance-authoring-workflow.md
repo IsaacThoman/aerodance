@@ -13,8 +13,11 @@ persistence, audio/waveform playback, Android/webcam recording, JSON/NDJSON impo
 local video pose inference with Lite/Full/Heavy and a selected calibration frame,
 Frutiger/skeleton previews, coordinate edits and undo/redo, track swaps, mirroring,
 smoothing, bounded gap repair, phrase replacement, review, backups, and runtime
-bundle export. Video imports create library takes without assigning tracks or
-replacing song audio; the source footage is session-only. The sections below
+bundle export. Video imports create library takes without assigning tracks;
+song audio is retained unless **Use video audio as song audio** is selected.
+Solo webcam/video capture can target either player, and a complete edited track
+can be mirrored onto the other player to create a two-player bundle from one
+dancer. The source footage is session-only. The sections below
 remain the broader design reference. Calibrated Android clock mapping, mixed-camera normalization,
 transition controls, and final scoring policy remain follow-up work. See the
 run guide's current limits before treating every proposed field/API as implemented.
@@ -263,7 +266,7 @@ integers. Assets are content-addressed with lowercase SHA-256 hashes.
 ```
 
 The implemented Dance Studio uses `project.json` with
-`schema: "aerodance.project"`, `schemaVersion: 2`, `projectId`, `songId`, `revision`,
+`schema: "aerodance.project"`, `schemaVersion: 2`, `projectId`, `revision`,
 creation/update times, song metadata, audio/take references, two ordered `tracks`,
 `operations`, `operationCursor`, markers, and `alignmentReviewed`.
 
@@ -369,7 +372,11 @@ separately and review alignment after overwriting.
 
 Choose a **directory of JSON and media files**, packaged as a ZIP for transport.
 Name the ZIP `<songId>-r<bundleRevision>.aerodance-song.zip`; it contains exactly
-one top-level `<songId>/` directory. The game loads the unpacked files over HTTP,
+one top-level `<songId>/` directory. The Studio derives `songId` at export as
+`song-` plus the first 16 hex digits of a SHA-256 over the audio's SHA-256 and the
+choreography file encoded with an empty song ID and no provenance. Each distinct
+dance (audio plus motion, timing, playable range and exclusions) therefore gets its
+own ID, and so its own best scores; metadata edits and re-exports keep it. The game loads the unpacked files over HTTP,
 not by extracting a ZIP during gameplay.
 
 ```text
@@ -393,7 +400,7 @@ Example `song.json` (illustrative metadata, not a playable committed song):
 {
   "schema": "aerodance.song",
   "schemaVersion": 1,
-  "songId": "glass-sky",
+  "songId": "song-3f9a1c0e7b2d4a68",
   "bundleRevision": 1,
   "title": "Glass Sky",
   "artist": "Example Artist",
@@ -540,6 +547,16 @@ reason in the project. Approving a reference does not relax live-input confidenc
 Final `scoreEligible` also applies authored exclusions and the versioned compile
 policy. A scorer must require adequate eligible torso/limb coverage; that scoring
 policy remains the separate research task in the integration plan.
+
+Studio's version-one pose cleanup makes a deliberate exception for lightly
+smoothed reliable measurements: they retain their original confidence and prior
+scoring eligibility, while their origin becomes `edited`. It never promotes an
+ineligible joint. Outlier and gap reconstructions use `gap-repaired`, null
+confidence, and no scoring eligibility until explicitly approved. Unresolved
+unreliable joints are also ineligible. Existing authored exclusions still apply.
+New video imports default to Heavy at 30 fps with cleanup enabled; older captures
+without cleanup settings remain unprocessed. Raw captures remain available in
+backups, and existing tracks can use the undoable **Clean up selected range** action.
 
 Bake a deterministic 30 Hz grid **plus exact edit, presence, gap, and exclusion
 boundaries**. Include samples at playable start/end; the final endpoint is a
