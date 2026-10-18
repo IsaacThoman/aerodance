@@ -9,8 +9,9 @@ import type { PoseInputView } from '../pose/PoseSource.ts';
 
 /**
  * The webcam controls Connect Client and the calibration screen share: the camera arrows,
- * the Lite / Full / Heavy tracking buttons and Start camera / Disconnect. Each screen lays
- * them out (CameraLayout), adds cameraWidgets() to its widgets and hands presses to
+ * the Lite / Full / Heavy tracking buttons and Start camera / Disconnect (Connect Client
+ * only; calibration starts the camera from its preview). Each screen lays them out
+ * (CameraLayout), adds cameraWidgets() to its widgets and hands presses to
  * CameraSetup.activate().
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
@@ -23,20 +24,20 @@ export interface CameraLayout {
   prev: Rect;
   next: Rect;
   /** One per tracking model, in MODELS order. */
-  models: readonly Rect[];
+  models?: readonly Rect[];
   /** Start camera / Disconnect. */
-  primary: Rect;
+  primary?: Rect;
 }
 export type CameraWidget = Widget & { cameraDelta?: number; modelId?: PoseModelId };
 
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
-export const cameraWidgets = (layout: CameraLayout): CameraWidget[] => [
-  { id: 'camera-prev', rect: layout.prev, cameraDelta: -1 },
-  { id: 'camera-next', rect: layout.next, cameraDelta: 1 },
-  ...MODELS.map((model, i) => ({ id: `model-${model.id}`, rect: layout.models[i], modelId: model.id })),
-  { id: 'primary', rect: layout.primary },
+export const cameraWidgets = ({ prev, next, models, primary }: CameraLayout): CameraWidget[] => [
+  { id: 'camera-prev', rect: prev, cameraDelta: -1 },
+  { id: 'camera-next', rect: next, cameraDelta: 1 },
+  ...(models ? MODELS.map((model, i) => ({ id: `model-${model.id}`, rect: models[i], modelId: model.id })) : []),
+  ...(primary ? [{ id: 'primary', rect: primary }] : []),
 ];
 
 /** The camera actions, and the error from the last one that failed. */
@@ -51,12 +52,17 @@ export class CameraSetup {
   message() { return this.error || this.target().connection.message || ''; }
   failed() { return !!this.error || this.target().connection.status === 'error'; }
 
+  /** Start camera, unless it is on or on its way. */
+  start() {
+    if (this.active()) return;
+    this.error = '';
+    this.target().source.connect()?.catch((err: unknown) => { this.error = message(err); });
+  }
+
   /** Start camera, or stop it (also cancels a connection on its way). */
   toggle() {
-    const { source } = this.target();
-    if (this.active()) { source.disconnect(); return; }
-    this.error = '';
-    source.connect()?.catch((err: unknown) => { this.error = message(err); });
+    if (this.active()) this.target().source.disconnect();
+    else this.start();
   }
 
   /** Handles a camera widget's press; false for any other widget. */
@@ -89,14 +95,16 @@ export function drawCameraPicker(g: CanvasRenderingContext2D, layout: CameraLayo
 }
 
 /** A button per tracking model; the chosen one is marked. */
-export function drawModelPicker(g: CanvasRenderingContext2D, layout: CameraLayout, connection: PoseInputView, hover: Record<string, number>) {
-  MODELS.forEach((model, i) => drawPill(g, layout.models[i], {
+export function drawModelPicker(g: CanvasRenderingContext2D, { models }: CameraLayout, connection: PoseInputView, hover: Record<string, number>) {
+  if (!models) return;
+  MODELS.forEach((model, i) => drawPill(g, models[i], {
     label: `${connection.model === model.id ? '● ' : ''}${model.label}`, icon: 'gear', hover: hover[`model-${model.id}`] ?? 0,
   }));
 }
 
 /** Start camera, or Disconnect / Cancel connection while it is on. */
 export function drawCameraButton(g: CanvasRenderingContext2D, layout: CameraLayout, setup: CameraSetup, hover: number, press: number) {
+  if (!layout.primary) return;
   const { status } = setup.target().connection;
   const active = setup.active();
   const label = active ? (status === 'connected' ? 'Disconnect' : 'Cancel connection') : 'Start camera';

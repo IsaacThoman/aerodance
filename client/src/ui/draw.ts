@@ -235,6 +235,22 @@ export const ICONS = {
     g.stroke();
     g.restore();
   },
+  // A camera body with its lens (start the camera).
+  camera(g, cx, cy, r) {
+    const w = r * 0.5;
+    const h = r * 0.34;
+    const top = cy - h + r * 0.06;
+    g.beginPath();
+    g.roundRect(cx - w, top, w * 2, h * 2, r * 0.1);
+    g.moveTo(cx - w * 0.42, top);
+    g.lineTo(cx - w * 0.28, top - r * 0.12);
+    g.lineTo(cx + w * 0.28, top - r * 0.12);
+    g.lineTo(cx + w * 0.42, top);
+    g.stroke();
+    g.beginPath();
+    g.arc(cx, top + h, h * 0.55, 0, TAU);
+    g.stroke();
+  },
   close(g, cx, cy, r) {
     const a = r * 0.36;
     g.beginPath();

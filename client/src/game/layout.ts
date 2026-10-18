@@ -26,16 +26,14 @@ export const livePanelCenterX = (id: number) => (id === 0 ? LIVE_PANEL.inset : 1
 export const GAME_PAUSE = { x: 800, y: 66, r: 30 };
 export const GAME_READY_START = { x: 610, y: 690, w: 380, h: 96 };
 export const GAME_READY_BACK = { x: 166, y: 150, r: 30 };
-// Webcam calibration: one glass card with the camera controls down the left (camera,
-// tracking model, Start camera) and the setup preview, each player's status and the shared
-// hold on the right.
+// Webcam calibration: one glass card with the camera picker and its status down the left,
+// and the setup preview (pressed to start the camera), each player's status and the shared
+// hold on the right. Tracking quality is set in Settings (Connect Client).
 export const GAME_CALIBRATION_CARD = { x: 128, y: 204, w: 1344, h: 652 };
 export const GAME_CALIBRATION_COLUMN = { x: 164, w: 428 };
 export const GAME_CALIBRATION_CAMERA = {
   prev: { x: GAME_CALIBRATION_COLUMN.x, y: 274, w: 80, h: 58 },
   next: { x: GAME_CALIBRATION_COLUMN.x + GAME_CALIBRATION_COLUMN.w - 80, y: 274, w: 80, h: 58 },
-  models: [0, 1, 2].map((i): Rect => ({ x: GAME_CALIBRATION_COLUMN.x, y: 398 + i * 68, w: GAME_CALIBRATION_COLUMN.w, h: 56 })),
-  primary: { x: GAME_CALIBRATION_COLUMN.x, y: 756, w: GAME_CALIBRATION_COLUMN.w, h: 70 },
 };
 export const GAME_CALIBRATION_PREVIEW = { x: 632, y: 296, w: 804, h: 396 };
 export const GAME_CALIBRATION_PROGRESS = { x: 632, y: 782, w: 804, h: 14 };

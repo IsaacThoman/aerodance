@@ -7,9 +7,7 @@ import {
 import type { Face } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
-import {
-  CameraSetup, cameraWidgets, drawCameraButton, drawCameraPicker, drawModelPicker, modelDescription,
-} from '../connect/cameraSetup.ts';
+import { CameraSetup, cameraWidgets, drawCameraPicker } from '../connect/cameraSetup.ts';
 import type { CameraWidget } from '../connect/cameraSetup.ts';
 import { COUNTDOWN_MS, READY_HOLD_MS } from './GameSession.ts';
 import type { GamePhase, GameSession, Readiness } from './GameSession.ts';
@@ -28,9 +26,9 @@ import {
  * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers
  * and the players' live characters):
  *
- *   calibrating webcam setup: the camera, tracking model and Start camera (shared with
- *              Connect Client) beside the preview; every player holds still together
- *              for 2.5 seconds
+ *   calibrating webcam setup: the camera picker (shared with Connect Client) beside the
+ *              preview, which starts the camera when pressed; every player holds still
+ *              together for 2.5 seconds
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
@@ -103,11 +101,12 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerRe
   }
 }
 
-// The webcam setup card: camera controls on the left, the mirrored preview with each
-// player's status and the shared hold on the right.
+// The webcam setup card: the camera picker on the left, the mirrored preview with each
+// player's status and the shared hold on the right. With the camera off, the preview is a
+// big Start camera button.
 function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
   const h = s.hover;
-  const { connection } = camera.target();
+  const { connection, source } = camera.target();
   const col = GAME_CALIBRATION_COLUMN;
   const cam = GAME_CALIBRATION_CAMERA;
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
@@ -115,20 +114,20 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
 
   drawCaps(g, 'CAMERA', col.x + 4, cam.prev.y - 26, { size: 20 });
   drawCameraPicker(g, cam, connection, h);
-  drawCaps(g, 'TRACKING', col.x + 4, cam.models[0].y - 26, { size: 20 });
-  drawModelPicker(g, cam, connection, h);
-  const below = cam.models[2].y + cam.models[2].h + 28;
-  paragraph(g, modelDescription(connection), col.x + 4, below, col.w - 8, { size: 19, lineH: 24, color: '#bff4ff' });
-  drawStatusDot(g, col.x + 14, below + 62, connection.status, 10);
-  paragraph(g, camera.message(), col.x + 36, below + 62, col.w - 40, { size: 19, lineH: 24, color: camera.failed() ? '#ffb38a' : '#ffffff' });
-  drawCameraButton(g, cam, camera, h.primary ?? 0, s.press * (h.primary ?? 0));
+  // The preview says when the camera is off; anything else (starting, tracking, errors) shows here.
+  if (connection.status !== 'disconnected' || camera.failed()) {
+    const y = cam.prev.y + cam.prev.h + 40;
+    drawStatusDot(g, col.x + 14, y, connection.status, 10);
+    paragraph(g, camera.message(), col.x + 36, y, col.w - 40, { size: 19, lineH: 24, color: camera.failed() ? '#ffb38a' : '#ffffff' });
+  }
 
   const preview = GAME_CALIBRATION_PREVIEW;
   const mid = preview.x + preview.w / 2;
   text(g, 'Stand still for 2.5 seconds', mid, preview.y - 56, { size: 32, weight: 800, align: 'center' });
   text(g, session.playerCount === 2 ? 'Both players: stand upright with your feet visible.' : 'Stand upright with your feet visible.',
     mid, preview.y - 22, { size: 20, color: '#e6f8ff', align: 'center' });
-  drawWebcamPreview(g, camera.target().source.video, connection.snapshot, preview, session.playerCount);
+  drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '');
+  if (!source.video) drawStartCamera(g, camera, s);
   // The setup preview is mirrored: player 1 is on its left-hand side.
   const xs = session.playerCount === 2 ? [preview.x + preview.w / 4, preview.x + preview.w * 3 / 4] : [mid];
   const live = connection.status === 'connected';
@@ -144,6 +143,32 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
     : 'The countdown starts automatically once everyone is calibrated.';
   text(g, message, mid, GAME_CALIBRATION_PROGRESS.y + 42, { size: 21, align: 'center', color: '#e6f8ff' });
+}
+
+// Over the empty preview: a camera button while the camera is off (the whole preview presses
+// it), or a note while it starts.
+function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: CanvasUI) {
+  const preview = GAME_CALIBRATION_PREVIEW;
+  const cx = preview.x + preview.w / 2;
+  const cy = preview.y + preview.h / 2;
+  if (camera.active()) {
+    text(g, 'Starting camera…', cx, cy, { size: 24, weight: 700, align: 'center', color: '#e6f8ff' });
+    return;
+  }
+  const hover = s.hover['start-camera'] ?? 0;
+  const press = s.press * hover;
+  g.save();
+  g.fillStyle = `rgba(120, 220, 255, ${hover * 0.08})`;
+  g.fillRect(preview.x, preview.y, preview.w, preview.h);
+  const icon = { x: cx, y: cy - 22, r: 54 + hover * 4 - press * 4 };
+  drawGlassCircle(g, icon, hover);
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 5;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  ICONS.camera(g, icon.x, icon.y, icon.r * 1.4);
+  g.restore();
+  text(g, camera.failed() ? 'Try again' : 'Start camera', cx, cy + 66, { size: 26, weight: 800, align: 'center' });
 }
 
 export default function GameScreen({ visible = false, blocked = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
@@ -165,7 +190,11 @@ export default function GameScreen({ visible = false, blocked = false, session, 
     keyNav: () => ['loading', 'calibrating', 'ready', 'error', 'paused', 'results'].includes(phase()),
     widgets: (): CameraWidget[] => {
       const ph = phase();
-      if (calibrating()) return [{ id: 'quit', circle: GAME_READY_BACK }, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
+      if (calibrating()) {
+        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
+        if (!camera.active()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW });
+        return list;
+      }
       if (['ready', 'calibrating', 'loading', 'error'].includes(ph)) {
         const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
         if (ph === 'ready') list.push({ id: 'start', rect: GAME_READY_START });
@@ -183,6 +212,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       else if (wdg.id === 'resume') session?.resume();
       else if (wdg.id === 'restart' || wdg.id === 'retry') p.onRetry?.();
       else if (wdg.id === 'quit') p.onQuit?.();
+      else if (wdg.id === 'start-camera') camera.start();
       else if (calibrating()) camera.activate(wdg);
       s.invalidate();
     },

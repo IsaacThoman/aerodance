@@ -3,9 +3,10 @@ import type { Pose } from '../choreography.ts';
 
 export interface PreviewRect { x: number; y: number; w: number; h: number; }
 
-// Shared setup view: mirrored display only; captured landmarks stay canonical.
+// Shared setup view: mirrored display only; captured landmarks stay canonical. Without video it
+// shows `placeholder` (the caller may draw its own instead).
 export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoElement | null | undefined,
-  snapshot: { poses: readonly Pose[] } | null | undefined, rect: PreviewRect, playerCount = 2) {
+  snapshot: { poses: readonly Pose[] } | null | undefined, rect: PreviewRect, playerCount = 2, placeholder = 'Start camera to preview') {
   const { x, y, w, h } = rect;
   g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
   g.fillStyle = '#09273b'; g.fillRect(x, y, w, h);
@@ -28,6 +29,6 @@ export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoE
     g.strokeStyle = '#fff8'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + w / 2, y); g.lineTo(x + w / 2, y + h); g.stroke();
     g.fillText('P1', x + w / 4, y + 22); g.fillText('P2', x + w * 3 / 4, y + 22);
   } else g.fillText('P1', x + w / 2, y + 22);
-  if (!video) g.fillText('Start camera to preview', x + w / 2, y + h / 2);
+  if (!video && placeholder) g.fillText(placeholder, x + w / 2, y + h / 2);
   g.restore();
 }
