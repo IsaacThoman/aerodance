@@ -83,7 +83,7 @@ export async function loadSongBundle(entry: CatalogSong, catalogUrl: string | UR
     verified(song.choreography.path), verified(song.audio.path),
     song.cover ? verified(song.cover.path) : undefined,
   ]);
-  const choreography = validateSongChoreography(song, decode(choreographyBytes));
+  const choreography = validateSongChoreography(song, choreographyBytes);
   return { song, choreography, audio: new Blob([audioBytes], { type:song.audio.mimeType }),
     cover: song.cover && coverBytes ? new Blob([coverBytes], { type:song.cover.mimeType }) : null };
 }

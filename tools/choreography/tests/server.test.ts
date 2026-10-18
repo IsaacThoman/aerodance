@@ -18,9 +18,9 @@ import {
 import type { Project, StudioAssets, Take } from "../core.ts";
 import { takeIdOf } from "../web/api.ts";
 import { poseModel, MEDIAPIPE_VERSION } from '../../../packages/pose/browser/models.ts';
-import { isObject, validateChoreography } from "../../../packages/pose/choreography.ts";
+import { isObject } from "../../../packages/pose/choreography.ts";
 import type { Pose } from "../../../packages/pose/choreography.ts";
-import { baseUrl, found, projectOf, read, takeOf, zipJson } from "./helpers.ts";
+import { baseUrl, found, projectOf, read, takeOf, zipJson, zipPose } from "./helpers.ts";
 const errorOf = async (response: Response) => read(await response.json(), "error");
 function trackData(assets: StudioAssets, dataId: string) {
   const data = assets.get(dataId);
@@ -100,9 +100,9 @@ test('webcam batches reject protocol-v2 records and preserve a finalized take th
   const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
   assert.equal(exported.status, 200, await exported.clone().text());
   const files = readZip(Buffer.from(await exported.arrayBuffer()));
-  const choreography = zipJson(files, `${p.songId}/choreography.json`);
-  assert.equal(read(choreography, 'provenance', 'sources', 0, 'provenance', 'modelId'), 'lite');
-  const { calibration } = validateChoreography(choreography).tracks[0];
+  const choreography = zipPose(files, `${p.songId}/choreography.adpose`);
+  assert.equal(read(choreography.provenance, 'sources', 0, 'provenance', 'modelId'), 'lite');
+  const calibration = found(found(choreography.tracks)[0].calibration);
   assert.equal(calibration.cameraScaleMode,'body-relative');
   assert.ok(found(calibration.bodyTorsoLength)>0);
   const backup = await fetch(`${base}/api/projects/${p.projectId}/backup`);
@@ -301,9 +301,9 @@ test("projects with stored Android takes open, compile, export, back up and rest
   const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
   assert.equal(exported.status, 200, await exported.clone().text());
   const files = readZip(Buffer.from(await exported.arrayBuffer()));
-  const choreography = zipJson(files, `${p.songId}/choreography.json`);
-  assert.equal(read(choreography, "provenance", "sources", 0, "source"), "android");
-  assert.ok(validateChoreography(choreography).samples.some((s) => s.poses.length === 2));
+  const choreography = zipPose(files, `${p.songId}/choreography.adpose`);
+  assert.equal(read(choreography.provenance, "sources", 0, "source"), "android");
+  assert.ok(choreography.present.some((mask) => mask === 3));
   const backup = Buffer.from(await (await fetch(`${base}/api/projects/${p.projectId}/backup`)).arrayBuffer());
   assert.deepEqual(readZip(backup).get(`raw/${stored.takeId}.ndjson`), raw);
   const restored = await fetch(`${base}/api/restore`, { method: "POST", headers: { "Content-Type": "application/zip" }, body: backup });

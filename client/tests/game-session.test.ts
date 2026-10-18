@@ -17,7 +17,7 @@ const dir = new URL('./fixtures/song-70c63c8e/', import.meta.url);
 const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
 const song = validateSong(read('song.json'));
 // The session never decodes audio here: createPlayer is faked.
-const bundle: LoadedSongBundle = { song, choreography: validateSongChoreography(song, read('choreography.json')), audio: new Blob([]), cover: null };
+const bundle: LoadedSongBundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null };
 
 interface Clock { now: number; }
 type FakePlayer = SessionPlayer & { tick(): void; disposed?: boolean };

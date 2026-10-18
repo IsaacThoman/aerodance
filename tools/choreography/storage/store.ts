@@ -12,7 +12,9 @@ import {
 } from "../core.ts";
 import type { CompiledChoreography, Project, ProjectSummary, ProjectV2, ReviewReport, StudioAssets, Take, TrackData } from "../core.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
+import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
 import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";
+import { encodePoseFile } from "../../../packages/pose/binary.ts";
 
 /** An error the API answers with this HTTP status. */
 export type HttpError = Error & { status: number };
@@ -278,7 +280,7 @@ export class Store {
       playableEndMs: p.playableEndMs,
       supportedPlayerCounts: [1, 2],
       audio: { path: filename, mimeType: p.audio.mimeType },
-      choreography: { path: "choreography.json", schemaVersion: 1 },
+      choreography: { path: "choreography.adpose", schemaVersion: 2 },
       coachMode: "mirror-player",
       rigProfile: "frutiger-seven-bone-v1",
       createdAt: p.createdAt,
@@ -287,7 +289,10 @@ export class Store {
     };
     const files = new Map([
       ["song.json", json(song)],
-      ["choreography.json", new TextEncoder().encode(JSON.stringify(data) + "\n")],
+      ["choreography.adpose", encodePoseFile(songChoreographyFromTimeline(data, {
+        markers: data.markers.map(({ songTimeMs, kind, label }) => ({ timeMs: songTimeMs, kind, label })),
+        provenance: data.provenance,
+      }))],
       [filename, audio],
     ]);
     const checksums: ChecksumManifest = {

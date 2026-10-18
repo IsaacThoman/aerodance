@@ -2,7 +2,7 @@
   "schema": "aerodance.song",
   "schemaVersion": 1,
   "songId": "demo-track-1",
-  "bundleRevision": 1,
+  "bundleRevision": 2,
   "title": "Demo Track 1",
   "artist": "aerodance",
   "songwriters": [],
@@ -38,8 +38,8 @@
     "mimeType": "audio/mpeg"
   },
   "choreography": {
-    "path": "choreography.json",
-    "schemaVersion": 1
+    "path": "choreography.adpose",
+    "schemaVersion": 2
   },
   "coachMode": "mirror-player",
   "rigProfile": "frutiger-seven-bone-v1",

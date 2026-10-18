@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { TestContext } from 'node:test';
 import { discoverSongs, songCatalogMiddleware } from '../../scripts/songCatalog.ts';
-import { bundleFixture } from './fixtures/songBundle.ts';
+import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 
 async function directory(t: TestContext) {
   const root = await mkdtemp(path.join(tmpdir(), 'aerodance-songs-'));
@@ -19,7 +19,7 @@ async function install(root: string, revision = 1) {
   song.bundleRevision = revision;
   const folder = path.join(root, song.songId);
   await mkdir(folder, { recursive: true });
-  const files = { 'song.json': Buffer.from(JSON.stringify(song)), 'choreography.json': Buffer.from(JSON.stringify(choreography)), 'audio.wav': audio };
+  const files = { 'song.json': Buffer.from(JSON.stringify(song)), 'choreography.adpose': Buffer.from(choreographyBytes({ choreography })), 'audio.wav': audio };
   for (const [name, bytes] of Object.entries(files)) await writeFile(path.join(folder, name), bytes);
   await writeFile(path.join(folder, 'checksums.json'), JSON.stringify({
     schema: 'aerodance.checksums', schemaVersion: 1,

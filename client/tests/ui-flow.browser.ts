@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import express from 'express';
 import { chromium } from 'playwright';
-import { bundleFixture, silentWav } from './fixtures/songBundle.ts';
+import { bundleFixture, choreographyBytes, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
 import { BACK as MENU_BACK, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
@@ -183,17 +183,17 @@ try {
   }
 
   // Private fixtures cover the exact playable range and song stages, apart from authored music.
-  const serveFixture = async (stage?: string | null, fixture: BundleFixture = bundleFixture()) => {
+  const serveFixture = async (stage?: string | null, fixture: BundleFixture = bundleFixture(), choreography = choreographyBytes(fixture)) => {
     if (stage) fixture.song.stage = stage;
     const songJson = Buffer.from(JSON.stringify(fixture.song));
-    const files = new Map([['song.json', songJson], ['choreography.json', Buffer.from(JSON.stringify(fixture.choreography))], ['audio.wav', Buffer.from(fixture.audio)]]);
+    const files = new Map([['song.json', songJson], ['choreography.adpose', Buffer.from(choreography)], ['audio.wav', Buffer.from(fixture.audio)]]);
     files.set('checksums.json', Buffer.from(JSON.stringify({ schema: 'aerodance.checksums', schemaVersion: 1, files: [...files].map(([path, body]) => ({ path, bytes: body.length, sha256: createHash('sha256').update(body).digest('hex') })) })));
     const entry = { ...fixture.entry, sha256: createHash('sha256').update(songJson).digest('hex'), ...(stage ? { stage } : {}) };
     await page.unroute('**/songs/**');
     await page.route('**/songs/**', async (route) => {
       const name = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
       const body = name === 'manifest.json' ? Buffer.from(JSON.stringify({ version: 1, songs: [entry] })) : files.get(name);
-      await route.fulfill({ status: body ? 200 : 404, contentType: name === 'audio.wav' ? 'audio/wav' : 'application/json', body: body ?? 'missing' });
+      await route.fulfill({ status: body ? 200 : 404, contentType: name === 'audio.wav' ? 'audio/wav' : name.endsWith('.adpose') ? 'application/octet-stream' : 'application/json', body: body ?? 'missing' });
     });
   };
   await serveFixture();
@@ -257,12 +257,14 @@ try {
   const routine = new URL('./fixtures/song-70c63c8e/', import.meta.url);
   const song = validateSong(JSON.parse(await readFile(new URL('song.json', routine), 'utf8')));
   song.audio = { path: 'audio.wav', mimeType: 'audio/wav' };
+  const routineChoreography = await readFile(new URL('choreography.adpose', routine));
+  validateSongChoreography(song, routineChoreography);
   await serveFixture(null, {
     song,
-    choreography: validateSongChoreography(song, JSON.parse(await readFile(new URL('choreography.json', routine), 'utf8'))),
+    choreography: bundleFixture().choreography,
     audio: silentWav(song.durationMs),
     entry: { id: song.songId, title: song.title, artist: song.artist, durationMs: song.durationMs, supportedPlayerCounts: song.supportedPlayerCounts, bundleRevision: song.bundleRevision, bundle: `${song.songId}/song.json` },
-  });
+  }, routineChoreography);
   await page.goto('http://127.0.0.1:4173/?input=ghost');
   await page.locator('canvas').waitFor();
   await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });

@@ -7,7 +7,7 @@ import type { Project, StudioAssets, Take } from '../core.ts';
 import type { ImportWorkerRequest } from '../web/videoImport.ts';
 import type { PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { readZip } from '../server/zip.ts';
-import { baseUrl, found, read, zipJson } from './helpers.ts';
+import { baseUrl, found, storedCalibration, zipPose } from './helpers.ts';
 
 declare global {
   interface Window {
@@ -139,8 +139,8 @@ try {
   saved.metadata.artist = 'Fixture'; saved.metadata.rights.audio.license = 'CC0'; saved.metadata.rights.choreography.license = 'CC0';
   saved.playableEndMs = found(imported.samples.at(-1)).takeTimeMs;
   saved.alignmentReviewed = true; saved = await store.save(saved, saved.revision);
-  const choreography = zipJson(readZip(await store.download(p.projectId, 'export')), `${saved.songId}/choreography.json`);
-  assert.deepEqual(read(choreography, 'tracks', 0, 'calibration'), takeCalibration(imported, 0));
+  const choreography = zipPose(readZip(await store.download(p.projectId, 'export')), `${saved.songId}/choreography.adpose`);
+  assert.deepEqual(found(choreography.tracks)[0].calibration, storedCalibration(takeCalibration(imported, 0)));
   assert.deepEqual(errors, []);
   console.log(`Video import browser passed: actual Lite/Full calibration and Full inference, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
 } catch (error) {

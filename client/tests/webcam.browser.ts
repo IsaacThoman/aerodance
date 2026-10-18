@@ -220,7 +220,7 @@ try {
     return JSON.parse(file.toString('utf8'));
   };
   const song = validateSong(zipJson('song.json'));
-  const exportedMotion=validateSongChoreography(song, zipJson('choreography.json'));
+  const exportedMotion=validateSongChoreography(song, bundle.get(`${exported.songId}/choreography.adpose`) ?? Buffer.alloc(0));
   assert.equal(exportedMotion.tracks[0].calibration.cameraScaleMode,'body-relative');
   assert.equal(exportedMotion.tracks[0].calibration.profileVersion,2);
   apps[0].use('/songs/webcam-capture', (req, res) => {

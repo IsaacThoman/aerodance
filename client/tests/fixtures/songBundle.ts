@@ -1,11 +1,13 @@
 import { qualityFor } from '../../../packages/pose/choreography.ts';
 import type { Pose } from '../../../packages/pose/choreography.ts';
-import type { CatalogSong, Song, SongChoreography } from '../../../packages/pose/song.ts';
+import { songChoreographyFromTimeline } from '../../../packages/pose/song.ts';
+import type { CatalogSong, Song, SongTimeline } from '../../../packages/pose/song.ts';
+import { encodePoseFile } from '../../../packages/pose/binary.ts';
 
-/** A small valid song bundle (song.json, choreography.json, silent audio) and its catalog entry. */
+/** A small valid song bundle (song.json, the choreography as objects, silent audio) and its catalog entry. */
 export interface BundleFixture {
   song: Song;
-  choreography: SongChoreography & { provenance?: object };
+  choreography: SongTimeline;
   audio: Uint8Array<ArrayBuffer>;
   entry: CatalogSong;
 }
@@ -14,7 +16,7 @@ export function bundleFixture(): BundleFixture {
   const song: Song = {
     schema:'aerodance.song',schemaVersion:1,songId:'fixture',bundleRevision:1,title:'Fixture routine',artist:'Test artist',
     songwriters:[],choreographers:[],durationMs:1000,playableStartMs:100,playableEndMs:900,supportedPlayerCounts:[1,2],
-    audio:{path:'audio.wav',mimeType:'audio/wav'},choreography:{path:'choreography.json',schemaVersion:1},
+    audio:{path:'audio.wav',mimeType:'audio/wav'},choreography:{path:'choreography.adpose',schemaVersion:2},
     coachMode:'mirror-player',rigProfile:'frutiger-seven-bone-v1',
     rights:{audio:{license:'test',attribution:''},choreography:{license:'test',attribution:''}},
     createdAt:'2026-10-10T00:00:00Z',publishedAt:'2026-10-10T00:00:00Z',build:{compilerVersion:'test',projectRevision:1},
@@ -25,13 +27,16 @@ export function bundleFixture(): BundleFixture {
     coordinates:{kind:'mediapipe-image',landmarkCount:33,ordering:'mediapipe-pose-33',xAxis:'right',yAxis:'down',zAxis:'away-from-camera',mirrored:false,depthUnit:'relative-image-width'},
     sampling:{targetRateHz:30,maxInterpolationGapMs:200,confidenceThreshold:.5},
     tracks:[0,1].map(playerId=>({playerId,label:`Player ${playerId+1}`,calibration:{inputWidth:640,inputHeight:480,torsoLength:.4,baseHip:{x:.3+playerId*.4,y:.7,z:0},floorY:.7,profileVersion:1},unscorableIntervals:[{startMs:300,endMs:400,reason:'Test exclusion'}]})),
-    samples:[100,300,500,700,900].map(songTimeMs=>({songTimeMs,poses:structuredClone(poses),quality:qualityFor(poses)})),provenance:{},
+    samples:[100,300,500,700,900].map(songTimeMs=>({songTimeMs,poses:structuredClone(poses),quality:qualityFor(poses)}))
   };
   // One second of silent PCM, solely for automated browser tests; never cataloged publicly.
   const audio = silentWav(1000);
   const entry: CatalogSong = {id:song.songId,title:song.title,artist:song.artist,durationMs:1000,supportedPlayerCounts:[1,2],bundleRevision:1,bundle:'fixture/song.json'};
   return {song,choreography,audio,entry};
 }
+
+/** The fixture's choreography.adpose bytes. */
+export const choreographyBytes = (fixture: Pick<BundleFixture, 'choreography'>) => encodePoseFile(songChoreographyFromTimeline(fixture.choreography));
 
 /** Silent 8 kHz mono 16-bit PCM WAV lasting durationMs. */
 export function silentWav(durationMs: number) {

@@ -24,7 +24,7 @@ import type {
   TrackCalibration,
 } from "../../packages/pose/choreography.ts";
 import type { MotionTake, TakeSample } from "../../packages/pose/legacy.ts";
-import type { RightsStatement, ScoreExclusion, SongChoreography, SongTrack } from "../../packages/pose/song.ts";
+import type { RightsStatement, ScoreExclusion, SongTimeline, SongTrack } from "../../packages/pose/song.ts";
 import { calibratePoses, reliableBodyPose } from "../../packages/character/calibration.ts";
 import { DEFAULT_STAGE, isStageId } from "../../packages/stages/catalog.ts";
 import type { StageId } from "../../packages/stages/catalog.ts";
@@ -144,8 +144,8 @@ export interface CompileProvenance {
   /** Added by the server: a hash of the edits and track references compiled. */
   settingsHash?: string;
 }
-/** The compiled choreography.json: the song bundle format plus markers and provenance. */
-export interface CompiledChoreography extends SongChoreography { markers: Marker[]; provenance: CompileProvenance; }
+/** A compiled song timeline: every sample on the 30 Hz grid, plus markers and provenance; export encodes it. */
+export interface CompiledChoreography extends SongTimeline { markers: Marker[]; provenance: CompileProvenance; }
 export interface CompileOptions {
   /** Compile everything the tracks hold rather than the playable range; skips final validation. */
   fullTimeline?: boolean;

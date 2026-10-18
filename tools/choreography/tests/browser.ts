@@ -377,7 +377,7 @@ try {
   const file = await download.path();
   const { readFile } = await import("node:fs/promises");
   const bundle = readZip(await readFile(file));
-  assert.ok([...bundle.keys()].some((k) => k.endsWith("/choreography.json")));
+  assert.ok([...bundle.keys()].some((k) => k.endsWith("/choreography.adpose")));
   await page.getByRole("button", { name: "Frutiger", exact: true }).click();
   await page.getByRole("main").locator("canvas").waitFor();
   await page.waitForTimeout(1500);

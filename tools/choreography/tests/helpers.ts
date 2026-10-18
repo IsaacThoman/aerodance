@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import type { Locator } from "playwright";
 import { isObject } from "../../../packages/pose/choreography.ts";
+import type { TrackCalibration } from "../../../packages/pose/choreography.ts";
+import { decodePoseFile } from "../../../packages/pose/binary.ts";
 import { validateProject, validateTake } from "../core.ts";
 import type { ProjectV2 } from "../core.ts";
 
@@ -45,3 +47,9 @@ export async function projectOf(response: Response): Promise<ProjectV2> {
 export const takeOf = async (response: Response) => validateTake(await response.json());
 /** A JSON file from an exported ZIP. */
 export const zipJson = (files: ReadonlyMap<string, Buffer>, name: string): unknown => JSON.parse(found(files.get(name)).toString());
+/** An .adpose file from an exported ZIP, decoded. */
+export const zipPose = (files: ReadonlyMap<string, Buffer>, name: string) => decodePoseFile(found(files.get(name)));
+/** A calibration as a pose file stores it: its measurements are f32. */
+export const storedCalibration = (c: TrackCalibration): TrackCalibration => ({ ...c, torsoLength: Math.fround(c.torsoLength), floorY: Math.fround(c.floorY),
+  baseHip: { x: Math.fround(c.baseHip.x), y: Math.fround(c.baseHip.y), z: Math.fround(c.baseHip.z) },
+  ...(c.bodyTorsoLength === undefined ? {} : { bodyTorsoLength: Math.fround(c.bodyTorsoLength) }) });
