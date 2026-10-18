@@ -5,10 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { discoverSongs, songCatalogMiddleware } from './scripts/songCatalog.ts';
 import { poseAssetsPlugin } from './scripts/poseAssets.ts';
 import { createPairingServer } from './packages/pairing/server.ts';
+import { pairingOptions } from './packages/pairing/config.ts';
 import type { Connect } from 'vite';
 
-// Phone pairing (packages/pairing/server.ts) at /pair, as nginx proxies it in production.
-const pairing = createPairingServer();
+// Phone pairing (packages/pairing/server.ts) at /pair, as nginx proxies it in production, with
+// the same environment settings (packages/pairing/config.ts).
+const pairing = createPairingServer(pairingOptions());
 const pairingMiddleware: Connect.NextHandleFunction = (req, res, next) => {
   pairing.handle(req, res).then((handled) => { if (!handled) next(); }, next);
 };

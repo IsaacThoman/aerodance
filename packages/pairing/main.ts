@@ -1,20 +1,13 @@
 // The pairing server on its own (beside nginx in the app container, which proxies /pair/ to it):
 // node packages/pairing/main.ts. PAIRING_PORT (default 3001; not PORT, which may be the app's)
-// and PAIRING_HOST (default: every interface); PAIRING_ICE_SERVERS: a JSON array of
-// RTCIceServer entries handed to both sides, e.g. to add a TURN server (default: a public STUN server).
+// and PAIRING_HOST (default: every interface). ICE and TURN settings: config.ts.
 import http from 'node:http';
-import { DEFAULT_ICE_SERVERS, createPairingServer } from './server.ts';
-import type { IceServer } from './signals.ts';
+import { createPairingServer } from './server.ts';
+import { pairingOptions } from './config.ts';
 
-function iceServers(): IceServer[] {
-  const raw = process.env.PAIRING_ICE_SERVERS;
-  if (!raw) return DEFAULT_ICE_SERVERS;
-  const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed) || !parsed.every((s) => typeof s === 'object' && s && 'urls' in s)) throw Error('PAIRING_ICE_SERVERS must be a JSON array of { urls } objects');
-  return parsed as IceServer[];
-}
-
-const pairing = createPairingServer({ iceServers: iceServers() });
+const options = pairingOptions();
+const pairing = createPairingServer(options);
+console.log(options.ice ? 'Pairing: TURN credentials from Cloudflare.' : 'Pairing: no TURN server (set CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN to add one).');
 const PREFIX = '/pair';
 const server = http.createServer((req, res) => {
   const url = req.url || '/';

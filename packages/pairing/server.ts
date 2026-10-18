@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MAX_SIGNAL_BYTES, isPairingCode } from './signals.ts';
 import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.ts';
+import type { IceSource } from './turn.ts';
 
 /*
  * The pairing server: it introduces a game (the host) to a phone so they can open a WebRTC
@@ -29,6 +30,10 @@ import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.
  *
  * A phone sends a random session id with join and close, so a reloaded page's late close
  * can't end the new page's place.
+ *
+ * With an ice source (Cloudflare TURN, config.ts), each new room and each join gets its own
+ * short-lived TURN credentials, or the static iceServers if those can't be had. They're
+ * revoked when the room ends.
  *
  * Paths are relative to where the handler is mounted (/pair in the game's dev server and
  * behind nginx). handle() returns false for paths it doesn't serve.
@@ -64,10 +69,17 @@ interface Side {
   /** When the phone last said hello (asked the game to connect). */
   helloAt: number;
 }
-interface Room { code: string; created: number; host: Side; phone: Side; }
+interface Room {
+  code: string; created: number; host: Side; phone: Side;
+  /** ICE servers issued for the room (TURN credentials to revoke when it ends). */
+  issued: IceServer[][];
+}
 
 export interface PairingServerOptions {
+  /** Handed to both sides; also the fallback when `ice` fails. */
   iceServers?: IceServer[];
+  /** Fresh ICE servers for each new room and each join (short-lived TURN credentials: turn.ts). */
+  ice?: IceSource;
   maxRooms?: number;
   now?: () => number;
 }
@@ -104,9 +116,29 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   return body as Record<string, unknown>;
 }
 
-export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms = 500, now = Date.now }: PairingServerOptions = {}) {
+export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, maxRooms = 500, now = Date.now }: PairingServerOptions = {}) {
   const rooms = new Map<string, Room>();
   let misses: number[] = [];
+  let warned = -Infinity;
+  const warn = (what: string, error: unknown) => {
+    if (now() - warned < 60_000) return;
+    warned = now();
+    console.warn(`Pairing: ${what}`, error instanceof Error ? error.message : error);
+  };
+  // A side's ICE servers: fresh ones when there's a source for them, else (or if it fails) the
+  // static list. Fresh ones are kept with the room, to revoke when it ends.
+  const issue = async (room: Room) => {
+    if (!ice) return iceServers;
+    try {
+      const servers = await ice.issue();
+      if (rooms.get(room.code) === room) room.issued.push(servers);
+      else void ice.revoke?.(servers).catch((error: unknown) => warn('could not revoke TURN credentials.', error));
+      return servers;
+    } catch (error) {
+      warn('no TURN credentials, handing out the fallback ICE servers.', error);
+      return iceServers;
+    }
+  };
 
   const roomFor = (code: string, missing = GONE) => {
     const room = isPairingCode(code) ? rooms.get(code) : undefined;
@@ -158,25 +190,30 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     stream.end();
   };
   const phonePresent = ({ phone }: Room) => !!phone.token && !phone.released && (!!phone.stream || now() - phone.seen < PHONE_GRACE_MS);
-  const remove = (room: Room, reason: string) => {
+  // revoke: give the room's TURN credentials back (not on shutdown: a connected phone and game
+  // carry on without the server, perhaps through TURN, until the credentials expire).
+  const remove = (room: Room, reason: string, revoke = true) => {
     rooms.delete(room.code);
+    if (revoke) for (const servers of room.issued) void ice?.revoke?.(servers).catch((error: unknown) => warn('could not revoke TURN credentials.', error));
+    room.issued = [];
     for (const s of [room.host, room.phone]) {
       s.stream?.write(event({ type: 'closed', reason }));
       endStream(s);
     }
   };
 
-  function create(res: ServerResponse) {
+  async function create(res: ServerResponse) {
     if (rooms.size >= maxRooms) throw new HttpError(503, 'Too many games are pairing right now. Try again soon.');
     let code: string;
     do code = String(randomInt(0, 1_000_000)).padStart(6, '0'); while (rooms.has(code));
     const t = now();
     const owner = token();
-    rooms.set(code, { code, created: t, host: side(t, owner), phone: side(t, null) });
-    json(res, 201, { code, token: owner, iceServers } satisfies CreatedRoom);
+    const room: Room = { code, created: t, host: side(t, owner), phone: side(t, null), issued: [] };
+    rooms.set(code, room);
+    json(res, 201, { code, token: owner, iceServers: await issue(room) } satisfies CreatedRoom);
   }
 
-  function join(room: Room, body: Record<string, unknown>, res: ServerResponse) {
+  async function join(room: Room, body: Record<string, unknown>, res: ServerResponse) {
     const { phone } = room;
     let owner = phone.token;
     if (!owner || body.token !== owner) {
@@ -187,7 +224,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     }
     phone.seen = now();
     phone.session = typeof body.session === 'string' ? body.session.slice(0, 64) : '';
-    json(res, 200, { token: owner, iceServers } satisfies JoinedRoom);
+    json(res, 200, { token: owner, iceServers: await issue(room) } satisfies JoinedRoom);
   }
 
   function events(room: Room, owner: string | null, req: IncomingMessage, res: ServerResponse) {
@@ -259,13 +296,13 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     if (!known.includes(route) || parts.length > 3) return false;
     try {
       if (route === 'GET health') json(res, 200, { rooms: rooms.size });
-      else if (route === 'POST rooms') create(res);
+      else if (route === 'POST rooms') await create(res);
       else if (route === 'GET rooms/:code') { roleOf(roomFor(parts[1]), url.searchParams.get('token')); json(res, 204); }
       else if (route === 'GET rooms/:code/events') events(roomFor(parts[1]), url.searchParams.get('token'), req, res);
       else {
         const body = await readBody(req);
         const room = route === 'POST rooms/:code/join' ? joinable(parts[1], body.token) : roomFor(parts[1]);
-        if (route === 'POST rooms/:code/join') join(room, body, res);
+        if (route === 'POST rooms/:code/join') await join(room, body, res);
         else if (route === 'POST rooms/:code/messages') message(room, body, res);
         else if (route === 'POST rooms/:code/release') release(room, body, res);
         else close(room, body, res);
@@ -300,7 +337,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     close() {
       clearInterval(sweeper);
       clearInterval(heartbeat);
-      for (const room of [...rooms.values()]) remove(room, 'The pairing server stopped.');
+      for (const room of [...rooms.values()]) remove(room, 'The pairing server stopped.', false);
     },
   };
 }

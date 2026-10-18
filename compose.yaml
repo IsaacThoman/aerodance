@@ -3,8 +3,12 @@ services:
     build: .
     expose:
       - "3000"
-    # Phone pairing runs inside the app container. Set PAIRING_ICE_SERVERS (a JSON array of
-    # RTCIceServer entries) to hand phones and games a TURN server.
+    # Phone pairing runs inside the app container. Set CLOUDFLARE_TURN_KEY_ID and
+    # CLOUDFLARE_TURN_API_TOKEN (a Cloudflare Realtime TURN key) for TURN, and optionally
+    # PAIRING_ICE_SERVERS (a JSON array of RTCIceServer entries) for the fallback; see
+    # packages/pairing/config.ts.
     environment:
+      - CLOUDFLARE_TURN_KEY_ID
+      - CLOUDFLARE_TURN_API_TOKEN
       - PAIRING_ICE_SERVERS
     restart: unless-stopped
