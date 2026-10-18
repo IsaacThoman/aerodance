@@ -15,7 +15,7 @@ CMD ["node", "client/tests/ui-flow.browser.ts"]
 
 FROM ui-test AS webcam-test
 RUN npm run studio:build
-CMD ["sh", "-c", "node client/tests/webcam.browser.ts && node client/tests/webcam-calibration.browser.ts"]
+CMD ["sh", "-c", "node client/tests/webcam.browser.ts && node client/tests/webcam-calibration.browser.ts && node client/tests/phone.browser.ts"]
 
 # Phone pairing (the `pairing` Compose service): introduces a game to a phone for WebRTC.
 # It needs only Node and its own folder.
