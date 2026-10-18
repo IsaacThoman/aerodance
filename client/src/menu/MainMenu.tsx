@@ -17,7 +17,8 @@ import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.
  * all, which audio/mixer.ts applies). The main screen also shows the fullscreen bubble in the
  * corner.
  *
- * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape).
+ * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
+ * Left/Right step the volume sliders).
  * `blocked` (the Connect Client card is open) holds input. onScreenChange hears which screen
  * is showing (Settings carries the Connect Client pill). The canvas reports
  * data-menu-screen / data-menu-ready for tests.
@@ -63,7 +64,7 @@ const TRACK = { x0: PANEL.x + 190, x1: PANEL.x + PANEL.w - 110 };
 
 const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
   main: [
-    { id: 'start', rect: START },
+    { id: 'start', rect: START, primary: true },
     { id: 'settings', rect: SETTINGS },
   ],
   players: [
@@ -77,10 +78,13 @@ const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
     ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: PANEL.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: PANEL.w - 32, h: 48 } })),
   ],
 };
-// Where back / Escape leads from each submenu.
+// Where back / Escape leads from each submenu, and the button there that opens it.
 const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
+const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings: 'settings' };
 
 const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
+// Left/Right move a slider a twentieth (5) at a time.
+const SLIDER_STEPS = 20;
 
 function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>) {
   const { sound } = p;
@@ -163,6 +167,10 @@ interface MenuState {
   /** Showing, and where it is going (they differ during a swap). */
   screen: MenuScreen; next: MenuScreen; swap: number;
   drawnSound: SoundSettings | null;
+  /** The player count picked last: the players screen's primary button. */
+  players: 'one' | 'two';
+  /** The widget the keyboard cursor goes to once the screen is in (going back). */
+  refocus: string | null;
   reported?: MenuScreen;
 }
 
@@ -170,17 +178,21 @@ export default function MainMenu({
   visible = true, blocked = false, initialScreen = 'main', onStart, onSettingsOpen, onScreenChange, sound, onSoundChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
-  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null });
+  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, players: 'one', refocus: null });
   const props = useRef<MainMenuProps>({ sound });
   props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
 
   const m = menu.current;
-  const go = (screen: MenuScreen | undefined) => {
+  // A keyboard cursor starts over on the next screen, or going back (also by Escape), on the
+  // button it left by once that screen is in.
+  const go = (screen: MenuScreen | undefined, key = ui.keyboard) => {
     if (!screen) return;
     if (screen === m.next) return;
+    if (key) {
+      ui.focus(null);
+      m.refocus = OPENER[m.next] ?? null;
+    }
     m.next = screen;
-    // A keyboard cursor starts over on the next screen.
-    if (ui.pointerKind === 'key') ui.pointer = null;
   };
   const live = () => !!props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
   const setSound = (patch: Partial<SoundSettings>) => {
@@ -193,12 +205,20 @@ export default function MainMenu({
     // Input goes to the visible screen as soon as it is fading in (never mid swap-out).
     active: live,
     keyNav: true,
-    widgets: () => WIDGETS[m.screen],
+    widgets: () => (m.screen === 'players' ? WIDGETS.players.map((wdg) => ({ ...wdg, primary: wdg.id === m.players })) : WIDGETS[m.screen]),
     onDrag: (wdg, p) => {
       if (!wdg.slider) return;
       const patch: Partial<SoundSettings> = {};
       patch[wdg.slider] = sliderValue(p.x);
       setSound(patch);
+    },
+    onStep: (wdg, dir) => {
+      if (!wdg.slider) return false;
+      const patch: Partial<SoundSettings> = {};
+      const step = Math.round(props.current.sound[wdg.slider] * SLIDER_STEPS) + dir;
+      patch[wdg.slider] = Math.min(SLIDER_STEPS, Math.max(0, step)) / SLIDER_STEPS;
+      setSound(patch);
+      return true;
     },
     onActivate: (wdg, s) => {
       if (wdg.toggle) {
@@ -212,14 +232,14 @@ export default function MainMenu({
         case 'start': go('players'); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
-        case 'one': props.current.onStart?.(1); break;
-        case 'two': props.current.onStart?.(2); break;
+        case 'one': m.players = 'one'; props.current.onStart?.(1); break;
+        case 'two': m.players = 'two'; props.current.onStart?.(2); break;
         default:
       }
       s.invalidate();
     },
     onKey: (e, s) => {
-      if (e.key === 'Escape' && !e.repeat && live() && PARENT[m.screen]) { go(PARENT[m.screen]); s.invalidate(); }
+      if (e.key === 'Escape' && !e.repeat && live() && PARENT[m.screen]) { go(PARENT[m.screen], true); s.invalidate(); }
     },
     update: (dt, s) => {
       const shown = !!props.current.visible;
@@ -233,6 +253,10 @@ export default function MainMenu({
         s.invalidate();
       }
       m.alpha = s.ease(m.alpha, shown ? 1 : 0, shown ? 3 : 6);
+      if (m.refocus && live()) {
+        s.focus(WIDGETS[m.screen].find((wdg) => wdg.id === m.refocus) ?? null);
+        m.refocus = null;
+      }
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
       if (props.current.sound !== m.drawnSound) s.invalidate();
       if (m.screen !== m.reported) { m.reported = m.screen; props.current.onScreenChange?.(m.screen); }
@@ -266,11 +290,13 @@ export default function MainMenu({
     },
   });
 
-  // Reopening the menu lands on initialScreen (Back from Song Select returns to players).
+  // Reopening the menu lands on initialScreen (Back from Song Select returns to players), with
+  // a keyboard cursor on the player count picked last.
   useEffect(() => {
     if (!visible) return;
     m.screen = m.next = initialScreen;
     m.swap = 1;
+    m.refocus = ui.keyboard && initialScreen === 'players' ? m.players : null;
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 

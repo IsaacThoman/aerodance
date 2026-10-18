@@ -15,7 +15,7 @@ import type { PoseInputView } from '../pose/PoseSource.ts';
  * CameraSetup.activate().
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
- * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg);
+ * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg); onStep: camera.step(wdg, dir, repeat);
  * draw: drawCameraPicker(g, LAYOUT, connection, hover); drawModelPicker(...); drawCameraButton(...);
  */
 
@@ -63,6 +63,11 @@ export class CameraSetup {
   toggle() {
     if (this.active()) this.target().source.disconnect();
     else this.start();
+  }
+
+  /** Left/Right on a camera arrow switch camera, once per press (each switch restarts it); false for any other widget. */
+  step(wdg: CameraWidget, dir: -1 | 1, repeat: boolean) {
+    return !!wdg.cameraDelta && (repeat || this.activate({ ...wdg, cameraDelta: dir }));
   }
 
   /** Handles a camera widget's press; false for any other widget. */

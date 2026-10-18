@@ -30,7 +30,7 @@ The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, ho
 
 ## Main UI flow
 
-**Start → One Player / Two Players → Song Select → song preview → Dance! → results**, all drawn in-engine. Back (or Escape) from Song Select returns to the player count, and every screen works with the mouse, touch and the keyboard (arrows and Enter).
+**Start → One Player / Two Players → Song Select → song preview → Dance! → results**, all drawn in-engine. Back (or Escape) from Song Select returns to the player count, and every screen works with the mouse, touch and the keyboard: the arrows (or Tab) move a pearl focus ring that starts on the screen's main action, Enter or Space press, Left/Right also step the volume sliders and switch cameras, and Escape goes back.
 
 - **Connect Client** (`client/src/connect/`): the status pill in the top-right corner of Settings opens a card for the webcam pose input: camera selection and in-browser MediaPipe **Lite / Full / Heavy** tracking for both player modes. Start camera requests permission; the mirrored setup preview shows player placement. Model/camera changes restart tracking and release the old camera. For a scored run without a camera, open the game with `?input=ghost`: an autoplay ghost copies each routine (`&ghostLagMs=300` dances late).
 - **Song Select** (`client/src/game/SongSelect.tsx`) lists the published songs four to a page. Extract Dance Studio's song ZIPs into `client/public/songs/`: Song Select finds the exported folders without manifest edits (`scripts/songCatalog.ts`), and builds generate the catalog for static hosting, so rebuild or redeploy to publish changes. The repo ships one song, **Demo Track 1**: a routine we recorded ourselves, set to generated dark noise. Bundles are fully verified before they play ([game song bundles](docs/game-song-bundles.md)).
@@ -88,7 +88,7 @@ The dance stages live in [`packages/stages`](packages/stages/README.md) and the 
 
 ## In-engine UI
 
-All menus, Song Select, Connect Client and the game screens are drawn on 2D canvases that share the render buffer, so they get the same pixels and stretch as the world. `client/src/ui/useCanvasUI.ts` handles the overlay (canvas texture, design-unit layout, hit testing, press/hover/drag, scrolling, opt-in arrow-key navigation) and `client/src/ui/draw.ts` holds the aero drawing kit (bubble pills, glass panels, headers, the title, icons, status lights, progress bars).
+All menus, Song Select, Connect Client and the game screens are drawn on 2D canvases that share the render buffer, so they get the same pixels and stretch as the world. `client/src/ui/useCanvasUI.ts` handles the overlay (canvas texture, design-unit layout, hit testing, press/hover/drag, scrolling, opt-in keyboard navigation with one cursor shared across overlays; `client/src/ui/focusRing.ts` draws its ring) and `client/src/ui/draw.ts` holds the aero drawing kit (bubble pills, glass panels, headers, the title, icons, status lights, progress bars).
 
 - **Fullscreen:** the main menu shows a fullscreen bubble in the bottom-right corner (`client/src/menu/FullscreenButton.tsx`). It slides off the right edge on submenus and slides back in on return to the main menu. Press Esc to exit fullscreen. Safari on macOS is supported, and the existing 16:9 letterboxing and fixed render resolution are preserved.
 

@@ -179,7 +179,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
   const gl = useThree((state) => state.gl);
   const props = useRef({ visible, blocked, session, source, onQuit, onRetry });
   props.current = { visible, blocked, session, source, onQuit, onRetry };
-  const st = useRef<{ alpha: number; popups: Popup[]; reported: string }>({ alpha: 0, popups: [], reported: '' }).current;
+  const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
   // The calibration screen's camera controls (the source's view is always current).
   const [camera] = useState(() => new CameraSetup(() => ({ source: props.current.source, connection: props.current.source.view })));
 
@@ -195,17 +195,18 @@ export default function GameScreen({ visible = false, blocked = false, session, 
     widgets: (): CameraWidget[] => {
       const ph = phase();
       if (calibrating()) {
-        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
-        if (!camera.active()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW });
-        return list;
+        // Top to bottom: back, the preview (start camera), the camera picker.
+        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
+        if (!camera.active()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW, primary: true });
+        return [...list, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
       }
       if (['ready', 'calibrating', 'loading', 'error'].includes(ph)) {
         const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
-        if (ph === 'ready') list.push({ id: 'start', rect: GAME_READY_START });
+        if (ph === 'ready') list.push({ id: 'start', rect: GAME_READY_START, primary: true });
         return list;
       }
       if (ph === 'countdown' || ph === 'playing') return [{ id: 'pause', circle: GAME_PAUSE, nav: false }];
-      if (ph === 'paused') return [{ id: 'resume', rect: GAME_RESUME }, { id: 'restart', rect: GAME_RESTART }, { id: 'quit', rect: GAME_QUIT }];
+      if (ph === 'paused') return [{ id: 'resume', rect: GAME_RESUME, primary: true }, { id: 'restart', rect: GAME_RESTART }, { id: 'quit', rect: GAME_QUIT }];
       return [];
     },
     onActivate: (wdg, s) => {
@@ -220,6 +221,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       else if (calibrating()) camera.activate(wdg);
       s.invalidate();
     },
+    onStep: (wdg, dir, _s, repeat) => camera.step(wdg, dir, repeat),
     onKey: (e, s) => {
       if (!live() || e.repeat) return;
       const session = props.current.session;
@@ -237,6 +239,15 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       const p = props.current;
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 4 : 8);
       const session = p.session;
+      // Every screen (and song) starts without a keyboard cursor: one left on the calibration
+      // preview mustn't land on Restart when the song pauses. Calibrating and ready share the
+      // calibration screen, and flip back and forth while players step in and out.
+      const screen = calibrating() ? 'calibration' : session?.phase;
+      if (session !== st.session || screen !== st.screen) {
+        st.session = session;
+        st.screen = screen;
+        if (s.keyFocus) s.focus(null);
+      }
       if (!p.visible || !session) return;
       session.update(performance.now());
       // Animated every frame while a song is on: scores, the countdown, popups, readiness.
