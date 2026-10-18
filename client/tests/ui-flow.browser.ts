@@ -12,7 +12,7 @@ import type { BundleFixture } from './fixtures/songBundle.ts';
 import { BACK as MENU_BACK, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import {
-  BACK, DANCE, GAME_CALIBRATION_CAMERA, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect,
+  BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect,
 } from '../src/game/layout.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { resolveStage } from '../../packages/stages/catalog.ts';
@@ -228,21 +228,16 @@ try {
   await click(BACK);
   await until({ songScreen: 'list', stage: '' });
 
-  // Dancing with the webcam calibrates first, and the camera is set up right there: the
-  // model buttons don't ask for the camera, Start camera does (and reports the denial).
+  // Dancing with the webcam calibrates first, and the camera is set up right there: pressing
+  // the preview starts it (and reports the denial).
   await serveFixture();
   await openSong(2, 0);
   await until({ songScreen: 'preview', songReady: 'true', stageReady: 'true' });
   await click(DANCE);
   await until({ gamePhase: 'calibrating', gameReady: 'true', gameCalibrationPlayers: 'missing|missing', gameCalibrationPreview: 'false' }, 30000);
   const requests = await page.evaluate(() => (window as TestWindow).webcamRequests);
-  await click(GAME_CALIBRATION_CAMERA.models[2]);
-  await until({ gameCameraModel: 'heavy' });
-  await click(GAME_CALIBRATION_CAMERA.models[0]);
-  await until({ gameCameraModel: 'lite' });
-  assert.equal(await page.evaluate(() => (window as TestWindow).webcamRequests), requests);
   await shot('game-calibration');
-  await click(GAME_CALIBRATION_CAMERA.primary);
+  await click(GAME_CALIBRATION_PREVIEW);
   await until({ gameCameraStatus: 'error', gameCameraMessage: /permission was denied/ });
   assert.equal(await page.evaluate(() => (window as TestWindow).webcamRequests), requests + 1);
   assert.equal((await data()).gamePhase, 'calibrating', 'no camera, no countdown');
