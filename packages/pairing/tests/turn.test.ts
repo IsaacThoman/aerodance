@@ -70,6 +70,13 @@ test('settings come from the environment, and half a Cloudflare key is refused',
   assert.ok(pairingOptions({ CLOUDFLARE_TURN_KEY_ID: 'k', CLOUDFLARE_TURN_API_TOKEN: 't' }).ice);
 });
 
+async function until(check: () => boolean) {
+  for (let i = 0; !check(); i++) {
+    if (i > 200) throw Error('timed out');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 async function serve(t: { after(fn: () => unknown): void }, options: PairingServerOptions) {
   const pairing = createPairingServer(options);
   const server = http.createServer((req, res) => {
@@ -104,7 +111,7 @@ test('each new room and join gets fresh credentials, revoked when the room ends 
   const phone = await (await post(`/rooms/${room.code}/join`)).json();
   assert.equal(phone.iceServers[0].username, 'u2');
   await post(`/rooms/${room.code}/close`, { token: room.token });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await until(() => revoked.length === 2);
   assert.deepEqual(revoked, ['u1', 'u2']);
 
   await post('/rooms');
@@ -120,4 +127,55 @@ test('without TURN credentials (Cloudflare down or slow) both sides get the fall
   assert.deepEqual(room.iceServers, fallback);
   assert.deepEqual((await (await post(`/rooms/${room.code}/join`)).json()).iceServers, fallback);
   assert.equal(warn.mock.callCount(), 1, 'warned once, not per request');
+});
+
+test('one live set of credentials per side: a rejoin keeps its own, a phone that leaves or is replaced gives them back', async (t) => {
+  let n = 0;
+  const revoked: string[] = [];
+  let now = 1_000_000;
+  const ice: IceSource = {
+    issue: async () => [{ urls: ['turn:t.test:3478'], username: `u${++n}`, credential: 'c' }],
+    revoke: async (servers) => { revoked.push(...servers.map((s) => s.username ?? '')); },
+  };
+  const { post, pairing } = await serve(t, { ice, now: () => now });
+  const room = await (await post('/rooms')).json();
+  const first = await (await post(`/rooms/${room.code}/join`)).json();
+  assert.equal(first.iceServers[0].username, 'u2');
+  // The same phone rejoining (a reload) gets the same credentials back, none new.
+  for (let i = 0; i < 3; i++) assert.equal((await (await post(`/rooms/${room.code}/join`, { token: first.token })).json()).iceServers[0].username, 'u2');
+  assert.equal(n, 2);
+  // Released by the game, the phone is replaced: its credentials go back.
+  await post(`/rooms/${room.code}/release`, { token: room.token });
+  const second = await (await post(`/rooms/${room.code}/join`)).json();
+  assert.equal(second.iceServers[0].username, 'u3');
+  await until(() => revoked.includes('u2'));
+  // The phone leaving gives its credentials back; the game keeps its own.
+  await post(`/rooms/${room.code}/close`, { token: second.token });
+  await until(() => revoked.includes('u3'));
+  assert.deepEqual(revoked, ['u2', 'u3']);
+
+  // A room swept because the game stopped listening leaves them to expire: a phone and game
+  // still connected carry on without the server.
+  now += 61_000;
+  pairing.sweep();
+  assert.equal(pairing.rooms.size, 0);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(revoked, ['u2', 'u3']);
+});
+
+test('a revoke that fails is reported without hiding the fallback warning', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  let fail = false;
+  const ice: IceSource = {
+    issue: async () => { if (fail) throw Error('Cloudflare TURN answered 503'); return [{ urls: ['turn:t.test:3478'], username: 'u', credential: 'c' }]; },
+    revoke: async () => { throw Error('Cloudflare TURN answered 500 to a revoke'); },
+  };
+  const { post } = await serve(t, { ice });
+  const room = await (await post('/rooms')).json();
+  await post(`/rooms/${room.code}/close`, { token: room.token });
+  await until(() => warn.mock.callCount() === 1);
+  fail = true;
+  await post('/rooms');
+  assert.equal(warn.mock.callCount(), 2);
+  assert.match(String(warn.mock.calls[1].arguments[0]), /fallback/);
 });

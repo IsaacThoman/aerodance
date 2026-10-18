@@ -16,7 +16,10 @@ import { cloudflareTurn, parseIceServers } from './turn.ts';
 export function pairingOptions(env: Record<string, string | undefined> = process.env): PairingServerOptions {
   let iceServers = DEFAULT_ICE_SERVERS;
   if (env.PAIRING_ICE_SERVERS) {
-    try { iceServers = parseIceServers(JSON.parse(env.PAIRING_ICE_SERVERS)); } catch (error) {
+    // The parse error isn't repeated: it may quote the value, credentials and all.
+    let parsed: unknown;
+    try { parsed = JSON.parse(env.PAIRING_ICE_SERVERS); } catch { throw Error('PAIRING_ICE_SERVERS is not valid JSON'); }
+    try { iceServers = parseIceServers(parsed); } catch (error) {
       throw Error(`PAIRING_ICE_SERVERS must be a JSON array of RTCIceServer entries: ${error instanceof Error ? error.message : error}`, { cause: error });
     }
   }

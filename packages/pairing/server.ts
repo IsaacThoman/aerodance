@@ -31,9 +31,12 @@ import type { IceSource } from './turn.ts';
  * A phone sends a random session id with join and close, so a reloaded page's late close
  * can't end the new page's place.
  *
- * With an ice source (Cloudflare TURN, config.ts), each new room and each join gets its own
- * short-lived TURN credentials, or the static iceServers if those can't be had. They're
- * revoked when the room ends.
+ * With an ice source (Cloudflare TURN, config.ts), the game and the phone each get their own
+ * short-lived TURN credentials, or the static iceServers if those can't be had. A phone that
+ * rejoins with its token keeps its credentials; a phone that leaves or is replaced gives
+ * them back (revoked), and so does the room when the game ends it or it expires. A room
+ * swept because the game stopped listening, or ended by a shutdown, leaves them to expire:
+ * a phone and game still connected (perhaps through TURN) carry on without the server.
  *
  * Paths are relative to where the handler is mounted (/pair in the game's dev server and
  * behind nginx). handle() returns false for paths it doesn't serve.
@@ -68,12 +71,10 @@ interface Side {
   released: boolean;
   /** When the phone last said hello (asked the game to connect). */
   helloAt: number;
+  /** The fresh ICE servers (TURN credentials) issued to this side, given back when it goes. */
+  ice: IceServer[] | null;
 }
-interface Room {
-  code: string; created: number; host: Side; phone: Side;
-  /** ICE servers issued for the room (TURN credentials to revoke when it ends). */
-  issued: IceServer[][];
-}
+interface Room { code: string; created: number; host: Side; phone: Side; }
 
 export interface PairingServerOptions {
   /** Handed to both sides; also the fallback when `ice` fails. */
@@ -90,7 +91,7 @@ class HttpError extends Error {
 }
 
 const token = () => randomBytes(18).toString('base64url');
-const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, session: '', queue: [], queued: 0, released: false, helloAt: -Infinity });
+const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, session: '', queue: [], queued: 0, released: false, helloAt: -Infinity, ice: null });
 // Wrong room or wrong token: the same answer, so neither can be told apart from outside.
 const GONE = 'This pairing has ended. Pair again.';
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
@@ -119,25 +120,38 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, maxRooms = 500, now = Date.now }: PairingServerOptions = {}) {
   const rooms = new Map<string, Room>();
   let misses: number[] = [];
-  let warned = -Infinity;
+  let stopped = false;
+  // Each warning at most once a minute.
+  const warned = new Map<string, number>();
   const warn = (what: string, error: unknown) => {
-    if (now() - warned < 60_000) return;
-    warned = now();
+    if (now() - (warned.get(what) ?? -Infinity) < 60_000) return;
+    warned.set(what, now());
     console.warn(`Pairing: ${what}`, error instanceof Error ? error.message : error);
   };
-  // A side's ICE servers: fresh ones when there's a source for them, else (or if it fails) the
-  // static list. Fresh ones are kept with the room, to revoke when it ends.
-  const issue = async (room: Room) => {
+  const giveBack = (servers: IceServer[]) => {
+    void ice?.revoke?.(servers).catch((error: unknown) => warn('could not revoke TURN credentials.', error));
+  };
+  const revoke = (s: Side) => {
+    if (s.ice) giveBack(s.ice);
+    s.ice = null;
+  };
+  // A side's ICE servers: the ones it already has, fresh ones when there's a source for them,
+  // or (without one, or if it fails) the static list.
+  const issue = async (room: Room, s: Side) => {
     if (!ice) return iceServers;
-    try {
-      const servers = await ice.issue();
-      if (rooms.get(room.code) === room) room.issued.push(servers);
-      else void ice.revoke?.(servers).catch((error: unknown) => warn('could not revoke TURN credentials.', error));
-      return servers;
-    } catch (error) {
+    if (s.ice) return s.ice;
+    const owner = s.token;
+    let servers: IceServer[];
+    try { servers = await ice.issue(); } catch (error) {
       warn('no TURN credentials, handing out the fallback ICE servers.', error);
       return iceServers;
     }
+    // The side changed hands or the room ended meanwhile (not shut down): give them back.
+    if (rooms.get(room.code) !== room || s.token !== owner) { if (!stopped) giveBack(servers); return servers; }
+    // Another request for this side got there first.
+    if (s.ice) { giveBack(servers); return s.ice; }
+    s.ice = servers;
+    return servers;
   };
 
   const roomFor = (code: string, missing = GONE) => {
@@ -190,12 +204,10 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, max
     stream.end();
   };
   const phonePresent = ({ phone }: Room) => !!phone.token && !phone.released && (!!phone.stream || now() - phone.seen < PHONE_GRACE_MS);
-  // revoke: give the room's TURN credentials back (not on shutdown: a connected phone and game
-  // carry on without the server, perhaps through TURN, until the credentials expire).
-  const remove = (room: Room, reason: string, revoke = true) => {
+  // revokeIce: give the room's TURN credentials back (see the top).
+  const remove = (room: Room, reason: string, revokeIce = true) => {
     rooms.delete(room.code);
-    if (revoke) for (const servers of room.issued) void ice?.revoke?.(servers).catch((error: unknown) => warn('could not revoke TURN credentials.', error));
-    room.issued = [];
+    if (revokeIce) { revoke(room.host); revoke(room.phone); }
     for (const s of [room.host, room.phone]) {
       s.stream?.write(event({ type: 'closed', reason }));
       endStream(s);
@@ -208,9 +220,9 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, max
     do code = String(randomInt(0, 1_000_000)).padStart(6, '0'); while (rooms.has(code));
     const t = now();
     const owner = token();
-    const room: Room = { code, created: t, host: side(t, owner), phone: side(t, null), issued: [] };
+    const room: Room = { code, created: t, host: side(t, owner), phone: side(t, null) };
     rooms.set(code, room);
-    json(res, 201, { code, token: owner, iceServers: await issue(room) } satisfies CreatedRoom);
+    json(res, 201, { code, token: owner, iceServers: await issue(room, room.host) } satisfies CreatedRoom);
   }
 
   async function join(room: Room, body: Record<string, unknown>, res: ServerResponse) {
@@ -219,12 +231,13 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, max
     if (!owner || body.token !== owner) {
       if (phonePresent(room)) throw new HttpError(409, 'Another phone is already connected to that game.');
       endStream(phone);
+      revoke(phone);
       owner = token();
       Object.assign(phone, side(now(), owner));
     }
     phone.seen = now();
     phone.session = typeof body.session === 'string' ? body.session.slice(0, 64) : '';
-    json(res, 200, { token: owner, iceServers: await issue(room) } satisfies JoinedRoom);
+    json(res, 200, { token: owner, iceServers: await issue(room, phone) } satisfies JoinedRoom);
   }
 
   function events(room: Room, owner: string | null, req: IncomingMessage, res: ServerResponse) {
@@ -277,6 +290,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, max
     // A page that joined since (a reload) keeps its place.
     else if (!room.phone.session || body.session === room.phone.session) {
       endStream(room.phone);
+      revoke(room.phone);
       Object.assign(room.phone, side(now(), null));
       deliver(room.host, { type: 'peer', present: false, left: true });
     }
@@ -319,7 +333,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, max
     const t = now();
     for (const room of rooms.values()) {
       if (t - room.created > MAX_AGE_MS) remove(room, 'This pairing expired. Pair again.');
-      else if (!room.host.stream && t - room.host.seen > HOST_GRACE_MS) remove(room, 'The game closed the pairing.');
+      else if (!room.host.stream && t - room.host.seen > HOST_GRACE_MS) remove(room, 'The game closed the pairing.', false);
     }
   }
   const sweeper = setInterval(sweep, SWEEP_MS);
@@ -335,6 +349,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, ice, max
     rooms,
     /** Ends every room and stops the timers. */
     close() {
+      stopped = true;
       clearInterval(sweeper);
       clearInterval(heartbeat);
       for (const room of [...rooms.values()]) remove(room, 'The pairing server stopped.', false);
