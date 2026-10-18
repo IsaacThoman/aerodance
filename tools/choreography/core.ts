@@ -497,8 +497,7 @@ export function importMotion(
               x: j[0],
               y: j[1],
               z: j[2],
-              visibility: null,
-              presence: null,
+              confidence: null,
             };
           }),
         };
@@ -853,8 +852,7 @@ export function compileProject(
             x: j.x + (right.landmarks[i].x - j.x) * alpha,
             y: j.y + (right.landmarks[i].y - j.y) * alpha,
             z: j.z + (right.landmarks[i].z - j.z) * alpha,
-            visibility: null,
-            presence: null,
+            confidence: null,
           })),
         };
         const index = s.poses.findIndex((v) => v.playerId === playerId),
@@ -1568,8 +1566,7 @@ export function interpolateTrack(project: ProjectV2, assets: StudioAssets, playe
           x: j.x + (right.landmarks[i].x - j.x) * alpha,
           y: j.y + (right.landmarks[i].y - j.y) * alpha,
           z: j.z + (right.landmarks[i].z - j.z) * alpha,
-          visibility: null,
-          presence: null,
+          confidence: null,
         })),
       });
       s.quality.push({

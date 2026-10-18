@@ -33,8 +33,7 @@ const pose = (id: number): Pose => ({
     x: id === 0 ? 0.75 : 0.25,
     y: i < 23 ? 0.4 : 0.8,
     z: 0,
-    visibility: 1,
-    presence: 1,
+    confidence: 1,
   })),
 });
 const take = (source = "choreography"): Take => ({
@@ -478,6 +477,7 @@ test("capture payload limits use compact bytes rather than storage indentation",
   const takeId = takeIdOf(await capture.json()), records = webcamRecords(1);
   for (const pose of records[0].record.poses) for (const joint of pose.landmarks)
     Object.assign(joint, { x: -0.0000012345678901234567, y: -0.0000012345678901234567, z: -0.0000012345678901234567,
+      // Older clients sent visibility and presence; both are accepted and combined.
       visibility: 0.0000012345678901234567, presence: 0.0000012345678901234567 });
   assert.ok(Buffer.byteLength(JSON.stringify(records[0].record)) < 16384);
   assert.ok(Buffer.byteLength(JSON.stringify(records[0].record, null, 2)) > 16384);

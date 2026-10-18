@@ -39,7 +39,7 @@ const point = (landmarks: readonly Landmark[], end: LimbEnd) => {
 
 /** Live joints are usable when confident; unknown (null) confidence is trusted. */
 export const liveUsable = (landmarks: readonly Landmark[]) => landmarks.map((j) => {
-  const c = j.visibility === null || j.presence === null ? null : Math.min(j.visibility, j.presence);
+  const c = j.confidence;
   return c === null || c >= MIN_CONFIDENCE;
 });
 

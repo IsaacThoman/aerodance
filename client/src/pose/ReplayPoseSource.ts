@@ -56,7 +56,7 @@ export interface ReplayPoseSourceOptions {
 
 /** A relaxed standing pose centred at image x = cx (unmirrored: the person's left is image right). */
 export function standingPose(cx: number): Landmark[] {
-  const at = (dx: number, y: number): Landmark => ({ x: cx + dx, y, z: 0, visibility: 0.99, presence: 0.99 });
+  const at = (dx: number, y: number): Landmark => ({ x: cx + dx, y, z: 0, confidence: 0.99 });
   const lm: Landmark[] = [];
   lm[0] = at(0, 0.2);
   ([[1, 0.012], [2, 0.02], [3, 0.028]] as const).forEach(([i, dx]) => { lm[i] = at(dx, 0.19); lm[i + 3] = at(-dx, 0.19); });

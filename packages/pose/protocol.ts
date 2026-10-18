@@ -33,7 +33,7 @@ export function assertProtocolRecord(record: unknown): asserts record is Protoco
       if (!isObject(pose) || !integer(pose.playerId) || pose.playerId >= playerCount || pose.playerId <= lastId) throw Error('Invalid player ID/order');
       lastId = pose.playerId;
       if (!isArray(pose.landmarks) || pose.landmarks.length !== 33) throw Error('Expected 33 landmarks');
-      for (const p of pose.landmarks) if (!isObject(p) || ![p.x, p.y, p.z].every(Number.isFinite) || !score(p.visibility) || !score(p.presence)) throw Error('Invalid landmark');
+      for (const p of pose.landmarks) if (!isObject(p) || ![p.x, p.y, p.z].every(Number.isFinite) || !score(p.confidence)) throw Error('Invalid landmark');
     }
   } else throw Error('Unknown record type');
 }

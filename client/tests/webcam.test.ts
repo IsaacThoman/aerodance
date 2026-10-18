@@ -21,7 +21,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 type WorkerReply = DistributiveOmit<PoseWorkerResponse, 'sessionId'>;
 // What MediaPipe would report for a pose.
 const detected = (landmarks: readonly Landmark[]): NormalizedLandmark[] =>
-  landmarks.map(({ x, y, z, visibility, presence }) => ({ x, y, z, visibility: visibility ?? 0, presence: presence ?? undefined }));
+  landmarks.map(({ x, y, z, confidence }) => ({ x, y, z, visibility: confidence ?? 0, presence: confidence ?? undefined }));
 
 const points = (x: number) => Array.from({ length: 33 }, () => ({ x, y: 0.5, z: 0, visibility: 0.95, presence: 0.95 }));
 test('two-player slots require consecutive evidence and clear immediately on ambiguity', () => {

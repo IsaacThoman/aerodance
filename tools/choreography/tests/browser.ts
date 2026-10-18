@@ -617,8 +617,7 @@ try {
       x,
       y: 0.5,
       z: 0,
-      visibility: 0.9,
-      presence: 0.95,
+      confidence: 0.9,
     })),
   });
   const gapTake = {

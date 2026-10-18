@@ -65,7 +65,7 @@ test('slow drift is measured against the initial stance, not just the previous f
 });
 
 test('missing players, low confidence and feet outside the image reset the hold', () => {
-  const partials: ((p: Pose[]) => Pose[])[] = [p => [p[0]], p => { p[1].landmarks[27].visibility = 0.1; return p; }, p => { p[1].landmarks[28].y = 1.1; return p; }];
+  const partials: ((p: Pose[]) => Pose[])[] = [p => [p[0]], p => { p[1].landmarks[27].confidence = 0.1; return p; }, p => { p[1].landmarks[28].y = 1.1; return p; }];
   for (const partial of partials) {
     const { calibration, send, hold } = camera();
     hold(0, 1500);

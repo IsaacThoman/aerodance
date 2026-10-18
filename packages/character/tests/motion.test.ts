@@ -50,7 +50,7 @@ function meshBounds(model: Object3D, prefix: string) {
   return bounds;
 }
 function standingPose(): Pose {
-  const landmarks = Array.from({ length: 33 }, () => ({ x: .5, y: .2, z: 0, visibility: 1, presence: 1 }));
+  const landmarks = Array.from({ length: 33 }, () => ({ x: .5, y: .2, z: 0, confidence: 1 }));
   for (const [i, x, y] of [[11,.56,.3],[12,.44,.3],[23,.56,.55],[24,.44,.55],
     [15,.67,.3],[16,.33,.3],[27,.56,.9],[28,.44,.9]]) Object.assign(landmarks[i], { x, y });
   return { playerId: 0, landmarks };

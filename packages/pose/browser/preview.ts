@@ -18,7 +18,7 @@ export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoE
       g.strokeStyle = pose.playerId === 0 ? '#7dffff' : '#ffdc70'; g.lineWidth = 2;
       for (const [a, b] of CONNECTIONS) {
         const p = pose.landmarks[a], q = pose.landmarks[b];
-        if (Math.min(p.visibility ?? 0, p.presence ?? 0, q.visibility ?? 0, q.presence ?? 0) < 0.5) continue;
+        if (Math.min(p.confidence ?? 0, q.confidence ?? 0) < 0.5) continue;
         g.beginPath(); g.moveTo(dx + (1 - p.x) * dw, dy + p.y * dh); g.lineTo(dx + (1 - q.x) * dw, dy + q.y * dh); g.stroke();
       }
     }

@@ -38,8 +38,7 @@ const pose = (playerId: number, x = 0.2): Pose => ({
     x: x + (i % 2) * 0.02,
     y: i < 11 ? 0.15 : i < 23 ? 0.4 : i < 27 ? 0.6 : 0.9,
     z: 0,
-    visibility: 0.9,
-    presence: 0.95,
+    confidence: 0.9,
   })),
 });
 test('webcam take timing follows frames despite variable inference latency and retains model provenance', () => {
@@ -138,7 +137,7 @@ test("pose edit is reversible, preserves measured confidence and needs review", 
   const data = compileProject(edited, takes),
     s = sampleAt(data, 500);
   assert.equal(s.poses[0].landmarks[15].x, 0.44);
-  assert.equal(s.poses[0].landmarks[15].visibility, 0.9);
+  assert.equal(s.poses[0].landmarks[15].confidence, 0.9);
   assert.equal(s.quality[0].scoreEligible[15], false);
   assert.equal(JSON.stringify(take), raw);
   edited.operationCursor = 0;
@@ -219,8 +218,7 @@ test("legacy migration keeps both original confidence fields unknown", async () 
     ),
   };
   const take = importMotion(legacy, "demo", "demo-take");
-  assert.equal(take.samples[0].poses[0].landmarks[0].visibility, null);
-  assert.equal(take.samples[0].poses[0].landmarks[0].presence, null);
+  assert.equal(take.samples[0].poses[0].landmarks[0].confidence, null);
   assert.equal(take.samples[1].takeTimeMs, legacy.times[1] * 1000);
   assert.ok(take.samples[0].legacyConfidence?.[0].length === 33);
 });
@@ -289,7 +287,7 @@ test("gap repair requires bounded endpoints and never invents measured confidenc
   const data = compileProject(edited, takes),
     s = sampleAt(data, 500);
   assert.equal(s.poses[0].playerId, 0);
-  assert.equal(s.poses[0].landmarks[0].visibility, null);
+  assert.equal(s.poses[0].landmarks[0].confidence, null);
   assert.ok(s.quality[0].landmarkOrigins.every((v) => v === "gap-repaired"));
   assert.ok(s.quality[0].scoreEligible.every((v) => !v));
   const unbounded = appendOperation(p, {
@@ -332,8 +330,8 @@ test("grouped keyframes translate points together, preserve confidence and undo 
       ) < 1e-6,
     );
     assert.equal(
-      frame.poses[0].landmarks[i].visibility,
-      original.poses[0].landmarks[i].visibility,
+      frame.poses[0].landmarks[i].confidence,
+      original.poses[0].landmarks[i].confidence,
     );
     assert.equal(frame.quality[0].scoreEligible[i], false);
   }
@@ -483,7 +481,7 @@ test("interpolation fills short and long bounded gaps, preserves existing poses,
   assert.ok(q.landmarkOrigins.every((v) => v === "gap-repaired"));
   assert.ok(q.scoreEligible.every((v) => !v));
   assert.equal(
-    sampleSnapshot(data.samples, 1000).poses[0].landmarks[0].visibility,
+    sampleSnapshot(data.samples, 1000).poses[0].landmarks[0].confidence,
     null,
   );
   assert.deepEqual(

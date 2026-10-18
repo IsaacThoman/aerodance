@@ -19,7 +19,7 @@ export function bundleFixture(): BundleFixture {
     rights:{audio:{license:'test',attribution:''},choreography:{license:'test',attribution:''}},
     createdAt:'2026-10-10T00:00:00Z',publishedAt:'2026-10-10T00:00:00Z',build:{compilerVersion:'test',projectRevision:1},
   };
-  const poses = [0,1].map((playerId): Pose => ({playerId,landmarks:Array.from({length:33},(_,i)=>({x:.3+playerId*.4,y:i<23?.3:.7,z:0,visibility:.9,presence:.8}))}));
+  const poses = [0,1].map((playerId): Pose => ({playerId,landmarks:Array.from({length:33},(_,i)=>({x:.3+playerId*.4,y:i<23?.3:.7,z:0,confidence:.8}))}));
   const choreography: BundleFixture['choreography'] = {
     schema:'aerodance.choreography',schemaVersion:1,songId:song.songId,durationMs:1000,playableStartMs:100,playableEndMs:900,
     coordinates:{kind:'mediapipe-image',landmarkCount:33,ordering:'mediapipe-pose-33',xAxis:'right',yAxis:'down',zAxis:'away-from-camera',mirrored:false,depthUnit:'relative-image-width'},

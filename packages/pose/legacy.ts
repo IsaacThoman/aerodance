@@ -60,7 +60,7 @@ export function migrateLegacyMotion(input: unknown): LegacyMigratedTake {
   const data = input;
   const samples = data.times.map((time, i): LegacyTakeSample => {
     const legacyConfidence = data.poses[i].map(points => points.map(j => j[3]));
-    const poses = data.poses[i].map((points, playerId) => ({ playerId, landmarks: points.map(([x,y,z]) => ({ x,y,z,visibility:null,presence:null })) }));
+    const poses = data.poses[i].map((points, playerId) => ({ playerId, landmarks: points.map(([x,y,z]) => ({ x,y,z,confidence:null })) }));
     assertPoses(poses);
     return { takeTimeMs: time * 1000, poses, quality: qualityFor(poses), legacyConfidence };
   });

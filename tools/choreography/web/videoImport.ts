@@ -1,6 +1,6 @@
 import { ASSET_PATH, MEDIAPIPE_VERSION, poseModel } from '../../../packages/pose/browser/models.ts';
 import type { PoseModel } from '../../../packages/pose/browser/models.ts';
-import { assignPlayerSlots, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
+import { assignPlayerSlots, detectedConfidence, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
 import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
 import type { PoseDelegate, PoseRunningMode, PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { reliableBodyPose } from '../../../packages/character/calibration.ts';
@@ -77,7 +77,7 @@ export function* sampleTimes(durationMs: number, start = 0, rate = DEFAULT_SAMPL
   for (let k = 0; k < Math.ceil(durationMs * rate / 1000); k++) yield start + (k + .5) / rate;
 }
 
-const confident = (p: DetectedLandmark | undefined) => Math.min(p?.visibility ?? 0, p?.presence ?? 0) >= .5;
+const confident = (p: DetectedLandmark | undefined) => (p ? detectedConfidence(p) ?? 0 : 0) >= .5;
 export function videoRegionCrop(detections: readonly (readonly DetectedLandmark[])[], playerId: number, width: number, height: number): Crop {
   // Small dancers in portrait footage need a vertical crop as well as a side
   // crop. Use reliable detections to locate the common dancing area.
@@ -111,7 +111,7 @@ export function videoCalibrationPreview(detections: readonly (readonly DetectedL
   const accepted = assignPlayerSlots(detections, 2).filter(reliableBodyPose);
   const detectedPoses = detections.flatMap((points): DetectedPose[] => {
     const landmarks: Landmark[] = points.map(p => ({ x: p.x, y: p.y, z: p.z,
-      visibility: p.visibility ?? null, presence: p.presence ?? null }));
+      confidence: detectedConfidence(p) }));
     try { validatePoses([{ playerId: 0, landmarks }]); } catch { return []; }
     const x = (landmarks[23].x + landmarks[24].x) / 2;
     const playerId = x < .5 ? 1 : 0;
@@ -311,7 +311,7 @@ export class VideoImporter {
       // Replace candidates only in the searched region, retaining the other
       // dancer and its original coordinates and confidence.
       detections = detections.filter(p => ((p[23].x + p[24].x) / 2 < .5 ? 1 : 0) !== id);
-      detections.push(candidate.landmarks);
+      detections.push(candidate.landmarks.map(({ confidence, ...p }) => ({ ...p, visibility: confidence, presence: confidence })));
     }
     return detections;
   }

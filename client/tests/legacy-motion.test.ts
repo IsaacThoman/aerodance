@@ -10,7 +10,7 @@ test('legacy migration preserves timing, IDs, out-of-image coordinates and combi
   assert.equal(validateMotionTake(take),take);
   assert.equal(take.samples[1].takeTimeMs,500);
   assert.deepEqual(take.samples[0].poses.map(p=>p.playerId),[0,1]);
-  assert.deepEqual(take.samples[0].poses[1].landmarks[0],{x:1.1,y:.5,z:-.2,visibility:null,presence:null});
+  assert.deepEqual(take.samples[0].poses[1].landmarks[0],{x:1.1,y:.5,z:-.2,confidence:null});
   assert.equal(take.samples[0].legacyConfidence[1][0],.75);
   assert.ok(take.samples[0].quality.every(q=>q.scoreEligible.every(v=>!v)));
   assert.equal(take.provenance.source.sha256,'source'); assert.equal(data.version,1);
@@ -28,6 +28,6 @@ test('committed demo is a migrated object take, with all legacy scores retained'
   assert.equal(data.samples.length,420);
   for (const sample of data.samples) {
     assert.equal(sample.legacyConfidence?.length,2);
-    for (const pose of sample.poses) assert.ok(pose.landmarks.every(j=>j.visibility===null&&j.presence===null));
+    for (const pose of sample.poses) assert.ok(pose.landmarks.every(j=>j.confidence===null));
   }
 });

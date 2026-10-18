@@ -120,19 +120,11 @@ export default function PoseInspector({ project, busy, workspace, editor }: Pose
         </div>
         <div className="confidence">
           <span>
-            Visibility{" "}
+            Confidence{" "}
             <strong>
-              {selectedJoint?.visibility === null
+              {selectedJoint?.confidence === null
                 ? "unknown"
-                : selectedJoint?.visibility?.toFixed(2) || "—"}
-            </strong>
-          </span>
-          <span>
-            Presence{" "}
-            <strong>
-              {selectedJoint?.presence === null
-                ? "unknown"
-                : selectedJoint?.presence?.toFixed(2) || "—"}
+                : selectedJoint?.confidence?.toFixed(2) || "—"}
             </strong>
           </span>
         </div>

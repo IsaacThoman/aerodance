@@ -57,7 +57,7 @@ test('rejects corrupted audio, missing checksums, revision mismatches and catalo
 });
 test('validates file schemas, bounds, calibration, quality and safe relative paths',()=>{
   for (const path of ['../x','/x','a//b','https://example.com/a','a?b','a\\b','%2e%2e/x','./x']) assert.throws(()=>validateBundlePath(path));
-  const mutations: ((b: BundleFixture) => unknown)[] = [b=>b.choreography.songId='other',b=>b.song.playableEndMs=1100,b=>b.choreography.tracks[1].playerId=0,b=>b.choreography.samples[0].poses[0].landmarks[0].visibility=2,b=>b.choreography.samples[0].quality=[],b=>b.choreography.tracks[0].calibration.torsoLength=0];
+  const mutations: ((b: BundleFixture) => unknown)[] = [b=>b.choreography.songId='other',b=>b.song.playableEndMs=1100,b=>b.choreography.tracks[1].playerId=0,b=>b.choreography.samples[0].poses[0].landmarks[0].confidence=2,b=>b.choreography.samples[0].quality=[],b=>b.choreography.tracks[0].calibration.torsoLength=0];
   for (const mutate of mutations) {
     const b=bundleFixture();mutate(b);assert.throws(()=>validateSongChoreography(b.song,b.choreography));
   }

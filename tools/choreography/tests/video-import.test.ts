@@ -19,12 +19,13 @@ import type { StudioAssets } from '../core.ts';
 import { takeIdOf } from '../web/api.ts';
 import { baseUrl, fake, found, projectOf, read, takeOf, zipJson } from './helpers.ts';
 
-/** Both a stored landmark and one the pose worker reports. */
-type TestLandmark = Landmark & NormalizedLandmark;
-const pose = (playerId: number, hipY = .6): { playerId: number; landmarks: TestLandmark[] } => ({ playerId, landmarks: Array.from({ length: 33 }, (_, i) => ({
+const pose = (playerId: number, hipY = .6): { playerId: number; landmarks: Landmark[] } => ({ playerId, landmarks: Array.from({ length: 33 }, (_, i) => ({
   x: playerId ? .25 : .75, y: i < 11 ? .15 : i < 23 ? .4 : i < 27 ? hipY : .9,
-  z: 0, visibility: .95, presence: .95,
+  z: 0, confidence: .95,
 })) });
+/** What the pose worker reports for a stored pose. */
+const detected = ({ landmarks }: { landmarks: Landmark[] }): NormalizedLandmark[] =>
+  landmarks.map(({ confidence, ...p }) => ({ ...p, visibility: confidence ?? 0, presence: confidence ?? 0 }));
 function fixture() {
   const model = poseModel('full');
   const metadata = { sourceKind: 'video', takeId: 'video-take', name: 'dance.webm',
@@ -57,24 +58,24 @@ const bitmap: BitmapFn = async (_source, ...crop) => new Bitmap(crop.length === 
   ? { x: crop[0], y: crop[1], width: crop[2], height: crop[3] } : undefined);
 
 test('calibration preview keeps the left dancer visible when calibration confidence is insufficient', () => {
-  const left = pose(0), right = pose(1);
-  left.landmarks[27].visibility = .1;
-  let preview = videoCalibrationPreview([left.landmarks, right.landmarks]);
+  const left = detected(pose(0)), right = detected(pose(1));
+  left[27].visibility = .1;
+  let preview = videoCalibrationPreview([left, right]);
   assert.deepEqual(preview.poses.map(p => p.playerId), [1]);
   assert.deepEqual(preview.detectedPoses.map(p => [p.playerId, p.ready]), [[0, false], [1, true]]);
   assert.match(preview.detectedPoses[0].reason, /shoulders, hips and feet/);
-  left.landmarks[11].visibility = .1;
-  preview = videoCalibrationPreview([left.landmarks, right.landmarks]);
+  left[11].visibility = .1;
+  preview = videoCalibrationPreview([left, right]);
   assert.equal(preview.detectedPoses[0].playerId, 0, 'low torso confidence must not hide P1');
   assert.equal(preview.detectedPoses[0].ready, false);
-  left.landmarks[27].visibility = .95; left.landmarks[11].visibility = .95;
-  preview = videoCalibrationPreview([left.landmarks, right.landmarks]);
+  left[27].visibility = .95; left[11].visibility = .95;
+  preview = videoCalibrationPreview([left, right]);
   assert.deepEqual(preview.detectedPoses.map(p => p.ready), [true, true]);
   assert.deepEqual(preview.poses.map(p => p.playerId), [0, 1]);
 });
 
 test('region recovery focuses on small dancers and restores full-frame XYZ coordinates', () => {
-  const dancer = pose(1).landmarks.map(p => ({ ...p, y: .45 + p.y * .2 }));
+  const dancer = detected(pose(1)).map(p => ({ ...p, y: .45 + p.y * .2 }));
   const crop = videoRegionCrop([dancer], 1, 481, 854);
   assert.equal(crop.x, 0); assert.equal(crop.width, 240);
   assert.ok(crop.y > 0 && crop.height < 400, 'portrait height must be cropped to enlarge the dancer');
@@ -91,10 +92,10 @@ test('missing P1 is recovered without changing P2, file timing or primary video 
   const diagnostics = newDiagnostics(), calls: Call[] = [];
   class MissingLeftWorker extends PoseWorker {
     landmarks(frame: FrameRequest) {
-      if (frame.regionId === undefined) return [pose(1).landmarks];
+      if (frame.regionId === undefined) return [detected(pose(1))];
       assert.ok(frame.bitmap instanceof Bitmap && frame.bitmap.crop);
       const crop = frame.bitmap.crop;
-      return [pose(0).landmarks.map(p => ({ ...p, x: (p.x * 640 - crop.x) / crop.width,
+      return [detected(pose(0)).map(p => ({ ...p, x: (p.x * 640 - crop.x) / crop.width,
         y: (p.y * 480 - crop.y) / crop.height, z: p.z * 640 / crop.width }))];
     }
   }
@@ -127,7 +128,7 @@ test('video takes use file timestamps, preserve absences and validate calibratio
   assert.equal(takeCalibration(take, 0).torsoLength, .6 - .4);
   const missing = structuredClone(take); found(missing.calibrationFrame).poses.pop();
   assert.throws(() => validateTake(missing), /every captured dancer/);
-  const weak = structuredClone(take); found(weak.calibrationFrame).poses[0].landmarks[27].visibility = .1;
+  const weak = structuredClone(take); found(weak.calibrationFrame).poses[0].landmarks[27].confidence = .1;
   assert.throws(() => validateTake(weak), /shoulders, hips and feet/);
   const late = structuredClone(take); found(late.calibrationFrame).mediaTimeMs = 1001;
   assert.throws(() => validateTake(late), /calibration frame time/);
@@ -169,7 +170,7 @@ class PoseWorker implements ImportWorker {
   addEventListener(...[type, listener]: ListenerArgs) { if (type === 'message') this.listeners.add(listener); }
   removeEventListener(...[type, listener]: ListenerArgs) { if (type === 'message') this.listeners.delete(listener); }
   /** The detections a frame yields. */
-  landmarks(_frame: FrameRequest): NormalizedLandmark[][] { return [pose(0).landmarks, pose(1).landmarks]; }
+  landmarks(_frame: FrameRequest): NormalizedLandmark[][] { return [detected(pose(0)), detected(pose(1))]; }
   respond(data: PoseWorkerResponse) {
     const event = new MessageEvent('message', { data });
     for (const listener of [...this.listeners]) listener(event);

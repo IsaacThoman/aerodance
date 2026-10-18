@@ -95,7 +95,7 @@ try {
       await job.process('frame.webm');
       reports.push({ model: model.id, fullFrameCounts, calibrationPlayers: calibration.poses.map(p => p.playerId),
         hipX: calibration.poses.map(p => (p.landmarks[23].x + p.landmarks[24].x) / 2),
-        minBodyConfidence: calibration.poses.map(p => Math.min(...[11, 12, 23, 24, 27, 28].map(i => Math.min(p.landmarks[i].visibility ?? 0, p.landmarks[i].presence ?? 0)))),
+        minBodyConfidence: calibration.poses.map(p => Math.min(...[11, 12, 23, 24, 27, 28].map(i => p.landmarks[i].confidence ?? 0))),
         processedPlayers: records.at(-1)?.poses.map(p => p.playerId),
         ...(calibration.poses.length < 2 ? { probes } : {}) });
       job.abort();

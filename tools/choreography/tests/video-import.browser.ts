@@ -31,7 +31,7 @@ const source: Take = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'orig
   input: { width: 640, height: 480, mirrored: false }, offsetMs: 0, timeScale: 1,
   samples: Array.from({ length: 9 }, (_, i) => ({ takeTimeMs: i * 100, poses: [0, 1].map(playerId => ({ playerId,
     landmarks: Array.from({ length: 33 }, (_, j) => ({ x: playerId ? .25 : .75, y: j < 23 ? .4 : .8,
-      z: 0, visibility: .95, presence: .95 })) })) })) };
+      z: 0, confidence: .95 })) })) })) };
 const original = await store.writeTake('video-browser', source), assets: StudioAssets = new Map([[original.takeId, original]]);
 let p: Project = overwriteTracks(addTake(newProject('video-browser'), original), original, [0, 1], assets);
 for (const dataId of trackDataIds(p)) await store.writeTrack(p.projectId, assets.get(dataId));
