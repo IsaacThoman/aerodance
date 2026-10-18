@@ -20,6 +20,9 @@ export default defineConfig({
   }],
   // The menu dancers import code from packages/character; keep one copy of each runtime.
   resolve: { dedupe: ['react', 'react-dom', 'three', '@react-three/fiber'] },
+  // Only the pose worker imports MediaPipe, and Vite's dependency scan doesn't follow workers:
+  // without this the dev server reloads the page the first time a camera starts.
+  optimizeDeps: { include: ['@mediapipe/tasks-vision'] },
   build: {
     outDir: '../dist',
     emptyOutDir: true,

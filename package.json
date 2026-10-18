@@ -9,6 +9,7 @@
     "test": "node --test client/tests/*.test.ts packages/*/tests/*.test.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "play": "node scripts/play.ts",
     "character:build": "blender -b -t 2 -P packages/character/source/build-character.py",
     "studio:dev": "vite --config tools/choreography/vite.config.ts",
     "studio:build": "vite build --config tools/choreography/vite.config.ts",
