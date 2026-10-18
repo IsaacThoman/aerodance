@@ -6,8 +6,9 @@ import type { SongBundle } from '../../../packages/pose/song.ts';
 
 /*
  * The pose input the game plays with, whatever produces it: the webcam
- * (PoseSourceController) or a replay (ReplayPoseSource). GameSession, the recorder and the
- * game's screens only use this contract, so both sources are handled the same way.
+ * (PoseSourceController), a paired phone (PhonePoseSource) or a replay (ReplayPoseSource).
+ * GameSession, the recorder and the game's screens only use this contract, so every source
+ * is handled the same way.
  */
 
 /** A tracked pose record: the webcam's capture record, or a protocol record replayed. */
@@ -19,7 +20,8 @@ export type PoseSourceEvent = PoseRecordEvent<LivePoseRecord> | SourceStoppedEve
 export interface PoseInputView {
   status: WebcamStatus;
   message: string;
-  sourceKind: 'webcam' | 'replay';
+  /** A live camera (this computer's or a paired phone's), or a replay. */
+  sourceKind: 'webcam' | 'phone' | 'replay';
   /** The latest tracked poses, or null while nobody is tracked. */
   snapshot: { poses: readonly Pose[] } | null;
   configuring: boolean;
@@ -41,7 +43,7 @@ export interface SongClock {
 
 export interface PoseSource {
   readonly view: PoseInputView;
-  /** The camera feed, for the setup preview (webcam only). */
+  /** The camera feed, for the setup preview (this computer's webcam only). */
   readonly video?: HTMLVideoElement | null;
   subscribeRecords(listener: (event: PoseSourceEvent) => void): () => void;
   /** Sources that play back poses follow the song; the webcam ignores it. */

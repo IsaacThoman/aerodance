@@ -3,4 +3,17 @@ services:
     build: .
     expose:
       - "3000"
+    depends_on:
+      - pairing
+    restart: unless-stopped
+  # Phone pairing: nginx in `app` proxies /pair/ to it. Set PAIRING_ICE_SERVERS (a JSON array
+  # of RTCIceServer entries) to hand phones and games a TURN server.
+  pairing:
+    build:
+      context: .
+      target: pairing
+    expose:
+      - "3001"
+    environment:
+      - PAIRING_ICE_SERVERS
     restart: unless-stopped

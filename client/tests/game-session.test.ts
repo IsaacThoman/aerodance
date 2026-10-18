@@ -113,6 +113,11 @@ test('the ready check waits for every player, then counts down into the song', a
   assert.equal(session.phase, 'playing');
 });
 
+test('a paired phone calibrates like a webcam; only replays skip calibration', async () => {
+  assert.equal((await setup(1, { sourceKind: 'phone' })).session.phase, 'calibrating');
+  assert.equal((await setup(1, { sourceKind: 'replay' })).session.phase, 'ready');
+});
+
 test('webcam sessions require a shared still hold and start countdown immediately after calibration', async () => {
   const { session, source, step, player } = await setup(2, { sourceKind: 'webcam' });
   assert.equal(session.phase, 'calibrating');

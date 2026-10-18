@@ -4,10 +4,22 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { discoverSongs, songCatalogMiddleware } from './scripts/songCatalog.ts';
 import { poseAssetsPlugin } from './scripts/poseAssets.ts';
+import { createPairingServer } from './packages/pairing/server.ts';
+import type { Connect } from 'vite';
+
+// Phone pairing (packages/pairing/server.ts) at /pair, as nginx proxies it in production.
+const pairing = createPairingServer();
+const pairingMiddleware: Connect.NextHandleFunction = (req, res, next) => {
+  pairing.handle(req, res).then((handled) => { if (!handled) next(); }, next);
+};
 
 export default defineConfig({
   root: 'client',
   plugins: [react(), poseAssetsPlugin(), {
+    name: 'phone-pairing',
+    configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); },
+    configurePreviewServer(server) { server.middlewares.use('/pair', pairingMiddleware); },
+  }, {
     name: 'song-discovery',
     configureServer(server) {
       server.middlewares.use('/songs/manifest.json', songCatalogMiddleware(fileURLToPath(new URL('./client/public/songs/', import.meta.url))));
@@ -26,6 +38,13 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    // The game, and the page a phone opens to be its camera (client/src/phone/).
+    rolldownOptions: {
+      input: {
+        main: fileURLToPath(new URL('./client/index.html', import.meta.url)),
+        phone: fileURLToPath(new URL('./client/phone/index.html', import.meta.url)),
+      },
+    },
   },
   server: {
     port: 5173,

@@ -31,3 +31,17 @@ body,
   height: 100% !important;
   image-rendering: pixelated;
 }
+
+/* The phone camera page (client/phone/) fills the phone's screen, either way up. */
+.canvas-frame.phone {
+  width: 100vw;
+  height: 100dvh;
+  aspect-ratio: auto;
+}
+
+.canvas-frame.phone canvas {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}

@@ -9,13 +9,14 @@ import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import { CameraSetup, cameraWidgets, drawCameraPicker } from '../connect/cameraSetup.ts';
 import type { CameraWidget } from '../connect/cameraSetup.ts';
+import { drawPairing } from '../connect/pairing.ts';
 import { COUNTDOWN_MS, READY_HOLD_MS } from './GameSession.ts';
 import type { GamePhase, GameSession, Readiness } from './GameSession.ts';
 import { WEBCAM_STILL_MS } from './webcamCalibration.ts';
 import type { CalibrationPlayerStatus, CalibrationStatus } from './webcamCalibration.ts';
 import type { JudgementEvent, PlayerResult, WindowJudgement } from '../../../packages/score/scorer.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
-import type { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
+import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import {
   GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
@@ -26,9 +27,9 @@ import {
  * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers
  * and the players' live characters):
  *
- *   calibrating webcam setup: the preview, which starts the camera when pressed, over the
- *              camera picker (shared with Connect Client); every player holds still
- *              together for 2.5 seconds
+ *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
+ *              pressed, over the camera picker (shared with Connect Client); every player
+ *              holds still together for 2.5 seconds
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
@@ -38,7 +39,7 @@ import {
  *   results    hands the overlay to ResultsScreen
  *
  * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms and -game-scores for tests,
- * and while calibrating -game-calibration-* and the camera's -game-camera-status / -model / -message.
+ * and while calibrating -game-calibration-* and the camera's -game-camera-status / -model / -message / -pairing.
  *
  * <GameScreen visible session={GameSession} camera={source} onQuit onRetry />
  */
@@ -47,8 +48,8 @@ export interface GameScreenProps {
   visible?: boolean;
   blocked?: boolean;
   session: GameSession | null;
-  /** The webcam input, set up from the calibration screen. */
-  camera: PoseSourceController;
+  /** The camera (webcam or phone), set up from the calibration screen. */
+  camera: CameraInput;
   onQuit?: () => void;
   onRetry?: () => void;
 }
@@ -114,8 +115,10 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   drawGlassPanel(g, card, 30);
   text(g, 'Stand still for 2.5 seconds', mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
 
-  drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '');
-  if (!source.video) drawStartCamera(g, camera, s);
+  drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
+  const pairing = camera.pairing();
+  if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
+  else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
   // Each player's status under their lane label (the setup preview is mirrored: player 1 is
   // on its left-hand side).
   const live = connection.status === 'connected';
@@ -141,7 +144,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     return;
   }
   const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
-  const message = !live ? 'Start the camera, then step back until it can see your feet.'
+  const message = !live ? (camera.phone() ? 'Pair your phone and prop it up, then step back until it can see your feet.' : 'Start the camera, then step back until it can see your feet.')
     : calibration.complete ? 'Calibrated! Starting…'
     : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
     : 'The countdown starts automatically once everyone is calibrated.';
@@ -154,8 +157,9 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   const preview = GAME_CALIBRATION_PREVIEW;
   const cx = preview.x + preview.w / 2;
   const cy = preview.y + preview.h / 2;
+  const phone = camera.phone();
   if (camera.active()) {
-    text(g, 'Starting camera…', cx, cy, { size: 24, weight: 700, align: 'center', color: '#e6f8ff' });
+    text(g, phone ? 'Connecting to your phone…' : 'Starting camera…', cx, cy, { size: 24, weight: 700, align: 'center', color: '#e6f8ff' });
     return;
   }
   const failed = camera.failed();
@@ -169,10 +173,12 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.lineWidth = 6;
   g.lineCap = 'round';
   g.lineJoin = 'round';
-  ICONS.camera(g, cx, top - 24, 100);
+  (phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
   g.restore();
-  text(g, failed ? 'Try again' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
+  text(g, failed ? 'Try again' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
+  // The phone is the camera picker's last entry, which is easy to miss.
+  else if (!phone) text(g, 'No webcam? Choose Phone camera with the arrows below.', cx, preview.y + preview.h - 30, { size: 18, align: 'center', color: 'rgba(230, 248, 255, 0.75)' });
 }
 
 export default function GameScreen({ visible = false, blocked = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
@@ -254,10 +260,11 @@ export default function GameScreen({ visible = false, blocked = false, session, 
         gameScores: scores.join('|'),
         gameCalibrationProgress: calibration ? calibration.progress.toFixed(3) : '',
         gameCalibrationPlayers: calibration?.players.join('|') ?? '',
-        gameCalibrationPreview: calibration ? String(!!p.source.video) : '',
+        gameCalibrationPreview: calibration ? String(!!p.source.video || !!view.frame) : '',
         gameCameraStatus: calibration ? view.status : '',
         gameCameraModel: calibration ? view.model : '',
         gameCameraMessage: calibration ? camera.message() : '',
+        gamePairing: calibration ? camera.pairing()?.code ?? '' : '',
       };
       const json = JSON.stringify(report);
       if (json !== st.reported) { st.reported = json; Object.assign(gl.domElement.dataset, report); }
@@ -371,7 +378,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
 
   useEffect(() => {
     if (!visible) {
-      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage']) delete gl.domElement.dataset[key];
+      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage', 'gamePairing']) delete gl.domElement.dataset[key];
       st.reported = '';
     }
     ui.invalidate();
