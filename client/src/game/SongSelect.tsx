@@ -109,11 +109,12 @@ export default function SongSelect({
   const pageSongs = () => songs().slice(st.page * ROWS.perPage, (st.page + 1) * ROWS.perPage);
   const live = () => props.current.visible && !props.current.blocked && st.alpha > 0.3 && st.screen === st.next;
   const songWidget = (song: CatalogSong, i: number): SongWidget => ({ id: `song-${song.id}`, song, rect: rowRect(i), primary: i === 0 });
-  // The keyboard cursor starts over on the next screen; back on the list, on the song it opened.
-  const go = (screen: SongScreen) => {
+  // The keyboard cursor starts over on the next screen; back on the list (also by Escape), on
+  // the song it opened.
+  const go = (screen: SongScreen, key = ui.keyboard) => {
     if (screen === st.next) return;
     st.next = screen;
-    if (ui.pointerKind !== 'key') return;
+    if (!key) return;
     const i = screen === 'list' ? pageSongs().findIndex((song) => song.id === st.chosen) : -1;
     ui.focus(i >= 0 ? songWidget(pageSongs()[i], i) : null);
   };
@@ -203,8 +204,8 @@ export default function SongSelect({
       });
   };
 
-  const back = () => {
-    if (st.screen === 'preview') { closePreview(); go('list'); return; }
+  const back = (key?: boolean) => {
+    if (st.screen === 'preview') { closePreview(); go('list', key); return; }
     st.loading?.controller.abort();
     st.loading = null;
     props.current.onBack?.();
@@ -244,7 +245,7 @@ export default function SongSelect({
         st.page = Math.min(pages() - 1, Math.max(0, st.page + (wdg.id === 'page-up' ? -1 : 1)));
         // The keyboard cursor turns the page with it, onto the first song.
         const first = pageSongs()[0];
-        if (s.pointerKind === 'key' && first) s.focus(songWidget(first, 0));
+        if (s.keyboard && first) s.focus(songWidget(first, 0));
       }
       else if (wdg.id === 'retry') fetchCatalog();
       else if (wdg.id === 'dance') dance();
@@ -253,7 +254,7 @@ export default function SongSelect({
     onKey: (e, s) => {
       // A held key shouldn't run through screens.
       if (!live() || e.repeat) return;
-      if (e.key === 'Escape') back();
+      if (e.key === 'Escape') back(true);
       else return;
       e.preventDefault();
       s.invalidate();

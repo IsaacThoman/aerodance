@@ -69,7 +69,7 @@ const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
   ],
   players: [
     { id: 'back', circle: BACK },
-    { id: 'one', rect: ONE_PLAYER, primary: true },
+    { id: 'one', rect: ONE_PLAYER },
     { id: 'two', rect: TWO_PLAYERS },
   ],
   settings: [
@@ -167,6 +167,8 @@ interface MenuState {
   /** Showing, and where it is going (they differ during a swap). */
   screen: MenuScreen; next: MenuScreen; swap: number;
   drawnSound: SoundSettings | null;
+  /** The player count picked last: the players screen's primary button. */
+  players: 'one' | 'two';
   reported?: MenuScreen;
 }
 
@@ -174,16 +176,18 @@ export default function MainMenu({
   visible = true, blocked = false, initialScreen = 'main', onStart, onSettingsOpen, onScreenChange, sound, onSoundChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
-  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null });
+  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, players: 'one' });
   const props = useRef<MainMenuProps>({ sound });
   props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
 
   const m = menu.current;
-  const go = (screen: MenuScreen | undefined) => {
+  // A keyboard cursor starts over on the next screen, or going back (also by Escape), on the
+  // button it left by.
+  const go = (screen: MenuScreen | undefined, key = ui.keyboard) => {
     if (!screen) return;
     if (screen === m.next) return;
-    // A keyboard cursor starts over on the next screen, or going back, on the button it left by.
-    if (ui.pointerKind === 'key') ui.focus(WIDGETS[screen].find((wdg) => wdg.id === OPENER[m.next]) ?? null);
+    const opener = WIDGETS[screen].find((wdg) => wdg.id === OPENER[m.next]);
+    if (key) ui.focus(opener ?? null);
     m.next = screen;
   };
   const live = () => !!props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
@@ -197,7 +201,7 @@ export default function MainMenu({
     // Input goes to the visible screen as soon as it is fading in (never mid swap-out).
     active: live,
     keyNav: true,
-    widgets: () => WIDGETS[m.screen],
+    widgets: () => (m.screen === 'players' ? WIDGETS.players.map((wdg) => ({ ...wdg, primary: wdg.id === m.players })) : WIDGETS[m.screen]),
     onDrag: (wdg, p) => {
       if (!wdg.slider) return;
       const patch: Partial<SoundSettings> = {};
@@ -224,14 +228,14 @@ export default function MainMenu({
         case 'start': go('players'); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
-        case 'one': props.current.onStart?.(1); break;
-        case 'two': props.current.onStart?.(2); break;
+        case 'one': m.players = 'one'; props.current.onStart?.(1); break;
+        case 'two': m.players = 'two'; props.current.onStart?.(2); break;
         default:
       }
       s.invalidate();
     },
     onKey: (e, s) => {
-      if (e.key === 'Escape' && !e.repeat && live() && PARENT[m.screen]) { go(PARENT[m.screen]); s.invalidate(); }
+      if (e.key === 'Escape' && !e.repeat && live() && PARENT[m.screen]) { go(PARENT[m.screen], true); s.invalidate(); }
     },
     update: (dt, s) => {
       const shown = !!props.current.visible;

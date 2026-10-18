@@ -196,9 +196,10 @@ export default function GameScreen({ visible = false, blocked = false, session, 
     widgets: (): CameraWidget[] => {
       const ph = phase();
       if (calibrating()) {
-        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
+        // Top to bottom: back, the preview (start camera), the camera picker.
+        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
         if (!camera.active()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW, primary: true });
-        return list;
+        return [...list, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
       }
       if (['ready', 'calibrating', 'loading', 'error'].includes(ph)) {
         const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
@@ -245,7 +246,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       if (session !== st.session || session?.phase !== st.phase) {
         st.session = session;
         st.phase = session?.phase;
-        if (s.pointerKind === 'key') s.focus(null);
+        s.focus(null);
       }
       if (!p.visible || !session) return;
       session.update(performance.now());

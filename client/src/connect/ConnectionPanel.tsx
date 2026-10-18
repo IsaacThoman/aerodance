@@ -48,12 +48,12 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
   const props = useRef({ visible, open, onOpenChange, source, connection });
   props.current = { visible, open, onOpenChange, source, connection };
   // alpha: the whole overlay; k: how far the card is out (it grows from the pill).
-  const st = useRef<{ alpha: number; k: number; drawn: string | null; lastPreview?: number }>({ alpha: 0, k: 0, drawn: null }).current;
+  // refocus: the card closed under the keyboard cursor, which goes back to the pill.
+  const st = useRef<{ alpha: number; k: number; drawn: string | null; lastPreview?: number; refocus?: boolean }>({ alpha: 0, k: 0, drawn: null }).current;
   const [camera] = useState(() => new CameraSetup(() => props.current));
   const close = () => {
+    st.refocus = props.current.visible && ui.keyboard;
     props.current.onOpenChange?.(false);
-    // The keyboard cursor goes back to the pill.
-    if (props.current.visible && ui.pointerKind === 'key') ui.focus({ id: 'pill', rect: PILL });
   };
 
   const ui = useCanvasUI<CameraWidget>({
@@ -66,8 +66,8 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       if (!props.current.open || st.k < 0.5) return [{ id: 'pill', rect: PILL }];
       return [
         { id: 'close', circle: CLOSE },
-        // Start camera / Disconnect is the card's main action (Enter presses it).
-        ...cameraWidgets(CAMERA).map((wdg) => (wdg.id === 'primary' ? { ...wdg, primary: true } : wdg)),
+        // Start camera is the card's main action (Enter presses it); Disconnect isn't.
+        ...cameraWidgets(CAMERA).map((wdg) => (wdg.id === 'primary' ? { ...wdg, primary: !camera.active() } : wdg)),
         { id: 'pill', rect: PILL, nav: false },
       ];
     },
@@ -92,6 +92,11 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 3 : 6);
       if (!p.visible && p.open) close();
       st.k = s.ease(st.k, p.open && p.visible ? 1 : 0, p.open ? 8 : 10);
+      // Once the card is closed (the props catch up a frame or more later).
+      if (st.refocus && !p.open) {
+        st.refocus = false;
+        if (p.visible) s.focus({ id: 'pill', rect: PILL });
+      }
       const { status } = p.connection;
       const ready = p.open && st.k >= 0.5 && st.alpha > 0.3;
       if (p.open && p.source.video && s.time - (st.lastPreview || 0) > 1 / 15) {

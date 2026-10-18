@@ -22,8 +22,10 @@ function shapeOf(wdg: Widget, hover: number): Shape {
   return { x, y: y - hover * 3, w, h, r: h / 2 };
 }
 
-// The ring sits this far outside the widget.
+// The ring sits this far outside the widget, closer round short rows (settings) so it
+// stays clear of the rows beside them.
 const GAP = 8;
+const ROW_GAP = 2;
 // Seconds per turn of the colours.
 const TURN = 12;
 const FILM = ['#9ff5e4', '#9fdcff', '#d6c8ff', '#ffffff', '#9ff5e4', '#9fdcff', '#ffd6f0', '#ffffff', '#9ff5e4'];
@@ -44,7 +46,8 @@ export function updateFocusRing(ring: FocusRing, wdg: Widget | undefined, ui: Ca
 export function drawFocusRing(g: Ctx, ring: FocusRing, ui: CanvasUI) {
   if (!ring.shape || ring.k < 0.005) return;
   const s = ring.shape;
-  const o = { x: s.x - GAP, y: s.y - GAP, w: s.w + GAP * 2, h: s.h + GAP * 2, r: s.r + GAP };
+  const gap = s.h < 60 && s.w > s.h * 2 ? ROW_GAP : GAP;
+  const o = { x: s.x - gap, y: s.y - gap, w: s.w + gap * 2, h: s.h + gap * 2, r: s.r + gap };
   const outline = () => { g.beginPath(); g.roundRect(o.x, o.y, o.w, o.h, Math.min(o.r, o.w / 2, o.h / 2)); };
   g.save();
   g.globalAlpha *= ring.k;
