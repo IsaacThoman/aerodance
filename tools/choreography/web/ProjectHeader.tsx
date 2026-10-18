@@ -1,5 +1,5 @@
 import type { ProjectV2 } from "../core.ts";
-import { projectSummaries, request, responseError } from "./api.ts";
+import { projectSummaries, request, workspace as storage, errorMessage } from "./api.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
@@ -18,10 +18,14 @@ export default function ProjectHeader({ project, studio, workspace, canExport }:
   const { recording, pause, openProject } = workspace;
   async function download(kind: "backup" | "export") {
     await execute(async () => {
-      const p = await saveProject();
-      const response = await fetch(`/api/projects/${p.projectId}/${kind}`);
-      if (!response.ok) throw Error(await responseError(response));
-      const url = URL.createObjectURL(await response.blob()),
+      let p = project;
+      try { p = await saveProject(); }
+      catch (error) {
+        if (kind !== "backup") throw error;
+        studio.setError(`${errorMessage(error)} Backup contains the last saved revision; current unsaved edits are not included.`);
+      }
+      const bytes = await storage.download(p.projectId, kind);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" })),
         a = document.createElement("a");
       a.href = url;
       a.download = `${p.songId}${kind === "backup" ? ".aerodance-project.zip" : `-r${p.revision}.aerodance-song.zip`}`;

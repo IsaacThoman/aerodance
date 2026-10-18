@@ -10,10 +10,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "character:build": "blender -b -t 2 -P packages/character/source/build-character.py",
-    "studio:dev": "concurrently -n studio-api,studio-web \"STUDIO_PORT=8082 node --watch tools/choreography/server/index.ts\" \"vite --config tools/choreography/vite.config.ts\"",
+    "studio:dev": "vite --config tools/choreography/vite.config.ts",
     "studio:build": "vite build --config tools/choreography/vite.config.ts",
-    "studio:start": "node tools/choreography/server/index.ts",
-    "studio:test": "node --test tools/choreography/tests/*.test.ts"
+    "studio:start": "vite preview --config tools/choreography/vite.config.ts",
+    "studio:test": "node --test tools/choreography/tests/*.test.ts",
+    "studio:backup-disk": "node tools/choreography/server/backup.ts"
   },
   "type": "module",
   "dependencies": {

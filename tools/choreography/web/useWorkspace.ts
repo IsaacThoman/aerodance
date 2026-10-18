@@ -73,7 +73,7 @@ export function useWorkspace({ transport, source, connection, studio }: Workspac
     setDraftJoint(null);
   }, [pause]);
   const { addTakeToProject } = studio;
-  /** Adds a new take (as the server returned it) to the project and shows it. */
+  /** Adds a new take (as storage returned it) to the project and shows it. */
   const attachTake = useCallback((value: unknown) => {
     const take = validateTake(value);
     addTakeToProject(take);

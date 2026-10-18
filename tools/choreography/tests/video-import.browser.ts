@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import type { Page } from 'playwright';
-import { createStudio } from '../server/index.ts';
+import { staticStudio, browserStore } from './static-helpers.ts';
 import { newProject, addTake, overwriteTracks, trackDataIds, takeCalibration, validateTake, validateTrackData } from '../core.ts';
 import type { Project, StudioAssets, Take } from '../core.ts';
 import type { ImportWorkerRequest } from '../web/videoImport.ts';
@@ -21,8 +18,14 @@ declare global {
   }
 }
 
-const root = await mkdtemp(path.join(tmpdir(), 'studio-video-browser-'));
-const { app, store } = createStudio({ dataDir: root });
+const { app, dispose } = await staticStudio();
+const server = app.listen(0, '127.0.0.1');
+await new Promise(resolve => server.once('listening', resolve));
+const base = baseUrl(server);
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-accelerated-video-decode'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+await page.goto(base + '/__test__/empty.html');
+const store = browserStore(page);
 // A take stored by an earlier Android-capable editor must still open beside new video takes.
 const source: Take = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'android', name: 'Original take',
   input: { width: 640, height: 480, mirrored: false }, offsetMs: 0, timeScale: 1,
@@ -34,13 +37,7 @@ let p: Project = overwriteTracks(addTake(newProject('video-browser'), original),
 for (const dataId of trackDataIds(p)) await store.writeTrack(p.projectId, assets.get(dataId));
 p = await store.save(p, null);
 const initialTracks = structuredClone(p.tracks);
-const server = app.listen(0, '127.0.0.1');
-await new Promise(resolve => server.once('listening', resolve));
-const base = baseUrl(server);
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-accelerated-video-decode'] });
-let page: Page | undefined;
 try {
-  page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(60000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -142,9 +139,7 @@ try {
   saved.metadata.artist = 'Fixture'; saved.metadata.rights.audio.license = 'CC0'; saved.metadata.rights.choreography.license = 'CC0';
   saved.playableEndMs = found(imported.samples.at(-1)).takeTimeMs;
   saved.alignmentReviewed = true; saved = await store.save(saved, saved.revision);
-  const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
-  assert.equal(exported.status, 200, await exported.clone().text());
-  const choreography = zipJson(readZip(Buffer.from(await exported.arrayBuffer())), `${saved.songId}/choreography.json`);
+  const choreography = zipJson(readZip(await store.download(p.projectId, 'export')), `${saved.songId}/choreography.json`);
   assert.deepEqual(read(choreography, 'tracks', 0, 'calibration'), takeCalibration(imported, 0));
   assert.deepEqual(errors, []);
   console.log(`Video import browser passed: actual Lite/Full calibration and Full inference, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
@@ -160,5 +155,5 @@ try {
   }
   throw error;
 } finally {
-  await browser.close(); await new Promise(resolve => server.close(resolve)); await rm(root, { recursive: true, force: true });
+  await browser.close(); await new Promise(resolve => server.close(resolve)); await dispose();
 }

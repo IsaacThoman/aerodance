@@ -2,14 +2,14 @@ import { useCallback, useRef, useState } from "react";
 import { copy } from "../../../packages/pose/choreography.ts";
 import { addTake, trackDataIds, validateProject, validateTake, validateTrackData } from "../core.ts";
 import type { ProjectSummary, ProjectV2, StudioAssets, Take, TrackData } from "../core.ts";
-import { errorMessage, projectSummaries, request } from "./api.ts";
+import { errorMessage, projectSummaries, request, workspace } from "./api.ts";
 import type { AudioTransport } from "./audio.ts";
 
 export type ProjectChange = ProjectV2 | ((project: ProjectV2) => ProjectV2);
 export type TrackEdit = (project: ProjectV2, assets: StudioAssets) => ProjectV2;
 export type StudioProject = ReturnType<typeof useStudioProject>;
 
-/** Validates a project from the API before it is shown; the server migrates format 1 when opening. */
+/** Validates a project from storage before it is shown; storage migrates format 1 when opening. */
 export function editableProject(value: unknown): ProjectV2 {
   const p = validateProject(copy(value));
   if (p.schemaVersion !== 2) throw Error("Reopen this project to migrate it to project format 2");
@@ -54,7 +54,7 @@ export function useStudioProject(transport: AudioTransport) {
     }
   }, []);
   const refresh = useCallback(async () => setProjects(projectSummaries(await request("/api/projects"))), []);
-  /** Shows a project the server just stored. */
+  /** Shows a project storage just saved. */
   const install = useCallback((p: ProjectV2) => {
     projectRef.current = p;
     dirtyRef.current = false;
@@ -119,9 +119,8 @@ export function useStudioProject(transport: AudioTransport) {
     entries.push(...trackEntries);
     persistedTracks.current = new Set(trackDataIds(p));
     if (p.audio) {
-      const response = await fetch(`/api/projects/${p.projectId}/audio`);
-      if (!response.ok) throw Error("Project audio is unavailable");
-      const decoded = await transport.load(await response.arrayBuffer());
+      const audio = await workspace.audio(p.projectId);
+      const decoded = await transport.load(await audio.arrayBuffer());
       setPeaks(decoded.peaks);
     } else {
       transport.buffer = null;
@@ -157,7 +156,7 @@ export function useStudioProject(transport: AudioTransport) {
       return result;
     });
   };
-  /** Deletes the open project, discarding unsaved edits once the server agrees. */
+  /** Deletes the open project, discarding unsaved edits once storage confirms deletion. */
   const deleteProject = async () => {
     // Wait for outstanding writes without trying to save discarded/invalid edits.
     const wasDirty = dirtyRef.current;

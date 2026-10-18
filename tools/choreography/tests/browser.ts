@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import type { Page } from "playwright";
-import { createStudio } from "../server/index.ts";
+import { staticStudio, browserStore } from "./static-helpers.ts";
 import { readZip } from "../server/zip.ts";
 import { validateProject, validateTake } from "../core.ts";
 import type { ProjectV2 } from "../core.ts";
@@ -17,9 +15,7 @@ declare global {
   interface Window { fakePose: FakePose; }
 }
 
-const dataDir = await mkdtemp(path.join(tmpdir(), "studio-browser-")),
-  { app } = createStudio({ dataDir }),
-  server = app.listen(4175, "127.0.0.1");
+const { app, dispose } = await staticStudio(), server = app.listen(4175, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || undefined,
@@ -91,7 +87,7 @@ function fakeWebcam() {
 }
 /** A project as the studio API returns it, which is always format 2. */
 async function savedProject(page: Page, projectId: string): Promise<ProjectV2> {
-  const p = validateProject(await (await page.request.get(`http://127.0.0.1:4175/api/projects/${projectId}`)).json());
+  const p = validateProject(await browserStore(page).project(projectId));
   assert.ok(p.schemaVersion === 2);
   return p;
 }
@@ -345,10 +341,14 @@ try {
   await page.getByText("Ready for bundle export", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.waitForTimeout(1500);
-  // A fresh browser context has no prior click to unlock saved-project audio.
+  // A separate browser profile starts empty. Import a backup without a click,
+  // then verify saved-project audio loads before any gesture unlocks playback.
   const freshContext = await browser.newContext();
   try {
     const freshPage = await freshContext.newPage();
+    await freshPage.goto("http://127.0.0.1:4175/__test__/empty.html");
+    assert.equal((await browserStore(freshPage).list()).length, 0);
+    await browserStore(freshPage).restore(await browserStore(page).download(await page.getByLabel("Open project").inputValue(), "backup"));
     await freshPage.goto("http://127.0.0.1:4175");
     await freshPage
       .getByRole("heading", { name: "Browser-tested routine", exact: true })
@@ -529,11 +529,7 @@ try {
     saved = await savedProject(page, projectId);
   }
   assert.equal(saved.takes.length, 2);
-  const capture = validateTake(await (
-    await page.request.get(
-      `http://127.0.0.1:4175/api/projects/${projectId}/takes/${saved.takes[1].takeId}`,
-    )
-  ).json());
+  const capture = validateTake(await browserStore(page).read(projectId, "takes", `${saved.takes[1].takeId}.json`));
   assert.equal(
     await page
       .getByRole("button", { name: "Take view", exact: true })
@@ -614,12 +610,7 @@ try {
     await page.getByLabel("Open project").inputValue(),
     projectId,
   );
-  assert.equal(
-    (
-      await page.request.get(`http://127.0.0.1:4175/api/projects/${projectId}`)
-    ).status(),
-    404,
-  );
+  await assert.rejects(browserStore(page).project(projectId), /not found/);
   const gapPose = (playerId: number, x: number) => ({
     playerId,
     landmarks: Array.from({ length: 33 }, () => ({
@@ -709,5 +700,5 @@ try {
   await browser.close();
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
-  await rm(dataDir, { recursive: true, force: true });
+  await dispose();
 }
