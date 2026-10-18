@@ -50,9 +50,13 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
   // alpha: the whole overlay; k: how far the card is out (it grows from the pill).
   const st = useRef<{ alpha: number; k: number; drawn: string | null; lastPreview?: number }>({ alpha: 0, k: 0, drawn: null }).current;
   const [camera] = useState(() => new CameraSetup(() => props.current));
-  const close = () => props.current.onOpenChange?.(false);
+  const close = () => {
+    props.current.onOpenChange?.(false);
+    // The keyboard cursor goes back to the pill.
+    if (props.current.visible && ui.pointerKind === 'key') ui.focus({ id: 'pill', rect: PILL });
+  };
 
-  useCanvasUI<CameraWidget>({
+  const ui = useCanvasUI<CameraWidget>({
     priority: 3.2,
     active: () => props.current.visible && st.alpha > 0.3,
     // Closed, the pill joins the screen's keyboard order; open, the card's controls.
@@ -62,7 +66,8 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       if (!props.current.open || st.k < 0.5) return [{ id: 'pill', rect: PILL }];
       return [
         { id: 'close', circle: CLOSE },
-        ...cameraWidgets(CAMERA),
+        // Start camera / Disconnect is the card's main action (Enter presses it).
+        ...cameraWidgets(CAMERA).map((wdg) => (wdg.id === 'primary' ? { ...wdg, primary: true } : wdg)),
         { id: 'pill', rect: PILL, nav: false },
       ];
     },
@@ -73,13 +78,12 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       else camera.activate(wdg);
       s.invalidate();
     },
+    // Left/Right on a camera arrow switch camera.
+    onStep: (wdg, dir) => !!wdg.cameraDelta && camera.activate({ ...wdg, cameraDelta: dir }),
     onKey: (e, s) => {
       const p = props.current;
-      if (!p.visible || !p.open || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === 'Escape') { if (!e.repeat) close(); }
-      // With the keyboard cursor on a widget, Enter presses that widget instead (keyNav).
-      else if (e.key === 'Enter' && s.pointerKind !== 'key') camera.toggle();
-      else return;
+      if (!p.visible || !p.open || e.metaKey || e.ctrlKey || e.altKey || e.key !== 'Escape') return;
+      if (!e.repeat) close();
       e.preventDefault();
       s.invalidate();
     },

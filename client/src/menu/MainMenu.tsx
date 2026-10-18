@@ -64,12 +64,12 @@ const TRACK = { x0: PANEL.x + 190, x1: PANEL.x + PANEL.w - 110 };
 
 const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
   main: [
-    { id: 'start', rect: START },
+    { id: 'start', rect: START, primary: true },
     { id: 'settings', rect: SETTINGS },
   ],
   players: [
     { id: 'back', circle: BACK },
-    { id: 'one', rect: ONE_PLAYER },
+    { id: 'one', rect: ONE_PLAYER, primary: true },
     { id: 'two', rect: TWO_PLAYERS },
   ],
   settings: [
@@ -78,8 +78,9 @@ const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
     ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: PANEL.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: PANEL.w - 32, h: 48 } })),
   ],
 };
-// Where back / Escape leads from each submenu.
+// Where back / Escape leads from each submenu, and the button there that opens it.
 const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
+const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings: 'settings' };
 
 const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
 // Left/Right move a slider a twentieth (5) at a time.
@@ -181,9 +182,9 @@ export default function MainMenu({
   const go = (screen: MenuScreen | undefined) => {
     if (!screen) return;
     if (screen === m.next) return;
+    // A keyboard cursor starts over on the next screen, or going back, on the button it left by.
+    if (ui.pointerKind === 'key') ui.focus(WIDGETS[screen].find((wdg) => wdg.id === OPENER[m.next]) ?? null);
     m.next = screen;
-    // A keyboard cursor starts over on the next screen.
-    if (ui.pointerKind === 'key') ui.pointer = null;
   };
   const live = () => !!props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
   const setSound = (patch: Partial<SoundSettings>) => {
@@ -204,11 +205,12 @@ export default function MainMenu({
       setSound(patch);
     },
     onStep: (wdg, dir) => {
-      if (!wdg.slider) return;
+      if (!wdg.slider) return false;
       const patch: Partial<SoundSettings> = {};
       const step = Math.round(props.current.sound[wdg.slider] * SLIDER_STEPS) + dir;
       patch[wdg.slider] = Math.min(SLIDER_STEPS, Math.max(0, step)) / SLIDER_STEPS;
       setSound(patch);
+      return true;
     },
     onActivate: (wdg, s) => {
       if (wdg.toggle) {

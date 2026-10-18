@@ -96,7 +96,7 @@ export default function ResultsScreen({ visible = false, blocked = false, show, 
     priority: 2.5,
     active: live,
     keyNav: true,
-    widgets: () => [{ id: 'retry', rect: RESULTS_RETRY }, { id: 'quit', rect: RESULTS_SONGS }],
+    widgets: () => [{ id: 'retry', rect: RESULTS_RETRY, primary: true }, { id: 'quit', rect: RESULTS_SONGS }],
     onActivate: ({ id }) => {
       const p = props.current;
       if (id === 'retry') p.onRetry?.();

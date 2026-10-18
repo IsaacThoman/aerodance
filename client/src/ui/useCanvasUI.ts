@@ -17,7 +17,7 @@ import type { Circle, Point, Rect } from './draw.ts';
  *   active: (ui) => bool,                 // input and hover go to widgets only while true
  *   onActivate: (wdg, ui) => {},          // press and release on the same widget
  *   onDrag: (wdg, point, ui) => {},       // widgets with drag: true (sliders)
- *   onStep: (wdg, dir, ui) => {},         // Left/Right on a slider under the keyboard cursor
+ *   onStep: (wdg, dir, ui) => bool,       // Left/Right on the keyboard cursor's widget; true if used
  *   onKey: (event, ui) => {},
  *   keyNav: bool | (ui) => bool,          // arrow keys step through the widgets, Enter/Space presses
  *   update: (dt, ui) => {},               // per-frame animation; ui.ease() marks the overlay dirty
@@ -25,12 +25,15 @@ import type { Circle, Point, Rect } from './draw.ts';
  *   opacity: (ui) => 1,                   // the overlay isn't drawn below 0.005
  * });
  *
- * With keyNav, Up/Down (or Tab/Shift+Tab) move a keyboard cursor (ui.pointer, pointerKind
+ * With keyNav, Up/Down (or Tab/Shift+Tab) move a keyboard cursor (ui.focus(), pointerKind
  * 'key') to the next widget while the overlay is active, skipping widgets with nav: false;
- * the widget under it gets the focus ring (ui/focusRing.ts). The cursor is shared by every
- * keyNav overlay, in priority order, so it runs from a screen's buttons on to controls other
- * overlays draw beside them (the Connect Client pill, the fullscreen bubble). Left/Right step
- * a slider under the cursor (onStep) and otherwise move the cursor like Up/Down.
+ * the widget under it gets the focus ring (ui/focusRing.ts) and Enter/Space press it. The
+ * cursor is shared by every keyNav overlay, in priority order, so it runs from a screen's
+ * buttons on to controls other overlays draw beside them (the Connect Client pill, the
+ * fullscreen bubble). It starts on the screen's primary widget, which Enter/Space also press
+ * while there is no cursor; it follows its widget by id and lets go once the widget is gone.
+ * Left/Right go to onStep first (a slider steps, a camera arrow switches camera) and
+ * otherwise move the cursor like Up/Down.
  * Content taller than the design height scrolls by drag or wheel: draw sets ui.contentHeight.
  * Works with <Canvas frameloop="demand">: input, ui.invalidate() and running animations
  * (anything that marks the overlay dirty) request the next frame.
@@ -41,8 +44,10 @@ export type Widget = {
   id: string;
   /** Pressing drags (sliders): onDrag instead of onActivate. */
   drag?: boolean;
-  /** false: keyboard navigation skips it. Sliders (drag) are visited and step with Left/Right. */
+  /** false: keyboard navigation skips it. */
   nav?: boolean;
+  /** The screen's main action: the keyboard cursor starts here, and Enter/Space press it while there is no cursor. */
+  primary?: boolean;
 } & ({ rect: Rect; circle?: undefined } | { circle: Circle; rect?: undefined });
 
 /** Design size in units for a displayed CSS size. */
@@ -63,6 +68,10 @@ export interface CanvasUI<W extends Widget = Widget> {
   pressed: string | null;
   /** The last input's pointerType, or 'key' for keyboard navigation. */
   pointerKind: string | null;
+  /** The id of the widget the keyboard cursor is on. */
+  keyFocus: string | null;
+  /** Puts the keyboard cursor on a widget, or takes it away (null). */
+  focus(wdg: Widget | null): void;
   /** The slider being dragged. */
   drag: W | null;
   scroll: number;
@@ -87,8 +96,8 @@ export interface CanvasUIOptions<W extends Widget = Widget> {
   active?: (ui: CanvasUI<W>) => boolean;
   onActivate?: (wdg: W, ui: CanvasUI<W>) => void;
   onDrag?: (wdg: W, point: Point, ui: CanvasUI<W>) => void;
-  /** Left (-1) / Right (1) on a slider under the keyboard cursor. */
-  onStep?: (wdg: W, dir: -1 | 1, ui: CanvasUI<W>) => void;
+  /** Left (-1) / Right (1) on the keyboard cursor's widget: true when it used the key. */
+  onStep?: (wdg: W, dir: -1 | 1, ui: CanvasUI<W>) => boolean;
   onKey?: (event: KeyboardEvent, ui: CanvasUI<W>) => void;
   keyNav?: boolean | ((ui: CanvasUI<W>) => boolean);
   update?: (dt: number, ui: CanvasUI<W>) => void;
@@ -122,30 +131,38 @@ interface NavOverlay {
   widgets(): readonly Widget[];
   /** Left/Right on a widget; true when the overlay used it (stepped a slider). */
   step(wdg: Widget, dir: -1 | 1): boolean;
+  activate(wdg: Widget): void;
 }
 const navOverlays = new Set<NavOverlay>();
 
-// Moves the keyboard cursor shared by every keyNav overlay; true when the key was used.
+// Moves the keyboard cursor shared by every keyNav overlay, or presses the primary widget
+// while there is no cursor; true when the key was used. Presses on the cursor's widget are
+// left to its overlay.
 function navigate(e: KeyboardEvent): boolean {
+  const press = e.key === 'Enter' || e.key === ' ';
   const vertical = e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab';
   const horizontal = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
-  if (!vertical && !horizontal) return false;
+  if (!press && !vertical && !horizontal) return false;
   const dir = e.key === 'ArrowUp' || e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey) ? -1 : 1;
   const overlays = [...navOverlays].sort((a, b) => a.priority - b.priority);
   const stops = overlays.flatMap((o) => o.widgets().map((wdg) => ({ o, wdg })));
   if (!stops.length) return false;
-  const cursor = stops.findIndex(({ o, wdg }) => o.ui.pointerKind === 'key' && hit(o.ui.pointer, wdg));
-  if (horizontal && cursor >= 0 && stops[cursor].o.step(stops[cursor].wdg, dir)) return true;
-  // Without a keyboard cursor, start from the widget under the mouse.
-  const at = cursor >= 0 ? cursor : stops.findIndex(({ o, wdg }) => hit(o.ui.pointer, wdg));
-  const next = at < 0 ? (dir > 0 ? 0 : stops.length - 1) : (at + dir + stops.length) % stops.length;
-  for (const o of overlays) {
-    o.ui.pointer = null;
-    o.ui.invalidate();
+  const cursor = stops.findIndex(({ o, wdg }) => o.ui.pointerKind === 'key' && o.ui.keyFocus === wdg.id);
+  const primary = stops.findIndex(({ wdg }) => wdg.primary);
+  if (press) {
+    if (cursor >= 0 || primary < 0 || e.repeat) return false;
+    const { o, wdg } = stops[primary];
+    o.ui.focus(wdg);
+    o.activate(wdg);
+    return true;
   }
-  const { o, wdg } = stops[next];
-  o.ui.pointer = center(wdg);
-  o.ui.pointerKind = 'key';
+  if (horizontal && cursor >= 0 && stops[cursor].o.step(stops[cursor].wdg, dir)) return true;
+  // Without a keyboard cursor, start from the widget under the mouse, else the primary one.
+  const at = cursor >= 0 ? cursor : stops.findIndex(({ o, wdg }) => hit(o.ui.pointer, wdg));
+  const n = stops.length;
+  const next = at >= 0 ? (at + dir + n) % n : primary >= 0 ? primary : dir > 0 ? 0 : n - 1;
+  for (const o of overlays) o.ui.focus(null);
+  stops[next].o.ui.focus(stops[next].wdg);
   return true;
 }
 
@@ -162,6 +179,13 @@ function createState<W extends Widget>(): CanvasUI<W> {
     press: 0,
     pressed: null,
     pointerKind: null,
+    keyFocus: null,
+    focus(wdg) {
+      this.keyFocus = wdg?.id ?? null;
+      this.pointer = wdg ? center(wdg) : null;
+      if (wdg) this.pointerKind = 'key';
+      this.invalidate();
+    },
     drag: null,
     scroll: 0,
     contentHeight: 0,
@@ -303,12 +327,11 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       ui: s,
       widgets: () => (keyNav() ? (opts.current.widgets?.(s) ?? []).filter((wdg) => wdg.nav !== false) : []),
       step: (wdg, dir) => {
-        const { onStep } = opts.current;
-        if (!wdg.drag || !onStep) return false;
-        onStep(wdg as W, dir, s);
+        if (!opts.current.onStep?.(wdg as W, dir, s)) return false;
         s.invalidate();
         return true;
       },
+      activate: (wdg) => activate(wdg as W),
     };
     navOverlays.add(nav);
     const onKey = (e: KeyboardEvent) => {
@@ -318,7 +341,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       // The first overlay to hear an arrow moves the shared cursor and claims the key.
       if (navigate(e)) {
         e.preventDefault();
-      } else if ((e.key === 'Enter' || e.key === ' ') && s.pointerKind === 'key' && keyNav()) {
+      } else if ((e.key === 'Enter' || e.key === ' ') && !e.repeat && s.pointerKind === 'key' && keyNav()) {
         const wdg = widgetAt(s.pointer);
         if (!wdg || wdg.drag) return;
         e.preventDefault();
@@ -384,6 +407,14 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
 
     const live = o.active?.(s) ?? true;
     const widgets = o.widgets?.(s) ?? [];
+    // The keyboard cursor stays on its widget: it follows it, and lets go once the widget is
+    // gone (another screen, phase or page).
+    if (live && s.pointerKind === 'key' && s.keyFocus) {
+      const wdg = widgets.find((w) => w.id === s.keyFocus);
+      const c = wdg && center(wdg);
+      if (!c) s.focus(null);
+      else if (c.x !== s.pointer?.x || c.y !== s.pointer.y) { s.pointer = c; s.dirty = true; }
+    }
     const hovered = live && (s.drag?.id ?? widgets.find((wdg) => hit(s.pointer, wdg))?.id);
     for (const id of new Set([...Object.keys(s.hover), ...widgets.map((wdg) => wdg.id)])) {
       s.hover[id] = s.ease(s.hover[id] ?? 0, id === hovered ? 1 : 0, 12);

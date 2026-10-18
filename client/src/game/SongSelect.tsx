@@ -64,6 +64,8 @@ interface SongSelectState {
   catalog: { status: CatalogStatus; songs: CatalogSong[]; error: string };
   catalogCtl: AbortController | null;
   loading: { id: string; controller: AbortController } | null;
+  /** The last song opened, for the keyboard cursor coming back to the list. */
+  chosen: string | null;
   loadError: string;
   bundle: LoadedSongBundle | null;
   player: SongPlayer | null;
@@ -97,7 +99,7 @@ export default function SongSelect({
   const st = useRef<SongSelectState>({
     alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
-    loading: null, loadError: '',
+    loading: null, chosen: null, loadError: '',
     bundle: null, player: null, routine: null, previewState: 'loading', previewError: '',
     drawn: '', reported: '',
   }).current;
@@ -106,10 +108,14 @@ export default function SongSelect({
   const pages = () => Math.max(1, Math.ceil(songs().length / ROWS.perPage));
   const pageSongs = () => songs().slice(st.page * ROWS.perPage, (st.page + 1) * ROWS.perPage);
   const live = () => props.current.visible && !props.current.blocked && st.alpha > 0.3 && st.screen === st.next;
+  const songWidget = (song: CatalogSong, i: number): SongWidget => ({ id: `song-${song.id}`, song, rect: rowRect(i), primary: i === 0 });
+  // The keyboard cursor starts over on the next screen; back on the list, on the song it opened.
   const go = (screen: SongScreen) => {
     if (screen === st.next) return;
     st.next = screen;
-    if (ui.pointerKind === 'key') ui.pointer = null;
+    if (ui.pointerKind !== 'key') return;
+    const i = screen === 'list' ? pageSongs().findIndex((song) => song.id === st.chosen) : -1;
+    ui.focus(i >= 0 ? songWidget(pageSongs()[i], i) : null);
   };
 
   const fetchCatalog = () => {
@@ -185,6 +191,7 @@ export default function SongSelect({
     st.loading?.controller.abort();
     const controller = new AbortController();
     st.loading = { id: entry.id, controller };
+    st.chosen = entry.id;
     st.loadError = '';
     loadSongBundle(entry, CATALOG_URL(), { signal: controller.signal })
       .then((bundle) => { if (!controller.signal.aborted && props.current.visible) openPreview(bundle); })
@@ -217,24 +224,28 @@ export default function SongSelect({
       if (st.screen === 'preview') {
         const list: SongWidget[] = [
           { id: 'back', circle: BACK },
-          { id: 'dance', rect: DANCE },
+          { id: 'dance', rect: DANCE, primary: true },
         ];
         return list;
       }
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
-        if (!st.loading) pageSongs().forEach((song, i) => list.push({ id: `song-${song.id}`, song, rect: rowRect(i) }));
+        if (!st.loading) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
         if (st.page > 0) list.push({ id: 'page-up', circle: PAGE_UP });
         if (st.page < pages() - 1) list.push({ id: 'page-down', circle: PAGE_DOWN });
       }
-      if (st.catalog.status === 'error') list.push({ id: 'retry', rect: RETRY });
+      if (st.catalog.status === 'error') list.push({ id: 'retry', rect: RETRY, primary: true });
       return list;
     },
     onActivate: (wdg, s) => {
       if (wdg.song) chooseSong(wdg.song);
       else if (wdg.id === 'back') back();
-      else if (wdg.id === 'page-up') st.page = Math.max(0, st.page - 1);
-      else if (wdg.id === 'page-down') st.page = Math.min(pages() - 1, st.page + 1);
+      else if (wdg.id === 'page-up' || wdg.id === 'page-down') {
+        st.page = Math.min(pages() - 1, Math.max(0, st.page + (wdg.id === 'page-up' ? -1 : 1)));
+        // The keyboard cursor turns the page with it, onto the first song.
+        const first = pageSongs()[0];
+        if (s.pointerKind === 'key' && first) s.focus(songWidget(first, 0));
+      }
       else if (wdg.id === 'retry') fetchCatalog();
       else if (wdg.id === 'dance') dance();
       s.invalidate();
