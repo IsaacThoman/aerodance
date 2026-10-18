@@ -11,7 +11,7 @@ export interface Song {
   durationMs: number; playableStartMs: number; playableEndMs: number;
   /** Always both modes, [1, 2]. */
   supportedPlayerCounts: PlayerCount[];
-  /** A dance stage id (packages/stages); players get Open Reef for a missing or unknown one. */
+  /** A dance stage id (packages/stages); players get openreef for a missing or unknown one. */
   stage?: string;
   coachMode: 'mirror-player'; rigProfile: 'frutiger-seven-bone-v1';
   audio: MediaReference;
@@ -55,7 +55,7 @@ const strings = (v: unknown) => isArray(v) && v.every(text);
 const counts = (v: unknown) => isArray(v) && v.length === 2 && v[0] === 1 && v[1] === 2;
 const revision = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 const SONG_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
-// A dance stage id (packages/stages). Players get Open Reef for a missing or unknown one.
+// A dance stage id (packages/stages). Players get openreef for a missing or unknown one.
 const stageId = (v: unknown) => v === undefined || (typeof v === 'string' && /^[a-z0-9-]{1,40}$/.test(v));
 export function validateBundlePath(path: unknown): string {
   require(typeof path === 'string' && /^[a-zA-Z0-9_./-]+$/.test(path) &&

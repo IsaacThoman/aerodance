@@ -162,7 +162,7 @@ export default function App() {
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';
   const gameRoutine = useMemo(() => game?.routine() ?? null, [game]);
-  // Every song dances on its own stage, picked in Dance Studio (Open Reef if unset or unknown).
+  // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
   // The players' own characters, while the song is on.
   const liveDancers = useMemo((): LiveDancers | null => (game && gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase) ? {

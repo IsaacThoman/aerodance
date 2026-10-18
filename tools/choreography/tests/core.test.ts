@@ -348,7 +348,7 @@ test("grouped keyframes translate points together, preserve confidence and undo 
   );
 });
 
-test("songs dance on Open Reef unless the project picks another stage", () => {
+test("songs dance on openreef unless the project picks another stage", () => {
   const p = newProject("stage-test");
   assert.equal(p.metadata.stage, "openreef");
   p.metadata.stage = "club";

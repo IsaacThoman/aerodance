@@ -23,11 +23,11 @@ Builds generate the same catalog in `dist/songs/manifest.json` for static hostin
 Rebuild/redeploy after changing the source songs directory.
 Exported metadata supplies title, artist, duration, player counts, revision,
 difficulty, stage, optional cover, and a SHA-256 pin for `song.json`. The preview
-opens on the song's stage, or Open Reef when it has none. Re-exported songs
+opens on the song's stage, or `openreef` when it has none. Re-exported songs
 are discovered with their updated revision. Install the complete directory before
 opening Song Select. The game does not extract ZIP files or publish editor
 projects. The repo ships one song, **Demo Track 1** (`client/public/songs/demo-track-1/`):
-a 30-second duet we recorded ourselves on the Club Aquarium stage, set to generated
+a 30-second duet we recorded ourselves on the `club` stage, set to generated
 brown noise so the bundle carries no licensed music.
 
 Catalog paths resolve relative to the catalog; media paths resolve relative to

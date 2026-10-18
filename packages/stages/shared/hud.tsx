@@ -83,14 +83,14 @@ function drawArrowOrb(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: 
 }
 
 interface PillContent {
-  name: string;
+  id: string;
   subtitle: string;
   index: number;
   count: number;
   accent: Accent;
 }
 
-function drawPill(canvas: HTMLCanvasElement, { name, subtitle, index, count, accent }: PillContent) {
+function drawPill(canvas: HTMLCanvasElement, { id, subtitle, index, count, accent }: PillContent) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const s = PILL.scale;
@@ -137,12 +137,12 @@ function drawPill(canvas: HTMLCanvasElement, { name, subtitle, index, count, acc
   ctx.font = '900 27px Nunito, sans-serif';
   ctx.lineWidth = 4;
   ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-  ctx.strokeText(name, W / 2, 41);
+  ctx.strokeText(id, W / 2, 41);
   const ink = ctx.createLinearGradient(0, 18, 0, 42);
   ink.addColorStop(0, '#0a6fb0');
   ink.addColorStop(1, '#064a7e');
   ctx.fillStyle = ink;
-  ctx.fillText(name, W / 2, 41);
+  ctx.fillText(id, W / 2, 41);
   ctx.font = '700 14px Nunito, sans-serif';
   ctx.fillStyle = 'rgba(10,80,120,0.85)';
   ctx.fillText(`${index + 1} / ${count}  ·  ${subtitle}`, W / 2, 61);

@@ -12,12 +12,12 @@ The wordmark is the title screen's own (`drawTitle` in `client/src/ui/draw.ts`, 
 
 | Stage | Shots |
 | --- | --- |
-| Skyline Sanctuary | `sanctuary-skyline` (wide over the terrace and city), `sanctuary-hero`, `sanctuary-canopy` (¾ right), `sanctuary-towers` (worm's-eye), `sanctuary-closeup` (blue) |
-| Coral Dome | `reef-dome` (the dome from outside), `reef-hero`, `reef-inside` (low ¾ under the glass), `reef-crown` (worm's-eye up to the crown) |
-| Open Reef | `openreef-garden` (wide), `openreef-hero`, `openreef-surface` (worm's-eye up to the surface), `openreef-turtle` (¾ right) |
-| Emerald Falls | `falls-valley` (wide over the falls and islands), `falls-meadow`, `falls-rainbow` (¾ right), `falls-cliffs` (¾ left), `falls-closeup` (purple) |
-| Club Aquarium | `club-floor` (wide over the club and crowd), `club-dj`, `club-aquarium` (¾ right), `club-stage` (low, under the mirror ball) |
-| Sugarsand Sunset | `beach-sunset` (wide), `beach-hero`, `beach-ball` (¾ left), `beach-palm` (¾ right), `beach-closeup` (purple) |
+| `sanctuary` | `sanctuary-skyline` (wide over the terrace and city), `sanctuary-hero`, `sanctuary-canopy` (¾ right), `sanctuary-towers` (worm's-eye), `sanctuary-closeup` (blue) |
+| `reef` | `reef-dome` (the dome from outside), `reef-hero`, `reef-inside` (low ¾ under the glass), `reef-crown` (worm's-eye up to the crown) |
+| `openreef` | `openreef-garden` (wide), `openreef-hero`, `openreef-surface` (worm's-eye up to the surface), `openreef-turtle` (¾ right) |
+| `falls` | `falls-valley` (wide over the falls and islands), `falls-meadow`, `falls-rainbow` (¾ right), `falls-cliffs` (¾ left), `falls-closeup` (purple) |
+| `club` | `club-floor` (wide over the club and crowd), `club-dj`, `club-aquarium` (¾ right), `club-stage` (low, under the mirror ball) |
+| `beach` | `beach-sunset` (wide), `beach-hero`, `beach-ball` (¾ left), `beach-palm` (¾ right), `beach-closeup` (purple) |
 
 The dancers hold four moments of the capture: 3.1 s (purple's lunge), 5 s (blue's hands up), 9 s (reach) and 12.9 s (blue's wide arms). Club shots land just after a beat, when the lights peak.
 

@@ -29,7 +29,7 @@ export interface StageState {
 export interface StageViewProps {
   active?: boolean;
   orbiting?: boolean;
-  /** The song's stage id (Open Reef if unset or unknown). */
+  /** The song's stage id (openreef if unset or unknown). */
   stageId?: string | null;
   routine?: SongRoutine | null;
   live?: LiveDancers | null;
