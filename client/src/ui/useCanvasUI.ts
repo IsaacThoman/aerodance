@@ -13,11 +13,11 @@ import type { Circle, Point, Rect } from './draw.ts';
  * const ui = useCanvasUI({
  *   priority: 2,                          // useFrame priority (the world renders at 1)
  *   design: (cssW, cssH) => ({ w, h }),   // design units for the displayed size (default 1600x900)
- *   widgets: (ui) => [{ id, rect | circle, drag?, nav? }],  // current hit areas, in content units
+ *   widgets: (ui) => [{ id, rect | circle, drag?, nav?, primary? }],  // current hit areas, in content units
  *   active: (ui) => bool,                 // input and hover go to widgets only while true
  *   onActivate: (wdg, ui) => {},          // press and release on the same widget
  *   onDrag: (wdg, point, ui) => {},       // widgets with drag: true (sliders)
- *   onStep: (wdg, dir, ui) => bool,       // Left/Right on the keyboard cursor's widget; true if used
+ *   onStep: (wdg, dir, ui, repeat) => bool,  // Left/Right on the keyboard cursor's widget; true if used
  *   onKey: (event, ui) => {},
  *   keyNav: bool | (ui) => bool,          // arrow keys step through the widgets, Enter/Space presses
  *   update: (dt, ui) => {},               // per-frame animation; ui.ease() marks the overlay dirty
@@ -99,8 +99,8 @@ export interface CanvasUIOptions<W extends Widget = Widget> {
   active?: (ui: CanvasUI<W>) => boolean;
   onActivate?: (wdg: W, ui: CanvasUI<W>) => void;
   onDrag?: (wdg: W, point: Point, ui: CanvasUI<W>) => void;
-  /** Left (-1) / Right (1) on the keyboard cursor's widget: true when it used the key. */
-  onStep?: (wdg: W, dir: -1 | 1, ui: CanvasUI<W>) => boolean;
+  /** Left (-1) / Right (1) on the keyboard cursor's widget (repeat: the key is held): true when it used the key. */
+  onStep?: (wdg: W, dir: -1 | 1, ui: CanvasUI<W>, repeat: boolean) => boolean;
   onKey?: (event: KeyboardEvent, ui: CanvasUI<W>) => void;
   keyNav?: boolean | ((ui: CanvasUI<W>) => boolean);
   update?: (dt: number, ui: CanvasUI<W>) => void;
@@ -133,7 +133,7 @@ interface NavOverlay {
   /** The widgets the cursor can visit now: none while inactive or without keyNav. */
   widgets(): readonly Widget[];
   /** Left/Right on a widget; true when the overlay used it (stepped a slider). */
-  step(wdg: Widget, dir: -1 | 1): boolean;
+  step(wdg: Widget, dir: -1 | 1, repeat: boolean): boolean;
   activate(wdg: Widget): void;
 }
 const navOverlays = new Set<NavOverlay>();
@@ -158,7 +158,7 @@ function onNavKey(e: KeyboardEvent) {
   const hovered = stops.findIndex(({ o, wdg }) => o.ui.pointerKind !== 'key' && hit(o.ui.pointer, wdg));
   if (press) {
     // (A cursor on an overlay that is fading or on hold counts as none.)
-    const target = at >= 0 ? stops[at] : hovered < 0 ? stops[primary] : undefined;
+    const target = at >= 0 ? stops[at] : hovered < 0 || hovered === primary ? stops[primary] : undefined;
     if (!target) return;
     e.preventDefault();
     if (e.repeat || target.wdg.drag) return;
@@ -168,7 +168,7 @@ function onNavKey(e: KeyboardEvent) {
   }
   e.preventDefault();
   const dir = e.key === 'ArrowUp' || e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey) ? -1 : 1;
-  if (horizontal && at >= 0 && stops[at].o.step(stops[at].wdg, dir)) return;
+  if (horizontal && at >= 0 && stops[at].o.step(stops[at].wdg, dir, e.repeat)) return;
   // Without a cursor, start from the widget under the mouse, else the primary one.
   const from = at >= 0 ? at : hovered;
   const n = stops.length;
@@ -317,6 +317,8 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     };
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      // A tap takes over from the keyboard cursor too (it may come without a move).
+      if (s.keyFocus) s.focus(null);
       const p = toDesign(e);
       if (!widgetAt(p) && !(s.maxScroll > 0 && active())) return;
       el.setPointerCapture(e.pointerId);
@@ -350,8 +352,8 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       get priority() { return opts.current.priority ?? 2; },
       ui: s,
       widgets: () => (keyNav() ? (opts.current.widgets?.(s) ?? []).filter((wdg) => wdg.nav !== false) : []),
-      step: (wdg, dir) => {
-        if (!opts.current.onStep?.(wdg as W, dir, s)) return false;
+      step: (wdg, dir, repeat) => {
+        if (!opts.current.onStep?.(wdg as W, dir, s, repeat)) return false;
         s.invalidate();
         return true;
       },
@@ -465,7 +467,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       if ('letterSpacing' in g) g.letterSpacing = '0px';
       g.setTransform(sx, 0, 0, sy, 0, -s.scroll * sy);
       o.draw(g, s);
-      drawFocusRing(g, focusRing, s);
+      drawFocusRing(g, focusRing);
       overlay.texture.needsUpdate = true;
       // Still animating (easing, particles): keep frames coming until it settles.
       s.requestFrame();

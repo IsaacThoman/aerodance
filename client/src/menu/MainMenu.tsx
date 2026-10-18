@@ -169,6 +169,8 @@ interface MenuState {
   drawnSound: SoundSettings | null;
   /** The player count picked last: the players screen's primary button. */
   players: 'one' | 'two';
+  /** The widget the keyboard cursor goes to once the screen is in (going back). */
+  refocus: string | null;
   reported?: MenuScreen;
 }
 
@@ -176,18 +178,20 @@ export default function MainMenu({
   visible = true, blocked = false, initialScreen = 'main', onStart, onSettingsOpen, onScreenChange, sound, onSoundChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
-  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, players: 'one' });
+  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, players: 'one', refocus: null });
   const props = useRef<MainMenuProps>({ sound });
   props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
 
   const m = menu.current;
   // A keyboard cursor starts over on the next screen, or going back (also by Escape), on the
-  // button it left by.
+  // button it left by once that screen is in.
   const go = (screen: MenuScreen | undefined, key = ui.keyboard) => {
     if (!screen) return;
     if (screen === m.next) return;
-    const opener = WIDGETS[screen].find((wdg) => wdg.id === OPENER[m.next]);
-    if (key) ui.focus(opener ?? null);
+    if (key) {
+      ui.focus(null);
+      m.refocus = OPENER[m.next] ?? null;
+    }
     m.next = screen;
   };
   const live = () => !!props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
@@ -249,6 +253,10 @@ export default function MainMenu({
         s.invalidate();
       }
       m.alpha = s.ease(m.alpha, shown ? 1 : 0, shown ? 3 : 6);
+      if (m.refocus && live()) {
+        s.focus(WIDGETS[m.screen].find((wdg) => wdg.id === m.refocus) ?? null);
+        m.refocus = null;
+      }
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
       if (props.current.sound !== m.drawnSound) s.invalidate();
       if (m.screen !== m.reported) { m.reported = m.screen; props.current.onScreenChange?.(m.screen); }
@@ -282,11 +290,13 @@ export default function MainMenu({
     },
   });
 
-  // Reopening the menu lands on initialScreen (Back from Song Select returns to players).
+  // Reopening the menu lands on initialScreen (Back from Song Select returns to players), with
+  // a keyboard cursor on the player count picked last.
   useEffect(() => {
     if (!visible) return;
     m.screen = m.next = initialScreen;
     m.swap = 1;
+    m.refocus = ui.keyboard && initialScreen === 'players' ? m.players : null;
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 

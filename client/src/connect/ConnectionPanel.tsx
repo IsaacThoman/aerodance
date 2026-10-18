@@ -78,8 +78,8 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       else camera.activate(wdg);
       s.invalidate();
     },
-    // Left/Right on a camera arrow switch camera.
-    onStep: (wdg, dir) => !!wdg.cameraDelta && camera.activate({ ...wdg, cameraDelta: dir }),
+    // Left/Right on a camera arrow switch camera (once per press: each switch restarts it).
+    onStep: (wdg, dir, _s, repeat) => !!wdg.cameraDelta && (repeat || camera.activate({ ...wdg, cameraDelta: dir })),
     onKey: (e, s) => {
       const p = props.current;
       if (!p.visible || !p.open || e.metaKey || e.ctrlKey || e.altKey || e.key !== 'Escape') return;

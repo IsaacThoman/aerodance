@@ -206,6 +206,8 @@ export default function SongSelect({
 
   const back = (key?: boolean) => {
     if (st.screen === 'preview') { closePreview(); go('list', key); return; }
+    // Escape counts as the keyboard: the cursor comes along to the players screen.
+    if (key && !ui.keyboard) ui.focus({ id: 'back', circle: BACK });
     st.loading?.controller.abort();
     st.loading = null;
     props.current.onBack?.();
@@ -243,9 +245,11 @@ export default function SongSelect({
       else if (wdg.id === 'back') back();
       else if (wdg.id === 'page-up' || wdg.id === 'page-down') {
         st.page = Math.min(pages() - 1, Math.max(0, st.page + (wdg.id === 'page-up' ? -1 : 1)));
-        // The keyboard cursor turns the page with it, onto the first song.
+        // The keyboard cursor stays on the arrow, or once it's gone (the first or last page),
+        // goes to the first song.
         const first = pageSongs()[0];
-        if (s.keyboard && first) s.focus(songWidget(first, 0));
+        const arrow = wdg.id === 'page-up' ? st.page > 0 : st.page < pages() - 1;
+        if (s.keyboard && !arrow && first) s.focus(songWidget(first, 0));
       }
       else if (wdg.id === 'retry') fetchCatalog();
       else if (wdg.id === 'dance') dance();

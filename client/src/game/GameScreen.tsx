@@ -180,7 +180,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
   const gl = useThree((state) => state.gl);
   const props = useRef({ visible, blocked, session, source, onQuit, onRetry });
   props.current = { visible, blocked, session, source, onQuit, onRetry };
-  const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; phase?: GamePhase }>({ alpha: 0, popups: [], reported: '' }).current;
+  const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
   // The calibration screen's camera controls (the source's view is always current).
   const [camera] = useState(() => new CameraSetup(() => ({ source: props.current.source, connection: props.current.source.view })));
 
@@ -222,8 +222,8 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       else if (calibrating()) camera.activate(wdg);
       s.invalidate();
     },
-    // Left/Right on a camera arrow switch camera.
-    onStep: (wdg, dir) => !!wdg.cameraDelta && camera.activate({ ...wdg, cameraDelta: dir }),
+    // Left/Right on a camera arrow switch camera (once per press: each switch restarts it).
+    onStep: (wdg, dir, _s, repeat) => !!wdg.cameraDelta && (repeat || camera.activate({ ...wdg, cameraDelta: dir })),
     onKey: (e, s) => {
       if (!live() || e.repeat) return;
       const session = props.current.session;
@@ -241,11 +241,13 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       const p = props.current;
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 4 : 8);
       const session = p.session;
-      // Every phase (and song) starts without a keyboard cursor: one left on the calibration
-      // preview mustn't land on Restart when the song pauses.
-      if (session !== st.session || session?.phase !== st.phase) {
+      // Every screen (and song) starts without a keyboard cursor: one left on the calibration
+      // preview mustn't land on Restart when the song pauses. Calibrating and ready share the
+      // calibration screen, and flip back and forth while players step in and out.
+      const screen = calibrating() ? 'calibration' : session?.phase;
+      if (session !== st.session || screen !== st.screen) {
         st.session = session;
-        st.phase = session?.phase;
+        st.screen = screen;
         s.focus(null);
       }
       if (!p.visible || !session) return;
