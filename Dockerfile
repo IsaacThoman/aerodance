@@ -30,6 +30,7 @@ CMD ["node", "packages/pairing/main.ts"]
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine
 # A template: the image's entrypoint fills in the DNS resolver and the pairing upstream.
 COPY nginx.conf /etc/nginx/templates/default.conf.template
-ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 PAIRING_UPSTREAM=pairing:3001
+COPY --chmod=755 pairing-upstream.envsh /docker-entrypoint.d/05-pairing-upstream.envsh
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 3000

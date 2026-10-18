@@ -1,0 +1,4 @@
+#!/bin/sh
+# Where nginx.conf finds the pairing service. Coolify renames Compose services in PR previews
+# (pairing-pr-12) and tells every container the real name as SERVICE_NAME_PAIRING.
+export PAIRING_UPSTREAM="${PAIRING_UPSTREAM:-${SERVICE_NAME_PAIRING:-pairing}:3001}"
