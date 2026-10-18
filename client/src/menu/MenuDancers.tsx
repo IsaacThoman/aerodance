@@ -6,7 +6,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../packages/character/Character.tsx';
 import type { CharacterAppearance } from '../../../packages/character/Character.tsx';
 import { loadMotion } from '../../../packages/character/motion.ts';
-import type { MotionTake } from '../../../packages/pose/legacy.ts';
+import type { MotionTake } from '../../../packages/pose/motion.ts';
 import motionUrl from '../../../packages/character/assets/dance.adpose?url';
 
 /**

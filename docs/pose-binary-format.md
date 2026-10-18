@@ -1,7 +1,9 @@
-# AeroDance pose binary format (`.adpose`), draft v1
+# AeroDance pose binary format (`.adpose`), v1
 
-> **Status: draft.** Nothing implements this yet. It replaces the JSON skeletal
-> formats listed below. Song, catalog, project and checksum metadata stay JSON.
+> **Status: implemented.** The codec is `packages/pose/binary.ts`. It replaces the
+> JSON skeletal formats listed below. Song, catalog, project and checksum
+> metadata stay JSON. Where the implementation settles something this document
+> left open, see [Implementation notes](#implementation-notes).
 
 ## Why
 
@@ -267,7 +269,16 @@ changing the stored flags, as `sampleSong` does now.
 A `choreography` (and a `track`) stores only frames that hold at least one
 non-`resampled` joint, plus the two endpoint anchors at `playableStartMs` and
 `playableEndMs`. The sampler interpolates everything in between, as
-`sampleSnapshot` already does. Interpolated joints report origin `resampled`
+`sampleSnapshot` already does.
+
+A frame whose joints are all `resampled` is dropped only when interpolating its
+kept neighbours reproduces it: positions within 1e-6, confidence within 1/508,
+and the same origins, eligibility and `reviewed` flag. Otherwise it's kept. A
+`resampled` frame at an edit-range boundary, such as the edge of a mirror or
+swap, can't be rebuilt from its neighbours. The check makes dropping lossless
+and idempotent, so encoding a decoded file gives the same bytes. A kept
+`resampled` frame decodes as `measured`, because origin 1 is never stored. No
+reader treats the two differently. Interpolated joints report origin `resampled`
 and keep the current rules: kept origins propagate, and eligibility is the AND
 of both neighbors.
 
@@ -398,7 +409,8 @@ so the codec must keep it byte-for-byte when it round-trips a file.
 Take metadata that isn't skeletal stays in the Studio project's JSON: `takeId`,
 `name`, `source`, `offsetMs`, `timeScale`, `createdAt`, `status`,
 `interruptionReason` and `sha256`. The take's `.adpose` file holds only the
-pose data and capture provenance.
+pose data and capture provenance. These fields live in each project's take
+summary, which is Studio project format 3.
 
 ## Size
 
@@ -417,15 +429,14 @@ Decided on compression:
 - **No compression inside the format.** v1 stays uncompressed, so files load
   without copying, support random access, and can be appended to during
   capture.
-- **Compress in transport.** Hosting serves `.adpose` with HTTP compression.
-  `nginx.conf` currently has no `gzip` settings at all, so this means enabling
-  `gzip on` with `application/octet-stream` in `gzip_types`, or a dedicated MIME
-  type for `.adpose`. Studio ZIP backups already deflate their entries.
+- **Compress in transport.** `nginx.conf` serves `.adpose` as
+  `application/octet-stream` with `gzip on` for that type. Studio ZIP backups
+  already deflate their entries.
 
 Positions dominate the remaining size. If long songs ever need it, a format v2
 could delta-encode positions per joint and add a compression chunk flag.
 
-## Reader API (proposed: `packages/pose/binary.ts`)
+## Reader API (`packages/pose/binary.ts`)
 
 ```ts
 interface PoseFrames {
@@ -445,29 +456,29 @@ interface PoseFrames {
 }
 function decodePoseFile(bytes: Uint8Array): PoseFrames;   // validates; throws on bad input
 function encodePoseFile(frames: PoseFrames): Uint8Array;
-class PoseFileWriter { /* HEAD + metadata once, then appendFrames()/appendEvents() per batch */ }
+class PoseFileWriter { start(calibrationFrame?): Uint8Array; frames(inputs): Uint8Array; events(events): Uint8Array; }
 ```
 
-- **Sampling over typed arrays.** `sampleSnapshot`/`sampleSong` get typed-array
-  versions: binary search on `times`, then a lerp over 99 floats per slot. No
-  per-frame `structuredClone`.
-- **Transition adapter.** A `framesToPoses(frames, i)` adapter returns today's
-  `Pose[]`/`PoseQuality[]`, so the scorer, character and Studio UI can move over
-  one at a time. It sets both `visibility` and `presence` to the stored
-  confidence, so existing `min()` calls give the same result. When the
-  migration is finished, `Landmark` itself switches to a single `confidence`
-  field.
-- **Validation.** It becomes one pass over fixed-size records: check the header
-  and sizes, then confirm times increase, absent slots are zero, and flag bytes
-  are in range. This replaces `assertPoses`, `assertProtocolRecord`,
-  `assertWebcamRecord`, `assertVideoRecord`, `assertMotionTake` and the sample
-  part of `assertChoreography`.
+- **Sampling over typed arrays.** `sampleFrames` (used by `sampleSong`) does a
+  binary search on `times`, then a lerp over 99 floats per slot. No per-frame
+  `structuredClone`.
+- **Object adapter.** `framesToPoses(frames, i)` and `framesToSamples` return
+  `Pose[]`/`PoseQuality[]` for the character, Studio UI and other object
+  consumers. `Landmark` has a single `confidence` field.
+- **Validation.** It's one pass over fixed-size records: check the header and
+  sizes, then confirm times increase, absent slots are zero, and flag bytes are
+  in range. Protocol v2 and its validator are gone. The JSON validators that
+  remain only read files from earlier versions (see
+  [Implementation notes](#implementation-notes)).
 - **Limits.** The 16 KiB per-record cap goes away, since frame size is fixed by
   the header (at most 568 B). Readers still enforce a file-size limit (the
   existing bundle limits) and must check `frameCount × stride` against the
   chunk length before allocating.
 
 ## Migration
+
+All five steps are done. A `song.json` with choreography schema 1 (JSON) still
+loads for one release.
 
 1. **Codec.** Add `packages/pose/binary.ts` with the encoder, decoder, writer,
    typed-array sampler and `Pose[]` adapter. Add round-trip tests against the
@@ -495,6 +506,57 @@ class PoseFileWriter { /* HEAD + metadata once, then appendFrames()/appendEvents
 5. **Cleanup.** Delete protocol v2 (`protocol.ts`, `NdjsonDecoder`) and the
    per-envelope validators once nothing reads them. Extend
    `tools/pose/migrate-legacy.ts` to convert any JSON format to `.adpose`.
+
+## Implementation notes
+
+Where the implementation settles details this document left open:
+
+1. **Verified frame dropping.** Choreography and track files drop a
+   `resampled`-only frame only when interpolation reproduces it (see
+   [Interpolated frames](#interpolated-frames-are-not-stored)). The demo
+   choreography is 154,832 B.
+2. **Joint flags.** A writer compares each joint's flags with the derivation
+   from its float confidence (`c ≥ threshold / 254`), not from the rounded byte.
+   Edits, repairs and reviews set `HEAD.flags` bit 0, but the 0.499 → 127
+   rounding alone doesn't. A reader derives quality from the byte, as
+   [Confidence](#confidence) describes.
+3. **Studio stores files, edits objects.** In memory, Studio's `Take`,
+   `TrackData` and compiled timeline keep `Pose[]` samples, since the timeline,
+   review and gap tools step through them. Storage encodes on write and decodes
+   on read. A track snapshot is kept in memory in its stored form, quantized and
+   with interpolable frames dropped. That way a reload compiles the same
+   routine, and re-uploading a snapshot gives identical bytes for the
+   immutability check.
+4. **Project format 3 and captures.** Projects that hold `.adpose` takes and
+   tracks are format 3. Formats 1 and 2 convert when opened or restored from a
+   backup. `capture/<id>/capture.json` stays JSON: name, model status, the
+   capture header the recorder declared at start, and the take summary after
+   finalizing. Each upload batch is the raw bytes of `FRMS`/`EVNT` chunks,
+   checked against that header and stored as `batches/<n>.bin`. Retries must
+   match byte for byte. Finalizing joins the header chunks (plus `CALF` for
+   video) and the batches into `capture.adpose`, which `provenance.rawSha256`
+   hashes. Old `records.ndjson` captures convert too. Ones that can't, such as
+   Android captures, stay NDJSON, and the takes keep the hash of the original
+   NDJSON. Extension fields count µs from bases taken when the capture starts,
+   so one capture can run about 35 minutes.
+5. **Recordings.** The frame time is `songTimeMs`, rounded to 0.1 ms. Extension
+   6 holds `captureBrowserTimeMs`. The source's timing method is constant for a
+   session, so it goes in `prov` with `songId` and `recordedAt`. A frame at an
+   already-recorded song time is dropped.
+6. **Menu loop length.** A `take` file has no duration. The menu capture's
+   `prov` records its 14 s loop as `durationMs`, as video takes record the
+   video's duration. Without one, the loop ends one frame interval after the
+   last frame.
+7. **Readers of earlier formats.** Each one only converts:
+   - `packages/pose/legacy.ts`: dance capture JSON.
+   - `tools/choreography/legacyCapture.ts`: Studio `records.ndjson`.
+   - `packages/pose/song.ts`: choreography schema 1, for one release.
+   - Studio's JSON take import.
+   - `tools/pose/migrate-legacy.ts`: converts any of these, and old NDJSON pose
+     recordings, to `.adpose`.
+
+   `packages/pose/webcamRecord.ts` stays, because it's the live webcam record
+   type.
 
 ## Decisions
 

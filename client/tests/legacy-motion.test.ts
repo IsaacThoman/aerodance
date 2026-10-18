@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { migrateLegacyMotion, validateMotionTake } from '../../packages/pose/legacy.ts';
-import { validate } from '../../packages/pose/protocol.ts';
 import { decodeMotion, encodeMotion } from '../../packages/pose/motion.ts';
 import { decodePoseFile } from '../../packages/pose/binary.ts';
 type Legacy = ReturnType<typeof legacy>;
@@ -16,7 +15,6 @@ test('legacy migration preserves timing, IDs and out-of-image coordinates withou
   assert.ok(take.samples[0].quality.every(q=>q.scoreEligible.every(v=>!v)));
   assert.equal(take.provenance.source.sha256,'source'); assert.equal(data.version,1);
   assert.ok(!('seq' in take.samples[0]));
-  validate({protocolVersion:2,type:'pose',sessionId:'fixture',seq:1,frameReceivedTimeMs:1,resultTimeMs:2,playerCount:2,input:take.input,poses:take.samples[0].poses});
 });
 test('legacy import rejects invalid tuples, timestamps, IDs and confidence',()=>{
   const mutations: ((d: Legacy) => unknown)[] = [d=>d.times[1]=0,d=>d.poses[1].pop(),d=>d.poses[0][0][0][3]=1.1,d=>d.poses[0][0][0][0]=Infinity];

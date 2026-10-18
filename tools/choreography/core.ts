@@ -23,7 +23,7 @@ import type {
   PoseQuality,
   TrackCalibration,
 } from "../../packages/pose/choreography.ts";
-import type { MotionTake, TakeSample } from "../../packages/pose/legacy.ts";
+import type { MotionTake, TakeSample } from "../../packages/pose/motion.ts";
 import type { RightsStatement, ScoreExclusion, SongTimeline, SongTrack } from "../../packages/pose/song.ts";
 import { calibratePoses, reliableBodyPose } from "../../packages/character/calibration.ts";
 import { DEFAULT_STAGE, isStageId } from "../../packages/stages/catalog.ts";

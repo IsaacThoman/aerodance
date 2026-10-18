@@ -9,7 +9,7 @@ import Dancers from '../../../packages/stages/shared/Dancers.tsx';
 import { beat, stageOrbit } from '../../../packages/stages/shared/hooks.ts';
 import { loadMotion } from '../../../packages/character/motion.ts';
 import motionUrl from '../../../packages/character/assets/dance.adpose?url';
-import type { MotionTake } from '../../../packages/pose/legacy.ts';
+import type { MotionTake } from '../../../packages/pose/motion.ts';
 import type { SongRoutine } from '../game/GameSession.ts';
 import type { ResultsShow } from '../game/results.ts';
 import LivePanels from './LivePanels.tsx';

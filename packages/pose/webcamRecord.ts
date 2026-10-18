@@ -1,4 +1,5 @@
-// Server-safe webcam capture validation. These records are not protocol-v2 wire records.
+// The webcam capture record WebcamPoseSource emits, and its validation (also used to convert
+// records.ndjson captures from earlier Studio versions).
 import { assertPoses, finite, isObject } from './choreography.ts';
 import type { CaptureInput, PlayerCount, Pose } from './choreography.ts';
 import { poseModel } from './browser/models.ts';

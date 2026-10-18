@@ -1,18 +1,8 @@
+// Dance capture JSON from earlier versions, read only to convert it (tools/pose/migrate-legacy.ts).
 import { assertPoses, finite, isArray, isObject, qualityFor } from './choreography.ts';
-import type { CaptureInput, Pose, PoseQuality } from './choreography.ts';
+import type { PoseQuality } from './choreography.ts';
+import type { MotionTake, TakeSample } from './motion.ts';
 
-/** A take sample on the take's own clock (ms from the start of the capture). */
-export interface TakeSample { takeTimeMs: number; poses: Pose[]; quality?: PoseQuality[]; }
-/** The part of an aerodance.take v1 that motion playback relies on (validateMotionTake). */
-export interface MotionTake {
-  schema: 'aerodance.take'; schemaVersion: 1;
-  durationMs: number;
-  /** Always unmirrored. */
-  input: CaptureInput;
-  samples: TakeSample[];
-  /** Free-form capture details. */
-  provenance?: unknown;
-}
 /** A legacy joint: x, y, z and the combined confidence. */
 export type LegacyJoint = [x: number, y: number, z: number, confidence: number];
 /** The pre-take dance capture format (version 1), accepted by explicit migration only. */

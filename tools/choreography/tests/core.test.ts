@@ -25,7 +25,8 @@ import {
   validateTake,
   isTrackData,
 } from "../core.ts";
-import { encodeTake, encodeTrack, importedPoseFile, legacyCaptureFile } from "../poseFiles.ts";
+import { encodeTake, encodeTrack, importedPoseFile } from "../poseFiles.ts";
+import { legacyCaptureFile } from "../legacyCapture.ts";
 import { readFileSync } from "node:fs";
 import type { CaptureMetadata, CompiledChoreography, StudioAssets, Take } from "../core.ts";
 import {

@@ -8,7 +8,8 @@ import { DEFAULT_POSITION_STEP, buildFrames, decodePoseFile, framesToPoses } fro
 import type { PoseFrames } from "../../../packages/pose/binary.ts";
 import { validateProject, validateTake } from "../core.ts";
 import type { CalibrationFrame, ProjectV3 } from "../core.ts";
-import { captureHead, decodeCaptureBatch, legacyCaptureFile } from "../poseFiles.ts";
+import { captureHead, decodeCaptureBatch } from "../poseFiles.ts";
+import { legacyCaptureFile } from "../legacyCapture.ts";
 
 /** Waits for a locator to match exactly `count` elements: the UI renders after the action that triggers it. */
 export async function expectCount(locator: Locator, count: number, timeoutMs = 10_000): Promise<void> {

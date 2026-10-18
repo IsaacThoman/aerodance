@@ -3,7 +3,6 @@ import { isObject } from '../../../packages/pose/choreography.ts';
 import { EXTENSION, buildFrames, decodePoseFile, encodePoseFile, framesToPoses } from '../../../packages/pose/binary.ts';
 import type { FrameInput } from '../../../packages/pose/binary.ts';
 import type { CaptureInput, Landmark, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
-import type { ProtocolPoseRecord } from '../../../packages/pose/protocol.ts';
 import type { PoseRecordEvent, RecordTiming } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import { isPoseRecordEvent } from './PoseSource.ts';
 import type { LivePoseRecord, PoseInputView, PoseSource, SongClock } from './PoseSource.ts';
@@ -32,7 +31,7 @@ export type ReplayMode = 'ghost' | 'recording';
 export interface ReplayView extends PoseInputView {
   status: 'connected' | 'disconnected';
   sourceKind: 'replay';
-  snapshot: ProtocolPoseRecord | null;
+  snapshot: LivePoseRecord | null;
   timing: RecordTiming;
   model: 'replay';
 }
@@ -91,7 +90,7 @@ export function parseRecording(bytes: Uint8Array): PoseRecording {
   return { header, entries };
 }
 
-type RecordListener = (event: PoseRecordEvent<ProtocolPoseRecord>) => void;
+type RecordListener = (event: PoseRecordEvent<LivePoseRecord>) => void;
 
 export class ReplayPoseSource implements PoseSource {
   now: () => number;
@@ -105,7 +104,7 @@ export class ReplayPoseSource implements PoseSource {
   song: SongClock | null = null;
   seq = 0;
   cursor = 0;
-  last: ProtocolPoseRecord | null = null;
+  last: LivePoseRecord | null = null;
   lastAt: number | null = null;
   timer: ReturnType<typeof setInterval> | null = null;
   rnd: () => number;
@@ -151,11 +150,7 @@ export class ReplayPoseSource implements PoseSource {
     this.cursor = 0;
   }
   emit(poses: Pose[], captureBrowserTimeMs: number, input = ASPECT_INPUT) {
-    const frame = Math.round(captureBrowserTimeMs);
-    const record: ProtocolPoseRecord = {
-      protocolVersion: 2, type: 'pose', sessionId: 'replay', seq: ++this.seq, playerCount: this.playerCount,
-      frameReceivedTimeMs: frame, resultTimeMs: frame, input, poses,
-    };
+    const record: LivePoseRecord = { type: 'pose', sessionId: 'replay', seq: ++this.seq, playerCount: this.playerCount, input, poses };
     const receivedBrowserTimeMs = this.now();
     this.last = record;
     this.lastAt = receivedBrowserTimeMs;

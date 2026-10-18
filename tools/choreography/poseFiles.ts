@@ -3,7 +3,6 @@
 import {
   EXTENSION,
   PoseFileWriter,
-  buildFrames,
   decodePoseFile,
   encodePoseFile,
   framesFromSamples,
@@ -11,18 +10,16 @@ import {
   framesToSamples,
   sparseSamples,
 } from "../../packages/pose/binary.ts";
-import type { FileCaptureEvent, FrameInput, PoseFrames, PoseHeaderInput } from "../../packages/pose/binary.ts";
+import type { PoseFrames, PoseHeaderInput } from "../../packages/pose/binary.ts";
 import { finite, isArray, isObject } from "../../packages/pose/choreography.ts";
 import type { FrameSize } from "../../packages/pose/choreography.ts";
 import { isPoseModelId } from "../../packages/pose/browser/models.ts";
 import type { PoseModelId } from "../../packages/pose/browser/models.ts";
-import { validateVideoRecord } from "../../packages/pose/videoRecord.ts";
-import { validateWebcamRecord } from "../../packages/pose/webcamRecord.ts";
 import type { CalibrationFrame, SourceRef, Take, TakeSummary, TrackData } from "./core.ts";
 
 /** Track snapshots drop interpolable frames no further apart than the sampler bridges. */
 const TRACK_MAX_GAP_MS = 200;
-const WEBCAM_EXTENSIONS = [
+export const WEBCAM_EXTENSIONS = [
   EXTENSION.frameBrowserTimeMs, EXTENSION.resultBrowserTimeMs, EXTENSION.receivedBrowserTimeMs,
   EXTENSION.audioPositionAtFrameMs, EXTENSION.audioPositionAtReceiptMs,
 ];
@@ -144,50 +141,6 @@ export function chunkTags(bytes: Uint8Array): string[] {
 export function decodeCaptureBatch(head: Uint8Array, batch: Uint8Array): PoseFrames {
   if (!batch.length || chunkTags(batch).some(tag => tag !== "FRMS" && tag !== "EVNT")) throw Error("Invalid record batch");
   return decodePoseFile(concatBytes([head, batch, EMPTY_FRAMES]));
-}
-
-/**
- * Converts a capture stored by earlier editors (records.ndjson of JSON envelopes) to a capture
- * file. Throws when the records can't be represented, such as a rate change mid-capture.
- */
-export function legacyCaptureFile(text: string, sourceKind: unknown, calibrationFrame?: CalibrationFrame): Uint8Array<ArrayBuffer> {
-  const envelopes: unknown[] = text.split("\n").filter(line => line.trim()).map(line => JSON.parse(line));
-  const frames: FrameInput[] = [], events: FileCaptureEvent[] = [];
-  let header: PoseHeaderInput | undefined;
-  for (const e of envelopes) {
-    if (!isObject(e)) throw Error("Invalid capture record");
-    if (sourceKind === "video") {
-      const r = validateVideoRecord(e.record);
-      header ??= { kind: "capture", playerSlots: 2, input: frameSize(r.input), modelId: r.modelId,
-        capture: { sourceKind: "video", sessionId: r.sessionId, audioPlaybackRate: null } };
-      frames.push({ timeMs: r.mediaTimeMs, poses: r.poses, seq: r.seq, seekTime: r.timingMethod === "seek-time" });
-      continue;
-    }
-    if (sourceKind !== "webcam") throw Error("Unsupported capture source");
-    const timing = { receivedBrowserTimeMs: Number(e.receivedBrowserTimeMs), audioPositionAtReceiptMs: Number(e.audioPositionAtReceiptMs) };
-    if (!e.record) {
-      if (!isObject(e.event)) throw Error("Invalid capture event");
-      events.push({ ...e.event, ...timing, frameIndex: frames.length } as FileCaptureEvent);
-      continue;
-    }
-    const r = validateWebcamRecord(e.record);
-    header ??= { kind: "capture", playerSlots: r.playerCount, input: frameSize(r.input), modelId: r.modelId,
-      extensionIds: WEBCAM_EXTENSIONS, capture: { sourceKind: "webcam", sessionId: r.sessionId, audioPlaybackRate: Number(e.audioPlaybackRate) } };
-    if (e.audioPlaybackRate !== header.capture?.audioPlaybackRate || r.sessionId !== header.capture?.sessionId)
-      throw Error("Capture rate or session changed");
-    frames.push({ timeMs: r.mediaTimeMs, poses: r.poses, seq: r.seq, extensions: {
-      [EXTENSION.frameBrowserTimeMs]: r.frameBrowserTimeMs, [EXTENSION.resultBrowserTimeMs]: r.resultBrowserTimeMs,
-      [EXTENSION.receivedBrowserTimeMs]: timing.receivedBrowserTimeMs, [EXTENSION.audioPositionAtFrameMs]: Number(e.audioPositionAtFrameMs),
-      [EXTENSION.audioPositionAtReceiptMs]: timing.audioPositionAtReceiptMs,
-    } });
-  }
-  if (!header) throw Error("Capture has no pose records");
-  const frame = sourceKind === "video" ? calibrationFrame : undefined;
-  const bytes = encodePoseFile(buildFrames(header, frames, {
-    events, ...(frame ? { calibrationFrame: { timeMs: frame.mediaTimeMs, poses: frame.poses } } : {}),
-  }));
-  decodePoseFile(bytes);
-  return bytes;
 }
 
 /** A take or song choreography file imported into the library; unvalidated. */

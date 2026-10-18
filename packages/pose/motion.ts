@@ -1,7 +1,20 @@
 // The menu and celebration dancers' looping capture, stored as a take .adpose file.
 import { decodePoseFile, encodePoseFile, framesFromSamples, framesToSamples } from './binary.ts';
 import { isObject } from './choreography.ts';
-import type { MotionTake } from './legacy.ts';
+import type { CaptureInput, Pose, PoseQuality } from './choreography.ts';
+
+/** A take sample on the take's own clock (ms from the start of the capture). */
+export interface TakeSample { takeTimeMs: number; poses: Pose[]; quality?: PoseQuality[]; }
+/** A looping dance capture: what menu and celebration playback relies on. */
+export interface MotionTake {
+  schema: 'aerodance.take'; schemaVersion: 1;
+  durationMs: number;
+  /** Always unmirrored. */
+  input: CaptureInput;
+  samples: TakeSample[];
+  /** Free-form capture details. */
+  provenance?: unknown;
+}
 
 /**
  * A motion take as a file. A take file has no duration, so the loop length goes in its

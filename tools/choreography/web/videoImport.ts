@@ -4,7 +4,6 @@ import { assignPlayerSlots, detectedConfidence, PlayerSlotMapper } from '../../.
 import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
 import type { PoseDelegate, PoseRunningMode, PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { reliableBodyPose } from '../../../packages/character/calibration.ts';
-import type { VideoTimingMethod } from '../../../packages/pose/videoRecord.ts';
 import { validatePoses } from '../../../packages/pose/choreography.ts';
 import { PoseFileWriter } from '../../../packages/pose/binary.ts';
 import type { FrameInput } from '../../../packages/pose/binary.ts';
@@ -25,6 +24,8 @@ export interface Crop { x: number; y: number; width: number; height: number; }
 export interface DetectedPose extends Pose { ready: boolean; reason: string; }
 export interface CalibrationPreview { poses: Pose[]; detectedPoses: DetectedPose[]; }
 export interface CalibrationResult extends CalibrationPreview { mediaTimeMs: number; }
+/** How a frame's media time was found: its decoded timestamp, or the seek position. */
+export type VideoTimingMethod = 'decoded-frame' | 'seek-time';
 export interface FrameTiming { mediaTimeMs: number; timingMethod: VideoTimingMethod; }
 /** A decoded frame to run inference on: the <video> itself when seeking, or a decoded canvas. */
 export interface DecodedFrame extends FrameTiming {

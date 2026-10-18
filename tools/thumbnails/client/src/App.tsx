@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { PCFShadowMap } from 'three';
 import { loadMotion } from '../../../../packages/character/motion.ts';
 import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
-import type { MotionTake } from '../../../../packages/pose/legacy.ts';
+import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import { STAGES } from '../../../../packages/stages/index.ts';
 import type { Stage, StageId } from '../../../../packages/stages/index.ts';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';

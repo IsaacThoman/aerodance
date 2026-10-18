@@ -12,7 +12,7 @@ playable endpoint. It does not use the silent demo's loop or seam blend.
 ## Install an exported bundle
 
 Unpack the runtime ZIP into `client/public/songs/`, retaining its `<songId>/`
-folder with `song.json`, `choreography.json`, audio, optional cover, and
+folder with `song.json`, `choreography.adpose`, audio, optional cover, and
 `checksums.json`. The folder name must match `songId`. No manual catalog update
 is needed: the Vite development server generates `songs/manifest.json` from
 exported folders on each catalog request. Reopen Song Select to see changes. Invalid metadata, missing files, mismatched file sizes,
@@ -37,6 +37,25 @@ agreement, both tracks, calibration, sample quality, file lengths and SHA-256 fo
 all referenced runtime files. Requests include the selected bundle revision.
 Downloads have per-file and total declared-size limits. Errors appear in Song
 Select and allow retry; leaving the screen cancels the pending request.
+
+### Choreography files
+
+`song.json` names the choreography as
+`{ "path": "choreography.adpose", "schemaVersion": 2 }`: a `choreography` pose
+file ([pose-binary-format.md](pose-binary-format.md)). The demo's is 155 KB, down
+from 12.4 MB of JSON. For one release the loader also accepts schema 1,
+`choreography.json`. Convert an older bundle in place with:
+
+```sh
+node tools/pose/migrate-legacy.ts client/public/songs/<songId>
+```
+
+This writes `choreography.adpose`, bumps `bundleRevision`, rewrites
+`checksums.json`, and removes the JSON. The same tool converts Studio
+`records.ndjson` captures and `?record` NDJSON pose recordings
+(`node tools/pose/migrate-legacy.ts in.ndjson out.adpose`). `?record` now
+downloads `<songId>-poses.adpose`, which `?input=recording&recording=<url>`
+replays.
 
 One-player preview selects player ID 0 from the same choreography. Two-player
 preview selects IDs 0 and 1. The shared finite sampler preserves absence and

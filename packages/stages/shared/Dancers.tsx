@@ -6,7 +6,7 @@ import type { CharacterAppearance } from '../../character/Character.tsx';
 import { sampleSong } from '../../pose/song.ts';
 import { firstPresentFrame, framesToPoses } from '../../pose/binary.ts';
 import type { Pose } from '../../pose/choreography.ts';
-import type { MotionTake } from '../../pose/legacy.ts';
+import type { MotionTake } from '../../pose/motion.ts';
 import type { DancerPlacement } from '../catalog.ts';
 import DancerEntrance from './DancerEntrance.tsx';
 import type { DancerRoutine } from './routine.ts';

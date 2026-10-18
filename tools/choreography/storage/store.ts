@@ -12,7 +12,8 @@ import {
   migrateProject,
 } from "../core.ts";
 import type { CaptureMetadata, CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
-import { decodeTake, decodeTrack, encodeTake, encodeTrack, legacyCaptureFile } from "../poseFiles.ts";
+import { decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
+import { legacyCaptureFile } from "../legacyCapture.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
 import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
 import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";

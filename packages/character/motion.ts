@@ -1,5 +1,5 @@
 import { createPoseApplier, calibratePoses } from './retarget.ts';
-import type { MotionTake } from '../pose/legacy.ts';
+import type { MotionTake } from '../pose/motion.ts';
 import { decodeMotion } from '../pose/motion.ts';
 import { sampleSnapshot } from '../pose/choreography.ts';
 import type { Pose } from '../pose/choreography.ts';
