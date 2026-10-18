@@ -4,8 +4,9 @@ import { useFrame } from '@react-three/fiber';
 import Character from '../../character/Character.tsx';
 import type { CharacterAppearance } from '../../character/Character.tsx';
 import { sampleSong } from '../../pose/song.ts';
+import { firstPresentFrame, framesToPoses } from '../../pose/binary.ts';
 import type { Pose } from '../../pose/choreography.ts';
-import type { MotionTake } from '../../pose/legacy.ts';
+import type { MotionTake } from '../../pose/motion.ts';
 import type { DancerPlacement } from '../catalog.ts';
 import DancerEntrance from './DancerEntrance.tsx';
 import type { DancerRoutine } from './routine.ts';
@@ -33,11 +34,10 @@ function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<P
     // Capture/export can leave a few empty frames before the first pose. Prepare that
     // pose for the entrance, but never fill a longer tracking gap or change scoring.
     return [0, 1].map((id) => {
-      const sample = choreography.samples.find((s) => s.songTimeMs >= song.playableStartMs &&
-        s.songTimeMs <= song.playableStartMs + choreography.sampling.maxInterpolationGapMs &&
-        s.poses.some((p) => p.playerId === id));
-      const pose = sample?.poses.find((p) => p.playerId === id);
-      return sample && pose ? { time: sample.songTimeMs, pose } : null;
+      const frame = firstPresentFrame(choreography, id, song.playableStartMs,
+        song.playableStartMs + choreography.song.maxInterpolationGapMs);
+      const pose = frame < 0 ? undefined : framesToPoses(choreography, frame).poses.find((p) => p.playerId === id);
+      return pose ? { time: choreography.times[frame], pose } : null;
     });
   }, [routine]);
   useFrame(() => {

@@ -55,12 +55,12 @@ export interface GameSessionOptions {
   source?: PoseSource | null;
   createPlayer?: (audio: Blob, range: SongRange) => Promise<SessionPlayer>;
   now?: () => number;
-  /** Record the players' poses during the song (recordingText on results). */
+  /** Record the players' poses during the song (recordingBytes on results). */
   record?: boolean;
   /** Start the countdown by itself once everyone is ready. */
   autoStart?: boolean;
 }
-type SessionPatch = Partial<Pick<GameSession, 'error' | 'pausedAtMs' | 'finishAt' | 'results' | 'recordingText'>>;
+type SessionPatch = Partial<Pick<GameSession, 'error' | 'pausedAtMs' | 'finishAt' | 'results' | 'recordingBytes'>>;
 
 export class GameSession {
   bundle: LoadedSongBundle;
@@ -85,7 +85,7 @@ export class GameSession {
   pausedEntranceMs: number | null = null;
   results: PlayerResult[] | null = null;
   recording: PoseRecorder | null = null;
-  recordingText: string | null = null;
+  recordingBytes: Uint8Array<ArrayBuffer> | null = null;
   listeners = new Set<(session: GameSession) => void>();
   judgementListeners = new Set<(event: JudgementEvent) => void>();
   offRecords: () => void;
@@ -248,7 +248,7 @@ export class GameSession {
       this.source?.attachSong?.(null);
       const recording = this.recording?.stop() ?? null;
       this.recording = null;
-      this.set('results', { results: this.scorer.results(), recordingText: recording });
+      this.set('results', { results: this.scorer.results(), recordingBytes: recording });
     }
   }
 

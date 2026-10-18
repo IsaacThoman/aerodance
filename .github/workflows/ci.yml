@@ -51,4 +51,5 @@ jobs:
           "node tools/choreography/tests/browser-storage.browser.ts &&
           node tools/choreography/tests/project-loading.browser.ts &&
           node tools/choreography/tests/video-import.browser.ts &&
+          node tools/choreography/tests/solo-workflow.browser.ts &&
           node tools/choreography/tests/video-duet.browser.ts"

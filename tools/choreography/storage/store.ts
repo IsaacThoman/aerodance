@@ -7,12 +7,16 @@ import {
   validateTrackData,
   compileProject,
   reviewReport,
+  takeSummary,
   trackDataIds,
-  migrateProject,
 } from "../core.ts";
-import type { CompiledChoreography, Project, ProjectSummary, ProjectV2, ReviewReport, StudioAssets, Take, TrackData } from "../core.ts";
+import type { CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
+import { concatBytes, decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
-import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";
+import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
+import type { ChecksumManifest, Song, SongChoreography } from "../../../packages/pose/song.ts";
+import { encodePoseFile } from "../../../packages/pose/binary.ts";
+import { readZip } from "./zip.ts";
 
 /** An error the API answers with this HTTP status. */
 export type HttpError = Error & { status: number };
@@ -39,6 +43,21 @@ export const id = (value: unknown): string => {
   if (typeof value !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(value)) throw Error("Invalid ID");
   return value;
 };
+/**
+ * A song's ID: a hash of its audio and its motion, so each distinct dance gets its own ID and
+ * re-exporting an unchanged one keeps it. Metadata and provenance don't count, and the
+ * choreography is hashed with an empty ID since the file carries the result.
+ */
+export async function bundleSongId(audioSha256: string, motion: SongChoreography): Promise<string> {
+  const input = concatBytes([new TextEncoder().encode(audioSha256), encodePoseFile(motion)]);
+  return `song-${(await sha(input)).slice(0, 16)}`;
+}
+/** The file name a project download is saved as; a song bundle is named after its song folder. */
+export async function downloadName(p: Project, kind: "backup" | "export", bytes: Uint8Array): Promise<string> {
+  if (kind === "backup") return `${p.projectId}.aerodance-project.zip`;
+  const [first] = (await readZip(bytes)).keys();
+  return `${first.split("/")[0]}-r${p.revision}.aerodance-song.zip`;
+}
 export interface CompileResult { data: CompiledChoreography; report: ReviewReport; }
 export interface SongBundleFiles { files: Map<string, Uint8Array>; report: ReviewReport; }
 export class Store {
@@ -50,6 +69,8 @@ export class Store {
   async read(projectId: string, ...parts: string[]): Promise<unknown> {
     return JSON.parse(decode(await this.files.read(this.location(projectId, ...parts))));
   }
+  takePath(projectId: string, takeId: string) { return this.location(projectId, "takes", `${id(takeId)}.adpose`); }
+  trackPath(projectId: string, dataId: string) { return this.location(projectId, "tracks", `${id(dataId)}.adpose`); }
   async project(projectId: string): Promise<Project> {
     const p = await this.read(projectId, "project.json");
     assertProject(p);
@@ -100,28 +121,23 @@ export class Store {
           ),
         );
       }
-      for (const t of project.takes)
-        await this.require(
-          this.location(project.projectId, "takes", `${id(t.takeId)}.json`),
-        );
-      for (const dataId of trackDataIds(project))
-        await this.require(
-          this.location(project.projectId, "tracks", `${id(dataId)}.json`),
-        );
-      if (project.schemaVersion === 2) {
-        for (const track of project.tracks)
-          for (const dataId of new Set(
-            [track.dataId, track.originalDataId].filter((v): v is string => Boolean(v)),
-          )) {
-            const data = await this.read(
-              project.projectId,
-              "tracks",
-              `${id(dataId)}.json`,
-            );
-            if (!isObject(data) || data.playerId !== track.playerId || data.dataId !== dataId)
-              throw Error("Track snapshot belongs to another player");
-          }
+      // A take added since the stored revision must match the file it summarizes.
+      const known = new Set(isObject(current) && Array.isArray(current.takes) ? current.takes.map(t => isObject(t) ? t.takeId : null) : []);
+      for (const t of project.takes) {
+        const bytes = await this.files.read(this.takePath(project.projectId, t.takeId)).catch((e: unknown) => {
+          if (isMissing(e)) throw Object.assign(Error("Project/asset not found"), { code: "ENOENT" });
+          throw e;
+        });
+        if (!known.has(t.takeId) && t.sha256 !== await sha(bytes)) throw Error("Take metadata does not match the stored take");
       }
+      for (const track of project.tracks)
+        for (const dataId of new Set(
+          [track.dataId, track.originalDataId].filter((v): v is string => Boolean(v)),
+        )) {
+          const data = decodeTrack(await this.files.read(this.trackPath(project.projectId, dataId)));
+          if (data.playerId !== track.playerId || data.dataId !== dataId)
+            throw Error("Track snapshot belongs to another player");
+        }
       const next = {
         ...project,
         revision: (typeof current?.revision === "number" ? current.revision : 0) + 1,
@@ -153,45 +169,44 @@ export class Store {
     }
     return projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
+  /** Stores an immutable take; resolves with the take as stored, quantized and with its hash. */
   async writeTake(projectId: string, take: unknown): Promise<Take> {
-    assertTake(take);
-    const { sha256: _oldHash, ...content } = take;
-    const bytes = json(content);
-    const stored = { ...content, sha256: await sha(bytes) };
-    const filename = this.location(
-      projectId,
-      "takes",
-      `${id(stored.takeId)}.json`,
-    );
+    const stored = await this.encodeTake(take), filename = this.takePath(projectId, stored.take.takeId);
     if (await this.exists(filename)) throw Error("Take is immutable");
-    await this.atomic(filename, json(stored));
-    return stored;
+    await this.atomic(filename, stored.bytes);
+    return stored.take;
+  }
+  /** A take's file, and the take as reading that file gives it back. */
+  async encodeTake(take: unknown): Promise<{ bytes: Uint8Array; take: Take }> {
+    assertTake(take);
+    const bytes = encodeTake(take);
+    return { bytes, take: validateTake(decodeTake(bytes, { ...takeSummary(take), sha256: await sha(bytes) })) };
+  }
+  async take(projectId: string, summary: TakeSummary): Promise<Take> {
+    return validateTake(decodeTake(await this.files.read(this.takePath(projectId, summary.takeId)), summary));
+  }
+  /** A take by ID, with the metadata its project summary keeps. */
+  async takeById(projectId: string, takeId: string): Promise<Take> {
+    const p = await this.project(projectId);
+    const summary = p.takes.find(t => t.takeId === takeId);
+    if (!summary) throw httpError("Take not found", 404);
+    return this.take(projectId, summary);
+  }
+  async track(projectId: string, dataId: string): Promise<TrackData> {
+    const data = validateTrackData(decodeTrack(await this.files.read(this.trackPath(projectId, dataId))));
+    if (data.dataId !== dataId) throw Error("Track snapshot reference mismatch");
+    return data;
   }
   /** The project's takes and track snapshots, validated. */
-  async takes(p: Project): Promise<StudioAssets> {
+  async takes(p: ProjectV3): Promise<StudioAssets> {
     const entries = await Promise.all(
-      p.takes.map(async (t): Promise<[string, Take | TrackData]> => [
-        t.takeId,
-        validateTake(await this.read(p.projectId, "takes", `${id(t.takeId)}.json`)),
-      ]),
+      p.takes.map(async (t): Promise<[string, Take | TrackData]> => [t.takeId, await this.take(p.projectId, t)]),
     );
-    for (const dataId of trackDataIds(p))
-      entries.push([
-        dataId,
-        validateTrackData(await this.read(p.projectId, "tracks", `${id(dataId)}.json`)),
-      ]);
+    for (const dataId of trackDataIds(p)) entries.push([dataId, await this.track(p.projectId, dataId)]);
     return new Map(entries);
   }
-  async open(projectId: string): Promise<ProjectV2> {
-    return this.locked(projectId, async () => {
-      const p = await this.project(projectId);
-      if (p.schemaVersion === 2) return p;
-      const assets = await this.takes(p),
-        next = migrateProject(p, assets);
-      for (const dataId of trackDataIds(next))
-        await this.writeTrack(projectId, assets.get(dataId), false, true);
-      return this.save(next, p.revision, true);
-    });
+  async open(projectId: string): Promise<ProjectV3> {
+    return this.project(projectId);
   }
   async writeTrack(
     projectId: string,
@@ -202,18 +217,14 @@ export class Store {
     assertTrackData(data);
     const persist = async () => {
       if (requireProject) await this.read(projectId, "project.json");
-      const filename = this.location(
-        projectId,
-        "tracks",
-        `${id(data.dataId)}.json`,
-      );
+      const filename = this.trackPath(projectId, data.dataId), bytes = encodeTrack(data);
       try {
-        const current = await this.files.read(filename);
-        if (!equal(current, json(data)))
+        // Encoding a decoded snapshot reproduces its bytes, so a retried upload matches.
+        if (!equal(await this.files.read(filename), bytes))
           throw Error("Track snapshot is immutable");
       } catch (e) {
         if (!isMissing(e)) throw e;
-        await this.atomic(filename, json(data));
+        await this.atomic(filename, bytes);
       }
       return { dataId: data.dataId };
     };
@@ -229,8 +240,6 @@ export class Store {
         await this.files.commit(new Map(), [this.location(projectId) + "/"]);
         return { deleted: true };
       }
-      if (stored.schemaVersion !== 2)
-        throw Error("Open the project before deleting takes");
       const p = stored;
       assertProject(p);
       if (!p.takes.some((t) => t.takeId === takeId))
@@ -239,13 +248,13 @@ export class Store {
       p.revision++;
       p.updatedAt = new Date().toISOString();
       await this.persist(p, [
-        this.location(projectId, "takes", `${id(takeId)}.json`),
+        this.takePath(projectId, takeId),
         this.location(projectId, "capture", id(takeId)) + "/",
       ]);
       return p;
     });
   }
-  async compile(p: Project): Promise<CompileResult> {
+  async compile(p: ProjectV3): Promise<CompileResult> {
     const data = compileProject(p, await this.takes(p));
     data.provenance.settingsHash = await sha(
       json({
@@ -255,7 +264,7 @@ export class Store {
     );
     return { data, report: reviewReport(p, data) };
   }
-  async bundle(p: Project): Promise<SongBundleFiles> {
+  async bundle(p: ProjectV3): Promise<SongBundleFiles> {
     const { data, report } = await this.compile(p);
     if (report.blockers.length)
       throw httpError(report.blockers.join("\n"), 422);
@@ -267,18 +276,24 @@ export class Store {
       );
     if (await sha(audio) !== p.audio.sha256)
       throw Error("Audio integrity check failed");
+    const markers = data.markers.map(({ songTimeMs, kind, label }) => ({ timeMs: songTimeMs, kind, label }));
+    const songId = await bundleSongId(p.audio.sha256, songChoreographyFromTimeline({ ...data, songId: "" }, { markers }));
     const song: Song = {
       schema: "aerodance.song",
       schemaVersion: 1,
-      songId: p.songId,
+      songId,
       bundleRevision: p.revision,
       ...p.metadata,
+      rights: {
+        audio: { license: "unknown", attribution: "" },
+        choreography: { license: "unknown", attribution: "" },
+      },
       durationMs: p.durationMs,
       playableStartMs: p.playableStartMs,
       playableEndMs: p.playableEndMs,
       supportedPlayerCounts: [1, 2],
       audio: { path: filename, mimeType: p.audio.mimeType },
-      choreography: { path: "choreography.json", schemaVersion: 1 },
+      choreography: { path: "choreography.adpose", schemaVersion: 2 },
       coachMode: "mirror-player",
       rigProfile: "frutiger-seven-bone-v1",
       createdAt: p.createdAt,
@@ -287,7 +302,10 @@ export class Store {
     };
     const files = new Map([
       ["song.json", json(song)],
-      ["choreography.json", new TextEncoder().encode(JSON.stringify(data) + "\n")],
+      ["choreography.adpose", encodePoseFile(songChoreographyFromTimeline({ ...data, songId }, {
+        markers,
+        provenance: data.provenance,
+      }))],
       [filename, audio],
     ]);
     const checksums: ChecksumManifest = {
@@ -310,7 +328,7 @@ export class Store {
     files.set("checksums.json", json(checksums));
     return {
       files: new Map(
-        [...files].map(([name, bytes]) => [`${p.songId}/${name}`, bytes]),
+        [...files].map(([name, bytes]) => [`${songId}/${name}`, bytes]),
       ),
       report,
     };

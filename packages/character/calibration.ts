@@ -12,11 +12,11 @@ export function reliableBodyPose(pose: Pose) {
   return [11,12,23,24,27,28].every(i => {
     const j: Landmark | undefined = pose.landmarks[i];
     return j && j.x>=0 && j.x<=1 && j.y>=0 && j.y<=1 &&
-      j.visibility!==null && j.presence!==null && Math.min(j.visibility,j.presence)>=.5;
+      j.confidence!==null && j.confidence>=.5;
   });
 }
 export function calibratePoses(poses: readonly Pose[], input: FrameSize = {width:640,height:480}, {adaptiveDistance=false}: CalibrationOptions = {}): TrackCalibration {
-  const reliable = poses.filter(p => [11,12,23,24,27,28].every(i => { const j=p.landmarks[i]; return j.visibility === null || j.presence === null || Math.min(j.visibility,j.presence) >= .5; }));
+  const reliable = poses.filter(p => [11,12,23,24,27,28].every(i => { const j=p.landmarks[i]; return j.confidence === null || j.confidence >= .5; }));
   const frames = (reliable.length ? reliable : poses).map(p=>p.landmarks);
   if (!frames.length) return {inputWidth:input.width,inputHeight:input.height,torsoLength:.2,baseHip:{x:.5,y:.55,z:0},floorY:.9,profileVersion:1};
   const aspect = input.width/input.height;

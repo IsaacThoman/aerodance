@@ -21,7 +21,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 type WorkerReply = DistributiveOmit<PoseWorkerResponse, 'sessionId'>;
 // What MediaPipe would report for a pose.
 const detected = (landmarks: readonly Landmark[]): NormalizedLandmark[] =>
-  landmarks.map(({ x, y, z, visibility, presence }) => ({ x, y, z, visibility: visibility ?? 0, presence: presence ?? undefined }));
+  landmarks.map(({ x, y, z, confidence }) => ({ x, y, z, visibility: confidence ?? 0, presence: confidence ?? undefined }));
 
 const points = (x: number) => Array.from({ length: 33 }, () => ({ x, y: 0.5, z: 0, visibility: 0.95, presence: 0.95 }));
 test('two-player slots require consecutive evidence and clear immediately on ambiguity', () => {
@@ -124,7 +124,7 @@ test('webcam capture times drive scored gameplay and recordings through the cont
   const dir = new URL('./fixtures/song-70c63c8e/', import.meta.url);
   const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
   const song = validateSong(read('song.json'));
-  const bundle = { song, choreography: validateSongChoreography(song, read('choreography.json')), audio: new Blob([]), cover: null };
+  const bundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null };
   let songStart = 0;
   // Only play and songTimeAt matter here: the test never updates the session.
   const player: SessionPlayer = { state: 'paused', ended: false, play() { this.state = 'playing'; songStart = f.now; },
@@ -159,9 +159,9 @@ test('webcam capture times drive scored gameplay and recordings through the cont
   assert.doesNotThrow(() => source.disconnect(), 'camera shutdown reaches game and recorder safely');
   const recorder = recording();
   assert.ok(recorder);
-  const { entries } = parseRecording(recorder.stop());
+  const { header, entries } = parseRecording(recorder.stop());
   session.recording = null;
   assert.equal(entries.length, seq - calibrationFrames);
   assert.equal(entries[0].songTimeMs, bundle.song.playableStartMs, 'recorded at capture, not arrival');
-  assert.equal(entries[0].timing, 'browser-frame-observation');
+  assert.equal(header.timing, 'browser-frame-observation');
 });

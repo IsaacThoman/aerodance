@@ -14,7 +14,7 @@ const MIN_SAMPLES = 6;
 const MOVEMENT_TOLERANCE = 0.15; // Fraction of the initial torso length, independent of camera distance.
 const BODY = [11, 12, 23, 24, 27, 28];
 const WRISTS = [15, 16];
-const reliable = (j: Landmark | undefined) => !!j && Math.min(j.visibility ?? 0, j.presence ?? 0) >= 0.5;
+const reliable = (j: Landmark | undefined) => !!j && (j.confidence ?? 0) >= 0.5;
 const distance = (a: { x: number; y: number }, b: { x: number; y: number }, aspect: number) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
 const mid = (p: readonly Landmark[], a: number, b: number) => ({ x: (p[a].x + p[b].x) / 2, y: (p[a].y + p[b].y) / 2 });
 

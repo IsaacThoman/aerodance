@@ -13,7 +13,7 @@ const dir = new URL('../../../client/tests/fixtures/song-70c63c8e/', import.meta
 const song = validateSong(JSON.parse(readFileSync(new URL('song.json', dir), 'utf8')));
 const bundle: SongBundle = {
   song,
-  choreography: validateSongChoreography(song, JSON.parse(readFileSync(new URL('choreography.json', dir), 'utf8'))),
+  choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))),
 };
 const ASPECT = 640 / 480;
 
