@@ -1,0 +1,48 @@
+{
+  "schema": "aerodance.song",
+  "schemaVersion": 1,
+  "songId": "song-0cb98e7487c4f0a9",
+  "bundleRevision": 18,
+  "title": "Rasputin",
+  "artist": "Boney M",
+  "songwriters": [],
+  "choreographers": [],
+  "difficulty": "normal",
+  "stage": "openreef",
+  "tags": [],
+  "bpm": null,
+  "description": "",
+  "rights": {
+    "audio": {
+      "license": "Free",
+      "attribution": ""
+    },
+    "choreography": {
+      "license": "Free",
+      "attribution": ""
+    }
+  },
+  "durationMs": 269457,
+  "playableStartMs": 0,
+  "playableEndMs": 247905,
+  "supportedPlayerCounts": [
+    1,
+    2
+  ],
+  "audio": {
+    "path": "audio.mp3",
+    "mimeType": "audio/mpeg"
+  },
+  "choreography": {
+    "path": "choreography.adpose",
+    "schemaVersion": 2
+  },
+  "coachMode": "mirror-player",
+  "rigProfile": "frutiger-seven-bone-v1",
+  "createdAt": "2026-10-18T18:54:47.837Z",
+  "publishedAt": "2026-10-18T19:41:36.893Z",
+  "build": {
+    "compilerVersion": "1.2.0",
+    "projectRevision": 18
+  }
+}
