@@ -40,17 +40,6 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
           />
         </label>
       ))}
-      <label>
-        Song ID
-        <input
-          aria-label="Song ID"
-          disabled={recording || busy}
-          value={project.songId}
-          onChange={(e) =>
-            edit((p) => ({ ...p, songId: e.target.value }))
-          }
-        />
-      </label>
       {LIST_FIELDS.map(([key, label]) => (
         <label key={key}>
           {label}

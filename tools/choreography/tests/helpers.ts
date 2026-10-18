@@ -50,6 +50,8 @@ export async function projectOf(response: Response): Promise<ProjectV3> {
 export const takeOf = async (response: Response) => validateTake(await response.json());
 /** A JSON file from an exported ZIP. */
 export const zipJson = (files: ReadonlyMap<string, Buffer>, name: string): unknown => JSON.parse(found(files.get(name)).toString());
+/** The song ID of an exported bundle: its one top-level folder. */
+export const songFolder = (files: ReadonlyMap<string, unknown>): string => found([...files.keys()][0]).split("/")[0];
 /** An .adpose file from an exported ZIP, decoded. */
 export const zipPose = (files: ReadonlyMap<string, Buffer>, name: string) => decodePoseFile(found(files.get(name)));
 /** A calibration as a pose file stores it: its measurements are f32. */

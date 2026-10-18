@@ -200,7 +200,8 @@ the whole character. Recalibrate after choosing your dancing position.
 Extract the song ZIP **into** `client/public/songs/`. The archive already contains
 `<songId>/`, so the result should be `client/public/songs/<songId>/song.json`, with
 choreography, audio, and checksums beside it. The folder name must match the
-exported `songId`. No manual manifest entry is needed.
+exported `songId`, which is a hash of the song's audio and motion: changing the
+dance gives it a new ID, while metadata edits keep it. No manual manifest entry is needed.
 
 The game discovers exported folders automatically. In development and the
 production Express server, the catalog is scanned whenever Song Select opens.

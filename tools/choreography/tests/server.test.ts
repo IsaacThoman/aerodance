@@ -21,7 +21,7 @@ import { EXTENSION, PoseFileWriter, decodePoseFile } from "../../../packages/pos
 import { poseModel, MEDIAPIPE_VERSION } from '../../../packages/pose/browser/models.ts';
 import { isObject } from "../../../packages/pose/choreography.ts";
 import type { Pose } from "../../../packages/pose/choreography.ts";
-import { baseUrl, found, projectOf, read, takeOf, zipJson, zipPose } from "./helpers.ts";
+import { baseUrl, found, projectOf, read, songFolder, takeOf, zipJson, zipPose } from "./helpers.ts";
 const errorOf = async (response: Response) => read(await response.json(), "error");
 function trackData(assets: StudioAssets, dataId: string) {
   const data = assets.get(dataId);
@@ -102,7 +102,7 @@ test('webcam batches accept only frame and event chunks and preserve a finalized
   const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
   assert.equal(exported.status, 200, await exported.clone().text());
   const files = readZip(Buffer.from(await exported.arrayBuffer()));
-  const choreography = zipPose(files, `${p.songId}/choreography.adpose`);
+  const choreography = zipPose(files, `${songFolder(files)}/choreography.adpose`);
   assert.equal(read(choreography.provenance, 'sources', 0, 'provenance', 'modelId'), 'lite');
   const calibration = found(found(choreography.tracks)[0].calibration);
   assert.equal(calibration.cameraScaleMode,'body-relative');
@@ -179,13 +179,16 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
   const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
   assert.equal(exported.status, 200, await exported.clone().text());
   const files = readZip(Buffer.from(await exported.arrayBuffer()));
-  const checks = read(zipJson(files, `${p.songId}/checksums.json`), "files");
+  const songId = songFolder(files);
+  assert.match(songId, /^song-[0-9a-f]{16}$/);
+  assert.equal(read(zipJson(files, `${songId}/song.json`), "songId"), songId);
+  const checks = read(zipJson(files, `${songId}/checksums.json`), "files");
   // The song carries its stage, so the game opens it on club.
-  assert.equal(read(zipJson(files, `${p.songId}/song.json`), "stage"), "club");
+  assert.equal(read(zipJson(files, `${songId}/song.json`), "stage"), "club");
   assert.ok(Array.isArray(checks));
   for (const file of checks) {
     assert.ok(isObject(file));
-    const bytes = found(files.get(`${p.songId}/${file.path}`));
+    const bytes = found(files.get(`${songId}/${file.path}`));
     assert.equal(bytes.length, file.bytes);
     assert.equal(sha(bytes), file.sha256);
   }
@@ -209,6 +212,20 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
     ).byteLength,
     audio.length,
   );
+  // The song ID follows the dance: the same audio and motion keep it in any project and
+  // under new metadata, and changing the motion gives a new one.
+  const songIdOf = async (projectId: string) => {
+    const response = await fetch(`${base}/api/projects/${projectId}/export`);
+    assert.equal(response.status, 200, await response.clone().text());
+    const id = songFolder(readZip(Buffer.from(await response.arrayBuffer())));
+    assert.match(found(response.headers.get("content-disposition")), new RegExp(`${id}-r\\d+\\.aerodance-song\\.zip`));
+    return id;
+  };
+  assert.equal(await songIdOf(rp.projectId), songId);
+  let edited = await projectOf(await api(`/api/projects/${rp.projectId}`, { ...rp, metadata: { ...rp.metadata, title: "Renamed routine" } }, "PUT"));
+  assert.equal(await songIdOf(rp.projectId), songId);
+  edited = await projectOf(await api(`/api/projects/${rp.projectId}`, { ...edited, playableEndMs: edited.playableEndMs - 100 }, "PUT"));
+  assert.notEqual(await songIdOf(edited.projectId), songId);
 });
 test('stored projects in earlier formats remain listed but cannot be opened or mutated by this editor', async t => {
   const {api,base,store}=await setup(t);

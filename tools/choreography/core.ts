@@ -80,7 +80,7 @@ export type TrackChange = TrackCommand & { operationId: string; beforeTracks: Tr
 /** aerodance.project format 3. Earlier formats are listed but can't be opened. */
 export interface ProjectV3 {
   schema: "aerodance.project";
-  projectId: string; songId: string; revision: number;
+  projectId: string; revision: number;
   createdAt: string; updatedAt: string;
   metadata: ProjectMetadata;
   audio: ProjectAudio | null;
@@ -200,7 +200,6 @@ export function newProject(id: string = crypto.randomUUID()): Project {
   };
   const head = {
     projectId: id,
-    songId: `song-${id.slice(0, 8)}`,
     revision: 0,
     createdAt: now,
     updatedAt: now,
@@ -237,10 +236,8 @@ export function assertProject(p: unknown): asserts p is Project {
     `Unsupported project format ${version}. This editor supports project format 3.`,
   );
   assert(isId(p.projectId), "Invalid project ID");
-  assert(
-    typeof p.songId === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(p.songId),
-    "Song ID must use lowercase letters, digits and hyphens",
-  );
+  // The song ID now comes from the exported dance; projects saved before that stored one.
+  delete p.songId;
   assert(
     typeof p.revision === "number" && Number.isSafeInteger(p.revision) && p.revision >= 0,
     "Invalid revision",
@@ -892,7 +889,8 @@ export function compileProject(
   const result: CompiledChoreography = {
     schema: "aerodance.choreography",
     schemaVersion: 1,
-    songId: p.songId,
+    // Export fills in the ID derived from the dance (see bundleSongId).
+    songId: "",
     durationMs: p.durationMs,
     playableStartMs: start,
     playableEndMs: end,

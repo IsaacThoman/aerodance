@@ -19,7 +19,7 @@ import { newProject, addTake, takeFromRecords, takeCalibration, overwriteTracks,
   offsetTrack, historyStep, compileProject, validateTake, validateTrackData, trackDataIds, isTrackData } from '../core.ts';
 import type { StudioAssets } from '../core.ts';
 import { takeIdOf } from '../web/api.ts';
-import { baseUrl, captureOf, fake, found, projectOf, read, storedCalibration, storedPose, takeOf, uploadedFrames, zipPose } from './helpers.ts';
+import { baseUrl, captureOf, fake, found, projectOf, read, songFolder, storedCalibration, storedPose, takeOf, uploadedFrames, zipPose } from './helpers.ts';
 import type { Call } from './helpers.ts';
 
 const pose = (playerId: number, hipY = .6): { playerId: number; landmarks: Landmark[] } => ({ playerId, landmarks: Array.from({ length: 33 }, (_, i) => ({
@@ -384,7 +384,8 @@ test('video batches finalize with calibration and survive export and backup afte
   p = await projectOf(await api(`/api/projects/${p.projectId}`, p, 'PUT'));
   const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
   assert.equal(exported.status, 200, await exported.clone().text());
-  const choreography = zipPose(readZip(Buffer.from(await exported.arrayBuffer())), `${p.songId}/choreography.adpose`);
+  const files = readZip(Buffer.from(await exported.arrayBuffer()));
+  const choreography = zipPose(files, `${songFolder(files)}/choreography.adpose`);
   assert.deepEqual(found(choreography.tracks)[0].calibration, storedCalibration(takeCalibration(take, 0)));
   const backup = await fetch(`${base}/api/projects/${p.projectId}/backup`);
   const restored = await fetch(`${base}/api/restore`, { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: await backup.arrayBuffer() });

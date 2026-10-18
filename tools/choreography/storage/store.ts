@@ -11,11 +11,12 @@ import {
   trackDataIds,
 } from "../core.ts";
 import type { CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
-import { decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
+import { concatBytes, decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
 import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
-import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";
+import type { ChecksumManifest, Song, SongChoreography } from "../../../packages/pose/song.ts";
 import { encodePoseFile } from "../../../packages/pose/binary.ts";
+import { readZip } from "./zip.ts";
 
 /** An error the API answers with this HTTP status. */
 export type HttpError = Error & { status: number };
@@ -42,6 +43,21 @@ export const id = (value: unknown): string => {
   if (typeof value !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(value)) throw Error("Invalid ID");
   return value;
 };
+/**
+ * A song's ID: a hash of its audio and its motion, so each distinct dance gets its own ID and
+ * re-exporting an unchanged one keeps it. Metadata and provenance don't count, and the
+ * choreography is hashed with an empty ID since the file carries the result.
+ */
+export async function bundleSongId(audioSha256: string, motion: SongChoreography): Promise<string> {
+  const input = concatBytes([new TextEncoder().encode(audioSha256), encodePoseFile(motion)]);
+  return `song-${(await sha(input)).slice(0, 16)}`;
+}
+/** The file name a project download is saved as; a song bundle is named after its song folder. */
+export async function downloadName(p: Project, kind: "backup" | "export", bytes: Uint8Array): Promise<string> {
+  if (kind === "backup") return `${p.projectId}.aerodance-project.zip`;
+  const [first] = (await readZip(bytes)).keys();
+  return `${first.split("/")[0]}-r${p.revision}.aerodance-song.zip`;
+}
 export interface CompileResult { data: CompiledChoreography; report: ReviewReport; }
 export interface SongBundleFiles { files: Map<string, Uint8Array>; report: ReviewReport; }
 export class Store {
@@ -260,10 +276,12 @@ export class Store {
       );
     if (await sha(audio) !== p.audio.sha256)
       throw Error("Audio integrity check failed");
+    const markers = data.markers.map(({ songTimeMs, kind, label }) => ({ timeMs: songTimeMs, kind, label }));
+    const songId = await bundleSongId(p.audio.sha256, songChoreographyFromTimeline({ ...data, songId: "" }, { markers }));
     const song: Song = {
       schema: "aerodance.song",
       schemaVersion: 1,
-      songId: p.songId,
+      songId,
       bundleRevision: p.revision,
       ...p.metadata,
       durationMs: p.durationMs,
@@ -280,8 +298,8 @@ export class Store {
     };
     const files = new Map([
       ["song.json", json(song)],
-      ["choreography.adpose", encodePoseFile(songChoreographyFromTimeline(data, {
-        markers: data.markers.map(({ songTimeMs, kind, label }) => ({ timeMs: songTimeMs, kind, label })),
+      ["choreography.adpose", encodePoseFile(songChoreographyFromTimeline({ ...data, songId }, {
+        markers,
         provenance: data.provenance,
       }))],
       [filename, audio],
@@ -306,7 +324,7 @@ export class Store {
     files.set("checksums.json", json(checksums));
     return {
       files: new Map(
-        [...files].map(([name, bytes]) => [`${p.songId}/${name}`, bytes]),
+        [...files].map(([name, bytes]) => [`${songId}/${name}`, bytes]),
       ),
       report,
     };

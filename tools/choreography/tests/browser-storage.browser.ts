@@ -77,7 +77,7 @@ try {
     const url = "/__test__/storage.js", { workspace }: typeof Api = await import(url);
     return workspace.restore(new Uint8Array(bytes));
   }, Array.from(oldBackup));
-  assert.equal(migrated.songId, diskProject.songId);
+  assert.equal(migrated.metadata.title, diskProject.metadata.title);
   assert.notEqual(migrated.projectId, diskProject.projectId);
   const roundTrip = await disk.restore(backup);
   assert.equal(roundTrip.metadata.title, saved.metadata.title);

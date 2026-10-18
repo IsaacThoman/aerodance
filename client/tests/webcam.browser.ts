@@ -211,20 +211,20 @@ try {
       await store.writeTrack(p.projectId, assets.get(id));
     }
     p = project(await store.save(p, p.revision));
-    return { songId: p.songId, bytes: Array.from(await store.download(p.projectId, 'export')) };
+    return { bytes: Array.from(await store.download(p.projectId, 'export')) };
   })();
-  const bundle = readZip(Buffer.from(exported.bytes));
+  const bundle = readZip(Buffer.from(exported.bytes)), songId = [...bundle.keys()][0].split('/')[0];
   const zipJson = (name: string): unknown => {
-    const file = bundle.get(`${exported.songId}/${name}`);
+    const file = bundle.get(`${songId}/${name}`);
     assert.ok(file, `exported ${name}`);
     return JSON.parse(file.toString('utf8'));
   };
   const song = validateSong(zipJson('song.json'));
-  const exportedMotion=validateSongChoreography(song, bundle.get(`${exported.songId}/choreography.adpose`) ?? Buffer.alloc(0));
+  const exportedMotion=validateSongChoreography(song, bundle.get(`${songId}/choreography.adpose`) ?? Buffer.alloc(0));
   assert.equal(exportedMotion.tracks[0].calibration.cameraScaleMode,'body-relative');
   assert.equal(exportedMotion.tracks[0].calibration.profileVersion,2);
   apps[0].use('/songs/webcam-capture', (req, res) => {
-    const file = bundle.get(`${exported.songId}${req.path}`);
+    const file = bundle.get(`${songId}${req.path}`);
     if (!file) return res.sendStatus(404);
     res.type(path.extname(req.path)).send(file);
   });

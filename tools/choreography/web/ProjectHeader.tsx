@@ -1,4 +1,5 @@
 import type { ProjectV3 } from "../core.ts";
+import { downloadName } from "../storage/store.ts";
 import { projectSummaries, request, workspace as storage, errorMessage } from "./api.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
@@ -28,7 +29,7 @@ export default function ProjectHeader({ project, studio, workspace, canExport }:
       const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" })),
         a = document.createElement("a");
       a.href = url;
-      a.download = `${p.songId}${kind === "backup" ? ".aerodance-project.zip" : `-r${p.revision}.aerodance-song.zip`}`;
+      a.download = await downloadName(p, kind, bytes);
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
