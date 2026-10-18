@@ -152,6 +152,8 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
     await store.writeTrack(p.projectId, assets.get(dataId));
   p.metadata.artist = "Artist";
   p.metadata.stage = "club";
+  p.metadata.rights.audio.attribution = "Original music attribution";
+  p.metadata.rights.choreography.attribution = "Original choreography attribution";
   p.metadata.rights.audio.license = "CC0";
   p.metadata.rights.choreography.license = "CC0";
   p = await projectOf(await api(`/api/projects/${p.projectId}`, p, "PUT"));
@@ -185,6 +187,9 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
   const checks = read(zipJson(files, `${songId}/checksums.json`), "files");
   // The song carries its stage, so the game opens it on club.
   assert.equal(read(zipJson(files, `${songId}/song.json`), "stage"), "club");
+  assert.deepEqual(read(zipJson(files, `${songId}/song.json`), "rights"), {
+    audio: { license: "unknown", attribution: "" }, choreography: { license: "unknown", attribution: "" },
+  });
   assert.ok(Array.isArray(checks));
   for (const file of checks) {
     assert.ok(isObject(file));
@@ -204,6 +209,7 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
   const rp = await projectOf(restored);
   assert.notEqual(rp.projectId, p.projectId);
   assert.equal(rp.metadata.title, p.metadata.title);
+  assert.deepEqual(rp.metadata.rights, p.metadata.rights);
   assert.equal(
     (
       await (

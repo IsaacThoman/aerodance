@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { PoseSourceView } from "../../../packages/pose/browser/PoseSourceController.ts";
 import { copy, sampleSnapshot } from "../../../packages/pose/choreography.ts";
 import type { Point3, Pose } from "../../../packages/pose/choreography.ts";
@@ -56,6 +56,12 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
   }
   const selectedPose = snapshot.poses.find((p) => p.playerId === playerId),
     selectedJoint = selectedPose?.landmarks[joint];
+  /** All track selectors clear any unfinished drag. */
+  const selectPlayer = useCallback((id: number) => {
+    if (id !== 0 && id !== 1) return;
+    setPlayerId(id);
+    setDraftJoint(null);
+  }, [setDraftJoint]);
   /** Selects a joint in the preview. */
   const select = (id: number, index: number) => {
     setPlayerId(id);
@@ -126,7 +132,7 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
     );
   }
   return {
-    tab, setTab, playerId, setPlayerId, joint, setJoint, pointGroup, setPointGroup, reason, setReason,
+    tab, setTab, playerId, setPlayerId, selectPlayer, joint, setJoint, pointGroup, setPointGroup, reason, setReason,
     snapshot, selectedPose, selectedJoint, select, apply, jointEdit,
   };
 }

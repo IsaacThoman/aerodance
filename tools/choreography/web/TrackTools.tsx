@@ -1,6 +1,8 @@
 import { clearTrack, interpolateTrack, offsetTrack } from "../core.ts";
 import type { ProjectV3 } from "../core.ts";
 import type { StudioProject } from "./useStudioProject.ts";
+import { timeLabel } from "./format.ts";
+import type { PoseEditor } from "./usePoseEditor.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
 export interface TrackToolsProps {
@@ -9,22 +11,24 @@ export interface TrackToolsProps {
   workspace: Workspace;
   /** Bounded missing intervals per player. */
   fillable: number[];
+  editor: PoseEditor;
 }
 
 // Per-player track offset, gap interpolation and deletion.
-export default function TrackTools({ project, studio, workspace, fillable }: TrackToolsProps) {
+export default function TrackTools({ project, studio, workspace, fillable, editor }: TrackToolsProps) {
   const { busy, execute, modifyTracks, setNotice } = studio;
   const { readOnly, recording, pause } = workspace;
+  const { playerId, apply } = editor;
+  const rangeValid = workspace.selection[1] > workspace.selection[0];
   return (
     <>
-      <div className="section-heading">PLAYER TRACKS</div>
+      <h3>P{playerId + 1} track</h3>
       <div className="track-tools">
-        {project.tracks.map((t) => (
+        {project.tracks.filter(t => t.playerId === playerId).map((t) => (
           <div
             className={`track-controls track-${t.playerId}`}
             key={t.playerId}
           >
-            <strong>P{t.playerId + 1} track</strong>
             <label>
               Offset (seconds)
               <input
@@ -85,6 +89,14 @@ export default function TrackTools({ project, studio, workspace, fillable }: Tra
             </button>
           </div>
         ))}
+      </div>
+      <h3>Selected range</h3>
+      <p className="muted">P{playerId + 1} · {timeLabel(workspace.selection[0])}–{timeLabel(workspace.selection[1])}</p>
+      <div className="edit-actions">
+        <button disabled={readOnly || busy || !rangeValid} onClick={() => apply("smooth")}>Smooth P{playerId + 1}</button>
+        <button disabled={readOnly || busy || !rangeValid || workspace.selection[1] - workspace.selection[0] > 1000}
+          onClick={() => apply("repair")}>Repair P{playerId + 1} short gap</button>
+        <button disabled={readOnly || busy || !rangeValid} onClick={() => apply("swap")}>Swap both player tracks</button>
       </div>
     </>
   );

@@ -284,6 +284,10 @@ export class Store {
       songId,
       bundleRevision: p.revision,
       ...p.metadata,
+      rights: {
+        audio: { license: "unknown", attribution: "" },
+        choreography: { license: "unknown", attribution: "" },
+      },
       durationMs: p.durationMs,
       playableStartMs: p.playableStartMs,
       playableEndMs: p.playableEndMs,

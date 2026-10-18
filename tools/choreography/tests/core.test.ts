@@ -9,6 +9,8 @@ import {
   compileProject,
   appendOperation,
   reviewReport,
+  reviewTimeline,
+  missingIntervalsFromTimeline,
   takeFromRecords,
   validateProject,
   overwriteTracks,
@@ -500,4 +502,16 @@ test("the library imports .adpose takes and song choreography", () => {
   const track = assets.get(found(p.tracks[0].dataId));
   assert.ok(isTrackData(track));
   assert.throws(() => importedPoseFile(encodeTrack(track), "track.adpose"), /Import a take or choreography/);
+});
+
+test("unknown licenses do not block export and cached timeline review follows metadata changes", () => {
+  const { p, takes } = fixture();
+  p.metadata.rights = { audio: { license: "unknown", attribution: "" }, choreography: { license: "unknown", attribution: "" } };
+  const data = compileProject(p, takes), analysis = reviewTimeline(data);
+  assert.deepEqual(reviewReport(p, data).blockers, []);
+  assert.deepEqual(reviewReport(p, data, analysis), reviewReport(p, data));
+  const blank = { ...p, metadata: { ...p.metadata, title: "" } };
+  assert.ok(reviewReport(blank, data, analysis).blockers.includes("Add song title and artist"));
+  assert.equal(reviewReport(blank, data, analysis).coverage, analysis.coverage);
+  for (const id of [0, 1]) assert.deepEqual(missingIntervalsFromTimeline(data, id), missingIntervals(p, takes, id));
 });

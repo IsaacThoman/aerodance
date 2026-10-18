@@ -8,7 +8,7 @@ import { validateProject, validateTake } from "../core.ts";
 import type { ProjectV3 } from "../core.ts";
 import type { PoseWorker } from "../../../packages/pose/browser/WebcamPoseSource.ts";
 import type { PoseWorkerResponse } from "../../../packages/pose/browser/pose.worker.ts";
-import { expectCount, found } from "./helpers.ts";
+import { expectCount, found, openSidebar } from "./helpers.ts";
 
 interface FakePose { ready: boolean; visible: number[]; liveX: number; }
 declare global {
@@ -103,7 +103,7 @@ try {
   const setPoses = (patch: Partial<FakePose>) => page.evaluate((p) => Object.assign(window.fakePose, p), patch);
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://127.0.0.1:4175");
-  await page.getByRole("heading", { name: "Make every move yours." }).waitFor();
+  await page.getByRole("heading", { name: "Preview" }).waitFor();
   await page.getByRole("button", { name: "Live view", exact: true }).click();
   await page.getByText("Live view · disconnected", { exact: false }).waitFor();
   assert.equal(
@@ -113,6 +113,7 @@ try {
     "true",
   );
   await page.getByRole("button", { name: "Playback", exact: true }).click();
+  await openSidebar(page, "Import");
   await page
     .getByLabel("Import pose recording")
     .setInputFiles("packages/character/assets/dance.adpose");
@@ -154,6 +155,7 @@ try {
       .getAttribute("aria-pressed"),
     "true",
   );
+  await openSidebar(page, "Track options");
   page.once("dialog", (dialog) => dialog.dismiss());
   await page
     .getByRole("button", { name: "Delete P1 track", exact: true })
@@ -164,11 +166,17 @@ try {
     .getByRole("button", { name: "Delete P1 track", exact: true })
     .click();
   assert.equal(await page.getByLabel("P1 offset (seconds)").isDisabled(), true);
+  await page.getByRole("button", { name: "Select P2", exact: true }).click();
   assert.equal(await page.getByLabel("P2 offset (seconds)").isEnabled(), true);
+  await page.getByRole("button", { name: "Select P1", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: false }).click();
   await page.getByLabel("P1 offset (seconds)").fill("-0.20");
   await page.getByLabel("P1 offset (seconds)").blur();
+  await page.getByRole("button", { name: "Select P2 timeline track", exact: true }).click();
   assert.equal(await page.getByLabel("P2 offset (seconds)").inputValue(), "0");
+  assert.equal(await page.getByRole("button", { name: "Select P2", exact: true }).getAttribute("aria-pressed"), "true");
+  assert.equal(await page.getByLabel("P1 offset (seconds)").count(), 0);
+  await page.getByRole("button", { name: "Select P1", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: false }).click();
   await page.getByRole("button", { name: "Skeleton", exact: true }).click();
   await page.getByLabel("Song cursor").fill("2000");
@@ -311,6 +319,7 @@ try {
       Math.round(Math.sin((i / rate) * 440 * Math.PI * 2) * 1500),
       44 + i * 2,
     );
+  await openSidebar(page, "Import");
   await page.getByLabel("Import song audio").setInputFiles({
     name: "review.wav",
     mimeType: "audio/wav",
@@ -323,9 +332,7 @@ try {
     .getByLabel("Song name", { exact: true })
     .fill("Browser-tested routine");
   await page.getByLabel("Performing artist").fill("Fixture artist");
-  await page.getByLabel("audio license", { exact: true }).fill("CC0");
-  await page.getByLabel("choreography license", { exact: true }).fill("CC0");
-  await page.getByRole("checkbox", { name: /reviewed audio/ }).check();
+  await page.getByRole("checkbox", { name: /Audio\/pose alignment reviewed/ }).check();
   await page.getByRole("button", { name: "Select all", exact: true }).click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page
@@ -334,7 +341,7 @@ try {
   await page
     .getByRole("button", { name: "Pose inspector", exact: true })
     .click();
-  await page.getByLabel("Selected player").selectOption("1");
+  await page.getByRole("button", { name: "Select P2", exact: true }).click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page
     .getByRole("button", { name: "Approve selected references", exact: false })
@@ -352,14 +359,14 @@ try {
     await browserStore(freshPage).restore(await browserStore(page).download(await page.getByLabel("Open project").inputValue(), "backup"));
     await freshPage.goto("http://127.0.0.1:4175");
     await freshPage
-      .getByRole("heading", { name: "Browser-tested routine", exact: true })
+      .getByRole("heading", { name: "Preview", exact: true })
       .waitFor();
   } finally {
     await freshContext.close();
   }
   await page.reload();
   await page
-    .getByRole("heading", { name: "Browser-tested routine", exact: true })
+    .getByRole("heading", { name: "Preview", exact: true })
     .waitFor();
   await page.getByRole("button", { name: "Skeleton", exact: true }).click();
   await page.getByLabel("Song cursor").fill("2000");
@@ -383,10 +390,14 @@ try {
   await page.getByRole("main").locator("canvas").waitFor();
   await page.waitForTimeout(1500);
   await page.getByRole("button", { name: "Skeleton", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "Record new take", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Camera setup", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Live view", exact: true }).click();
+  await openSidebar(page, "Configuration");
   await page
     .getByRole("button", { name: "Start camera", exact: true })
     .click();
-  await page.getByText(/Loading .* model/).waitFor();
+  await page.locator(".connection-status").filter({ hasText: /Loading .* model/ }).waitFor();
   assert.equal(
     await page
       .getByRole("button", { name: "Record new take", exact: false })
@@ -396,10 +407,11 @@ try {
   await page
     .getByRole("button", { name: "Cancel connection", exact: true })
     .click();
+  await openSidebar(page, "Configuration");
   await page
     .getByRole("button", { name: "Start camera", exact: true })
     .click();
-  await page.getByText(/Loading .* model/).waitFor();
+  await page.locator(".connection-status").filter({ hasText: /Loading .* model/ }).waitFor();
   assert.equal(
     await page
       .getByRole("button", { name: "Record new take", exact: false })
@@ -428,7 +440,7 @@ try {
   await expectCount(liveSkeleton.locator("circle"), 66);
   await expectCount(liveSkeleton.locator(".original-pose"), 0);
   assert.equal(await page.getByLabel("Landmark X").isEnabled(), false);
-  await page.getByLabel("Selected player").selectOption("0");
+  await page.getByRole("button", { name: "Select P1", exact: true }).click();
   assert.equal(Number(await page.getByLabel("Landmark X").inputValue()), 0.75);
   await setPoses({ liveX: 0.65 });
   await page.waitForFunction(
@@ -466,6 +478,9 @@ try {
   await page.getByLabel("Editable pose skeleton").waitFor();
   assert.equal(await page.getByLabel("Song cursor").inputValue(), savedCursor);
   assert.equal(await page.getByLabel("Landmark X").isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Record new take", exact: true }).count(), 0);
+  assert.equal(await page.getByLabel("Webcam camera").count(), 0);
+  await page.getByRole("button", { name: "Live view", exact: true }).click();
   assert.equal(
     await page.getByLabel("Recording delay (seconds)").inputValue(),
     "3",
@@ -473,7 +488,7 @@ try {
   await page
     .getByRole("button", { name: "Record new take", exact: false })
     .click();
-  await page.getByRole("status").filter({ hasText: "Get ready" }).waitFor();
+  await page.getByRole("status").filter({ hasText: "Recording in" }).waitFor();
   await page
     .getByRole("button", { name: "Cancel countdown", exact: true })
     .click();
@@ -515,6 +530,8 @@ try {
       .getAttribute("aria-pressed"),
     "true",
   );
+  await openSidebar(page, "Project");
+  assert.equal(await page.getByLabel("Webcam camera").count(), 0);
   await page.waitForTimeout(2600);
   await page
     .getByRole("button", { name: "Stop recording", exact: false })
@@ -542,10 +559,13 @@ try {
   assert.ok(capture.samples.length > 30);
   assert.ok(capture.offsetMs >= saved.playableStartMs);
   assert.equal(capture.samples[0].poses[1].playerId, 1);
+  await page.getByRole("button", { name: "Live view", exact: true }).click();
+  await openSidebar(page, "Configuration");
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   await page.getByRole("button", { name: "Live view", exact: true }).click();
   await page.getByText("Live view · disconnected", { exact: false }).waitFor();
   await expectCount(page.getByLabel("Live pose skeleton").locator("circle"), 0);
+  await openSidebar(page, "Project");
   // Deleting either a newly recorded or assigned take preserves player tracks.
   for (const name of [saved.takes[1].name, "dance.adpose"]) {
     await page
@@ -577,7 +597,7 @@ try {
   assert.deepEqual(withoutTakes.tracks, saved.tracks);
   await page.reload();
   await page
-    .getByRole("heading", { name: "Browser-tested routine", exact: true })
+    .getByRole("heading", { name: "Preview", exact: true })
     .waitFor();
   await page.getByRole("button", { name: "Skeleton", exact: true }).click();
   await page.getByLabel("Song cursor").fill("2000");
@@ -598,11 +618,13 @@ try {
       fullPage: true,
     });
   page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByText("Project actions", { exact: true }).click();
   await page
     .getByRole("button", { name: "Delete project/song", exact: true })
     .click();
   assert.equal(await page.getByLabel("Open project").inputValue(), projectId);
   page.once("dialog", (dialog) => dialog.accept());
+  await page.getByText("Project actions", { exact: true }).click();
   await page
     .getByRole("button", { name: "Delete project/song", exact: true })
     .click();
@@ -633,6 +655,7 @@ try {
       poses: [gapPose(0, takeTimeMs / 4000), gapPose(1, 0.7)],
     })),
   };
+  await openSidebar(page, "Import");
   await page.getByLabel("Import pose recording").setInputFiles({
     name: "gaps.json",
     mimeType: "application/json",
@@ -643,6 +666,8 @@ try {
   await page
     .getByRole("menuitem", { name: "Overwrite both tracks", exact: true })
     .click();
+  await openSidebar(page, "Track options");
+  await page.getByRole("button", { name: "Select P1", exact: true }).click();
   await page
     .getByRole("button", {
       name: "Interpolate P1 missing intervals",
@@ -661,6 +686,7 @@ try {
       .isDisabled(),
     true,
   );
+  await page.getByRole("button", { name: "Select P2", exact: true }).click();
   assert.equal(
     await page
       .getByRole("button", {
@@ -670,6 +696,7 @@ try {
       .isEnabled(),
     true,
   );
+  await page.getByRole("button", { name: "Select P1", exact: true }).click();
   await page.getByLabel("Song cursor").fill("1000");
   await expectCount(page.getByLabel("Editable pose skeleton").locator("circle"), 33);
   await page.getByRole("button", { name: "Undo", exact: false }).click();

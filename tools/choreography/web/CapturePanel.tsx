@@ -11,11 +11,11 @@ export interface CapturePanelProps { source: PoseSourceController; live: LiveCap
 export default function CapturePanel({ source, live, studio, workspace }: CapturePanelProps) {
   const { busy, execute } = studio;
   const { connection, calibrationCounts, recalibrate } = live;
-  const { recording, recordDelay, setRecordDelay, countdown, recordCount, startRecording, stopRecording } = workspace;
+  const { recording, recordDelay, setRecordDelay } = workspace;
   return (
     <div className="capture">
       <div className="section-heading">
-        WEBCAM CAPTURE{" "}
+        Webcam{" "}
         <Dot color={connection.status === "connected" ? "green" : ""} />
       </div>
       <WebcamControls source={source} connection={connection} disabled={recording || busy} />
@@ -81,37 +81,6 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
           }
         />
       </label>
-      <button
-        className={`record-button ${recording ? "recording" : ""}`}
-        disabled={
-          busy || (!recording && connection.status !== "connected")
-        }
-        onClick={() => (recording ? stopRecording() : startRecording())}
-      >
-        {recording
-          ? countdown
-            ? "Cancel countdown"
-            : "■ Stop recording"
-          : "● Record new take"}
-      </button>
-      {recording && countdown !== null && (
-        <div
-          className="record-countdown"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <strong>{countdown}</strong>
-          <span>Get ready · recording starts in {countdown}s</span>
-        </div>
-      )}
-      {recording && (
-        <small>
-          {countdown
-            ? "Waiting to record"
-            : `${recordCount} records captured`}
-        </small>
-      )}
     </div>
   );
 }

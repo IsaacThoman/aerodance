@@ -1,7 +1,7 @@
 // Shared by the Dance Studio tests (not a test file itself).
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
-import type { Locator } from "playwright";
+import type { Locator, Page } from "playwright";
 import { isObject, qualityFor } from "../../../packages/pose/choreography.ts";
 import type { Pose, TimedPoses, TrackCalibration } from "../../../packages/pose/choreography.ts";
 import { DEFAULT_POSITION_STEP, EXTENSION, buildFrames, decodePoseFile, encodePoseFile, framesToPoses } from "../../../packages/pose/binary.ts";
@@ -119,4 +119,15 @@ export function uploadedFrames(calls: readonly Call[]): PoseFrames[] {
     assert.ok(c.body instanceof Uint8Array);
     return decodeCaptureBatch(head, c.body);
   });
+}
+
+/** Navigate the dedicated sidebar without depending on the previous panel. */
+export async function openSidebar(page: Page, name: "Project" | "Track options" | "Import" | "Configuration" | "History") {
+  const sidebar = page.locator(".library");
+  if (await sidebar.getByRole("heading", { name, exact: true }).count()) return;
+  const back = sidebar.getByRole("button", { name: "Back to project", exact: true });
+  if (await back.count()) await back.click();
+  if (name === "Track options") await page.getByRole("button", { name: /^P[12] track options$/ }).click();
+  else if (name !== "Project") await sidebar.getByRole("button", { name, exact: true }).click();
+  await sidebar.getByRole("heading", { name, exact: true }).waitFor();
 }

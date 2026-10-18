@@ -9,7 +9,7 @@ import type { Page } from "playwright";
 import type * as Api from "../web/api.ts";
 import type { Project, ProjectV3, Take } from "../core.ts";
 
-export async function staticStudio() {
+export async function staticStudio(studioRoot = "tools/choreography/dist") {
   const directory = await mkdtemp(path.join(tmpdir(), "studio-static-test-"));
   await build({ configFile: false, logLevel: "error", build: {
     outDir: directory, target: "esnext", minify: false,
@@ -19,7 +19,7 @@ export async function staticStudio() {
   app.get("/__test__/empty.html", (_req, res) => res.type("html").send("<!doctype html><title>Storage fixture</title>"));
   app.get("/__test__/storage.js", (_req, res) => res.sendFile(path.join(directory, "storage.js")));
   app.use("/api", (_req, res) => res.status(404).end());
-  app.use(express.static("tools/choreography/dist"));
+  app.use(express.static(studioRoot));
   return { app, dispose: () => rm(directory, { recursive: true, force: true }) };
 }
 

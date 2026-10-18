@@ -130,7 +130,16 @@ are not part of the production image.
    in **Review**. Approvals require a reason; exclusions always override approvals.
 7. **Export song** downloads a deterministic runtime ZIP containing song.json,
    choreography.adpose, audio, and checksums. Export rejects unresolved metadata,
-   timing review, long missing references, rights, and empty score coverage.
+   timing review, long missing references, and empty score coverage.
+
+The Project sidebar opens Import, Configuration, and History as separate panels.
+Select P1/P2 above the preview or from a timeline lane. The selected player expands to show
+an **Options** button to the right of its label, which opens track tools for that player.
+In Live view, camera setup and recording delay are in Configuration, with Record/Stop beside playback.
+Capture controls are hidden in Playback and Take views.
+The timeline marks the playable bounds separately from the editing selection; use **Set playable range**
+to apply a selection. Export writes `unknown` for both licenses without requiring license entries;
+project backups retain any existing rights metadata.
 
 Changes autosave after a short idle interval. **Save** forces persistence.
 This editor uses project format 3. Saved projects in other formats are
@@ -232,6 +241,7 @@ npm run studio:build
 npm run build
 node tools/choreography/tests/browser-storage.browser.ts
 node tools/choreography/tests/browser.ts
+node tools/choreography/tests/editor.browser.ts
 node tools/choreography/tests/video-import.browser.ts
 node tools/choreography/tests/video-duet.browser.ts
 node tools/choreography/tests/project-loading.browser.ts

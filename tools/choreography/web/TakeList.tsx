@@ -134,7 +134,7 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
         })}
         {!project.takes.length && (
           <p className="empty-note">
-            Import a recording or create a new take below.
+            No takes yet. Import a recording or record a take.
           </p>
         )}
       </div>

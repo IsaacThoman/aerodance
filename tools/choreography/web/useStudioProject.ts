@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { copy } from "../../../packages/pose/choreography.ts";
 import { addTake, trackDataIds, validateProject, validateTake, validateTrackData } from "../core.ts";
-import type { ProjectSummary, ProjectV3, StudioAssets, Take, TrackData } from "../core.ts";
+import type { ProjectMetadata, ProjectSummary, ProjectV3, StudioAssets, Take, TrackData } from "../core.ts";
 import { errorMessage, projectSummaries, request, workspace } from "./api.ts";
 import type { AudioTransport } from "./audio.ts";
 
@@ -35,6 +35,18 @@ export function useStudioProject(transport: AudioTransport) {
   dirtyRef.current = dirty;
   const edit = useCallback((change: ProjectChange) => {
     setProject((p) => (typeof change === "function" ? p && change(copy(p)) : change));
+    setDirty(true);
+    setSaveStatus("Unsaved");
+    setError("");
+  }, []);
+  /** Metadata edits share immutable timeline inputs, even with a large edit history. */
+  const updateMetadata = useCallback((patch: Partial<ProjectMetadata>) => {
+    const current = projectRef.current;
+    if (!current) return;
+    const next = { ...current, metadata: { ...current.metadata, ...patch } };
+    projectRef.current = next;
+    dirtyRef.current = true;
+    setProject(next);
     setDirty(true);
     setSaveStatus("Unsaved");
     setError("");
@@ -83,14 +95,16 @@ export function useStudioProject(transport: AudioTransport) {
     savePromise.current = job;
     try {
       const next = await job;
-      if (projectRef.current === sent) install(next);
-      else
-        setProject((p) =>
-          p?.projectId === sent.projectId
-            ? { ...p, revision: next.revision }
-            : p,
-        );
-      setSaveStatus("Saved");
+      if (projectRef.current === sent) install({
+        ...next,
+        tracks: sent.tracks, operations: sent.operations, markers: sent.markers, takes: sent.takes,
+      });
+      else if (projectRef.current?.projectId === sent.projectId) {
+        const pending = { ...projectRef.current, revision: next.revision, updatedAt: next.updatedAt };
+        projectRef.current = pending;
+        setProject(pending);
+        setSaveStatus("Unsaved");
+      }
       await refresh();
       return next;
     } catch (e) {
@@ -180,6 +194,6 @@ export function useStudioProject(transport: AudioTransport) {
   return {
     projects, setProjects, project, takes, dirty, saveStatus, error, setError, notice, setNotice, busy, setBusy, peaks,
     projectRef, dirtyRef,
-    edit, execute, refresh, saveProject, load, modifyTracks, addTakeToProject, deleteTake, deleteProject,
+    edit, updateMetadata, execute, refresh, saveProject, load, modifyTracks, addTakeToProject, deleteTake, deleteProject,
   };
 }

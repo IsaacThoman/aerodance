@@ -30,7 +30,7 @@ try {
     }
   });
   await page.goto('http://127.0.0.1:4193');
-  await page.getByRole('heading',{name:'Make every move yours.'}).waitFor();
+  await page.getByRole('heading',{name:'Preview'}).waitFor();
   const selected=await page.getByLabel('Open project').inputValue();
   assert.ok([supported.projectId,second.projectId].includes(selected));
   for (const project of [supported,second]) {
@@ -44,14 +44,14 @@ try {
   // A library containing only supported projects opens without a warning.
   await store.erase(store.location(future.projectId) + "/");
   await page.reload();
-  await page.getByRole('heading',{name:'Make every move yours.'}).waitFor();
+  await page.getByRole('heading',{name:'Preview'}).waitFor();
   assert.equal(await page.getByText(/compatible project|requires project format|supports their format/).count(),0);
   assert.equal(await page.getByRole('alert').count(),0);
   // Future formats are still rejected and preserved.
   await store.atomic(store.location(future.projectId,'project.json'),futureBytes);
   await store.erase(store.location(second.projectId) + "/");
   await page.reload();
-  await page.getByRole('heading',{name:'Make every move yours.'}).waitFor();
+  await page.getByRole('heading',{name:'Preview'}).waitFor();
   assert.equal(await page.getByLabel('Open project').inputValue(),supported.projectId);
   await page.getByText(/Opened a compatible project/).waitFor();
   assert.equal(await page.getByRole('option',{name:/Future format fixture/}).isDisabled(),true);
@@ -63,7 +63,7 @@ try {
   await page.getByRole('alert').filter({hasText:/No saved project can be opened/}).waitFor();
   assert.equal((await store.list()).length,1);
   await page.getByRole('button',{name:'Create new project',exact:true}).click();
-  await page.getByRole('heading',{name:'Make every move yours.'}).waitFor();
+  await page.getByRole('heading',{name:'Preview'}).waitFor();
   assert.notEqual(await page.getByLabel('Open project').inputValue(),future.projectId);
   assert.equal((await store.list()).length,2);
   assert.deepEqual(Buffer.from(await store.bytes(store.location(future.projectId,'project.json'))),futureBytes);

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { oneOf } from "../../../packages/pose/choreography.ts";
 import { DEFAULT_STAGE, STAGE_LIST, isStageId } from "../../../packages/stages/catalog.ts";
 import type { Difficulty, ProjectV3 } from "../core.ts";
@@ -16,14 +17,24 @@ const LIST_FIELDS = [
   ["tags", "Tags"],
 ] as const;
 const DIFFICULTIES: readonly Difficulty[] = ["easy", "normal", "hard"];
-const RIGHTS = ["audio", "choreography"] as const;
+// Raw text stays local; parsed values are committed immediately for Save and autosave.
+function ListField({ label, values, disabled, onChange }: {
+  label: string; values: string[]; disabled: boolean; onChange: (values: string[]) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return <label>{label}<input aria-label={label} disabled={disabled}
+    value={draft ?? values.join(", ")}
+    onChange={e => {
+      setDraft(e.target.value);
+      onChange(e.target.value.split(",").map(v => v.trim()).filter(Boolean));
+    }} onBlur={() => setDraft(null)} /></label>;
+}
 
-// Song metadata, distribution rights and the alignment sign-off that export requires.
+// Song details and audio alignment.
 export default function SongDetails({ project, studio, recording }: SongDetailsProps) {
-  const { busy, edit } = studio;
+  const { busy, edit, updateMetadata } = studio;
   return (
     <div className="song-fields">
-      <div className="panel-title">SONG METADATA</div>
       {TEXT_FIELDS.map(([key, label]) => (
         <label key={key}>
           {label}
@@ -31,38 +42,13 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
             aria-label={label}
             disabled={recording || busy}
             value={project.metadata[key] || ""}
-            onChange={(e) =>
-              edit((p) => {
-                p.metadata[key] = e.target.value;
-                return p;
-              })
-            }
+            onChange={e => updateMetadata({ [key]: e.target.value })}
           />
         </label>
       ))}
       {LIST_FIELDS.map(([key, label]) => (
-        <label key={key}>
-          {label}
-          <input
-            disabled={recording || busy}
-            aria-label={label}
-            value={project.metadata[key].join(", ")}
-            onChange={(e) =>
-              edit((p) => {
-                p.metadata[key] = e.target.value
-                  .split(",")
-                  .map((v) => v.trim());
-                return p;
-              })
-            }
-            onBlur={() =>
-              edit((p) => {
-                p.metadata[key] = p.metadata[key].filter(Boolean);
-                return p;
-              })
-            }
-          />
-        </label>
+        <ListField key={`${project.projectId}-${key}`} label={label} values={project.metadata[key]}
+          disabled={recording || busy} onChange={values => updateMetadata({ [key]: values })} />
       ))}
       <div className="two-cols">
         <label>
@@ -71,14 +57,8 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
             type="number"
             disabled={recording || busy}
             value={project.metadata.bpm ?? ""}
-            onChange={(e) =>
-              edit((p) => {
-                p.metadata.bpm = e.target.value
-                  ? Number(e.target.value)
-                  : null;
-                return p;
-              })
-            }
+            min="1"
+            onChange={e => updateMetadata({ bpm: e.target.value ? Number(e.target.value) : null })}
           />
         </label>
         <label>
@@ -89,10 +69,7 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
             onChange={(e) => {
               const difficulty = e.target.value;
               if (oneOf(DIFFICULTIES, difficulty))
-                edit((p) => {
-                  p.metadata.difficulty = difficulty;
-                  return p;
-                });
+                updateMetadata({ difficulty });
             }}
           >
             <option>easy</option>
@@ -104,15 +81,13 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
       <label>
         Stage
         <select
+          aria-label="Stage"
           disabled={recording || busy}
           value={project.metadata.stage ?? DEFAULT_STAGE}
           onChange={(e) => {
             const stage = e.target.value;
             if (isStageId(stage))
-              edit((p) => {
-                p.metadata.stage = stage;
-                return p;
-              });
+              updateMetadata({ stage });
           }}
         >
           {STAGE_LIST.map((stage) => (
@@ -122,29 +97,6 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
           ))}
         </select>
       </label>
-      <div className="section-heading">DISTRIBUTION RIGHTS</div>
-      {RIGHTS.map((k) => (
-        <label key={k}>
-          {k === "audio"
-            ? "Music license / permission"
-            : "Choreography license / permission"}
-          <input
-            disabled={recording || busy}
-            aria-label={`${k} license`}
-            value={project.metadata.rights[k].license}
-            onChange={(e) =>
-              edit((p) => {
-                p.metadata.rights[k].license = e.target.value;
-                return p;
-              })
-            }
-          />
-        </label>
-      ))}
-      <p className="muted small">
-        Record the actual license or permission to distribute. “Unknown”
-        blocks song export.
-      </p>
       <label className="check alignment">
         <input
           type="checkbox"
@@ -154,7 +106,7 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
             edit((p) => ({ ...p, alignmentReviewed: e.target.checked }))
           }
         />
-        I reviewed audio/pose alignment near the start and end.
+        Audio/pose alignment reviewed
       </label>
       <div className="metadata-note">
         {timeLabel(project.durationMs)} audio length

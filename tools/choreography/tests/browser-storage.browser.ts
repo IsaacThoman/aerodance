@@ -124,7 +124,7 @@ try {
     }
   });
   await page.goto(base);
-  await page.getByRole("heading", { name: "Make every move yours." }).waitFor();
+  await page.getByRole("heading", { name: "Preview" }).waitFor();
   await page.getByRole("button", { name: "Song details", exact: true }).click();
   await page.getByLabel("Song name", { exact: true }).fill("Unsaved after quota");
   await page.evaluate(() => {
@@ -135,13 +135,14 @@ try {
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: /Browser storage is full/ }).waitFor();
   const download = page.waitForEvent("download");
+  await page.getByText("Project actions", { exact: true }).click();
   await page.getByRole("button", { name: "Backup", exact: true }).click();
   assert.ok((await download).suggestedFilename().endsWith(".aerodance-project.zip"));
   await page.getByRole("alert").filter({ hasText: /Backup contains the last saved revision/ }).waitFor();
   await page.evaluate(() => { const restore = Reflect.get(window, "restoreStoragePut"); if (typeof restore === "function") restore(); });
   page.once("dialog", dialog => dialog.accept());
   await page.reload();
-  await page.getByRole("heading", { name: "Make every move yours." }).waitFor();
+  await page.getByRole("heading", { name: "Preview" }).waitFor();
   assert.deepEqual(apiRequests, []);
   console.log("Browser storage passed: cross-tab revision race, OPFS assets, quota rollback, disk/browser backup exchange, atomic restore, deletion, and static UI backup/reload with no API requests.");
 } finally {

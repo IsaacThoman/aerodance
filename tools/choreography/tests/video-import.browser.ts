@@ -7,7 +7,7 @@ import type { Project, StudioAssets, Take } from '../core.ts';
 import type { ImportWorkerRequest } from '../web/videoImport.ts';
 import type { PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { readZip } from '../server/zip.ts';
-import { baseUrl, found, songFolder, storedCalibration, zipPose } from './helpers.ts';
+import { baseUrl, found, songFolder, storedCalibration, zipPose, openSidebar } from './helpers.ts';
 
 declare global {
   interface Window {
@@ -72,7 +72,7 @@ try {
     };
   });
   await page.goto(base);
-  await page.getByRole('heading', { name: 'Make every move yours.' }).waitFor();
+  await page.getByRole('heading', { name: 'Preview' }).waitFor();
   await page.getByText('imported · 9 samples').waitFor();
   // Keep a real song audio asset while importing video poses.
   const sampleRate = 8000, audio = Buffer.alloc(44 + sampleRate * 2);
@@ -80,14 +80,17 @@ try {
   audio.writeUInt32LE(16, 16); audio.writeUInt16LE(1, 20); audio.writeUInt16LE(1, 22);
   audio.writeUInt32LE(sampleRate, 24); audio.writeUInt32LE(sampleRate * 2, 28);
   audio.writeUInt16LE(2, 32); audio.writeUInt16LE(16, 34); audio.write('data', 36); audio.writeUInt32LE(audio.length - 44, 40);
+  await openSidebar(page, "Import");
   await page.getByLabel('Import song audio', { exact: true }).setInputFiles({ name: 'song.wav', mimeType: 'audio/wav', buffer: audio });
   await page.getByText(/Audio imported/).waitFor();
   const audioBefore = (await store.project(p.projectId)).audio;
+  await openSidebar(page, "Import");
   await page.getByLabel('Import video', { exact: true }).setInputFiles({ name: 'bad.webm', mimeType: 'video/webm', buffer: Buffer.from('not video') });
   await page.getByRole('alert').filter({ hasText: /could not decode/ }).waitFor();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('dialog', { name: 'Import video' }).waitFor({ state: 'hidden' });
   assert.equal((await store.project(p.projectId)).takes.length, 1);
+  await openSidebar(page, "Import");
   await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
   const panel = page.getByRole('dialog', { name: 'Import video' });
   await panel.waitFor();

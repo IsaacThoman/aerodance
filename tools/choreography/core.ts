@@ -949,25 +949,22 @@ export function intervalsCover(intervals: readonly { startMs: number; endMs: num
   }
   return reached + COVER_TOLERANCE_MS >= endMs;
 }
-export function reviewReport(project: Project, data: CompiledChoreography): ReviewReport {
-  const blockers: string[] = [],
-    warnings: string[] = [],
-    coverage: TrackCoverage[] = [];
+export function reviewReport(project: Project, data: CompiledChoreography, timeline = reviewTimeline(data)): ReviewReport {
+  const blockers: string[] = [];
   if (!project.audio) blockers.push("Import song audio");
   if (!project.metadata.artist.trim() || !project.metadata.title.trim())
     blockers.push("Add song title and artist");
   if (!project.alignmentReviewed)
     blockers.push("Review and confirm audio alignment");
+  return { ...timeline, blockers: [...blockers, ...timeline.blockers] };
+}
+/** Expensive coverage checks depend only on the compiled timeline. */
+export function reviewTimeline(data: CompiledChoreography): ReviewReport {
+  const blockers: string[] = [], warnings: string[] = [], coverage: TrackCoverage[] = [];
   if (data.provenance.sources.some((s) => s.provenance?.synthetic === true))
     blockers.push(
       "Synthetic tracking takes cannot be published as song choreography",
     );
-  for (const k of ["audio", "choreography"] as const)
-    if (
-      !project.metadata.rights?.[k]?.license?.trim() ||
-      project.metadata.rights[k].license === "unknown"
-    )
-      blockers.push(`Resolve ${k} distribution rights`);
   for (const id of [0, 1]) {
     let missing = 0,
       eligible = 0,
@@ -1320,8 +1317,11 @@ function editTracks(project: ProjectV3, operation: EditCommand, assets: StudioAs
   );
 }
 export function missingIntervals(project: Project, assets: StudioAssets, playerId: number): Interval[] {
-  const data = compileProject(project, assets),
-    gaps: Interval[] = [];
+  return missingIntervalsFromTimeline(compileProject(project, assets), playerId);
+}
+/** Finds bounded gaps without compiling the same timeline again for each player. */
+export function missingIntervalsFromTimeline(data: CompiledChoreography, playerId: number): Interval[] {
+  const gaps: Interval[] = [];
   let left: number | null = null,
     missing = false;
   for (const s of data.samples) {

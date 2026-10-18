@@ -4,6 +4,7 @@ import { request } from "./api.ts";
 import { AudioTransport } from "./audio.ts";
 import Inspector from "./Inspector.tsx";
 import Library from "./Library.tsx";
+import type { LibraryPanel } from "./Library.tsx";
 import PreviewPanel from "./PreviewPanel.tsx";
 import ProjectHeader from "./ProjectHeader.tsx";
 import Timeline from "./Timeline.tsx";
@@ -23,6 +24,7 @@ export default function App() {
   const workspace = useWorkspace({ transport, source, connection: live.connection, studio });
   const { compiled, original, fillable } = useCompiled(studio.project, studio.takes);
   const editor = usePoseEditor({ studio, workspace, compiled, connection: live.connection });
+  const [panel, setPanel] = useState<LibraryPanel>("assets");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const { project, error, notice, setError, setNotice } = studio;
   if (!project)
@@ -30,7 +32,7 @@ export default function App() {
   return (
     <div className="studio">
       {videoFile && <VideoImportPanel key={`${videoFile.name}-${videoFile.lastModified}-${videoFile.size}`} file={videoFile} projectId={project.projectId} request={request}
-        onBusy={studio.setBusy} onImported={workspace.attachTake} onClose={() => setVideoFile(null)} />}
+        onBusy={studio.setBusy} onImported={value => { workspace.attachTake(value); setPanel("assets"); }} onClose={() => setVideoFile(null)} />}
       <ProjectHeader project={project} studio={studio} workspace={workspace} canExport={Boolean(compiled.data)} />
       <MessageBar
         error={error}
@@ -42,15 +44,15 @@ export default function App() {
         }}
       />
       <div className="workspace">
-        <Library project={project} studio={studio} workspace={workspace} live={live} source={source}
+        <Library panel={panel} setPanel={setPanel} editor={editor} project={project} studio={studio} workspace={workspace} live={live} source={source}
           transport={transport} fillable={fillable} onImportVideo={setVideoFile} />
         <main className="editor">
-          <PreviewPanel workspace={workspace} editor={editor} live={live} compiled={compiled} original={original} busy={studio.busy} />
-          <Timeline project={project} studio={studio} workspace={workspace} compiled={compiled} />
+          <PreviewPanel trackOptionsOpen={panel === "track"} onTrackOptions={() => setPanel(panel === "track" ? "assets" : "track")} workspace={workspace} editor={editor} live={live} compiled={compiled} original={original} busy={studio.busy} />
+          <Timeline project={project} studio={studio} workspace={workspace} compiled={compiled} editor={editor} connection={live.connection} onConfigure={() => setPanel("configuration")} />
         </main>
         <Inspector project={project} studio={studio} workspace={workspace} editor={editor} compiled={compiled} />
       </div>
-      <StatusBar busy={studio.busy} revision={project.revision} />
+      <StatusBar busy={studio.busy} />
     </div>
   );
 }
