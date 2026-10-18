@@ -137,6 +137,7 @@ npm run dev
 
 - Vite dev server: http://localhost:5173
 - `npm run build` builds the game into `dist/`; `npm run preview` serves the build locally.
+- `node scripts/play.ts start` keeps the game open in a GPU-rendered headless Chromium for interactive testing: click menu buttons, wait for screens and take screenshots from the command line or a coding agent. See [interactive testing](docs/interactive-testing.md).
 - `npm run lint`, `npm run typecheck` and `npm test` are what CI runs first. Browser tests run in Docker in CI (see above); to run one locally after `npm run build`, use `node client/tests/ui-flow.browser.ts`, with `CHROMIUM_PATH` pointing at a Chromium if Playwright's own isn't installed.
 
 ### TypeScript
