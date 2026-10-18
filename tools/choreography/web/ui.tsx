@@ -1,3 +1,4 @@
+import StorageStatus from "./StorageStatus.tsx";
 import { request } from "./api.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
@@ -46,7 +47,7 @@ export function MessageBar({ error, notice, compileError, onDismiss }: MessageBa
   );
 }
 
-export function StatusBar({ busy }: { busy: boolean }) {
+export function StatusBar({ busy, revision }: { busy: boolean; revision: number }) {
   return (
     <footer className="statusbar">
       <span>
@@ -54,9 +55,9 @@ export function StatusBar({ busy }: { busy: boolean }) {
         LOCAL WORKSPACE · {busy ? "Working…" : "Ready"}
       </span>
       <span>
-        Immutable takes · MediaPipe image landmarks · Bundle schema v1
+        Saved in this browser · Download backups to keep your work
       </span>
-      <span className="status-version">DANCE STUDIO / 01</span>
+      <StorageStatus revision={revision} busy={busy} />
     </footer>
   );
 }

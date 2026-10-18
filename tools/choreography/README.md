@@ -1,7 +1,8 @@
 # Dance Studio
 
-Local song/choreography editor for Aerodance. Projects live on disk; reference
-poses use the game's `{playerId, landmarks}` pose format. No game database is needed.
+Static song/choreography editor for Aerodance. Projects autosave in the browser;
+reference poses use the game's `{playerId, landmarks}` pose format. No backend,
+account, or game database is needed.
 See the [format/workflow reference](../../docs/song-dance-authoring-workflow.md).
 
 ## Run
@@ -12,31 +13,57 @@ From the repository root:
 docker compose -f tools/choreography/compose.yaml up --build -d
 ```
 
-Open **http://localhost:8082**. Projects, audio, immutable takes, recorder batches,
-and revision snapshots persist in the `studio-data` named volume. Stop with
-`docker compose -f tools/choreography/compose.yaml down`; omit `--volumes` to retain
-your work. Use **Backup** to download a portable project archive, and import that
-ZIP to restore a separate project. The container runs as the `node` user.
+Open **http://localhost:8082**. The container serves static files with nginx and
+has no project data volume. Audio, takes, raw recorder batches and track snapshots
+live in the browser's private filesystem (OPFS); project metadata, revision snapshots
+and asset pointers live in IndexedDB. Metadata changes commit atomically after
+asset writes finish. Web Locks serialize saves across tabs; revision conflicts
+require reloading rather than overwriting another tab's edits.
 
-Podman users can build/run directly when a Compose provider is unavailable:
+Use **Backup** to download a portable project ZIP and import it on another device.
+The footer shows estimated site storage usage and offers **Keep browser storage**
+to request protection from automatic eviction. Browsers may decline that request.
+Clearing site data removes projects even when persistence was granted. Private
+browsing storage is temporary. Projects belong to the browser profile and origin
+(scheme, hostname, and port); changing any of those does not move the library.
+There is no automatic cloud sync. Quota failures preserve the last committed
+project and report an error. Backup can download that saved revision even if
+current edits cannot save; its message makes the omission explicit.
 
-```sh
-podman build -f tools/choreography/Dockerfile -t aerodance-studio .
-podman volume create aerodance-studio-data
-podman run -d --name aerodance-studio -p 127.0.0.1:8082:3000 \
-  -v aerodance-studio-data:/data:U aerodance-studio
-```
-
-For local Node development:
+For local development:
 
 ```sh
 npm ci
 npm run studio:dev
 ```
 
-Open http://localhost:5177. The API listens on 8082 and writes ignored
-`studio-data/`. Production local serving uses `npm run studio:build`, then
-`STUDIO_PORT=8082 npm run studio:start`.
+Open http://localhost:5177. To check the production static build, run
+`npm run studio:build`, then `npm run studio:start` and open http://localhost:8082.
+Serve `tools/choreography/dist/` with any static HTTPS host. The game and Studio
+can use separate domains; publishing a song remains an explicit export/install step.
+The Studio needs HTTPS or localhost, IndexedDB, OPFS writable files, and Web Locks.
+No API proxy or server environment variables are required.
+
+### Migrate existing disk projects
+
+Before replacing an older Studio deployment, use its **Backup** button for each
+project, then import those ZIPs into the static Studio. Existing project formats 1
+and 2 remain supported. Browser backups also work with the legacy disk tool.
+Docker/Podman named volumes from old versions remain on disk but are no longer
+mounted by the static deployment; retain them until backups are verified.
+
+For a disk workspace accessible on the host, export every project without starting
+a server:
+
+```sh
+STUDIO_DATA_DIR=/path/to/old/studio-data npm run studio:backup-disk -- /path/to/backups
+```
+
+The command creates one project ZIP per project ID and refuses to overwrite existing
+backups. Import the ZIPs through **Import pose recording**. Unsupported future
+project formats fail validation and remain untouched. The optional disk adapter
+and HTTP harness are retained for migration and regression checks; they are not
+part of the production image.
 
 ## Create a routine
 
@@ -123,13 +150,14 @@ This editor uses project format 2 and migrates format 1 projects when opened.
 Saved projects in unsupported formats are
 reported and skipped at startup; the next compatible project opens instead.
 If none can be opened, **Create new project** starts a separate project. Incompatible
-files stay on disk and require an editor that supports their project format.
+projects stay in browser storage and require an editor that supports their project format.
 Project format versions are separate from the supported character calibration
 profiles 1 and 2.
 Revision conflicts report an error; reloading fetches the saved project instead
 of silently overwriting it. Upload/capture errors show in the message bar. Hidden
 tabs and lost pose connections interrupt recording; acknowledged source data
-stays on disk. Failed uploads retain a recoverable capture prefix under `capture/`.
+stays in browser storage. Failed captures retain their acknowledged batches until
+the project is deleted; do not clear site data to recover from a recording error.
 
 The committed capture at
 `packages/character/assets/dance.json` is useful for trying the
@@ -200,6 +228,7 @@ npm test
 npm run studio:test
 npm run studio:build
 npm run build
+node tools/choreography/tests/browser-storage.browser.ts
 node tools/choreography/tests/browser.ts
 node tools/choreography/tests/video-import.browser.ts
 node tools/choreography/tests/video-duet.browser.ts
@@ -211,7 +240,7 @@ docker run --rm studio-browser-test
 
 The browser test uses a real decoded WAV, imports the committed take, edits a
 joint, checks undo/redo, reviews both tracks, saves/reopens, plays music, exports
-a ZIP, renders Frutiger characters, and checks mobile layout. API/compiler tests
+a ZIP, renders Frutiger characters, and checks mobile layout. Shared workspace/compiler tests
 cover missing tracking, capture discontinuities, revision conflicts, idempotent
 batches, backup restore, deterministic bundle checksums, and unsafe archives.
 
@@ -237,5 +266,6 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
   transcoding and format-independent audio inspection are not implemented.
 - Publication requires some eligible poses on both tracks and explicit gap review.
   Final scoring thresholds/minimum coverage belong to the game's scoring evaluation.
-- The default server binds locally through Docker port publication. It has no
-  multi-user authentication and should remain a trusted local authoring tool.
+- Browser storage is local to each profile and origin. Backups are required for
+  transfer and recovery after clearing site data. Browser storage regression tests
+  cover cross-tab conflicts, quota rollback, atomic restore, and disk ZIP compatibility.

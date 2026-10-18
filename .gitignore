@@ -4,6 +4,7 @@ dist/
 .env
 .DS_Store
 studio-data/
+studio-backups/
 tools/choreography/dist/
 *.blend1
 *.blend2

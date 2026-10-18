@@ -11,6 +11,9 @@ See [the song and dance authoring workflow](docs/song-dance-authoring-workflow.m
 The editor is implemented as [Dance Studio](tools/choreography/README.md).
 Run `docker compose -f tools/choreography/compose.yaml up --build -d` and open
 http://localhost:8082 to record/import, edit, preview, save, and export song bundles.
+Dance Studio is also static: projects autosave in browser storage (IndexedDB and
+OPFS). Download project backups to keep or transfer your work; see its README for
+migration from older disk-based deployments.
 
 ## Aero background
 
@@ -46,7 +49,7 @@ docker build --target webcam-test -t aerodance-webcam-test .
 docker run --rm aerodance-webcam-test
 ```
 
-CI runs the game's browser flow and Dance Studio's project-loading, video-import and duet tests. The tests that need real-time tracking (`webcam`, `webcam-calibration` and Studio's `browser.ts`) drop stale frames on CI's 2-core runners, so run them locally or with the Docker targets above before merging changes to capture, calibration or recording.
+CI runs the game's browser flow and Dance Studio's browser-storage, project-loading, video-import and duet tests. The tests that need real-time tracking (`webcam`, `webcam-calibration` and Studio's `browser.ts`) drop stale frames on CI's 2-core runners, so run them locally or with the Docker targets above before merging changes to capture, calibration or recording.
 
 The browser flow (`client/tests/ui-flow.browser.ts`) clicks the canvas in design units and reads the state each overlay reports on its `data-*` attributes. It skips GPU rasterization in software-only containers; set `UI_RENDER=1` for a full rendered check on a capable GPU.
 
@@ -54,8 +57,8 @@ Webcam requires **HTTPS or localhost**; a plain HTTP LAN address cannot request
 camera access. Models and the matching WASM runtime are prepared during development
 startup/build and served locally by both apps. The first preparation downloads
 about 46 MB of pinned models; later local builds reuse verified `.cache/` assets.
-Only the chosen model loads in the browser. Frames stay local; Dance Studio uploads
-pose records when recording. Stop, switching source, leaving the page, or hiding
+Only the chosen model loads in the browser. Frames stay local; Dance Studio saves
+pose records to browser storage when recording. Stop, switching source, leaving the page, or hiding
 the webcam tab releases the camera. Inference uses a worker and prefers CPU when
 WebGL is rendered in software; the status shows the active model, delegate, and
 tracking rate. Heavy needs more processing capacity; slow results never count as
@@ -138,7 +141,7 @@ npm run dev
 
 ### TypeScript
 
-Everything is TypeScript with `strict` on, and nothing is compiled ahead of time: Vite bundles the browser code, and Node runs `.ts` files directly by stripping their types (the Studio server, unit tests and scripts). So:
+Everything is TypeScript with `strict` on, and nothing is compiled ahead of time: Vite bundles the browser code, and Node runs `.ts` files directly by stripping their types (migration tools, unit tests and scripts). So:
 
 - Use only erasable syntax (no `enum`, `namespace` or constructor parameter properties; `tsconfig.json` enforces this), and `import type` for type-only imports.
 - Write relative imports with their real `.ts`/`.tsx` extension. Node can't run `.tsx`, so anything Node imports stays `.ts`.

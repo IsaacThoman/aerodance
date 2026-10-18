@@ -11,20 +11,10 @@ RUN npm test && npm run studio:test
 FROM mcr.microsoft.com/playwright:v1.58.2-noble AS ui-test
 WORKDIR /app
 COPY --from=build /app ./
-CMD ["sh", "-c", "node tools/choreography/tests/browser.ts && node tools/choreography/tests/video-import.browser.ts && node tools/choreography/tests/video-duet.browser.ts && node tools/choreography/tests/project-loading.browser.ts"]
+CMD ["sh", "-c", "node tools/choreography/tests/browser-storage.browser.ts && node tools/choreography/tests/browser.ts && node tools/choreography/tests/video-import.browser.ts && node tools/choreography/tests/video-duet.browser.ts && node tools/choreography/tests/project-loading.browser.ts"]
 
-FROM node:24-alpine AS runtime
-WORKDIR /app
-ENV NODE_ENV=production STUDIO_DATA_DIR=/data STUDIO_PORT=3000
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && mkdir /data && chown node:node /data
-COPY --from=build /app/tools/choreography/dist ./tools/choreography/dist
-COPY tools/choreography/server ./tools/choreography/server
-COPY tools/choreography/core.ts ./tools/choreography/core.ts
-COPY packages/pose ./packages/pose
-COPY packages/character/calibration.ts ./packages/character/calibration.ts
-COPY packages/stages ./packages/stages
+FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine AS runtime
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/tools/choreography/dist /usr/share/nginx/html
 EXPOSE 3000
-USER node
-HEALTHCHECK --interval=30s --timeout=3s CMD node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-CMD ["node", "tools/choreography/server/index.ts"]
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1
