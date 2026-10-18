@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
+import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
 import type { Circle, Point, Rect } from './draw.ts';
 
 /**
@@ -166,6 +167,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
   ref.current ??= createState<W>();
   const ui = ref.current;
   ui.requestFrame = requestFrame;
+  const focusRing = useRef(createFocusRing()).current;
 
   useEffect(() => {
     const el = gl.domElement;
@@ -335,6 +337,9 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       s.hover[id] = s.ease(s.hover[id] ?? 0, id === hovered ? 1 : 0, 12);
     }
     s.press = s.ease(s.press, 0, 10);
+    // The keyboard cursor's widget gets the focus ring (ui/focusRing.ts).
+    const focused = live && s.pointerKind === 'key' ? widgets.find((wdg) => !wdg.drag && wdg.nav !== false && hit(s.pointer, wdg)) : undefined;
+    updateFocusRing(focusRing, focused, s);
     o.update?.(s.dt, s);
     if (s.scroll > s.maxScroll) { s.scroll = s.maxScroll; s.dirty = true; }
 
@@ -356,6 +361,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       if ('letterSpacing' in g) g.letterSpacing = '0px';
       g.setTransform(sx, 0, 0, sy, 0, -s.scroll * sy);
       o.draw(g, s);
+      drawFocusRing(g, focusRing, s);
       overlay.texture.needsUpdate = true;
       // Still animating (easing, particles): keep frames coming until it settles.
       s.requestFrame();
