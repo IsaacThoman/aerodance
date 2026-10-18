@@ -46,6 +46,8 @@ const QUEUE_BYTES = 256 * 1024;
 // Joins with a code that matches no game, per minute across the server, before joins pause.
 const MAX_MISSES = 300;
 const MISS_WINDOW_MS = 60_000;
+// A release is ignored this soon after the phone's last hello.
+const RELEASE_AFTER_MS = 2000;
 // The signals each side may send.
 const SENDS: Record<PairingRole, readonly string[]> = { host: ['offer', 'ice'], phone: ['hello', 'answer', 'ice'] };
 // Keeps proxies from timing out quiet streams.
@@ -59,6 +61,8 @@ interface Side {
   queue: string[]; queued: number;
   /** The game lost touch with this phone: another phone may take its place. */
   released: boolean;
+  /** When the phone last said hello (asked the game to connect). */
+  helloAt: number;
 }
 interface Room { code: string; created: number; host: Side; phone: Side; }
 
@@ -74,7 +78,7 @@ class HttpError extends Error {
 }
 
 const token = () => randomBytes(18).toString('base64url');
-const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, session: '', queue: [], queued: 0, released: false });
+const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, session: '', queue: [], queued: 0, released: false, helloAt: -Infinity });
 // Wrong room or wrong token: the same answer, so neither can be told apart from outside.
 const GONE = 'This pairing has ended. Pair again.';
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
@@ -109,12 +113,18 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     if (!room) throw new HttpError(404, missing);
     return room;
   };
-  // A join: wrong codes count towards the throttle, and while it's on every join waits.
-  const joinable = (code: string) => {
+  // A join: wrong codes count towards the throttle, and while it's on every join waits, except
+  // the room's own phone coming back with its token (no probe: it already knows the code).
+  const joinable = (code: string, owner: unknown) => {
+    const missing = 'No game is waiting with that code.';
+    if (!isPairingCode(code)) throw new HttpError(404, missing);
+    const room = rooms.get(code);
+    if (room && typeof owner === 'string' && owner && owner === room.phone.token) return room;
     const t = now();
     misses = misses.filter((at) => t - at < MISS_WINDOW_MS);
     if (misses.length >= MAX_MISSES) throw new HttpError(429, 'Too many wrong codes were tried just now. Wait a minute, then try again.');
-    try { return roomFor(code, 'No game is waiting with that code.'); } catch (error) { misses.push(t); throw error; }
+    if (!room) { misses.push(t); throw new HttpError(404, missing); }
+    return room;
   };
   const roleOf = (room: Room, owner: unknown) => {
     if (typeof owner === 'string' && owner) {
@@ -139,10 +149,13 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
       while (to.queue.length > QUEUE || to.queued > QUEUE_BYTES) to.queued -= to.queue.shift()?.length ?? 0;
     }
   };
+  // Its place is held from now (PHONE_GRACE_MS, HOST_GRACE_MS), as when a stream closes by itself.
   const endStream = (s: Side) => {
     const stream = s.stream;
+    if (!stream) return;
     s.stream = null;
-    stream?.end();
+    s.seen = now();
+    stream.end();
   };
   const phonePresent = ({ phone }: Room) => !!phone.token && !phone.released && (!!phone.stream || now() - phone.seen < PHONE_GRACE_MS);
   const remove = (room: Room, reason: string) => {
@@ -208,7 +221,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     // Only the phone's posts keep its place; the game is there while its events stream is open.
     if (role === 'phone') {
       room.phone.seen = now();
-      if (type === 'hello') room.phone.released = false;
+      if (type === 'hello') { room.phone.released = false; room.phone.helloAt = now(); }
     }
     deliver(role === 'host' ? room.phone : room.host, signal);
     json(res, 204);
@@ -216,7 +229,8 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
 
   function release(room: Room, body: Record<string, unknown>, res: ServerResponse) {
     if (roleOf(room, body.token) !== 'host') throw new HttpError(404, GONE);
-    room.phone.released = true;
+    // A release that arrives just after the phone asked to reconnect (its hello overtook it) is out of date.
+    if (now() - room.phone.helloAt > RELEASE_AFTER_MS) room.phone.released = true;
     json(res, 204);
   }
 
@@ -235,6 +249,8 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url || '/', 'http://pairing');
     const parts = url.pathname.split('/').filter(Boolean);
+    // Exact paths only, so every form of a path meets the proxy's limits for it.
+    if (url.pathname !== `/${parts.join('/')}`) return false;
     const route = `${req.method} ${parts[0] === 'rooms' ? ['rooms', parts[1] && ':code', parts[2]].filter(Boolean).join('/') : parts.join('/')}`;
     const known = ['POST rooms', 'GET rooms/:code', 'POST rooms/:code/join', 'GET rooms/:code/events', 'POST rooms/:code/messages',
       'POST rooms/:code/release', 'POST rooms/:code/close', 'GET health'];
@@ -246,7 +262,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
       else if (route === 'GET rooms/:code/events') events(roomFor(parts[1]), url.searchParams.get('token'), req, res);
       else {
         const body = await readBody(req);
-        const room = route === 'POST rooms/:code/join' ? joinable(parts[1]) : roomFor(parts[1]);
+        const room = route === 'POST rooms/:code/join' ? joinable(parts[1], body.token) : roomFor(parts[1]);
         if (route === 'POST rooms/:code/join') join(room, body, res);
         else if (route === 'POST rooms/:code/messages') message(room, body, res);
         else if (route === 'POST rooms/:code/release') release(room, body, res);

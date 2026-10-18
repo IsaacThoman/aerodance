@@ -273,3 +273,33 @@ test('an events stream nobody reads is closed instead of buffered without end', 
   }
   assert.equal(host.stream, null, 'the stalled stream was closed');
 });
+
+test('every form of a path meets the same limits: no trailing slashes or malformed codes', async (t) => {
+  const { post } = await serve(t);
+  assert.equal((await post('/rooms/')).status, 404);
+  assert.equal((await post('/rooms//')).status, 404);
+  const room = await (await post('/rooms')).json();
+  assert.equal((await post(`/rooms/${room.code}/join/`)).status, 404);
+  // Malformed codes don't count towards the wrong-code throttle.
+  for (let i = 0; i < 350; i++) assert.equal((await post('/rooms/abc/join')).status, 404);
+  assert.equal((await post(`/rooms/${room.code}/join`)).status, 200);
+});
+
+test('the room’s own phone rejoins with its token even while wrong codes are throttled', async (t) => {
+  const { post } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const phone = await (await post(`/rooms/${room.code}/join`)).json();
+  const wrong = room.code === '000000' ? '000001' : '000000';
+  for (let i = 0; i < 300; i++) await post(`/rooms/${wrong}/join`);
+  assert.equal((await post(`/rooms/${room.code}/join`)).status, 429);
+  assert.equal((await (await post(`/rooms/${room.code}/join`, { token: phone.token })).json()).token, phone.token);
+});
+
+test('a release that arrives just after the phone said hello again is ignored', async (t) => {
+  const { post } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const phone = await (await post(`/rooms/${room.code}/join`)).json();
+  await post(`/rooms/${room.code}/messages`, { token: phone.token, message: { type: 'hello', device: 'x' } });
+  await post(`/rooms/${room.code}/release`, { token: room.token });
+  assert.equal((await post(`/rooms/${room.code}/join`)).status, 409);
+});

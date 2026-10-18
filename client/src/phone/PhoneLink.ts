@@ -101,8 +101,8 @@ export class PhoneLink {
   early: { epoch: number; candidates: IceCandidate[] } | null = null;
   /** Why the room ended while linked (the phone carries on until the link drops). */
   endReason = '';
-  /** This page, to the pairing server (a reload is a new session with the same token). */
-  session = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
+  /** This join, to the pairing server: a late close from an earlier join (or page) can't end it. */
+  session = '';
   sentStatus = '';
   sentStatsAt = -Infinity;
   wakeLock: WakeLockSentinel | null = null;
@@ -123,6 +123,7 @@ export class PhoneLink {
   async join(code: string) {
     this.stop();
     const generation = this.generation;
+    this.session = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
     this.publish({ stage: 'joining', code, error: '', message: 'Finding the game…', playing: false });
     let token: string;
     try {
