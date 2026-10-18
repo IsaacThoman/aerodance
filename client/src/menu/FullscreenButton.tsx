@@ -31,6 +31,8 @@ export default function FullscreenButton({ visible = () => true }: FullscreenBut
   useCanvasUI({
     priority: 3.5,
     active: () => props.current.visible() && st.slide === 0,
+    // After the main menu's buttons in the keyboard order (it draws above them).
+    keyNav: true,
     widgets: () => (props.current.fullscreen.supported ? [{ id: 'fullscreen', circle: BUTTON }] : []),
     onActivate: (_wdg, s) => {
       props.current.fullscreen.toggle();

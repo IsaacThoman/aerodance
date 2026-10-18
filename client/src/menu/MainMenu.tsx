@@ -17,7 +17,8 @@ import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.
  * all, which audio/mixer.ts applies). The main screen also shows the fullscreen bubble in the
  * corner.
  *
- * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape).
+ * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
+ * Left/Right step the volume sliders).
  * `blocked` (the Connect Client card is open) holds input. onScreenChange hears which screen
  * is showing (Settings carries the Connect Client pill). The canvas reports
  * data-menu-screen / data-menu-ready for tests.
@@ -81,6 +82,8 @@ const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
 const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
 
 const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
+// Left/Right move a slider a twentieth (5) at a time.
+const SLIDER_STEPS = 20;
 
 function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>) {
   const { sound } = p;
@@ -198,6 +201,13 @@ export default function MainMenu({
       if (!wdg.slider) return;
       const patch: Partial<SoundSettings> = {};
       patch[wdg.slider] = sliderValue(p.x);
+      setSound(patch);
+    },
+    onStep: (wdg, dir) => {
+      if (!wdg.slider) return;
+      const patch: Partial<SoundSettings> = {};
+      const step = Math.round(props.current.sound[wdg.slider] * SLIDER_STEPS) + dir;
+      patch[wdg.slider] = Math.min(SLIDER_STEPS, Math.max(0, step)) / SLIDER_STEPS;
       setSound(patch);
     },
     onActivate: (wdg, s) => {

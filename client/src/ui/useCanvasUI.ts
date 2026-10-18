@@ -17,6 +17,7 @@ import type { Circle, Point, Rect } from './draw.ts';
  *   active: (ui) => bool,                 // input and hover go to widgets only while true
  *   onActivate: (wdg, ui) => {},          // press and release on the same widget
  *   onDrag: (wdg, point, ui) => {},       // widgets with drag: true (sliders)
+ *   onStep: (wdg, dir, ui) => {},         // Left/Right on a slider under the keyboard cursor
  *   onKey: (event, ui) => {},
  *   keyNav: bool | (ui) => bool,          // arrow keys step through the widgets, Enter/Space presses
  *   update: (dt, ui) => {},               // per-frame animation; ui.ease() marks the overlay dirty
@@ -24,8 +25,12 @@ import type { Circle, Point, Rect } from './draw.ts';
  *   opacity: (ui) => 1,                   // the overlay isn't drawn below 0.005
  * });
  *
- * With keyNav, Up/Down move a keyboard cursor (ui.pointer, pointerKind 'key') to the next
- * widget while the overlay is active, skipping sliders and widgets with nav: false.
+ * With keyNav, Up/Down (or Tab/Shift+Tab) move a keyboard cursor (ui.pointer, pointerKind
+ * 'key') to the next widget while the overlay is active, skipping widgets with nav: false;
+ * the widget under it gets the focus ring (ui/focusRing.ts). The cursor is shared by every
+ * keyNav overlay, in priority order, so it runs from a screen's buttons on to controls other
+ * overlays draw beside them (the Connect Client pill, the fullscreen bubble). Left/Right step
+ * a slider under the cursor (onStep) and otherwise move the cursor like Up/Down.
  * Content taller than the design height scrolls by drag or wheel: draw sets ui.contentHeight.
  * Works with <Canvas frameloop="demand">: input, ui.invalidate() and running animations
  * (anything that marks the overlay dirty) request the next frame.
@@ -36,7 +41,7 @@ export type Widget = {
   id: string;
   /** Pressing drags (sliders): onDrag instead of onActivate. */
   drag?: boolean;
-  /** false: keyboard navigation skips it. */
+  /** false: keyboard navigation skips it. Sliders (drag) are visited and step with Left/Right. */
   nav?: boolean;
 } & ({ rect: Rect; circle?: undefined } | { circle: Circle; rect?: undefined });
 
@@ -82,6 +87,8 @@ export interface CanvasUIOptions<W extends Widget = Widget> {
   active?: (ui: CanvasUI<W>) => boolean;
   onActivate?: (wdg: W, ui: CanvasUI<W>) => void;
   onDrag?: (wdg: W, point: Point, ui: CanvasUI<W>) => void;
+  /** Left (-1) / Right (1) on a slider under the keyboard cursor. */
+  onStep?: (wdg: W, dir: -1 | 1, ui: CanvasUI<W>) => void;
   onKey?: (event: KeyboardEvent, ui: CanvasUI<W>) => void;
   keyNav?: boolean | ((ui: CanvasUI<W>) => boolean);
   update?: (dt: number, ui: CanvasUI<W>) => void;
@@ -103,6 +110,43 @@ function wantCursor(el: HTMLElement, key: object, want: boolean) {
   if (want) wants.add(key);
   else wants.delete(key);
   el.style.cursor = wants.size ? 'pointer' : '';
+}
+
+const center = (wdg: Widget): Point => (wdg.rect ? { x: wdg.rect.x + wdg.rect.w / 2, y: wdg.rect.y + wdg.rect.h / 2 } : { x: wdg.circle.x, y: wdg.circle.y });
+
+/** An overlay taking part in keyboard navigation. */
+interface NavOverlay {
+  readonly priority: number;
+  ui: CanvasUI<Widget>;
+  /** The widgets the cursor can visit now: none while inactive or without keyNav. */
+  widgets(): readonly Widget[];
+  /** Left/Right on a widget; true when the overlay used it (stepped a slider). */
+  step(wdg: Widget, dir: -1 | 1): boolean;
+}
+const navOverlays = new Set<NavOverlay>();
+
+// Moves the keyboard cursor shared by every keyNav overlay; true when the key was used.
+function navigate(e: KeyboardEvent): boolean {
+  const vertical = e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab';
+  const horizontal = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+  if (!vertical && !horizontal) return false;
+  const dir = e.key === 'ArrowUp' || e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey) ? -1 : 1;
+  const overlays = [...navOverlays].sort((a, b) => a.priority - b.priority);
+  const stops = overlays.flatMap((o) => o.widgets().map((wdg) => ({ o, wdg })));
+  if (!stops.length) return false;
+  const cursor = stops.findIndex(({ o, wdg }) => o.ui.pointerKind === 'key' && hit(o.ui.pointer, wdg));
+  if (horizontal && cursor >= 0 && stops[cursor].o.step(stops[cursor].wdg, dir)) return true;
+  // Without a keyboard cursor, start from the widget under the mouse.
+  const at = cursor >= 0 ? cursor : stops.findIndex(({ o, wdg }) => hit(o.ui.pointer, wdg));
+  const next = at < 0 ? (dir > 0 ? 0 : stops.length - 1) : (at + dir + stops.length) % stops.length;
+  for (const o of overlays) {
+    o.ui.pointer = null;
+    o.ui.invalidate();
+  }
+  const { o, wdg } = stops[next];
+  o.ui.pointer = center(wdg);
+  o.ui.pointerKind = 'key';
+  return true;
 }
 
 const DEFAULT_DESIGN = (): DesignSize => ({ w: 1600, h: 900 });
@@ -250,24 +294,31 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       s.scroll = Math.min(s.maxScroll, Math.max(0, s.scroll + (e.deltaY / rect.height) * s.h));
       s.dirty = true;
     };
-    const center = (wdg: Widget): Point => (wdg.rect ? { x: wdg.rect.x + wdg.rect.w / 2, y: wdg.rect.y + wdg.rect.h / 2 } : { x: wdg.circle.x, y: wdg.circle.y });
+    const keyNav = () => {
+      const { keyNav: on } = opts.current;
+      return (typeof on === 'function' ? on(s) : !!on) && active();
+    };
+    const nav: NavOverlay = {
+      get priority() { return opts.current.priority ?? 2; },
+      ui: s,
+      widgets: () => (keyNav() ? (opts.current.widgets?.(s) ?? []).filter((wdg) => wdg.nav !== false) : []),
+      step: (wdg, dir) => {
+        const { onStep } = opts.current;
+        if (!wdg.drag || !onStep) return false;
+        onStep(wdg as W, dir, s);
+        s.invalidate();
+        return true;
+      },
+    };
+    navOverlays.add(nav);
     const onKey = (e: KeyboardEvent) => {
       opts.current.onKey?.(e, s);
-      const { keyNav } = opts.current;
-      if (e.defaultPrevented || !(typeof keyNav === 'function' ? keyNav(s) : keyNav) || !active()) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]')) return;
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const list = (opts.current.widgets?.(s) ?? []).filter((wdg) => !wdg.drag && wdg.nav !== false);
-        if (!list.length) return;
+      // The first overlay to hear an arrow moves the shared cursor and claims the key.
+      if (navigate(e)) {
         e.preventDefault();
-        const at = list.findIndex((wdg) => hit(s.pointer, wdg));
-        const step = e.key === 'ArrowDown' ? 1 : -1;
-        const next = at < 0 ? (step > 0 ? 0 : list.length - 1) : (at + step + list.length) % list.length;
-        s.pointer = center(list[next]);
-        s.pointerKind = 'key';
-        s.dirty = true;
-      } else if ((e.key === 'Enter' || e.key === ' ') && s.pointerKind === 'key') {
+      } else if ((e.key === 'Enter' || e.key === ' ') && s.pointerKind === 'key' && keyNav()) {
         const wdg = widgetAt(s.pointer);
         if (!wdg || wdg.drag) return;
         e.preventDefault();
@@ -297,6 +348,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
 
     return () => {
       cancelled = true;
+      navOverlays.delete(nav);
       for (const off of offs) off();
       wantCursor(el, key, false);
     };
@@ -338,7 +390,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     }
     s.press = s.ease(s.press, 0, 10);
     // The keyboard cursor's widget gets the focus ring (ui/focusRing.ts).
-    const focused = live && s.pointerKind === 'key' ? widgets.find((wdg) => !wdg.drag && wdg.nav !== false && hit(s.pointer, wdg)) : undefined;
+    const focused = live && s.pointerKind === 'key' ? widgets.find((wdg) => wdg.nav !== false && hit(s.pointer, wdg)) : undefined;
     updateFocusRing(focusRing, focused, s);
     o.update?.(s.dt, s);
     if (s.scroll > s.maxScroll) { s.scroll = s.maxScroll; s.dirty = true; }

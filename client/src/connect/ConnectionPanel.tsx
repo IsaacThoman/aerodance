@@ -55,7 +55,8 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
   useCanvasUI<CameraWidget>({
     priority: 3.2,
     active: () => props.current.visible && st.alpha > 0.3,
-    keyNav: () => props.current.open,
+    // Closed, the pill joins the screen's keyboard order; open, the card's controls.
+    keyNav: true,
     widgets: () => {
       // The card takes input once it's mostly out (not while it whooshes from the pill).
       if (!props.current.open || st.k < 0.5) return [{ id: 'pill', rect: PILL }];
