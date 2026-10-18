@@ -27,7 +27,7 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 await page.goto(base + '/__test__/empty.html');
 const store = browserStore(page);
 // A take stored by an earlier Android-capable editor must still open beside new video takes.
-const source: Take = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'android', name: 'Original take',
+const source: Take = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'imported', name: 'Original take',
   input: { width: 640, height: 480, mirrored: false }, offsetMs: 0, timeScale: 1,
   samples: Array.from({ length: 9 }, (_, i) => ({ takeTimeMs: i * 100, poses: [0, 1].map(playerId => ({ playerId,
     landmarks: Array.from({ length: 33 }, (_, j) => ({ x: playerId ? .25 : .75, y: j < 23 ? .4 : .8,
@@ -73,7 +73,7 @@ try {
   });
   await page.goto(base);
   await page.getByRole('heading', { name: 'Make every move yours.' }).waitFor();
-  await page.getByText('legacy capture · 9 samples').waitFor();
+  await page.getByText('imported · 9 samples').waitFor();
   // Keep a real song audio asset while importing video poses.
   const sampleRate = 8000, audio = Buffer.alloc(44 + sampleRate * 2);
   audio.write('RIFF', 0); audio.writeUInt32LE(audio.length - 8, 4); audio.write('WAVEfmt ', 8);

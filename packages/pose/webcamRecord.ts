@@ -1,5 +1,4 @@
-// The webcam capture record WebcamPoseSource emits, and its validation (also used to convert
-// records.ndjson captures from earlier Studio versions).
+// The webcam capture record WebcamPoseSource emits, and its validation.
 import { assertPoses, finite, isObject } from './choreography.ts';
 import type { CaptureInput, PlayerCount, Pose } from './choreography.ts';
 import { poseModel } from './browser/models.ts';

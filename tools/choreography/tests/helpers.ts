@@ -4,12 +4,12 @@ import type { Server } from "node:http";
 import type { Locator } from "playwright";
 import { isObject, qualityFor } from "../../../packages/pose/choreography.ts";
 import type { Pose, TimedPoses, TrackCalibration } from "../../../packages/pose/choreography.ts";
-import { DEFAULT_POSITION_STEP, buildFrames, decodePoseFile, framesToPoses } from "../../../packages/pose/binary.ts";
-import type { PoseFrames } from "../../../packages/pose/binary.ts";
+import { DEFAULT_POSITION_STEP, EXTENSION, buildFrames, decodePoseFile, encodePoseFile, framesToPoses } from "../../../packages/pose/binary.ts";
+import type { FrameInput, PoseFrames, PoseHeaderInput } from "../../../packages/pose/binary.ts";
+import { isPoseModelId } from "../../../packages/pose/browser/models.ts";
 import { validateProject, validateTake } from "../core.ts";
 import type { CalibrationFrame, ProjectV3 } from "../core.ts";
-import { captureHead, decodeCaptureBatch } from "../poseFiles.ts";
-import { legacyCaptureFile } from "../legacyCapture.ts";
+import { WEBCAM_EXTENSIONS, captureHead, decodeCaptureBatch } from "../poseFiles.ts";
 
 /** Waits for a locator to match exactly `count` elements: the UI renders after the action that triggers it. */
 export async function expectCount(locator: Locator, count: number, timeoutMs = 10_000): Promise<void> {
@@ -56,9 +56,31 @@ export const zipPose = (files: ReadonlyMap<string, Buffer>, name: string) => dec
 export const storedCalibration = (c: TrackCalibration): TrackCalibration => ({ ...c, torsoLength: Math.fround(c.torsoLength), floorY: Math.fround(c.floorY),
   baseHip: { x: Math.fround(c.baseHip.x), y: Math.fround(c.baseHip.y), z: Math.fround(c.baseHip.z) },
   ...(c.bodyTorsoLength === undefined ? {} : { bodyTorsoLength: Math.fround(c.bodyTorsoLength) }) });
-/** Capture records in the JSON envelopes earlier editors uploaded, as a decoded capture file. */
-export function captureOf(records: readonly unknown[], sourceKind: "webcam" | "video", calibrationFrame?: CalibrationFrame): PoseFrames {
-  return decodePoseFile(legacyCaptureFile(records.map((r) => JSON.stringify(r) + "\n").join(""), sourceKind, calibrationFrame));
+/** A capture record fixture: a webcam or video tracking result with its upload timing. */
+export interface CaptureRecord {
+  receivedBrowserTimeMs?: number; audioPositionAtReceiptMs?: number; audioPositionAtFrameMs?: number; audioPlaybackRate?: number;
+  record: {
+    sessionId: string; seq: number; playerCount: number; input: { width: number; height: number }; modelId: string;
+    mediaTimeMs: number; frameBrowserTimeMs?: number; resultBrowserTimeMs?: number; timingMethod: string; poses: Pose[];
+  };
+}
+/** Capture records as a decoded capture file, as the recorder or video importer would have uploaded them. */
+export function captureOf(records: readonly CaptureRecord[], sourceKind: "webcam" | "video", calibrationFrame?: CalibrationFrame): PoseFrames {
+  const first = records[0], r0 = first.record, webcam = sourceKind === "webcam";
+  assert.ok(isPoseModelId(r0.modelId) && (r0.playerCount === 1 || r0.playerCount === 2));
+  const header: PoseHeaderInput = { kind: "capture", playerSlots: r0.playerCount, input: { width: r0.input.width, height: r0.input.height },
+    modelId: r0.modelId, ...(webcam ? { extensionIds: WEBCAM_EXTENSIONS } : {}),
+    capture: { sourceKind, sessionId: r0.sessionId, audioPlaybackRate: webcam ? first.audioPlaybackRate ?? 1 : null } };
+  const frames = records.map(({ record: r, ...e }): FrameInput => ({
+    timeMs: r.mediaTimeMs, poses: r.poses, seq: r.seq, seekTime: r.timingMethod === "seek-time",
+    ...(webcam ? { extensions: {
+      [EXTENSION.frameBrowserTimeMs]: r.frameBrowserTimeMs ?? 0, [EXTENSION.resultBrowserTimeMs]: r.resultBrowserTimeMs ?? 0,
+      [EXTENSION.receivedBrowserTimeMs]: e.receivedBrowserTimeMs ?? 0, [EXTENSION.audioPositionAtFrameMs]: e.audioPositionAtFrameMs ?? 0,
+      [EXTENSION.audioPositionAtReceiptMs]: e.audioPositionAtReceiptMs ?? 0,
+    } } : {}),
+  }));
+  return decodePoseFile(encodePoseFile(buildFrames(header, frames,
+    calibrationFrame ? { calibrationFrame: { timeMs: calibrationFrame.mediaTimeMs, poses: calibrationFrame.poses } } : {})));
 }
 /** The capture envelopes as the NDJSON records.ndjson earlier editors stored. */
 export const ndjson = (records: readonly unknown[]) => new TextEncoder().encode(records.map((r) => JSON.stringify(r) + "\n").join(""));

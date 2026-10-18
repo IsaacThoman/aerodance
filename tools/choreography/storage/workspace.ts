@@ -12,10 +12,9 @@ const AUDIO_TYPES: Readonly<Record<string, AudioExtension>> = {
 const count = (v: unknown, min: number, max = Number.MAX_SAFE_INTEGER): v is number =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= min && v <= max;
 export const missing = () => Object.assign(Error("Project/asset not found"), { code: "ENOENT" });
-/** A capture this editor can append to and finalize; earlier editors' captures can't resume. */
+/** A capture this editor started, so it can append to and finalize it. */
 function resumable(metadata: CaptureMetadata): CaptureMetadata {
-  if (!oneOf(CAPTURE_SOURCES, metadata.sourceKind)) throw Error("Unsupported capture source");
-  if (metadata.header === undefined) throw Error("This capture was started by an earlier editor and can't be resumed");
+  if (!oneOf(CAPTURE_SOURCES, metadata.sourceKind) || metadata.header === undefined) throw Error("Unsupported capture source");
   return metadata;
 }
 /** The largest upload batch: 500 two-player webcam frames plus events. */
@@ -119,36 +118,23 @@ export class Workspace extends Store {
     const bytes = await this.files.read(this.location(projectId, "assets", `${p.audio.sha256}.${p.audio.extension}`));
     return new Blob([new Uint8Array(bytes)], { type: p.audio.mimeType });
   }
-  /**
-   * A backup ZIP or song bundle. Projects in formats 1 and 2 (such as an old disk workspace)
-   * back up their JSON files as stored; restoring the backup converts them.
-   */
+  /** A backup ZIP or song bundle. */
   async download(projectId: string, kind: "backup" | "export"): Promise<Uint8Array<ArrayBuffer>> {
     return this.locked(projectId, async () => {
-      const p = await this.project(projectId), current = p.schemaVersion === 3;
-      if (kind === "export") {
-        if (!current) throw Error("Open the project to migrate it to project format 3");
-        return makeZip((await this.bundle(p)).files);
-      }
+      const p = await this.project(projectId);
+      if (kind === "export") return makeZip((await this.bundle(p)).files);
       const files = new Map([["project.json", json(p)]]);
-      const add = async (name: string, ...parts: string[]) => {
-        try { files.set(name, new Uint8Array(await this.files.read(this.location(projectId, ...parts)))); }
-        catch (e) { if (!isMissing(e)) throw e; }
-      };
-      const extension = current ? "adpose" : "json";
       for (const t of p.takes) {
-        files.set(`takes/${t.takeId}.${extension}`, new Uint8Array(await this.files.read(this.location(projectId, "takes", `${id(t.takeId)}.${extension}`))));
-        // Raw captures earlier editors stored that can't be converted stay NDJSON.
-        await add(`raw/${t.takeId}.adpose`, "capture", t.takeId, "capture.adpose");
-        await add(`raw/${t.takeId}.ndjson`, "capture", t.takeId, "records.ndjson");
+        files.set(`takes/${t.takeId}.adpose`, new Uint8Array(await this.files.read(this.takePath(projectId, t.takeId))));
+        try { files.set(`raw/${t.takeId}.adpose`, new Uint8Array(await this.files.read(this.location(projectId, "capture", t.takeId, "capture.adpose")))); }
+        catch (e) { if (!isMissing(e)) throw e; }
       }
-      for (const dataId of trackDataIds(p))
-        files.set(`tracks/${dataId}.${extension}`, new Uint8Array(await this.files.read(this.location(projectId, "tracks", `${id(dataId)}.${extension}`))));
+      for (const dataId of trackDataIds(p)) files.set(`tracks/${dataId}.adpose`, new Uint8Array(await this.files.read(this.trackPath(projectId, dataId))));
       if (p.audio) files.set(`assets/${p.audio.sha256}.${p.audio.extension}`, new Uint8Array(await this.files.read(this.location(projectId, "assets", `${p.audio.sha256}.${p.audio.extension}`))));
       return makeZip(files);
     });
   }
-  /** Restores a backup as a new project; backups of formats 1 and 2 hold JSON takes and NDJSON captures. */
+  /** Restores a backup as a new project. */
   async restore(archive: Uint8Array) {
     const files = await readZip(archive), restored: unknown = JSON.parse(decode(files.get("project.json") || json(null)));
     assertProject(restored);
@@ -159,39 +145,28 @@ export class Workspace extends Store {
     const stage = new Store({
       read: async name => { const bytes = staged.get(name); if (!bytes) throw missing(); return bytes; },
       has: async name => staged.has(name),
-      commit: async (entries, remove = []) => {
-        for (const [name, bytes] of entries) staged.set(name, bytes);
-        for (const prefix of remove) for (const name of [...staged.keys()]) if (name === prefix || (prefix.endsWith("/") && name.startsWith(prefix))) staged.delete(name);
-      },
+      commit: async entries => { for (const [name, bytes] of entries) staged.set(name, bytes); },
       list: async prefix => [...staged.keys()].filter(name => name.startsWith(prefix)),
       locked: async (_key, fn) => fn(),
     });
-    const extension = p.schemaVersion === 3 ? "adpose" : "json";
     const copy = (from: string, to: string, required = true) => {
       const bytes = files.get(from);
       if (bytes) staged.set(stage.location(p.projectId, ...to.split("/")), bytes);
       else if (required) throw Error(`Backup is missing ${from}`);
     };
     for (const ref of p.takes) {
-      copy(`takes/${id(ref.takeId)}.${extension}`, `takes/${ref.takeId}.${extension}`);
+      copy(`takes/${id(ref.takeId)}.adpose`, `takes/${ref.takeId}.adpose`);
       copy(`raw/${ref.takeId}.adpose`, `capture/${ref.takeId}/capture.adpose`, false);
-      copy(`raw/${ref.takeId}.ndjson`, `capture/${ref.takeId}/records.ndjson`, false);
     }
-    for (const dataId of trackDataIds(p)) copy(`tracks/${id(dataId)}.${extension}`, `tracks/${dataId}.${extension}`);
+    for (const dataId of trackDataIds(p)) copy(`tracks/${id(dataId)}.adpose`, `tracks/${dataId}.adpose`);
     if (p.audio) {
       const asset = files.get(`assets/${p.audio.sha256}.${p.audio.extension}`);
       if (!asset || await sha(asset) !== p.audio.sha256) throw Error("Backup audio hash mismatch");
       staged.set(stage.location(p.projectId, "assets", `${p.audio.sha256}.${p.audio.extension}`), asset);
     }
-    // Earlier formats are saved as they were, then upgraded like a stored project.
-    let saved;
-    if (p.schemaVersion === 3) saved = await stage.save(p, null);
-    else {
-      await stage.persist(p);
-      saved = await stage.upgrade(p);
-    }
-    const assets = await stage.takes(saved);
-    for (const ref of saved.takes) if (assets.get(ref.takeId)?.schema !== "aerodance.take") throw Error("Backup take reference mismatch");
+    // Saving checks every take's hash and track's player; decoding checks the files.
+    const saved = await stage.save(p, null);
+    await stage.takes(saved);
     await this.files.commit(staged);
     return saved;
   }

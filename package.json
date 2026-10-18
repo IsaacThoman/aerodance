@@ -13,8 +13,7 @@
     "studio:dev": "vite --config tools/choreography/vite.config.ts",
     "studio:build": "vite build --config tools/choreography/vite.config.ts",
     "studio:start": "vite preview --config tools/choreography/vite.config.ts",
-    "studio:test": "node --test tools/choreography/tests/*.test.ts",
-    "studio:backup-disk": "node tools/choreography/server/backup.ts"
+    "studio:test": "node --test tools/choreography/tests/*.test.ts"
   },
   "type": "module",
   "dependencies": {

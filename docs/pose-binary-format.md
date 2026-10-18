@@ -496,9 +496,8 @@ loads for one release.
      JSON envelopes.
    - `takeFromRecords` reads the decoded capture.
    - `provenance.rawSha256` hashes the `.adpose` capture bytes.
-   - Existing projects convert on load, as `migrateLegacyMotion` does for the
-     old capture format. That includes converting old `records.ndjson` files to
-     `capture` files.
+   - Projects from earlier Studio versions are no longer opened or converted
+     (they were converted on load at first; that support has been removed).
    - Project ZIP backups include the `.adpose` files.
 4. **Menu dancers and replay.** Convert `packages/character/assets/dance.json`
    (3.1 MB) to a `take` file. `createPoseRecorder` writes a `recording` file
@@ -528,16 +527,14 @@ Where the implementation settles details this document left open:
    routine, and re-uploading a snapshot gives identical bytes for the
    immutability check.
 4. **Project format 3 and captures.** Projects that hold `.adpose` takes and
-   tracks are format 3. Formats 1 and 2 convert when opened or restored from a
-   backup. `capture/<id>/capture.json` stays JSON: name, model status, the
+   tracks are format 3. Studio doesn't open or convert projects in formats 1
+   and 2. `capture/<id>/capture.json` stays JSON: name, model status, the
    capture header the recorder declared at start, and the take summary after
    finalizing. Each upload batch is the raw bytes of `FRMS`/`EVNT` chunks,
    checked against that header and stored as `batches/<n>.bin`. Retries must
    match byte for byte. Finalizing joins the header chunks (plus `CALF` for
    video) and the batches into `capture.adpose`, which `provenance.rawSha256`
-   hashes. Old `records.ndjson` captures convert too. Ones that can't, such as
-   Android captures, stay NDJSON, and the takes keep the hash of the original
-   NDJSON. Extension fields count µs from bases taken when the capture starts,
+   hashes. Old `records.ndjson` captures aren't read. Extension fields count µs from bases taken when the capture starts,
    so one capture can run about 35 minutes.
 5. **Recordings.** The frame time is `songTimeMs`, rounded to 0.1 ms. Extension
    6 holds `captureBrowserTimeMs`. The source's timing method is constant for a
@@ -549,7 +546,6 @@ Where the implementation settles details this document left open:
    last frame.
 7. **Readers of earlier formats.** Each one only converts:
    - `packages/pose/legacy.ts`: dance capture JSON.
-   - `tools/choreography/legacyCapture.ts`: Studio `records.ndjson`.
    - `packages/pose/song.ts`: choreography schema 1, for one release.
    - Studio's JSON take import.
    - `tools/pose/migrate-legacy.ts`: converts any of these, and old NDJSON pose

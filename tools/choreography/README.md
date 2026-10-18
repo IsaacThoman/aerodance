@@ -44,27 +44,13 @@ can use separate domains; publishing a song remains an explicit export/install s
 The Studio needs HTTPS or localhost, IndexedDB, OPFS writable files, and Web Locks.
 No API proxy or server environment variables are required.
 
-### Migrate existing disk projects
+### Projects from earlier versions
 
-Before replacing an older Studio deployment, use its **Backup** button for each
-project, then import those ZIPs into the static Studio. Existing project formats 1
-and 2 remain supported and are converted to format 3 on restore. Browser backups
-also work with the legacy disk tool.
-Docker/Podman named volumes from old versions remain on disk but are no longer
-mounted by the static deployment; retain them until backups are verified.
-
-For a disk workspace accessible on the host, export every project without starting
-a server:
-
-```sh
-STUDIO_DATA_DIR=/path/to/old/studio-data npm run studio:backup-disk -- /path/to/backups
-```
-
-The command creates one project ZIP per project ID and refuses to overwrite existing
-backups. Projects in formats 1 and 2 are backed up with their JSON files as stored. Import the ZIPs through **Import pose recording**. Unsupported future
-project formats fail validation and remain untouched. The optional disk adapter
-and HTTP harness are retained for migration and regression checks; they are not
-part of the production image.
+This editor opens only project format 3. Projects and backups from earlier
+Studio versions (formats 1 and 2, with JSON takes and NDJSON captures) are listed
+as unsupported and left untouched; they can't be opened, restored or converted.
+The optional disk adapter and HTTP harness are kept for regression checks; they
+are not part of the production image.
 
 ## Create a routine
 
@@ -147,8 +133,7 @@ part of the production image.
    timing review, long missing references, rights, and empty score coverage.
 
 Changes autosave after a short idle interval. **Save** forces persistence.
-This editor uses project format 3 and migrates format 1 and 2 projects when opened.
-Saved projects in unsupported formats are
+This editor uses project format 3. Saved projects in other formats are
 reported and skipped at startup; the next compatible project opens instead.
 If none can be opened, **Create new project** starts a separate project. Incompatible
 projects stay in browser storage and require an editor that supports their project format.
@@ -200,13 +185,7 @@ and revision metadata stay JSON:
 Snapshots are kept as stored, quantized to 1/16384 of the frame, so an edited
 routine compiles the same after a reload. Backups include snapshots required by
 current tracks and edit history, so they still restore after source takes are
-deleted. Format 1 and 2 projects are converted when opened, and old backups on
-restore: JSON takes and snapshots become `.adpose` files, and raw `records.ndjson`
-captures become `capture.adpose` (captures that can't be converted, such as
-Android ones, stay NDJSON). Their takes keep the `rawSha256` of the original NDJSON.
-Migrating a format 1 project's clip tracks to snapshots preserves the current
-routine, review masks, original comparison poses, and pre-zero data; it starts a
-fresh edit history.
+deleted.
 
 The Frutiger rig is stylized 2.5D; elbows/knees remain editable in the
 skeleton even though the character has no articulated elbow/knee bones.
@@ -275,9 +254,8 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
   Webcam fixtures cover Chromium runtime/capture integration; real duet accuracy,
   hardware performance, and Safari/Firefox/mobile compatibility need manual checks.
 
-- Takes captured by earlier editor versions still open, compile, and export; the
-  take list shows them as **legacy capture**. Raw NDJSON pose streams can no
-  longer be imported or recorded.
+- Projects, takes and raw captures from earlier editor versions can't be
+  opened or imported; only legacy dance and take JSON files import as takes.
 - The editor imports `.adpose` takes and song choreography, legacy JSON, its
   own project backups, and browser-decodable videos. Video import runs the same local models as the webcam; the optional
   Python tracker remains an offline tool.

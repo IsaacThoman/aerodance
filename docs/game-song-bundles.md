@@ -51,9 +51,8 @@ node tools/pose/migrate-legacy.ts client/public/songs/<songId>
 ```
 
 This writes `choreography.adpose`, bumps `bundleRevision`, rewrites
-`checksums.json`, and removes the JSON. The same tool converts Studio
-`records.ndjson` captures and `?record` NDJSON pose recordings
-(`node tools/pose/migrate-legacy.ts in.ndjson out.adpose`). `?record` now
+`checksums.json`, and removes the JSON. The same tool converts `?record` NDJSON
+pose recordings (`node tools/pose/migrate-legacy.ts in.ndjson out.adpose`). `?record` now
 downloads `<songId>-poses.adpose`, which `?input=recording&recording=<url>`
 replays.
 

@@ -9,11 +9,9 @@ export type ProjectChange = ProjectV3 | ((project: ProjectV3) => ProjectV3);
 export type TrackEdit = (project: ProjectV3, assets: StudioAssets) => ProjectV3;
 export type StudioProject = ReturnType<typeof useStudioProject>;
 
-/** Validates a project from storage before it is shown; storage migrates formats 1 and 2 when opening. */
+/** Validates a project from storage before it is shown. */
 export function editableProject(value: unknown): ProjectV3 {
-  const p = validateProject(copy(value));
-  if (p.schemaVersion !== 3) throw Error("Reopen this project to migrate it to project format 3");
-  return p;
+  return validateProject(copy(value));
 }
 
 // The open project, its takes and track snapshots, revision-checked saving and status messages.

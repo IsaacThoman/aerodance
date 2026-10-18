@@ -7,12 +7,11 @@ import { assertSongTimeline, songChoreographyFromTimeline, validateSong } from '
 import { EXTENSION, buildFrames, decodePoseFile, encodePoseFile } from '../../packages/pose/binary.ts';
 import type { FrameInput } from '../../packages/pose/binary.ts';
 import { finite, isObject, isPlayerCount, validatePoses } from '../../packages/pose/choreography.ts';
-import { legacyCaptureFile } from '../choreography/legacyCapture.ts';
 
 const usage = `Usage:
   node tools/pose/migrate-legacy.ts <song bundle directory>     convert choreography.json to choreography.adpose
   node tools/pose/migrate-legacy.ts input.json output.adpose     convert a dance capture (legacy or take JSON) to a take file
-  node tools/pose/migrate-legacy.ts input.ndjson output.adpose   convert a Studio records.ndjson capture or a game pose recording`;
+  node tools/pose/migrate-legacy.ts input.ndjson output.adpose   convert a game pose recording`;
 const [input, output] = process.argv.slice(2);
 if (!input) throw Error(usage);
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -74,17 +73,12 @@ function convertRecording(lines: unknown[]) {
   return encodePoseFile(buildFrames({ kind: 'recording', playerSlots: playerCount, input: input ?? { width: 640, height: 480 }, modelId: null,
     extensionIds: timed ? [EXTENSION.captureBrowserTimeMs] : [], provenance: { songId: header.songId, recordedAt: header.recordedAt, timing } }, ordered));
 }
-/** NDJSON from earlier versions: a Studio capture's records, or a game pose recording. */
+/** A game pose recording NDJSON from earlier versions. */
 function convertNdjson(text: string) {
   const lines: unknown[] = text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
   const first = lines[0];
-  if (isObject(first) && first.schema === 'aerodance.pose-recording') return convertRecording(lines);
-  // A capture's first line can be an event; its kind is the first pose record's schema.
-  const record = lines.find(l => isObject(l) && isObject(l.record));
-  const kind = isObject(record) && isObject(record.record) ? record.record.schema : undefined;
-  if (kind === 'aerodance.webcam-record') return legacyCaptureFile(text, 'webcam');
-  if (kind === 'aerodance.video-record') return legacyCaptureFile(text, 'video');
-  throw Error('Unrecognized NDJSON: expected Studio webcam/video capture records or a pose recording');
+  if (!isObject(first) || first.schema !== 'aerodance.pose-recording') throw Error('Expected a pose recording (aerodance.pose-recording)');
+  return convertRecording(lines);
 }
 
 if ((await stat(input)).isDirectory()) await convertBundle(input);

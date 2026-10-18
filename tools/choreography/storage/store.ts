@@ -9,11 +9,9 @@ import {
   reviewReport,
   takeSummary,
   trackDataIds,
-  migrateProject,
 } from "../core.ts";
-import type { CaptureMetadata, CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
+import type { CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
 import { decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
-import { legacyCaptureFile } from "../legacyCapture.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
 import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
 import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";
@@ -107,7 +105,6 @@ export class Store {
           ),
         );
       }
-      if (project.schemaVersion !== 3) throw Error("Open the project to migrate it to project format 3");
       // A take added since the stored revision must match the file it summarizes.
       const known = new Set(isObject(current) && Array.isArray(current.takes) ? current.takes.map(t => isObject(t) ? t.takeId : null) : []);
       for (const t of project.takes) {
@@ -175,7 +172,6 @@ export class Store {
   /** A take by ID, with the metadata its project summary keeps. */
   async takeById(projectId: string, takeId: string): Promise<Take> {
     const p = await this.project(projectId);
-    if (p.schemaVersion !== 3) throw Error("Open the project to migrate it to project format 3");
     const summary = p.takes.find(t => t.takeId === takeId);
     if (!summary) throw httpError("Take not found", 404);
     return this.take(projectId, summary);
@@ -194,69 +190,7 @@ export class Store {
     return new Map(entries);
   }
   async open(projectId: string): Promise<ProjectV3> {
-    return this.locked(projectId, async () => {
-      const p = await this.project(projectId);
-      return p.schemaVersion === 3 ? p : this.upgrade(p);
-    });
-  }
-  /**
-   * Converts a format 1 or 2 project's JSON takes, track snapshots and raw captures to .adpose
-   * files and saves it as format 3. The caller holds the project lock.
-   */
-  async upgrade(project: Project): Promise<ProjectV3> {
-    if (project.schemaVersion === 3) return project;
-    const projectId = project.projectId, files = new Map<string, Uint8Array>(), remove: string[] = [];
-    const takes = new Map<string, Take | TrackData>(), summaries: TakeSummary[] = [];
-    for (const ref of project.takes) {
-      const legacy = this.location(projectId, "takes", `${id(ref.takeId)}.json`);
-      const take = validateTake(await this.read(projectId, "takes", `${id(ref.takeId)}.json`));
-      if (take.takeId !== ref.takeId) throw Error("Take reference mismatch");
-      const { bytes, take: stored } = await this.encodeTake(take);
-      takes.set(take.takeId, stored);
-      summaries.push(takeSummary(stored));
-      files.set(this.takePath(projectId, take.takeId), bytes);
-      remove.push(legacy);
-      const capture = await this.legacyCapture(projectId, take);
-      if (capture) {
-        files.set(this.location(projectId, "capture", take.takeId, "capture.adpose"), capture);
-        remove.push(this.location(projectId, "capture", take.takeId, "records.ndjson"));
-      }
-    }
-    let tracked;
-    if (project.schemaVersion === 1) tracked = migrateProject(project, takes);
-    else {
-      tracked = project;
-      for (const dataId of trackDataIds(project)) {
-        takes.set(dataId, validateTrackData(await this.read(projectId, "tracks", `${id(dataId)}.json`)));
-        remove.push(this.location(projectId, "tracks", `${id(dataId)}.json`));
-      }
-    }
-    for (const dataId of trackDataIds(tracked)) {
-      const data = takes.get(dataId);
-      assertTrackData(data);
-      files.set(this.trackPath(projectId, dataId), encodeTrack(data));
-    }
-    const next: ProjectV3 = { ...tracked, schemaVersion: 3, takes: summaries };
-    // The new files go first: until the project is saved, the old revision still reads its JSON.
-    await this.files.commit(files);
-    const saved = await this.save(next, project.revision, true);
-    await this.files.commit(new Map(), remove);
-    return saved;
-  }
-  /** A raw capture left as records.ndjson, converted; null when there is none or it can't be represented. */
-  async legacyCapture(projectId: string, take: Take): Promise<Uint8Array | null> {
-    let text: string, metadata: CaptureMetadata | null = null;
-    try {
-      text = decode(await this.files.read(this.location(projectId, "capture", take.takeId, "records.ndjson")));
-      const value = await this.read(projectId, "capture", take.takeId, "capture.json").catch(() => null);
-      if (isObject(value)) metadata = value as unknown as CaptureMetadata;
-    } catch (e) {
-      if (isMissing(e)) return null;
-      throw e;
-    }
-    try { return legacyCaptureFile(text, metadata?.sourceKind ?? take.source, take.calibrationFrame); }
-    // Captures such as stored "android" records stay as they are.
-    catch { return null; }
+    return this.project(projectId);
   }
   async writeTrack(
     projectId: string,
@@ -290,8 +224,6 @@ export class Store {
         await this.files.commit(new Map(), [this.location(projectId) + "/"]);
         return { deleted: true };
       }
-      if (stored.schemaVersion !== 3)
-        throw Error("Open the project before deleting takes");
       const p = stored;
       assertProject(p);
       if (!p.takes.some((t) => t.takeId === takeId))

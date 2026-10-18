@@ -10,7 +10,6 @@ import {
   appendOperation,
   reviewReport,
   takeFromRecords,
-  replaceRange,
   validateProject,
   overwriteTracks,
   clearTrack,
@@ -18,15 +17,10 @@ import {
   historyStep,
   missingIntervals,
   interpolateTrack,
-  migrateProject,
-  trackDataIds,
-  sourceLabel,
-  takeSummary,
   validateTake,
   isTrackData,
 } from "../core.ts";
 import { encodeTake, encodeTrack, importedPoseFile } from "../poseFiles.ts";
-import { legacyCaptureFile } from "../legacyCapture.ts";
 import { readFileSync } from "node:fs";
 import type { CaptureMetadata, CompiledChoreography, StudioAssets, Take } from "../core.ts";
 import {
@@ -68,25 +62,22 @@ test('webcam take timing follows frames despite variable inference latency and r
   assert.equal(take.provenance?.modelHash, model.sha256);
   const lite = structuredClone(records).map(r => ({ ...r, record: { ...r.record, modelId: 'lite' } }));
   assert.throws(() => takeFromRecords(captureOf(lite, 'webcam'), metadata), /Invalid webcam model configuration/);
-  const changed = structuredClone(records); changed[1].audioPlaybackRate = 1.25;
-  assert.throws(() => captureOf(changed, 'webcam'), /changed/);
   const early = structuredClone(records); early[1].receivedBrowserTimeMs = early[1].record.resultBrowserTimeMs - 1;
   assert.throws(() => takeFromRecords(captureOf(early, 'webcam'), metadata), /timing/);
-  const wire = records.map((r, i) => i === 1 ? { ...r, record: { ...r.record, schema: undefined, protocolVersion: 2 } } : r);
-  assert.throws(() => captureOf(wire, 'webcam'), /Invalid webcam/);
 });
-test('unsupported project tracks and null clips fail validation before the editor renders them', () => {
-  const project=newProject('format-fixture', 1);
+test('earlier and future project formats and broken tracks fail validation before the editor renders them', () => {
+  const project = newProject('format-fixture');
   // Loose views of copies: these tests build projects the types rule out.
-  const future: { schemaVersion: number; tracks: { playerId: number; label: string }[] } = structuredClone(project); future.schemaVersion=4;
-  future.tracks=future.tracks.map(({playerId,label})=>({playerId,label,dataId:'edited',originalDataId:'original',offsetMs:0}));
-  assert.throws(()=>validateProject(future),/Unsupported project format 4/);
-  const broken: { tracks: { clips?: unknown[] }[] }=structuredClone(project); broken.tracks[0].clips=[null,{takeId:'missing'}];
-  assert.throws(()=>validateProject(broken),/Invalid clips/);
-  const missing: { tracks: { clips?: unknown[] }[] }=structuredClone(project); delete missing.tracks[0].clips;
-  assert.throws(()=>validateProject(missing),/Invalid clips/);
+  for (const schemaVersion of [1, 2, 4]) {
+    const other: { schemaVersion: number } = structuredClone(project); other.schemaVersion = schemaVersion;
+    assert.throws(() => validateProject(other), new RegExp(`Unsupported project format ${schemaVersion}`));
+  }
+  const clips: { tracks: unknown[] } = structuredClone(project);
+  clips.tracks = clips.tracks.map((_, playerId) => ({ playerId, label: 'P', clips: [] }));
+  assert.throws(() => validateProject(clips), /Invalid track reference/);
 });
-function fixture() {
+/** A project whose two tracks hold a take; `edit` changes the take before the tracks copy it. */
+function fixture(edit?: (take: Take) => void) {
   const take: Take = {
     schema: "aerodance.take",
     schemaVersion: 1,
@@ -101,7 +92,9 @@ function fixture() {
       poses: [pose(0), pose(1, 0.7)],
     })),
   };
-  const p = addTake(newProject("project-a", 1), take);
+  edit?.(take);
+  const takes: StudioAssets = new Map([[take.takeId, take]]);
+  const p = overwriteTracks(addTake(newProject("project-a"), take), take, [0, 1], takes);
   p.durationMs = 1000;
   p.playableEndMs = 1000;
   p.audio = { sha256: "a".repeat(64), extension: "wav", mimeType: "audio/wav", durationMs: 1000, name: "song.wav" };
@@ -109,7 +102,6 @@ function fixture() {
   p.metadata.rights.audio.license = "CC0";
   p.metadata.rights.choreography.license = "CC0";
   p.alignmentReviewed = true;
-  const takes: StudioAssets = new Map([[take.takeId, take]]);
   return { p, take, takes };
 }
 test("finite playback preserves explicit identity and never bridges missing snapshots", () => {
@@ -144,18 +136,17 @@ test("pose edit is reversible, preserves measured confidence and needs review", 
     timeMs: 500,
     joint: 15,
     value: { x: 0.44, y: 0.23, z: -0.1 },
-  });
+  }, takes);
   const data = compileProject(edited, takes),
     s = sampleAt(data, 500);
-  assert.equal(s.poses[0].landmarks[15].x, 0.44);
-  assert.equal(s.poses[0].landmarks[15].confidence, 0.9);
+  // Snapshots store positions in 1/16384 steps and confidence in 1/254 steps.
+  assert.equal(s.poses[0].landmarks[15].x, Math.round(0.44 * 16384) / 16384);
+  assert.equal(s.poses[0].landmarks[15].confidence, Math.round(0.9 * 254) / 254);
   assert.equal(s.quality[0].scoreEligible[15], false);
   assert.equal(JSON.stringify(take), raw);
-  edited.operationCursor = 0;
-  assert.equal(
-    sampleAt(compileProject(edited, takes), 500)
-      .poses[0].landmarks[15].x,
-    take.samples[5].poses[0].landmarks[15].x,
+  assert.deepEqual(
+    sampleAt(compileProject(historyStep(edited, -1), takes), 500).poses,
+    sampleAt(compileProject(p, takes), 500).poses,
   );
 });
 test("exclusions override approvals and single-player track 0 matches the two-player track", () => {
@@ -166,14 +157,14 @@ test("exclusions override approvals and single-player track 0 matches the two-pl
     startMs: 400,
     endMs: 600,
     reason: "occlusion",
-  });
+  }, takes);
   edited = appendOperation(edited, {
     type: "approve",
     playerId: 0,
     startMs: 0,
     endMs: 1000,
     reason: "reviewed",
-  });
+  }, takes);
   const data = compileProject(edited, takes);
   assert.ok(
     sampleAt(data, 500)
@@ -197,25 +188,6 @@ test("mirror swaps every anatomical pair and is an involution, without changing 
     assert.ok(Math.abs(j.x - twice.landmarks[i].x) < 1e-10),
   );
 });
-test("phrase replacement splits previous clips and mapping remains explicit", () => {
-  const { p, take, takes } = fixture();
-  const b = {
-    ...take,
-    takeId: "take-b",
-    samples: take.samples.map((s) => ({
-      ...s,
-      poses: [pose(0, 0.4), pose(1, 0.8)],
-    })),
-  };
-  takes.set(b.takeId, b);
-  p.takes.push(takeSummary(b));
-  const edited = replaceRange(p, 0, b, 300, 600, 100, 400),
-    data = compileProject(edited, takes);
-  assert.equal(edited.tracks[0].clips.length, 3);
-  assert.equal(sampleSnapshot(data.samples, 450).poses[0].landmarks[0].x, 0.4);
-  assert.equal(sampleSnapshot(data.samples, 250).poses[0].landmarks[0].x, 0.2);
-  assert.equal(sampleSnapshot(data.samples, 700).poses[0].landmarks[0].x, 0.2);
-});
 test("legacy migration keeps both original confidence fields unknown", async () => {
   const legacy = {
     version: 1,
@@ -232,23 +204,7 @@ test("legacy migration keeps both original confidence fields unknown", async () 
   assert.equal(take.samples[0].poses[0].landmarks[0].confidence, null);
   assert.equal(take.samples[1].takeTimeMs, legacy.times[1] * 1000);
 });
-test("captures need a webcam or video source; protocol-v2 records no longer convert", () => {
-  const records = [0, 1].map((i) => ({
-    audioPositionAtReceiptMs: i * 100,
-    record: {
-      protocolVersion: 2,
-      type: "pose",
-      sessionId: "s",
-      seq: i + 1,
-      frameReceivedTimeMs: i * 100,
-      resultTimeMs: i * 100 + 20,
-      playerCount: 2,
-      input: { width: 640, height: 480, mirrored: false },
-      poses: [pose(0), pose(1)],
-    },
-  }));
-  assert.throws(() => captureOf(records, "webcam"), /Invalid webcam capture record/);
-  assert.throws(() => legacyCaptureFile(records.map((r) => JSON.stringify(r)).join("\n"), "android"), /Unsupported capture source/);
+test("captures need a webcam or video source", () => {
   const capture = captureOf([0, 1].map((i) => ({
     receivedBrowserTimeMs: i * 100 + 30, audioPositionAtReceiptMs: i * 100 + 30, audioPositionAtFrameMs: i * 100, audioPlaybackRate: 1,
     record: { schema: "aerodance.webcam-record", schemaVersion: 1, type: "pose", sessionId: "s", seq: i + 1, playerCount: 2,
@@ -262,28 +218,6 @@ test("captures need a webcam or video source; protocol-v2 records no longer conv
     );
   assert.throws(() => takeFromRecords(capture, { takeId: "capture", sourceKind: "video" }), /does not match/);
 });
-test("stored legacy captures still import, compile, review and validate", () => {
-  const take = {
-    ...fixture().take,
-    takeId: "legacy-capture",
-    source: "android",
-    provenance: { sessionId: "s", sequenceGaps: 0, synthetic: false, alignmentMethod: "receipt-estimate" },
-  };
-  assert.equal(sourceLabel(take.source), "legacy capture");
-  assert.equal(sourceLabel("webcam"), "webcam");
-  // An exported take.json keeps its stored source on import.
-  assert.equal(importMotion(structuredClone(take), "old.json", "imported").source, "android");
-  const { p, assets } = independent(take);
-  assert.equal(p.takes[0].source, "android");
-  validateProject(p);
-  const data = compileProject(p, assets);
-  validateChoreography(data);
-  assert.deepEqual(data.provenance.sources.map((s) => s.source), ["android"]);
-  assert.ok(data.samples.some((s) => s.poses.length === 2));
-  assert.ok(
-    reviewReport(p, data).warnings.some((w) => /Legacy capture timing/.test(w)),
-  );
-});
 test("runtime validation rejects corrupt payloads and timestamps", () => {
   const { p, takes } = fixture(),
     data = compileProject(p, takes);
@@ -294,28 +228,28 @@ test("runtime validation rejects corrupt payloads and timestamps", () => {
   assert.throws(() => validateChoreography(bad), /times/);
 });
 test("gap repair requires bounded endpoints and never invents measured confidence", () => {
-  const { p, takes, take } = fixture();
-  take.samples[4].poses = [];
-  take.samples[5].poses = [];
+  const { p, takes } = fixture((take) => {
+    take.samples[4].poses = [];
+    take.samples[5].poses = [];
+  });
   const edited = appendOperation(p, {
     type: "repair",
     playerId: 0,
     startMs: 300,
     endMs: 600,
-  });
+  }, takes);
   const data = compileProject(edited, takes),
     s = sampleAt(data, 500);
   assert.equal(s.poses[0].playerId, 0);
   assert.equal(s.poses[0].landmarks[0].confidence, null);
   assert.ok(s.quality[0].landmarkOrigins.every((v) => v === "gap-repaired"));
   assert.ok(s.quality[0].scoreEligible.every((v) => !v));
-  const unbounded = appendOperation(p, {
+  assert.throws(() => appendOperation(p, {
     type: "repair",
     playerId: 0,
     startMs: 0,
     endMs: 2000,
-  });
-  assert.throws(() => compileProject(unbounded, takes), /at most one second/);
+  }, takes), /at most one second/);
 });
 
 test("grouped keyframes translate points together, preserve confidence and undo as one edit", () => {
@@ -339,14 +273,14 @@ test("grouped keyframes translate points together, preserve confidence and undo 
     timeMs: 500,
     startMs: 350,
     endMs: 650,
-  });
+  }, takes);
   const compiled = compileProject(edited, takes);
   const frame = sampleAt(compiled, 500);
   for (const i of indices) {
     assert.ok(
       Math.abs(
         frame.poses[0].landmarks[i].x - original.poses[0].landmarks[i].x - 0.1,
-      ) < 1e-6,
+      ) <= 1 / 16384,
     );
     assert.equal(
       frame.poses[0].landmarks[i].confidence,
@@ -360,7 +294,7 @@ test("grouped keyframes translate points together, preserve confidence and undo 
   );
   assert.deepEqual(frame.poses[1], original.poses[1]);
   assert.deepEqual(
-    compileProject({ ...edited, operationCursor: 0 }, takes).samples,
+    compileProject(historyStep(edited, -1), takes).samples,
     compileProject(p, takes).samples,
   );
 });
@@ -541,27 +475,6 @@ test("stored exclusions override later approvals and move with their track", () 
     ).quality[0].scoreEligible.every((v) => !v),
   );
 });
-test("legacy projects migrate their edited poses, negative source timing and original preview", () => {
-  const { p, takes } = fixture();
-  p.tracks[0].clips[0].songStartMs = -100;
-  const edited = appendOperation(p, {
-    type: "mirror",
-    playerId: 0,
-    startMs: 200,
-    endMs: 500,
-  });
-  const before = compileProject(edited, takes);
-  const migrated = migrateProject(edited, takes);
-  assert.equal(migrated.schemaVersion, 2);
-  // Snapshots hold their stored, quantized poses.
-  assertSamplesClose(compileProject(migrated, takes).samples, before.samples);
-  assert.ok(found(takes.get(found(migrated.tracks[0].dataId))).samples[0].takeTimeMs < 0);
-  assert.ok(trackDataIds(migrated).length >= 2);
-  migrated.takes = [];
-  takes.delete("take-a");
-  assertSamplesClose(compileProject(migrated, takes).samples, before.samples);
-});
-
 test("review coverage combines adjacent and overlapping exclusions", () => {
   const split = [{ startMs: 300, endMs: 500 }, { startMs: 100, endMs: 300 }];
   assert.ok(intervalsCover(split, 233, 433), "two adjacent reviews cover a step that spans both");

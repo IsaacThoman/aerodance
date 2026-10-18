@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { MouseEvent } from "react";
 import { finite } from "../../../packages/pose/choreography.ts";
-import { overwriteTracks, sourceLabel } from "../core.ts";
+import { overwriteTracks } from "../core.ts";
 import type { ProjectV3, Take, TakeSummary } from "../core.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import { takeById } from "./useWorkspace.ts";
@@ -86,7 +86,7 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
                 <span>
                   <strong>{t.name}</strong>
                   <small>
-                    {sourceLabel(t.source)} · {take?.samples.length || 0} samples
+                    {t.source} · {take?.samples.length || 0} samples
                      {t.modelId ? ` · ${t.modelId}${finite(t.sourceRateHz) ? ` · ${t.sourceRateHz.toFixed(1)} poses/s` : ""}` : ""}
                   </small>
                 </span>

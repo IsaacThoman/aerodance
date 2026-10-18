@@ -10,7 +10,7 @@ export interface ProjectHeaderProps {
   /** Whether the project compiles, so a song bundle can be exported. */
   canExport: boolean;
 }
-const unsupported = (schemaVersion: unknown) => schemaVersion != null && schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3;
+const unsupported = (schemaVersion: unknown) => schemaVersion !== 3;
 
 // The project picker, project actions and saving.
 export default function ProjectHeader({ project, studio, workspace, canExport }: ProjectHeaderProps) {

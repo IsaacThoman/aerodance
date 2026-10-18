@@ -1,5 +1,5 @@
 import { clamp } from "../../../packages/pose/choreography.ts";
-import { historyStep, isTrackData, sourceLabel } from "../core.ts";
+import { historyStep, isTrackData } from "../core.ts";
 import type { ProjectV3, Take } from "../core.ts";
 import { timeLabel } from "./format.ts";
 import type { Compiled } from "./useCompiled.ts";
@@ -255,7 +255,7 @@ export default function Timeline({ project, studio, workspace, compiled }: Timel
                     }}
                   >
                     {data.sources
-                      .map((s) => s.name || sourceLabel(s.source))
+                      .map((s) => s.name || s.source)
                       .join(", ")}
                   </div>
                 )}

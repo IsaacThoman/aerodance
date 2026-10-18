@@ -68,8 +68,8 @@ try {
   assert.equal((await store.project(created.projectId)).metadata.title, saved.metadata.title);
   const backup = await store.download(created.projectId, "backup");
   assert.ok(backup.length > 0);
-  // Existing disk backups import unchanged into browser storage; browser backups
-  // are still consumable by the legacy tool.
+  // Disk adapter backups import unchanged into browser storage, and browser
+  // backups restore on the disk adapter.
   const disk = createStudio({ dataDir: diskRoot }).store;
   const diskProject = await disk.save(newProject("disk-project"), null);
   const oldBackup = await disk.download(diskProject.projectId, "backup");
@@ -143,7 +143,7 @@ try {
   await page.reload();
   await page.getByRole("heading", { name: "Make every move yours." }).waitFor();
   assert.deepEqual(apiRequests, []);
-  console.log("Browser storage passed: cross-tab revision race, OPFS assets, quota rollback, legacy backup migration, atomic restore, deletion, and static UI backup/reload with no API requests.");
+  console.log("Browser storage passed: cross-tab revision race, OPFS assets, quota rollback, disk/browser backup exchange, atomic restore, deletion, and static UI backup/reload with no API requests.");
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve)); await dispose(); await rm(diskRoot, { recursive: true, force: true });
 }
