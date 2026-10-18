@@ -161,7 +161,6 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   const failed = camera.failed();
   const top = failed ? cy - 40 : cy;
   const hover = s.hover['start-camera'] ?? 0;
-  const press = s.press * hover;
   g.save();
   g.fillStyle = `rgba(120, 220, 255, ${hover * 0.08})`;
   g.fillRect(preview.x, preview.y, preview.w, preview.h);
@@ -170,7 +169,7 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.lineWidth = 6;
   g.lineCap = 'round';
   g.lineJoin = 'round';
-  ICONS.camera(g, cx, top - 24, 100 + hover * 8 - press * 8);
+  ICONS.camera(g, cx, top - 24, 100);
   g.restore();
   text(g, failed ? 'Try again' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
