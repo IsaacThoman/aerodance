@@ -295,9 +295,8 @@ export class WebcamPoseSource {
       if (this.busy) { this.dropped++; return; }
       if (video.videoWidth !== this.input?.width || video.videoHeight !== this.input.height) {
         if (!this.adaptToResize || !video.videoWidth || !video.videoHeight) { this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return; }
-        // Switch once the frame in flight is done, so no result mixes the two sizes. Calibration
-        // and the live characters start afresh when a record's input size changes.
-        if (this.busy) { this.dropped++; return; }
+        // No frame is in flight (busy returned above), so no result mixes the two sizes.
+        // Calibration and the live characters start afresh when a record's input size changes.
         this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
         this.slots = new PlayerSlotMapper();
       }

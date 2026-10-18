@@ -38,13 +38,13 @@ export default function PhoneApp() {
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('hashchange', join);
     window.addEventListener('pagehide', onLeave);
+    // The link outlives this effect (development runs it twice); leaving the page ends it.
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('hashchange', join);
       window.removeEventListener('pagehide', onLeave);
       offView();
       offCamera();
-      link.stop();
     };
   }, [link]);
 

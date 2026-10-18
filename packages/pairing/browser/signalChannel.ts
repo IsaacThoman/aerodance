@@ -28,6 +28,9 @@ export interface EventStream {
   close(): void;
 }
 const CLOSED = 2;
+// After the events stream fails outright (a proxy error, the service restarting), check the
+// room and listen again this long after.
+const RETRY_MS = 2000;
 
 async function post<T>(path: string, body: unknown, fetchFn: Fetch = fetch): Promise<T> {
   let res: Response;
@@ -82,12 +85,13 @@ export class SignalChannel {
   ended = false;
   /** The server ended the room (or no longer knows this token). */
   gone = false;
+  retry: ReturnType<typeof setTimeout> | undefined;
   constructor({ code, token, onEvent, base = PAIRING_BASE, fetch: fetchFn = (...args) => fetch(...args), createStream = (url) => new EventSource(url) }: SignalChannelOptions) {
     this.code = code; this.token = token; this.onEvent = onEvent; this.base = base; this.fetch = fetchFn; this.createStream = createStream;
   }
   get room() { return `${this.base}/rooms/${this.code}`; }
 
-  /** Starts listening; the stream reconnects by itself after network errors. */
+  /** Starts listening; the stream reconnects by itself after network errors and failed responses. */
   open() {
     this.stream?.close();
     const stream = this.stream = this.createStream(`${this.room}/events?token=${encodeURIComponent(this.token)}`);
@@ -98,8 +102,25 @@ export class SignalChannel {
       if (event?.type === 'closed') this.end(event.reason);
       else if (event) this.onEvent(event);
     };
-    // Closed for good (not reconnecting): the server no longer knows the room or this token.
-    stream.onerror = () => { if (stream === this.stream && stream.readyState === CLOSED) this.end('The pairing ended. Pair again.'); };
+    // A failed response closes an EventSource for good: ended if the server no longer knows the
+    // room or this token, otherwise (a proxy error, a restart in progress) listen again shortly.
+    stream.onerror = () => {
+      if (stream !== this.stream || stream.readyState !== CLOSED) return;
+      this.stream = null;
+      void this.check().then((alive) => {
+        if (this.ended) return;
+        if (!alive) this.end('The pairing ended. Pair again.');
+        else this.retry = setTimeout(() => { if (!this.ended) this.open(); }, RETRY_MS);
+      });
+    };
+  }
+
+  /** False once the server says the room or this token is gone; true while it might be back. */
+  async check() {
+    try {
+      const res = await this.fetch(`${this.room}?token=${encodeURIComponent(this.token)}`, { cache: 'no-store' });
+      return res.status !== 403 && res.status !== 404;
+    } catch { return true; }
   }
 
   /** Posts a signal for the other side. */
@@ -111,6 +132,12 @@ export class SignalChannel {
       if (error instanceof PairingError && (error.status === 403 || error.status === 404)) this.end(error.message);
       else throw error;
     }
+  }
+
+  /** The game: its phone has gone, so another phone may take its place. */
+  release() {
+    if (this.ended) return;
+    post(`${this.room}/release`, { token: this.token }, this.fetch).catch(() => {});
   }
 
   /** Leaves the room for good (the game's leaving ends it), even while the page unloads. */
@@ -126,6 +153,7 @@ export class SignalChannel {
   /** Stops listening without leaving. */
   close() {
     this.ended = true;
+    clearTimeout(this.retry);
     this.stream?.close();
     this.stream = null;
   }

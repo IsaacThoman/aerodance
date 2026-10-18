@@ -27,6 +27,9 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
  *   lost          the connection dropped: back to 'connecting'; the phone reconnects by
  *                 itself, or any phone can pair again with the same code
  *
+ * A connected phone keeps going if the pairing server goes away (a redeploy); only pairing
+ * again needs it.
+ *
  * The phone tracks with the model and player count set here (configure, setPlayerCount)
  * or on the phone itself; the view follows what the phone reports.
  */
@@ -144,7 +147,7 @@ export class PhonePoseSource implements PoseSource {
     this.channel = null;
     this.room = null;
     this.emit({ event: { type: 'source-stopped', reason: message }, receivedBrowserTimeMs: this.now() });
-    this.publish({ status: 'disconnected', snapshot: null, pairing: null, device: '', stats: null, message, timing: { method: 'remote-clock-sync', uncertaintyMs: null } });
+    this.publish({ status: 'disconnected', snapshot: null, pairing: null, device: '', frame: null, stats: null, message, timing: { method: 'remote-clock-sync', uncertaintyMs: null } });
   }
 
   fail(error: unknown) {
@@ -180,7 +183,13 @@ export class PhonePoseSource implements PoseSource {
     if (event.type === 'hello') this.offer(event.device || 'Phone');
     else if (event.type === 'answer' && peer?.epoch === event.epoch) peer.accept(event.sdp).catch(() => { if (peer === this.peer) this.lost(); });
     else if (event.type === 'ice' && peer?.epoch === event.epoch) void peer.addIce(event.candidate);
-    else if (event.type === 'closed') this.fail(Error(event.reason));
+    else if (event.type === 'closed') {
+      // The room is gone, but a connected phone carries on without it.
+      if (this.control?.readyState === 'open') {
+        this.channel = null;
+        this.publish({ pairing: null });
+      } else this.fail(Error(event.reason));
+    }
   }
 
   /** A phone said hello: a fresh connection for it, replacing any earlier one. */
@@ -188,8 +197,15 @@ export class PhonePoseSource implements PoseSource {
     const { room, channel } = this;
     if (!room || !channel) return;
     this.closePeer();
-    const peer = this.peer = new Peer({ epoch: ++this.epoch, iceServers: room.iceServers, createConnection: this.createConnection,
-      send: (signal) => { channel.send(signal).catch(() => {}); } });
+    let peer: Peer;
+    try {
+      peer = this.peer = new Peer({ epoch: ++this.epoch, iceServers: room.iceServers, createConnection: this.createConnection,
+        send: (signal) => { channel.send(signal).catch(() => {}); } });
+    } catch (error) {
+      // An ICE server entry the browser won't take (PAIRING_ICE_SERVERS).
+      this.fail(Error(`Couldn't start a connection to the phone: ${reason(error)}`));
+      return;
+    }
     const live = this.live = peer.pc.createDataChannel(LIVE_CHANNEL, { ordered: false, maxRetransmits: 0 });
     const control = this.control = peer.pc.createDataChannel(CONTROL_CHANNEL);
     const mine = () => peer === this.peer;
@@ -212,7 +228,10 @@ export class PhonePoseSource implements PoseSource {
   /** The connection dropped: wait for the phone to come back (or another to pair). */
   lost() {
     this.closePeer();
-    this.publish({ status: 'connecting', snapshot: null, stats: null,
+    if (!this.channel) { this.fail(Error('Lost the phone. Pair it again.')); return; }
+    // Its place is free, in case it never comes back (a new tab can't rejoin as it).
+    this.channel.release();
+    this.publish({ status: 'connecting', snapshot: null, stats: null, frame: null,
       message: 'Lost the phone. Keep aerodance open on it to reconnect, or scan the code again.' });
   }
 

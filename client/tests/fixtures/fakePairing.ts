@@ -7,7 +7,7 @@ import type { TestContext } from 'node:test';
 import { createPairingServer } from '../../../packages/pairing/server.ts';
 import type { EventStream } from '../../../packages/pairing/browser/signalChannel.ts';
 
-/** The pairing server mounted at /pair on a free port; returns its base URL. */
+/** The pairing server mounted at /pair on a free port; returns its base URL (and the server as `pairingServer.last`). */
 export async function pairingServer(t: TestContext) {
   const pairing = createPairingServer();
   const server = http.createServer((req, res) => {
@@ -20,8 +20,10 @@ export async function pairingServer(t: TestContext) {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   });
+  pairingServer.last = pairing;
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}/pair`;
 }
+pairingServer.last = null as ReturnType<typeof createPairingServer> | null;
 
 /** An EventSource over fetch (Node has none): it closes for good when the stream ends. */
 export function fetchEventStream(url: string): EventStream {

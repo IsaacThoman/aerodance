@@ -5,7 +5,7 @@ import type { CreatePeerConnection } from '../../../packages/pairing/browser/pee
 import { PAIRING_BASE, SignalChannel, joinRoom } from '../../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../../packages/pairing/browser/signalChannel.ts';
 import { isPairingCode } from '../../../packages/pairing/signals.ts';
-import type { IceServer, PairingEvent } from '../../../packages/pairing/signals.ts';
+import type { IceCandidate, IceServer, PairingEvent } from '../../../packages/pairing/signals.ts';
 import { WebcamPoseSource } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { WebcamRecordEvent, WebcamView } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
@@ -23,7 +23,9 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
  *   ended     the game ended the pairing
  *
  * A connection that drops goes back to linking and says hello again until the game
- * answers. The camera stops while the page is hidden and restarts when it shows again.
+ * answers (not while an answer is still connecting). A linked phone keeps going if the
+ * pairing server goes away. The camera stops while the page is hidden and restarts when it
+ * shows again.
  *
  * const link = new PhoneLink(); link.subscribe(render); link.join('123456');
  */
@@ -52,8 +54,10 @@ export interface PhoneLinkOptions {
 }
 type Listener<T> = (value: T) => void;
 
-// Asks the game again this often while it hasn't connected (it may have been reloading).
+// Asks the game again this often while it hasn't connected (it may have been reloading)...
 const HELLO_MS = 4000;
+// ...but gives a connection attempt this long before asking for another.
+const ATTEMPT_MS = 15_000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const TOKEN_KEY = 'aerodance-phone-token';
@@ -90,6 +94,12 @@ export class PhoneLink {
   live: RTCDataChannel | null = null;
   control: RTCDataChannel | null = null;
   helloTimer: ReturnType<typeof setInterval> | undefined;
+  /** When the game's latest offer arrived. */
+  offeredAt = -Infinity;
+  /** Candidates for an offer that hasn't arrived yet (signals can overtake each other). */
+  early: { epoch: number; candidates: IceCandidate[] } | null = null;
+  /** Why the room ended while linked (the phone carries on until the link drops). */
+  endReason = '';
   sentStatus = '';
   sentStatsAt = -Infinity;
   wakeLock: WakeLockSentinel | null = null;
@@ -120,14 +130,20 @@ export class PhoneLink {
       if (generation === this.generation) this.publish({ stage: 'code', code: '', error: error instanceof Error ? error.message : 'Pairing failed. Try again.' });
       return;
     }
-    if (generation !== this.generation) return;
-    store(code, token);
-    const channel = this.channel = new SignalChannel({ code, token, base: this.base, fetch: this.fetch, createStream: this.createStream,
+    const channel = new SignalChannel({ code, token, base: this.base, fetch: this.fetch, createStream: this.createStream,
       onEvent: (event) => { if (generation === this.generation) this.onSignal(event); } });
+    // Cancelled while joining: give the place back so the next try isn't refused.
+    if (generation !== this.generation) { channel.leave(); return; }
+    store(code, token);
+    this.channel = channel;
+    this.endReason = '';
     channel.open();
     this.publish({ stage: 'linking', message: 'Connecting to the game…' });
     this.hello();
-    this.helloTimer = setInterval(() => { if (this.view.stage === 'linking') this.hello(); }, HELLO_MS);
+    this.helloTimer = setInterval(() => {
+      const attempt = this.peer && !['failed', 'closed'].includes(this.peer.pc.connectionState);
+      if (this.view.stage === 'linking' && !(attempt && this.now() - this.offeredAt < ATTEMPT_MS)) this.hello();
+    }, HELLO_MS);
   }
 
   /** Leaves the game (the code screen again). */
@@ -145,6 +161,7 @@ export class PhoneLink {
     this.channel?.close();
     this.channel = null;
     this.closePeer();
+    this.early = null;
     this.camera.disconnect('Camera stopped.');
     this.releaseWakeLock();
   }
@@ -153,19 +170,39 @@ export class PhoneLink {
 
   onSignal(event: PairingEvent) {
     if (event.type === 'offer') this.answer(event.epoch, event.sdp);
-    else if (event.type === 'ice' && event.epoch === this.peer?.epoch) void this.peer.addIce(event.candidate);
-    else if (event.type === 'closed') {
-      this.stop();
-      this.publish({ stage: 'ended', message: event.reason, playing: false });
+    else if (event.type === 'ice') {
+      if (event.epoch === this.peer?.epoch) void this.peer.addIce(event.candidate);
+      // Newer than any offer so far: keep it for that offer (older attempts' are dropped).
+      else if (event.epoch > Math.max(this.peer?.epoch ?? -1, this.early?.epoch ?? -1)) this.early = { epoch: event.epoch, candidates: [event.candidate] };
+      else if (event.epoch === this.early?.epoch) this.early.candidates.push(event.candidate);
+    } else if (event.type === 'closed') {
+      // Linked: carry on without the room, and end when the link does.
+      if (this.view.stage === 'linked') { this.channel = null; this.endReason = event.reason; return; }
+      this.end(event.reason);
     } else if (event.type === 'peer' && !event.present && this.view.stage === 'linking') this.publish({ message: 'Waiting for the game…' });
+  }
+
+  end(reason: string) {
+    this.stop();
+    this.publish({ stage: 'ended', message: reason, playing: false });
   }
 
   answer(epoch: number, sdp: string) {
     const channel = this.channel;
     if (!channel) return;
     this.closePeer();
-    const peer = this.peer = new Peer({ epoch, iceServers: this.iceServers, createConnection: this.createConnection,
-      send: (signal) => { channel.send(signal).catch(() => {}); } });
+    let peer: Peer;
+    try {
+      peer = this.peer = new Peer({ epoch, iceServers: this.iceServers, createConnection: this.createConnection,
+        send: (signal) => { channel.send(signal).catch(() => {}); } });
+    } catch (error) {
+      this.end(`Couldn't connect to the game: ${error instanceof Error ? error.message : 'unsupported connection settings'}`);
+      return;
+    }
+    this.offeredAt = this.now();
+    // Candidates that overtook this offer wait in the peer until it has the offer.
+    if (this.early?.epoch === epoch) peer.pending.push(...this.early.candidates);
+    this.early = null;
     const mine = () => peer === this.peer;
     peer.pc.ondatachannel = ({ channel: data }) => {
       if (!mine()) { data.close(); return; }
@@ -195,6 +232,7 @@ export class PhoneLink {
   unlinked() {
     this.closePeer();
     if (this.view.stage !== 'linked' && this.view.stage !== 'linking') return;
+    if (!this.channel) { this.end(this.endReason || 'Lost the game. Scan its code again.'); return; }
     this.publish({ stage: 'linking', message: 'Reconnecting to the game…' });
     this.hello();
   }

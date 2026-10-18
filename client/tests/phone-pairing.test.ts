@@ -11,6 +11,9 @@ import type { WebcamConfigureOptions, WebcamPoseSource, WebcamRecordEvent, Webca
 import type { WebcamRecord } from '../../packages/pose/webcamRecord.ts';
 import type { PlayerCount } from '../../packages/pose/choreography.ts';
 import { FakeConnection, createFakeConnection, fetchEventStream, pairingServer, until } from './fixtures/fakePairing.ts';
+import { SignalChannel } from '../../packages/pairing/browser/signalChannel.ts';
+import type { EventStream } from '../../packages/pairing/browser/signalChannel.ts';
+import type { PairingEvent } from '../../packages/pairing/signals.ts';
 
 /** The phone's camera, driven by the test: it emits whatever records the test gives it. */
 class FakeCamera {
@@ -146,6 +149,70 @@ test('a wrong code is refused on the phone, and a second phone cannot take over 
   await until(() => host.view.status === 'connecting', 'the game to notice');
   await second.join(code);
   await until(() => second.view.stage === 'linked', 'the second phone');
+});
+
+test('a linked phone and game carry on when the pairing server goes away, and end together', async (t) => {
+  const base = await pairingServer(t);
+  const options = { base, createStream: fetchEventStream, createConnection: createFakeConnection };
+  const host = new PhonePoseSource({ ...options, origin: () => 'https://game.test' });
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ ...options, camera: camera as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  const events: PoseSourceEvent[] = [];
+  host.subscribeRecords((event) => events.push(event));
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.clock.ready, 'the link', 4000);
+
+  // A redeploy restarts the pairing service: its rooms are gone.
+  pairingServer.last?.close();
+  await until(() => host.view.pairing === null, 'the game to drop its code');
+  assert.equal(phone.view.stage, 'linked');
+  camera.emit(phoneRecord(10, 1));
+  await until(() => events.some(isPoseRecordEvent), 'poses without the pairing server');
+  assert.notEqual(host.view.status, 'error');
+
+  // The game stopping now reaches the phone through the link itself.
+  host.disconnect();
+  await until(() => phone.view.stage === 'ended', 'the phone to end');
+  assert.match(phone.view.message, /pairing server stopped/);
+});
+
+test('ICE candidates that overtake their offer wait for it', async () => {
+  const phone = new PhoneLink({ camera: new FakeCamera() as unknown as WebcamPoseSource, createConnection: createFakeConnection });
+  phone.channel = { send: async () => {}, close: () => {} } as unknown as SignalChannel;
+  phone.onSignal({ type: 'ice', epoch: 3, candidate: { candidate: 'early', sdpMid: '0', sdpMLineIndex: 0 } });
+  phone.onSignal({ type: 'ice', epoch: 2, candidate: { candidate: 'stale', sdpMid: '0', sdpMLineIndex: 0 } });
+  phone.onSignal({ type: 'ice', epoch: 3, candidate: { candidate: 'early 2', sdpMid: '0', sdpMLineIndex: 0 } });
+  phone.onSignal({ type: 'offer', epoch: 3, sdp: 'fake-offer none' });
+  const connection = phone.peer?.pc as unknown as FakeConnection;
+  await until(() => connection.candidates.length === 2, 'the early candidates');
+  assert.deepEqual(connection.candidates.map((c) => c.candidate), ['early', 'early 2']);
+  phone.stop();
+});
+
+test('the events stream comes back after a failed response, unless the room is gone', async () => {
+  const opened: EventStream[] = [];
+  const createStream = (): EventStream => {
+    const stream: EventStream = { readyState: 0, onmessage: null, onerror: null, close: () => { stream.readyState = 2; } };
+    opened.push(stream);
+    return stream;
+  };
+  const fail = (stream: EventStream) => { stream.readyState = 2; stream.onerror?.(new Event('error')); };
+  let status = 502;
+  const heard: PairingEvent[] = [];
+  const channel = new SignalChannel({ code: '123456', token: 't', base: 'http://pairing.test/pair', createStream, onEvent: (e) => heard.push(e),
+    fetch: async () => new Response(null, { status }) });
+  channel.open();
+  fail(opened[0]);
+  await until(() => opened.length === 2, 'listening again', 4000);
+  assert.deepEqual(heard, []);
+  status = 404;
+  fail(opened[1]);
+  await until(() => heard.length === 1, 'the end');
+  assert.deepEqual(heard, [{ type: 'closed', reason: 'The pairing ended. Pair again.' }]);
+  assert.equal(channel.gone, true);
 });
 
 test('a game that cannot reach the pairing server says so', async () => {

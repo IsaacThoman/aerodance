@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MAX_SIGNAL_BYTES, isPairingCode } from './signals.ts';
-import type { CreatedRoom, IceServer, JoinedRoom } from './signals.ts';
+import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.ts';
 
 /*
  * The pairing server: it introduces a game (the host) to a phone so they can open a WebRTC
@@ -11,13 +11,20 @@ import type { CreatedRoom, IceServer, JoinedRoom } from './signals.ts';
  *   POST /rooms                     the game: a new six-digit code    → { code, token, iceServers }
  *   POST /rooms/:code/join          the phone, with the code          → { token, iceServers }
  *   GET  /rooms/:code/events?token  either side: server-sent events, the other side's signals
+ *   GET  /rooms/:code?token         either side: is this pairing still on? (204, or 403/404)
  *   POST /rooms/:code/messages      { token, message }: a signal for the other side
+ *   POST /rooms/:code/release       { token }: the game lost its phone; another may take its place
  *   POST /rooms/:code/close         { token }: the game ends the room, or the phone leaves it
  *
  * A code takes one phone at a time. Another phone can join once the first has gone (its
- * events stream closed for a few seconds), so the same QR code re-pairs a phone that reloaded or
- * lost its link. The room ends with the game: it closes it, or its events stream stays closed for a
- * minute.
+ * events stream closed for a few seconds) or the game has released it, so the same QR code
+ * re-pairs a phone that reloaded or lost its link. The room ends with the game: it closes it,
+ * or its events stream stays closed for a minute.
+ *
+ * Each side may only send its own signals (signals.ts), so neither can pose as the server.
+ * Waiting signals are capped per side, and joins with wrong codes are throttled across the
+ * server so six-digit codes can't be guessed at speed. Requests reach this service through a
+ * proxy, so it can't tell clients apart by address.
  *
  * Paths are relative to where the handler is mounted (/pair in the game's dev server and
  * behind nginx). handle() returns false for paths it doesn't serve.
@@ -29,13 +36,24 @@ const HOST_GRACE_MS = 60_000;
 // A phone keeps its place this long before its events stream opens and after it closes.
 const PHONE_GRACE_MS = 10_000;
 const MAX_AGE_MS = 12 * 60 * 60_000;
-// Signals waiting for a side whose events stream is closed.
+// Signals waiting for a side whose events stream is closed: at most this many, and bytes.
 const QUEUE = 100;
+const QUEUE_BYTES = 256 * 1024;
+// Joins with a code that matches no game, per minute across the server, before joins pause.
+const MAX_MISSES = 300;
+const MISS_WINDOW_MS = 60_000;
+// The signals each side may send.
+const SENDS: Record<PairingRole, readonly string[]> = { host: ['offer', 'ice'], phone: ['hello', 'answer', 'ice'] };
 // Keeps proxies from timing out quiet streams.
 const HEARTBEAT_MS = 15_000;
 const SWEEP_MS = 5_000;
 
-interface Side { token: string | null; stream: ServerResponse | null; seen: number; queue: string[]; }
+interface Side {
+  token: string | null; stream: ServerResponse | null; seen: number;
+  queue: string[]; queued: number;
+  /** The game lost touch with this phone: another phone may take its place. */
+  released: boolean;
+}
 interface Room { code: string; created: number; host: Side; phone: Side; }
 
 export interface PairingServerOptions {
@@ -50,7 +68,7 @@ class HttpError extends Error {
 }
 
 const token = () => randomBytes(18).toString('base64url');
-const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, queue: [] });
+const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, queue: [], queued: 0, released: false });
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 function json(res: ServerResponse, status: number, body?: unknown) {
@@ -74,13 +92,21 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   return body as Record<string, unknown>;
 }
 
-export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms = 2000, now = Date.now }: PairingServerOptions = {}) {
+export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms = 500, now = Date.now }: PairingServerOptions = {}) {
   const rooms = new Map<string, Room>();
+  let misses: number[] = [];
 
   const roomFor = (code: string) => {
     const room = isPairingCode(code) ? rooms.get(code) : undefined;
     if (!room) throw new HttpError(404, 'No game is waiting with that code.');
     return room;
+  };
+  // A join: wrong codes count towards the throttle, and while it's on every join waits.
+  const joinable = (code: string) => {
+    const t = now();
+    misses = misses.filter((at) => t - at < MISS_WINDOW_MS);
+    if (misses.length >= MAX_MISSES) throw new HttpError(429, 'Too many wrong codes were tried just now. Wait a minute, then try again.');
+    try { return roomFor(code); } catch (error) { misses.push(t); throw error; }
   };
   const roleOf = (room: Room, owner: unknown) => {
     if (typeof owner === 'string' && owner) {
@@ -94,7 +120,8 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     if (to.stream) to.stream.write(text);
     else if (to.token) {
       to.queue.push(text);
-      if (to.queue.length > QUEUE) to.queue.shift();
+      to.queued += text.length;
+      while (to.queue.length > QUEUE || to.queued > QUEUE_BYTES) to.queued -= to.queue.shift()?.length ?? 0;
     }
   };
   const endStream = (s: Side) => {
@@ -102,7 +129,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     s.stream = null;
     stream?.end();
   };
-  const phonePresent = (room: Room) => !!room.phone.token && (!!room.phone.stream || now() - room.phone.seen < PHONE_GRACE_MS);
+  const phonePresent = ({ phone }: Room) => !!phone.token && !phone.released && (!!phone.stream || now() - phone.seen < PHONE_GRACE_MS);
   const remove = (room: Room, reason: string) => {
     rooms.delete(room.code);
     for (const s of [room.host, room.phone]) {
@@ -142,8 +169,10 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     res.write('retry: 2000\n\n');
     for (const text of me.queue) res.write(text);
     me.queue = [];
+    me.queued = 0;
     me.stream = res;
     me.seen = now();
+    me.released = false;
     res.write(event({ type: 'peer', present: !!other.stream }));
     deliver(other, { type: 'peer', present: true });
     req.on('close', () => {
@@ -157,10 +186,21 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   function message(room: Room, body: Record<string, unknown>, res: ServerResponse) {
     const role = roleOf(room, body.token);
     const { message: signal } = body;
-    if (typeof signal !== 'object' || signal === null || typeof (signal as { type?: unknown }).type !== 'string') throw new HttpError(400, 'Expected a signal');
+    const type = typeof signal === 'object' && signal !== null ? (signal as { type?: unknown }).type : undefined;
+    if (typeof type !== 'string' || !SENDS[role].includes(type)) throw new HttpError(400, 'Expected a signal');
     if (JSON.stringify(signal).length > MAX_SIGNAL_BYTES) throw new HttpError(413, 'Message too large');
-    room[role].seen = now();
+    // Only the phone's posts keep its place; the game is there while its events stream is open.
+    if (role === 'phone') {
+      room.phone.seen = now();
+      if (type === 'hello') room.phone.released = false;
+    }
     deliver(role === 'host' ? room.phone : room.host, signal);
+    json(res, 204);
+  }
+
+  function release(room: Room, body: Record<string, unknown>, res: ServerResponse) {
+    if (roleOf(room, body.token) !== 'host') throw new HttpError(403, 'Only the game can release its phone.');
+    room.phone.released = true;
     json(res, 204);
   }
 
@@ -179,17 +219,20 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     const url = new URL(req.url || '/', 'http://pairing');
     const parts = url.pathname.split('/').filter(Boolean);
     const route = `${req.method} ${parts[0] === 'rooms' ? ['rooms', parts[1] && ':code', parts[2]].filter(Boolean).join('/') : parts.join('/')}`;
-    const known = ['POST rooms', 'POST rooms/:code/join', 'GET rooms/:code/events', 'POST rooms/:code/messages', 'POST rooms/:code/close', 'GET health'];
+    const known = ['POST rooms', 'GET rooms/:code', 'POST rooms/:code/join', 'GET rooms/:code/events', 'POST rooms/:code/messages',
+      'POST rooms/:code/release', 'POST rooms/:code/close', 'GET health'];
     if (!known.includes(route) || parts.length > 3) return false;
     try {
       if (route === 'GET health') json(res, 200, { rooms: rooms.size });
       else if (route === 'POST rooms') create(res);
+      else if (route === 'GET rooms/:code') { roleOf(roomFor(parts[1]), url.searchParams.get('token')); json(res, 204); }
       else if (route === 'GET rooms/:code/events') events(roomFor(parts[1]), url.searchParams.get('token'), req, res);
       else {
         const body = await readBody(req);
-        const room = roomFor(parts[1]);
+        const room = route === 'POST rooms/:code/join' ? joinable(parts[1]) : roomFor(parts[1]);
         if (route === 'POST rooms/:code/join') join(room, body, res);
         else if (route === 'POST rooms/:code/messages') message(room, body, res);
+        else if (route === 'POST rooms/:code/release') release(room, body, res);
         else close(room, body, res);
       }
     } catch (error) {

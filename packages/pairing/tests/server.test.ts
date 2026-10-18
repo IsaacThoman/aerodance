@@ -155,3 +155,76 @@ test('the server turns games away when full, and serves only its own paths', asy
   assert.equal((await fetch(`${base}/rooms`)).status, 404);
   assert.equal((await fetch(`${base}/elsewhere`)).status, 404);
 });
+
+test('each side may only send its own signals, so neither can pose as the server', async (t) => {
+  const { post } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const phone = await (await post(`/rooms/${room.code}/join`)).json();
+  const send = (token: string, message: unknown) => post(`/rooms/${room.code}/messages`, { token, message });
+  assert.equal((await send(phone.token, { type: 'closed', reason: 'Visit evil.example' })).status, 400);
+  assert.equal((await send(phone.token, { type: 'peer', present: false })).status, 400);
+  assert.equal((await send(phone.token, { type: 'offer', epoch: 1, sdp: 'x' })).status, 400);
+  assert.equal((await send(room.token, { type: 'hello', device: 'x' })).status, 400);
+  assert.equal((await send(room.token, { type: 'answer', epoch: 1, sdp: 'x' })).status, 400);
+  assert.equal((await send(phone.token, { type: 'answer', epoch: 1, sdp: 'x' })).status, 204);
+  assert.equal((await send(room.token, { type: 'offer', epoch: 1, sdp: 'x' })).status, 204);
+});
+
+test('the game can release a phone it lost, so another phone (a new tab) can take its place', async (t) => {
+  const { base, post } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const first = await (await post(`/rooms/${room.code}/join`)).json();
+  const stream = await listen(t, `${base}/rooms/${room.code}/events?token=${first.token}`);
+  await stream.next();
+  assert.equal((await post(`/rooms/${room.code}/join`)).status, 409);
+  assert.equal((await post(`/rooms/${room.code}/release`, { token: first.token })).status, 403, 'only the game releases');
+  assert.equal((await post(`/rooms/${room.code}/release`, { token: room.token })).status, 204);
+  const second = await (await post(`/rooms/${room.code}/join`)).json();
+  assert.notEqual(second.token, first.token);
+  // The first phone's stream ends, and its token no longer works.
+  await assert.rejects(async () => { for (;;) await stream.next(); });
+  assert.equal((await fetch(`${base}/rooms/${room.code}?token=${first.token}`)).status, 403);
+  assert.equal((await fetch(`${base}/rooms/${room.code}?token=${second.token}`)).status, 204);
+  assert.equal((await fetch(`${base}/rooms/123456x?token=${second.token}`)).status, 404);
+});
+
+test('a phone that says hello again after a release keeps its place', async (t) => {
+  const { post } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const phone = await (await post(`/rooms/${room.code}/join`)).json();
+  await post(`/rooms/${room.code}/release`, { token: room.token });
+  await post(`/rooms/${room.code}/messages`, { token: phone.token, message: { type: 'hello', device: 'x' } });
+  assert.equal((await post(`/rooms/${room.code}/join`)).status, 409);
+});
+
+test('signals waiting for a side are capped in bytes, and the game posting does not keep a room alive', async (t) => {
+  let now = 9_000_000;
+  const { base, post, pairing } = await serve(t, { now: () => now });
+  const room = await (await post('/rooms')).json();
+  await post(`/rooms/${room.code}/join`);
+  for (let i = 0; i < 20; i++) await post(`/rooms/${room.code}/messages`, { token: room.token, message: { type: 'offer', epoch: i, sdp: 'x'.repeat(30_000) } });
+  const side = [...pairing.rooms.values()][0].phone;
+  assert.ok(side.queued <= 256 * 1024 && side.queue.length < 20, `${side.queued} bytes queued`);
+  // Only the newest signals are kept.
+  assert.match(side.queue.at(-1) ?? '', /"epoch":19/);
+  for (let i = 0; i < 3; i++) {
+    now += 30_000;
+    await post(`/rooms/${room.code}/messages`, { token: room.token, message: { type: 'ice', epoch: 1, candidate: { candidate: 'c' } } });
+    pairing.sweep();
+  }
+  assert.equal(pairing.rooms.size, 0, 'the game never listened, so the room ended');
+  assert.equal((await fetch(`${base}/rooms/${room.code}?token=${room.token}`)).status, 404);
+});
+
+test('joins pause for a minute after many wrong codes, so codes cannot be guessed at speed', async (t) => {
+  let now = 1_000;
+  const { post } = await serve(t, { now: () => now });
+  const room = await (await post('/rooms')).json();
+  const wrong = room.code === '000000' ? '000001' : '000000';
+  for (let i = 0; i < 300; i++) assert.equal((await post(`/rooms/${wrong}/join`)).status, 404);
+  const paused = await post(`/rooms/${room.code}/join`);
+  assert.equal(paused.status, 429);
+  assert.match((await paused.json()).error, /Wait a minute/);
+  now += 61_000;
+  assert.equal((await post(`/rooms/${room.code}/join`)).status, 200);
+});
