@@ -3,7 +3,7 @@ import type { ComponentType, LazyExoticComponent } from 'react';
 import { STAGE_METAS } from './catalog.ts';
 import type { StageId, StageMeta } from './catalog.ts';
 
-export { DEFAULT_STAGE, STAGE_LIST, isStageId, resolveStage, stageName } from './catalog.ts';
+export { DEFAULT_STAGE, STAGE_LIST, isStageId, resolveStage } from './catalog.ts';
 export type { DancerPlacement, PreviewOrbit, StageId, StageListing, StageMeta, Vec2, Vec3 } from './catalog.ts';
 
 /**

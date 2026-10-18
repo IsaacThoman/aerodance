@@ -3,7 +3,6 @@ import type { StageMeta } from '../catalog.ts';
 // Name card, dancer placement and post settings, loaded before the stage itself.
 const meta = {
   id: 'beach',
-  name: 'Sugarsand Sunset',
   subtitle: 'Tropical island beach',
   accent: ['#ffd27a', '#ff8a2a'],
   // On the sand just up from the waterline (sandHeight is -0.50 / -0.55 under the two dancers).

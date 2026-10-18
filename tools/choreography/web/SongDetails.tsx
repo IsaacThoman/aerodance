@@ -128,7 +128,7 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
         >
           {STAGE_LIST.map((stage) => (
             <option key={stage.id} value={stage.id}>
-              {stage.name} — {stage.subtitle}
+              {stage.id} — {stage.subtitle}
             </option>
           ))}
         </select>

@@ -28,11 +28,11 @@ const ENV_LIGHTS: readonly EnvironmentLight[] = [
 ];
 
 /**
- * "Coral Dome": a glass dance hall resting on a sunlit tropical reef ~10 m down.
- * With dome={false} ("Open Reef") the dancers stand on the open sand instead.
+ * reef: a glass dance hall resting on a sunlit tropical reef ~10 m down.
+ * With dome={false} (openreef) the dancers stand on the open sand instead.
  */
 export interface ReefStageProps {
-  /** false: "Open Reef", the dancers on the open sand. */
+  /** false: openreef, the dancers on the open sand. */
   dome?: boolean;
 }
 

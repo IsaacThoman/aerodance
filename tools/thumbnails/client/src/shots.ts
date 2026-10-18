@@ -61,7 +61,7 @@ export function assertShot(shot: unknown): asserts shot is Shot {
 }
 
 export const SHOTS: readonly Shot[] = [
-  // Skyline Sanctuary: rooftop terrace over the glass eco-city.
+  // sanctuary: rooftop terrace over the glass eco-city.
   {
     id: 'sanctuary-skyline',
     stage: 'sanctuary',
@@ -104,7 +104,7 @@ export const SHOTS: readonly Shot[] = [
     logo: { y: 215, size: 140, x: 'left' },
   },
 
-  // Coral Dome: glass dome on a sunlit reef.
+  // reef: glass dome on a sunlit reef.
   {
     id: 'reef-dome',
     stage: 'reef',
@@ -139,7 +139,7 @@ export const SHOTS: readonly Shot[] = [
     logo: { y: 215, size: 190 },
   },
 
-  // Open Reef: the dancers on the open sand.
+  // openreef: the dancers on the open sand.
   {
     id: 'openreef-surface',
     stage: 'openreef',
@@ -174,7 +174,7 @@ export const SHOTS: readonly Shot[] = [
     logo: { y: 215, size: 160, x: 'left' },
   },
 
-  // Emerald Falls: clifftop meadow over waterfalls.
+  // falls: clifftop meadow over waterfalls.
   {
     id: 'falls-valley',
     stage: 'falls',
@@ -218,7 +218,7 @@ export const SHOTS: readonly Shot[] = [
     logo: { y: 215, size: 160, x: 'right' },
   },
 
-  // Club Aquarium: glass dance club.
+  // club: glass dance club.
   {
     id: 'club-floor',
     stage: 'club',
@@ -254,7 +254,7 @@ export const SHOTS: readonly Shot[] = [
     logo: { y: 215, size: 190 },
   },
 
-  // Sugarsand Sunset: golden-hour beach.
+  // beach: golden-hour beach.
   {
     id: 'beach-sunset',
     stage: 'beach',

@@ -32,7 +32,6 @@ export interface PreviewOrbit {
 /** A stage folder's `meta.ts`. */
 export interface StageMeta {
   id: StageId;
-  name: string;
   subtitle: string;
   /** [light, dark] orb colours for the name card. */
   accent: readonly [light: string, dark: string];
@@ -42,13 +41,13 @@ export interface StageMeta {
   previewOrbit?: PreviewOrbit;
 }
 
-export type StageListing = Pick<StageMeta, 'id' | 'name' | 'subtitle' | 'accent'>;
+export type StageListing = Pick<StageMeta, 'id' | 'subtitle' | 'accent'>;
 
 // The dance stages as plain data, in browse order, with no rendering code: Dance Studio,
 // song catalogs and node tests import this; index.ts pairs each with its stage component.
 export const STAGE_METAS: readonly StageMeta[] = [sanctuary, reef, openreef, falls, club, beach];
 
-export const STAGE_LIST: readonly StageListing[] = STAGE_METAS.map(({ id, name, subtitle, accent }) => ({ id, name, subtitle, accent }));
+export const STAGE_LIST: readonly StageListing[] = STAGE_METAS.map(({ id, subtitle, accent }) => ({ id, subtitle, accent }));
 
 // Songs without a stage (or with one this build doesn't have) play here.
 export const DEFAULT_STAGE: StageId = 'openreef';
@@ -56,9 +55,3 @@ export const DEFAULT_STAGE: StageId = 'openreef';
 export const isStageId = (id: unknown): id is StageId => STAGE_LIST.some((stage) => stage.id === id);
 
 export const resolveStage = (id: string | null | undefined): StageId => (isStageId(id) ? id : DEFAULT_STAGE);
-
-export const stageName = (id: string | null | undefined): string => {
-  const resolved = resolveStage(id);
-  // resolveStage only returns listed ids.
-  return STAGE_LIST.find((stage) => stage.id === resolved)!.name;
-};

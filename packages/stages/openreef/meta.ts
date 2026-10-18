@@ -2,10 +2,9 @@ import type { StageMeta } from '../catalog.ts';
 import reef from '../reef/meta.ts';
 
 // Name card, dancer placement and post settings, loaded before the stage itself.
-// The Coral Dome stage without its dome, so it keeps the reef's look.
+// The reef stage without its dome, so it keeps the reef's look.
 const meta = {
   id: 'openreef',
-  name: 'Open Reef',
   subtitle: 'On the sand of a sunlit reef',
   accent: ['#8fe4ff', '#1a7fd0'],
   // On the sand around where the dome stood (SAND_Y in reef/Reef.tsx).

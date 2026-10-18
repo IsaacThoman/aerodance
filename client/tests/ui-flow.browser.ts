@@ -221,7 +221,7 @@ try {
   await until({ songScreen: 'preview', songReady: 'true', stage: 'club', stageReady: 'true' });
   await click(BACK);
   await until({ songScreen: 'list', stage: '' });
-  // A stage this build doesn't know falls back to Open Reef.
+  // A stage this build doesn't know falls back to openreef.
   await serveFixture('moon-base');
   await openSong(1, 0);
   await until({ songScreen: 'preview', songReady: 'true', stage: 'openreef', stageReady: 'true' });

@@ -15,7 +15,7 @@ import { Biodome, CityMesh, Ground, Hills, Trees, Waterfalls } from './World.tsx
 import { Balloons, Birds, Blimp, Pods, Sailboats, Trains, Turbines } from './Life.tsx';
 import { Bubbles, Butterflies, FountainSpray, Glints, LensFlare } from './Sparkle.tsx';
 
-// Skyline Sanctuary: a glossy sky-garden terrace on top of a white eco-tower,
+// sanctuary: a glossy sky-garden terrace on top of a white eco-tower,
 // high above a gleaming glass city at bright midday.
 
 const SUN = SUN_DIR.toArray();

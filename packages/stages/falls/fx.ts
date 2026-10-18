@@ -1,4 +1,4 @@
-// Shared wind, light and haze state for Emerald Falls. Every custom material
+// Shared wind, light and haze state for the falls stage. Every custom material
 // references these uniform objects, so one update per frame drives the grass,
 // trees, water and haze together.
 import * as THREE from 'three';

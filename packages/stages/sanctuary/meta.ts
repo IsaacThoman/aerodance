@@ -3,7 +3,6 @@ import type { StageMeta } from '../catalog.ts';
 // Name card, dancer placement and post settings, loaded before the stage itself.
 const meta = {
   id: 'sanctuary',
-  name: 'Skyline Sanctuary',
   subtitle: 'Eco-city rooftop terrace',
   accent: ['#7fe3ff', '#0a8fd8'],
   dancers: { position: [0, 0, 0], rotationY: 0, spacing: 4, scale: 1 },

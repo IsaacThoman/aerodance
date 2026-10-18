@@ -5,25 +5,24 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { validateCatalog, validateSong } from '../../packages/pose/song.ts';
-import { DEFAULT_STAGE, STAGE_LIST, resolveStage, stageName } from '../../packages/stages/catalog.ts';
+import { DEFAULT_STAGE, STAGE_LIST, resolveStage } from '../../packages/stages/catalog.ts';
 import { discoverSongs } from '../../scripts/songCatalog.ts';
 import { bundleFixture } from './fixtures/songBundle.ts';
 
-test('the stage catalog lists the six dance stages and defaults to Open Reef', () => {
+test('the stage catalog lists the six dance stages and defaults to openreef', () => {
   assert.deepEqual(STAGE_LIST.map((stage) => stage.id), ['sanctuary', 'reef', 'openreef', 'falls', 'club', 'beach']);
   assert.equal(DEFAULT_STAGE, 'openreef');
   assert.equal(resolveStage('club'), 'club');
   assert.equal(resolveStage(undefined), 'openreef');
   assert.equal(resolveStage('moon'), 'openreef');
-  assert.equal(stageName('falls'), 'Emerald Falls');
 });
 
 test('songs and catalog entries may name a stage by id', () => {
   const { song, entry } = bundleFixture();
   assert.equal(validateSong({ ...song, stage: 'club' }).stage, 'club');
-  // An id this build doesn't know is still valid; the game falls back to Open Reef.
+  // An id this build doesn't know is still valid; the game falls back to openreef.
   validateSong({ ...song, stage: 'moon-base' });
-  assert.throws(() => validateSong({ ...song, stage: 'Club Aquarium' }), /stage/);
+  assert.throws(() => validateSong({ ...song, stage: 'Not A Stage' }), /stage/);
   assert.throws(() => validateSong({ ...song, stage: 4 }), /stage/);
   validateCatalog({ version: 1, songs: [{ ...entry, stage: 'beach' }] });
   assert.throws(() => validateCatalog({ version: 1, songs: [{ ...entry, stage: '' }] }), /stage/);
