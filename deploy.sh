@@ -22,10 +22,10 @@ fi
 
 compose=("$engine" compose -f compose.yaml -f compose.local.yaml)
 echo "Rebuilding and deploying the main app locally with ${engine}…"
-"${compose[@]}" build app pairing
+"${compose[@]}" build app
 # Podman Compose can retain a container when only its image has changed.
-# Replace the app and phone pairing explicitly.
-"${compose[@]}" up --no-build --force-recreate -d app pairing
+# Replace the app explicitly.
+"${compose[@]}" up --no-build --force-recreate -d app
 
 echo 'Waiting for the app to become ready…'
 for ((attempt = 1; attempt <= 60; attempt++)); do
@@ -39,5 +39,5 @@ for ((attempt = 1; attempt <= 60; attempt++)); do
 done
 
 echo 'Deployment did not become healthy. Recent app logs:' >&2
-"${compose[@]}" logs --tail=40 app pairing >&2 || true
+"${compose[@]}" logs --tail=40 app >&2 || true
 exit 1

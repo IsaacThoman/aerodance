@@ -17,20 +17,17 @@ FROM ui-test AS webcam-test
 RUN npm run studio:build
 CMD ["sh", "-c", "node client/tests/webcam.browser.ts && node client/tests/webcam-calibration.browser.ts && node client/tests/phone.browser.ts"]
 
-# Phone pairing (the `pairing` Compose service): introduces a game to a phone for WebRTC.
-# It needs only Node and its own folder.
-FROM node:24-alpine AS pairing
-WORKDIR /app
-COPY package.json ./
-COPY packages/pairing ./packages/pairing
-USER node
-EXPOSE 3001
-CMD ["node", "packages/pairing/main.ts"]
-
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine
-# A template: the image's entrypoint fills in the DNS resolver and the pairing upstream.
-COPY nginx.conf /etc/nginx/templates/default.conf.template
-COPY --chmod=755 pairing-upstream.envsh /docker-entrypoint.d/05-pairing-upstream.envsh
-ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+# Phone pairing runs in this container beside nginx: Node from the build image (the same
+# Alpine) and the pairing server's own folder.
+USER root
+RUN apk add --no-cache libstdc++
+USER 101
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
+COPY package.json /app/
+COPY packages/pairing /app/packages/pairing
+COPY --chmod=755 pairing-start.sh /docker-entrypoint.d/05-pairing.sh
+ENV PAIRING_HOST=127.0.0.1
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 3000
