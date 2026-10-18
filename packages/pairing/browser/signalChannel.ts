@@ -44,7 +44,8 @@ async function post<T>(path: string, body: unknown, fetchFn: Fetch = fetch): Pro
     const message = typeof data === 'object' && data && 'error' in data && typeof data.error === 'string' ? data.error : '';
     // No reason given when creating a room: nothing answers at /pair (a static host, or the
     // pairing service is down).
-    throw new PairingError(res.status, message || (path.endsWith('/rooms') ? 'Phone pairing is not available on this server.' : 'Pairing failed. Try again.'));
+    throw new PairingError(res.status, message || (res.status === 429 ? 'Too many tries just now. Wait a minute, then try again.'
+      : path.endsWith('/rooms') ? 'Phone pairing is not available on this server.' : 'Pairing failed. Try again.'));
   }
   return data as T;
 }
@@ -56,9 +57,12 @@ export async function createRoom(base = PAIRING_BASE, fetchFn?: Fetch): Promise<
   return room;
 }
 
-/** The phone's place in the room with this code (pass the token from an earlier join to keep it). */
-export async function joinRoom(code: string, token: string | null, base = PAIRING_BASE, fetchFn?: Fetch): Promise<JoinedRoom> {
-  const joined = await post<JoinedRoom>(`${base}/rooms/${code}/join`, { token }, fetchFn);
+/**
+ * The phone's place in the room with this code (pass the token from an earlier join to keep
+ * it). session names this page, so its closing can't end a later page's place.
+ */
+export async function joinRoom(code: string, token: string | null, session = '', base = PAIRING_BASE, fetchFn?: Fetch): Promise<JoinedRoom> {
+  const joined = await post<JoinedRoom>(`${base}/rooms/${code}/join`, { token, session }, fetchFn);
   if (!joined || typeof joined.token !== 'string' || !Array.isArray(joined.iceServers)) throw new PairingError(0, 'Pairing failed. Try again.');
   return joined;
 }
@@ -66,6 +70,8 @@ export async function joinRoom(code: string, token: string | null, base = PAIRIN
 export interface SignalChannelOptions {
   code: string;
   token: string;
+  /** The phone page's session (joinRoom). */
+  session?: string;
   /** Each signal from the other side, and the server's own events. */
   onEvent: (event: PairingEvent) => void;
   base?: string;
@@ -76,6 +82,7 @@ export interface SignalChannelOptions {
 export class SignalChannel {
   code: string;
   token: string;
+  session: string;
   base: string;
   onEvent: (event: PairingEvent) => void;
   fetch: Fetch;
@@ -86,8 +93,8 @@ export class SignalChannel {
   /** The server ended the room (or no longer knows this token). */
   gone = false;
   retry: ReturnType<typeof setTimeout> | undefined;
-  constructor({ code, token, onEvent, base = PAIRING_BASE, fetch: fetchFn = (...args) => fetch(...args), createStream = (url) => new EventSource(url) }: SignalChannelOptions) {
-    this.code = code; this.token = token; this.onEvent = onEvent; this.base = base; this.fetch = fetchFn; this.createStream = createStream;
+  constructor({ code, token, session = '', onEvent, base = PAIRING_BASE, fetch: fetchFn = (...args) => fetch(...args), createStream = (url) => new EventSource(url) }: SignalChannelOptions) {
+    this.code = code; this.token = token; this.session = session; this.onEvent = onEvent; this.base = base; this.fetch = fetchFn; this.createStream = createStream;
   }
   get room() { return `${this.base}/rooms/${this.code}`; }
 
@@ -142,7 +149,7 @@ export class SignalChannel {
 
   /** Leaves the room for good (the game's leaving ends it), even while the page unloads. */
   leave() {
-    const body = JSON.stringify({ token: this.token });
+    const body = JSON.stringify({ token: this.token, session: this.session });
     this.close();
     if (this.gone) return;
     if (!globalThis.navigator?.sendBeacon?.(`${this.room}/close`, body)) {

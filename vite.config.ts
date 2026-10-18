@@ -12,13 +12,19 @@ const pairing = createPairingServer();
 const pairingMiddleware: Connect.NextHandleFunction = (req, res, next) => {
   pairing.handle(req, res).then((handled) => { if (!handled) next(); }, next);
 };
+// The phone page is typed as /phone; nginx adds the slash itself, Vite would serve the game.
+const phoneSlash: Connect.NextHandleFunction = (req, res, next) => {
+  if (req.url !== '/phone' && !req.url?.startsWith('/phone?')) { next(); return; }
+  res.writeHead(302, { location: `/phone/${req.url.slice('/phone'.length)}` });
+  res.end();
+};
 
 export default defineConfig({
   root: 'client',
   plugins: [react(), poseAssetsPlugin(), {
     name: 'phone-pairing',
-    configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); },
-    configurePreviewServer(server) { server.middlewares.use('/pair', pairingMiddleware); },
+    configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); },
+    configurePreviewServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); },
   }, {
     name: 'song-discovery',
     configureServer(server) {

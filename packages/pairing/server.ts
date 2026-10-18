@@ -11,7 +11,7 @@ import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.
  *   POST /rooms                     the game: a new six-digit code    → { code, token, iceServers }
  *   POST /rooms/:code/join          the phone, with the code          → { token, iceServers }
  *   GET  /rooms/:code/events?token  either side: server-sent events, the other side's signals
- *   GET  /rooms/:code?token         either side: is this pairing still on? (204, or 403/404)
+ *   GET  /rooms/:code?token         either side: is this pairing still on? (204, or 404)
  *   POST /rooms/:code/messages      { token, message }: a signal for the other side
  *   POST /rooms/:code/release       { token }: the game lost its phone; another may take its place
  *   POST /rooms/:code/close         { token }: the game ends the room, or the phone leaves it
@@ -22,9 +22,13 @@ import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.
  * or its events stream stays closed for a minute.
  *
  * Each side may only send its own signals (signals.ts), so neither can pose as the server.
- * Waiting signals are capped per side, and joins with wrong codes are throttled across the
- * server so six-digit codes can't be guessed at speed. Requests reach this service through a
- * proxy, so it can't tell clients apart by address.
+ * Signals waiting for a side, or unread on its events stream, are capped. A wrong code and a
+ * wrong token get the same answer everywhere but join, and joins with wrong codes are
+ * throttled across the server, so six-digit codes can't be guessed at speed (nginx also
+ * limits each client's joins and new rooms).
+ *
+ * A phone sends a random session id with join and close, so a reloaded page's late close
+ * can't end the new page's place.
  *
  * Paths are relative to where the handler is mounted (/pair in the game's dev server and
  * behind nginx). handle() returns false for paths it doesn't serve.
@@ -50,6 +54,8 @@ const SWEEP_MS = 5_000;
 
 interface Side {
   token: string | null; stream: ServerResponse | null; seen: number;
+  /** The phone page that joined last (a reloaded page's late close is ignored). */
+  session: string;
   queue: string[]; queued: number;
   /** The game lost touch with this phone: another phone may take its place. */
   released: boolean;
@@ -68,7 +74,9 @@ class HttpError extends Error {
 }
 
 const token = () => randomBytes(18).toString('base64url');
-const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, queue: [], queued: 0, released: false });
+const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, session: '', queue: [], queued: 0, released: false });
+// Wrong room or wrong token: the same answer, so neither can be told apart from outside.
+const GONE = 'This pairing has ended. Pair again.';
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 function json(res: ServerResponse, status: number, body?: unknown) {
@@ -96,9 +104,9 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   const rooms = new Map<string, Room>();
   let misses: number[] = [];
 
-  const roomFor = (code: string) => {
+  const roomFor = (code: string, missing = GONE) => {
     const room = isPairingCode(code) ? rooms.get(code) : undefined;
-    if (!room) throw new HttpError(404, 'No game is waiting with that code.');
+    if (!room) throw new HttpError(404, missing);
     return room;
   };
   // A join: wrong codes count towards the throttle, and while it's on every join waits.
@@ -106,18 +114,25 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     const t = now();
     misses = misses.filter((at) => t - at < MISS_WINDOW_MS);
     if (misses.length >= MAX_MISSES) throw new HttpError(429, 'Too many wrong codes were tried just now. Wait a minute, then try again.');
-    try { return roomFor(code); } catch (error) { misses.push(t); throw error; }
+    try { return roomFor(code, 'No game is waiting with that code.'); } catch (error) { misses.push(t); throw error; }
   };
   const roleOf = (room: Room, owner: unknown) => {
     if (typeof owner === 'string' && owner) {
       if (owner === room.host.token) return 'host';
       if (owner === room.phone.token) return 'phone';
     }
-    throw new HttpError(403, 'This pairing has ended. Pair again.');
+    throw new HttpError(404, GONE);
+  };
+  // An events stream whose reader has stopped reading is closed rather than buffered without end.
+  const write = (s: Side, text: string) => {
+    const stream = s.stream;
+    if (!stream) return;
+    if (stream.writableLength > QUEUE_BYTES) endStream(s);
+    else stream.write(text);
   };
   const deliver = (to: Side, value: unknown) => {
     const text = event(value);
-    if (to.stream) to.stream.write(text);
+    if (to.stream) write(to, text);
     else if (to.token) {
       to.queue.push(text);
       to.queued += text.length;
@@ -158,6 +173,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
       Object.assign(phone, side(now(), owner));
     }
     phone.seen = now();
+    phone.session = typeof body.session === 'string' ? body.session.slice(0, 64) : '';
     json(res, 200, { token: owner, iceServers } satisfies JoinedRoom);
   }
 
@@ -199,7 +215,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   }
 
   function release(room: Room, body: Record<string, unknown>, res: ServerResponse) {
-    if (roleOf(room, body.token) !== 'host') throw new HttpError(403, 'Only the game can release its phone.');
+    if (roleOf(room, body.token) !== 'host') throw new HttpError(404, GONE);
     room.phone.released = true;
     json(res, 204);
   }
@@ -207,10 +223,11 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   function close(room: Room, body: Record<string, unknown>, res: ServerResponse) {
     const role = roleOf(room, body.token);
     if (role === 'host') remove(room, 'The game closed the pairing.');
-    else {
+    // A page that joined since (a reload) keeps its place.
+    else if (!room.phone.session || body.session === room.phone.session) {
       endStream(room.phone);
       Object.assign(room.phone, side(now(), null));
-      deliver(room.host, { type: 'peer', present: false });
+      deliver(room.host, { type: 'peer', present: false, left: true });
     }
     json(res, 204);
   }
@@ -252,7 +269,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   }
   const sweeper = setInterval(sweep, SWEEP_MS);
   const heartbeat = setInterval(() => {
-    for (const room of rooms.values()) for (const s of [room.host, room.phone]) s.stream?.write(': \n\n');
+    for (const room of rooms.values()) for (const s of [room.host, room.phone]) write(s, ': \n\n');
   }, HEARTBEAT_MS);
   sweeper.unref?.();
   heartbeat.unref?.();

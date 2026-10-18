@@ -94,12 +94,15 @@ export class PhoneLink {
   live: RTCDataChannel | null = null;
   control: RTCDataChannel | null = null;
   helloTimer: ReturnType<typeof setInterval> | undefined;
-  /** When the game's latest offer arrived. */
+  /** When the game's latest offer arrived, and its attempt number. */
   offeredAt = -Infinity;
+  epoch = -1;
   /** Candidates for an offer that hasn't arrived yet (signals can overtake each other). */
   early: { epoch: number; candidates: IceCandidate[] } | null = null;
   /** Why the room ended while linked (the phone carries on until the link drops). */
   endReason = '';
+  /** This page, to the pairing server (a reload is a new session with the same token). */
+  session = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
   sentStatus = '';
   sentStatsAt = -Infinity;
   wakeLock: WakeLockSentinel | null = null;
@@ -123,14 +126,14 @@ export class PhoneLink {
     this.publish({ stage: 'joining', code, error: '', message: 'Finding the game…', playing: false });
     let token: string;
     try {
-      const joined = await joinRoom(code, stored(code), this.base, this.fetch);
+      const joined = await joinRoom(code, stored(code), this.session, this.base, this.fetch);
       token = joined.token;
       this.iceServers = joined.iceServers;
     } catch (error) {
       if (generation === this.generation) this.publish({ stage: 'code', code: '', error: error instanceof Error ? error.message : 'Pairing failed. Try again.' });
       return;
     }
-    const channel = new SignalChannel({ code, token, base: this.base, fetch: this.fetch, createStream: this.createStream,
+    const channel = new SignalChannel({ code, token, session: this.session, base: this.base, fetch: this.fetch, createStream: this.createStream,
       onEvent: (event) => { if (generation === this.generation) this.onSignal(event); } });
     // Cancelled while joining: give the place back so the next try isn't refused.
     if (generation !== this.generation) { channel.leave(); return; }
@@ -162,6 +165,7 @@ export class PhoneLink {
     this.channel = null;
     this.closePeer();
     this.early = null;
+    this.epoch = -1;
     this.camera.disconnect('Camera stopped.');
     this.releaseWakeLock();
   }
@@ -173,7 +177,7 @@ export class PhoneLink {
     else if (event.type === 'ice') {
       if (event.epoch === this.peer?.epoch) void this.peer.addIce(event.candidate);
       // Newer than any offer so far: keep it for that offer (older attempts' are dropped).
-      else if (event.epoch > Math.max(this.peer?.epoch ?? -1, this.early?.epoch ?? -1)) this.early = { epoch: event.epoch, candidates: [event.candidate] };
+      else if (event.epoch > Math.max(this.epoch, this.early?.epoch ?? -1)) this.early = { epoch: event.epoch, candidates: [event.candidate] };
       else if (event.epoch === this.early?.epoch) this.early.candidates.push(event.candidate);
     } else if (event.type === 'closed') {
       // Linked: carry on without the room, and end when the link does.
@@ -189,7 +193,9 @@ export class PhoneLink {
 
   answer(epoch: number, sdp: string) {
     const channel = this.channel;
-    if (!channel) return;
+    // Offers can overtake each other too: only a newer attempt replaces this one.
+    if (!channel || epoch <= this.epoch || epoch < (this.early?.epoch ?? -1)) return;
+    this.epoch = epoch;
     this.closePeer();
     let peer: Peer;
     try {

@@ -120,7 +120,7 @@ test('a code takes one phone at a time, keeps it on rejoin and frees up once it 
   const second = await (await post(`/rooms/${room.code}/join`)).json();
   assert.notEqual(second.token, first.token);
   // The first phone's token no longer works.
-  assert.equal((await post(`/rooms/${room.code}/messages`, { token: first.token, message: { type: 'hello', device: 'x' } })).status, 403);
+  assert.equal((await post(`/rooms/${room.code}/messages`, { token: first.token, message: { type: 'hello', device: 'x' } })).status, 404);
   assert.equal(pairing.rooms.size, 1);
 });
 
@@ -132,7 +132,7 @@ test('rooms end a minute after the game stops listening, and unknown codes and t
   const stream = await listen(t, `${base}/rooms/${room.code}/events?token=${phone.token}`);
   await stream.next();
 
-  assert.equal((await listen(t, `${base}/rooms/${room.code}/events?token=nope`)).status, 403);
+  assert.equal((await listen(t, `${base}/rooms/${room.code}/events?token=nope`)).status, 404);
   assert.equal((await post('/rooms/000000x/join')).status, 404);
   assert.equal((await post(`/rooms/${room.code}/messages`, { token: room.token, message: 'not a signal' })).status, 400);
   assert.equal((await post(`/rooms/${room.code}/messages`, { token: room.token, message: { type: 'offer', sdp: 'x'.repeat(40_000) } })).status, 413);
@@ -177,13 +177,13 @@ test('the game can release a phone it lost, so another phone (a new tab) can tak
   const stream = await listen(t, `${base}/rooms/${room.code}/events?token=${first.token}`);
   await stream.next();
   assert.equal((await post(`/rooms/${room.code}/join`)).status, 409);
-  assert.equal((await post(`/rooms/${room.code}/release`, { token: first.token })).status, 403, 'only the game releases');
+  assert.equal((await post(`/rooms/${room.code}/release`, { token: first.token })).status, 404, 'only the game releases');
   assert.equal((await post(`/rooms/${room.code}/release`, { token: room.token })).status, 204);
   const second = await (await post(`/rooms/${room.code}/join`)).json();
   assert.notEqual(second.token, first.token);
   // The first phone's stream ends, and its token no longer works.
   await assert.rejects(async () => { for (;;) await stream.next(); });
-  assert.equal((await fetch(`${base}/rooms/${room.code}?token=${first.token}`)).status, 403);
+  assert.equal((await fetch(`${base}/rooms/${room.code}?token=${first.token}`)).status, 404);
   assert.equal((await fetch(`${base}/rooms/${room.code}?token=${second.token}`)).status, 204);
   assert.equal((await fetch(`${base}/rooms/123456x?token=${second.token}`)).status, 404);
 });
@@ -227,4 +227,49 @@ test('joins pause for a minute after many wrong codes, so codes cannot be guesse
   assert.match((await paused.json()).error, /Wait a minute/);
   now += 61_000;
   assert.equal((await post(`/rooms/${room.code}/join`)).status, 200);
+});
+
+test('outside join, a wrong code and a wrong token look the same, so live codes cannot be found by probing', async (t) => {
+  const { base, post } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const other = room.code === '000000' ? '000001' : '000000';
+  for (const code of [room.code, other]) {
+    const answers = [
+      await fetch(`${base}/rooms/${code}?token=nope`),
+      await fetch(`${base}/rooms/${code}/events?token=nope`),
+      await post(`/rooms/${code}/messages`, { token: 'nope', message: { type: 'hello', device: 'x' } }),
+      await post(`/rooms/${code}/release`, { token: 'nope' }),
+      await post(`/rooms/${code}/close`, { token: 'nope' }),
+    ];
+    assert.deepEqual(await Promise.all(answers.map(async (r) => [r.status, (await r.json()).error])),
+      Array(5).fill([404, 'This pairing has ended. Pair again.']), code);
+  }
+});
+
+test('a phone page that reloaded keeps its place when the old page’s close arrives late', async (t) => {
+  const { post } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const old = await (await post(`/rooms/${room.code}/join`, { session: 'page-1' })).json();
+  const reloaded = await (await post(`/rooms/${room.code}/join`, { token: old.token, session: 'page-2' })).json();
+  assert.equal(reloaded.token, old.token);
+  assert.equal((await post(`/rooms/${room.code}/close`, { token: old.token, session: 'page-1' })).status, 204);
+  assert.equal((await post(`/rooms/${room.code}/messages`, { token: old.token, message: { type: 'hello', device: 'x' } })).status, 204, 'still paired');
+  await post(`/rooms/${room.code}/close`, { token: old.token, session: 'page-2' });
+  assert.equal((await post(`/rooms/${room.code}/messages`, { token: old.token, message: { type: 'hello', device: 'x' } })).status, 404, 'left');
+});
+
+test('an events stream nobody reads is closed instead of buffered without end', async (t) => {
+  const { base, post, pairing } = await serve(t);
+  const room = await (await post('/rooms')).json();
+  const phone = await (await post(`/rooms/${room.code}/join`)).json();
+  // Open the game's stream and never read it.
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const res = await fetch(`${base}/rooms/${room.code}/events?token=${room.token}`, { signal: controller.signal });
+  assert.equal(res.status, 200);
+  const host = [...pairing.rooms.values()][0].host;
+  for (let i = 0; i < 400 && host.stream; i++) {
+    await post(`/rooms/${room.code}/messages`, { token: phone.token, message: { type: 'answer', epoch: i, sdp: 'x'.repeat(30_000) } });
+  }
+  assert.equal(host.stream, null, 'the stalled stream was closed');
 });

@@ -66,6 +66,8 @@ const STALE_MS = 500;
 const PING_MS = 500;
 // A connected phone that sends no poses this long goes back to 'initializing'.
 const QUIET_MS = 3000;
+// A connection attempt that hasn't opened in this long is given up (the phone may have gone).
+const ATTEMPT_MS = 20_000;
 const MODEL_KEY = 'aerodance-phone-model';
 const saved = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing. */ } };
@@ -100,6 +102,7 @@ export class PhonePoseSource implements PoseSource {
   lastSeq = -1;
   lastPose = -Infinity;
   arrivals: number[] = [];
+  offeredAt = -Infinity;
   constructor({ base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
     origin = () => location.origin }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
@@ -183,6 +186,8 @@ export class PhonePoseSource implements PoseSource {
     if (event.type === 'hello') this.offer(event.device || 'Phone');
     else if (event.type === 'answer' && peer?.epoch === event.epoch) peer.accept(event.sdp).catch(() => { if (peer === this.peer) this.lost(); });
     else if (event.type === 'ice' && peer?.epoch === event.epoch) void peer.addIce(event.candidate);
+    // The phone left before the connection opened: show the code again.
+    else if (event.type === 'peer' && event.left && peer && this.control?.readyState !== 'open') this.lost();
     else if (event.type === 'closed') {
       // The room is gone, but a connected phone carries on without it.
       if (this.control?.readyState === 'open') {
@@ -221,6 +226,7 @@ export class PhonePoseSource implements PoseSource {
     peer.pc.onconnectionstatechange = () => {
       if (mine() && ['failed', 'closed'].includes(peer.pc.connectionState)) this.lost();
     };
+    this.offeredAt = this.now();
     this.publish({ status: 'initializing', device, snapshot: null, message: `Connecting to ${device}…` });
     peer.offer().catch(() => { if (mine()) this.lost(); });
   }
@@ -301,5 +307,6 @@ export class PhonePoseSource implements PoseSource {
     const now = this.now();
     if (this.view.snapshot && now - this.view.snapshot.frameBrowserTimeMs >= STALE_MS) this.publish({ snapshot: null });
     if (this.view.status === 'connected' && now - this.lastPose > QUIET_MS) this.publish({ status: 'initializing', stats: null, message: this.describe() });
+    if (this.peer && this.control?.readyState !== 'open' && now - this.offeredAt > ATTEMPT_MS) this.lost();
   }
 }

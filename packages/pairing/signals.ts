@@ -35,8 +35,8 @@ export type Signal =
   | { type: 'answer'; epoch: number; sdp: string }
   | { type: 'ice'; epoch: number; candidate: IceCandidate };
 
-/** From the server itself: the other side's events stream opened or closed, or the room is gone. */
-export type ServerEvent = { type: 'peer'; present: boolean } | { type: 'closed'; reason: string };
+/** From the server itself: the other side's events stream opened or closed (left: the phone left for good), or the room is gone. */
+export type ServerEvent = { type: 'peer'; present: boolean; left?: boolean } | { type: 'closed'; reason: string };
 export type PairingEvent = Signal | ServerEvent;
 
 /** The largest signal the server relays (an SDP is a few kilobytes). */
@@ -59,7 +59,7 @@ export function parsePairingEvent(value: unknown): PairingEvent | null {
     case 'offer':
     case 'answer': return epochOf(value.epoch) && typeof value.sdp === 'string' ? { type: value.type, epoch: value.epoch as number, sdp: value.sdp } : null;
     case 'ice': return epochOf(value.epoch) && isCandidate(value.candidate) ? { type: 'ice', epoch: value.epoch as number, candidate: value.candidate } : null;
-    case 'peer': return typeof value.present === 'boolean' ? { type: 'peer', present: value.present } : null;
+    case 'peer': return typeof value.present === 'boolean' ? { type: 'peer', present: value.present, ...(value.left === true ? { left: true } : {}) } : null;
     case 'closed': return typeof value.reason === 'string' ? { type: 'closed', reason: value.reason } : null;
     default: return null;
   }

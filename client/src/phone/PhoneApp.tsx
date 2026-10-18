@@ -35,14 +35,18 @@ export default function PhoneApp() {
     // Back on screen: the camera (stopped while hidden) starts again.
     const onVisible = () => { if (!document.hidden) link.resume(); };
     const onLeave = () => link.leave();
+    // Back from the back/forward cache: the page left the game on the way out.
+    const onShow = (event: PageTransitionEvent) => { if (event.persisted) join(); };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('hashchange', join);
     window.addEventListener('pagehide', onLeave);
+    window.addEventListener('pageshow', onShow);
     // The link outlives this effect (development runs it twice); leaving the page ends it.
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('hashchange', join);
       window.removeEventListener('pagehide', onLeave);
+      window.removeEventListener('pageshow', onShow);
       offView();
       offCamera();
     };

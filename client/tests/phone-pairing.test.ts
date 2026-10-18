@@ -260,3 +260,26 @@ test('the phone names itself and reads its code from the link', () => {
   assert.equal(linkCode(new URL('https://a.test/phone/?code=654321')), '654321');
   assert.equal(linkCode(new URL('https://a.test/phone/#12345')), '');
 });
+
+test('a phone answers only the newest offer, and the game gives up on a phone that left mid-connection', async (t) => {
+  const base = await pairingServer(t);
+  const options = { base, createStream: fetchEventStream, createConnection: createFakeConnection };
+  const phone = new PhoneLink({ camera: new FakeCamera() as unknown as WebcamPoseSource, createConnection: createFakeConnection });
+  phone.channel = { send: async () => {}, close: () => {} } as unknown as SignalChannel;
+  phone.onSignal({ type: 'offer', epoch: 5, sdp: 'fake-offer none' });
+  const answering = phone.peer;
+  phone.onSignal({ type: 'offer', epoch: 4, sdp: 'fake-offer none' });
+  assert.equal(phone.peer, answering, 'an older offer that arrived late is ignored');
+  phone.stop();
+
+  // The phone says hello, then leaves before the connection opens.
+  const host = new PhonePoseSource({ ...options, origin: () => 'https://game.test' });
+  t.after(() => host.disconnect());
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  const joined = await (await fetch(`${base}/rooms/${code}/join`, { method: 'POST', body: '{}' })).json();
+  await fetch(`${base}/rooms/${code}/messages`, { method: 'POST', body: JSON.stringify({ token: joined.token, message: { type: 'hello', device: 'Gone phone' } }) });
+  await until(() => host.view.status === 'initializing', 'the game to offer');
+  await fetch(`${base}/rooms/${code}/close`, { method: 'POST', body: JSON.stringify({ token: joined.token }) });
+  await until(() => host.view.status === 'connecting' && host.peer === null, 'the code to show again');
+});
