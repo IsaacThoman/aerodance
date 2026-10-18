@@ -648,12 +648,14 @@ const sameSnapshot = (a: PoseSnapshot, b: { poses: Pose[]; quality?: PoseQuality
   });
 };
 /**
- * The samples a choreography or track stores: a frame is dropped when interpolating its kept
- * neighbours reproduces it, so the sampler rebuilds it. Measured and edited frames never match an
- * interpolation's origins, so in practice only resampled frames go. The endpoints are always kept.
+ * The samples a choreography or track stores: a frame whose joints are all resampled is dropped
+ * when interpolating its kept neighbours reproduces it, so the sampler rebuilds it. The endpoints
+ * are always kept. Decoded frames never hold resampled joints, so encoding a decoded file again
+ * keeps every frame and gives the same bytes.
  */
 export function sparseSamples<K extends TimeKey, S extends TimedPoses<K>>(samples: readonly S[], timeKey: K, maxGap: number): S[] {
   const time = (s: S) => s[timeKey];
+  const candidate = (s: S) => (s.quality ?? qualityFor(s.poses)).every(q => q.landmarkOrigins.every(o => o === 'resampled'));
   const reproduced = (l: number, r: number) => {
     const a = samples[l], b = samples[r], span = time(b) - time(a);
     for (let i = l + 1; i < r; i++) {
@@ -664,9 +666,9 @@ export function sparseSamples<K extends TimeKey, S extends TimedPoses<K>>(sample
   };
   if (samples.length <= 2) return [...samples];
   const kept = [samples[0]];
-  // Greedy: extend each segment from the last kept frame while every frame inside stays reproducible.
+  // Greedy: drop a candidate while every frame since the last kept one stays reproducible.
   for (let l = 0, r = 1; r < samples.length; r++) {
-    if (r + 1 < samples.length && reproduced(l, r + 1)) continue;
+    if (r + 1 < samples.length && candidate(samples[r]) && reproduced(l, r + 1)) continue;
     kept.push(samples[r]); l = r;
   }
   return kept;

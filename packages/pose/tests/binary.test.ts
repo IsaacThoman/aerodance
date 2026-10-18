@@ -8,9 +8,9 @@ import {
 } from '../binary.ts';
 import type { FrameInput, PoseHeaderInput } from '../binary.ts';
 
-const pose = (playerId: number, t: number, confidence: number | null = .9): Pose => ({ playerId, landmarks: Array.from({ length: 33 }, (_, j) => ({
+const pose = (playerId: number, t: number, confidence: number | null = .9, unknownJoint = 5): Pose => ({ playerId, landmarks: Array.from({ length: 33 }, (_, j) => ({
   x: .3 + playerId * .4 + Math.sin(t / 300 + j) * .05, y: (j < 23 ? .3 : .7) + Math.cos(t / 250 + j) * .03, z: -.1 + j * .001,
-  confidence: j === 5 ? null : confidence,
+  confidence: j === unknownJoint ? null : confidence,
 })) });
 // Calibration is stored as f32, so the fixture uses exactly representable values.
 const calibration = (playerId: number) => ({ inputWidth: 640, inputHeight: 480, torsoLength: .25, baseHip: { x: playerId ? .75 : .25, y: .6875, z: 0 }, floorY: .875, profileVersion: 2, cameraScaleMode: 'body-relative' as const, bodyTorsoLength: .375 });
@@ -42,7 +42,9 @@ function assertClose(actual: PoseSnapshot, expected: PoseSnapshot, at: number, c
 /** A compiled-style timeline: measured samples at ~10 Hz resampled onto a 30 Hz grid, with an edit, an absence and a long gap. */
 function compiledTimeline() {
   const measured = [0, 95, 190, 290, 380, 470, 570, 660, 1000, 1100, 1190, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000].map(songTimeMs => {
-    const poses = songTimeMs >= 1300 && songTimeMs <= 1500 ? [pose(0, songTimeMs)] : [pose(0, songTimeMs), pose(1, songTimeMs, songTimeMs % 200 ? .9 : .3)];
+    // One joint loses its confidence at 570 ms; frames interpolated next to it keep that origin.
+    const unknown = songTimeMs === 570 ? 5 : -1;
+    const poses = songTimeMs >= 1300 && songTimeMs <= 1500 ? [pose(0, songTimeMs, .9, unknown)] : [pose(0, songTimeMs, .9, unknown), pose(1, songTimeMs, songTimeMs % 200 ? .9 : .3, unknown)];
     return { songTimeMs, poses, quality: qualityFor(poses) };
   });
   const times = [...new Set([...measured.map(s => s.songTimeMs), ...Array.from({ length: 61 }, (_, i) => +(i * 1000 / 30).toFixed(6))])].sort((a, b) => a - b);
@@ -79,6 +81,8 @@ test('a choreography stores only frames interpolation cannot rebuild, and sample
   assert.deepEqual(sampleFrames(frames, 1400).poses.map(p => p.playerId), [0]);
   assert.deepEqual(sampleFrames(frames, 2000.5).poses, []);
   assert.equal(firstPresentFrame(frames, 1, 1300, 1600), frames.times.indexOf(1600));
+  // Encoding the decoded frames again keeps every frame: the bytes are stable.
+  assert.deepEqual(encodePoseFile(framesFromSamples(choreographyHeader, sparseSamples(framesToSamples(frames, 'songTimeMs'), 'songTimeMs', 200), 'songTimeMs')), bytes);
   assert.deepEqual(frames.song, choreographyHeader.song);
   assert.deepEqual(frames.tracks, choreographyHeader.tracks);
   assert.deepEqual(frames.markers, choreographyHeader.markers);
