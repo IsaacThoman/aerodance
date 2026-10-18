@@ -1,12 +1,12 @@
 import { clamp } from "../../../packages/pose/choreography.ts";
 import { historyStep, isTrackData, sourceLabel } from "../core.ts";
-import type { ProjectV2, Take } from "../core.ts";
+import type { ProjectV3, Take } from "../core.ts";
 import { timeLabel } from "./format.ts";
 import type { Compiled } from "./useCompiled.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
-export interface TimelineProps { project: ProjectV2; studio: StudioProject; workspace: Workspace; compiled: Compiled; }
+export interface TimelineProps { project: ProjectV3; studio: StudioProject; workspace: Workspace; compiled: Compiled; }
 const SPEEDS = [0.25, 0.5, 1];
 const KEY_STEPS: Readonly<Record<string, number>> = {
   ArrowLeft: -10,

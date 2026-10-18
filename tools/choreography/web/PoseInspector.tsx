@@ -1,11 +1,11 @@
 import { JOINT_NAMES } from "../../../packages/pose/choreography.ts";
-import type { ProjectV2 } from "../core.ts";
+import type { ProjectV3 } from "../core.ts";
 import { OPERATION_NAMES, timeLabel } from "./format.ts";
 import { POINT_GROUPS, isPointSelection } from "./pointGroups.ts";
 import type { PoseEditor } from "./usePoseEditor.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
-export interface PoseInspectorProps { project: ProjectV2; busy: boolean; workspace: Workspace; editor: PoseEditor; }
+export interface PoseInspectorProps { project: ProjectV3; busy: boolean; workspace: Workspace; editor: PoseEditor; }
 const AXES = ["x", "y", "z"] as const;
 
 // The selected landmark's coordinates, range edits and recent edit history.

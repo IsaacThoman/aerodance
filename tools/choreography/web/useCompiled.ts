@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { compileProject, missingIntervals, reviewReport } from "../core.ts";
-import type { CompiledChoreography, ProjectV2, ReviewReport, StudioAssets } from "../core.ts";
+import type { CompiledChoreography, ProjectV3, ReviewReport, StudioAssets } from "../core.ts";
 import { errorMessage } from "./api.ts";
 
 export interface Compiled { data: CompiledChoreography | null; report: ReviewReport | null; error?: string; }
 
 // The project compiled for preview and review, the unedited tracks for comparison, and
 // how many bounded gaps each player has to interpolate.
-export function useCompiled(project: ProjectV2 | null, takes: StudioAssets) {
+export function useCompiled(project: ProjectV3 | null, takes: StudioAssets) {
   const compiled = useMemo((): Compiled => {
     if (!project || !takes.size) return { data: null, report: null };
     try {

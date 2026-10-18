@@ -38,6 +38,7 @@ export const createRequest = (workspace: Workspace): ApiRequest => async (url, {
   if (parts[3] === "compile" && method === "POST") {
     const p = await workspace.project(projectId);
     if (p.revision !== object(body).revision) throw Object.assign(Error("Compile requires the saved revision"), { status: 409 });
+    if (p.schemaVersion !== 3) throw Error("Open the project to migrate it to project format 3");
     return workspace.compile(p);
   }
   const action = parts[3], takeId = parts[4] ? id(parts[4]) : "";
@@ -48,14 +49,19 @@ export const createRequest = (workspace: Workspace): ApiRequest => async (url, {
   }
   if (action === "tracks") {
     if (method === "POST") return await workspace.writeTrack(projectId, body, true);
-    if (method === "GET" && takeId) return await workspace.read(projectId, "tracks", `${takeId}.json`);
+    if (method === "GET" && takeId) return await workspace.track(projectId, takeId);
   }
   if (action === "import" && method === "POST") return await workspace.importTake(projectId, body);
   if (action === "takes") {
     if (method === "POST" && !takeId) return await workspace.startCapture(projectId, object(body));
-    if (method === "GET" && takeId) return await workspace.read(projectId, "takes", `${takeId}.json`);
+    if (method === "GET" && takeId) return await workspace.takeById(projectId, takeId);
     if (method === "DELETE" && takeId) return await workspace.remove(projectId, object(body).revision, takeId);
-    if (method === "POST" && parts[5] === "batches") return await workspace.appendBatch(projectId, takeId, object(body));
+    if (method === "POST" && parts[5] === "batches") {
+      // A batch is FRMS/EVNT chunk bytes; the batch number travels in the query.
+      const bytes = body instanceof Uint8Array ? body : body instanceof Blob ? new Uint8Array(await body.arrayBuffer()) : null;
+      if (!bytes) throw Error("Expected a record batch");
+      return await workspace.appendBatch(projectId, takeId, Number(parsed.searchParams.get("batchId") ?? NaN), bytes);
+    }
     if (method === "POST" && parts[5] === "finalize") return await workspace.finalize(projectId, takeId, object(body));
   }
   throw Object.assign(Error("Unknown local command"), { status: 404 });

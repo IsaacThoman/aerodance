@@ -4,7 +4,9 @@ import { Recorder } from "../web/recorder.ts";
 import type { RecorderTransport } from "../web/recorder.ts";
 import type { WebcamRecordEvent } from "../../../packages/pose/browser/WebcamPoseSource.ts";
 import type { WebcamRecord } from "../../../packages/pose/webcamRecord.ts";
-import { isArray, isObject } from "../../../packages/pose/choreography.ts";
+import { EXTENSION } from "../../../packages/pose/binary.ts";
+import { found, uploadedFrames } from "./helpers.ts";
+import type { Call } from "./helpers.ts";
 
 const transport = (fields: Partial<RecorderTransport>): RecorderTransport => ({
   active: false, rate: 1, positionMs: 0, startTime: 0, audioAnchor: null,
@@ -13,14 +15,14 @@ const transport = (fields: Partial<RecorderTransport>): RecorderTransport => ({
 
 test('webcam recorder preserves its session across startup snapshot expiry and uses the frame audio anchor', async t => {
   let listener: ((event: WebcamRecordEvent) => void) | undefined;
-  const batches: unknown[] = [], input = { width: 640, height: 480, mirrored: false };
+  const calls: Call[] = [], input = { width: 640, height: 480, mirrored: false };
   const recorder = new Recorder({ source: {
     view: { sourceKind: 'webcam', model: 'lite', modelConfig: { modelId: 'lite' }, snapshot: { sessionId: 'webcam', input } },
     subscribeRecords(callback) { listener = callback; return () => {}; },
   }, transport: transport({ active: true, current: () => 2500, atBrowserTime: time => time - 1000 }),
   request: async (url, options) => {
     if (url.endsWith('/takes')) recorder.source.view = { ...recorder.source.view, snapshot: null };
-    if (url.endsWith('/batches')) batches.push(options?.body);
+    calls.push({ url, body: options?.body });
     return { takeId: 'webcam' };
   },
   projectId: 'project', onFailure: message => assert.fail(message) });
@@ -33,11 +35,15 @@ test('webcam recorder preserves its session across startup snapshot expiry and u
     ({ record, receivedBrowserTimeMs: performance.now(), captureBrowserTimeMs: record.frameBrowserTimeMs, timing: { method: record.timingMethod } });
   emit(event(record));
   assert.equal(recorder.poseCount, 0);
-  for (const frameBrowserTimeMs of [1000, 1100]) emit(event({ ...record, frameBrowserTimeMs }));
+  for (const [i, frameBrowserTimeMs] of [1000, 1100].entries())
+    emit(event({ ...record, seq: i + 2, frameBrowserTimeMs, resultBrowserTimeMs: frameBrowserTimeMs, mediaTimeMs: frameBrowserTimeMs - 950 }));
   await recorder.stop();
-  const frameTimes = batches.flatMap(b => isObject(b) && isArray(b.records) ? b.records : [])
-    .flatMap(e => isObject(e) && e.record ? [e.audioPositionAtFrameMs] : []);
+  const batches = uploadedFrames(calls);
+  const frameTimes = batches.flatMap(f => Array.from(found(f.extensions.get(EXTENSION.audioPositionAtFrameMs))));
   assert.deepEqual(frameTimes, [0, 100]);
+  assert.deepEqual(batches.flatMap(f => f.events.map(e => e.type)), ['audio-start-scheduled', 'audio-stop']);
+  assert.equal(found(calls.at(-1)).url.endsWith('/finalize'), true);
+  assert.deepEqual(found(calls.at(-1)).body, { batchCount: 1, recordCount: 4, interruptionReason: null });
 });
 
 test("cancelling a countdown unsubscribes and does not finalize an empty take", async (t) => {
@@ -45,7 +51,7 @@ test("cancelling a countdown unsubscribes and does not finalize an empty take", 
   const requests: string[] = [];
   const recorder = new Recorder({
     source: {
-      view: { snapshot: {} },
+      view: { sourceKind: "webcam", model: "lite", snapshot: { sessionId: "webcam", input: { width: 640, height: 480 } } },
       subscribeRecords: () => () => { unsubscribed = true; },
     },
     transport: transport({ current: () => -3000 }),
@@ -62,4 +68,12 @@ test("cancelling a countdown unsubscribes and does not finalize an empty take", 
   assert.equal(recorder.running, false);
   assert.equal(unsubscribed, true);
   assert.equal(requests.some((url) => url.endsWith("/finalize")), false);
+});
+test("recording needs a camera session", async () => {
+  const recorder = new Recorder({
+    source: { view: { snapshot: null }, subscribeRecords: () => () => {} },
+    transport: transport({}), projectId: "project", request: async () => ({ takeId: "never" }),
+    onFailure: (message) => assert.fail(message),
+  });
+  await assert.rejects(recorder.start(), /Start the camera/);
 });

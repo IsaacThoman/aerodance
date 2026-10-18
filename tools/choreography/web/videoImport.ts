@@ -4,10 +4,13 @@ import { assignPlayerSlots, detectedConfidence, PlayerSlotMapper } from '../../.
 import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
 import type { PoseDelegate, PoseRunningMode, PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { reliableBodyPose } from '../../../packages/character/calibration.ts';
-import { validateVideoRecord } from '../../../packages/pose/videoRecord.ts';
 import type { VideoTimingMethod } from '../../../packages/pose/videoRecord.ts';
 import { validatePoses } from '../../../packages/pose/choreography.ts';
-import type { CalibrationFrame, VideoEnvelope } from '../core.ts';
+import { PoseFileWriter } from '../../../packages/pose/binary.ts';
+import type { FrameInput } from '../../../packages/pose/binary.ts';
+import type { CalibrationFrame } from '../core.ts';
+import { captureHeader } from '../poseFiles.ts';
+import type { CaptureStart } from '../poseFiles.ts';
 import type { Landmark, Pose } from '../../../packages/pose/choreography.ts';
 import { takeIdOf } from './api.ts';
 import type { ApiRequest } from './api.ts';
@@ -340,15 +343,18 @@ export class VideoImporter {
     this.onProgress({ fraction: 0, message: `Loading ${this.model.label} model…` });
     try {
       const status = { ...await this.initialize('VIDEO'), filename, durationMs, targetRateHz: this.sampleRate };
-      const capture = await this.upload(`/api/projects/${this.projectId}/takes`, { sourceKind: 'video', name: filename, status });
+      const header: CaptureStart = { sourceKind: 'video', sessionId: this.sessionId, input: { width: input.width, height: input.height },
+        playerCount: 2, modelId: this.model.id, audioPlaybackRate: null, extensionBases: [] };
+      const writer = new PoseFileWriter(captureHeader(header));
+      const capture = await this.upload(`/api/projects/${this.projectId}/takes`, { sourceKind: 'video', name: filename, status, header });
       const path = `/api/projects/${this.projectId}/takes/${takeIdOf(capture)}`;
       this.path = path;
       this.players = new Set(); this.batchCount = 0; this.recordCount = 0;
       const slots = new PlayerSlotMapper();
-      let lastTime = -Infinity, pending: VideoEnvelope[] = [];
+      let lastTime = -Infinity, pending: FrameInput[] = [];
       const flush = async () => {
         if (!pending.length) return;
-        await this.upload(`${path}/batches`, { batchId: this.batchCount, records: pending });
+        await this.upload(`${path}/batches?batchId=${this.batchCount}`, writer.frames(pending));
         this.batchCount++; pending = [];
       };
       const frames = await this.decodeFrames(this.file, { width: input.width, height: input.height, durationMs,
@@ -372,10 +378,9 @@ export class VideoImporter {
               throw Error('Video dimensions changed during processing');
             const poses = slots.map(await this.detectDancers(mediaTimeMs, false, source), 2);
             for (const p of poses) this.players.add(p.playerId);
-            const record = validateVideoRecord({ schema: 'aerodance.video-record', schemaVersion: 1, type: 'pose',
-              sessionId: this.sessionId, seq: this.recordCount + 1, playerCount: 2, modelId: this.modelId, input,
-              mediaTimeMs, timingMethod, poses });
-            pending.push({ ordinal: this.recordCount++, record }); lastTime = mediaTimeMs;
+            pending.push({ timeMs: mediaTimeMs, poses: validatePoses(poses), seq: ++this.recordCount,
+              seekTime: timingMethod === 'seek-time' });
+            lastTime = mediaTimeMs;
             firstTime ??= mediaTimeMs;
             this.onProgress({ fraction: Math.min(1, (mediaTimeMs - firstTime) / durationMs),
               message: `Processing video · ${this.recordCount} samples · ${method} · ${status.delegate}` });

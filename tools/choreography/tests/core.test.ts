@@ -21,7 +21,12 @@ import {
   migrateProject,
   trackDataIds,
   sourceLabel,
+  takeSummary,
+  validateTake,
+  isTrackData,
 } from "../core.ts";
+import { encodeTake, encodeTrack, importedPoseFile, legacyCaptureFile } from "../poseFiles.ts";
+import { readFileSync } from "node:fs";
 import type { CaptureMetadata, CompiledChoreography, StudioAssets, Take } from "../core.ts";
 import {
   sampleSnapshot,
@@ -29,7 +34,7 @@ import {
   validateChoreography,
 } from "../../../packages/pose/choreography.ts";
 import type { Pose } from "../../../packages/pose/choreography.ts";
-import { found } from "./helpers.ts";
+import { assertSamplesClose, captureOf, found } from "./helpers.ts";
 const sampleAt = (data: CompiledChoreography, songTimeMs: number) =>
   found(data.samples.find((s) => s.songTimeMs === songTimeMs));
 const pose = (playerId: number, x = 0.2): Pose => ({
@@ -55,21 +60,26 @@ test('webcam take timing follows frames despite variable inference latency and r
       frameBrowserTimeMs: 1000 + i * 100, resultBrowserTimeMs: 1000 + i * 100 + delay,
       mediaTimeMs: i * 100, timingMethod: 'browser-frame-observation', poses: [pose(0), pose(1)] },
   }));
-  const take = takeFromRecords(records, metadata);
+  const take = takeFromRecords(captureOf(records, 'webcam'), metadata);
   assert.equal(take.source, 'webcam'); assert.equal(take.offsetMs, 2000);
   assert.deepEqual(take.samples.map(s => s.takeTimeMs), [0, 100, 200]);
+  assert.deepEqual(take.samples.map(s => s.sourceSeq), [1, 2, 3]);
   assert.equal(take.provenance?.modelHash, model.sha256);
-  const changed = structuredClone(records); changed[1].record.modelId = 'lite';
-  assert.throws(() => takeFromRecords(changed, metadata), /changed/);
+  const lite = structuredClone(records).map(r => ({ ...r, record: { ...r.record, modelId: 'lite' } }));
+  assert.throws(() => takeFromRecords(captureOf(lite, 'webcam'), metadata), /Invalid webcam model configuration/);
+  const changed = structuredClone(records); changed[1].audioPlaybackRate = 1.25;
+  assert.throws(() => captureOf(changed, 'webcam'), /changed/);
+  const early = structuredClone(records); early[1].receivedBrowserTimeMs = early[1].record.resultBrowserTimeMs - 1;
+  assert.throws(() => takeFromRecords(captureOf(early, 'webcam'), metadata), /timing/);
   const wire = records.map((r, i) => i === 1 ? { ...r, record: { ...r.record, schema: undefined, protocolVersion: 2 } } : r);
-  assert.throws(() => takeFromRecords(wire, metadata), /Invalid webcam/);
+  assert.throws(() => captureOf(wire, 'webcam'), /Invalid webcam/);
 });
 test('unsupported project tracks and null clips fail validation before the editor renders them', () => {
   const project=newProject('format-fixture', 1);
   // Loose views of copies: these tests build projects the types rule out.
-  const future: { schemaVersion: number; tracks: { playerId: number; label: string }[] } = structuredClone(project); future.schemaVersion=3;
+  const future: { schemaVersion: number; tracks: { playerId: number; label: string }[] } = structuredClone(project); future.schemaVersion=4;
   future.tracks=future.tracks.map(({playerId,label})=>({playerId,label,dataId:'edited',originalDataId:'original',offsetMs:0}));
-  assert.throws(()=>validateProject(future),/Unsupported project format 3/);
+  assert.throws(()=>validateProject(future),/Unsupported project format 4/);
   const broken: { tracks: { clips?: unknown[] }[] }=structuredClone(project); broken.tracks[0].clips=[null,{takeId:'missing'}];
   assert.throws(()=>validateProject(broken),/Invalid clips/);
   const missing: { tracks: { clips?: unknown[] }[] }=structuredClone(project); delete missing.tracks[0].clips;
@@ -197,7 +207,7 @@ test("phrase replacement splits previous clips and mapping remains explicit", ()
     })),
   };
   takes.set(b.takeId, b);
-  p.takes.push({ takeId: b.takeId, name: b.name, source: b.source, input: b.input });
+  p.takes.push(takeSummary(b));
   const edited = replaceRange(p, 0, b, 300, 600, 100, 400),
     data = compileProject(edited, takes);
   assert.equal(edited.tracks[0].clips.length, 3);
@@ -220,9 +230,8 @@ test("legacy migration keeps both original confidence fields unknown", async () 
   const take = importMotion(legacy, "demo", "demo-take");
   assert.equal(take.samples[0].poses[0].landmarks[0].confidence, null);
   assert.equal(take.samples[1].takeTimeMs, legacy.times[1] * 1000);
-  assert.ok(take.samples[0].legacyConfidence?.[0].length === 33);
 });
-test("captures need a webcam or video source; protocol-v2 records no longer create takes", () => {
+test("captures need a webcam or video source; protocol-v2 records no longer convert", () => {
   const records = [0, 1].map((i) => ({
     audioPositionAtReceiptMs: i * 100,
     record: {
@@ -237,11 +246,20 @@ test("captures need a webcam or video source; protocol-v2 records no longer crea
       poses: [pose(0), pose(1)],
     },
   }));
+  assert.throws(() => captureOf(records, "webcam"), /Invalid webcam capture record/);
+  assert.throws(() => legacyCaptureFile(records.map((r) => JSON.stringify(r)).join("\n"), "android"), /Unsupported capture source/);
+  const capture = captureOf([0, 1].map((i) => ({
+    receivedBrowserTimeMs: i * 100 + 30, audioPositionAtReceiptMs: i * 100 + 30, audioPositionAtFrameMs: i * 100, audioPlaybackRate: 1,
+    record: { schema: "aerodance.webcam-record", schemaVersion: 1, type: "pose", sessionId: "s", seq: i + 1, playerCount: 2,
+      input: { width: 640, height: 480, mirrored: false }, modelId: "full", frameBrowserTimeMs: i * 100,
+      resultBrowserTimeMs: i * 100 + 20, mediaTimeMs: i * 100, timingMethod: "browser-frame-observation", poses: [pose(0), pose(1)] },
+  })), "webcam");
   for (const sourceKind of [undefined, "android", "bogus"])
     assert.throws(
-      () => takeFromRecords(records, { takeId: "capture", sourceKind }),
+      () => takeFromRecords(capture, { takeId: "capture", sourceKind }),
       /Unsupported capture source/,
     );
+  assert.throws(() => takeFromRecords(capture, { takeId: "capture", sourceKind: "video" }), /does not match/);
 });
 test("stored legacy captures still import, compile, review and validate", () => {
   const take = {
@@ -417,13 +435,14 @@ test("independent negative offsets crop export and recover poses and edits on re
   p = offsetTrack(p, 0, -100);
   const data = compileProject(p, assets);
   assert.ok(data.samples.every((s) => s.songTimeMs >= 0));
-  assert.equal(data.samples[0].poses[0].landmarks[15].x, 0.55);
+  // Snapshots store positions in 1/16384 steps.
+  assert.equal(data.samples[0].poses[0].landmarks[15].x, Math.round(0.55 * 16384) / 16384);
   assert.deepEqual(p.tracks[1], other);
   p = offsetTrack(p, 0, 0);
   assert.equal(
     sampleSnapshot(compileProject(p, assets).samples, 100).poses[0]
       .landmarks[15].x,
-    0.55,
+    Math.round(0.55 * 16384) / 16384,
   );
   p = offsetTrack(p, 0, -2000);
   assert.ok(
@@ -533,12 +552,13 @@ test("legacy projects migrate their edited poses, negative source timing and ori
   const before = compileProject(edited, takes);
   const migrated = migrateProject(edited, takes);
   assert.equal(migrated.schemaVersion, 2);
-  assert.deepEqual(compileProject(migrated, takes).samples, before.samples);
+  // Snapshots hold their stored, quantized poses.
+  assertSamplesClose(compileProject(migrated, takes).samples, before.samples);
   assert.ok(found(takes.get(found(migrated.tracks[0].dataId))).samples[0].takeTimeMs < 0);
   assert.ok(trackDataIds(migrated).length >= 2);
   migrated.takes = [];
   takes.delete("take-a");
-  assert.deepEqual(compileProject(migrated, takes).samples, before.samples);
+  assertSamplesClose(compileProject(migrated, takes).samples, before.samples);
 });
 
 test("review coverage combines adjacent and overlapping exclusions", () => {
@@ -549,4 +569,21 @@ test("review coverage combines adjacent and overlapping exclusions", () => {
   assert.ok(!intervalsCover([], 0, 1));
   assert.ok(!intervalsCover([{ startMs: 150, endMs: 500 }], 100, 200), "coverage must start at the step");
   assert.ok(intervalsCover([{ startMs: 56.9, endMs: 525.7969999985098 }], 523.566667, 525.797), "review bounds that differ from the rounded sample grid by float error still cover it");
+});
+test("the library imports .adpose takes and song choreography", () => {
+  const { take } = fixture();
+  const imported = validateTake(importedPoseFile(encodeTake(take), "take.adpose", "imported-take"));
+  assert.equal(imported.takeId, "imported-take");
+  assert.equal(imported.name, "take.adpose");
+  assert.equal(imported.source, "imported");
+  assertSamplesClose(imported.samples, take.samples);
+  const song = validateTake(importedPoseFile(readFileSync("client/tests/fixtures/song-70c63c8e/choreography.adpose"), "song.adpose"));
+  assert.equal(song.source, "choreography");
+  assert.equal(song.provenance?.songId, "song-70c63c8e");
+  assert.ok(song.samples.some((s) => s.poses.length === 2));
+  const assets: StudioAssets = new Map();
+  const p = overwriteTracks(addTake(newProject("import-project"), take), take, [0], assets);
+  const track = assets.get(found(p.tracks[0].dataId));
+  assert.ok(isTrackData(track));
+  assert.throws(() => importedPoseFile(encodeTrack(track), "track.adpose"), /Import a take or choreography/);
 });

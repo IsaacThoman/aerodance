@@ -48,7 +48,8 @@ No API proxy or server environment variables are required.
 
 Before replacing an older Studio deployment, use its **Backup** button for each
 project, then import those ZIPs into the static Studio. Existing project formats 1
-and 2 remain supported. Browser backups also work with the legacy disk tool.
+and 2 remain supported and are converted to format 3 on restore. Browser backups
+also work with the legacy disk tool.
 Docker/Podman named volumes from old versions remain on disk but are no longer
 mounted by the static deployment; retain them until backups are verified.
 
@@ -60,7 +61,7 @@ STUDIO_DATA_DIR=/path/to/old/studio-data npm run studio:backup-disk -- /path/to/
 ```
 
 The command creates one project ZIP per project ID and refuses to overwrite existing
-backups. Import the ZIPs through **Import pose recording**. Unsupported future
+backups. Projects in formats 1 and 2 are backed up with their JSON files as stored. Import the ZIPs through **Import pose recording**. Unsupported future
 project formats fail validation and remain untouched. The optional disk adapter
 and HTTP harness are retained for migration and regression checks; they are not
 part of the production image.
@@ -142,11 +143,11 @@ part of the production image.
    then confirm alignment in Song details. Review references and missing intervals
    in **Review**. Approvals require a reason; exclusions always override approvals.
 7. **Export song** downloads a deterministic runtime ZIP containing song.json,
-   choreography.json, audio, and checksums. Export rejects unresolved metadata,
+   choreography.adpose, audio, and checksums. Export rejects unresolved metadata,
    timing review, long missing references, rights, and empty score coverage.
 
 Changes autosave after a short idle interval. **Save** forces persistence.
-This editor uses project format 2 and migrates format 1 projects when opened.
+This editor uses project format 3 and migrates format 1 and 2 projects when opened.
 Saved projects in unsupported formats are
 reported and skipped at startup; the next compatible project opens instead.
 If none can be opened, **Create new project** starts a separate project. Incompatible
@@ -161,8 +162,8 @@ the project is deleted; do not clear site data to recover from a recording error
 
 The committed capture at
 `packages/character/assets/dance.json` is useful for trying the
-editor. Its combined legacy confidence cannot be split into visibility/presence;
-review/approve its reference poses explicitly before publication. It has no music.
+editor. It has no per-joint confidence, so review/approve its reference poses
+explicitly before publication. It has no music.
 
 **Interpolate P1/P2 missing intervals** fills every bounded gap on that player
 track, including gaps longer than one second. It preserves available poses and
@@ -180,13 +181,34 @@ including audio, tracks, takes, capture files, and revisions. It opens another
 project, or a blank project when the library is empty. Deleting a project or a take
 cannot be undone; use **Backup** before deleting material you want to retain.
 
-Projects now use schema v2 with independent immutable track snapshots in
-`tracks/`. Backups include snapshots required by current tracks and edit history,
-so they still restore after source takes are deleted. Existing schema-v1 projects
-are migrated when opened, and old backups are migrated on restore. Migration
-preserves the current routine, review masks, original comparison poses, and
-pre-zero data; it starts a fresh edit history. Runtime song bundle schemas remain
-unchanged. The Frutiger rig is stylized 2.5D; elbows/knees remain editable in the
+### Project storage
+
+Project format 3 stores pose data as `.adpose` files (see
+[docs/pose-binary-format.md](../../docs/pose-binary-format.md)); project, capture
+and revision metadata stay JSON:
+
+| Path | Contents |
+|---|---|
+| `project.json`, `revisions/<n>.json` | The project; each take's summary holds its name, source, alignment, model status and file hash |
+| `takes/<takeId>.adpose` | A library take (`take` file); immutable |
+| `tracks/<dataId>.adpose` | An immutable track snapshot (`track` file); frames that interpolation reproduces are dropped |
+| `capture/<takeId>/capture.json` | Capture name, model status and file header; `sealed` marks it finalized |
+| `capture/<takeId>/batches/<n>.bin` | Acknowledged upload batches (`FRMS`/`EVNT` chunks) until the capture is finalized |
+| `capture/<takeId>/capture.adpose` | The raw capture the take was built from (`capture` file); `provenance.rawSha256` hashes it |
+| `assets/<sha256>.<ext>` | Song audio |
+
+Snapshots are kept as stored, quantized to 1/16384 of the frame, so an edited
+routine compiles the same after a reload. Backups include snapshots required by
+current tracks and edit history, so they still restore after source takes are
+deleted. Format 1 and 2 projects are converted when opened, and old backups on
+restore: JSON takes and snapshots become `.adpose` files, and raw `records.ndjson`
+captures become `capture.adpose` (captures that can't be converted, such as
+Android ones, stay NDJSON). Their takes keep the `rawSha256` of the original NDJSON.
+Migrating a format 1 project's clip tracks to snapshots preserves the current
+routine, review masks, original comparison poses, and pre-zero data; it starts a
+fresh edit history.
+
+The Frutiger rig is stylized 2.5D; elbows/knees remain editable in the
 skeleton even though the character has no articulated elbow/knee bones.
 The character uses the original wrist and foot mapping. Live Frutiger previews
 smooth landmark movement and distance estimates for display; skeletons, saved
@@ -256,8 +278,8 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
 - Takes captured by earlier editor versions still open, compile, and export; the
   take list shows them as **legacy capture**. Raw NDJSON pose streams can no
   longer be imported or recorded.
-- The editor imports JSON, its own project backups, and browser-decodable
-  videos. Video import runs the same local models as the webcam; the optional
+- The editor imports `.adpose` takes and song choreography, legacy JSON, its
+  own project backups, and browser-decodable videos. Video import runs the same local models as the webcam; the optional
   Python tracker remains an offline tool.
 - Automatic normalization of different camera placements, articulated IK, and
   curve/clip transition controls are future work; review poses after overwriting

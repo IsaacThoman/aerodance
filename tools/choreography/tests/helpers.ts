@@ -2,11 +2,13 @@
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import type { Locator } from "playwright";
-import { isObject } from "../../../packages/pose/choreography.ts";
-import type { TrackCalibration } from "../../../packages/pose/choreography.ts";
-import { decodePoseFile } from "../../../packages/pose/binary.ts";
+import { isObject, qualityFor } from "../../../packages/pose/choreography.ts";
+import type { Pose, TimedPoses, TrackCalibration } from "../../../packages/pose/choreography.ts";
+import { DEFAULT_POSITION_STEP, buildFrames, decodePoseFile, framesToPoses } from "../../../packages/pose/binary.ts";
+import type { PoseFrames } from "../../../packages/pose/binary.ts";
 import { validateProject, validateTake } from "../core.ts";
-import type { ProjectV2 } from "../core.ts";
+import type { CalibrationFrame, ProjectV3 } from "../core.ts";
+import { captureHead, decodeCaptureBatch, legacyCaptureFile } from "../poseFiles.ts";
 
 /** Waits for a locator to match exactly `count` elements: the UI renders after the action that triggers it. */
 export async function expectCount(locator: Locator, count: number, timeoutMs = 10_000): Promise<void> {
@@ -38,10 +40,10 @@ export function baseUrl(server: Server): string {
   assert.ok(address && typeof address === "object");
   return `http://127.0.0.1:${address.port}`;
 }
-/** A project the API returned; the server always returns format 2. */
-export async function projectOf(response: Response): Promise<ProjectV2> {
+/** A project the API returned; the server always returns format 3. */
+export async function projectOf(response: Response): Promise<ProjectV3> {
   const p = validateProject(await response.json());
-  assert.ok(p.schemaVersion === 2);
+  assert.ok(p.schemaVersion === 3);
   return p;
 }
 export const takeOf = async (response: Response) => validateTake(await response.json());
@@ -53,3 +55,43 @@ export const zipPose = (files: ReadonlyMap<string, Buffer>, name: string) => dec
 export const storedCalibration = (c: TrackCalibration): TrackCalibration => ({ ...c, torsoLength: Math.fround(c.torsoLength), floorY: Math.fround(c.floorY),
   baseHip: { x: Math.fround(c.baseHip.x), y: Math.fround(c.baseHip.y), z: Math.fround(c.baseHip.z) },
   ...(c.bodyTorsoLength === undefined ? {} : { bodyTorsoLength: Math.fround(c.bodyTorsoLength) }) });
+/** Capture records in the JSON envelopes earlier editors uploaded, as a decoded capture file. */
+export function captureOf(records: readonly unknown[], sourceKind: "webcam" | "video", calibrationFrame?: CalibrationFrame): PoseFrames {
+  return decodePoseFile(legacyCaptureFile(records.map((r) => JSON.stringify(r) + "\n").join(""), sourceKind, calibrationFrame));
+}
+/** The capture envelopes as the NDJSON records.ndjson earlier editors stored. */
+export const ndjson = (records: readonly unknown[]) => new TextEncoder().encode(records.map((r) => JSON.stringify(r) + "\n").join(""));
+/**
+ * Asserts two sample lists hold the same poses up to storage quantization: positions within
+ * a position step, confidence within 1/254, the same quality.
+ */
+export function assertSamplesClose<S extends TimedPoses<"songTimeMs"> | TimedPoses<"takeTimeMs">>(actual: readonly S[], expected: readonly S[]) {
+  assert.equal(actual.length, expected.length);
+  actual.forEach((a, i) => {
+    const e = expected[i];
+    assert.equal("songTimeMs" in a ? a.songTimeMs : a.takeTimeMs, "songTimeMs" in e ? e.songTimeMs : e.takeTimeMs);
+    // Stored frames keep no "resampled" origin; readers see it as measured.
+    const quality = (s: S) => (s.quality ?? qualityFor(s.poses)).map((v) => ({ ...v, landmarkOrigins: v.landmarkOrigins.map((o) => o === "resampled" ? "measured" : o) }));
+    assert.deepEqual(quality(a), quality(e));
+    assert.deepEqual(a.poses.map((p) => p.playerId), e.poses.map((p) => p.playerId));
+    a.poses.forEach((p, k) => p.landmarks.forEach((j, n) => {
+      const x = e.poses[k].landmarks[n];
+      for (const axis of ["x", "y", "z"] as const) assert.ok(Math.abs(j[axis] - x[axis]) <= DEFAULT_POSITION_STEP, `sample ${i} joint ${n} ${axis}`);
+      assert.ok(j.confidence === x.confidence || (j.confidence !== null && x.confidence !== null && Math.abs(j.confidence - x.confidence) <= 1 / 254));
+    }));
+  });
+}
+/** A pose as a pose file stores it: quantized positions and confidence. */
+export const storedPose = (pose: Pose): Pose =>
+  framesToPoses(buildFrames({ kind: "take", playerSlots: 2, input: { width: 1, height: 1 }, modelId: null }, [{ timeMs: 0, poses: [pose] }]), 0).poses[0];
+/** A request a recorder or importer made: its URL and body. */
+export interface Call { url: string; body: unknown; }
+/** The capture frames each batch upload held, decoded with the header the capture started with. */
+export function uploadedFrames(calls: readonly Call[]): PoseFrames[] {
+  const start = found(calls.find((c) => /\/takes$/.test(c.url)));
+  const head = captureHead(read(start.body, "header"));
+  return calls.filter((c) => c.url.includes("/batches")).map((c) => {
+    assert.ok(c.body instanceof Uint8Array);
+    return decodeCaptureBatch(head, c.body);
+  });
+}

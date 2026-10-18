@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Page } from "playwright";
 import type * as Api from "../web/api.ts";
-import type { Project, ProjectV2, Take } from "../core.ts";
+import type { Project, ProjectV3, Take } from "../core.ts";
 
 export async function staticStudio() {
   const directory = await mkdtemp(path.join(tmpdir(), "studio-static-test-"));
@@ -35,10 +35,14 @@ export function browserStore(page: Page) {
   return {
     location: (projectId: string, ...parts: string[]) => ["projects", projectId, ...parts].join("/"),
     project: (projectId: string) => call<Project>("project", [projectId]),
-    open: (projectId: string) => call<ProjectV2>("open", [projectId]),
+    open: (projectId: string) => call<ProjectV3>("open", [projectId]),
     list: () => call<Awaited<ReturnType<(typeof Api)["workspace"]["list"]>>>("list", []),
     save: (p: Project, expected: unknown) => call<Project>("save", [p, expected]),
     read: (projectId: string, ...parts: string[]) => call<unknown>("read", [projectId, ...parts]),
+    /** A take with its project summary's metadata, decoded from takes/<takeId>.adpose. */
+    take: (projectId: string, takeId: string) => call<unknown>("takeById", [projectId, takeId]),
+    /** A track snapshot decoded from tracks/<dataId>.adpose. */
+    track: (projectId: string, dataId: string) => call<unknown>("track", [projectId, dataId]),
     writeTake: (projectId: string, take: Take) => call<Take>("writeTake", [projectId, take]),
     writeTrack: (projectId: string, data: unknown) => call<{ dataId: string }>("writeTrack", [projectId, data]),
     remove: (projectId: string, revision: number, takeId?: string) => call("remove", [projectId, revision, takeId]),

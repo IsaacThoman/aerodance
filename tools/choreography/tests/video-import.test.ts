@@ -11,13 +11,16 @@ import { readZip } from '../server/zip.ts';
 import { MEDIAPIPE_VERSION, poseModel } from '../../../packages/pose/browser/models.ts';
 import type { PoseRunningMode, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import type { Landmark } from '../../../packages/pose/choreography.ts';
-import { validateVideoRecord } from '../../../packages/pose/videoRecord.ts';
-import type { VideoRecord } from '../../../packages/pose/videoRecord.ts';
+import { PoseFileWriter, SEEK_TIME, framesToPoses } from '../../../packages/pose/binary.ts';
+import type { PoseFrames } from '../../../packages/pose/binary.ts';
+import { captureHead, captureHeader } from '../poseFiles.ts';
+import type { CaptureStart } from '../poseFiles.ts';
 import { newProject, addTake, takeFromRecords, takeCalibration, overwriteTracks, appendOperation,
   offsetTrack, historyStep, compileProject, validateTake, validateTrackData, trackDataIds, isTrackData } from '../core.ts';
 import type { StudioAssets } from '../core.ts';
 import { takeIdOf } from '../web/api.ts';
-import { baseUrl, fake, found, projectOf, read, storedCalibration, takeOf, zipPose } from './helpers.ts';
+import { baseUrl, captureOf, fake, found, projectOf, read, storedCalibration, storedPose, takeOf, uploadedFrames, zipPose } from './helpers.ts';
+import type { Call } from './helpers.ts';
 
 const pose = (playerId: number, hipY = .6): { playerId: number; landmarks: Landmark[] } => ({ playerId, landmarks: Array.from({ length: 33 }, (_, i) => ({
   x: playerId ? .25 : .75, y: i < 11 ? .15 : i < 23 ? .4 : i < 27 ? hipY : .9,
@@ -36,15 +39,14 @@ function fixture() {
     playerCount: 2, input: { width: 640, height: 480, mirrored: false }, modelId: model.id,
     mediaTimeMs: i * 100, timingMethod: 'decoded-frame', poses: i === 3 ? [] : [pose(0, .8), pose(1, .8)],
   } }));
-  return { metadata, records, take: takeFromRecords(records, metadata) };
+  const header: CaptureStart = { sourceKind: 'video', sessionId: 'file', input: { width: 640, height: 480 }, playerCount: 2,
+    modelId: model.id, audioPlaybackRate: null, extensionBases: [] };
+  return { metadata, records, header, take: takeFromRecords(captureOf(records, 'video', metadata.calibrationFrame), metadata) };
 }
-interface Call { url: string; body: unknown; }
-/** The records of each batch upload. */
-const uploadedRecords = (calls: readonly Call[]): VideoRecord[][] => calls.filter(c => c.url.endsWith('/batches')).map(c => {
-  const records = read(c.body, 'records');
-  assert.ok(Array.isArray(records));
-  return records.map(e => validateVideoRecord(read(e, 'record')));
-});
+/** Each batch upload's frames: media time, poses and timing method. */
+const uploadedRecords = (calls: readonly Call[]) => uploadedFrames(calls).map((f: PoseFrames) => Array.from(f.times, (mediaTimeMs, i) => ({
+  mediaTimeMs, poses: framesToPoses(f, i).poses, timingMethod: f.frameFlags[i] & SEEK_TIME ? 'seek-time' : 'decoded-frame',
+})));
 const canvas = (fields: object) => fake<HTMLCanvasElement>(fields);
 const video = (fields: Partial<HTMLVideoElement>) => fake<HTMLVideoElement>({ pause() {}, ...fields });
 /** The bitmap the importer sends the worker, remembering the crop it was cut from. */
@@ -111,7 +113,7 @@ test('missing P1 is recovered without changing P2, file timing or primary video 
   await job.process('duet.webm');
   const records = uploadedRecords(calls)[0];
   assert.deepEqual(found(records.at(-1)).poses.map(p => p.playerId), [0, 1]);
-  assert.deepEqual(found(records.at(-1)).poses[1], pose(1));
+  assert.deepEqual(found(records.at(-1)).poses[1], storedPose(pose(1)));
   assert.deepEqual(records.map(r => r.mediaTimeMs), [...sampleTimes(100)].map(t => t * 1000));
   assert.deepEqual(diagnostics.modes, ['IMAGE', 'IMAGE', 'VIDEO', 'IMAGE']);
   assert.equal(diagnostics.terminated, 4);
@@ -125,17 +127,20 @@ test('video takes use file timestamps, preserve absences and validate calibratio
   assert.deepEqual(take.samples[3].poses, []);
   assert.equal(take.provenance?.modelHash, poseModel('full').sha256);
   assert.equal(take.provenance?.calibrationFrameTimeMs, 400);
-  assert.equal(takeCalibration(take, 0).torsoLength, .6 - .4);
+  const step = (v: number) => Math.round(v * 16384) / 16384;
+  assert.equal(takeCalibration(take, 0).torsoLength, step(.6) - step(.4), 'measured on the stored calibration frame');
   const missing = structuredClone(take); found(missing.calibrationFrame).poses.pop();
   assert.throws(() => validateTake(missing), /every captured dancer/);
   const weak = structuredClone(take); found(weak.calibrationFrame).poses[0].landmarks[27].confidence = .1;
   assert.throws(() => validateTake(weak), /shoulders, hips and feet/);
   const late = structuredClone(take); found(late.calibrationFrame).mediaTimeMs = 1001;
   assert.throws(() => validateTake(late), /calibration frame time/);
-  const changed = structuredClone(records); changed[1].record.modelId = 'lite';
-  assert.throws(() => takeFromRecords(changed, metadata), /changed/);
+  const lite = records.map(e => ({ ...e, record: { ...e.record, modelId: 'lite' } }));
+  assert.throws(() => takeFromRecords(captureOf(lite, 'video'), metadata), /Invalid video model configuration/);
   const reversed = structuredClone(records); reversed[1].record.mediaTimeMs = 0;
-  assert.throws(() => takeFromRecords(reversed, metadata), /sequence or timing/);
+  assert.throws(() => captureOf(reversed, 'video'), /increasing/);
+  const skipped = structuredClone(records); skipped[1].record.seq = 3;
+  assert.throws(() => takeFromRecords(captureOf(skipped, 'video', metadata.calibrationFrame), metadata), /sequence or timing/);
   const noCalibration = structuredClone(take); delete noCalibration.calibrationFrame;
   assert.throws(() => validateTake(noCalibration), /require a calibration frame/);
 });
@@ -200,14 +205,14 @@ test('video processing awaits inference, skips duplicate decoded frames and retr
     seek: async (_v, time) => ({ mediaTimeMs: Math.floor((time + 1e-8) * 10) * 100, timingMethod: 'decoded-frame' }),
     request: async (url, options) => {
       calls.push({ url, body: structuredClone(options?.body) });
-      if (url.endsWith('/batches') && !failed) { failed = true; throw Error('temporary upload failure'); }
+      if (url.includes('/batches') && !failed) { failed = true; throw Error('temporary upload failure'); }
       return { takeId: 'capture' };
     },
   });
   const calibration = await job.calibrate();
   await job.process('fixture.webm');
   assert.equal(diagnostics.maxActive, 1); assert.deepEqual(diagnostics.modes, ['IMAGE', 'VIDEO']);
-  const batches = calls.filter(c => c.url.endsWith('/batches'));
+  const batches = calls.filter(c => c.url.includes('/batches'));
   assert.equal(batches.length, 2); assert.deepEqual(batches[0].body, batches[1].body);
   const records = uploadedRecords(calls)[1];
   assert.deepEqual(records.map(r => r.mediaTimeMs), [0, 100, 200, 300, 400]);
@@ -347,14 +352,17 @@ test('video batches finalize with calibration and survive export and backup afte
   const base = baseUrl(server);
   const api = async (url: string, body: unknown, method = 'POST') => fetch(base + url, { method,
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const upload = (url: string, bytes: Uint8Array<ArrayBuffer>) => fetch(base + url, { method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
   let p = await projectOf(await api('/api/projects', {}));
-  const { metadata, records } = fixture();
-  const capture: unknown = await (await api(`/api/projects/${p.projectId}/takes`, metadata)).json();
+  const { metadata, records, header } = fixture();
+  const capture: unknown = await (await api(`/api/projects/${p.projectId}/takes`, { ...metadata, header })).json();
   const url = `/api/projects/${p.projectId}/takes/${takeIdOf(capture)}`;
-  const mixed = structuredClone(records); mixed[0].record.schema = 'aerodance.webcam-record';
-  assert.equal((await api(`${url}/batches`, { batchId: 0, records: mixed })).status, 400);
-  assert.equal((await api(`${url}/batches`, { batchId: 0, records })).status, 200);
-  assert.equal((await api(`${url}/batches`, { batchId: 0, records })).status, 200);
+  const batch = new PoseFileWriter(captureHeader(header)).frames(records.map(({ record: r }) => ({ timeMs: r.mediaTimeMs, poses: r.poses, seq: r.seq })));
+  assert.equal((await upload(`${url}/batches?batchId=0`, captureHead(header))).status, 400, 'a batch holds only frames and events');
+  assert.equal((await upload(`${url}/batches?batchId=0`, batch)).status, 200);
+  assert.equal((await upload(`${url}/batches?batchId=0`, batch)).status, 200);
+  assert.equal((await upload(`${url}/batches?batchId=0`, batch.slice(0, -8))).status, 400);
   const finish = { batchCount: 1, recordCount: records.length, calibrationFrame: metadata.calibrationFrame };
   assert.equal((await api(`${url}/finalize`, { ...finish, calibrationFrame: { mediaTimeMs: 0, poses: [] } })).status, 400);
   const result = await api(`${url}/finalize`, finish);
@@ -391,7 +399,7 @@ test('video batches finalize with calibration and survive export and backup afte
   const dp = await projectOf(restoredDeleted);
   assert.equal(dp.takes.length, 0);
   const snapshot = validateTrackData(await (await fetch(`${base}/api/projects/${dp.projectId}/tracks/${dp.tracks[0].dataId}`)).json());
-  assert.deepEqual(snapshot.calibration, takeCalibration(take, 0));
+  assert.deepEqual(snapshot.calibration, storedCalibration(takeCalibration(take, 0)));
 });
 
 test('video import can sample at 15 fps', async () => {

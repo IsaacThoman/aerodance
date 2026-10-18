@@ -5,7 +5,7 @@ import type { Page } from "playwright";
 import { staticStudio, browserStore } from "./static-helpers.ts";
 import { readZip } from "../server/zip.ts";
 import { validateProject, validateTake } from "../core.ts";
-import type { ProjectV2 } from "../core.ts";
+import type { ProjectV3 } from "../core.ts";
 import type { PoseWorker } from "../../../packages/pose/browser/WebcamPoseSource.ts";
 import type { PoseWorkerResponse } from "../../../packages/pose/browser/pose.worker.ts";
 import { expectCount, found } from "./helpers.ts";
@@ -85,10 +85,10 @@ function fakeWebcam() {
     return worker;
   } });
 }
-/** A project as the studio API returns it, which is always format 2. */
-async function savedProject(page: Page, projectId: string): Promise<ProjectV2> {
+/** A project as the studio API returns it, which is always format 3. */
+async function savedProject(page: Page, projectId: string): Promise<ProjectV3> {
   const p = validateProject(await browserStore(page).project(projectId));
-  assert.ok(p.schemaVersion === 2);
+  assert.ok(p.schemaVersion === 3);
   return p;
 }
 let testPage: Page | undefined;
@@ -180,8 +180,9 @@ try {
     .getByLabel("Editable pose skeleton")
     .locator("circle")
     .nth(15);
+  // Snapshots store positions in 1/16384 steps: 0.06 px on the 1000 px stage.
   assert.ok(
-    Math.abs(Number(await editedJoint.getAttribute("cx")) - 580) < 1e-5,
+    Math.abs(Number(await editedJoint.getAttribute("cx")) - 580) < 1000 / 16384,
   );
   // A drag in mirrored display space must write the inverse source coordinate.
   const stage = found(await page.getByLabel("Editable pose skeleton").boundingBox());
@@ -203,7 +204,7 @@ try {
   await page.getByRole("button", { name: "Undo", exact: false }).click();
   assert.ok(
     Math.abs(Number(await page.getByLabel("Landmark X").inputValue()) - 0.42) <
-      1e-5,
+      1 / 16384,
   );
   await page.getByRole("button", { name: "Undo", exact: false }).click();
   assert.ok(
@@ -529,7 +530,7 @@ try {
     saved = await savedProject(page, projectId);
   }
   assert.equal(saved.takes.length, 2);
-  const capture = validateTake(await browserStore(page).read(projectId, "takes", `${saved.takes[1].takeId}.json`));
+  const capture = validateTake(await browserStore(page).take(projectId, saved.takes[1].takeId));
   assert.equal(
     await page
       .getByRole("button", { name: "Take view", exact: true })

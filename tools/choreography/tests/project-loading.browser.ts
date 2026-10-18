@@ -11,11 +11,11 @@ const page=await browser.newPage({viewport:{width:1280,height:900}});
 await page.goto('http://127.0.0.1:4193/__test__/empty.html');
 const store = browserStore(page);
 const supported=await store.save(newProject('supported-project'),null);
-const second=await store.save(newProject('second-v2-project'),null);
+const second=await store.save(newProject('second-project'),null);
 const created=newProject('unsupported-project');
 created.metadata.title='Future format fixture';
 created.updatedAt='9999-01-01T00:00:00.000Z';
-const future={...created,schemaVersion:3,
+const future={...created,schemaVersion:4,
   tracks:created.tracks.map(({playerId,label})=>({playerId,label,dataId:'edited',originalDataId:'original',offsetMs:0}))};
 const futureBytes=Buffer.from(JSON.stringify(future));
 await store.atomic(store.location(future.projectId,'project.json'),futureBytes);
@@ -41,7 +41,7 @@ try {
     await page.waitForFunction(id=>document.querySelector<HTMLSelectElement>('[aria-label="Open project"]')?.value===id,project.projectId);
     assert.equal(await page.getByRole('alert').count(),0);
   }
-  // A library containing only supported v2 projects opens without a warning.
+  // A library containing only supported projects opens without a warning.
   await store.erase(store.location(future.projectId) + "/");
   await page.reload();
   await page.getByRole('heading',{name:'Make every move yours.'}).waitFor();
@@ -68,7 +68,7 @@ try {
   assert.equal((await store.list()).length,2);
   assert.deepEqual(Buffer.from(await store.bytes(store.location(future.projectId,'project.json'))),futureBytes);
   assert.deepEqual(errors,[]);
-  console.log('Project loading passed: v2 projects open and switch without format warnings, incompatible latest project skipped, recovery from unsupported-only library, preserved project bytes, no render errors.');
+  console.log('Project loading passed: format 3 projects open and switch without format warnings, incompatible latest project skipped, recovery from unsupported-only library, preserved project bytes, no render errors.');
 } finally {
   await browser.close(); await new Promise(resolve=>server.close(resolve));
   await dispose();

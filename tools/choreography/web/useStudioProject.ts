@@ -1,25 +1,25 @@
 import { useCallback, useRef, useState } from "react";
 import { copy } from "../../../packages/pose/choreography.ts";
 import { addTake, trackDataIds, validateProject, validateTake, validateTrackData } from "../core.ts";
-import type { ProjectSummary, ProjectV2, StudioAssets, Take, TrackData } from "../core.ts";
+import type { ProjectSummary, ProjectV3, StudioAssets, Take, TrackData } from "../core.ts";
 import { errorMessage, projectSummaries, request, workspace } from "./api.ts";
 import type { AudioTransport } from "./audio.ts";
 
-export type ProjectChange = ProjectV2 | ((project: ProjectV2) => ProjectV2);
-export type TrackEdit = (project: ProjectV2, assets: StudioAssets) => ProjectV2;
+export type ProjectChange = ProjectV3 | ((project: ProjectV3) => ProjectV3);
+export type TrackEdit = (project: ProjectV3, assets: StudioAssets) => ProjectV3;
 export type StudioProject = ReturnType<typeof useStudioProject>;
 
-/** Validates a project from storage before it is shown; storage migrates format 1 when opening. */
-export function editableProject(value: unknown): ProjectV2 {
+/** Validates a project from storage before it is shown; storage migrates formats 1 and 2 when opening. */
+export function editableProject(value: unknown): ProjectV3 {
   const p = validateProject(copy(value));
-  if (p.schemaVersion !== 2) throw Error("Reopen this project to migrate it to project format 2");
+  if (p.schemaVersion !== 3) throw Error("Reopen this project to migrate it to project format 3");
   return p;
 }
 
 // The open project, its takes and track snapshots, revision-checked saving and status messages.
 export function useStudioProject(transport: AudioTransport) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]),
-    [project, setProject] = useState<ProjectV2 | null>(null),
+    [project, setProject] = useState<ProjectV3 | null>(null),
     [takes, setTakes] = useState<StudioAssets>(() => new Map()),
     [dirty, setDirty] = useState(false),
     [saveStatus, setSaveStatus] = useState("Saved"),
@@ -29,7 +29,7 @@ export function useStudioProject(transport: AudioTransport) {
     [peaks, setPeaks] = useState<number[]>([]);
   const assetsRef = useRef(takes),
     persistedTracks = useRef(new Set<string>()),
-    savePromise = useRef<Promise<ProjectV2> | null>(null),
+    savePromise = useRef<Promise<ProjectV3> | null>(null),
     projectRef = useRef(project),
     dirtyRef = useRef(dirty);
   assetsRef.current = takes;
@@ -55,14 +55,14 @@ export function useStudioProject(transport: AudioTransport) {
   }, []);
   const refresh = useCallback(async () => setProjects(projectSummaries(await request("/api/projects"))), []);
   /** Shows a project storage just saved. */
-  const install = useCallback((p: ProjectV2) => {
+  const install = useCallback((p: ProjectV3) => {
     projectRef.current = p;
     dirtyRef.current = false;
     setProject(p);
     setDirty(false);
     setSaveStatus("Saved");
   }, []);
-  const saveProject = useCallback(async (): Promise<ProjectV2> => {
+  const saveProject = useCallback(async (): Promise<ProjectV3> => {
     if (savePromise.current) await savePromise.current;
     const sent = projectRef.current;
     if (!sent) throw Error("Open a project first");
@@ -103,7 +103,7 @@ export function useStudioProject(transport: AudioTransport) {
     }
   }, [install, refresh]);
   /** Loads a validated project's takes, track snapshots and audio, then shows it. */
-  const load = useCallback(async (p: ProjectV2) => {
+  const load = useCallback(async (p: ProjectV3) => {
     const entries = await Promise.all(
       p.takes.map(async (t): Promise<[string, Take | TrackData]> => [
         t.takeId,

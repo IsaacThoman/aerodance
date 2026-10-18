@@ -1,6 +1,7 @@
 import type { PoseSourceController } from "../../../packages/pose/browser/PoseSourceController.ts";
-import { importMotion } from "../core.ts";
-import type { ProjectV2 } from "../core.ts";
+import { importMotion, validateTake } from "../core.ts";
+import { importedPoseFile } from "../poseFiles.ts";
+import type { ProjectV3 } from "../core.ts";
 import { request } from "./api.ts";
 import type { AudioTransport } from "./audio.ts";
 import CapturePanel from "./CapturePanel.tsx";
@@ -11,7 +12,7 @@ import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
 export interface LibraryProps {
-  project: ProjectV2;
+  project: ProjectV3;
   studio: StudioProject;
   workspace: Workspace;
   live: LiveCapture;
@@ -47,8 +48,10 @@ export default function Library({ project, studio, workspace, live, source, tran
         await refresh();
         return;
       }
-      const data: unknown = JSON.parse(await file.text());
-      const take = importMotion(data, file.name);
+      // .adpose takes and choreography, or the JSON formats earlier tools wrote.
+      const take = file.name.endsWith(".adpose")
+        ? validateTake(importedPoseFile(new Uint8Array(await file.arrayBuffer()), file.name))
+        : importMotion(JSON.parse(await file.text()), file.name);
       await request(`/api/projects/${project.projectId}/import`, {
         method: "POST",
         body: take,
@@ -107,11 +110,11 @@ export default function Library({ project, studio, workspace, live, source, tran
         <span>⌁</span>
         <div>
           Import pose recording
-          <small>JSON or project ZIP</small>
+          <small>.adpose, JSON or project ZIP</small>
         </div>
         <input
           type="file"
-          accept=".json,.zip"
+          accept=".adpose,.json,.zip"
           disabled={recording || busy}
           aria-label="Import pose recording"
           onChange={(e) => {

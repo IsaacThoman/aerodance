@@ -1,10 +1,10 @@
 import { oneOf } from "../../../packages/pose/choreography.ts";
 import { DEFAULT_STAGE, STAGE_LIST, isStageId } from "../../../packages/stages/catalog.ts";
-import type { Difficulty, ProjectV2 } from "../core.ts";
+import type { Difficulty, ProjectV3 } from "../core.ts";
 import { timeLabel } from "./format.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 
-export interface SongDetailsProps { project: ProjectV2; studio: StudioProject; recording: boolean; }
+export interface SongDetailsProps { project: ProjectV3; studio: StudioProject; recording: boolean; }
 const TEXT_FIELDS = [
   ["title", "Song name"],
   ["artist", "Performing artist"],

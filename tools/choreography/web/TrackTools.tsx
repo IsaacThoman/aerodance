@@ -1,10 +1,10 @@
 import { clearTrack, interpolateTrack, offsetTrack } from "../core.ts";
-import type { ProjectV2 } from "../core.ts";
+import type { ProjectV3 } from "../core.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
 export interface TrackToolsProps {
-  project: ProjectV2;
+  project: ProjectV3;
   studio: StudioProject;
   workspace: Workspace;
   /** Bounded missing intervals per player. */

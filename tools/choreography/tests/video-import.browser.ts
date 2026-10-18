@@ -117,7 +117,7 @@ try {
   await page.getByText('Saved', { exact: true }).waitFor();
   let saved = await store.project(p.projectId);
   assert.equal(saved.takes.length, 2); assert.deepEqual(saved.tracks, initialTracks); assert.deepEqual(saved.audio, audioBefore);
-  const imported = validateTake(await store.read(p.projectId, 'takes', `${saved.takes[1].takeId}.json`));
+  const imported = validateTake(await store.take(p.projectId, saved.takes[1].takeId));
   assert.equal(imported.source, 'video'); assert.equal(imported.provenance?.modelId, 'full');
   assert.ok(Math.abs(found(imported.calibrationFrame).mediaTimeMs - 300) < 1);
   assert.ok(imported.samples.length >= 2);
@@ -130,10 +130,10 @@ try {
   await page.getByRole('menuitem', { name: 'Overwrite both tracks' }).click();
   await page.getByText('Saved', { exact: true }).waitFor();
   saved = await store.project(p.projectId);
-  assert.ok(saved.schemaVersion === 2);
+  assert.ok(saved.schemaVersion === 3);
   for (const track of saved.tracks) {
-    const data = validateTrackData(await store.read(p.projectId, 'tracks', `${track.dataId}.json`));
-    assert.deepEqual(data.calibration, takeCalibration(imported, track.playerId));
+    const data = validateTrackData(await store.track(p.projectId, found(track.dataId)));
+    assert.deepEqual(data.calibration, storedCalibration(takeCalibration(imported, track.playerId)));
   }
   // Check publication uses the selected frame, without requiring metadata clicks.
   saved.metadata.artist = 'Fixture'; saved.metadata.rights.audio.license = 'CC0'; saved.metadata.rights.choreography.license = 'CC0';

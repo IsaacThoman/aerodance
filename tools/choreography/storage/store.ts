@@ -7,10 +7,12 @@ import {
   validateTrackData,
   compileProject,
   reviewReport,
+  takeSummary,
   trackDataIds,
   migrateProject,
 } from "../core.ts";
-import type { CompiledChoreography, Project, ProjectSummary, ProjectV2, ReviewReport, StudioAssets, Take, TrackData } from "../core.ts";
+import type { CaptureMetadata, CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
+import { decodeTake, decodeTrack, encodeTake, encodeTrack, legacyCaptureFile } from "../poseFiles.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
 import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
 import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";
@@ -52,6 +54,8 @@ export class Store {
   async read(projectId: string, ...parts: string[]): Promise<unknown> {
     return JSON.parse(decode(await this.files.read(this.location(projectId, ...parts))));
   }
+  takePath(projectId: string, takeId: string) { return this.location(projectId, "takes", `${id(takeId)}.adpose`); }
+  trackPath(projectId: string, dataId: string) { return this.location(projectId, "tracks", `${id(dataId)}.adpose`); }
   async project(projectId: string): Promise<Project> {
     const p = await this.read(projectId, "project.json");
     assertProject(p);
@@ -102,28 +106,24 @@ export class Store {
           ),
         );
       }
-      for (const t of project.takes)
-        await this.require(
-          this.location(project.projectId, "takes", `${id(t.takeId)}.json`),
-        );
-      for (const dataId of trackDataIds(project))
-        await this.require(
-          this.location(project.projectId, "tracks", `${id(dataId)}.json`),
-        );
-      if (project.schemaVersion === 2) {
-        for (const track of project.tracks)
-          for (const dataId of new Set(
-            [track.dataId, track.originalDataId].filter((v): v is string => Boolean(v)),
-          )) {
-            const data = await this.read(
-              project.projectId,
-              "tracks",
-              `${id(dataId)}.json`,
-            );
-            if (!isObject(data) || data.playerId !== track.playerId || data.dataId !== dataId)
-              throw Error("Track snapshot belongs to another player");
-          }
+      if (project.schemaVersion !== 3) throw Error("Open the project to migrate it to project format 3");
+      // A take added since the stored revision must match the file it summarizes.
+      const known = new Set(isObject(current) && Array.isArray(current.takes) ? current.takes.map(t => isObject(t) ? t.takeId : null) : []);
+      for (const t of project.takes) {
+        const bytes = await this.files.read(this.takePath(project.projectId, t.takeId)).catch((e: unknown) => {
+          if (isMissing(e)) throw Object.assign(Error("Project/asset not found"), { code: "ENOENT" });
+          throw e;
+        });
+        if (!known.has(t.takeId) && t.sha256 !== await sha(bytes)) throw Error("Take metadata does not match the stored take");
       }
+      for (const track of project.tracks)
+        for (const dataId of new Set(
+          [track.dataId, track.originalDataId].filter((v): v is string => Boolean(v)),
+        )) {
+          const data = decodeTrack(await this.files.read(this.trackPath(project.projectId, dataId)));
+          if (data.playerId !== track.playerId || data.dataId !== dataId)
+            throw Error("Track snapshot belongs to another player");
+        }
       const next = {
         ...project,
         revision: (typeof current?.revision === "number" ? current.revision : 0) + 1,
@@ -155,45 +155,107 @@ export class Store {
     }
     return projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
+  /** Stores an immutable take; resolves with the take as stored, quantized and with its hash. */
   async writeTake(projectId: string, take: unknown): Promise<Take> {
-    assertTake(take);
-    const { sha256: _oldHash, ...content } = take;
-    const bytes = json(content);
-    const stored = { ...content, sha256: await sha(bytes) };
-    const filename = this.location(
-      projectId,
-      "takes",
-      `${id(stored.takeId)}.json`,
-    );
+    const stored = await this.encodeTake(take), filename = this.takePath(projectId, stored.take.takeId);
     if (await this.exists(filename)) throw Error("Take is immutable");
-    await this.atomic(filename, json(stored));
-    return stored;
+    await this.atomic(filename, stored.bytes);
+    return stored.take;
+  }
+  /** A take's file, and the take as reading that file gives it back. */
+  async encodeTake(take: unknown): Promise<{ bytes: Uint8Array; take: Take }> {
+    assertTake(take);
+    const bytes = encodeTake(take);
+    return { bytes, take: validateTake(decodeTake(bytes, { ...takeSummary(take), sha256: await sha(bytes) })) };
+  }
+  async take(projectId: string, summary: TakeSummary): Promise<Take> {
+    return validateTake(decodeTake(await this.files.read(this.takePath(projectId, summary.takeId)), summary));
+  }
+  /** A take by ID, with the metadata its project summary keeps. */
+  async takeById(projectId: string, takeId: string): Promise<Take> {
+    const p = await this.project(projectId);
+    if (p.schemaVersion !== 3) throw Error("Open the project to migrate it to project format 3");
+    const summary = p.takes.find(t => t.takeId === takeId);
+    if (!summary) throw httpError("Take not found", 404);
+    return this.take(projectId, summary);
+  }
+  async track(projectId: string, dataId: string): Promise<TrackData> {
+    const data = validateTrackData(decodeTrack(await this.files.read(this.trackPath(projectId, dataId))));
+    if (data.dataId !== dataId) throw Error("Track snapshot reference mismatch");
+    return data;
   }
   /** The project's takes and track snapshots, validated. */
-  async takes(p: Project): Promise<StudioAssets> {
+  async takes(p: ProjectV3): Promise<StudioAssets> {
     const entries = await Promise.all(
-      p.takes.map(async (t): Promise<[string, Take | TrackData]> => [
-        t.takeId,
-        validateTake(await this.read(p.projectId, "takes", `${id(t.takeId)}.json`)),
-      ]),
+      p.takes.map(async (t): Promise<[string, Take | TrackData]> => [t.takeId, await this.take(p.projectId, t)]),
     );
-    for (const dataId of trackDataIds(p))
-      entries.push([
-        dataId,
-        validateTrackData(await this.read(p.projectId, "tracks", `${id(dataId)}.json`)),
-      ]);
+    for (const dataId of trackDataIds(p)) entries.push([dataId, await this.track(p.projectId, dataId)]);
     return new Map(entries);
   }
-  async open(projectId: string): Promise<ProjectV2> {
+  async open(projectId: string): Promise<ProjectV3> {
     return this.locked(projectId, async () => {
       const p = await this.project(projectId);
-      if (p.schemaVersion === 2) return p;
-      const assets = await this.takes(p),
-        next = migrateProject(p, assets);
-      for (const dataId of trackDataIds(next))
-        await this.writeTrack(projectId, assets.get(dataId), false, true);
-      return this.save(next, p.revision, true);
+      return p.schemaVersion === 3 ? p : this.upgrade(p);
     });
+  }
+  /**
+   * Converts a format 1 or 2 project's JSON takes, track snapshots and raw captures to .adpose
+   * files and saves it as format 3. The caller holds the project lock.
+   */
+  async upgrade(project: Project): Promise<ProjectV3> {
+    if (project.schemaVersion === 3) return project;
+    const projectId = project.projectId, files = new Map<string, Uint8Array>(), remove: string[] = [];
+    const takes = new Map<string, Take | TrackData>(), summaries: TakeSummary[] = [];
+    for (const ref of project.takes) {
+      const legacy = this.location(projectId, "takes", `${id(ref.takeId)}.json`);
+      const take = validateTake(await this.read(projectId, "takes", `${id(ref.takeId)}.json`));
+      if (take.takeId !== ref.takeId) throw Error("Take reference mismatch");
+      const { bytes, take: stored } = await this.encodeTake(take);
+      takes.set(take.takeId, stored);
+      summaries.push(takeSummary(stored));
+      files.set(this.takePath(projectId, take.takeId), bytes);
+      remove.push(legacy);
+      const capture = await this.legacyCapture(projectId, take);
+      if (capture) {
+        files.set(this.location(projectId, "capture", take.takeId, "capture.adpose"), capture);
+        remove.push(this.location(projectId, "capture", take.takeId, "records.ndjson"));
+      }
+    }
+    let tracked;
+    if (project.schemaVersion === 1) tracked = migrateProject(project, takes);
+    else {
+      tracked = project;
+      for (const dataId of trackDataIds(project)) {
+        takes.set(dataId, validateTrackData(await this.read(projectId, "tracks", `${id(dataId)}.json`)));
+        remove.push(this.location(projectId, "tracks", `${id(dataId)}.json`));
+      }
+    }
+    for (const dataId of trackDataIds(tracked)) {
+      const data = takes.get(dataId);
+      assertTrackData(data);
+      files.set(this.trackPath(projectId, dataId), encodeTrack(data));
+    }
+    const next: ProjectV3 = { ...tracked, schemaVersion: 3, takes: summaries };
+    // The new files go first: until the project is saved, the old revision still reads its JSON.
+    await this.files.commit(files);
+    const saved = await this.save(next, project.revision, true);
+    await this.files.commit(new Map(), remove);
+    return saved;
+  }
+  /** A raw capture left as records.ndjson, converted; null when there is none or it can't be represented. */
+  async legacyCapture(projectId: string, take: Take): Promise<Uint8Array | null> {
+    let text: string, metadata: CaptureMetadata | null = null;
+    try {
+      text = decode(await this.files.read(this.location(projectId, "capture", take.takeId, "records.ndjson")));
+      const value = await this.read(projectId, "capture", take.takeId, "capture.json").catch(() => null);
+      if (isObject(value)) metadata = value as unknown as CaptureMetadata;
+    } catch (e) {
+      if (isMissing(e)) return null;
+      throw e;
+    }
+    try { return legacyCaptureFile(text, metadata?.sourceKind ?? take.source, take.calibrationFrame); }
+    // Captures such as stored "android" records stay as they are.
+    catch { return null; }
   }
   async writeTrack(
     projectId: string,
@@ -204,18 +266,14 @@ export class Store {
     assertTrackData(data);
     const persist = async () => {
       if (requireProject) await this.read(projectId, "project.json");
-      const filename = this.location(
-        projectId,
-        "tracks",
-        `${id(data.dataId)}.json`,
-      );
+      const filename = this.trackPath(projectId, data.dataId), bytes = encodeTrack(data);
       try {
-        const current = await this.files.read(filename);
-        if (!equal(current, json(data)))
+        // Encoding a decoded snapshot reproduces its bytes, so a retried upload matches.
+        if (!equal(await this.files.read(filename), bytes))
           throw Error("Track snapshot is immutable");
       } catch (e) {
         if (!isMissing(e)) throw e;
-        await this.atomic(filename, json(data));
+        await this.atomic(filename, bytes);
       }
       return { dataId: data.dataId };
     };
@@ -231,7 +289,7 @@ export class Store {
         await this.files.commit(new Map(), [this.location(projectId) + "/"]);
         return { deleted: true };
       }
-      if (stored.schemaVersion !== 2)
+      if (stored.schemaVersion !== 3)
         throw Error("Open the project before deleting takes");
       const p = stored;
       assertProject(p);
@@ -241,13 +299,13 @@ export class Store {
       p.revision++;
       p.updatedAt = new Date().toISOString();
       await this.persist(p, [
-        this.location(projectId, "takes", `${id(takeId)}.json`),
+        this.takePath(projectId, takeId),
         this.location(projectId, "capture", id(takeId)) + "/",
       ]);
       return p;
     });
   }
-  async compile(p: Project): Promise<CompileResult> {
+  async compile(p: ProjectV3): Promise<CompileResult> {
     const data = compileProject(p, await this.takes(p));
     data.provenance.settingsHash = await sha(
       json({
@@ -257,7 +315,7 @@ export class Store {
     );
     return { data, report: reviewReport(p, data) };
   }
-  async bundle(p: Project): Promise<SongBundleFiles> {
+  async bundle(p: ProjectV3): Promise<SongBundleFiles> {
     const { data, report } = await this.compile(p);
     if (report.blockers.length)
       throw httpError(report.blockers.join("\n"), 422);

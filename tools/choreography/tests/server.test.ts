@@ -17,10 +17,13 @@ import {
 } from "../core.ts";
 import type { Project, StudioAssets, Take } from "../core.ts";
 import { takeIdOf } from "../web/api.ts";
+import { captureHead, captureHeader, decodeTake, decodeTrack, encodeTrack } from "../poseFiles.ts";
+import type { CaptureStart } from "../poseFiles.ts";
+import { EXTENSION, PoseFileWriter, decodePoseFile } from "../../../packages/pose/binary.ts";
 import { poseModel, MEDIAPIPE_VERSION } from '../../../packages/pose/browser/models.ts';
 import { isObject } from "../../../packages/pose/choreography.ts";
 import type { Pose } from "../../../packages/pose/choreography.ts";
-import { baseUrl, found, projectOf, read, takeOf, zipJson, zipPose } from "./helpers.ts";
+import { assertSamplesClose, baseUrl, found, ndjson, projectOf, read, takeOf, zipJson, zipPose } from "./helpers.ts";
 const errorOf = async (response: Response) => read(await response.json(), "error");
 function trackData(assets: StudioAssets, dataId: string) {
   const data = assets.get(dataId);
@@ -54,8 +57,8 @@ const webcamStatus = () => {
   const model = poseModel('lite');
   return { modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION, delegate: 'CPU' };
 };
-const webcamRecords = (count: number) => Array.from({ length: count }, (_, i) => ({ ordinal: i, receivedBrowserTimeMs: 1000 + i * 100 + 20,
-  audioPositionAtReceiptMs: i * 100 + 20, audioPositionAtFrameMs: 500 + i * 100, audioPlaybackRate: 1,
+const webcamRecords = (count: number, audioStartMs = 500) => Array.from({ length: count }, (_, i) => ({ ordinal: i, receivedBrowserTimeMs: 1000 + i * 100 + 20,
+  audioPositionAtReceiptMs: i * 100 + 20, audioPositionAtFrameMs: audioStartMs + i * 100, audioPlaybackRate: 1,
   record: { schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 'webcam', seq: i + 1,
     playerCount: 2, input: { width: 640, height: 480, mirrored: false }, modelId: 'lite',
     frameBrowserTimeMs: 1000 + i * 100, resultBrowserTimeMs: 1000 + i * 100 + 20,
@@ -64,23 +67,28 @@ const wireRecords = (count: number) => Array.from({ length: count }, (_, i) => (
   audioPositionAtReceiptMs: i * 100, record: { protocolVersion: 2, type: 'pose', sessionId: 's', seq: i + 1,
     frameReceivedTimeMs: i * 100, resultTimeMs: i * 100 + 20, playerCount: 2,
     input: { width: 640, height: 480, mirrored: false }, poses: [pose(0), pose(1)] } }));
-test('webcam batches reject protocol-v2 records and preserve a finalized take through export and backup', async t => {
-  const { api, base } = await setup(t);
+const webcamHeader: CaptureStart = { sourceKind: "webcam", sessionId: "webcam", input: { width: 640, height: 480 }, playerCount: 2,
+  modelId: "lite", audioPlaybackRate: 1, extensionBases: [1000, 1000, 1000, 0, 0] };
+/** Capture records as the frame chunk a recorder uploads. */
+const webcamBatch = (records: ReturnType<typeof webcamRecords>) => new PoseFileWriter(captureHeader(webcamHeader)).frames(records.map(e => ({
+  timeMs: e.record.mediaTimeMs, poses: e.record.poses, seq: e.record.seq, extensions: {
+    [EXTENSION.frameBrowserTimeMs]: e.record.frameBrowserTimeMs, [EXTENSION.resultBrowserTimeMs]: e.record.resultBrowserTimeMs,
+    [EXTENSION.receivedBrowserTimeMs]: e.receivedBrowserTimeMs, [EXTENSION.audioPositionAtFrameMs]: e.audioPositionAtFrameMs,
+    [EXTENSION.audioPositionAtReceiptMs]: e.audioPositionAtReceiptMs,
+  },
+})));
+test('webcam batches accept only frame and event chunks and preserve a finalized take through export and backup', async t => {
+  const { api, upload, base } = await setup(t);
   let p = await projectOf(await api('/api/projects', {}));
   const model = poseModel('lite');
   const status = { modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION, delegate: 'CPU' };
-  const takeId = takeIdOf(await (await api(`/api/projects/${p.projectId}/takes`, { sourceKind: 'webcam', status })).json());
+  const takeId = takeIdOf(await (await api(`/api/projects/${p.projectId}/takes`, { sourceKind: 'webcam', status, header: webcamHeader })).json());
   const url = `/api/projects/${p.projectId}/takes/${takeId}`;
-  const records = Array.from({ length: 11 }, (_, i) => ({ ordinal: i, receivedBrowserTimeMs: 1000 + i * 100 + 20,
-    audioPositionAtReceiptMs: i * 100 + 20, audioPositionAtFrameMs: i * 100, audioPlaybackRate: 1,
-    record: { schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 'webcam', seq: i + 1,
-      playerCount: 2, input: { width: 640, height: 480, mirrored: false }, modelId: 'lite',
-      frameBrowserTimeMs: 1000 + i * 100, resultBrowserTimeMs: 1000 + i * 100 + 20,
-      mediaTimeMs: i * 100, timingMethod: 'browser-frame-observation', poses: [pose(0), pose(1)] } }));
-  const mixed = records.map((r, i) => i === 0 ? { ...r, record: { protocolVersion: 2, type: 'pose' } } : r);
-  assert.equal((await api(`${url}/batches`, { batchId: 0, records: mixed })).status, 400);
-  assert.equal((await api(`${url}/batches`, { batchId: 0, records })).status, 200);
-  assert.equal((await api(`${url}/batches`, { batchId: 0, records })).status, 200);
+  const records = webcamRecords(11, 0), batch = webcamBatch(records);
+  assert.equal((await upload(`${url}/batches?batchId=0`, captureHead(webcamHeader))).status, 400);
+  assert.equal((await api(`${url}/batches?batchId=0`, { batchId: 0, records })).status, 400, 'JSON envelopes are no longer accepted');
+  assert.equal((await upload(`${url}/batches?batchId=0`, batch)).status, 200);
+  assert.equal((await upload(`${url}/batches?batchId=0`, batch)).status, 200);
   const response = await api(`${url}/finalize`, { batchCount: 1, recordCount: records.length });
   assert.equal(response.status, 200, await response.clone().text());
   const webcamTake = await takeOf(response);
@@ -110,6 +118,10 @@ test('webcam batches reject protocol-v2 records and preserve a finalized take th
   assert.equal(restored.status, 201); const rp = await projectOf(restored);
   const saved = await takeOf(await fetch(`${base}/api/projects/${rp.projectId}/takes/${rp.takes[0].takeId}`));
   assert.equal(saved.source, 'webcam'); assert.equal(saved.provenance?.modelHash, model.sha256);
+  const archive = await (await fetch(`${base}/api/projects/${p.projectId}/backup`)).arrayBuffer();
+  const raw = found(readZip(Buffer.from(archive)).get(`raw/${takeId}.adpose`));
+  assert.equal(decodePoseFile(raw).times.length, 11);
+  assert.equal(saved.provenance?.rawSha256, sha(raw), 'the take records the capture file it was built from');
 });
 async function setup(t: TestContext) {
   const root = await mkdtemp(path.join(tmpdir(), "dance-studio-")),
@@ -127,17 +139,19 @@ async function setup(t: TestContext) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-  return { ...studio, api, base };
+  const upload = (url: string, bytes: Uint8Array<ArrayBuffer>) =>
+    fetch(base + url, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: bytes });
+  return { ...studio, api, upload, base };
 }
 test("project revisions, persisted audio, bundle integrity and backup restore survive a new store", async (t) => {
   const { api, base, store } = await setup(t);
   let p = await projectOf(await api("/api/projects", {}));
-  const uploaded = take();
-  assert.equal(
-    (await api(`/api/projects/${p.projectId}/import`, uploaded)).status,
-    201,
-  );
+  const imported = await api(`/api/projects/${p.projectId}/import`, take());
+  assert.equal(imported.status, 201);
+  const uploaded = await takeOf(imported);
   p = addTake(p, uploaded);
+  const forged = addTake(p, { ...uploaded, takeId: crypto.randomUUID() });
+  assert.equal((await api(`/api/projects/${p.projectId}`, forged, "PUT")).status, 404, "a listed take needs its file");
   const assets: StudioAssets = new Map();
   p = overwriteTracks(p, uploaded, [0, 1], assets);
   for (const dataId of trackDataIds(p))
@@ -205,15 +219,15 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
 test('stored unsupported projects remain listed but cannot be opened or mutated by this editor', async t => {
   const {api,base,store}=await setup(t);
   const created=await projectOf(await api('/api/projects',{}));
-  const p={...created,schemaVersion:3,
+  const p={...created,schemaVersion:4,
     tracks:created.tracks.map(({playerId,label})=>({playerId,label,dataId:'edited',originalDataId:'original',offsetMs:0}))};
   const bytes=Buffer.from(JSON.stringify(p));
   await store.atomic(store.location(p.projectId,'project.json'),bytes);
   const list: unknown=await (await fetch(base+'/api/projects')).json();
-  assert.equal(read(list,0,'schemaVersion'),3);
+  assert.equal(read(list,0,'schemaVersion'),4);
   const opened=await fetch(`${base}/api/projects/${p.projectId}`);
   assert.equal(opened.status,400);
-  assert.match(String(await errorOf(opened)),/Unsupported project format 3/);
+  assert.match(String(await errorOf(opened)),/Unsupported project format 4/);
   const audio=await fetch(`${base}/api/projects/${p.projectId}/audio?durationMs=1000&revision=${p.revision}`,{
     method:'POST',headers:{'Content-Type':'audio/wav'},body:Buffer.from('audio'),
   });
@@ -222,31 +236,36 @@ test('stored unsupported projects remain listed but cannot be opened or mutated 
   assert.equal((await api(`/api/projects/${p.projectId}`,p,'PUT')).status,400);
   assert.deepEqual(await store.read(p.projectId,'project.json'),p);
 });
-test("record batches are idempotent and finalization rejects missing ordinals", async (t) => {
-  const { api } = await setup(t),
+test("record batches are idempotent and finalization rejects missing records", async (t) => {
+  const { api, upload } = await setup(t),
     p = await projectOf(await api("/api/projects", {}));
+  assert.equal((await api(`/api/projects/${p.projectId}/takes`, { sourceKind: "webcam", status: webcamStatus() })).status, 400,
+    "a capture declares its header");
   const capture: unknown = await (
-    await api(`/api/projects/${p.projectId}/takes`, { sourceKind: "webcam", status: webcamStatus() })
+    await api(`/api/projects/${p.projectId}/takes`, { sourceKind: "webcam", status: webcamStatus(), header: webcamHeader })
   ).json();
   assert.equal(read(capture, "name"), "Webcam take");
   const url = `/api/projects/${p.projectId}/takes/${takeIdOf(capture)}`;
-  const body = { batchId: 0, records: webcamRecords(2) };
-  assert.equal((await api(`${url}/batches`, body)).status, 200);
-  assert.equal((await api(`${url}/batches`, body)).status, 200);
+  const body = webcamBatch(webcamRecords(2));
+  assert.equal((await upload(`${url}/batches?batchId=0`, body)).status, 200);
+  assert.equal((await upload(`${url}/batches?batchId=0`, body)).status, 200);
+  assert.equal((await upload(`${url}/batches?batchId=0`, webcamBatch(webcamRecords(3)))).status, 400, "a retry must match");
   assert.equal(
     (await api(`${url}/finalize`, { batchCount: 1, recordCount: 3 })).status,
     400,
   );
+  assert.equal((await api(`${url}/finalize`, { batchCount: 2, recordCount: 2 })).status, 400);
   const done = await api(`${url}/finalize`, { batchCount: 1, recordCount: 2 });
   assert.equal(done.status, 200);
   const take = await takeOf(done);
   assert.equal(take.samples.length, 2);
   assert.equal(take.offsetMs, 500);
   assert.equal(take.source, "webcam");
-  assert.equal((await api(`${url}/batches`, body)).status, 400);
+  assert.equal((await upload(`${url}/batches?batchId=0`, body)).status, 400);
+  assert.deepEqual(await takeOf(await api(`${url}/finalize`, { batchCount: 1, recordCount: 2 })), take, "finalizing again returns the take");
 });
 test("capture uploads require a webcam or video source and stale Android captures cannot resume", async (t) => {
-  const { api, store } = await setup(t),
+  const { api, upload, store } = await setup(t),
     p = await projectOf(await api("/api/projects", {}));
   for (const body of [{}, { sourceKind: "android" }, { sourceKind: "bogus" }]) {
     const response = await api(`/api/projects/${p.projectId}/takes`, body);
@@ -261,11 +280,9 @@ test("capture uploads require a webcam or video source and stale Android capture
       Buffer.from(JSON.stringify({ takeId, projectId: p.projectId, name: "Android take", sourceKind })));
     await store.atomic(path.join(folder, "batches", "0.json"), Buffer.from(JSON.stringify(wireRecords(2))));
     const url = `/api/projects/${p.projectId}/takes/${takeId}`;
-    for (const records of [wireRecords(2), []]) {
-      const response = await api(`${url}/batches`, { batchId: 1, records });
-      assert.equal(response.status, 400);
-      assert.equal(await errorOf(response), "Unsupported capture source");
-    }
+    const response = await upload(`${url}/batches?batchId=1`, webcamBatch(webcamRecords(2)));
+    assert.equal(response.status, 400);
+    assert.equal(await errorOf(response), "Unsupported capture source");
     const finalized = await api(`${url}/finalize`, { batchCount: 1, recordCount: 2 });
     assert.equal(finalized.status, 400);
     assert.equal(await errorOf(finalized), "Unsupported capture source");
@@ -274,14 +291,14 @@ test("capture uploads require a webcam or video source and stale Android capture
 });
 test("projects with stored Android takes open, compile, export, back up and restore", async (t) => {
   const { api, base, store } = await setup(t);
-  const stored = take("android");
-  stored.provenance = { sessionId: "s", sequenceGaps: 0, synthetic: false, alignmentMethod: "receipt-estimate" };
+  const android = take("android");
+  android.provenance = { sessionId: "s", sequenceGaps: 0, synthetic: false, alignmentMethod: "receipt-estimate" };
+  const stored = await store.writeTake("android-project", android);
   const assets: StudioAssets = new Map([[stored.takeId, stored]]);
   let p: Project = overwriteTracks(addTake(newProject("android-project"), stored), stored, [0, 1], assets);
   p.metadata.artist = "Artist";
   p.metadata.rights.audio.license = "CC0";
   p.metadata.rights.choreography.license = "CC0";
-  await store.writeTake(p.projectId, stored);
   for (const dataId of trackDataIds(p)) await store.writeTrack(p.projectId, assets.get(dataId));
   // The raw capture an Android take was finalized from travels with backups.
   const raw = Buffer.from(wireRecords(2).map((e) => JSON.stringify(e) + "\n").join(""));
@@ -346,8 +363,7 @@ test("write API rejects cross-origin requests and ZIP reader rejects corruption/
 test("deleting a take preserves tracks, provenance, backup restore, and undo assets", async (t) => {
   const { api, base, store } = await setup(t);
   let p = await projectOf(await api("/api/projects", {}));
-  const uploaded = take();
-  await api(`/api/projects/${p.projectId}/import`, uploaded);
+  const uploaded = await takeOf(await api(`/api/projects/${p.projectId}/import`, take()));
   p = addTake(p, uploaded);
   const assets: StudioAssets = new Map();
   p = overwriteTracks(p, uploaded, [0, 1], assets);
@@ -443,16 +459,15 @@ test("project deletion rejects stale revisions and queued writes cannot recreate
 test("opening and restoring legacy projects migrates their independent tracks", async (t) => {
   const { base, store } = await setup(t);
   const uploaded = take("android");
-  let p: Project = addTake(newProject("legacy-project", 1), uploaded);
-  await store.writeTake(p.projectId, uploaded);
-  p = await store.save(p, null);
-  const legacyBackup = await (
-    await fetch(`${base}/api/projects/${p.projectId}/backup`)
-  ).arrayBuffer();
-  const opened = validateProject(await (
-    await fetch(`${base}/api/projects/${p.projectId}`)
-  ).json());
-  assert.equal(opened.schemaVersion, 2);
+  const p = addTake(newProject("legacy-project", 1), uploaded);
+  // Format 1 stored whole takes as JSON.
+  const takeJson = Buffer.from(JSON.stringify(uploaded));
+  await store.atomic(store.location(p.projectId, "takes", `${uploaded.takeId}.json`), takeJson);
+  await store.persist(p);
+  // Projects not yet opened (such as an old disk workspace) back up their files as stored.
+  const legacyBackup = await (await fetch(`${base}/api/projects/${p.projectId}/backup`)).arrayBuffer();
+  assert.deepEqual(readZip(Buffer.from(legacyBackup)).get(`takes/${uploaded.takeId}.json`), takeJson);
+  const opened = await projectOf(await fetch(`${base}/api/projects/${p.projectId}`));
   assert.equal(opened.revision, p.revision + 1);
   assert.equal((await store.compile(opened)).data.samples[0].poses.length, 2);
   assert.equal(
@@ -460,27 +475,64 @@ test("opening and restoring legacy projects migrates their independent tracks", 
       .revision,
     opened.revision,
   );
+  assert.equal(await store.exists(store.location(p.projectId, "takes", `${uploaded.takeId}.json`)), false);
   const restored = await fetch(base + "/api/restore", {
     method: "POST",
     headers: { "Content-Type": "application/zip" },
     body: legacyBackup,
   });
-  assert.equal(restored.status, 201);
-  const copy = validateProject(await restored.json());
-  assert.equal(copy.schemaVersion, 2);
+  assert.equal(restored.status, 201, await restored.clone().text());
+  const copy = await projectOf(restored);
   assert.equal((await store.compile(copy)).data.samples[0].poses.length, 2);
 });
 
-test("capture payload limits use compact bytes rather than storage indentation", async t => {
-  const { api } = await setup(t), p = await projectOf(await api("/api/projects", {}));
-  const capture = await api(`/api/projects/${p.projectId}/takes`, { sourceKind: "webcam", status: webcamStatus() });
-  const takeId = takeIdOf(await capture.json()), records = webcamRecords(1);
-  for (const pose of records[0].record.poses) for (const joint of pose.landmarks)
-    Object.assign(joint, { x: -0.0000012345678901234567, y: -0.0000012345678901234567, z: -0.0000012345678901234567,
-      // Older clients sent visibility and presence; both are accepted and combined.
-      visibility: 0.0000012345678901234567, presence: 0.0000012345678901234567 });
-  assert.ok(Buffer.byteLength(JSON.stringify(records[0].record)) < 16384);
-  assert.ok(Buffer.byteLength(JSON.stringify(records[0].record, null, 2)) > 16384);
-  const result = await api(`/api/projects/${p.projectId}/takes/${takeId}/batches`, { batchId: 0, records });
-  assert.equal(result.status, 200, await result.text());
+test("format 2 projects convert their JSON takes, tracks and raw captures to .adpose when opened", async (t) => {
+  const { base, store } = await setup(t);
+  const model = poseModel("lite"), records = webcamRecords(4);
+  const legacyTake = { ...take("webcam"), takeId: "webcam-take", offsetMs: 500, timeScale: 1, createdAt: "2026-01-02T00:00:00.000Z",
+    status: webcamStatus(), interruptionReason: null, provenance: { modelId: model.id, sourceRateHz: 10, rawSha256: sha(ndjson(records)) } };
+  const assets: StudioAssets = new Map([[legacyTake.takeId, legacyTake]]);
+  const v3 = overwriteTracks(addTake(newProject("format-two"), legacyTake), legacyTake, [0, 1], assets);
+  const p = { ...v3, schemaVersion: 2, takes: [{ takeId: legacyTake.takeId, name: legacyTake.name, source: "webcam", input: legacyTake.input }] };
+  const folder = (...parts: string[]) => store.location(p.projectId, ...parts);
+  await store.atomic(folder("takes", "webcam-take.json"), Buffer.from(JSON.stringify(legacyTake)));
+  for (const dataId of trackDataIds(v3)) {
+    const data = trackData(assets, dataId);
+    await store.atomic(folder("tracks", `${dataId}.json`), Buffer.from(JSON.stringify(data)));
+  }
+  await store.atomic(folder("capture", "webcam-take", "capture.json"), Buffer.from(JSON.stringify({ takeId: "webcam-take", sourceKind: "webcam" })));
+  await store.atomic(folder("capture", "webcam-take", "records.ndjson"), Buffer.from(ndjson(records)));
+  await store.persist(validateProject(p));
+  const opened = await projectOf(await fetch(`${base}/api/projects/${p.projectId}`));
+  const summary = opened.takes[0];
+  assert.equal(summary.offsetMs, 500);
+  assert.equal(summary.createdAt, legacyTake.createdAt);
+  assert.deepEqual(summary.status, legacyTake.status);
+  assert.equal(summary.sha256, sha(await readFile(folder("takes", "webcam-take.adpose"))));
+  const saved = await takeOf(await fetch(`${base}/api/projects/${p.projectId}/takes/webcam-take`));
+  assertSamplesClose(saved.samples, legacyTake.samples);
+  assert.deepEqual(saved.provenance, legacyTake.provenance);
+  assert.deepEqual(decodeTake(await readFile(folder("takes", "webcam-take.adpose")), summary), saved);
+  for (const dataId of trackDataIds(opened)) {
+    const data = decodeTrack(await readFile(folder("tracks", `${dataId}.adpose`)));
+    assert.equal(data.dataId, dataId);
+    assert.deepEqual(encodeTrack(data), new Uint8Array(await readFile(folder("tracks", `${dataId}.adpose`))), "re-encoding is stable");
+  }
+  const capture = decodePoseFile(await readFile(folder("capture", "webcam-take", "capture.adpose")));
+  assert.deepEqual(Array.from(capture.seq), [1, 2, 3, 4]);
+  assert.deepEqual(Array.from(found(capture.extensions.get(EXTENSION.audioPositionAtFrameMs))), [500, 600, 700, 800]);
+  for (const legacy of [["takes", "webcam-take.json"], ["capture", "webcam-take", "records.ndjson"], ...trackDataIds(opened).map(id => ["tracks", `${id}.json`])])
+    assert.equal(await store.exists(folder(...legacy)), false, legacy.join("/"));
+});
+
+test("capture batches are binary and bounded", async t => {
+  const { api, upload } = await setup(t), p = await projectOf(await api("/api/projects", {}));
+  const capture = await api(`/api/projects/${p.projectId}/takes`, { sourceKind: "webcam", status: webcamStatus(), header: webcamHeader });
+  const url = `/api/projects/${p.projectId}/takes/${takeIdOf(await capture.json())}/batches`;
+  const large = webcamBatch(webcamRecords(1100));
+  assert.ok(large.length > 512 * 1024);
+  assert.equal((await upload(`${url}?batchId=0`, large)).status, 400);
+  assert.equal((await upload(`${url}?batchId=5000`, webcamBatch(webcamRecords(1)))).status, 400);
+  assert.equal((await upload(url, webcamBatch(webcamRecords(1)))).status, 400, "the batch number is required");
+  assert.equal((await upload(`${url}?batchId=0`, webcamBatch(webcamRecords(500)))).status, 200);
 });

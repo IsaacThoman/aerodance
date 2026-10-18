@@ -9,7 +9,7 @@ import { BACK as MENU_BACK, SETTINGS, START, TWO_PLAYERS } from '../src/menu/lay
 import { BACK, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { appendOperation, trackDataIds, validateProject, validateTake, validateTrackData } from '../../tools/choreography/core.ts';
-import type { ProjectV2, StudioAssets, Take } from '../../tools/choreography/core.ts';
+import type { ProjectV3, StudioAssets, Take } from '../../tools/choreography/core.ts';
 import { readZip } from '../../tools/choreography/server/zip.ts';
 import { validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
 import type { Page } from 'playwright';
@@ -158,7 +158,7 @@ try {
   }
   assert.ok(persisted, 'recorded webcam take was finalized and saved');
   const store = browserStore(studio), summaries = await store.list(), recorded = await store.project(summaries[0].projectId);
-  const take: Take = validateTake(await store.read(recorded.projectId, 'takes', `${recorded.takes.at(-1)?.takeId}.json`));
+  const take: Take = validateTake(await store.take(recorded.projectId, String(recorded.takes.at(-1)?.takeId)));
   assert.equal(take.source, 'webcam'); assert.equal(take.provenance?.modelId, 'lite');
   assert.equal(take.provenance?.alignmentMethod, 'browser-frame-audio-anchor');
   assert.ok(take.samples.length > 5); assert.ok(take.samples.some(s => s.poses.length === 2));
@@ -169,17 +169,17 @@ try {
   await studio.getByRole('button', { name: 'Save', exact: true }).click();
   await studio.locator('.save-state').filter({ hasText: /^Saved$/ }).waitFor();
   const assigned = await store.project(recorded.projectId);
-  assert.ok(assigned.schemaVersion === 2 && assigned.tracks.every(track => track.dataId));
+  assert.ok(assigned.schemaVersion === 3 && assigned.tracks.every(track => track.dataId));
   const exported = await (async () => {
     // Saved projects are always the current format.
-    const project = (data: unknown): ProjectV2 => {
+    const project = (data: unknown): ProjectV3 => {
       const loaded = validateProject(data);
-      assert.equal(loaded.schemaVersion, 2);
+      assert.equal(loaded.schemaVersion, 3);
       return loaded;
     };
     let p = project(await store.project(recorded.projectId));
     const projectId = p.projectId;
-    const assets: StudioAssets = new Map(await Promise.all(trackDataIds(p).map(async (id) => [id, validateTrackData(await store.read(projectId, 'tracks', `${id}.json`))] as const)));
+    const assets: StudioAssets = new Map(await Promise.all(trackDataIds(p).map(async (id) => [id, validateTrackData(await store.track(projectId, id))] as const)));
     const existing = new Set(assets.keys());
     p.metadata.artist = 'Browser fixture'; p.metadata.title = 'Webcam fixture';
     p.metadata.rights.audio.license = 'test-fixture'; p.metadata.rights.choreography.license = 'test-fixture';
@@ -188,7 +188,7 @@ try {
     p.alignmentReviewed = true;
     p = project(await store.save(p, p.revision));
     // Software CI can miss >200 ms intervals. Apply the production track review
-    // operation, which records v2 track snapshots and history alongside exclusions.
+    // operation, which records track snapshots and history alongside exclusions.
     for (let i = 0; i < take.samples.length - 1; i++) {
       const sample = take.samples[i], next = take.samples[i + 1];
       const gap = next.takeTimeMs - sample.takeTimeMs;

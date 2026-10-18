@@ -1,16 +1,16 @@
-import type { ProjectV2 } from "../core.ts";
+import type { ProjectV3 } from "../core.ts";
 import { projectSummaries, request, workspace as storage, errorMessage } from "./api.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
 export interface ProjectHeaderProps {
-  project: ProjectV2;
+  project: ProjectV3;
   studio: StudioProject;
   workspace: Workspace;
   /** Whether the project compiles, so a song bundle can be exported. */
   canExport: boolean;
 }
-const unsupported = (schemaVersion: unknown) => schemaVersion != null && schemaVersion !== 1 && schemaVersion !== 2;
+const unsupported = (schemaVersion: unknown) => schemaVersion != null && schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3;
 
 // The project picker, project actions and saving.
 export default function ProjectHeader({ project, studio, workspace, canExport }: ProjectHeaderProps) {

@@ -28,7 +28,8 @@ export const EXTENSION = {
 const ORIGIN_CODES: Readonly<Record<LandmarkOrigin, number>> = { measured: 0, resampled: 0, edited: 2, 'gap-repaired': 3, 'missing-confidence': 4 };
 const ORIGIN_NAMES: readonly (LandmarkOrigin | undefined)[] = ['measured', undefined, 'edited', 'gap-repaired', 'missing-confidence'];
 const ELIGIBLE = 8;
-const SEEK_TIME = 1;
+/** frameFlags bit 0: the frame was timed by seeking, not by a decoded frame timestamp. */
+export const SEEK_TIME = 1;
 const EVENT_TYPES = ['audio-start-scheduled', 'audio-stop', 'source-stopped'] as const;
 const MARKER_KINDS = ['beat', 'phrase', 'note'] as const;
 const SOURCE_KINDS = ['webcam', 'video'] as const;

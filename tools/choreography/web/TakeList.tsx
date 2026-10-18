@@ -2,12 +2,12 @@ import { useEffect } from "react";
 import type { MouseEvent } from "react";
 import { finite } from "../../../packages/pose/choreography.ts";
 import { overwriteTracks, sourceLabel } from "../core.ts";
-import type { ProjectV2, Take, TakeSummary } from "../core.ts";
+import type { ProjectV3, Take, TakeSummary } from "../core.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import { takeById } from "./useWorkspace.ts";
 import type { Workspace } from "./useWorkspace.ts";
 
-export interface TakeListProps { project: ProjectV2; studio: StudioProject; workspace: Workspace; }
+export interface TakeListProps { project: ProjectV3; studio: StudioProject; workspace: Workspace; }
 const closeMenu = (e: MouseEvent<HTMLElement>) => {
   const menu = e.currentTarget.closest("details");
   if (menu) menu.open = false;
