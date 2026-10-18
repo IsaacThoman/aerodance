@@ -132,13 +132,13 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   const xs = session.playerCount === 2 ? [preview.x + preview.w / 4, preview.x + preview.w * 3 / 4] : [mid];
   const live = connection.status === 'connected';
   calibration.players.forEach((status, id) => {
-    const [label, color] = live ? CALIBRATION_STATUS[status] : ['Camera off', 'rgba(255,255,255,0.7)'];
+    const [label, color] = live ? CALIBRATION_STATUS[status] : [camera.active() ? 'Camera starting…' : 'Camera off', 'rgba(255,255,255,0.7)'];
     drawCaps(g, `PLAYER ${id + 1}`, xs[id], preview.y + preview.h + 26, { size: 18, align: 'center' });
     text(g, label, xs[id], preview.y + preview.h + 56, { size: 22, weight: 700, align: 'center', color });
   });
   drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
   const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
-  const message = !live ? 'Start the camera, then step back until it can see your feet.'
+  const message = !live ? (camera.active() ? 'Step back until the camera can see your feet.' : 'Start the camera, then step back until it can see your feet.')
     : calibration.complete ? 'Calibrated! Starting…'
     : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
     : 'The countdown starts automatically once everyone is calibrated.';
