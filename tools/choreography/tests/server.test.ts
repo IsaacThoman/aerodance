@@ -173,7 +173,7 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
   assert.equal(exported.status, 200, await exported.clone().text());
   const files = readZip(Buffer.from(await exported.arrayBuffer()));
   const checks = read(zipJson(files, `${p.songId}/checksums.json`), "files");
-  // The song carries its stage, so the game opens it on Club Aquarium.
+  // The song carries its stage, so the game opens it on club.
   assert.equal(read(zipJson(files, `${p.songId}/song.json`), "stage"), "club");
   assert.ok(Array.isArray(checks));
   for (const file of checks) {

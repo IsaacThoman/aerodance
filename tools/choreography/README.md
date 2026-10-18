@@ -42,7 +42,7 @@ Open http://localhost:5177. The API listens on 8082 and writes ignored
 
 1. Create a project, import music, and enter **Song details**. Duration is measured
    by the browser audio decoder. Set the real artist, authors/choreographers, the
-   **Stage** the game shows the routine on (Open Reef by default), and
+   **Stage** the game shows the routine on (`openreef` by default), and
    distribution licenses or permissions.
 2. Import a pose JSON, or start the webcam and **Record new take**.
    Choose a camera and **Lite / Full / Heavy**, then **Start camera**

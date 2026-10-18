@@ -3,7 +3,6 @@ import type { StageMeta } from '../catalog.ts';
 
 const meta = {
   id: 'falls',
-  name: 'Emerald Falls',
   subtitle: 'Waterfall highlands',
   accent: ['#b6f27a', '#3aa82a'],
   dancers: { position: [0, 0, 0], rotationY: 0, spacing: 4 },

@@ -1,4 +1,4 @@
-// Emerald Falls: a white gloss stage on a clifftop meadow above a turquoise
+// falls: a white gloss stage on a clifftop meadow above a turquoise
 // lake fed by tepui waterfalls, with floating islands, a rainbow in the spray
 // and a gentle touch of eco-tech (solar flowers, turbines, observatory).
 import { useMemo } from 'react';

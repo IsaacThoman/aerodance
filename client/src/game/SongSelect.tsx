@@ -18,7 +18,7 @@ import { SCORER_VERSION } from '../../../packages/score/scorer.ts';
 import { bestScore } from './bestScores.ts';
 import type { SongRoutine } from './GameSession.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
-import { preloadStage, resolveStage, stageName } from '../../../packages/stages/index.ts';
+import { preloadStage, resolveStage } from '../../../packages/stages/index.ts';
 import type { StageState } from '../stage/StageView.tsx';
 import {
   BACK, DANCE, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, rowRect,
@@ -318,7 +318,7 @@ export default function SongSelect({
             const best = bestScore(song.id, p.playerCount, SCORER_VERSION);
             // Catalog difficulty is free-form display text.
             const difficulty = typeof song.difficulty === 'string' || typeof song.difficulty === 'number' ? String(song.difficulty) : 'Routine';
-            const sub = loadingThis ? `Loading bundle${dots}` : [song.artist, difficulty, song.stage ? stageName(song.stage) : null,
+            const sub = loadingThis ? `Loading bundle${dots}` : [song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
               best ? `Best ${best.score.toLocaleString('en-US')} ${best.grade}` : null].filter(Boolean).join(' · ');
             g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
             drawPill(g, rect, {
@@ -352,7 +352,7 @@ export default function SongSelect({
         g.font = `800 64px ${FONT}`;
         drawShadowText(g, ellipsize(g, song.title, 900), BACK.x - 38, BACK.y + 84, { size: 64, weight: 800 });
         g.font = `700 30px ${FONT}`;
-        drawShadowText(g, ellipsize(g, `${song.artist} · ${stageName(resolveStage(song.stage))}`, 900), BACK.x - 36, BACK.y + 140, { size: 30, color: '#d8f6ff' });
+        drawShadowText(g, ellipsize(g, `${song.artist} · ${resolveStage(song.stage)}`, 900), BACK.x - 36, BACK.y + 140, { size: 30, color: '#d8f6ff' });
 
         const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
         const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');

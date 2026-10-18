@@ -1,4 +1,4 @@
-// Emerald Falls layout: the clifftop promontory the stage stands on, the
+// falls layout: the clifftop promontory the stage stands on, the
 // valley below (lake, river, rolling hills) and the waterfall mesas. Height
 // functions are deterministic and shared by meshes and everything placed on them.
 import * as THREE from 'three';
