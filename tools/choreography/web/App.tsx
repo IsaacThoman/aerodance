@@ -50,7 +50,7 @@ export default function App() {
         </main>
         <Inspector project={project} studio={studio} workspace={workspace} editor={editor} compiled={compiled} />
       </div>
-      <StatusBar busy={studio.busy} />
+      <StatusBar busy={studio.busy} revision={project.revision} />
     </div>
   );
 }

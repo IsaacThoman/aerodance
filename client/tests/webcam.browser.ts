@@ -1,17 +1,15 @@
 // Real bundled MediaPipe in a worker, with a local synthetic camera stream.
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { chromium } from 'playwright';
-import { createStudio } from '../../tools/choreography/server/index.ts';
+import { staticStudio, browserStore } from '../../tools/choreography/tests/static-helpers.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import { BACK as MENU_BACK, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { BACK, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { appendOperation, trackDataIds, validateProject, validateTake, validateTrackData } from '../../tools/choreography/core.ts';
-import type { ProjectSummary, ProjectV2, StudioAssets, Take } from '../../tools/choreography/core.ts';
+import type { ProjectV2, StudioAssets, Take } from '../../tools/choreography/core.ts';
 import { readZip } from '../../tools/choreography/server/zip.ts';
 import { validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
 import type { Page } from 'playwright';
@@ -22,11 +20,11 @@ type TestWindow = typeof window & {
   poseDiagnostics?: unknown;
 };
 
-const dataDir = await mkdtemp(path.join(tmpdir(), 'webcam-studio-'));
+const staticApp = await staticStudio();
 const apps = [express(), express()];
-for (const app of apps) app.get('/pose-fixture.jpg', (_req, res) => res.sendFile(path.resolve('client/tests/fixtures/mediapipe-pose.jpg')));
+for (const app of apps) app.get('/pose-fixture.jpg', (_req, res) => res.sendFile(path.resolve('client/tests/fixtures/mediapipe-pose.jpg'), { dotfiles: 'allow' }));
 apps[0].use(express.static('dist'));
-apps[1].use(createStudio({ dataDir }).app);
+apps[1].use(staticApp.app);
 const servers = apps.map((app, i) => app.listen(4180 + i, '127.0.0.1'));
 await Promise.all(servers.map(server => new Promise(resolve => server.once('listening', resolve))));
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -154,19 +152,13 @@ try {
   await studio.getByRole('button', { name: 'Stop recording', exact: false }).click();
   let persisted = false;
   for (let attempt = 0; attempt < 100 && !persisted; attempt++) {
-    persisted = await studio.evaluate(async () => {
-      const projects: ProjectSummary[] = await (await fetch('/api/projects')).json();
-      const project: ProjectV2 = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
-      return project.takes.some(take => take.source === 'webcam');
-    });
+    const store = browserStore(studio), projects = await store.list();
+    persisted = (await store.project(projects[0].projectId)).takes.some(take => take.source === 'webcam');
     if (!persisted) await studio.waitForTimeout(100);
   }
   assert.ok(persisted, 'recorded webcam take was finalized and saved');
-  const take: Take = validateTake(await studio.evaluate(async (): Promise<unknown> => {
-    const projects: ProjectSummary[] = await (await fetch('/api/projects')).json();
-    const project: ProjectV2 = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
-    return (await fetch(`/api/projects/${project.projectId}/takes/${project.takes[project.takes.length - 1].takeId}`)).json();
-  }));
+  const store = browserStore(studio), summaries = await store.list(), recorded = await store.project(summaries[0].projectId);
+  const take: Take = validateTake(await store.read(recorded.projectId, 'takes', `${recorded.takes.at(-1)?.takeId}.json`));
   assert.equal(take.source, 'webcam'); assert.equal(take.provenance?.modelId, 'lite');
   assert.equal(take.provenance?.alignmentMethod, 'browser-frame-audio-anchor');
   assert.ok(take.samples.length > 5); assert.ok(take.samples.some(s => s.poses.length === 2));
@@ -176,37 +168,25 @@ try {
   await studio.getByRole('menuitem', { name: 'Overwrite both tracks', exact: true }).last().click();
   await studio.getByRole('button', { name: 'Save', exact: true }).click();
   await studio.locator('.save-state').filter({ hasText: /^Saved$/ }).waitFor();
-  await studio.waitForFunction(async () => {
-    const projects: ProjectSummary[] = await (await fetch('/api/projects')).json();
-    const p: ProjectV2 = await (await fetch(`/api/projects/${projects[0].projectId}`)).json();
-    return p.tracks.every(track => track.dataId);
-  });
+  const assigned = await store.project(recorded.projectId);
+  assert.ok(assigned.schemaVersion === 2 && assigned.tracks.every(track => track.dataId));
   const exported = await (async () => {
-    const json = async (url: string, options?: RequestInit): Promise<unknown> => {
-      const response = await fetch(`http://127.0.0.1:4181${url}`, options);
-      if (!response.ok) throw Error(await response.text());
-      return response.json();
-    };
-    const write = (body: unknown): RequestInit => ({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     // Saved projects are always the current format.
     const project = (data: unknown): ProjectV2 => {
       const loaded = validateProject(data);
       assert.equal(loaded.schemaVersion, 2);
       return loaded;
     };
-    const projects = await json('/api/projects');
-    assert.ok(Array.isArray(projects) && projects.length);
-    const summary: ProjectSummary = projects[0];
-    let p = project(await json(`/api/projects/${summary.projectId}`));
+    let p = project(await store.project(recorded.projectId));
     const projectId = p.projectId;
-    const assets: StudioAssets = new Map(await Promise.all(trackDataIds(p).map(async (id) => [id, validateTrackData(await json(`/api/projects/${projectId}/tracks/${id}`))] as const)));
+    const assets: StudioAssets = new Map(await Promise.all(trackDataIds(p).map(async (id) => [id, validateTrackData(await store.read(projectId, 'tracks', `${id}.json`))] as const)));
     const existing = new Set(assets.keys());
     p.metadata.artist = 'Browser fixture'; p.metadata.title = 'Webcam fixture';
     p.metadata.rights.audio.license = 'test-fixture'; p.metadata.rights.choreography.license = 'test-fixture';
     p.playableStartMs = take.offsetMs;
     p.playableEndMs = take.offsetMs + lastSample.takeTimeMs * take.timeScale;
     p.alignmentReviewed = true;
-    p = project(await json(`/api/projects/${p.projectId}`, write(p)));
+    p = project(await store.save(p, p.revision));
     // Software CI can miss >200 ms intervals. Apply the production track review
     // operation, which records v2 track snapshots and history alongside exclusions.
     for (let i = 0; i < take.samples.length - 1; i++) {
@@ -228,12 +208,10 @@ try {
     p = appendOperation(p, { type: 'approve', playerId: null,
       startMs: p.playableStartMs, endMs: p.playableEndMs, reason: 'Reviewed observed poses in the static browser fixture' }, assets);
     for (const id of trackDataIds(p)) if (!existing.has(id)) {
-      await json(`/api/projects/${p.projectId}/tracks`, { ...write(assets.get(id)), method: 'POST' });
+      await store.writeTrack(p.projectId, assets.get(id));
     }
-    p = project(await json(`/api/projects/${p.projectId}`, write(p)));
-    const response = await fetch(`http://127.0.0.1:4181/api/projects/${p.projectId}/export`);
-    if (!response.ok) throw Error(await response.text());
-    return { songId: p.songId, bytes: Array.from(new Uint8Array(await response.arrayBuffer())) };
+    p = project(await store.save(p, p.revision));
+    return { songId: p.songId, bytes: Array.from(await store.download(p.projectId, 'export')) };
   })();
   const bundle = readZip(Buffer.from(exported.bytes));
   const zipJson = (name: string): unknown => {
@@ -275,5 +253,5 @@ try {
 } finally {
   await browser.close();
   await Promise.all(servers.map(server => new Promise(resolve => server.close(resolve))));
-  await rm(dataDir, { recursive: true, force: true });
+  await staticApp.dispose();
 }

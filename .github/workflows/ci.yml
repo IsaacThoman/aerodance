@@ -48,6 +48,7 @@ jobs:
       - run: docker build -f tools/choreography/Dockerfile --target ui-test -t aerodance-studio-browser-test .
       - run: >-
           docker run --rm aerodance-studio-browser-test sh -c
-          "node tools/choreography/tests/project-loading.browser.ts &&
+          "node tools/choreography/tests/browser-storage.browser.ts &&
+          node tools/choreography/tests/project-loading.browser.ts &&
           node tools/choreography/tests/video-import.browser.ts &&
           node tools/choreography/tests/video-duet.browser.ts"

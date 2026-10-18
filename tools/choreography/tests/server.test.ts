@@ -471,3 +471,16 @@ test("opening and restoring legacy projects migrates their independent tracks", 
   assert.equal(copy.schemaVersion, 2);
   assert.equal((await store.compile(copy)).data.samples[0].poses.length, 2);
 });
+
+test("capture payload limits use compact bytes rather than storage indentation", async t => {
+  const { api } = await setup(t), p = await projectOf(await api("/api/projects", {}));
+  const capture = await api(`/api/projects/${p.projectId}/takes`, { sourceKind: "webcam", status: webcamStatus() });
+  const takeId = takeIdOf(await capture.json()), records = webcamRecords(1);
+  for (const pose of records[0].record.poses) for (const joint of pose.landmarks)
+    Object.assign(joint, { x: -0.0000012345678901234567, y: -0.0000012345678901234567, z: -0.0000012345678901234567,
+      visibility: 0.0000012345678901234567, presence: 0.0000012345678901234567 });
+  assert.ok(Buffer.byteLength(JSON.stringify(records[0].record)) < 16384);
+  assert.ok(Buffer.byteLength(JSON.stringify(records[0].record, null, 2)) > 16384);
+  const result = await api(`/api/projects/${p.projectId}/takes/${takeId}/batches`, { batchId: 0, records });
+  assert.equal(result.status, 200, await result.text());
+});

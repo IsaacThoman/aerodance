@@ -7,5 +7,6 @@ export default defineConfig({
   plugins: [react(), poseAssetsPlugin()],
   resolve: { dedupe: ["react", "react-dom", "three", "@react-three/fiber"] },
   build: { outDir: "../dist", emptyOutDir: true },
-  server: { port: 5177, proxy: { "/api": "http://localhost:8082" } },
+  server: { port: 5177 },
+  preview: { port: 8082 },
 });
