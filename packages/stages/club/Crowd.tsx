@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { beat, reducedMotion, useDisposable } from '../shared/hooks.ts';
@@ -16,15 +16,13 @@ interface Blob {
   yaw: number;
   style: number;
   offset: number;
-  stick: boolean;
-  stickColor?: THREE.Color;
   seed: number;
   lift: number;
 }
 
 const COLORS = ['#3ee8ff', '#8dff4a', '#ff5ad0', '#a77bff', '#4f8dff', '#3dffc0', '#d65bff', '#ffe04a'];
 
-// Aeroling crowd around the stage: bob, hop and wave glow sticks on the beat.
+// Aeroling crowd around the stage: bob, hop and sway on the beat.
 function useCrowd() {
   return useDisposable(() => {
     const rand = makeRandom(9001);
@@ -50,9 +48,8 @@ function useCrowd() {
           yaw: Math.atan2(-x, -z) + rand.range(-0.35, 0.35),
           style: rand.next(), // < 0.55 hop, < 0.85 bob, else sway
           offset: rand.range(-0.06, 0.06),
-          stick: rand.chance(0.3),
-          stickColor: new THREE.Color(rand.pick(['#9dff3a', '#1ee8ff', '#ff3fd2', '#ffe84a'])).multiplyScalar(3),
-          seed: rand.next(),
+          // Burn the two draws that once picked a glow stick so the crowd keeps its layout.
+          seed: (rand.next(), rand.next(), rand.next()),
           lift: 0,
         });
         n++;
@@ -69,7 +66,6 @@ function useCrowd() {
         yaw: Math.atan2(-x, -z) + rand.range(-0.6, 0.6),
         style: 0.9,
         offset: rand.range(-0.06, 0.06),
-        stick: false,
         seed: rand.next(),
         lift: STOOL_SEAT - FLOOR,
       });
@@ -85,8 +81,6 @@ export default function Crowd() {
   const blobs = useCrowd();
   const bodies = useRef<THREE.InstancedMesh>(null);
   const eyes = useRef<THREE.InstancedMesh>(null);
-  const sticks = useRef<THREE.InstancedMesh>(null);
-  const stickBlobs = useMemo(() => blobs.filter((b) => b.stick), [blobs]);
 
   const res = useDisposable(() => {
     const l = new THREE.SphereGeometry(0.06, 10, 8).scale(0.8, 1.25, 0.6).translate(-0.13, 0.66, 0.4);
@@ -95,10 +89,8 @@ export default function Crowd() {
     return {
       body: blobGeometry(18),
       eyes: eyesGeo,
-      stick: new THREE.CapsuleGeometry(0.035, 0.42, 3, 8),
       gel: gelMaterial({ key: 'crowd', color: '#ffffff', rim: 10, rimPower: 5, glow: 0.04, envMapIntensity: 0.15 }),
       ink: inkMaterial(),
-      glow: new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: true }),
       m: new THREE.Matrix4(),
       q: new THREE.Quaternion(),
       e: new THREE.Euler(),
@@ -108,20 +100,17 @@ export default function Crowd() {
   });
 
   useLayoutEffect(() => {
-    const [bm, sm] = [bodies.current, sticks.current];
-    if (!bm || !sm) return;
+    const bm = bodies.current;
+    if (!bm) return;
     blobs.forEach((b, i) => bm.setColorAt(i, b.color));
     if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
-    stickBlobs.forEach((b, i) => b.stickColor && sm.setColorAt(i, b.stickColor));
-    if (sm.instanceColor) sm.instanceColor.needsUpdate = true;
-  }, [blobs, stickBlobs]);
+  }, [blobs]);
 
   useFrame((state) => {
-    const [bm, em, sm] = [bodies.current, eyes.current, sticks.current];
-    if (!bm || !em || !sm) return;
+    const [bm, em] = [bodies.current, eyes.current];
+    if (!bm || !em) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
     const { m, q, e, p, s } = res;
-    let k = 0;
     for (let i = 0; i < blobs.length; i++) {
       const b = blobs[i];
       const ph = (((beat.phase + b.offset) % 1) + 1) % 1;
@@ -150,27 +139,15 @@ export default function Crowd() {
       m.compose(p, q, s);
       bm.setMatrixAt(i, m);
       em.setMatrixAt(i, m);
-      if (b.stick) {
-        // Glow stick held above the head, waving.
-        const wave = Math.sin(t * 4.2 + b.seed * 12) * 0.6;
-        e.set(0, b.yaw, wave);
-        q.setFromEuler(e);
-        p.set(b.x + Math.cos(b.yaw) * 0.32 * sc, FLOOR + (y + 1.15) * sc, b.z - Math.sin(b.yaw) * 0.32 * sc);
-        s.setScalar(sc);
-        m.compose(p, q, s);
-        sm.setMatrixAt(k++, m);
-      }
     }
     bm.instanceMatrix.needsUpdate = true;
     em.instanceMatrix.needsUpdate = true;
-    sm.instanceMatrix.needsUpdate = true;
   });
 
   return (
     <group>
       <instancedMesh ref={bodies} args={[res.body, res.gel, blobs.length]} frustumCulled={false} />
       <instancedMesh ref={eyes} args={[res.eyes, res.ink, blobs.length]} frustumCulled={false} />
-      <instancedMesh ref={sticks} args={[res.stick, res.glow, Math.max(1, stickBlobs.length)]} frustumCulled={false} />
     </group>
   );
 }
