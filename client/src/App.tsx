@@ -4,6 +4,7 @@ import Scene from './Scene.tsx';
 import MainMenu from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
 import MenuDancers from './menu/MenuDancers.tsx';
+import PlayerCrew from './menu/PlayerCrew.tsx';
 import { loadSound, saveSound } from './menu/soundSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import ConnectionPanel from './connect/ConnectionPanel.tsx';
@@ -68,6 +69,8 @@ export default function App() {
   // The menu screen actually showing; the Connect Client pill lives on Settings.
   const [menuShown, setMenuShown] = useState<MenuScreen>('main');
   const [playerCount, setPlayerCount] = useState<PlayerCount>(1);
+  // The players screen's dial (1-4); it only becomes playerCount once Let's dance is pressed.
+  const [dialCount, setDialCount] = useState(1);
   // The live webcam input, with optional URL replay.
   const [source] = useState(() => new PoseSourceController());
   const [replay] = useState(replaySource);
@@ -190,10 +193,13 @@ export default function App() {
           raised={songsOpen}
           solo={songsOpen && playerCount === 1}
         />
+        <PlayerCrew visible={menuOpen && menuShown === 'players'} count={dialCount} />
         <MainMenu
           visible={menuOpen}
           blocked={connectOpen}
           initialScreen={menuScreen}
+          playerCount={dialCount}
+          onPlayerCountChange={setDialCount}
           onStart={choosePlayers}
           onScreenChange={setMenuShown}
           sound={sound}

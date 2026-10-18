@@ -9,7 +9,7 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { bundleFixture, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
-import { BACK as MENU_BACK, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
+import { BACK as MENU_BACK, CREW, MINUS, PLAYERS_GO, PLUS, SETTINGS, START } from '../src/menu/layout.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import {
   BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect,
@@ -95,6 +95,12 @@ try {
     }, entries, timeout ? { timeout } : undefined);
   };
   const menuOn = (screen: string) => until({ menuScreen: screen, menuReady: 'true' });
+  // Players dial: pointing at character n picks n players, then Let's dance.
+  const pickPlayers = async (count: 1 | 2) => {
+    await click(CREW[count - 1]);
+    await until({ menuPlayers: String(count) });
+    await click(PLAYERS_GO);
+  };
   const shot = async (name: string) => { if (process.env.UI_ARTIFACTS) await page.screenshot({ path: `${process.env.UI_ARTIFACTS}/${name}.png` }); };
 
   await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });
@@ -129,23 +135,41 @@ try {
   await menuOn('main');
   await shot('main-menu');
 
-  // Start -> One Player -> Song Select (empty catalog) -> Back keeps the player screen.
+  // Start -> the dial. Plus and minus stop at 1-4; three or four players can't start a song yet.
   await click(START);
   await menuOn('players');
   await shot('player-select');
-  await click(ONE_PLAYER);
+  assert.equal((await data()).menuPlayers, '1');
+  await click(MINUS);
+  await page.waitForTimeout(200);
+  assert.equal((await data()).menuPlayers, '1');
+  for (let i = 0; i < 4; i++) await click(PLUS);
+  await until({ menuPlayers: '4' });
+  await click(PLAYERS_GO);
+  await page.waitForTimeout(300);
+  assert.equal((await data()).menuScreen, 'players', "Let's dance is off at four players");
+  await click(MINUS);
+  await until({ menuPlayers: '3' });
+
+  // One Player -> Song Select (empty catalog) -> Back keeps the player screen.
+  await pickPlayers(1);
   await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', songCount: '0', playerSlots: 'Connect Client' });
   await click(BACK);
   await menuOn('players');
-  await click(TWO_PLAYERS);
+  await pickPlayers(2);
   await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', playerSlots: 'Connect Client|Connect Client' });
   await shot('song-select');
 
-  // Keyboard: Escape leaves Song Select, arrows and Enter pick Two Players again.
+  // Keyboard: Escape leaves Song Select, Left / Right turn the dial, Down and Enter press
+  // Let's dance (back, minus, plus, Let's dance) with two players again.
   await page.mouse.move(frame.x + 10, frame.y + 10);
   await page.keyboard.press('Escape');
   await menuOn('players');
-  for (const k of ['ArrowDown', 'ArrowDown', 'ArrowDown', 'Enter']) await page.keyboard.press(k);
+  await page.keyboard.press('ArrowLeft');
+  await until({ menuPlayers: '1' });
+  await page.keyboard.press('ArrowRight');
+  await until({ menuPlayers: '2' });
+  for (const k of ['ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'Enter']) await page.keyboard.press(k);
   await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Connect Client|Connect Client' });
 
   // The letterboxed frame on a phone.
@@ -165,7 +189,7 @@ try {
   const openSong = async (count: 1 | 2, index: number) => {
     await click(BACK);
     await menuOn('players');
-    await click(count === 1 ? ONE_PLAYER : TWO_PLAYERS);
+    await pickPlayers(count);
     await until({ songScreen: 'list', songReady: 'true', catalog: 'ready' });
     await click(rowRect(index));
   };
@@ -265,7 +289,7 @@ try {
   await menuOn('main');
   await click(START);
   await menuOn('players');
-  await click(TWO_PLAYERS);
+  await pickPlayers(2);
   await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', playerSlots: 'Detected|Detected' }, 30000);
   await click(rowRect(0));
   await until({ songScreen: 'preview', songReady: 'true' }, 30000);

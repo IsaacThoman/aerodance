@@ -36,7 +36,7 @@ const SPOT_EPSILON = 0.01;
 const SOLO_HIDE_PROGRESS = 0.95;
 const SOLO_FADE_SECONDS = 0.05;
 
-function Environment({ scene }: { scene: THREE.Scene }) {
+export function Environment({ scene }: { scene: THREE.Scene }) {
   const gl = useThree((state) => state.gl);
   useEffect(() => {
     const pmrem = new THREE.PMREMGenerator(gl);
@@ -81,7 +81,7 @@ function Puck() {
   );
 }
 
-class Quiet extends Component<{ children?: ReactNode }, { failed: boolean }> {
+export class Quiet extends Component<{ children?: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(err: unknown) { console.warn('Menu dancers could not load', err); }

@@ -1,19 +1,23 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
-import { FONT, TAU, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
+import { FONT, TAU, drawGlassCircle, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
+import type { Circle } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
+import { isPlayerCount } from '../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import FullscreenButton from './FullscreenButton.tsx';
-import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.ts';
+import {
+  BACK, COUNT_X, CREW, MAX_PLAYERS, MINUS, PLAYERS_BACK, PLAYERS_GO, PLAYERS_TITLE_Y, PLUS, SETTINGS, START, TITLE,
+} from './layout.ts';
 
 /**
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in 16:9 design units and
  * drawn after the world (useFrame priority 2).
  *
- * Screens: main (Start, Settings), players (one / two players, then Song Select:
- * game/SongSelect.tsx), settings (sound: Master / Music / Effects volume, Menu music and Mute
+ * Screens: main (Start, Settings), players (a 1-4 dial over the player characters drawn by
+ * menu/PlayerCrew.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings (sound: Master / Music / Effects volume, Menu music and Mute
  * all, which audio/mixer.ts applies). The main screen also shows the fullscreen bubble in the
  * corner.
  *
@@ -22,8 +26,12 @@ import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.
  * is showing (Settings carries the Connect Client pill). The canvas reports
  * data-menu-screen / data-menu-ready for tests.
  *
- * <MainMenu visible initialScreen="main" onStart={(playerCount) => ...}
- *   onScreenChange={setShown} sound={sound} onSoundChange={setSound} />
+ * The dial is controlled (playerCount / onPlayerCountChange) and the title rises while the
+ * players screen is up. Songs can only be danced by one or two players so far, so at three
+ * and four Let's dance is greyed out. The canvas also reports data-menu-players.
+ *
+ * <MainMenu visible initialScreen="main" playerCount={n} onPlayerCountChange={setN}
+ *   onStart={(playerCount) => ...} onScreenChange={setShown} sound={sound} onSoundChange={setSound} />
  */
 
 export type MenuScreen = 'main' | 'players' | 'settings';
@@ -33,6 +41,9 @@ export interface MainMenuProps {
   blocked?: boolean;
   /** Where the menu opens when it is shown. */
   initialScreen?: MenuScreen;
+  /** The dial's count, 1 to MAX_PLAYERS. */
+  playerCount?: number;
+  onPlayerCountChange?: (count: number) => void;
   onStart?: (playerCount: PlayerCount) => void;
   onSettingsOpen?: () => void;
   onScreenChange?: (screen: MenuScreen) => void;
@@ -61,15 +72,19 @@ const ROW_Y = (i: number) => PANEL.y + 46 + i * 50;
 const SWITCH = { w: 84, h: 42, x: PANEL.x + PANEL.w - 40 - 84 };
 const TRACK = { x0: PANEL.x + 190, x1: PANEL.x + PANEL.w - 110 };
 
-const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
+const WIDGETS: Record<Exclude<MenuScreen, 'players'>, MenuWidget[]> & { players: (count: number) => MenuWidget[] } = {
   main: [
     { id: 'start', rect: START },
     { id: 'settings', rect: SETTINGS },
   ],
-  players: [
-    { id: 'back', circle: BACK },
-    { id: 'one', rect: ONE_PLAYER },
-    { id: 'two', rect: TWO_PLAYERS },
+  players: (count) => [
+    { id: 'back', circle: PLAYERS_BACK },
+    { id: 'minus', circle: MINUS },
+    { id: 'plus', circle: PLUS },
+    // Let's dance only takes input for counts a song can be danced with.
+    ...(isPlayerCount(count) ? [{ id: 'go', rect: PLAYERS_GO }] : []),
+    // Pointing at a character picks that many players.
+    ...CREW.map((rect, i) => ({ id: `crew${i + 1}`, rect, nav: false })),
   ],
   settings: [
     { id: 'back', circle: BACK },
@@ -81,6 +96,46 @@ const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
 const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
 
 const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
+
+// The dial's count: heavy white type with the title's embossed shadow and cool glossy face.
+function drawCount(g: CanvasRenderingContext2D, n: number, x: number, cy: number, size = 150) {
+  const y = cy + size * 0.36;
+  g.save();
+  g.font = `800 ${size}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  g.shadowColor = 'rgba(0, 34, 84, 0.75)';
+  g.shadowBlur = 4;
+  g.shadowOffsetY = 7;
+  g.fillStyle = '#ffffff';
+  g.fillText(String(n), x, y);
+  g.shadowColor = 'transparent';
+  const face = g.createLinearGradient(0, y - size * 0.75, 0, y);
+  face.addColorStop(0, '#ffffff');
+  face.addColorStop(0.55, '#ffffff');
+  face.addColorStop(1, '#d5f3ff');
+  g.fillStyle = face;
+  g.fillText(String(n), x, y);
+  g.restore();
+}
+
+// A glass dial button with a white minus or plus, dimmed at the end of the range.
+function drawStep(g: CanvasRenderingContext2D, c: Circle, plus: boolean, hover: number, press: number, enabled: boolean) {
+  g.save();
+  if (!enabled) { g.globalAlpha *= 0.4; hover = 0; press = 0; }
+  const y = c.y + press * 3;
+  drawGlassCircle(g, { ...c, y }, hover);
+  const a = c.r * 0.38;
+  g.beginPath();
+  g.moveTo(c.x - a, y);
+  g.lineTo(c.x + a, y);
+  if (plus) { g.moveTo(c.x, y - a); g.lineTo(c.x, y + a); }
+  g.lineCap = 'round';
+  g.lineWidth = 6;
+  g.strokeStyle = '#ffffff';
+  g.stroke();
+  g.restore();
+}
 
 function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>) {
   const { sound } = p;
@@ -163,16 +218,23 @@ interface MenuState {
   /** Showing, and where it is going (they differ during a swap). */
   screen: MenuScreen; next: MenuScreen; swap: number;
   drawnSound: SoundSettings | null;
+  drawnCount: number | null;
+  /** The title's baseline, easing up on the players screen. */
+  titleY: number;
   reported?: MenuScreen;
 }
 
 export default function MainMenu({
-  visible = true, blocked = false, initialScreen = 'main', onStart, onSettingsOpen, onScreenChange, sound, onSoundChange,
+  visible = true, blocked = false, initialScreen = 'main', playerCount = 1, onPlayerCountChange, onStart, onSettingsOpen,
+  onScreenChange, sound, onSoundChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
-  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null });
+  const menu = useRef<MenuState>({
+    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnCount: null, titleY: TITLE.y,
+  });
   const props = useRef<MainMenuProps>({ sound });
-  props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
+  props.current = { visible, blocked, playerCount, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
+  const count = () => props.current.playerCount ?? 1;
 
   const m = menu.current;
   const go = (screen: MenuScreen | undefined) => {
@@ -183,6 +245,10 @@ export default function MainMenu({
     if (ui.pointerKind === 'key') ui.pointer = null;
   };
   const live = () => !!props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
+  const setCount = (n: number) => {
+    const next = Math.min(MAX_PLAYERS, Math.max(1, n));
+    if (next !== count()) props.current.onPlayerCountChange?.(next);
+  };
   const setSound = (patch: Partial<SoundSettings>) => {
     const { sound: cur, onSoundChange: cb } = props.current;
     cb?.({ ...cur, ...patch });
@@ -193,7 +259,7 @@ export default function MainMenu({
     // Input goes to the visible screen as soon as it is fading in (never mid swap-out).
     active: live,
     keyNav: true,
-    widgets: () => WIDGETS[m.screen],
+    widgets: () => (m.screen === 'players' ? WIDGETS.players(count()) : WIDGETS[m.screen]),
     onDrag: (wdg, p) => {
       if (!wdg.slider) return;
       const patch: Partial<SoundSettings> = {};
@@ -212,14 +278,26 @@ export default function MainMenu({
         case 'start': go('players'); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
-        case 'one': props.current.onStart?.(1); break;
-        case 'two': props.current.onStart?.(2); break;
+        case 'minus': setCount(count() - 1); break;
+        case 'plus': setCount(count() + 1); break;
+        case 'go': {
+          const n = count();
+          if (isPlayerCount(n)) props.current.onStart?.(n);
+          break;
+        }
         default:
+          if (wdg.id.startsWith('crew')) setCount(Number(wdg.id.slice(4)));
       }
       s.invalidate();
     },
     onKey: (e, s) => {
       if (e.key === 'Escape' && !e.repeat && live() && PARENT[m.screen]) { go(PARENT[m.screen]); s.invalidate(); }
+      // Left / Right turn the dial.
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && live() && m.screen === 'players') {
+        e.preventDefault();
+        setCount(count() + (e.key === 'ArrowRight' ? 1 : -1));
+        s.invalidate();
+      }
     },
     update: (dt, s) => {
       const shown = !!props.current.visible;
@@ -234,16 +312,19 @@ export default function MainMenu({
       }
       m.alpha = s.ease(m.alpha, shown ? 1 : 0, shown ? 3 : 6);
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
-      if (props.current.sound !== m.drawnSound) s.invalidate();
+      m.titleY = s.ease(m.titleY, m.next === 'players' ? PLAYERS_TITLE_Y : TITLE.y, 7);
+      if (props.current.sound !== m.drawnSound || count() !== m.drawnCount) s.invalidate();
       if (m.screen !== m.reported) { m.reported = m.screen; props.current.onScreenChange?.(m.screen); }
       const { dataset } = gl.domElement;
       dataset.menuScreen = m.screen;
+      dataset.menuPlayers = String(count());
       dataset.menuReady = String(shown && m.alpha > 0.5 && m.screen === m.next && m.swap > 0.95);
     },
     opacity: () => m.alpha,
     draw: (g, s) => {
       m.drawnSound = props.current.sound;
-      drawTitle(g, TITLE);
+      m.drawnCount = count();
+      drawTitle(g, { ...TITLE, y: m.titleY });
 
       const t = m.swap;
       g.save();
@@ -255,9 +336,17 @@ export default function MainMenu({
         drawPill(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start') });
         drawPill(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle });
       } else if (m.screen === 'players') {
-        drawHeader(g, BACK, 'PLAYERS', h.back ?? 0);
-        drawPill(g, ONE_PLAYER, { label: 'One Player', icon: 'solo', hover: h.one ?? 0, press: press('one') });
-        drawPill(g, TWO_PLAYERS, { label: 'Two Players', icon: 'pair', hover: h.two ?? 0, press: press('two') });
+        // The characters under the dial are 3D (PlayerCrew).
+        const n = count();
+        const playable = isPlayerCount(n);
+        drawHeader(g, PLAYERS_BACK, 'PLAYERS', h.back ?? 0);
+        drawStep(g, MINUS, false, h.minus ?? 0, press('minus'), n > 1);
+        drawCount(g, n, COUNT_X, MINUS.y);
+        drawStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
+        drawPill(g, PLAYERS_GO, {
+          label: "Let's dance", sub: playable ? undefined : 'Coming soon', icon: 'play',
+          hover: h.go ?? 0, press: press('go'), disabled: !playable,
+        });
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
         drawSettingsPanel(g, props.current, h);
@@ -271,6 +360,7 @@ export default function MainMenu({
     if (!visible) return;
     m.screen = m.next = initialScreen;
     m.swap = 1;
+    m.titleY = initialScreen === 'players' ? PLAYERS_TITLE_Y : TITLE.y;
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 

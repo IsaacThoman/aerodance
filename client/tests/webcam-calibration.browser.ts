@@ -5,7 +5,7 @@ import path from 'node:path';
 import express from 'express';
 import { chromium } from 'playwright';
 import { bundleFixture } from './fixtures/songBundle.ts';
-import { START, TWO_PLAYERS } from '../src/menu/layout.ts';
+import { CREW, PLAYERS_GO, START } from '../src/menu/layout.ts';
 import { DANCE, GAME_CALIBRATION_PREVIEW, GAME_READY_START, RESULTS_RETRY, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 
@@ -83,7 +83,7 @@ try {
   const until = (key: string, value: string) => page.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
   await until('menuReady', 'true');
   await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
-  await click(TWO_PLAYERS); await until('songReady', 'true'); await click(rowRect(0));
+  await click(CREW[1]); await until('menuPlayers', '2'); await click(PLAYERS_GO); await until('songReady', 'true'); await click(rowRect(0));
   await until('previewState', 'playing'); await until('stageReady', 'true');
 
   // The calibration screen starts the camera itself: pressing the empty preview.
