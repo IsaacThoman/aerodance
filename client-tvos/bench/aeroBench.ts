@@ -13,6 +13,8 @@ type Config = {
   scenarios: Scenario[]; warmupS: number; measureS: number; start: number; width: number; height: number; label: string;
   /** Diagnostics: wait for the GPU after each frame (a 1-pixel readPixels) and report how long that took. */
   sync: boolean;
+  /** The renderer's MSAA (default on, as in the game). */
+  antialias: boolean;
 };
 type Host = typeof globalThis & {
   __benchConfig?: Partial<Config>;
@@ -24,11 +26,12 @@ type Host = typeof globalThis & {
 const host = globalThis as Host;
 
 function readConfig(): Config {
-  const config: Config = { scenarios: ['high', 'low'], warmupS: 5, measureS: 30, start: 0.08, width: 640, height: 480, label: 'unknown', sync: false };
+  const config: Config = { scenarios: ['high', 'low'], warmupS: 5, measureS: 30, start: 0.08, width: 640, height: 480, label: 'unknown', sync: false, antialias: true };
   const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
   const scenarios = q.get('scenarios');
   if (scenarios) config.scenarios = scenarios.split(',');
   if (q.get('sync')) config.sync = q.get('sync') === '1';
+  if (q.get('antialias')) config.antialias = q.get('antialias') !== '0';
   for (const key of ['warmupS', 'measureS', 'start'] as const) if (q.get(key)) config[key] = Number(q.get(key));
   if (q.get('label')) config.label = q.get('label') ?? config.label;
   if (q.get('report')) host.__benchReportUrl = q.get('report') ?? undefined;
@@ -127,7 +130,7 @@ async function main() {
   canvas.width = config.width; canvas.height = config.height;
   const loop = loopBenchmark();
   report({ type: 'start', label: config.label, loopMs: loop.ms, config, userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'none' });
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: config.antialias, powerPreference: 'high-performance' });
   renderer.setPixelRatio(1);
   renderer.setSize(config.width, config.height, false);
   renderer.info.autoReset = false;

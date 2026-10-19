@@ -13,13 +13,22 @@ export interface QualitySettings {
   motionMul: number;
   /** Where the trees get coarser (treeField.ts). */
   treeLod: TreeLod;
+  /** The lake's reflection: texture size, and refreshes a second. */
+  reflection: { size: number; fps: number };
 }
 
 export function resolveQuality(quality: AeroQuality): QualitySettings {
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   const small = quality === 'low' || (quality === 'auto' && coarse);
   const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  return { small, Q: small ? 0.55 : 1, motionMul: reduceMotion ? 0.5 : 1, treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 } };
+  const motionMul = reduceMotion ? 0.5 : 1;
+  // TV: high's world, with coarser distant trees and a cheaper reflection.
+  if (quality === 'tv') return { small: false, Q: 1, motionMul, treeLod: { near: 60, far: 220 }, reflection: { size: 256, fps: 20 } };
+  return {
+    small, Q: small ? 0.55 : 1, motionMul,
+    treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 },
+    reflection: { size: small ? 256 : 512, fps: 30 },
+  };
 }
 
 export const FOG_BASE = col('#cfeaff'), FOG_WHITE = col('#f4f9ff'), FOG_DENSITY = 0.00032;

@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 
-export type AeroQuality = 'auto' | 'high' | 'low';
+/** 'tv': high's world, drawn more cheaply for weak GPUs and interpreted JavaScript (Apple TV). */
+export type AeroQuality = 'auto' | 'high' | 'low' | 'tv';
 
 export type AeroZone = 'Above the clouds' | 'Cloud layer' | 'Downtown' | 'The lake' | 'Flower meadow' | 'Skyline';
 

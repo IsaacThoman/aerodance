@@ -15,6 +15,7 @@ import type { ResultsShow } from '../game/results.ts';
 import LivePanels from './LivePanels.tsx';
 import type { LiveDancers } from './LivePanels.tsx';
 import ResultsDancers from './ResultsDancers.tsx';
+import { diagnostic, tv } from '../quality.ts';
 
 /** How the stage is doing, reported through onState. */
 export interface StageState {
@@ -176,7 +177,7 @@ function StageContent({ id, routine, live, results, onReady, onDancersFail }: St
       infoAutoReset: gl.info.autoReset,
       shadow: { enabled: gl.shadowMap.enabled, type: gl.shadowMap.type, autoUpdate: gl.shadowMap.autoUpdate },
     };
-    Object.assign(gl.shadowMap, { enabled: true, type: THREE.PCFShadowMap, autoUpdate: true });
+    Object.assign(gl.shadowMap, { enabled: !diagnostic('nostageshadows'), type: THREE.PCFShadowMap, autoUpdate: true });
     return () => {
       Object.assign(gl, { toneMapping: saved.toneMapping, toneMappingExposure: saved.toneMappingExposure, autoClear: saved.autoClear });
       Object.assign(gl.shadowMap, saved.shadow);
@@ -200,7 +201,7 @@ function StageContent({ id, routine, live, results, onReady, onDancersFail }: St
 
   return (
     <>
-      <RenderPipeline />
+      <RenderPipeline samples={tv ? 0 : 4} bloom={!diagnostic('nobloom')} />
       <StageBoundary key={id} id={id} fallback={<Ready onReady={onReady} id={id} failed />}>
         <Suspense fallback={null}>
           <Stage />

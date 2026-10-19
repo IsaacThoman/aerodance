@@ -9,14 +9,17 @@ export interface TreeLod {
 /** A static tree for the field: its position and a radius that holds its trunk and canopy. */
 export interface FieldTree { x: number; y: number; z: number; radius: number }
 
-/** One instanced batch of trees (one tree model): a mesh per detail level for each of its parts. */
+/** One batch of trees of one model, and the instanced meshes that draw it at each detail level. */
 export interface FieldGroup {
   trees: readonly FieldTree[];
   /** Each tree's instance matrix (16 floats) and colour (3 floats, or null), in `trees` order. */
   matrices: Float32Array;
   colors: Float32Array | null;
-  /** Per part (trunk, canopy): one InstancedMesh per detail level, each with room for every tree. */
-  parts: readonly (readonly THREE.InstancedMesh[])[];
+  /**
+   * Per detail level (0 as modelled, 1, 2), the meshes each tree is drawn with there (say a trunk
+   * and a canopy). Groups may share a mesh; it needs room for all their trees.
+   */
+  levels: readonly (readonly THREE.InstancedMesh[])[];
 }
 
 interface Cell { x: number; y: number; z: number; r: number; box: THREE.Box3; level: number }
@@ -25,7 +28,7 @@ interface PackedGroup {
   colors: Float32Array | null;
   /** [cell, first, end) triples into matrices/colors, sorted by cell. */
   runs: Int32Array;
-  parts: readonly (readonly THREE.InstancedMesh[])[];
+  levels: readonly (readonly THREE.InstancedMesh[])[];
 }
 
 // Hysteresis (m) before a cell goes coarser again, so it doesn't flicker at a boundary.
@@ -47,6 +50,7 @@ export class TreeField {
   private readonly cells: Cell[] = [];
   private readonly cellIndex = new Map<string, number>();
   private readonly groups: PackedGroup[] = [];
+  private readonly meshes = new Set<THREE.InstancedMesh>();
   private readonly frustum = new THREE.Frustum();
   private readonly viewProjection = new THREE.Matrix4();
   private readonly sphere = new THREE.Sphere();
@@ -87,8 +91,8 @@ export class TreeField {
       if (!i || cell[order[i - 1]] !== cell[src]) runs.push(cell[src], i, i + 1);
       else runs[runs.length - 1] = i + 1;
     });
-    for (const levels of group.parts) for (const m of levels) { m.count = 0; m.frustumCulled = false; }
-    this.groups.push({ matrices, colors, runs: Int32Array.from(runs), parts: group.parts });
+    for (const meshes of group.levels) for (const m of meshes) { m.count = 0; m.visible = false; m.frustumCulled = false; this.meshes.add(m); }
+    this.groups.push({ matrices, colors, runs: Int32Array.from(runs), levels: group.levels });
     for (const c of this.cells) {
       c.box.getCenter(this.sphere.center);
       Object.assign(c, { x: this.sphere.center.x, y: this.sphere.center.y, z: this.sphere.center.z, r: c.box.getSize(new THREE.Vector3()).length() / 2 });
@@ -125,26 +129,23 @@ export class TreeField {
 
   private repack() {
     this.repacks++;
-    const counts = [0, 0, 0];
+    for (const m of this.meshes) m.count = 0;
     for (const g of this.groups) {
-      counts.fill(0);
       for (let k = 0; k < g.runs.length; k += 3) {
         const level = this.cells[g.runs[k]].level;
         if (level < 0) continue;
-        const first = g.runs[k + 1], end = g.runs[k + 2], at = counts[level];
-        for (const levels of g.parts) {
-          const m = levels[level];
-          (m.instanceMatrix.array as Float32Array).set(g.matrices.subarray(first * 16, end * 16), at * 16);
-          if (g.colors && m.instanceColor) (m.instanceColor.array as Float32Array).set(g.colors.subarray(first * 3, end * 3), at * 3);
+        const first = g.runs[k + 1], end = g.runs[k + 2];
+        for (const m of g.levels[level]) {
+          (m.instanceMatrix.array as Float32Array).set(g.matrices.subarray(first * 16, end * 16), m.count * 16);
+          if (g.colors && m.instanceColor) (m.instanceColor.array as Float32Array).set(g.colors.subarray(first * 3, end * 3), m.count * 3);
+          m.count += end - first;
         }
-        counts[level] += end - first;
       }
-      for (const levels of g.parts) levels.forEach((m, level) => {
-        m.count = counts[level];
-        m.visible = counts[level] > 0;
-        m.instanceMatrix.clearUpdateRanges(); m.instanceMatrix.addUpdateRange(0, counts[level] * 16); m.instanceMatrix.needsUpdate = true;
-        if (m.instanceColor) { m.instanceColor.clearUpdateRanges(); m.instanceColor.addUpdateRange(0, counts[level] * 3); m.instanceColor.needsUpdate = true; }
-      });
+    }
+    for (const m of this.meshes) {
+      m.visible = m.count > 0;
+      m.instanceMatrix.clearUpdateRanges(); m.instanceMatrix.addUpdateRange(0, m.count * 16); m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) { m.instanceColor.clearUpdateRanges(); m.instanceColor.addUpdateRange(0, m.count * 3); m.instanceColor.needsUpdate = true; }
     }
   }
 }

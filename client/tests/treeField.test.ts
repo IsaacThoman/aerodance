@@ -31,7 +31,7 @@ const xs = (m: InstancedMesh) => Array.from({ length: m.count }, (_, i) => m.ins
 test('trees in view are drawn once, at the detail their distance calls for; trees behind are not', () => {
   const group = row();
   const field = new TreeField(100, { near: 150, far: 600 });
-  field.add({ trees: group.trees, matrices: group.matrices, colors: group.colors, parts: group.parts });
+  field.add({ trees: group.trees, matrices: group.matrices, colors: group.colors, levels: [0, 1, 2].map((l) => group.parts.map((p) => p[l])) });
   field.update(camera(1000, 2000));
   const [trunks, canopies] = group.parts;
   for (let level = 0; level < 3; level++) assert.deepEqual(xs(canopies[level]), xs(trunks[level]));
@@ -49,11 +49,23 @@ test('trees in view are drawn once, at the detail their distance calls for; tree
   for (const levels of group.parts) for (const m of levels) assert.equal(m.visible, m.count > 0);
 });
 
+test('groups can share a mesh at a detail level', () => {
+  const a = row(), b = row();
+  const shared = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 200);
+  const field = new TreeField(100, { near: 150, far: 600 });
+  for (const g of [a, b]) field.add({ trees: g.trees, matrices: g.matrices, colors: null, levels: [[g.parts[0][0]], [g.parts[0][1]], [shared]] });
+  field.update(camera(0, 2000));
+  const far = xs(shared);
+  assert.ok(far.length > 0 && far.length % 2 === 0);
+  assert.deepEqual(far.slice(0, far.length / 2), far.slice(far.length / 2), 'both groups, one after the other');
+  assert.ok(far.includes(1990));
+});
+
 test('colours follow their trees, and a cell only gets coarser past some slack', () => {
   const group = row();
   const field = new TreeField(100, { near: 150, far: 600 });
   const { parts } = group;
-  field.add({ trees: group.trees, matrices: group.matrices, colors: group.colors, parts });
+  field.add({ trees: group.trees, matrices: group.matrices, colors: group.colors, levels: [0, 1, 2].map((l) => parts.map((p) => p[l])) });
   field.update(camera(0, 2000));
   for (const canopy of parts[1]) {
     assert.ok(canopy.count > 0);

@@ -120,10 +120,10 @@ export interface Lake {
 
 /** The reflective lake and its boats. */
 export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THREE.Material): Lake {
-  const small = ctx.quality.small;
+  const { size, fps } = ctx.quality.reflection;
   const lakeGeo = new THREE.PlaneGeometry(2400, 220);
   const water = new Water(lakeGeo, {
-    textureWidth: small ? 256 : 512, textureHeight: small ? 256 : 512,
+    textureWidth: size, textureHeight: size,
     waterNormals: lakeNormals(ctx), sunDirection: ctx.sun.clone(), sunColor: 0xffffff,
     waterColor: 0x0a5aa8, distortionScale: 1.4, fog: true,
   });
@@ -133,7 +133,7 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   ctx.root.add(water);
   // Skip the reflection pass while the drone is down in the meadow, where the lake is hidden.
   const reflect = water.onBeforeRender;
-  const refresh = new ReflectionRefresh(30);
+  const refresh = new ReflectionRefresh(fps);
   let elapsed = 0;
   water.onBeforeRender = (r, sc, cam, geo, mat, group) => {
     if (lake.reflect && (cam.position.z < 280 || cam.position.y > 60) && refresh.shouldRefresh(elapsed, cam)) {

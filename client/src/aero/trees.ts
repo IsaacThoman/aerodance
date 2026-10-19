@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AeroContext } from './context.ts';
 import type { FlightPath } from './flight.ts';
 import { groundY } from './ground.ts';
@@ -195,11 +195,11 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
   const trunkMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   const canopyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   // Two copies of every tree: `full`, as modelled, all of them, for the sun's shadow map (drawn
-  // only in a frame that renders it); and `field`, culled and simplified by area (treeField.ts),
+  // only in a frame that renders it); and `lod`, culled and simplified by area (treeField.ts),
   // drawn the rest of the time.
   const full = new THREE.Group(), lod = new THREE.Group(), all = new THREE.Group();
   all.add(full, lod); root.add(all);
-  const field = new TreeField(160, ctx.quality.treeLod);
+  const batches: { v: TreeVariant; kind: TreeKind; trees: FieldTree[]; matrices: number[]; colors: number[] }[] = [];
   function instanceTrees(list: TreeSpec[]) {
     const keep = list.filter((t) => t.y > 0 || path.clearOfPath(t.x, 2.2 * t.s, t.z, t.s * 2.6 + 9));
     const groups = new Map<string, { v: TreeVariant; kind: TreeKind; list: TreeSpec[] }>();
@@ -213,24 +213,17 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
     for (const { v, kind, list: items } of groups.values()) {
       const n = items.length;
       const tm = new THREE.InstancedMesh(v.trunk[0], trunkMat, n), cm = new THREE.InstancedMesh(v.canopy[0], canopyMat, n);
-      const shown: FieldTree[] = [], matrices: number[] = [], colors: number[] = [];
+      const batch = { v, kind, trees: [] as FieldTree[], matrices: [] as number[], colors: [] as number[] };
       items.forEach((t, i) => {
         const s = t.hidden ? 0 : t.s * KIND_SCALE[kind];
         d.position.set(t.x, t.y, t.z); d.rotation.set(R(-0.04, 0.04), R(0, TAU), R(-0.04, 0.04)); d.scale.set(s * R(0.9, 1.1), s * R(0.9, 1.15), s * R(0.9, 1.1)); d.updateMatrix();
         tm.setMatrixAt(i, d.matrix); cm.setMatrixAt(i, d.matrix);
         const tint = v.tint(); cm.setColorAt(i, tint);
         // Every model fits in a sphere of 3.6 m around (0, 3, 0) at scale 1 (1.15 with the stretch above).
-        if (s) { shown.push({ x: t.x, y: t.y + 3 * s * 1.15, z: t.z, radius: 3.6 * s * 1.15 }); matrices.push(...d.matrix.elements); colors.push(tint.r, tint.g, tint.b); }
+        if (s) { batch.trees.push({ x: t.x, y: t.y + 3 * s * 1.15, z: t.z, radius: 3.6 * s * 1.15 }); batch.matrices.push(...d.matrix.elements); batch.colors.push(tint.r, tint.g, tint.b); }
       });
       for (const m of [tm, cm]) { m.castShadow = true; m.receiveShadow = m !== tm; full.add(m); }
-      const parts = [v.trunk, v.canopy].map((geos, part) => geos.map((g) => {
-        const m = new THREE.InstancedMesh(g, part ? canopyMat : trunkMat, shown.length);
-        if (part) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(shown.length * 3), 3);
-        m.receiveShadow = part === 1;
-        lod.add(m);
-        return m;
-      }));
-      field.add({ trees: shown, matrices: Float32Array.from(matrices), colors: Float32Array.from(colors), parts });
+      batches.push(batch);
     }
   }
   instanceTrees(TREES);
@@ -281,6 +274,58 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
     }
     instanceTrees(FTREES);
   });
+
+  // The culled, simplified copy. Close up, trunk and canopy as modelled; further away, one
+  // coarser mesh with both (the trunk untinted); furthest, one mesh per kind of tree, since
+  // the variants can't be told apart there.
+  const field = new TreeField(160, ctx.quality.treeLod);
+  const coarseMat = canopyMat.clone();
+  coarseMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float treeTint;')
+      .replace('#include <color_vertex>', THREE.ShaderChunk.color_vertex.replace('vColor.rgb *= instanceColor.rgb;', 'vColor.rgb *= mix(vec3(1.0), instanceColor.rgb, treeTint);'));
+  };
+  coarseMat.customProgramCacheKey = () => 'aero-tree-coarse';
+  const coarse = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+  const coarseGeo = (trunk: THREE.BufferGeometry, canopy: THREE.BufferGeometry) => {
+    let g = coarse.get(canopy);
+    if (!g) {
+      const parts = [trunk, canopy].map((p, tinted) => {
+        const c = p.clone();
+        c.setAttribute('treeTint', new THREE.BufferAttribute(new Float32Array(c.attributes.position.count).fill(tinted), 1));
+        return c;
+      });
+      g = mergeGeometries(parts);
+      parts.forEach((p) => p.dispose());
+      coarse.set(canopy, g);
+      ctx.disposables.push(g);
+    }
+    return g;
+  };
+  const mesh = (g: THREE.BufferGeometry, mat: THREE.Material, n: number, tinted: boolean) => {
+    const m = new THREE.InstancedMesh(g, mat, n);
+    if (tinted) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+    m.receiveShadow = tinted;
+    lod.add(m);
+    return m;
+  };
+  const furthest = new Map<TreeKind, THREE.InstancedMesh>();
+  for (const kind of new Set(batches.map((b) => b.kind))) {
+    const v = TREE_KINDS[kind][0], n = batches.filter((b) => b.kind === kind).reduce((sum, b) => sum + b.trees.length, 0);
+    furthest.set(kind, mesh(coarseGeo(v.trunk[2], v.canopy[2]), coarseMat, n, true));
+  }
+  for (const { v, kind, trees, matrices, colors } of batches) {
+    const n = trees.length, far = furthest.get(kind);
+    if (!far) continue;
+    field.add({
+      trees, matrices: Float32Array.from(matrices), colors: Float32Array.from(colors),
+      levels: [
+        [mesh(v.trunk[0], trunkMat, n, false), mesh(v.canopy[0], canopyMat, n, true)],
+        [mesh(coarseGeo(v.trunk[1], v.canopy[1]), coarseMat, n, true)],
+        [far],
+      ],
+    });
+  }
 
   for (const v of Object.values(TREE_KINDS).flat()) ctx.disposables.push(...v.trunk, ...v.canopy);
 

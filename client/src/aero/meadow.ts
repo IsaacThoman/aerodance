@@ -1,8 +1,15 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AeroContext } from './context.ts';
+import { splitIntoCells } from './instanceCells.ts';
 import type { FlightPath } from './flight.ts';
 import { TAU, canvas2d, col, hexMul } from './util.ts';
+
+// The meadow's grass and flowers are drawn in 100 m cells, so only the cells in view are drawn.
+function addInCells(ctx: AeroContext, mesh: THREE.InstancedMesh) {
+  for (const part of splitIntoCells(mesh, 100)) ctx.root.add(part);
+  mesh.dispose();
+}
 
 /* ------------------------------------------------------- meadow grass */
 /** Instanced grass blades swaying in a vertex-shader wind. */
@@ -32,7 +39,7 @@ export function buildMeadowGrass(ctx: AeroContext, path: FlightPath) {
     d.position.set(x, 0, z); d.rotation.set(R(-0.2, 0.2), R(0, TAU), R(-0.2, 0.2)); d.scale.set(R(0.8, 1.7), R(0.45, 1.35), 1); d.updateMatrix(); im.setMatrixAt(i, d.matrix);
     const bb = R(0.75, 1.12); cc.setRGB(bb * R(0.9, 1.05), bb, bb * R(0.82, 1)); im.setColorAt(i, cc);
   }
-  ctx.root.add(im);
+  addInCells(ctx, im);
 }
 
 /* --------------------------------------------------------------- flowers */
@@ -69,12 +76,12 @@ export function buildFlowers(ctx: AeroContext, path: FlightPath) {
       const h = R(0.55, 1.45), s = size * R(0.75, 1.25);
       d.position.set(x, h, z); d.rotation.set(-Math.PI / 2 + R(0.35, 1.0), R(0, TAU), 0, 'YXZ'); d.scale.set(s, s, s); d.updateMatrix(); im.setMatrixAt(i, d.matrix); STEMS.push(x, h, z);
     }
-    ctx.root.add(im);
+    addInCells(ctx, im);
   }
   const sg = new THREE.CylinderGeometry(0.022, 0.03, 1, 3); sg.translate(0, 0.5, 0);
   const sm = new THREE.InstancedMesh(sg, new THREE.MeshBasicMaterial({ color: col('#3f9a25') }), STEMS.length / 3);
   for (let i = 0; i < STEMS.length / 3; i++) { d.position.set(STEMS[i * 3], 0, STEMS[i * 3 + 2]); d.rotation.set(0, 0, 0); d.scale.set(1, STEMS[i * 3 + 1], 1); d.updateMatrix(); sm.setMatrixAt(i, d.matrix); }
-  ctx.root.add(sm);
+  addInCells(ctx, sm);
 }
 
 /* -------------------------------------------------- tulips + windmills */
@@ -95,7 +102,7 @@ export function buildTulips(ctx: AeroContext) {
     d.position.y = h; d.rotation.set(R(-0.15, 0.15), R(0, TAU), R(-0.15, 0.15)); d.scale.set(s, s, s); d.updateMatrix(); cm.setMatrixAt(i, d.matrix);
     c.copy(cols[b]).multiplyScalar(R(0.85, 1.1)); cm.setColorAt(i, c);
   }
-  ctx.root.add(cm, st);
+  addInCells(ctx, cm); addInCells(ctx, st);
 }
 
 export function buildWindmills(ctx: AeroContext) {

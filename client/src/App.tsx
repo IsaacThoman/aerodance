@@ -16,6 +16,7 @@ import { recordResults } from './game/bestScores.ts';
 import { PLAYERS, winnerOf } from './game/results.ts';
 import type { ResultsShow } from './game/results.ts';
 import StageView from './stage/StageView.tsx';
+import { diagnostic, tv } from './quality.ts';
 import type { StageState } from './stage/StageView.tsx';
 import type { LiveDancers } from './stage/LivePanels.tsx';
 import type { LoadedSongBundle } from './songs/loadBundle.ts';
@@ -181,7 +182,7 @@ export default function App() {
 
   return (
     <div className="canvas-frame display">
-      <Canvas dpr={1} flat camera={{ fov: 66, near: 0.3, far: 6500 }}>
+      <Canvas dpr={1} flat gl={{ antialias: !tv }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
         <FixedRenderResolution />
         <Scene paused={stage.showing} />
         <StageView
@@ -194,7 +195,7 @@ export default function App() {
           onState={setStage}
         />
         <MenuDancers
-          visible={(menuOpen || songsOpen) && !stage.showing}
+          visible={(menuOpen || songsOpen) && !stage.showing && !diagnostic('nodancers')}
           raised={songsOpen}
           solo={songsOpen && playerCount === 1}
         />

@@ -1,5 +1,8 @@
 // Injected into the game page by the Apple TV app (main.m), before the game's own scripts run.
 (() => {
+  // The game's graphics tier for Apple TV (client/src/quality.ts); ?quality= in the page overrides it.
+  window.__aerodanceQuality = 'tv';
+
   // Remote buttons arrive as key events the canvas UI already understands.
   window.__aerodanceKey = key => {
     const init = { key, code: key, bubbles: true, cancelable: true };
