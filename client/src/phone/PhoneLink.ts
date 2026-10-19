@@ -25,7 +25,9 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
  * A connection that drops goes back to linking and says hello again until the game
  * answers (not while an answer is still connecting). A linked phone keeps going if the
  * pairing server goes away. The camera stops while the page is hidden and restarts when it
- * shows again.
+ * shows again. Once it has tracked, it also starts again by itself when it fails while linked
+ * (a phone on a stand has no one to press anything), waiting longer each time it fails
+ * without tracking; a camera that never worked (permission denied) waits for the player.
  *
  * const link = new PhoneLink(); link.subscribe(render); link.join('123456');
  */
@@ -51,6 +53,8 @@ export interface PhoneLinkOptions {
   createConnection?: CreatePeerConnection;
   now?: () => number;
   device?: string;
+  /** The first wait before starting a failed camera again (doubling, up to 30 s). */
+  cameraRetryMs?: number;
 }
 type Listener<T> = (value: T) => void;
 
@@ -60,6 +64,7 @@ const HELLO_MS = 4000;
 const ATTEMPT_MS = 15_000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
+const MAX_CAMERA_RETRY_MS = 30_000;
 const TOKEN_KEY = 'aerodance-phone-token';
 
 /** What the game calls this phone. */
@@ -106,10 +111,15 @@ export class PhoneLink {
   sentStatus = '';
   sentStatsAt = -Infinity;
   wakeLock: WakeLockSentinel | null = null;
-  constructor({ camera, base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName() }: PhoneLinkOptions = {}) {
+  cameraRetryMs: number;
+  /** The camera has tracked; failed starts since it last did, and the next one waiting. */
+  cameraTracked = false;
+  cameraRetries = 0;
+  cameraRetry: ReturnType<typeof setTimeout> | undefined;
+  constructor({ camera, base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName(), cameraRetryMs = 2000 }: PhoneLinkOptions = {}) {
     this.camera = camera ?? new WebcamPoseSource({ settingsKey: 'aerodance-phone', adaptToResize: true });
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
-    this.now = now; this.device = device;
+    this.now = now; this.device = device; this.cameraRetryMs = cameraRetryMs;
     // The back camera by default: it's the better one, and the phone faces the players.
     if (!this.camera.view.facing && !this.camera.view.cameraId) this.camera.publish({ facing: 'environment' });
     this.camera.subscribe((view) => this.onCamera(view));
@@ -167,6 +177,8 @@ export class PhoneLink {
     this.closePeer();
     this.early = null;
     this.epoch = -1;
+    clearTimeout(this.cameraRetry);
+    this.cameraRetry = undefined;
     this.camera.disconnect('Camera stopped.');
     this.releaseWakeLock();
   }
@@ -258,6 +270,8 @@ export class PhoneLink {
   /** Starts the camera while linked and showing (the page hidden stops it). */
   resume() {
     if (this.view.stage !== 'linked' || globalThis.document?.hidden) return;
+    clearTimeout(this.cameraRetry);
+    this.cameraRetry = undefined;
     if (['disconnected', 'error'].includes(this.camera.view.status)) void this.camera.connect();
     void this.keepAwake();
   }
@@ -290,9 +304,21 @@ export class PhoneLink {
   }
 
   onCamera(view: WebcamView) {
-    if (view.status === 'connected') void this.keepAwake();
+    if (view.status === 'connected') { this.cameraTracked = true; this.cameraRetries = 0; void this.keepAwake(); }
+    // A failed camera starts again shortly, so the screen stays on meanwhile.
+    // (Saying so publishes the camera again, which sends its status.)
+    else if (view.status === 'error' && this.cameraTracked && this.view.stage === 'linked') { if (this.retryCamera()) return; }
     else if (view.status !== 'initializing') this.releaseWakeLock();
     this.sendStatus(view);
+  }
+
+  retryCamera() {
+    if (this.cameraRetry) return false;
+    const wait = Math.min(MAX_CAMERA_RETRY_MS, this.cameraRetryMs * 2 ** this.cameraRetries++);
+    this.cameraRetry = setTimeout(() => { this.cameraRetry = undefined; this.resume(); }, wait);
+    // What went wrong, without its advice to start the camera.
+    this.camera.publish({ message: `${/^[^.]*\./.exec(this.camera.view.message)?.[0] ?? 'The camera stopped.'} Starting it again…` });
+    return true;
   }
 
   sendStatus(view: WebcamView) {

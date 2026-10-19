@@ -283,3 +283,30 @@ test('a phone answers only the newest offer, and the game gives up on a phone th
   await fetch(`${base}/rooms/${code}/close`, { method: 'POST', body: JSON.stringify({ token: joined.token }) });
   await until(() => host.view.status === 'connecting' && host.peer === null, 'the code to show again');
 });
+
+test('a phone starts its camera again when it fails after tracking, but not one that never worked', async (t) => {
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ camera: camera as unknown as WebcamPoseSource, createConnection: createFakeConnection, cameraRetryMs: 10 });
+  t.after(() => phone.stop());
+  phone.publish({ stage: 'linked' });
+  // Permission denied: starting again would only fail again, so it waits for the player.
+  camera.publish({ status: 'error', message: 'Camera permission was denied. Allow camera access for this site, then start again.' });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(camera.view.status, 'error');
+  phone.resume();
+  assert.equal(camera.view.status, 'connected');
+  // Tracking stalls on a phone on a stand: it says so and starts again by itself.
+  camera.publish({ status: 'error', message: 'Camera tracking stopped responding. Start camera to retry.' });
+  assert.equal(camera.view.message, 'Camera tracking stopped responding. Starting it again…');
+  await until(() => camera.view.status === 'connected', 'the camera to start again');
+  assert.equal(phone.cameraRetries, 0, 'tracking again resets the wait');
+  // Failing again and again waits longer each time.
+  camera.connect = async () => { camera.publish({ status: 'error', message: 'The camera stopped sending pictures. Start camera to retry.' }); };
+  camera.publish({ status: 'error', message: 'The camera stopped sending pictures. Start camera to retry.' });
+  await until(() => phone.cameraRetries >= 3, 'repeated retries');
+  // Leaving stops retrying.
+  phone.stop();
+  const retries = phone.cameraRetries;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(phone.cameraRetries, retries);
+});

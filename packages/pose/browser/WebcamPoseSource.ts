@@ -115,6 +115,8 @@ export class WebcamPoseSource {
   sessionId = '';
   seq = 0;
   lastMediaTime = -Infinity;
+  /** When the camera last delivered a new frame (tracked or not). */
+  lastFrame = 0;
   slots = new PlayerSlotMapper();
   resultTimes: number[] = [];
   startedAt = 0;
@@ -225,6 +227,8 @@ export class WebcamPoseSource {
         Object.assign(video.style, { position: 'fixed', width: '1px', height: '1px', opacity: '0', pointerEvents: 'none' });
         video.setAttribute('aria-hidden', 'true'); document.body.append(video);
       }
+      // Browsers may pause a muted video they think nobody sees (Safari does); keep it playing.
+      video.addEventListener?.('pause', () => { if (current()) void video.play().catch(() => {}); });
       this.startupTimeout = setTimeout(() => { if (current()) this.fail(Error('Camera/model startup timed out. Try again or choose Lite.')); }, 60000);
       await aborted(video.play(), controller.signal);
       if (!current()) return;
@@ -233,7 +237,7 @@ export class WebcamPoseSource {
       const model = poseModel(this.view.model);
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
       this.slots = new PlayerSlotMapper(); this.resultTimes = [];
-      this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.startedAt;
+      this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.lastFrame = this.startedAt;
       const worker = this.worker = this.createWorker();
       worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
       worker.onerror = event => { if (current()) this.fail(Error(event.message || 'Pose worker failed. Try another model or browser.')); };
@@ -246,7 +250,10 @@ export class WebcamPoseSource {
       this.watchdog = setInterval(() => {
         if (!current()) return;
         if (this.view.snapshot && this.now() - this.view.snapshot.frameBrowserTimeMs >= 500) this.publish({ snapshot: null });
-        if (this.view.status === 'connected' && this.now() - this.lastResult > 10000) this.fail(Error('Camera tracking stopped responding. Start camera to retry.'));
+        // Say which half stopped: the camera's pictures, or the model on them.
+        if (this.view.status === 'connected' && this.now() - this.lastResult > 10000) {
+          this.fail(Error(this.now() - this.lastFrame > 5000 ? 'The camera stopped sending pictures. Start camera to retry.' : 'Camera tracking stopped responding. Start camera to retry.'));
+        }
       }, 100);
     } catch (error) { if (current()) this.fail(error); }
   }
@@ -292,6 +299,7 @@ export class WebcamPoseSource {
       const mediaTimeMs = (metadata?.mediaTime ?? video.currentTime) * 1000;
       if (!Number.isFinite(mediaTimeMs) || mediaTimeMs <= this.lastMediaTime) return;
       this.lastMediaTime = mediaTimeMs;
+      this.lastFrame = this.now();
       if (this.busy) { this.dropped++; return; }
       if (video.videoWidth !== this.input?.width || video.videoHeight !== this.input.height) {
         if (!this.adaptToResize || !video.videoWidth || !video.videoHeight) { this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return; }

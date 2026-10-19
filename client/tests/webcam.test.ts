@@ -47,12 +47,14 @@ test('webcam slots use camera regions, preserve missing dancers and reject ambig
 
 // The camera, video and bitmap fakes implement only what WebcamPoseSource uses.
 function fixture(t: TestContext) {
-  let time = 0, stopped = 0, terminated = 0;
+  let time = 0, stopped = 0, terminated = 0, plays = 0;
+  const videoListeners = new Map<string, () => void>();
   let callback: VideoFrameRequestCallback | null = null;
   const messages: PoseWorkerRequest[] = [];
   const track: Partial<MediaStreamTrack> = { stop() { stopped++; }, addEventListener() {}, getSettings: () => ({ deviceId: 'camera' }) };
   const stream: Partial<MediaStream> = { getTracks: () => [track as MediaStreamTrack], getVideoTracks: () => [track as MediaStreamVideoTrack] };
-  const video: Partial<HTMLVideoElement> = { videoWidth: 640, videoHeight: 480, play: async () => {}, pause() {}, remove() {},
+  const video: Partial<HTMLVideoElement> = { videoWidth: 640, videoHeight: 480, play: async () => { plays++; }, pause() {}, remove() {},
+    addEventListener: ((type: string, fn: () => void) => { videoListeners.set(type, fn); }) as HTMLVideoElement['addEventListener'],
     requestVideoFrameCallback(fn) { callback = fn; return 1; }, cancelVideoFrameCallback() { callback = null; } };
   const worker: PoseWorker = { onmessage: null, onerror: null, postMessage: data => { messages.push(data); }, terminate() { terminated++; } };
   const bitmap: Partial<ImageBitmap> = { close() {} };
@@ -64,6 +66,7 @@ function fixture(t: TestContext) {
   return { source, worker, stream: stream as MediaStream, track, messages,
     get now() { return time; },
     setTime(value: number) { time = value; }, get stopped() { return stopped; }, get terminated() { return terminated; },
+    get plays() { return plays; }, videoEvent(type: string) { videoListeners.get(type)?.(); },
     async frame(mediaTime: number, now = mediaTime * 1000) {
       time = now;
       assert.ok(callback, 'a video frame callback is registered');
@@ -164,4 +167,31 @@ test('webcam capture times drive scored gameplay and recordings through the cont
   assert.equal(entries.length, seq - calibrationFrames);
   assert.equal(entries[0].songTimeMs, bundle.song.playableStartMs, 'recorded at capture, not arrival');
   assert.equal(entries[0].timing, 'browser-frame-observation');
+});
+test('a stalled camera says whether its pictures or the model stopped, and a paused video plays again', async t => {
+  const tick = () => new Promise(resolve => setTimeout(resolve, 150));
+  const f = fixture(t);
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'CPU', fallback: '' });
+  await f.frame(1); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 30 });
+  assert.equal(f.source.view.status, 'connected');
+  // The browser pausing the hidden video (Safari does) plays it again.
+  const plays = f.plays;
+  f.videoEvent('pause');
+  assert.equal(f.plays, plays + 1);
+  // Pictures keep coming but the model never answers.
+  await f.frame(2); for (let s = 3; s <= 12; s++) await f.frame(s);
+  await tick();
+  assert.equal(f.source.view.status, 'error');
+  assert.match(f.source.view.message, /^Camera tracking stopped responding/);
+  // No pictures at all.
+  const g = fixture(t);
+  await g.source.connect(); g.deliver({ type: 'ready', delegate: 'CPU', fallback: '' });
+  await g.frame(1); g.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 30 });
+  g.setTime(12_000); await tick();
+  assert.equal(g.source.view.status, 'error');
+  assert.match(g.source.view.message, /^The camera stopped sending pictures/);
+  // A pause after stopping is left alone.
+  const after = g.plays;
+  g.videoEvent('pause');
+  assert.equal(g.plays, after);
 });
