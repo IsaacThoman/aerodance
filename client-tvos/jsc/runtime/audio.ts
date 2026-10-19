@@ -12,14 +12,18 @@ const NODE = { destination: 0, gain: 1, source: 2, compressor: 3 } as const;
 const EV = { value: 0, set: 1, linear: 2, exponential: 3, target: 4, cancel: 5 } as const;
 
 let nextNode = 1;
+// Sources that have started and not ended yet, to fire 'ended' on. A source leaves as soon as it
+// ends, so a stopped source (and its AudioBuffer) isn't kept alive here.
 let ended: Map<number, AudioBufferSourceNodeShim> = new Map();
-/** The native mixer reports a source that played out. */
+/** The native mixer reports a source that played out or was stopped. */
 export function audioEnded(id: number) {
   const node = ended.get(id);
   if (!node) return;
   ended.delete(id);
   node.dispatchEvent(new EventShim('ended'));
 }
+// Native nodes go when their JavaScript node is collected.
+const freeNode = new FinalizationRegistry<number>((id) => { N.audio(A.release, id); });
 
 type Event = { type: number; value: number; time: number; tc: number };
 export class AudioParamShim {
@@ -76,7 +80,7 @@ export class AudioNodeShim extends EventTargetShim {
   constructor(ctx: AudioContextShim, type: number, id = nextNode++) {
     super();
     this.context = ctx; this._id = id;
-    if (type !== NODE.destination) N.audio(A.create, id, type);
+    if (type !== NODE.destination) { N.audio(A.create, id, type); freeNode.register(this, id); }
   }
   connect<T extends AudioNodeShim | AudioParamShim>(dest: T) {
     if (dest instanceof AudioNodeShim) N.audio(A.connect, this._id, dest._id);
@@ -140,6 +144,7 @@ export class AudioBufferSourceNodeShim extends AudioNodeShim {
   }
   stop(when = 0) {
     if (!this._started) throw new Error('InvalidStateError: stop() before start()');
+    // The mixer drops the buffer right away when the stop time has come, and reports 'ended'.
     N.audio(A.stop, this._id, when);
   }
 }
