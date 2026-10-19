@@ -38,8 +38,8 @@ loader. Fonts are bundled: Inter (as the web build loads it from Google Fonts) a
 ## The phone camera
 
 The Apple TV has no camera, so the camera is a phone, paired as on the web (README's Phone
-camera section): Connect Client's **Pair phone**, or Enter on the calibration screen, shows a QR
-code for the deployed site's `/phone/#<code>`. The app has no WebRTC, so the phone's poses and
+camera section): Enter on the calibration screen shows a QR code for the deployed site's
+`/phone/#<code>`. The app has no WebRTC, so the phone's poses and
 its preview pictures come through the pairing server's relay (`packages/pairing/relay.ts`), on
 the runtime's `WebSocket` and `EventSource` (`runtime/net.ts`, `src/Net.mm`, on URLSession).
 `site` in the launch config (`build --site`) is that deployed game: its pairing server, and the
@@ -64,10 +64,11 @@ game after `build --game`, the Aero benchmark otherwise.
 
 `node client-tvos/jsc/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
 pairs a phone page in Chromium, with a synthetic camera and the real MediaPipe model, with the
-app in a tvOS simulator through a local pairing server: pairing, relayed poses and pictures in
-Connect Client, and the phone reloading. The simulator draws OpenGL ES in software at about a
-frame a second, so it leaves the 3D world out; `--device <udid>` (after `build --game`) plays the
-whole game from the phone on an Apple TV instead, calibration and a song included.
+app in a tvOS simulator through a local pairing server, and plays the game from it: pairing and
+the phone's picture on the calibration screen, calibration, a song scored from its poses, and
+the phone reloading. The simulator draws OpenGL ES in software, about a frame a second on the
+stage, so a run there takes several minutes. `--device <udid>` (after `build --game`) runs it on
+an Apple TV, and `--site <origin>` pairs through a deployed site such as a PR preview.
 
 The launch config (JSON):
 

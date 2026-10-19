@@ -13,7 +13,6 @@ import type { Song } from '../../../packages/pose/song.ts';
 
 export interface ResultsScreenProps {
   visible?: boolean;
-  blocked?: boolean;
   /** The reveal, once the song has finished (App sets it on results). */
   show: RefObject<ResultsShow | null>;
   song?: Song;
@@ -85,12 +84,12 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
 }
 
 /** The song's stage celebration: the winner (or the solo score), grades and a new best. */
-export default function ResultsScreen({ visible = false, blocked = false, show, song, onRetry, onQuit }: ResultsScreenProps) {
+export default function ResultsScreen({ visible = false, show, song, onRetry, onQuit }: ResultsScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ visible, blocked, show, song, onRetry, onQuit });
-  props.current = { visible, blocked, show, song, onRetry, onQuit };
+  const props = useRef({ visible, show, song, onRetry, onQuit });
+  props.current = { visible, show, song, onRetry, onQuit };
   const st = useRef({ alpha: 0 }).current;
-  const live = () => props.current.visible && !props.current.blocked && !!props.current.show.current;
+  const live = () => props.current.visible && !!props.current.show.current;
 
   useCanvasUI({
     priority: 2.5,

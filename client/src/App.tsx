@@ -6,7 +6,6 @@ import type { MenuScreen } from './menu/MainMenu.tsx';
 import MenuDancers from './menu/MenuDancers.tsx';
 import { loadSound, saveSound } from './menu/soundSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
-import ConnectionPanel from './connect/ConnectionPanel.tsx';
 import SongSelect from './game/SongSelect.tsx';
 import GameScreen from './game/GameScreen.tsx';
 import ResultsScreen from './game/ResultsScreen.tsx';
@@ -66,8 +65,6 @@ export default function App() {
   // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select) or 'game' (a song).
   const [screen, setScreen] = useState<AppScreen>('menu');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
-  // The menu screen actually showing; the Connect Client pill lives on Settings.
-  const [menuShown, setMenuShown] = useState<MenuScreen>('main');
   const [playerCount, setPlayerCount] = useState<PlayerCount>(1);
   // The live camera (this computer's webcam or a paired phone), with optional URL replay.
   const [source] = useState(() => new CameraInput());
@@ -75,8 +72,6 @@ export default function App() {
   const [connection, setConnection] = useState(source.view);
   const [replayView, setReplayView] = useState(replay?.view ?? null);
   const activeSource: PoseSource = replay ?? source;
-  // The Connect Client card holds the menus while it's open.
-  const [connectOpen, setConnectOpen] = useState(false);
   // Song Select's preview: the routine to dance, and how its stage is doing.
   const [preview, setPreview] = useState<SongRoutine | null>(null);
   const [stage, setStage] = useState<StageState>({ showing: false, ready: false, stage: null, failed: false });
@@ -163,10 +158,10 @@ export default function App() {
   useEffect(() => {
     source.setPlaying(!!gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase));
   }, [source, gamePhase]);
-  // ...and sends its camera's picture only while a setup preview shows it.
+  // ...and sends its camera's picture only while the calibration screen shows it.
   useEffect(() => {
-    source.setPreview(connectOpen || (screen === 'game' && gamePhase === 'calibrating'));
-  }, [source, connectOpen, screen, gamePhase]);
+    source.setPreview(screen === 'game' && gamePhase === 'calibrating');
+  }, [source, screen, gamePhase]);
 
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';
@@ -201,16 +196,13 @@ export default function App() {
         />
         <MainMenu
           visible={menuOpen}
-          blocked={connectOpen}
           initialScreen={menuScreen}
           onStart={choosePlayers}
-          onScreenChange={setMenuShown}
           sound={sound}
           onSoundChange={setSound}
         />
         <SongSelect
           visible={songsOpen}
-          blocked={connectOpen}
           playerCount={playerCount}
           connection={selectedConnection}
           onBack={leaveSongs}
@@ -220,7 +212,6 @@ export default function App() {
         />
         <GameScreen
           visible={screen === 'game' && !!game}
-          blocked={connectOpen}
           session={game}
           camera={source}
           onQuit={quitGame}
@@ -228,18 +219,10 @@ export default function App() {
         />
         <ResultsScreen
           visible={resultsVisible}
-          blocked={connectOpen}
           show={resultsShow}
           song={game?.bundle.song}
           onQuit={quitGame}
           onRetry={retryGame}
-        />
-        <ConnectionPanel
-          visible={(menuOpen && menuShown === 'settings') || connectOpen}
-          open={connectOpen}
-          onOpenChange={setConnectOpen}
-          source={source}
-          connection={selectedConnection}
         />
       </Canvas>
     </div>

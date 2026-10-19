@@ -19,7 +19,7 @@ import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
 import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import {
-  GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
+  GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_CALIBRATION_SKIP, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
   LIVE_PANEL, livePanelCenterX,
 } from './layout.ts';
 
@@ -28,8 +28,8 @@ import {
  * and the players' live characters):
  *
  *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
- *              pressed, over the camera picker (shared with Connect Client); every player
- *              holds still together for 2.5 seconds
+ *              pressed, over the camera picker; every player holds still together for
+ *              2.5 seconds, or Continue without a camera starts the song straight away
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
@@ -39,14 +39,13 @@ import {
  *   results    hands the overlay to ResultsScreen
  *
  * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms and -game-scores for tests,
- * and while calibrating -game-calibration-* and the camera's -game-camera-status / -model / -message / -pairing.
+ * the camera's -game-camera-status / -model / -message, and while calibrating -game-calibration-* and -game-pairing.
  *
  * <GameScreen visible session={GameSession} camera={source} onQuit onRetry />
  */
 
 export interface GameScreenProps {
   visible?: boolean;
-  blocked?: boolean;
   session: GameSession | null;
   /** The camera (webcam or phone), set up from the calibration screen. */
   camera: CameraInput;
@@ -77,16 +76,17 @@ const fmt = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number) {
+// Without a camera (tracking false) there is nothing to say about tracking.
+function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean) {
   const cx = livePanelCenterX(id) * 1600;
   const top = (LIVE_PANEL.top + LIVE_PANEL.height) * 900 + 14;
   const p = PLAYERS[id];
   drawCaps(g, `PLAYER ${id + 1}`, cx, top + 19, { size: 18, align: 'center' });
   headline(g, (result?.score ?? 0).toLocaleString('en-US'), cx, top + 76, 46, ['#ffffff', p.light, p.color], 300);
   if (result && result.combo > 1) drawShadowText(g, `${result.combo} combo`, cx, top + 108, { size: 22, weight: 800, align: 'center', color: '#bff4ff' });
-  if (readiness === 'missing') drawShadowText(g, 'Step back into view', cx, top + 138, { size: 20, weight: 700, align: 'center', color: '#ffe27a' });
+  if (tracking && readiness === 'missing') drawShadowText(g, 'Step back into view', cx, top + 138, { size: 20, weight: 700, align: 'center', color: '#ffe27a' });
   // The newest judgement pops in over the character's feet and floats up.
-  const pop = popups.filter((j) => j.playerId === id).at(-1);
+  const pop = popups.filter((j) => j.playerId === id && (tracking || j.judgement !== 'lost')).at(-1);
   if (pop) {
     const age = now - pop.at;
     if (age < POPUP_S) {
@@ -112,6 +112,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   const preview = GAME_CALIBRATION_PREVIEW;
   const mid = card.x + card.w / 2;
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
+  drawPill(g, GAME_CALIBRATION_SKIP, { label: 'Continue', sub: 'without a camera', icon: 'play', hover: h.skip ?? 0, press: s.press * (h.skip ?? 0) });
   drawGlassPanel(g, card, 30);
   text(g, 'Stand still for 2.5 seconds', mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
 
@@ -181,15 +182,15 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   else if (!phone) text(g, 'No webcam? Choose Phone camera with the arrows below.', cx, preview.y + preview.h - 30, { size: 18, align: 'center', color: 'rgba(230, 248, 255, 0.75)' });
 }
 
-export default function GameScreen({ visible = false, blocked = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
+export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ visible, blocked, session, source, onQuit, onRetry });
-  props.current = { visible, blocked, session, source, onQuit, onRetry };
+  const props = useRef({ visible, session, source, onQuit, onRetry });
+  props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
   // The calibration screen's camera controls (the source's view is always current).
   const [camera] = useState(() => new CameraSetup(() => ({ source: props.current.source, connection: props.current.source.view })));
 
-  const live = () => props.current.visible && !props.current.blocked && phase() !== 'results' && st.alpha > 0.3;
+  const live = () => props.current.visible && phase() !== 'results' && st.alpha > 0.3;
   const phase = (): GamePhase => props.current.session?.phase ?? 'loading';
   // Webcam sessions calibrate before the ready check.
   const calibrating = () => !!props.current.session?.webcamCalibration && ['calibrating', 'ready'].includes(phase());
@@ -201,8 +202,8 @@ export default function GameScreen({ visible = false, blocked = false, session, 
     widgets: (): CameraWidget[] => {
       const ph = phase();
       if (calibrating()) {
-        // Top to bottom: back, the preview (start camera), the camera picker.
-        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
+        // Top to bottom: back and continue without a camera, the preview (start camera), the camera picker.
+        const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }, { id: 'skip', rect: GAME_CALIBRATION_SKIP }];
         if (!camera.active()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW, primary: true });
         return [...list, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
       }
@@ -223,6 +224,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       else if (wdg.id === 'resume') session?.resume();
       else if (wdg.id === 'restart' || wdg.id === 'retry') p.onRetry?.();
       else if (wdg.id === 'quit') p.onQuit?.();
+      else if (wdg.id === 'skip') session?.continueWithoutCamera();
       else if (wdg.id === 'start-camera') camera.start();
       else if (calibrating()) camera.activate(wdg);
       s.invalidate();
@@ -273,9 +275,9 @@ export default function GameScreen({ visible = false, blocked = false, session, 
         gameCalibrationPlayers: calibration?.players.join('|') ?? '',
         gameCalibrationPreview: calibration ? String(!!p.source.video || !!view.frame) : '',
         gameCalibrationVideo: calibration ? String(!!p.source.video) : '',
-        gameCameraStatus: calibration ? view.status : '',
-        gameCameraModel: calibration ? view.model : '',
-        gameCameraMessage: calibration ? camera.message() : '',
+        gameCameraStatus: view.status,
+        gameCameraModel: view.model || '',
+        gameCameraMessage: camera.message(),
         gamePairing: calibration ? camera.pairing()?.code ?? '' : '',
       };
       const json = JSON.stringify(report);
@@ -325,7 +327,8 @@ export default function GameScreen({ visible = false, blocked = false, session, 
       // During the song: the players' scores, judgements and the song's progress.
       const scores = session.scorer.results();
       const readiness = session.readiness();
-      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, scores[id], readiness[id], st.popups, now);
+      const tracking = !session.withoutCamera || p.source.view.status === 'connected';
+      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, scores[id], readiness[id], st.popups, now, tracking);
       if (ph !== 'paused') {
         drawGlassCircle(g, GAME_PAUSE, h.pause ?? 0);
         g.save();

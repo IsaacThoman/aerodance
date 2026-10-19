@@ -19,6 +19,7 @@ import type { CalibrationStatus } from './webcamCalibration.ts';
  * the results, independent of React and drawing (GameScreen draws it).
  *
  *   loading → calibrating (webcam) → ready → countdown → playing ⇄ paused → finishing → results
+ *   (continueWithoutCamera() goes from calibrating straight to the countdown)
  *
  * Everything runs on the song's audible clock (audio/songPlayer.ts): the countdown is the
  * scheduled start, the reference dancers sample it, and every live pose is placed at the
@@ -86,6 +87,8 @@ export class GameSession {
   results: PlayerResult[] | null = null;
   recording: PoseRecorder | null = null;
   recordingBytes: Uint8Array<ArrayBuffer> | null = null;
+  /** The players chose to play without the camera (continueWithoutCamera). */
+  withoutCamera = false;
   listeners = new Set<(session: GameSession) => void>();
   judgementListeners = new Set<(event: JudgementEvent) => void>();
   offRecords: () => void;
@@ -190,6 +193,19 @@ export class GameSession {
     }
     player.play({ delayMs: COUNTDOWN_MS });
     this.set('countdown');
+  }
+
+  /**
+   * Plays without the camera: calibration is dropped and the countdown starts now. Anyone
+   * the camera does see calibrates as they dance, like a replay.
+   */
+  continueWithoutCamera() {
+    if (!this.webcamCalibration || !['calibrating', 'ready'].includes(this.phase)) return;
+    this.webcamCalibration = null;
+    this.withoutCamera = true;
+    this.live = Array.from({ length: this.playerCount }, (_, playerId) => createLivePlayer({ playerId }));
+    this.phase = 'ready';
+    this.start();
   }
 
   /** Milliseconds until the song (re)starts, during the countdown. */

@@ -5,7 +5,7 @@ import { spacedCode } from '../../../packages/pairing/signals.ts';
 import type { PhonePairing } from '../pose/PhonePoseSource.ts';
 
 /*
- * Pairing a phone, drawn in-engine (Connect Client and the calibration screen): the QR code
+ * Pairing a phone, drawn in-engine on the calibration screen: the QR code
  * that opens the phone page with the code, and the code itself to type in.
  *
  * drawPairing(g, rect, { code, url });

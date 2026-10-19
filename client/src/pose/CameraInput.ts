@@ -7,8 +7,8 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
 
 /*
  * The game's camera: this computer's webcam, or a phone paired as the camera. The phone is
- * one more entry in the camera picker (PHONE_CAMERA, after the webcams), so Connect Client
- * and the calibration screen choose between them with the same arrows. Only the chosen one
+ * one more entry in the camera picker (PHONE_CAMERA, after the webcams), so the calibration
+ * screen chooses between them with the same arrows. Only the chosen one
  * runs, and only its poses reach the game.
  *
  * const camera = new CameraInput();

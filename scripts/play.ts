@@ -13,7 +13,6 @@ import { chromium } from 'playwright';
 import type { Browser, ConsoleMessage, Page } from 'playwright';
 import * as menuLayout from '../client/src/menu/layout.ts';
 import * as gameLayout from '../client/src/game/layout.ts';
-import * as connectLayout from '../client/src/connect/layout.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dir = path.join(root, '.cache/play');
@@ -56,13 +55,13 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in client/src/{menu,game,connect}/layout.ts, e.g. START,
-menu.BACK, game.BACK, rowRect.0, MODEL_RECTS.2 or GAME_CALIBRATION_CAMERA.primary.`;
+Targets name layout exports in client/src/{menu,game}/layout.ts, e.g. START,
+menu.BACK, game.BACK, rowRect.0 or GAME_CALIBRATION_CAMERA.next.`;
 
 // ---- Layout targets ----
 
 type Shape = { x: number; y: number; w?: number; h?: number; r?: number };
-const layouts: Record<string, Record<string, unknown>> = { menu: menuLayout, game: gameLayout, connect: connectLayout };
+const layouts: Record<string, Record<string, unknown>> = { menu: menuLayout, game: gameLayout };
 const isShape = (v: unknown): v is Shape =>
   typeof v === 'object' && v !== null && typeof Reflect.get(v, 'x') === 'number' && typeof Reflect.get(v, 'y') === 'number';
 const centre = (s: Shape) => ({ x: s.x + (s.w ?? 0) / 2, y: s.y + (s.h ?? 0) / 2 });

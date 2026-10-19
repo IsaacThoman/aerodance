@@ -8,11 +8,12 @@
 //   ... --site https://<number>.aerodance.party   (pair through a deployed site, a PR preview)
 //
 // Run after npm run build, and node scripts/tvos-jsc.ts build --game --sim (or without --sim for
-// a device). The simulator draws OpenGL ES in software, at about a frame a second, so there the
-// test pairs in Connect Client with the 3D world left out: pairing, the relayed poses and
-// preview pictures, and a phone that reloads. On an Apple TV it plays the whole game from the
-// phone: calibration with the phone's picture, a song scored from its poses, and the phone
-// reloading. The site is served on port 4891 (to the Apple TV at this Mac's network address).
+// a device). It plays the whole game from the phone: pairing on the calibration screen, the
+// phone's picture under the skeletons there, calibration, a song scored from its poses, then the
+// phone reloading. The simulator draws OpenGL ES in software, about a frame a second on the
+// stage even with the menu's 3D world and the stage's extras left out, so a simulator run takes
+// several minutes and its frame rates mean nothing. The site is served on port 4891 (to an Apple
+// TV at this Mac's network address).
 // Screenshots go to --out (default .cache/phone-tvos). CHROMIUM_PATH picks the Chromium.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -88,7 +89,7 @@ await new Promise((resolve) => server.once('listening', resolve));
 const started = Date.now();
 const log = (text: string) => console.log(`${((Date.now() - started) / 1000).toFixed(1).padStart(6)} s  ${text}`);
 /** Waits until the app's reported state passes `check` (it reports every 2 s). */
-async function tvUntil(what: string, check: (d: Record<string, string>) => boolean, timeoutMs = device ? 120_000 : 600_000) {
+async function tvUntil(what: string, check: (d: Record<string, string>) => boolean, timeoutMs = device ? 120_000 : 900_000) {
   const start = Date.now();
   while (!check(tv)) {
     if (Date.now() - start > timeoutMs) throw Error(`Timed out waiting for the Apple TV app: ${what}`);
@@ -98,19 +99,11 @@ async function tvUntil(what: string, check: (d: Record<string, string>) => boole
 }
 const progress = setInterval(() => {
   const last = reports.at(-1);
-  log(`… ${last?.fps ?? '?'} fps · ${['menuScreen', 'connectOpen', 'connectStatus', 'connectVideo', 'gamePhase', 'gameCalibrationProgress'].map((k) => `${k}=${tv[k] ?? ''}`).join(' ')}`);
+  log(`… ${last?.fps ?? '?'} fps · ${['menuScreen', 'songScreen', 'stageReady', 'gamePhase', 'gameCameraStatus', 'gameCalibrationProgress'].map((k) => `${k}=${tv[k] ?? ''}`).join(' ')}`);
 }, 15_000);
 
 // Drives the app like a Siri Remote, waiting on its state between presses.
 const wait = (state: Record<string, string>) => ['wait', state, 900_000];
-const toConnectClient = [
-  wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 1000],
-  // Settings (two down from nothing focused), then the status pill above it opens Connect Client,
-  // where the camera is the phone (the app has no webcam) and Enter starts pairing.
-  ['key', 'ArrowDown'], ['sleep', 300], ['key', 'ArrowDown'], ['sleep', 300], ['key', 'Enter'],
-  wait({ menuScreen: 'settings', menuReady: 'true' }), ['sleep', 1000], ['key', 'ArrowUp'], ['sleep', 300], ['key', 'Enter'],
-  wait({ connectOpen: 'true', connectReady: 'true' }), ['sleep', 1000], ['key', 'Enter'],
-];
 const toCalibration = [
   wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 1000], ['key', 'Enter'],
   wait({ menuScreen: 'players', menuReady: 'true' }), ['sleep', 500], ['key', 'Enter'],
@@ -119,10 +112,11 @@ const toCalibration = [
   // The calibration screen: Enter starts the camera, which for the phone is pairing.
   wait({ gamePhase: 'calibrating', gameReady: 'true' }), ['sleep', 1000], ['key', 'Enter'],
 ];
-// The simulator leaves the 3D world out, to keep its software renderer's frames short.
-const lite = '&aeroHide=sky,ground,city,lake,lamps,trees,traffic,grass,flowers,tulips,windmills,butterflies,birds,balloons,clouds,bubbles,sparkles,jet,flare,shadows,reflection&diag=nodancers';
+// The simulator leaves the menu's 3D world and the stage's extras out, to keep its software
+// renderer's frames short.
+const lite = '&aeroHide=sky,ground,city,lake,lamps,trees,traffic,grass,flowers,tulips,windmills,butterflies,birds,balloons,clouds,bubbles,sparkles,jet,flare,shadows,reflection&diag=nodancers,nobloom,nostageshadows';
 const config = { script: 'game.js', url: `http://aerodance.local/?quality=tv${device ? '' : lite}`, site: SITE, fit: 'fill', pixelated: true,
-  label: 'phone-tvos', report: `${HERE}/__report`, drive: device ? toCalibration : toConnectClient };
+  label: 'phone-tvos', report: `${HERE}/__report`, drive: toCalibration };
 const appLog: string[] = [];
 const appPath = `client-tvos/jsc/build/Build/Products/Release-${device ? 'appletvos' : 'appletvsimulator'}/aerodance.app`;
 const launch = device
@@ -188,46 +182,38 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const fpsWhile = (check: (d: Record<string, string>) => boolean) => reports.filter((r) => r.type === 'game' && r.dataset && check(r.dataset) && r.fps).map((r) => r.fps as number);
 
 try {
-  const codeKey = device ? 'gamePairing' : 'connectPairing';
-  await tvUntil('a pairing code', (d) => /^\d{6}$/.test(d[codeKey] ?? ''));
-  const code = tv[codeKey];
+  await tvUntil('a pairing code', (d) => /^\d{6}$/.test(d.gamePairing ?? ''));
+  const code = tv.gamePairing;
   screenshot('1-pairing');
   // The phone opens the QR code's link (/phone/#code on the site).
   phone = await openPhone(`${PHONE_SITE}/phone/#${code}`);
   await phoneUntil('phoneStage', 'linked');
   await phoneUntil('phoneCameraStatus', 'connected');
-  await tvUntil('the phone connected, tracking', (d) => d.connectStatus === 'connected' && /poses\/s/.test(d.connectMessage ?? ''));
-  const videoKey = device ? 'gameCalibrationVideo' : 'connectVideo';
-  await tvUntil('the phone’s picture in the preview', (d) => d[videoKey] === 'true');
+  await tvUntil('the phone connected, tracking', (d) => d.gameCameraStatus === 'connected' && /poses\/s/.test(d.gameCameraMessage ?? ''));
+  // Taken as soon as the picture shows: calibration can be over two and a half seconds later.
+  await tvUntil('the phone’s picture in the preview', (d) => d.gameCalibrationVideo === 'true', device ? 120_000 : 900_000);
+  screenshot('2-calibration');
   assert.equal(await phoneState('phoneVideo'), 'true', 'the phone sends pictures while the app previews');
-  await pause(device ? 1500 : 8000);
-  screenshot('2-preview');
 
-  if (device) {
-    await tvUntil('calibrated, counting down', (d) => d.gamePhase === 'countdown' || d.gamePhase === 'playing');
-    await phoneUntil('phoneVideo', 'false');
-    await tvUntil('playing from the phone’s poses', (d) => d.gamePhase === 'playing');
-    await pause(8000);
-    screenshot('3-playing');
-    await tvUntil('the song’s results', (d) => d.gamePhase === 'results', 120_000);
-    assert.ok(Number(tv.gameScores?.split(',')[0] ?? 0) > 0, `scored from the phone's poses (${tv.gameScores})`);
-    await pause(2000);
-    screenshot('4-results');
-  }
+  await tvUntil('calibrated, counting down', (d) => d.gamePhase === 'countdown' || d.gamePhase === 'playing');
+  await phoneUntil('phoneVideo', 'false');
+  await tvUntil('playing from the phone’s poses', (d) => d.gamePhase === 'playing');
+  await pause(device ? 8000 : 20_000);
+  screenshot('3-playing');
+  await tvUntil('the song’s results', (d) => d.gamePhase === 'results');
+  assert.ok(Number(tv.gameScores?.split('|')[0] ?? 0) > 0, `scored from the phone's poses (${tv.gameScores})`);
+  await pause(2000);
+  screenshot('4-results');
 
   // The phone reloads (its browser was put away): the app loses it, then gets it back.
   await phone.reload();
-  await tvUntil('lost the phone', (d) => ['connecting', 'initializing'].includes(d.connectStatus ?? ''));
+  await tvUntil('lost the phone', (d) => ['connecting', 'initializing'].includes(d.gameCameraStatus ?? ''));
   await phoneUntil('phoneStage', 'linked');
-  await tvUntil('the phone back, tracking', (d) => d.connectStatus === 'connected' && /poses\/s/.test(d.connectMessage ?? ''));
-  if (!device) {
-    await tvUntil('its picture back', (d) => d.connectVideo === 'true');
-    screenshot('3-relinked');
-  }
+  await tvUntil('the phone back, tracking', (d) => d.gameCameraStatus === 'connected' && /poses\/s/.test(d.gameCameraMessage ?? ''));
 
   const playing = fpsWhile((d) => d.gamePhase === 'playing');
   console.log(`Apple TV phone camera passed (${device ? 'on an Apple TV' : 'in the tvOS simulator'}, phone page in Chromium, through ${remote ? `${remote}'s` : 'a local'} relay):`, JSON.stringify({
-    phone: tv.connectMessage, ...(device ? { score: tv.gameScores, appFpsPlaying: playing.length ? `${Math.min(...playing)}–${Math.max(...playing)}` : 'n/a' } : {}),
+    phone: tv.gameCameraMessage, score: tv.gameScores, appFpsPlaying: playing.length ? `${Math.min(...playing)}–${Math.max(...playing)}` : 'n/a',
     seconds: Math.round((Date.now() - started) / 1000), screenshots: out,
   }));
   assert.deepEqual(errors, []);

@@ -30,8 +30,8 @@ import { tv } from '../quality.ts';
  * 'key') to the next widget while the overlay is active, skipping widgets with nav: false;
  * the widget under it gets the focus ring (ui/focusRing.ts) and Enter/Space press it. The
  * cursor is shared by every keyNav overlay, in priority order, so it runs from a screen's
- * buttons on to controls other overlays draw beside them (the Connect Client pill, the
- * fullscreen bubble). It starts on the screen's primary widget, which Enter/Space also press
+ * buttons on to controls other overlays draw beside them (the fullscreen bubble). It starts
+ * on the screen's primary widget, which Enter/Space also press
  * while there is no cursor and the mouse isn't over another; it follows its widget by id and
  * lets go once the widget is gone, the overlay hides or the mouse moves.
  * Left/Right go to onStep first (a slider steps, a camera arrow switches camera) and
