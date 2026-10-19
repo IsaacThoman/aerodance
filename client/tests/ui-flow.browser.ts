@@ -1,5 +1,5 @@
-// Browser flow for the in-engine game UI: Connect Client, player count, Song Select, the
-// song preview on its dance stage and a scored song. Everything is drawn on the canvas,
+// Browser flow for the in-engine game UI: Settings, player count, Song Select, the song
+// preview on its dance stage and a scored song. Everything is drawn on the canvas,
 // so it clicks design coordinates (the layout modules below) and reads the state each
 // overlay reports on the canvas's data attributes. Run after `npm run build`.
 import assert from 'node:assert/strict';
@@ -10,7 +10,6 @@ import { chromium } from 'playwright';
 import { bundleFixture, choreographyBytes, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
 import { BACK as MENU_BACK, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
-import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import {
   BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect,
 } from '../src/game/layout.ts';
@@ -100,31 +99,11 @@ try {
   await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });
   await menuOn('main');
 
-  // Connect Client lives on Settings; Escape closes only the card.
+  // Settings holds the sound controls; nothing before the calibration screen asks for the camera.
   await click(SETTINGS);
   await menuOn('settings');
-  await click(PILL);
-  await until({ connectReady: 'true', connectStatus: 'disconnected' });
-  await page.keyboard.press('Escape');
-  await until({ connectOpen: 'false' });
-  assert.equal((await data()).menuScreen, 'settings', 'Escape closes only the card');
   await shot('settings');
-
-  // Camera and model controls do not request permission; Start handles denial.
-  await click(PILL);
-  await until({ connectReady: 'true' });
-  await click(MODEL_RECTS[1]);
-  await until({ connectModel: 'full' });
   assert.equal(await page.evaluate(() => (window as TestWindow).webcamRequests), 0);
-  await page.keyboard.press('ArrowDown');
-  await page.waitForTimeout(300);
-  assert.equal((await data()).menuScreen, 'settings');
-  await page.mouse.move(frame.x + 10, frame.y + 10);
-  await click(PRIMARY);
-  await until({ connectStatus: 'error', connectMessage: /permission was denied/ });
-  assert.equal(await page.evaluate(() => (window as TestWindow).webcamRequests), 1);
-  await page.keyboard.press('Escape');
-  await until({ connectOpen: 'false' });
   await click(MENU_BACK);
   await menuOn('main');
   await shot('main-menu');
@@ -134,11 +113,11 @@ try {
   await menuOn('players');
   await shot('player-select');
   await click(ONE_PLAYER);
-  await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', songCount: '0', playerSlots: 'Connect Client' });
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', songCount: '0', playerSlots: 'Camera off' });
   await click(BACK);
   await menuOn('players');
   await click(TWO_PLAYERS);
-  await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', playerSlots: 'Connect Client|Connect Client' });
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', playerSlots: 'Camera off|Camera off' });
   await shot('song-select');
 
   // Keyboard: Escape leaves Song Select with the cursor on the player count picked last (Two
@@ -147,7 +126,7 @@ try {
   await page.keyboard.press('Escape');
   await menuOn('players');
   for (const k of ['ArrowUp', 'ArrowDown', 'Enter']) await page.keyboard.press(k);
-  await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Connect Client|Connect Client' });
+  await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Camera off|Camera off' });
 
   // The letterboxed frame on a phone.
   await page.setViewportSize({ width: 390, height: 844 });
@@ -299,7 +278,7 @@ try {
   await until({ songScreen: 'list', songReady: 'true' }, 10000);
   assert.equal((await data()).gamePhase, undefined);
   assert.deepEqual(errors, []);
-  console.log('Browser flow passed: Connect Client card (webcam models and permission denial), camera setup on the calibration screen, both player modes, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit) and no runtime errors.');
+  console.log('Browser flow passed: Settings, camera setup and permission denial on the calibration screen, both player modes, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit) and no runtime errors.');
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));

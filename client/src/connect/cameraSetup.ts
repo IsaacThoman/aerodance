@@ -2,42 +2,36 @@ import { FONT, ICONS, drawDisc, drawPill, ellipsize, text } from '../ui/draw.ts'
 import type { Rect } from '../ui/draw.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
-import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
 import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { CameraInput, CameraInputView } from '../pose/CameraInput.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 
 /**
- * The webcam controls Connect Client and the calibration screen share: the camera arrows
- * (this computer's cameras, then the phone), the Lite / Full / Heavy tracking buttons and
- * Start camera / Disconnect (Connect Client only; calibration starts the camera from its
- * preview). Each screen lays them out (CameraLayout), adds cameraWidgets() to its widgets and
- * hands presses to CameraSetup.activate().
+ * The calibration screen's camera controls: the camera arrows (this computer's cameras, then
+ * the phone), laid out by CameraLayout. The screen adds cameraWidgets() to its widgets and hands
+ * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()). The
+ * phone page draws its Lite / Full / Heavy tracking buttons with drawModelPicker().
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
  * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg); onStep: camera.step(wdg, dir, repeat);
- * draw: drawCameraPicker(g, LAYOUT, connection, hover); drawModelPicker(...); drawCameraButton(...);
+ * draw: drawCameraPicker(g, LAYOUT, connection, hover);
  */
 
 export interface CameraLayout {
   /** The camera arrows; the camera's name sits between them. */
   prev: Rect;
   next: Rect;
-  /** One per tracking model, in MODELS order. */
+  /** One per tracking model, in MODELS order (drawModelPicker). */
   models?: readonly Rect[];
-  /** Start camera / Disconnect. */
-  primary?: Rect;
 }
-export type CameraWidget = Widget & { cameraDelta?: number; modelId?: PoseModelId };
+export type CameraWidget = Widget & { cameraDelta?: number };
 
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
-export const cameraWidgets = ({ prev, next, models, primary }: CameraLayout): CameraWidget[] => [
+export const cameraWidgets = ({ prev, next }: CameraLayout): CameraWidget[] => [
   { id: 'camera-prev', rect: prev, cameraDelta: -1 },
   { id: 'camera-next', rect: next, cameraDelta: 1 },
-  ...(models ? MODELS.map((model, i) => ({ id: `model-${model.id}`, rect: models[i], modelId: model.id })) : []),
-  ...(primary ? [{ id: 'primary', rect: primary }] : []),
 ];
 
 /** The camera actions, and the error from the last one that failed. */
@@ -66,12 +60,6 @@ export class CameraSetup {
     this.target().source.connect()?.catch((err: unknown) => { this.error = message(err); });
   }
 
-  /** Start camera, or stop it (also cancels a connection on its way). */
-  toggle() {
-    if (this.active()) this.target().source.disconnect();
-    else this.start();
-  }
-
   /** Left/Right on a camera arrow switch camera, once per press (each switch restarts it); false for any other widget. */
   step(wdg: CameraWidget, dir: -1 | 1, repeat: boolean) {
     return !!wdg.cameraDelta && (repeat || this.activate({ ...wdg, cameraDelta: dir }));
@@ -80,17 +68,13 @@ export class CameraSetup {
   /** Handles a camera widget's press; false for any other widget. */
   activate(wdg: CameraWidget) {
     const { source, connection } = this.target();
-    if (wdg.modelId) {
-      this.error = '';
-      void source.configure({ modelId: wdg.modelId }).catch((err: unknown) => { this.error = message(err); });
-    } else if (wdg.cameraDelta) {
+    if (wdg.cameraDelta) {
       const cameras = [{ deviceId: '', label: 'Default camera' }, ...(connection.cameras || [])];
       const index = Math.max(0, cameras.findIndex(camera => camera.deviceId === connection.cameraId));
       const camera = cameras[(index + wdg.cameraDelta + cameras.length) % cameras.length];
       this.error = '';
       void source.configure({ cameraId: camera.deviceId }).catch((err: unknown) => { this.error = message(err); });
-    } else if (wdg.id === 'primary') this.toggle();
-    else return false;
+    } else return false;
     return true;
   }
 }
@@ -128,17 +112,3 @@ export function drawModelPicker(g: CanvasRenderingContext2D, { models }: CameraL
     label: `${connection.model === model.id ? '● ' : ''}${model.label}`, icon: 'gear', hover: hover[`model-${model.id}`] ?? 0,
   }));
 }
-
-/** Start camera (Pair phone), or Disconnect / Cancel connection while it is on. */
-export function drawCameraButton(g: CanvasRenderingContext2D, layout: CameraLayout, setup: CameraSetup, hover: number, press: number) {
-  if (!layout.primary) return;
-  const { status } = setup.target().connection;
-  const active = setup.active();
-  const phone = setup.phone();
-  const label = active
-    ? (status === 'connecting' && phone ? 'Cancel pairing' : status === 'connected' || phone ? 'Disconnect' : 'Cancel connection')
-    : phone ? 'Pair phone' : 'Start camera';
-  drawPill(g, layout.primary, { label, icon: active ? 'close' : phone ? 'phone' : 'play', hover, press });
-}
-
-export const modelDescription = (connection: PoseInputView) => MODELS.find(model => model.id === connection.model)?.description || '';

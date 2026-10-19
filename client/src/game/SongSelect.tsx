@@ -40,13 +40,12 @@ import {
  * The canvas reports data-song-screen, -song-ready, -catalog, -song-count, -player-slots, -preview-state
  * and -preview-time-ms for tests.
  *
- * <SongSelect visible blocked playerCount={1} connection={view} onBack onOpenConnect
+ * <SongSelect visible playerCount={1} connection={view} onBack
  *   stageState={{ showing, ready, stage, failed }} onPreviewChange onDance />
  */
 
 export interface SongSelectProps {
   visible?: boolean;
-  blocked?: boolean;
   playerCount?: PlayerCount;
   connection: PoseInputView;
   onBack?: () => void;
@@ -86,16 +85,16 @@ function slotStatus(connection: PoseInputView, id: number): { label: string; kin
   if (connection.status === 'initializing') return { label: 'Camera starting…' };
   if (connection.status === 'connected') return { label: 'Step into view' };
   if (ACTIVE.includes(connection.status)) return { label: 'Connecting…' };
-  return { label: 'Connect Client' };
+  return { label: 'Camera off' };
 }
 
 export default function SongSelect({
-  visible = false, blocked = false, playerCount = 1, connection, onBack,
+  visible = false, playerCount = 1, connection, onBack,
   stageState = {}, onPreviewChange, onDance,
 }: SongSelectProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ visible, blocked, playerCount, connection, onBack, stageState, onPreviewChange, onDance });
-  props.current = { visible, blocked, playerCount, connection, onBack, stageState, onPreviewChange, onDance };
+  const props = useRef({ visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance });
+  props.current = { visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance };
   const st = useRef<SongSelectState>({
     alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
@@ -107,7 +106,7 @@ export default function SongSelect({
   const songs = () => st.catalog.songs.filter((song) => song.supportedPlayerCounts.includes(props.current.playerCount));
   const pages = () => Math.max(1, Math.ceil(songs().length / ROWS.perPage));
   const pageSongs = () => songs().slice(st.page * ROWS.perPage, (st.page + 1) * ROWS.perPage);
-  const live = () => props.current.visible && !props.current.blocked && st.alpha > 0.3 && st.screen === st.next;
+  const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
   // The song opened last is the primary one while it's on the page, else the first.
   const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.id === st.chosen));
   const songWidget = (song: CatalogSong, i: number): SongWidget => ({ id: `song-${song.id}`, song, rect: rowRect(i), primary: i === primaryRow() });

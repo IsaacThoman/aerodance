@@ -12,7 +12,7 @@
   let atRoot = null;
   setInterval(() => {
     const d = document.querySelector('.canvas-frame canvas')?.dataset ?? {};
-    const now = d.menuScreen === 'main' && d.connectOpen !== 'true';
+    const now = d.menuScreen === 'main';
     if (now !== atRoot) { atRoot = now; post({ atRoot: now }); }
   }, 250);
 

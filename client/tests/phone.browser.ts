@@ -157,17 +157,17 @@ try {
   // Still tracking long after dimming (more than the camera's 10 s watchdog).
   await phone.waitForTimeout(12000);
   assert.equal(await data(phone, 'phoneCameraStatus'), 'connected');
-  assert.equal(await data(game, 'connectStatus'), 'connected');
+  assert.equal(await data(game, 'gameCameraStatus'), 'connected');
 
   // The phone leaves and opens the QR code's link: the game loses it, then it rejoins and
   // its poses come back.
   await phone.goto('about:blank');
-  await until(game, 'connectStatus', /^(connecting|initializing)$/);
+  await until(game, 'gameCameraStatus', /^(connecting|initializing)$/);
   await phone.goto(`${ORIGIN}/phone/#${code}`);
   await until(phone, 'phoneStage', 'linked');
   await until(phone, 'phoneCameraStatus', 'connected');
-  await until(game, 'connectStatus', 'connected');
-  await until(game, 'connectMessage', /poses\/s/);
+  await until(game, 'gameCameraStatus', 'connected');
+  await until(game, 'gameCameraMessage', /poses\/s/);
 
   // Leaving the song keeps the phone; closing the page ends its link.
   await phone.close();
