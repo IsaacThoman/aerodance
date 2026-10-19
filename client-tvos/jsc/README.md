@@ -53,7 +53,7 @@ Requirements are as for `client-tvos/` (Xcode 27, XcodeGen, a paired Apple TV, a
 node scripts/tvos-jsc.ts build --game              # runtime, benchmark and game; app for the Apple TV
 node scripts/tvos-jsc.ts build --game --sim        # ...for the tvOS simulator
 node scripts/tvos-jsc.ts build --game --release    # for TestFlight / the App Store (see below)
-node scripts/tvos-jsc.ts build --game --site https://23.aerodance.party   # pair through a PR preview
+node scripts/tvos-jsc.ts build --game --site https://24.aerodance.party   # pair through a PR preview
 node scripts/tvos-jsc.ts build --game --ghost      # play with the autoplay ghost instead of a phone
 node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?quality=tv","site":"https://aerodance.party","fit":"fill","pixelated":true}'
 node scripts/tvos-jsc.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
