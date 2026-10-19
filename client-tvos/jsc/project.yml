@@ -1,0 +1,51 @@
+# XcodeGen spec for the JavaScriptCore + OpenGL ES Apple TV app; scripts/tvos-jsc.ts generates
+# the project and builds it. The team and bundle ID come from TVOS_TEAM_ID and TVOS_BUNDLE_ID.
+name: AerodanceJSC
+options:
+  deploymentTarget:
+    tvOS: "27.0"
+targets:
+  AerodanceJSC:
+    type: application
+    platform: tvOS
+    sources:
+      - path: src
+        excludes: ["generated/*.ts"]
+      # The runtime, the app's script, fonts and assets, copied here by scripts/tvos-jsc.ts.
+      - path: www
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: CoreGraphics.framework
+      - sdk: Security.framework
+      - sdk: JavaScriptCore.framework
+      - sdk: OpenGLES.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreText.framework
+      - sdk: ImageIO.framework
+      - sdk: Accelerate.framework
+      - sdk: AVFAudio.framework
+      - sdk: AudioToolbox.framework
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: aerodance
+        CFBundleShortVersionString: "0.1"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSLocalNetworkUsageDescription: Sends performance diagnostics to the developer's Mac during testing.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      PRODUCT_NAME: aerodance
+      PRODUCT_BUNDLE_IDENTIFIER: ${TVOS_BUNDLE_ID}
+      DEVELOPMENT_TEAM: ${TVOS_TEAM_ID}
+      CODE_SIGN_STYLE: Automatic
+      GENERATE_INFOPLIST_FILE: NO
+      CLANG_ENABLE_OBJC_ARC: YES
+      CLANG_CXX_LANGUAGE_STANDARD: c++20
+      GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "GLES_SILENCE_DEPRECATION=1"]
+      GCC_OPTIMIZATION_LEVEL: s
