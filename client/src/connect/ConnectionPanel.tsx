@@ -4,23 +4,26 @@ import {
   FONT, ICONS, drawCaps, drawGlassCircle, drawGlassPanel, drawStatusDot, ellipsize, paragraph, text,
 } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
-import { CARD, CAMERA, CLOSE, COLUMN, PILL, STATUS, CAMERA_PREV, WEBCAM_PREVIEW } from './layout.ts';
+import { CARD, CAMERA, CLOSE, COLUMN, PAIRING, PAIRING_CAMERA, PILL, STATUS, CAMERA_PREV, WEBCAM_PREVIEW } from './layout.ts';
 import {
   CameraSetup, cameraWidgets, drawCameraButton, drawCameraPicker, drawModelPicker, modelDescription,
 } from './cameraSetup.ts';
 import type { CameraWidget } from './cameraSetup.ts';
+import { drawPairing } from './pairing.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
-import type { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
 import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { CameraInput } from '../pose/CameraInput.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 
 /**
  * Connect Client, drawn in-engine: a status pill in the top-right corner of Settings
- * opens a card for the webcam pose input. It runs the chosen MediaPipe model locally and
- * previews player placement in the card.
+ * opens a card for the pose input. With this computer's webcam it runs the chosen MediaPipe
+ * model locally; with a phone (the last camera) it shows the code to pair it, and the phone
+ * runs the model. Either way it previews player placement in the card.
  *
  * While the card is open the rest of the menus are held (App passes them `blocked`).
- * The canvas reports data-connect-open / -ready / -status / -message / -model / -camera for tests.
+ * The canvas reports data-connect-open / -ready / -status / -message / -model / -camera /
+ * -pairing (the phone's code while pairing) for tests.
  *
  * <ConnectionPanel visible open onOpenChange={setOpen} source={source} connection={view} />
  */
@@ -30,8 +33,8 @@ export interface ConnectionPanelProps {
   /** The card is out (the pill toggles it through onOpenChange). */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /** The webcam input the card configures. */
-  source: PoseSourceController;
+  /** The camera the card configures. */
+  source: CameraInput;
   /** What the game is playing with: the webcam, or a URL replay. */
   connection: PoseInputView;
 }
@@ -41,6 +44,11 @@ const LABELS: Partial<Record<WebcamStatus, string>> = {
   connecting: 'Connecting…',
   initializing: 'Camera starting…',
 };
+const PHONE_LABELS: Partial<Record<WebcamStatus, string>> = {
+  connected: 'Phone Connected',
+  connecting: 'Pairing phone…',
+  initializing: 'Phone starting…',
+};
 const smooth = (k: number) => k * k * (3 - 2 * k);
 
 export default function ConnectionPanel({ visible = true, open = false, onOpenChange, source, connection }: ConnectionPanelProps) {
@@ -49,8 +57,8 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
   props.current = { visible, open, onOpenChange, source, connection };
   // alpha: the whole overlay; k: how far the card is out (it grows from the pill).
   // refocus: the card closed under the keyboard cursor, which goes back to the pill.
-  const st = useRef<{ alpha: number; k: number; drawn: string | null; lastPreview?: number; refocus?: boolean }>({ alpha: 0, k: 0, drawn: null }).current;
-  const [camera] = useState(() => new CameraSetup(() => props.current));
+  const st = useRef<{ alpha: number; k: number; drawn: string | null; lastPreview?: number; snapshot?: unknown; refocus?: boolean }>({ alpha: 0, k: 0, drawn: null }).current;
+  const [camera] = useState(() => new CameraSetup(() => ({ source: props.current.source, connection: props.current.source.view })));
   const close = () => {
     st.refocus = props.current.visible && ui.keyboard;
     props.current.onOpenChange?.(false);
@@ -66,8 +74,9 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       if (!props.current.open || st.k < 0.5) return [{ id: 'pill', rect: PILL }];
       return [
         { id: 'close', circle: CLOSE },
-        // Start camera is the card's main action (Enter presses it); Disconnect isn't.
-        ...cameraWidgets(CAMERA).map((wdg) => (wdg.id === 'primary' ? { ...wdg, primary: !camera.active() } : wdg)),
+        // The pairing code takes the tracking buttons' place while it shows. Start camera is
+        // the card's main action (Enter presses it); Disconnect isn't.
+        ...cameraWidgets(camera.pairing() ? PAIRING_CAMERA : CAMERA).map((wdg) => (wdg.id === 'primary' ? { ...wdg, primary: !camera.active() } : wdg)),
         { id: 'pill', rect: PILL, nav: false },
       ];
     },
@@ -101,13 +110,16 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       if (p.open && p.source.video && s.time - (st.lastPreview || 0) > 1 / 15) {
         st.lastPreview = s.time; s.invalidate();
       }
-      const key = `${status}|${camera.message()}|${p.open}|${ready}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}`;
+      // A phone's poses arrive without a video to redraw for.
+      if (p.open && camera.phone() && p.source.view.snapshot !== st.snapshot) { st.snapshot = p.source.view.snapshot; s.invalidate(); }
+      const pairing = camera.pairing()?.code ?? '';
+      const key = `${status}|${camera.message()}|${p.open}|${ready}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}|${pairing}`;
       if (key !== st.drawn) {
         st.drawn = key;
         s.invalidate();
         Object.assign(gl.domElement.dataset, {
           connectOpen: String(p.open), connectReady: String(ready), connectStatus: status, connectMessage: camera.message(),
-          connectModel: p.connection.model || '', connectCamera: p.connection.cameraId || '',
+          connectModel: p.connection.model || '', connectCamera: p.connection.cameraId || '', connectPairing: pairing,
         });
       }
     },
@@ -139,13 +151,22 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
         ICONS.close(g, CLOSE.x, CLOSE.y, CLOSE.r * 1.1);
 
         text(g, 'Camera · use arrows to choose', COLUMN.x + 4, CAMERA_PREV.y - 26, { size: 22, weight: 700, color: '#bff4ff' });
-        drawCameraPicker(g, CAMERA, p.connection, h);
-        drawModelPicker(g, CAMERA, p.connection, h);
-        drawWebcamPreview(g, p.source.video, p.connection.snapshot, WEBCAM_PREVIEW, p.source.playerCount);
-        paragraph(g, modelDescription(p.connection),
-          WEBCAM_PREVIEW.x + WEBCAM_PREVIEW.w + 20, WEBCAM_PREVIEW.y + 20, 365, { size: 21, lineH: 27 });
-        paragraph(g, 'Keep your full body visible. Video stays in this browser. Camera access needs HTTPS or localhost.',
+        // The card is the camera's, whatever the game is playing with (a URL replay included).
+        const view = p.source.view;
+        drawCameraPicker(g, CAMERA, view, h);
+        const pairing = camera.pairing();
+        if (pairing) drawPairing(g, PAIRING, pairing);
+        else {
+          drawModelPicker(g, CAMERA, view, h);
+          drawWebcamPreview(g, p.source.video, p.connection.snapshot, WEBCAM_PREVIEW, p.source.playerCount,
+            camera.phone() ? 'Pair your phone to preview' : undefined, { frame: view.frame });
+          paragraph(g, modelDescription(view),
+            WEBCAM_PREVIEW.x + WEBCAM_PREVIEW.w + 20, WEBCAM_PREVIEW.y + 20, 365, { size: 21, lineH: 27 });
+          paragraph(g, camera.phone()
+            ? 'Your phone runs the tracking and sends only your pose here. Prop it up where it can see your whole body.'
+            : 'Keep your full body visible. Video stays in this browser. Camera access needs HTTPS or localhost.',
           WEBCAM_PREVIEW.x + WEBCAM_PREVIEW.w + 20, WEBCAM_PREVIEW.y + 78, 365, { size: 19, lineH: 24 });
+        }
 
         paragraph(g, camera.message(), STATUS.x + 4, STATUS.y, STATUS.w - 8, { size: 21, lineH: 28, color: camera.failed() ? '#ffb38a' : '#ffffff' });
         drawCameraButton(g, CAMERA, camera, h.primary ?? 0, press('primary'));
@@ -161,7 +182,8 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       const cy = PILL.y + PILL.h / 2;
       drawStatusDot(g, PILL.x + 40, cy, status, 11);
       g.font = `700 28px ${FONT}`;
-      text(g, ellipsize(g, LABELS[status] ?? 'Connect Client', PILL.w - 130), PILL.x + 68, cy + 1, { size: 28, weight: 700 });
+      const label = (p.connection.sourceKind === 'phone' ? PHONE_LABELS : LABELS)[status] ?? 'Connect Client';
+      text(g, ellipsize(g, label, PILL.w - 130), PILL.x + 68, cy + 1, { size: 28, weight: 700 });
       g.lineWidth = 4;
       g.lineCap = 'round';
       g.lineJoin = 'round';

@@ -3,4 +3,8 @@ services:
     build: .
     expose:
       - "3000"
+    # Phone pairing runs inside the app container. Set PAIRING_ICE_SERVERS (a JSON array of
+    # RTCIceServer entries) to hand phones and games a TURN server.
+    environment:
+      - PAIRING_ICE_SERVERS
     restart: unless-stopped

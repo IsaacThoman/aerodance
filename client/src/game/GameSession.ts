@@ -94,7 +94,8 @@ export class GameSession {
     this.bundle = bundle; this.playerCount = playerCount; this.source = source; this.createPlayer = createPlayer;
     this.now = now; this.recordPoses = record; this.autoStart = autoStart;
     this.scorer = createScorer(bundle, playerCount);
-    this.webcamCalibration = source?.view.sourceKind === 'webcam' ? new WebcamCalibration(playerCount) : null;
+    // Live cameras calibrate; replays already know where everyone stands.
+    this.webcamCalibration = source && source.view.sourceKind !== 'replay' ? new WebcamCalibration(playerCount) : null;
     this.live = Array.from({ length: playerCount }, (_, playerId) => createLivePlayer({ playerId, autoCalibrate: !this.webcamCalibration }));
     this.present = Array<number>(playerCount).fill(-Infinity);
     this.acceptFromMs = bundle.song.playableStartMs - LEAD_MS;

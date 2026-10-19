@@ -251,6 +251,16 @@ export const ICONS = {
     g.arc(cx, top + h, h * 0.55, 0, TAU);
     g.stroke();
   },
+  // A phone standing upright, with its speaker slot (pair a phone as the camera).
+  phone(g, cx, cy, r) {
+    const w = r * 0.3;
+    const h = r * 0.5;
+    g.beginPath();
+    g.roundRect(cx - w, cy - h, w * 2, h * 2, r * 0.1);
+    g.moveTo(cx - w * 0.3, cy - h * 0.72);
+    g.lineTo(cx + w * 0.3, cy - h * 0.72);
+    g.stroke();
+  },
   close(g, cx, cy, r) {
     const a = r * 0.36;
     g.beginPath();
