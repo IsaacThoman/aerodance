@@ -3,12 +3,16 @@
 // tracks a synthetic portrait camera with the real MediaPipe model and sends poses over a
 // real WebRTC connection; the game calibrates and plays from them. The phone keeps tracking
 // while dimmed, then leaves and comes back through the QR code's link.
+//
+// PHONE_BROWSER=webkit runs the phone page in WebKit (Safari's engine) as an iPhone, talking to
+// the game in Chromium. HEADED=1 shows both windows; BROWSER_GPU=metal renders on the Mac's GPU
+// instead of SwiftShader (needed with UI_RENDER=1, which is too slow in software).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
-import { chromium } from 'playwright';
-import type { Page } from 'playwright';
+import { chromium, webkit } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { bundleFixture } from './fixtures/songBundle.ts';
 import { START, ONE_PLAYER } from '../src/menu/layout.ts';
 import { DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, rowRect } from '../src/game/layout.ts';
@@ -40,16 +44,20 @@ app.get('/songs/fixture/:file', (req, res) => {
 app.use(express.static('dist'));
 const server = app.listen(4183, '127.0.0.1');
 await new Promise(resolve => server.once('listening', resolve));
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required',
-  '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-  // Plain loopback candidates: both ends run in this browser.
+const headless = process.env.HEADED !== '1';
+const gpu = process.env.BROWSER_GPU === 'metal' ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
+  : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+const browser = await chromium.launch({ headless, executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required',
+  ...gpu,
+  // Plain loopback candidates: both ends run on this machine.
   '--disable-features=WebRtcHideLocalIpsWithMdns'] });
+const phoneBrowser: Browser = process.env.PHONE_BROWSER === 'webkit' ? await webkit.launch({ headless }) : browser;
 const render = process.env.UI_RENDER === '1';
 const errors: string[] = [];
 const ORIGIN = 'http://127.0.0.1:4183';
 
 async function open(viewport: { width: number; height: number }, mobile = false) {
-  const context = await browser.newContext({ viewport, ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
+  const context = await (mobile ? phoneBrowser : browser).newContext({ viewport, ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
   const page = await context.newPage();
   page.setDefaultTimeout(60000);
   page.on('pageerror', error => errors.push(`${viewport.width}: ${error.message}`));
@@ -128,6 +136,8 @@ try {
   assert.equal(await data(game, 'gamePairing'), '', 'the code goes once the phone is connected');
   if (process.env.UI_ARTIFACTS) {
     await game.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-game.png` });
+    // The mirror shows each player once they've held still for a moment, as the game does.
+    await until(game, 'gameCalibrationProgress', /^(0\.[5-9]|1)/);
     await phone.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-setup.png` });
   }
 
@@ -156,7 +166,7 @@ try {
   // Leaving the song keeps the phone; closing the page ends its link.
   await phone.close();
   assert.deepEqual(errors, []);
-  console.log('Phone camera passed: pairing by code, real WebRTC poses from a portrait phone camera, calibration and a song from them, tracking while dimmed, and rejoining from the link.');
+  console.log(`Phone camera passed (game in Chromium, phone in ${phoneBrowser.browserType().name()}): pairing by code, real WebRTC poses from a portrait phone camera, calibration and a song from them, tracking while dimmed, and rejoining from the link.`);
 } catch (error) {
   console.error('Game state:', await game.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
   console.error('Phone state:', await phone.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
@@ -164,6 +174,7 @@ try {
   throw error;
 } finally {
   await browser.close();
+  if (phoneBrowser !== browser) await phoneBrowser.close();
   pairing.close();
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
