@@ -24,6 +24,9 @@
   if (!reportUrl) return;
   const R = { device: navigator.userAgent, longFrames: 0 };
   const send = () => fetch(reportUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(R) }).catch(() => {});
+  const fail = message => fetch(reportUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ type: 'pageerror', message }) }).catch(() => {});
+  addEventListener('error', e => fail(`${e.message} ${e.filename}:${e.lineno}`));
+  addEventListener('unhandledrejection', e => fail(String(e.reason && e.reason.stack || e.reason)));
   // JIT check: ~285 ms with JIT, ~565 ms without on an M5 Pro; the ratio matters, not the number.
   let t = performance.now(), s = 0; for (let i = 0; i < 2e7; i++) s += (i * 1.0000001) % 7;
   R.numericLoopMs = +(performance.now() - t).toFixed(1); R.sink = s > 0;

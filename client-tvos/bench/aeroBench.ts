@@ -5,9 +5,10 @@
 import * as THREE from 'three';
 import { createAeroWorld, type AeroPart } from '../../client/src/aero/aeroBackground.ts';
 
-type Quality = 'high' | 'low';
-// A scenario is a quality, optionally with parts of the world left out and a render scale for
-// diagnostics: 'high', 'low', 'high:clouds+birds' (no clouds or birds), 'high@0.5' (320x240).
+type Quality = 'high' | 'low' | 'tv';
+// A scenario is a quality, optionally with parts of the world left out, a render scale and a
+// start on the loop: 'high', 'low', 'tv', 'high:clouds+birds' (no clouds or birds), 'high@0.5'
+// (320x240), 'high#0.2' (from 0.2 round the loop: downtown and the lake instead of the meadow).
 type Scenario = string;
 type Config = {
   scenarios: Scenario[]; warmupS: number; measureS: number; start: number; width: number; height: number; label: string;
@@ -61,21 +62,22 @@ function loopBenchmark() {
 }
 
 function parseScenario(spec: Scenario) {
-  const [rest, scale = '1'] = spec.split('@');
+  const [main, start] = spec.split('#');
+  const [rest, scale = '1'] = main.split('@');
   const [quality, hide = ''] = rest.split(':');
   // (An unescaped + in a query string arrives as a space.)
-  return { quality: quality as Quality, hide: hide ? hide.split(/[+ ]/) as AeroPart[] : [], scale: Number(scale) || 1 };
+  return { quality: quality as Quality, hide: hide ? hide.split(/[+ ]/) as AeroPart[] : [], scale: Number(scale) || 1, start: start === undefined ? undefined : Number(start) };
 }
 
 async function runScenario(canvas: HTMLCanvasElement, renderer: THREE.WebGLRenderer, config: Config, spec: Scenario) {
-  const { quality, hide, scale } = parseScenario(spec);
+  const { quality, hide, scale, start = config.start } = parseScenario(spec);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(66, config.width / config.height, 0.3, 6500);
   renderer.setSize(Math.round(config.width * scale), Math.round(config.height * scale), false);
   const pixel = new Uint8Array(4);
   const gl = renderer.getContext();
   const buildStart = performance.now();
-  const world = createAeroWorld({ renderer, scene, camera, quality, start: config.start, hide });
+  const world = createAeroWorld({ renderer, scene, camera, quality, start, hide });
   const buildMs = performance.now() - buildStart;
 
   // The first frames compile shaders; time them separately.

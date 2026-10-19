@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AeroContext } from './context.ts';
 import { splitIntoCells } from './instanceCells.ts';
+import { mergeStatic } from './mergeStatic.ts';
 import type { FlightPath } from './flight.ts';
 import { TAU, canvas2d, col, hexMul } from './util.ts';
 
@@ -12,34 +13,80 @@ function addInCells(ctx: AeroContext, mesh: THREE.InstancedMesh) {
 }
 
 /* ------------------------------------------------------- meadow grass */
-/** Instanced grass blades swaying in a vertex-shader wind. */
+// 120,000 blades of five vertices each. As an instanced mesh, GPUs that shade vertices in
+// fixed-size groups (Apple's) waste most of each group on such tiny instances, so the blades are
+// drawn as plain indexed triangles instead, each vertex looking up its blade (gl_VertexID / 5)
+// in a float texture: four texels per blade, the instance matrix's columns (with the translation
+// in w) and the blade's colour.
+const BLADE_W = 0.07, BLADES_PER_ROW = 256;
+const bladeVertex = (a: THREE.Color, b: THREE.Color, c: THREE.Color) => {
+  const v = (x: number, y: number, z: number) => `vec3(${x.toFixed(6)},${y.toFixed(6)},${z.toFixed(6)})`;
+  const w = BLADE_W;
+  return `
+  uniform float uTime;uniform highp sampler2D bladeData;
+  const vec3 BLADE[5]=vec3[5](${[[-w, 0, 0], [w, 0, 0], [-w * 0.7, 0.5, 0.02], [w * 0.7, 0.5, 0.02], [0, 1, 0.07]].map((p) => v(p[0], p[1], p[2])).join(',')});
+  const vec3 SHADE[5]=vec3[5](${[a, a, b, b, c].map((k) => v(k.r, k.g, k.b)).join(',')});`;
+};
+const bladeBegin = `
+  int blade=gl_VertexID/5,corner=gl_VertexID-blade*5;
+  ivec2 at=ivec2((blade%${BLADES_PER_ROW})*4,blade/${BLADES_PER_ROW});
+  vec4 c0=texelFetch(bladeData,at,0),c1=texelFetch(bladeData,at+ivec2(1,0),0),c2=texelFetch(bladeData,at+ivec2(2,0),0);
+  vec3 p=BLADE[corner];
+  vec2 ip=vec2(c0.w,c2.w);
+  float sw=sin(uTime*1.8+ip.x*.15+ip.y*.11)+.5*sin(uTime*3.1+ip.x*.4);
+  p.x+=sw*p.y*p.y*.14;p.z+=sw*p.y*p.y*.07;
+  vec3 transformed=c0.xyz*p.x+c1.xyz*p.y+c2.xyz*p.z+vec3(c0.w,c1.w,c2.w);`;
+const bladeColor = `
+  vColor=vec4(SHADE[gl_VertexID-(gl_VertexID/5)*5]*texelFetch(bladeData,ivec2(((gl_VertexID/5)%${BLADES_PER_ROW})*4+3,(gl_VertexID/5)/${BLADES_PER_ROW}),0).rgb,1.0);`;
+
+/** Grass blades swaying in a vertex-shader wind, drawn in 100 m cells. */
 export function buildMeadowGrass(ctx: AeroContext, path: FlightPath) {
   const { R, rnd } = ctx.random;
-  const w = 0.07, bg = new THREE.BufferGeometry();
-  bg.setAttribute('position', new THREE.Float32BufferAttribute([-w, 0, 0, w, 0, 0, -w * 0.7, 0.5, 0.02, w * 0.7, 0.5, 0.02, 0, 1, 0.07], 3));
-  bg.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
   const a = col('#2c7a1a'), b = col('#5ec12d'), c = col('#c8f06a');
-  bg.setAttribute('color', new THREE.Float32BufferAttribute([a.r, a.g, a.b, a.r, a.g, a.b, b.r, b.g, b.b, b.r, b.g, b.b, c.r, c.g, c.b], 3));
-  bg.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]);
+  const N = Math.round(120000 * ctx.quality.Q), rows = Math.ceil(N / BLADES_PER_ROW);
+  const data = new Float32Array(BLADES_PER_ROW * 4 * rows * 4);
+  const d = new THREE.Object3D(), cc = new THREE.Color(), cells = new Map<string, number[]>();
+  for (let i = 0; i < N; i++) {
+    let x: number, z: number; if (rnd() < 0.72) [x, z] = path.nearMeadow(26); else { x = R(-260, 320); z = R(270, 1000); }
+    d.position.set(x, 0, z); d.rotation.set(R(-0.2, 0.2), R(0, TAU), R(-0.2, 0.2)); d.scale.set(R(0.8, 1.7), R(0.45, 1.35), 1); d.updateMatrix();
+    const bb = R(0.75, 1.12); cc.setRGB(bb * R(0.9, 1.05), bb, bb * R(0.82, 1));
+    const m = d.matrix.elements, o = i * 16;
+    data[o] = m[0]; data[o + 1] = m[1]; data[o + 2] = m[2]; data[o + 3] = m[12];
+    data[o + 4] = m[4]; data[o + 5] = m[5]; data[o + 6] = m[6]; data[o + 7] = m[13];
+    data[o + 8] = m[8]; data[o + 9] = m[9]; data[o + 10] = m[10]; data[o + 11] = m[14];
+    data[o + 12] = cc.r; data[o + 13] = cc.g; data[o + 14] = cc.b;
+    const key = `${Math.floor(x / 100)},${Math.floor(z / 100)}`;
+    let list = cells.get(key);
+    if (!list) cells.set(key, list = []);
+    list.push(i);
+  }
+  const tex = new THREE.DataTexture(data, BLADES_PER_ROW * 4, rows, THREE.RGBAFormat, THREE.FloatType);
+  tex.needsUpdate = true;
+  ctx.disposables.push(tex);
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = ctx.time;
-    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-        #ifdef USE_INSTANCING
-        vec2 ip=vec2(instanceMatrix[3][0],instanceMatrix[3][2]);
-        #else
-        vec2 ip=vec2(0.0);
-        #endif
-        float sw=sin(uTime*1.8+ip.x*.15+ip.y*.11)+.5*sin(uTime*3.1+ip.x*.4);
-        transformed.x+=sw*position.y*position.y*.14;transformed.z+=sw*position.y*position.y*.07;`);
+    sh.uniforms.bladeData = { value: tex };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>\n${bladeVertex(a, b, c)}`)
+      .replace('#include <begin_vertex>', bladeBegin)
+      .replace('#include <color_vertex>', bladeColor);
   };
-  const N = Math.round(120000 * ctx.quality.Q), im = new THREE.InstancedMesh(bg, mat, N), d = new THREE.Object3D(), cc = new THREE.Color();
-  for (let i = 0; i < N; i++) {
-    let x: number, z: number; if (rnd() < 0.72) [x, z] = path.nearMeadow(26); else { x = R(-260, 320); z = R(270, 1000); }
-    d.position.set(x, 0, z); d.rotation.set(R(-0.2, 0.2), R(0, TAU), R(-0.2, 0.2)); d.scale.set(R(0.8, 1.7), R(0.45, 1.35), 1); d.updateMatrix(); im.setMatrixAt(i, d.matrix);
-    const bb = R(0.75, 1.12); cc.setRGB(bb * R(0.9, 1.05), bb, bb * R(0.82, 1)); im.setColorAt(i, cc);
+  mat.customProgramCacheKey = () => 'aero-grass';
+  const corners = [0, 1, 2, 1, 3, 2, 2, 3, 4];
+  for (const list of cells.values()) {
+    const index = new Uint32Array(list.length * 9), box = new THREE.Box3(), p = new THREE.Vector3();
+    list.forEach((i, k) => {
+      for (let j = 0; j < 9; j++) index[k * 9 + j] = i * 5 + corners[j];
+      box.expandByPoint(p.set(data[i * 16 + 3], 0, data[i * 16 + 11]));
+    });
+    const g = new THREE.BufferGeometry();
+    g.setIndex(new THREE.BufferAttribute(index, 1));
+    // Blades are under 2 m tall and lean a little in the wind.
+    box.expandByVector(p.set(2.5, 2.5, 2.5));
+    g.boundingBox = box; g.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+    ctx.root.add(new THREE.Mesh(g, mat));
   }
-  addInCells(ctx, im);
 }
 
 /* --------------------------------------------------------------- flowers */
@@ -120,6 +167,9 @@ export function buildWindmills(ctx: AeroContext) {
       bl.add(arm);
     }
     g.add(bl); ctx.root.add(g); MILLS.push(bl); ctx.moving.push(bl);
+    // The sails turn as one: two meshes (arms, sails) instead of eight.
+    for (const arm of bl.children) arm.matrixAutoUpdate = false;
+    mergeStatic(bl, [...bl.children]);
   }
   return {
     update(dt: number) { for (const m of MILLS) m.rotation.x += dt * 0.5; },

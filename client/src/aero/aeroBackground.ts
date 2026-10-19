@@ -34,6 +34,7 @@ import { createDroneFlight, createFlightPath, zoneName } from './flight.ts';
 import { buildGround } from './ground.ts';
 import { buildLake, buildLakeShore } from './lake.ts';
 import { buildLensFlare } from './lensFlare.ts';
+import { mergeStatic } from './mergeStatic.ts';
 import { buildButterflies, buildFlowers, buildMeadowGrass, buildSparkles, buildTulips, buildWindmills } from './meadow.ts';
 import { buildClouds, buildJet, buildLights, buildSky } from './sky.ts';
 import { buildStreetLamps, buildTraffic } from './streets.ts';
@@ -96,6 +97,8 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   const moving = new Set(ctx.moving);
   ctx.root.updateMatrixWorld(true);
   ctx.root.traverse((o) => { if (!moving.has(o)) o.matrixAutoUpdate = false; });
+  // ...and what doesn't move is drawn in as few meshes as possible.
+  for (const [name, objects] of parts) if (name !== 'flare') parts.set(name, mergeStatic(ctx.root, objects));
 
   const off = new Set(hide);
   for (const name of off) for (const o of parts.get(name) ?? []) o.visible = false;

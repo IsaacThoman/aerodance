@@ -69,7 +69,10 @@ interface WaterUniforms {
   size: THREE.IUniform<number>;
 }
 
-interface Boat { g: THREE.Group; x: number; z: number; dir: number; v: number; ph: number; heel: number }
+interface Boat { x: number; z: number; dir: number; v: number; ph: number; heel: number; scale: number }
+
+/** One instanced mesh per boat part; each part sits at a fixed place in its boat. */
+interface BoatPart { mesh: THREE.InstancedMesh; local: THREE.Matrix4; boats: number[] }
 
 function buildBoats(ctx: AeroContext, glassMat: THREE.Material) {
   const { root, tex } = ctx;
@@ -88,28 +91,44 @@ function buildBoats(ctx: AeroContext, glassMat: THREE.Material) {
   for (let i = 0; i < 260; i++) { const t = rnd(), y = t * 256, spread = 6 + t * 54, side = rnd() < 0.5 ? -1 : 1; wg.fillStyle = `rgba(255,255,255,${(0.75 * (1 - t)).toFixed(2)})`; wg.beginPath(); wg.arc(64 + side * spread * R(0.75, 1), y, R(1.5, 3.5) * (1 - t * 0.5), 0, TAU); wg.fill(); }
   const wakeMat = new THREE.MeshBasicMaterial({ map: tex(wc), transparent: true, depthWrite: false, fog: true });
   const wakeGeo = new THREE.PlaneGeometry(7, 26); wakeGeo.rotateX(-Math.PI / 2); wakeGeo.translate(0, 0.08, -16);
-  const hullMats = ['#ffffff', '#e8f1fa', '#ffffff', '#1d5ec8'].map((h) => new THREE.MeshStandardMaterial({ color: col(h), roughness: 0.35, metalness: 0.05 }));
+  // Hulls and sails differ only in colour: one white material each, coloured per instance.
+  const hullCols = ['#ffffff', '#e8f1fa', '#ffffff', '#1d5ec8'].map((h) => col(h));
+  const hullMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.05 });
   const deckMat = new THREE.MeshLambertMaterial({ color: col('#c89a62') });
-  const sailMats = ['#ffffff', '#fff7e6', '#ff6a3d', '#2fb3ff'].map((h) => new THREE.MeshLambertMaterial({ color: col(h), side: THREE.DoubleSide }));
+  const sailCols = ['#ffffff', '#fff7e6', '#ff6a3d', '#2fb3ff'].map((h) => col(h));
+  const sailMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
   const mastMat = new THREE.MeshLambertMaterial({ color: col('#d9dee4') });
+  const mastGeo = new THREE.CylinderGeometry(0.08, 0.1, 10, 6), cabGeo = new THREE.BoxGeometry(1.8, 1, 2.4), roofGeo = new THREE.BoxGeometry(2, 0.15, 2.8);
+  const at = (x: number, y: number, z: number) => new THREE.Matrix4().makeTranslation(x, y, z);
+  const specs: [geo: THREE.BufferGeometry, mat: THREE.Material, local: THREE.Matrix4][] = [
+    [hull, hullMat, at(0, 0, 0)], [deck, deckMat, at(0, 0, 0)], [mastGeo, mastMat, at(0, 6, 0)], [sailGeo, sailMat, at(0, 0, 0)],
+    [jibGeo, sailMat, at(0, 0, 0)], [cabGeo, glassMat, at(0, 1.5, 0.4)], [roofGeo, hullMat, at(0, 2.05, 0.3)], [wakeGeo, wakeMat, at(0, 0, 0)],
+  ];
+  const [HULL, DECK, MAST, SAIL, JIB, CAB, ROOF, WAKE] = [0, 1, 2, 3, 4, 5, 6, 7];
+  const members: { boat: number; color?: THREE.Color }[][] = specs.map(() => []);
   for (let i = 0; i < 12; i++) {
-    const g = new THREE.Group(), sailing = i < 8;
-    g.add(new THREE.Mesh(hull, pick(hullMats)), new THREE.Mesh(deck, deckMat));
+    const sailing = i < 8;
+    members[HULL].push({ boat: i, color: pick(hullCols) }); members[DECK].push({ boat: i });
     if (sailing) {
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 10, 6), mastMat); mast.position.y = 6; g.add(mast);
-      const sm = pick(sailMats);
-      g.add(new THREE.Mesh(sailGeo, sm), new THREE.Mesh(jibGeo, rnd() < 0.5 ? sm : sailMats[0]));
+      members[MAST].push({ boat: i });
+      const sc = pick(sailCols);
+      members[SAIL].push({ boat: i, color: sc }); members[JIB].push({ boat: i, color: rnd() < 0.5 ? sc : sailCols[0] });
     } else {
-      const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1, 2.4), glassMat); cab.position.set(0, 1.5, 0.4); g.add(cab);
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(2, 0.15, 2.8), hullMats[0]); roof.position.set(0, 2.05, 0.3); g.add(roof);
+      members[CAB].push({ boat: i }); members[ROOF].push({ boat: i, color: hullCols[0] });
     }
-    const wake = new THREE.Mesh(wakeGeo, wakeMat); wake.renderOrder = 1; g.add(wake);
+    members[WAKE].push({ boat: i });
     const dir = rnd() < 0.5 ? 1 : -1;
-    g.scale.setScalar(sailing ? 1 : 0.85);
-    root.add(g); ctx.moving.push(g);
-    BOATS.push({ g, x: R(-600, 600), z: R(-450, -300), dir, v: sailing ? R(1.5, 3) : R(4, 7), ph: R(0, TAU), heel: sailing ? R(0.08, 0.16) : 0 });
+    BOATS.push({ scale: sailing ? 1 : 0.85, x: R(-600, 600), z: R(-450, -300), dir, v: sailing ? R(1.5, 3) : R(4, 7), ph: R(0, TAU), heel: sailing ? R(0.08, 0.16) : 0 });
   }
-  return BOATS;
+  const parts: BoatPart[] = specs.map(([geo, mat, local], k) => {
+    const mesh = new THREE.InstancedMesh(geo, mat, members[k].length);
+    members[k].forEach((m, i) => { if (m.color) mesh.setColorAt(i, m.color); });
+    mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    if (k === WAKE) mesh.renderOrder = 1;
+    root.add(mesh);
+    return { mesh, local, boats: members[k].map((m) => m.boat) };
+  });
+  return { BOATS, parts };
 }
 
 export interface Lake {
@@ -142,7 +161,8 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   };
 
   // Boats: sailboats and small motor launches drifting along the lake, each with a wake
-  const BOATS = ctx.random.withRng(9090, () => buildBoats(ctx, glassMat));
+  const { BOATS, parts } = ctx.random.withRng(9090, () => buildBoats(ctx, glassMat));
+  const boatMatrices = BOATS.map(() => new THREE.Matrix4()), d = new THREE.Object3D(), m = new THREE.Matrix4();
 
   const lake: Lake = {
     reflect: true,
@@ -151,10 +171,15 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
       wNorm.offset.set(t * 0.004, t * 0.006);
       uniforms.time.value = t * 0.6;
       uniforms.eye.value.copy(camera.position);
-      for (const b of BOATS) {
+      BOATS.forEach((b, i) => {
         b.x += b.dir * b.v * dt; if (b.x > 640) b.x = -640; if (b.x < -640) b.x = 640;
-        b.g.position.set(b.x, 0.45 + Math.sin(t * 1.3 + b.ph) * 0.06, b.z + Math.sin(t * 0.05 + b.ph) * 6);
-        b.g.rotation.set(Math.sin(t * 1.1 + b.ph) * 0.02, b.dir > 0 ? Math.PI / 2 : -Math.PI / 2, b.dir * b.heel + Math.sin(t * 0.9 + b.ph) * 0.03);
+        d.position.set(b.x, 0.45 + Math.sin(t * 1.3 + b.ph) * 0.06, b.z + Math.sin(t * 0.05 + b.ph) * 6);
+        d.rotation.set(Math.sin(t * 1.1 + b.ph) * 0.02, b.dir > 0 ? Math.PI / 2 : -Math.PI / 2, b.dir * b.heel + Math.sin(t * 0.9 + b.ph) * 0.03);
+        d.scale.setScalar(b.scale); d.updateMatrix(); boatMatrices[i].copy(d.matrix);
+      });
+      for (const p of parts) {
+        p.boats.forEach((boat, i) => p.mesh.setMatrixAt(i, m.multiplyMatrices(boatMatrices[boat], p.local)));
+        p.mesh.instanceMatrix.needsUpdate = true;
       }
     },
   };
