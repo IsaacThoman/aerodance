@@ -51,7 +51,16 @@ development profile, which lasts about a year; deploy again to renew it.
 
 `--report` sends the frame rate, the JavaScript time per frame and the draw calls per frame from
 the Apple TV to this Mac (port 8765), along with a short JavaScript loop benchmark taken at
-launch. Opened from the home screen, the app reports nothing.
+launch, and any errors the page throws. Opened from the home screen, the app reports nothing.
+
+With `--report`, `?drive=` in the page drives the game for a benchmark and reports
+`{"type":"done"}` when it's finished: `--path '/?drive=menu'` idles on the main menu for a
+minute, `--path '/?input=ghost&drive=play'` goes from the main menu through One Player, the first
+song's preview and Dance! to the results.
+
+The app sets the game's `tv` graphics tier (see `client/src/quality.ts`); `?quality=high` in
+the page overrides it. Each app on an Apple TV needs its own `TVOS_PORT` (default 8417) for the
+page's local server, or one app's page can be served by another app's server.
 
 ## What doesn't work yet
 

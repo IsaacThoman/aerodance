@@ -13,6 +13,8 @@ export interface QualitySettings {
   motionMul: number;
   /** Where the trees get coarser (treeField.ts). */
   treeLod: TreeLod;
+  /** Coarser tree models at every distance (the TV tier). */
+  leanTrees: boolean;
   /** The lake's reflection: texture size, refreshes a second, and parts of the world it leaves out. */
   reflection: { size: number; fps: number; skip: readonly AeroPart[] };
 }
@@ -25,13 +27,13 @@ export function resolveQuality(quality: AeroQuality): QualitySettings {
   // TV: high's world, with coarser distant trees and a cheaper reflection.
   if (quality === 'tv') {
     return {
-      small: false, Q: 1, motionMul, treeLod: { near: 50, far: 200 },
+      small: false, Q: 1, motionMul, treeLod: { near: 50, far: 200 }, leanTrees: true,
       reflection: { size: 256, fps: 20, skip: ['lamps', 'traffic', 'bubbles', 'birds', 'butterflies', 'sparkles', 'grass', 'flowers', 'tulips', 'windmills'] },
     };
   }
   return {
     small, Q: small ? 0.55 : 1, motionMul,
-    treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 },
+    treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 }, leanTrees: false,
     reflection: { size: small ? 256 : 512, fps: 30, skip: [] },
   };
 }
