@@ -12,7 +12,17 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 
-static const char *kPort = "8417";
+// The page's port: Info.plist's AerodancePort (TVOS_PORT when built), else 8417. Apps that share
+// the Apple TV need their own, or one app's page can be served by another app's server.
+static const char *ServerPort(void) {
+  static char port[8] = "8417";
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSInteger p = [[NSBundle.mainBundle objectForInfoDictionaryKey:@"AerodancePort"] integerValue];
+    if (p > 0 && p < 65536) snprintf(port, sizeof port, "%ld", (long)p);
+  });
+  return port;
+}
 
 #pragma mark - Local file server
 
@@ -70,7 +80,7 @@ static nw_listener_t StartServer(NSString *root) {
   nw_parameters_t params = nw_parameters_create_secure_tcp(NW_PARAMETERS_DISABLE_PROTOCOL, NW_PARAMETERS_DEFAULT_CONFIGURATION);
   nw_parameters_set_required_interface_type(params, nw_interface_type_loopback);
   nw_parameters_set_reuse_local_address(params, true);
-  nw_listener_t listener = nw_listener_create_with_port(kPort, params);
+  nw_listener_t listener = nw_listener_create_with_port(ServerPort(), params);
   dispatch_queue_t queue = dispatch_queue_create("aerodance.http", DISPATCH_QUEUE_CONCURRENT);
   nw_listener_set_queue(listener, queue);
   nw_listener_set_new_connection_handler(listener, ^(nw_connection_t c) {
@@ -144,7 +154,7 @@ static nw_listener_t StartServer(NSString *root) {
 
   NSUInteger p = [args indexOfObject:@"--path"];
   NSString *path = p != NSNotFound && p + 1 < args.count ? args[p + 1] : @"/?input=ghost";
-  NSString *url = [NSString stringWithFormat:@"http://127.0.0.1:%s%@", kPort, path];
+  NSString *url = [NSString stringWithFormat:@"http://127.0.0.1:%s%@", ServerPort(), path];
   NSLog(@"aerodance loading %@ (report: %@)", url, report.length ? report : @"off");
   ((id (*)(id, SEL, id))objc_msgSend)(web, sel_registerName("loadRequest:"), [NSURLRequest requestWithURL:[NSURL URLWithString:url]]);
 }

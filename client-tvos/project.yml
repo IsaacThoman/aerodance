@@ -1,5 +1,5 @@
 # XcodeGen spec for the Apple TV app; scripts/tvos.ts generates the project and builds it.
-# The team and bundle ID come from TVOS_TEAM_ID and TVOS_BUNDLE_ID.
+# The team, bundle ID and local server port come from TVOS_TEAM_ID, TVOS_BUNDLE_ID and TVOS_PORT.
 name: AerodanceTV
 options:
   deploymentTarget:
@@ -26,6 +26,7 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         NSLocalNetworkUsageDescription: Sends performance diagnostics to the developer's Mac during testing.
+        AerodancePort: ${TVOS_PORT}
     settings:
       PRODUCT_NAME: aerodance
       PRODUCT_BUNDLE_IDENTIFIER: ${TVOS_BUNDLE_ID}

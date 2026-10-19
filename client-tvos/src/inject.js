@@ -41,4 +41,38 @@
     send();
   }, 2000);
   addEventListener('keydown', e => { R.lastKey = [e.key, Math.round(performance.now())]; }, true);
+
+  // Optional benchmark drivers, chosen with the page's ?drive= (scripts/tvos.ts --path):
+  // drive=menu idles on the main menu for a minute; drive=play goes from the main menu through
+  // One Player, the first song's preview and Dance! (play with ?input=ghost) to the results.
+  // Each sends {type: 'done'} to the report URL when it's finished.
+  const drive = new URLSearchParams(location.search).get('drive');
+  if (!drive) return;
+  const state = () => document.querySelector('.canvas-frame canvas')?.dataset ?? {};
+  const steps = drive === 'menu'
+    ? [{ when: d => d.menuScreen === 'main' && d.menuReady === 'true', hold: 60000 }]
+    : [
+        { when: d => d.menuScreen === 'main' && d.menuReady === 'true', hold: 20000, key: 'Enter' },
+        { when: d => d.menuScreen === 'players' && d.menuReady === 'true', hold: 1000, key: 'Enter' },
+        { when: d => d.songScreen === 'list' && d.songReady === 'true' && d.catalog === 'ready', hold: 1000, key: 'Enter' },
+        { when: d => d.songScreen === 'preview' && d.previewState === 'playing' && d.stageReady === 'true', hold: 15000, key: 'Enter' },
+        { when: d => d.gamePhase === 'ready', hold: 1000, key: 'Enter' },
+        { when: d => d.gamePhase === 'results', hold: 15000 },
+      ];
+  let step = 0, since = 0;
+  const started = performance.now();
+  const timer = setInterval(() => {
+    const now = performance.now();
+    const s = steps[step];
+    if (!since && s.when(state())) since = now;
+    if (since && now - since >= s.hold) {
+      if (s.key) window.__aerodanceKey(s.key);
+      step++; since = 0;
+      R.driveStep = step;
+    }
+    if (step === steps.length || now - started > 600000) {
+      clearInterval(timer);
+      setTimeout(() => fetch(reportUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ type: 'done', drive, steps: step }) }).catch(() => {}), 2100);
+    }
+  }, 100);
 })();
