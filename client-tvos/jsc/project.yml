@@ -36,9 +36,8 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        NSLocalNetworkUsageDescription: Sends performance diagnostics to the developer's Mac during testing.
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+        # Development builds also get NSLocalNetworkUsageDescription and NSAllowsLocalNetworking,
+        # for the report and log URLs; scripts/tvos-jsc.ts adds them unless built with --release.
     settings:
       PRODUCT_NAME: aerodance
       PRODUCT_BUNDLE_IDENTIFIER: ${TVOS_BUNDLE_ID}

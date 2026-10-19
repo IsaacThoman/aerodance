@@ -129,6 +129,22 @@ void Render(int id, int n, double t0, std::vector<int> &ended) {
   }
 }
 
+/** Sources that weren't rendered this block (disconnected, or not reaching the destination)
+ *  still end when their time is up, so they let go of their buffers and fire 'ended'. */
+void Retire(double t, std::vector<int> &ended) {
+  for (auto &[id, n] : gNodes) {
+    if (n.type != N_SOURCE || !n.started || n.done || n.block == gBlock) continue;
+    bool over = n.stopAt >= 0 && t >= n.stopAt;
+    if (!over && !n.loop && n.buffer && n.buffer->frames) {
+      double rate = std::max(1e-6, n.params[0].valueAt(t));
+      double length = (n.duration >= 0 ? n.duration : n.buffer->frames / n.buffer->rate - n.offset) / rate;
+      over = t >= n.when + length;
+    }
+    if (!n.buffer) over = true;
+    if (over) { n.done = true; n.buffer.reset(); ended.push_back(id); }
+  }
+}
+
 OSStatus RenderBlock(BOOL *silence, const AudioTimeStamp *ts, AVAudioFrameCount frames, AudioBufferList *out) {
   float *L = (float *)out->mBuffers[0].mData, *R = out->mNumberBuffers > 1 ? (float *)out->mBuffers[1].mData : nullptr;
   std::vector<int> ended;
@@ -144,6 +160,7 @@ OSStatus RenderBlock(BOOL *silence, const AudioTimeStamp *ts, AVAudioFrameCount 
   if (ts->mFlags & kAudioTimeStampHostTimeValid) { gStampContext = t0; gStampPerf = HostMs(ts->mHostTime) + gLatency * 1000; }
   gBlock++;
   Render(0, (int)frames, t0, ended);
+  Retire(t0 + frames / gRate, ended);
   Node &dest = gNodes[0];
   for (AVAudioFrameCount i = 0; i < frames; i++) {
     // The mixer's limiter stands in for the compressor: hard clip at full scale.
@@ -165,14 +182,12 @@ OSStatus RenderBlock(BOOL *silence, const AudioTimeStamp *ts, AVAudioFrameCount 
   return noErr;
 }
 
-void Start() {
-  if (gEngine) return;
-  gEvents = dispatch_queue_create("aerodance.audio.events", DISPATCH_QUEUE_SERIAL);
-  AVAudioSession *session = AVAudioSession.sharedInstance;
-  [session setCategory:AVAudioSessionCategoryPlayback error:nil];
-  [session setActive:YES error:nil];
-  gRate = session.sampleRate > 0 ? session.sampleRate : 48000;
-  gLatency = session.outputLatency + session.IOBufferDuration;
+void Restart(NSString *why);
+
+/** Builds the engine (or a new one) and starts it. The mixer's format stays at gRate whatever the
+ *  route, so the context's clock (frames rendered) only ever moves forward. */
+void BuildEngine() {
+  if (gEngine) [gEngine stop];
   gEngine = [AVAudioEngine new];
   AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:gRate channels:2];
   gSourceNode = [[AVAudioSourceNode alloc] initWithFormat:format renderBlock:^OSStatus(BOOL *silence, const AudioTimeStamp *ts, AVAudioFrameCount frames, AudioBufferList *out) {
@@ -182,9 +197,44 @@ void Start() {
   NSError *error = nil;
   if (![gEngine connect:gSourceNode to:gEngine.mainMixerNode format:format error:&error]) HostLog(2, [NSString stringWithFormat:@"audio connect: %@", error]);
   if (![gEngine startAndReturnError:&error]) HostLog(2, [NSString stringWithFormat:@"audio engine: %@", error]);
+  // A new output route (AirPods, a HomePod, a different TV) stops the engine: start it again.
+  __block id observer = [NSNotificationCenter.defaultCenter addObserverForName:AVAudioEngineConfigurationChangeNotification object:gEngine queue:nil usingBlock:^(NSNotification *) {
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    dispatch_async(gEvents, ^{ Restart(@"route change"); });
+  }];
+}
+
+void Restart(NSString *why) {
+  AVAudioSession *session = AVAudioSession.sharedInstance;
+  [session setActive:YES error:nil];
+  gLatency = session.outputLatency + session.IOBufferDuration;
+  BuildEngine();
+  HostLog(0, [NSString stringWithFormat:@"audio restarted after %@ (output latency %.0f ms, running %d)", why, gLatency * 1000, gEngine.isRunning]);
+}
+
+void Start() {
+  if (gEngine) return;
+  gEvents = dispatch_queue_create("aerodance.audio.events", DISPATCH_QUEUE_SERIAL);
+  AVAudioSession *session = AVAudioSession.sharedInstance;
+  [session setCategory:AVAudioSessionCategoryPlayback error:nil];
+  [session setActive:YES error:nil];
+  gRate = session.sampleRate > 0 ? session.sampleRate : 48000;
+  gLatency = session.outputLatency + session.IOBufferDuration;
   os_unfair_lock_lock(&gLock);
   gNodes[0].type = N_DESTINATION;
   os_unfair_lock_unlock(&gLock);
+  BuildEngine();
+  NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+  // After an interruption (another app took the audio session) the system recommends resuming.
+  [center addObserverForName:AVAudioSessionResumptionRecommendationNotification object:session queue:nil usingBlock:^(NSNotification *) {
+    dispatch_async(gEvents, ^{ Restart(@"an interruption"); });
+  }];
+  [center addObserverForName:AVAudioSessionMediaServicesWereResetNotification object:session queue:nil usingBlock:^(NSNotification *) {
+    dispatch_async(gEvents, ^{ [AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryPlayback error:nil]; Restart(@"a media services reset"); });
+  }];
+  [center addObserverForName:AVAudioSessionRouteChangeNotification object:session queue:nil usingBlock:^(NSNotification *) {
+    dispatch_async(gEvents, ^{ if (!gEngine.isRunning) Restart(@"a route change"); else gLatency = AVAudioSession.sharedInstance.outputLatency + AVAudioSession.sharedInstance.IOBufferDuration; });
+  }];
   HostLog(0, [NSString stringWithFormat:@"audio %.0f Hz, output latency %.0f ms", gRate, gLatency * 1000]);
 }
 
@@ -298,6 +348,7 @@ JSValueRef AudioNative(JSContextRef ctx, size_t argc, const JSValueRef argv[]) {
     default: break;
   }
   // Graph edits.
+  int stoppedNow = 0;
   os_unfair_lock_lock(&gLock);
   switch (cmd) {
     case C_CREATE: {
@@ -336,9 +387,35 @@ JSValueRef AudioNative(JSContextRef ctx, size_t argc, const JSValueRef argv[]) {
       n.started = true; n.playing = false; n.done = false; n.played = 0;
       break;
     }
-    case C_STOP: { Node &n = gNodes[(int)a(0)]; n.stopAt = std::max(a(1), gFrames / gRate); break; }
-    case C_RELEASE: gNodes.erase((int)a(0)); break;
+    case C_STOP: {
+      int id = (int)a(0);
+      Node &n = gNodes[id];
+      double now = gFrames / gRate;
+      n.stopAt = std::max(a(1), now);
+      if (n.stopAt <= now && !n.done) {
+        // Stopped now: let go of the song at once (a stopped source may never be pulled again).
+        n.done = true;
+        n.buffer.reset();
+        stoppedNow = id;
+      }
+      break;
+    }
+    case C_RELEASE: {
+      int id = (int)a(0);
+      gNodes.erase(id);
+      for (auto &[k, n] : gNodes) n.inputs.erase(std::remove(n.inputs.begin(), n.inputs.end(), id), n.inputs.end());
+      break;
+    }
   }
   os_unfair_lock_unlock(&gLock);
+  if (stoppedNow) {
+    int id = stoppedNow;
+    dispatch_async(gEvents, ^{
+      [CurrentHost() perform:^(JSGlobalContextRef c) {
+        JSValueRef arg = JSValueMakeNumber(c, id);
+        [CurrentHost() callHost:"audioEnded" args:&arg count:1];
+      }];
+    });
+  }
   return JSValueMakeUndefined(ctx);
 }

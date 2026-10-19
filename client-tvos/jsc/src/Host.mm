@@ -8,6 +8,7 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <ImageIO/ImageIO.h>
 #import <Security/Security.h>
+#include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <pthread.h>
 
@@ -99,6 +100,14 @@ void FrameStats::executed(uint64_t frame, double ms, double gpuMs, int words) {
   r.execMs += ms; r.commands += words;
   if (gpuMs >= 0) r.gpuMs = gpuMs;
 }
+/** The process's memory as jetsam counts it (phys_footprint), in MB. */
+static double PhysFootprintMB() {
+  task_vm_info_data_t info;
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return -1;
+  return info.phys_footprint / 1048576.0;
+}
+
 static NSDictionary *Stat(std::vector<double> v) {
   if (v.empty()) return @{ @"mean": [NSNull null], @"p95": [NSNull null] };
   std::sort(v.begin(), v.end());
@@ -120,7 +129,7 @@ NSString *FrameStats::summary(double fromMs, double toMs) {
     if (last >= 0) interval.push_back(r.start - last);
     last = r.start;
   }
-  NSDictionary *d = @{ @"frames": @(js.size()), @"jsMs": Stat(js), @"submitMs": Stat(submit), @"execMs": Stat(exec),
+  NSDictionary *d = @{ @"memMB": @(std::round(PhysFootprintMB() * 10) / 10), @"frames": @(js.size()), @"jsMs": Stat(js), @"submitMs": Stat(submit), @"execMs": Stat(exec),
                        @"gpuFinishMs": gpu.empty() ? [NSNull null] : Stat(gpu), @"wordsPerFrame": Stat(words), @"intervalMs": Stat(interval) };
   NSData *data = [NSJSONSerialization dataWithJSONObject:d options:0 error:nil];
   return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
@@ -389,6 +398,8 @@ NATIVE(N_noop4) {
 
 @implementation JSHost {
   std::unique_ptr<Renderer> _renderer;
+  BOOL _ready;
+  NSMutableArray *_pending;
 }
 
 - (Renderer *)renderer { return _renderer.get(); }
@@ -399,6 +410,7 @@ NATIVE(N_noop4) {
     _display = display;
     _wwwRoot = [[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"www"] stringByStandardizingPath];
     gHost = self;
+    _pending = [NSMutableArray array];
     if ([config[@"logUrl"] length]) gLogUrl = config[@"logUrl"];
   }
   return self;
@@ -413,8 +425,24 @@ NATIVE(N_noop4) {
 }
 
 - (void)perform:(void (^)(JSGlobalContextRef ctx))block {
+  // Until the JavaScript thread has its run loop and context, blocks wait in a queue.
+  @synchronized(self) {
+    if (!_ready) { [_pending addObject:block]; return; }
+  }
   CFRunLoopPerformBlock(self.runLoop, kCFRunLoopCommonModes, ^{ @autoreleasepool { block(self.context); } });
   CFRunLoopWakeUp(self.runLoop);
+}
+
+- (void)setActive:(BOOL)active {
+  // Called on the main thread. Going inactive waits (briefly) until no GL work is left, since
+  // tvOS kills apps that use the GPU in the background.
+  dispatch_semaphore_t done = dispatch_semaphore_create(0);
+  [self perform:^(JSGlobalContextRef) {
+    self.displayLink.paused = !active;
+    if (!active) self.renderer->sync([](Executor &) { glFinish(); });
+    dispatch_semaphore_signal(done);
+  }];
+  if (!active) dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC));
 }
 
 - (JSValueRef)call:(JSObjectRef)fn args:(const JSValueRef *)args count:(size_t)count {
@@ -426,6 +454,7 @@ NATIVE(N_noop4) {
 }
 
 - (JSObjectRef)hostFunction:(const char *)name {
+  if (!self.hostObject) return nullptr;
   JSStringRef s = JSStringCreateWithUTF8CString(name);
   JSValueRef v = JSObjectGetProperty(self.context, self.hostObject, s, nullptr);
   JSStringRelease(s);
@@ -545,6 +574,9 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
   float fps = c[@"fps"] ? [c[@"fps"] floatValue] : 60;
   self.displayLink.preferredFrameRateRange = CAFrameRateRangeMake(fps, fps, fps);
   [self.displayLink addToRunLoop:NSRunLoop.currentRunLoop forMode:NSRunLoopCommonModes];
+  NSArray *pending;
+  @synchronized(self) { _ready = YES; pending = _pending; _pending = nil; }
+  for (void (^block)(JSGlobalContextRef) in pending) [self perform:block];
   for (;;) @autoreleasepool { [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture]; }
 }
 

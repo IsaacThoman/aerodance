@@ -19,7 +19,6 @@ class Canvas2D {
  private:
   CanvasSurface *current_ = nullptr;
   std::unordered_map<int, CanvasSurface *> surfaces_;
-  std::unordered_map<int, Paint *> paints_;
   int selected_ = 0;
   int pathTarget_ = 0;
 };
