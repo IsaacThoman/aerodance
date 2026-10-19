@@ -9,7 +9,7 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { bundleFixture, choreographyBytes, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
-import { BACK as MENU_BACK, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
+import { BACK as MENU_BACK, GRAPHICS_CHOICES, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import {
   BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect,
@@ -109,6 +109,14 @@ try {
   await until({ connectOpen: 'false' });
   assert.equal((await data()).menuScreen, 'settings', 'Escape closes only the card');
   await shot('settings');
+
+  // Graphics rebuilds the world at the quality picked, and remembers it.
+  assert.equal((await data()).aeroQuality, 'auto');
+  await click(GRAPHICS_CHOICES[2]);
+  await until({ aeroQuality: 'low' });
+  assert.equal(await page.evaluate(() => localStorage.getItem('aerodance.graphics')), 'low');
+  await click(GRAPHICS_CHOICES[0]);
+  await until({ aeroQuality: 'auto' });
 
   // Camera and model controls do not request permission; Start handles denial.
   await click(PILL);
@@ -299,7 +307,7 @@ try {
   await until({ songScreen: 'list', songReady: 'true' }, 10000);
   assert.equal((await data()).gamePhase, undefined);
   assert.deepEqual(errors, []);
-  console.log('Browser flow passed: Connect Client card (webcam models and permission denial), camera setup on the calibration screen, both player modes, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit) and no runtime errors.');
+  console.log('Browser flow passed: Connect Client card (webcam models and permission denial), Graphics quality, camera setup on the calibration screen, both player modes, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit) and no runtime errors.');
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));

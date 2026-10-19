@@ -1,12 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
-import { FONT, TAU, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
+import { FONT, NAVY, TAU, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
+import { GRAPHICS_OPTIONS } from './graphicsSettings.ts';
+import type { GraphicsQuality } from './graphicsSettings.ts';
 import FullscreenButton from './FullscreenButton.tsx';
-import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.ts';
+import { BACK, GRAPHICS_CHOICES, ONE_PLAYER, SETTINGS, SETTINGS_PANEL as PANEL, START, TITLE, TWO_PLAYERS, settingsRowY as ROW_Y } from './layout.ts';
 
 /**
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in 16:9 design units and
@@ -14,17 +16,18 @@ import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.
  *
  * Screens: main (Start, Settings), players (one / two players, then Song Select:
  * game/SongSelect.tsx), settings (sound: Master / Music / Effects volume, Menu music and Mute
- * all, which audio/mixer.ts applies). The main screen also shows the fullscreen bubble in the
- * corner.
+ * all, which audio/mixer.ts applies; Graphics: the Aero world's quality, Auto / High / Low).
+ * The main screen also shows the fullscreen bubble in the corner.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
- * Left/Right step the volume sliders).
+ * Left/Right step the volume sliders and the Graphics choice, Enter moves it along).
  * `blocked` (the Connect Client card is open) holds input. onScreenChange hears which screen
  * is showing (Settings carries the Connect Client pill). The canvas reports
  * data-menu-screen / data-menu-ready for tests.
  *
  * <MainMenu visible initialScreen="main" onStart={(playerCount) => ...}
- *   onScreenChange={setShown} sound={sound} onSoundChange={setSound} />
+ *   onScreenChange={setShown} sound={sound} onSoundChange={setSound}
+ *   graphics={graphics} onGraphicsChange={setGraphics} />
  */
 
 export type MenuScreen = 'main' | 'players' | 'settings';
@@ -39,14 +42,15 @@ export interface MainMenuProps {
   onScreenChange?: (screen: MenuScreen) => void;
   sound: SoundSettings;
   onSoundChange?: (sound: SoundSettings) => void;
+  graphics: GraphicsQuality;
+  onGraphicsChange?: (graphics: GraphicsQuality) => void;
 }
 type SliderKey = 'master' | 'music' | 'sfx';
 type ToggleKey = 'menuMusic' | 'muted';
 interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
-type MenuWidget = Widget & { slider?: SliderKey; toggle?: Toggle };
+type MenuWidget = Widget & { slider?: SliderKey; toggle?: Toggle; choice?: boolean };
 
 // Design space is 1600x900 (16:9); the layout is in ./layout.ts.
-const PANEL = { x: 128, y: 540, w: 600, h: 294 };
 const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
   { key: 'music', label: 'Music' },
@@ -58,7 +62,6 @@ const TOGGLES: readonly Toggle[] = [
   { key: 'menuMusic', label: 'Menu music', audio: true, on: (p) => p.sound.menuMusic !== false },
   { key: 'muted', label: 'Mute all', on: (p) => !!p.sound.muted },
 ];
-const ROW_Y = (i: number) => PANEL.y + 46 + i * 50;
 const SWITCH = { w: 84, h: 42, x: PANEL.x + PANEL.w - 40 - 84 };
 const TRACK = { x0: PANEL.x + 190, x1: PANEL.x + PANEL.w - 110 };
 
@@ -74,8 +77,9 @@ const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
   ],
   settings: [
     { id: 'back', circle: BACK },
-    ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
+    ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 24, w: TRACK.x1 - TRACK.x0 + 48, h: 48 } })),
     ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: PANEL.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: PANEL.w - 32, h: 48 } })),
+    { id: 'graphics', choice: true, rect: { x: PANEL.x + 16, y: ROW_Y(PANEL.rows - 1) - 24, w: PANEL.w - 32, h: 48 } },
   ],
 };
 // Where back / Escape leads from each submenu, and the button there that opens it.
@@ -85,6 +89,7 @@ const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings
 const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
 // Left/Right move a slider a twentieth (5) at a time.
 const SLIDER_STEPS = 20;
+const graphicsIndex = (graphics: GraphicsQuality) => Math.max(0, GRAPHICS_OPTIONS.findIndex((o) => o.id === graphics));
 
 function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>) {
   const { sound } = p;
@@ -160,6 +165,31 @@ function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover:
     g.fill();
     g.globalAlpha = base;
   });
+
+  // Graphics: Auto / High / Low side by side, the chosen one lit like a switch that's on.
+  label('Graphics', ROW_Y(PANEL.rows - 1));
+  const first = GRAPHICS_CHOICES[0], last = GRAPHICS_CHOICES[GRAPHICS_CHOICES.length - 1];
+  pill(g, first.x, first.y, last.x + last.w - first.x, first.h);
+  g.fillStyle = 'rgba(0, 30, 70, 0.45)';
+  g.fill();
+  g.lineWidth = 3;
+  g.strokeStyle = `rgba(255,255,255,${0.5 + (hover.graphics ?? 0) * 0.4})`;
+  g.stroke();
+  const chosen = graphicsIndex(p.graphics);
+  GRAPHICS_OPTIONS.forEach((o, i) => {
+    const r = GRAPHICS_CHOICES[i];
+    if (i === chosen) {
+      pill(g, r.x + 5, r.y + 5, r.w - 10, r.h - 10);
+      g.fillStyle = '#4fd8e8';
+      g.fill();
+    }
+    g.font = `${i === chosen ? 700 : 600} 24px ${FONT}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = i === chosen ? NAVY : '#ffffff';
+    g.fillText(o.label, r.x + r.w / 2, r.y + r.h / 2 + 1);
+  });
+  g.textAlign = 'left';
 }
 
 interface MenuState {
@@ -167,6 +197,7 @@ interface MenuState {
   /** Showing, and where it is going (they differ during a swap). */
   screen: MenuScreen; next: MenuScreen; swap: number;
   drawnSound: SoundSettings | null;
+  drawnGraphics: GraphicsQuality | null;
   /** The player count picked last: the players screen's primary button. */
   players: 'one' | 'two';
   /** The widget the keyboard cursor goes to once the screen is in (going back). */
@@ -176,11 +207,12 @@ interface MenuState {
 
 export default function MainMenu({
   visible = true, blocked = false, initialScreen = 'main', onStart, onSettingsOpen, onScreenChange, sound, onSoundChange,
+  graphics, onGraphicsChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
-  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, players: 'one', refocus: null });
-  const props = useRef<MainMenuProps>({ sound });
-  props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
+  const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, players: 'one', refocus: null });
+  const props = useRef<MainMenuProps>({ sound, graphics });
+  props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
 
   const m = menu.current;
   // A keyboard cursor starts over on the next screen, or going back (also by Escape), on the
@@ -199,6 +231,10 @@ export default function MainMenu({
     const { sound: cur, onSoundChange: cb } = props.current;
     cb?.({ ...cur, ...patch });
   };
+  const setGraphics = (i: number) => {
+    const next = GRAPHICS_OPTIONS[i]?.id;
+    if (next && next !== props.current.graphics) props.current.onGraphicsChange?.(next);
+  };
 
   const ui = useCanvasUI<MenuWidget>({
     priority: 2,
@@ -213,6 +249,10 @@ export default function MainMenu({
       setSound(patch);
     },
     onStep: (wdg, dir) => {
+      if (wdg.choice) {
+        setGraphics(Math.min(GRAPHICS_OPTIONS.length - 1, Math.max(0, graphicsIndex(props.current.graphics) + dir)));
+        return true;
+      }
       if (!wdg.slider) return false;
       const patch: Partial<SoundSettings> = {};
       const step = Math.round(props.current.sound[wdg.slider] * SLIDER_STEPS) + dir;
@@ -225,6 +265,14 @@ export default function MainMenu({
         const patch: Partial<SoundSettings> = {};
         patch[wdg.toggle.key] = !wdg.toggle.on(props.current);
         setSound(patch);
+        s.invalidate();
+        return;
+      }
+      if (wdg.choice) {
+        // A click picks the choice under it; Enter (or a click on the label) moves to the next one.
+        const pt = s.pointerKind === 'key' ? null : s.pointer;
+        const at = pt ? GRAPHICS_CHOICES.findIndex((r) => pt.x >= r.x && pt.x < r.x + r.w) : -1;
+        setGraphics(at >= 0 ? at : (graphicsIndex(props.current.graphics) + 1) % GRAPHICS_OPTIONS.length);
         s.invalidate();
         return;
       }
@@ -258,7 +306,7 @@ export default function MainMenu({
         m.refocus = null;
       }
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
-      if (props.current.sound !== m.drawnSound) s.invalidate();
+      if (props.current.sound !== m.drawnSound || props.current.graphics !== m.drawnGraphics) s.invalidate();
       if (m.screen !== m.reported) { m.reported = m.screen; props.current.onScreenChange?.(m.screen); }
       const { dataset } = gl.domElement;
       dataset.menuScreen = m.screen;
@@ -267,6 +315,7 @@ export default function MainMenu({
     opacity: () => m.alpha,
     draw: (g, s) => {
       m.drawnSound = props.current.sound;
+      m.drawnGraphics = props.current.graphics;
       drawTitle(g, TITLE);
 
       const t = m.swap;

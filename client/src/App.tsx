@@ -5,6 +5,7 @@ import MainMenu from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
 import MenuDancers from './menu/MenuDancers.tsx';
 import { loadSound, saveSound } from './menu/soundSettings.ts';
+import { loadGraphics, saveGraphics } from './menu/graphicsSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import ConnectionPanel from './connect/ConnectionPanel.tsx';
 import SongSelect from './game/SongSelect.tsx';
@@ -87,6 +88,7 @@ export default function App() {
   const [gamePhase, setGamePhase] = useState<GamePhase | null>(null);
   const resultsShow = useRef<ResultsShow | null>(null);
   const [sound, setSound] = useState(loadSound);
+  const [graphics, setGraphics] = useState(loadGraphics);
 
   useEffect(() => {
     if (!replay) return undefined;
@@ -158,6 +160,7 @@ export default function App() {
   }, [game]);
 
   useEffect(() => { saveSound(sound); applySound(sound); }, [sound]);
+  useEffect(() => { saveGraphics(graphics); }, [graphics]);
   // A paired phone dims its screen while a song is on.
   useEffect(() => {
     source.setPlaying(!!gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase));
@@ -183,7 +186,7 @@ export default function App() {
     <div className="canvas-frame display">
       <Canvas dpr={1} flat camera={{ fov: 66, near: 0.3, far: 6500 }}>
         <FixedRenderResolution />
-        <Scene paused={stage.showing} />
+        <Scene paused={stage.showing} quality={graphics} />
         <StageView
           active={(songsOpen && !!preview) || screen === 'game'}
           orbiting={songsOpen && !!preview}
@@ -206,6 +209,8 @@ export default function App() {
           onScreenChange={setMenuShown}
           sound={sound}
           onSoundChange={setSound}
+          graphics={graphics}
+          onGraphicsChange={setGraphics}
         />
         <SongSelect
           visible={songsOpen}

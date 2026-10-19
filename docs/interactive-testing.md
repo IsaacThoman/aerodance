@@ -110,6 +110,7 @@ Each screen reports what it shows on the canvas's `data-*` attributes, which is 
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
 - Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`
+- Aero background: `aeroQuality` (`auto`, `high`, `low`), the Graphics setting the world was built with
 - Connect Client: `connectOpen`, `connectReady`, `connectStatus`, `connectModel`, `connectMessage`
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`

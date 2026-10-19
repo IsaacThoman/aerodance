@@ -23,6 +23,9 @@ export interface AeroWorldProps {
  *
  * paused stops it updating and rendering (a dance stage has the screen; stage/StageView.tsx).
  *
+ * Changing quality rebuilds the world where the flight had got to, without fading the canvas
+ * in again. The canvas reports the quality it was built with as data-aero-quality.
+ *
  * <AeroWorld speed={1} quality="auto" fps={15} paused={false} onTelemetry={(t) => ...} />
  */
 export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = false, onTelemetry }: AeroWorldProps) {
@@ -35,6 +38,8 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
   teleRef.current = onTelemetry;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  // Where the last world's flight had got to, so a rebuild carries on from there.
+  const progressRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) {
@@ -42,17 +47,25 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
       return;
     }
     const canvas = gl.domElement;
-    canvas.style.transition = 'opacity 1.2s ease';
-    canvas.style.opacity = '0';
-    shownRef.current = false;
     let world: AeroWorldHandle | null = null;
-    // Deferred one tick so StrictMode's mount/unmount/mount only builds the scene once.
-    const timer = setTimeout(() => {
-      world = createAeroWorld({ renderer: gl, scene, camera, speed, quality, onTelemetry: (t) => teleRef.current?.(t) });
+    const build = () => {
+      world = createAeroWorld({ renderer: gl, scene, camera, speed, quality, start: progressRef.current, onTelemetry: (t) => teleRef.current?.(t) });
       worldRef.current = world;
-    }, 0);
+      canvas.dataset.aeroQuality = quality;
+    };
+    // A rebuild replaces the world before the next frame, so none goes out without one.
+    // The first build fades in, deferred one tick so StrictMode's mount/unmount/mount only
+    // builds the scene once.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (shownRef.current) build();
+    else {
+      canvas.style.transition = 'opacity 1.2s ease';
+      canvas.style.opacity = '0';
+      timer = setTimeout(build, 0);
+    }
     return () => {
       clearTimeout(timer);
+      if (world) progressRef.current = world.progress;
       world?.dispose();
       worldRef.current = null;
     };
