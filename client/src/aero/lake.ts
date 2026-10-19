@@ -3,6 +3,7 @@ import { Water } from 'three/addons/objects/Water.js';
 import type { CityBuilder } from './cityBuilder.ts';
 import type { AeroContext } from './context.ts';
 import { createLakeNormalPixels, type LakeWave } from './lakeNormals.ts';
+import { ReflectionRefresh } from './reflectionRefresh.ts';
 import { TAU, canvas2d, col } from './util.ts';
 
 /** Small tiling ripple normal map for the park ponds. */
@@ -130,13 +131,20 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   ctx.root.add(water);
   // Skip the reflection pass while the drone is down in the meadow, where the lake is hidden.
   const reflect = water.onBeforeRender;
-  water.onBeforeRender = (r, sc, cam, geo, mat, group) => { if (cam.position.z < 280 || cam.position.y > 60) reflect.call(water, r, sc, cam, geo, mat, group); };
+  const refresh = new ReflectionRefresh(30);
+  let elapsed = 0;
+  water.onBeforeRender = (r, sc, cam, geo, mat, group) => {
+    if ((cam.position.z < 280 || cam.position.y > 60) && refresh.shouldRefresh(elapsed, cam)) {
+      reflect.call(water, r, sc, cam, geo, mat, group);
+    }
+  };
 
   // Boats: sailboats and small motor launches drifting along the lake, each with a wake
   const BOATS = ctx.random.withRng(9090, () => buildBoats(ctx, glassMat));
 
   return {
     update(t, dt, camera) {
+      elapsed = t;
       wNorm.offset.set(t * 0.004, t * 0.006);
       uniforms.time.value = t * 0.6;
       uniforms.eye.value.copy(camera.position);
