@@ -410,3 +410,30 @@ test('the game relays where there is no WebRTC, unless told otherwise', () => {
   assert.equal(new PhonePoseSource({ transport: 'webrtc' }).relayed, false);
   assert.equal(new PhonePoseSource({ createConnection: createFakeConnection }).relayed, false);
 });
+
+test('through the relay, a hello that overlaps a reconnection doesn’t keep the two from relinking', async (t) => {
+  const base = await pairingServer(t);
+  // A network with some latency, so a hello can cross the attempt it overlaps.
+  const slow: typeof fetch = async (...args) => { await new Promise((resolve) => setTimeout(resolve, 60)); return fetch(...args); };
+  const host = new PhonePoseSource({ base, fetch: slow, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: async () => ({ image: {} as CanvasImageSource, width: 1, height: 1 }) });
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ base, fetch: slow, createStream: fetchEventStream, camera: camera as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  for (const gap of [40, 120, 250]) {
+    const epoch = host.epoch;
+    phone.link?.socket.close();
+    // The phone's hello timer ticks while it's reconnecting.
+    await new Promise((resolve) => setTimeout(resolve, gap));
+    phone.hello();
+    await until(() => host.epoch > epoch && phone.view.stage === 'linked' && host.control?.readyState === 'open', `relinking (hello ${gap} ms in)`, 8000);
+    // ...and it stays linked: no attempts keep replacing each other.
+    const settled = host.epoch;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(host.epoch, settled, 'no more attempts once linked');
+    assert.equal(phone.view.stage, 'linked');
+  }
+});

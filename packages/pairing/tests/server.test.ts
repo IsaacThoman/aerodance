@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { createPairingServer } from '../server.ts';
 import type { PairingServerOptions } from '../server.ts';
@@ -428,4 +429,39 @@ test('the relay drops live frames beyond its rate but passes control frames, and
   mobile.ws.send(Buffer.alloc(70 * 1024));
   assert.equal(await mobile.closed, 1009);
   assert.equal(await game.closed, 4000);
+});
+
+test('control frames count towards the relay’s rate too: a side that floods them loses its link', async (t) => {
+  const { base, code, host, phone } = await relayRoom(t, { now: () => 5_000_000 });
+  const game = await relaySocket(t, base, code, host, 1);
+  const mobile = await relaySocket(t, base, code, phone, 1);
+  await mobile.until(1);
+  // The game's 64 KB/s, twice over in a burst, then twice that again: about 4 × 64 KB.
+  const big = `C${'x'.repeat(60 * 1024)}`;
+  for (let i = 0; i < 12 && game.ws.readyState === WebSocket.OPEN; i++) game.ws.send(big);
+  assert.equal(await Promise.race([game.closed, new Promise((resolve) => setTimeout(() => resolve('still open'), 3000))]), 4003);
+  assert.equal(await mobile.closed, 4000);
+  assert.ok((await mobile.until(1)).length <= 1 + 8, 'most of the flood never got through');
+});
+
+test('a refused relay upgrade whose client resets doesn’t take the server down', async (t) => {
+  const { base, code } = await relayRoom(t);
+  const { port } = new URL(base);
+  for (let i = 0; i < 20; i++) {
+    const socket = net.connect(Number(port), '127.0.0.1');
+    await new Promise((resolve) => socket.once('connect', resolve));
+    socket.write(`GET /pair/rooms/${code}/link?token=wrong&epoch=1 HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+    socket.on('error', () => {});
+    socket.resetAndDestroy();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  // Still serving, and refused sockets are closed from its side too.
+  assert.equal((await fetch(`${base}/health`)).status, 200);
+  const socket = net.connect(Number(port), '127.0.0.1');
+  socket.on('error', () => {});
+  await new Promise((resolve) => socket.once('connect', resolve));
+  socket.write(`GET /pair/rooms/${code}/link?token=wrong&epoch=1 HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+  socket.resume();
+  const ended = await new Promise<boolean>((resolve) => { socket.once('close', () => resolve(true)); setTimeout(() => resolve(false), 2000); });
+  assert.ok(ended, 'the server closes a refused socket');
 });

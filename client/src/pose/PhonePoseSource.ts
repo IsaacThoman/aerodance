@@ -239,7 +239,7 @@ export class PhonePoseSource implements PoseSource {
 
   onSignal(event: PairingEvent) {
     const { peer } = this;
-    if (event.type === 'hello') this.offer(event.device || 'Phone');
+    if (event.type === 'hello') this.hello(event.device || 'Phone');
     else if (event.type === 'answer' && peer?.epoch === event.epoch) peer.accept(event.sdp).catch(() => { if (peer === this.peer) this.lost(); });
     else if (event.type === 'ice' && peer?.epoch === event.epoch) void peer.addIce(event.candidate);
     // The phone left before the connection opened: show the code again.
@@ -253,7 +253,23 @@ export class PhonePoseSource implements PoseSource {
     }
   }
 
-  /** A phone said hello: a fresh connection for it, replacing any earlier one. */
+  /**
+   * A phone said hello. Relayed, a hello while the link is open crossed it on the way (a phone
+   * that needs a new link has lost this one, which the server closes on both ends), and one
+   * while an attempt is still connecting gets that attempt again rather than a new one that
+   * would replace it. Otherwise: a new connection.
+   */
+  hello(device: string) {
+    const { link, channel } = this;
+    if (link && this.control?.readyState === 'open') return;
+    if (link && channel && this.now() - this.offeredAt < ATTEMPT_MS) {
+      if (link.socket.readyState === 1) channel.send({ type: 'relay', epoch: this.epoch }).catch(() => {});
+      return;
+    }
+    this.offer(device);
+  }
+
+  /** A fresh connection for the phone, replacing any earlier one. */
   offer(device: string) {
     const { room, channel } = this;
     if (!room || !channel) return;

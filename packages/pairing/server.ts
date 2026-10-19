@@ -38,7 +38,8 @@ import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.
  *
  * Through the relay, poses do travel through here, unread: each side's frames go to the other
  * as they are, live ones (poses, pings, preview pictures) dropped when the other side is behind
- * or the link sends faster than RELAY_BYTES_PER_S, so a room can't be used as a free pipe.
+ * or the link sends faster than RELAY_BYTES_PER_S, and a side whose control frames keep going
+ * past that rate loses its link, so a room can't be used as a free pipe.
  *
  * Paths are relative to where the handler is mounted (/pair in the game's dev server and
  * behind nginx). handle() returns false for paths it doesn't serve.
@@ -289,12 +290,16 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
    * 'upgrade' event. Returns false for paths it doesn't serve (the socket is left alone).
    */
   function upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
+    // Node's HTTP server stops watching the socket for errors before 'upgrade', and a client that
+    // resets it before ws takes over would otherwise take the process down.
+    socket.on('error', () => socket.destroy());
     const url = new URL(req.url || '/', 'http://pairing');
     const parts = url.pathname.split('/').filter(Boolean);
     const raw = (req.url || '/').split('?')[0];
     if (raw !== url.pathname || raw !== `/${parts.join('/')}` || parts.length !== 3 || parts[0] !== 'rooms' || parts[2] !== 'link') return false;
+    // Answered and closed from this side too, so a client that stays connected holds nothing.
     const refuse = (status: number, text: string) => {
-      socket.end(`HTTP/1.1 ${status} ${text}\r\nconnection: close\r\ncontent-length: 0\r\ncache-control: no-store\r\n\r\n`);
+      socket.end(`HTTP/1.1 ${status} ${text}\r\nconnection: close\r\ncontent-length: 0\r\ncache-control: no-store\r\n\r\n`, () => socket.destroy());
     };
     let room: Room, role: PairingRole;
     // A wrong code and a wrong token look the same here too.
@@ -358,6 +363,9 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     const live = isBinary || kind === LIVE_PREFIX;
     if (live && (to.bufferedAmount > LIVE_BACKLOG || relay.budget[from] < buffer.length)) return;
     relay.budget[from] -= buffer.length;
+    // Control frames aren't dropped (they're settings and status, a few small ones a second), but
+    // they count: a side that sends them past its rate's own burst again loses the link.
+    if (relay.budget[from] < -2 * RELAY_BYTES_PER_S[from]) { ws.close(RELAY_CLOSE.refused); return; }
     // A side that stopped reading (or sends control frames without end): the link goes.
     if (to.bufferedAmount > MAX_BACKLOG) { to.terminate(); return; }
     to.send(buffer, { binary: isBinary });

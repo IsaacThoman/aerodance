@@ -301,8 +301,9 @@ export class PhoneLink {
   /** The game asked to connect through the relay for this attempt. */
   relayTo(epoch: number) {
     const channel = this.channel;
-    // As with offers, only a newer attempt replaces this one.
-    if (!channel || epoch <= this.epoch || epoch < (this.early?.epoch ?? -1)) return;
+    // As with offers, only a newer attempt replaces this one (the same one again only once its
+    // link has gone: the game repeats the signal when a hello reached it mid-attempt).
+    if (!channel || epoch < this.epoch || (epoch === this.epoch && this.link) || epoch < (this.early?.epoch ?? -1)) return;
     this.epoch = epoch;
     this.closePeer();
     this.early = null;
@@ -325,11 +326,15 @@ export class PhoneLink {
 
   /** The connection dropped: ask the game to connect again. */
   unlinked() {
+    // A relayed attempt fails within a round trip (an overlapping hello replaced it): asking again
+    // at once would replace the next one too, so only a link that had opened asks straight away.
+    // Otherwise the hello timer asks, unless the attempt that replaced this one links first.
+    const retry = this.view.stage === 'linked' || !this.link;
     this.closePeer();
     if (this.view.stage !== 'linked' && this.view.stage !== 'linking') return;
     if (!this.channel) { this.end(this.endReason || 'Lost the game. Scan its code again.'); return; }
     this.publish({ stage: 'linking', message: 'Reconnecting to the game…' });
-    this.hello();
+    if (retry) this.hello();
   }
 
   /** Whether the camera's picture is going to the game. */
