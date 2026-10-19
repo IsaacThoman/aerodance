@@ -28,8 +28,8 @@ import {
  * and the players' live characters):
  *
  *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
- *              pressed, over the camera picker (shared with Connect Client); every player
- *              holds still together for 2.5 seconds
+ *              pressed, over the camera picker; every player holds still together for
+ *              2.5 seconds
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
@@ -39,14 +39,13 @@ import {
  *   results    hands the overlay to ResultsScreen
  *
  * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms and -game-scores for tests,
- * and while calibrating -game-calibration-* and the camera's -game-camera-status / -model / -message / -pairing.
+ * the camera's -game-camera-status / -model / -message, and while calibrating -game-calibration-* and -game-pairing.
  *
  * <GameScreen visible session={GameSession} camera={source} onQuit onRetry />
  */
 
 export interface GameScreenProps {
   visible?: boolean;
-  blocked?: boolean;
   session: GameSession | null;
   /** The camera (webcam or phone), set up from the calibration screen. */
   camera: CameraInput;
@@ -181,15 +180,15 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   else if (!phone) text(g, 'No webcam? Choose Phone camera with the arrows below.', cx, preview.y + preview.h - 30, { size: 18, align: 'center', color: 'rgba(230, 248, 255, 0.75)' });
 }
 
-export default function GameScreen({ visible = false, blocked = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
+export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ visible, blocked, session, source, onQuit, onRetry });
-  props.current = { visible, blocked, session, source, onQuit, onRetry };
+  const props = useRef({ visible, session, source, onQuit, onRetry });
+  props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
   // The calibration screen's camera controls (the source's view is always current).
   const [camera] = useState(() => new CameraSetup(() => ({ source: props.current.source, connection: props.current.source.view })));
 
-  const live = () => props.current.visible && !props.current.blocked && phase() !== 'results' && st.alpha > 0.3;
+  const live = () => props.current.visible && phase() !== 'results' && st.alpha > 0.3;
   const phase = (): GamePhase => props.current.session?.phase ?? 'loading';
   // Webcam sessions calibrate before the ready check.
   const calibrating = () => !!props.current.session?.webcamCalibration && ['calibrating', 'ready'].includes(phase());
@@ -273,9 +272,9 @@ export default function GameScreen({ visible = false, blocked = false, session, 
         gameCalibrationPlayers: calibration?.players.join('|') ?? '',
         gameCalibrationPreview: calibration ? String(!!p.source.video || !!view.frame) : '',
         gameCalibrationVideo: calibration ? String(!!p.source.video) : '',
-        gameCameraStatus: calibration ? view.status : '',
-        gameCameraModel: calibration ? view.model : '',
-        gameCameraMessage: calibration ? camera.message() : '',
+        gameCameraStatus: view.status,
+        gameCameraModel: view.model || '',
+        gameCameraMessage: camera.message(),
         gamePairing: calibration ? camera.pairing()?.code ?? '' : '',
       };
       const json = JSON.stringify(report);

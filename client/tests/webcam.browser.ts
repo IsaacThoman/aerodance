@@ -5,9 +5,8 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { staticStudio, browserStore } from '../../tools/choreography/tests/static-helpers.ts';
 import { openSidebar } from '../../tools/choreography/tests/helpers.ts';
-import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
-import { BACK as MENU_BACK, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
-import { BACK, rowRect } from '../src/game/layout.ts';
+import { START, TWO_PLAYERS } from '../src/menu/layout.ts';
+import { DANCE, GAME_CALIBRATION_PREVIEW, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { appendOperation, trackDataIds, validateProject, validateTake, validateTrackData } from '../../tools/choreography/core.ts';
 import type { ProjectV3, StudioAssets, Take } from '../../tools/choreography/core.ts';
@@ -95,36 +94,25 @@ try {
       frame.y + (rect.y + h / 2) / 900 * frame.height);
   };
   const until = (key: string, value: string) => gamePage.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
-  await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true'); await click(PILL); await until('connectReady', 'true');
-  assert.equal(await game.evaluate(() => (window as TestWindow).cameraRequests), 0, 'opening Connect Client does not request permission');
-  await game.evaluate(() => { (window as TestWindow).cameraMode = 'denied'; }); await click(PRIMARY); await until('connectStatus', 'error');
-  assert.match(await game.locator('canvas').getAttribute('data-connect-message') ?? '', /permission was denied/);
-  await game.evaluate(() => { (window as TestWindow).cameraMode = 'normal'; }); await click(PRIMARY);
-  await until('connectStatus', 'connected');
-  for (const [index, model] of ['lite', 'full', 'heavy'].entries()) {
-    await click(MODEL_RECTS[index]); await until('connectModel', model); await until('connectStatus', 'connected');
-    console.log(`Game actual MediaPipe ${model}:`, await game.locator('canvas').getAttribute('data-connect-message'));
-  }
-  await click(MODEL_RECTS[0]); await until('connectStatus', 'connected');
-  await game.keyboard.press('Escape'); await until('connectOpen', 'false');
-  await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
-  await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
-  await click(TWO_PLAYERS); await until('playerSlots', 'Detected|Detected');
-  await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
-  await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
-  await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true');
-  await click(PILL); await until('connectReady', 'true'); await click(PRIMARY); await until('connectStatus', 'disconnected');
-  assert.ok(await game.evaluate(() => (window as TestWindow).cameraStops >= 4), 'switches and Stop release camera tracks');
+  await until('menuReady', 'true');
 
   studio = await pageFor(4181);
   await studio.getByRole('heading', { name: 'Preview' }).waitFor();
   assert.equal(await studio.evaluate(() => (window as TestWindow).cameraRequests), 0);
   await studio.getByRole('button', { name: 'Live view', exact: true }).click();
   await openSidebar(studio, 'Configuration');
-  // Keep Studio capture responsive in software rendering; all three models were exercised above.
   await studio.getByLabel('Webcam pose model').selectOption('lite');
   await studio.getByRole('button', { name: 'Start camera', exact: true }).click();
   await studio.getByRole('button', { name: 'Disconnect', exact: true }).waitFor();
+  // Each model loads and tracks for real; switching restarts the camera and releases the old one.
+  // Lite last keeps Studio capture responsive in software rendering.
+  for (const [model, label] of [['full', 'Full'], ['heavy', 'Heavy'], ['lite', 'Lite']]) {
+    await studio.getByLabel('Webcam pose model').selectOption(model);
+    const status = studio.locator('.connection-status').filter({ hasText: new RegExp(`^connected · ${label} · .*poses/s`) });
+    await status.waitFor({ timeout: 120_000 });
+    console.log(`Studio actual MediaPipe ${model}:`, await status.textContent());
+  }
+  assert.ok(await studio.evaluate(() => (window as TestWindow).cameraStops >= 3), 'model switches release camera tracks');
   await studio.getByText('P1 detected', { exact: false }).waitFor();
   await studio.getByText('P2 detected', { exact: false }).waitFor();
   // Calibration needs a run of tracked frames, which arrive slowly with CPU-only inference.
@@ -239,8 +227,6 @@ try {
     id: song.songId, title: song.title, artist: song.artist, durationMs: song.durationMs, difficulty: song.difficulty,
     supportedPlayerCounts: [1, 2], bundleRevision: song.bundleRevision, bundle: 'webcam-capture/song.json',
   }] }) }));
-  await game.keyboard.press('Escape'); await until('connectOpen', 'false');
-  await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
   await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
   await click(TWO_PLAYERS); await until('songReady', 'true'); await click(rowRect(0));
   await until('previewState', 'playing'); await until('stageReady', 'true');
@@ -248,8 +234,18 @@ try {
   await openSidebar(studio, 'Configuration');
   await studio.getByRole('button', { name: 'Disconnect', exact: true }).click();
   await studio.reload(); await studio.getByText(/webcam ·/).first().waitFor();
+
+  // The game asks for the camera only on the calibration screen: a denial, then a retry that
+  // tracks both players, who Song Select then shows as detected.
+  assert.equal(await game.evaluate(() => (window as TestWindow).cameraRequests), 0, 'menus and the preview do not request the camera');
+  await click(DANCE); await until('gamePhase', 'calibrating'); await until('gameReady', 'true');
+  await game.evaluate(() => { (window as TestWindow).cameraMode = 'denied'; }); await click(GAME_CALIBRATION_PREVIEW); await until('gameCameraStatus', 'error');
+  assert.match(await game.locator('canvas').getAttribute('data-game-camera-message') ?? '', /permission was denied/);
+  await game.evaluate(() => { (window as TestWindow).cameraMode = 'normal'; }); await click(GAME_CALIBRATION_PREVIEW);
+  await until('gameCameraStatus', 'connected'); await until('gameCameraModel', 'lite');
+  await game.keyboard.press('Escape'); await until('songScreen', 'list'); await until('playerSlots', 'Detected|Detected');
   assert.deepEqual(errors, []);
-  console.log('Webcam integration passed: all game models, real two-player inference, permissions, cleanup, Studio live view, frame-timed recording, export, game bundle playback, persistence.');
+  console.log('Webcam integration passed: all Studio models, real two-player inference, game camera permissions on calibration, cleanup, Studio live view, frame-timed recording, export, game bundle playback, persistence.');
 } catch (error) {
   if (game) console.error('Game state:', await game.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
   if (studio) console.error('Studio capture:', await studio.locator('.body-calibration, .connection-status, [role=status]').allInnerTexts().catch(() => []));

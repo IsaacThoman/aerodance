@@ -28,7 +28,6 @@ export const GAME_READY_START = { x: 610, y: 690, w: 380, h: 96 };
 export const GAME_READY_BACK = { x: 166, y: 150, r: 30 };
 // Webcam calibration: one glass card with everything centred: the title, the setup preview
 // (pressed to start the camera), the shared hold and the camera picker along the bottom.
-// Tracking quality is set in Settings (Connect Client).
 export const GAME_CALIBRATION_CARD = { x: 360, y: 204, w: 880, h: 652 };
 export const GAME_CALIBRATION_PREVIEW = { x: 448, y: 284, w: 704, h: 396 };
 export const GAME_CALIBRATION_PROGRESS = { x: 448, y: 702, w: 704, h: 14 };

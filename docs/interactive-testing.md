@@ -94,13 +94,12 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 ### Clicking the canvas
 
 Every game screen is drawn on the canvas in 1600×900 design units, and the layout
-modules (`client/src/menu/layout.ts`, `client/src/game/layout.ts`,
-`client/src/connect/layout.ts`) export the position of each control. `click` takes their
-names and clicks the middle of the rect or circle, wherever the letterboxed frame is:
+modules (`client/src/menu/layout.ts`, `client/src/game/layout.ts`) export the position
+of each control. `click` takes their names and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
-- `START`, `DANCE`, `PILL`, `GAME_PAUSE`: a name exported by only one module
+- `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
 - `menu.BACK`, `game.BACK`: a module prefix where names clash
-- `MODEL_RECTS.1`, `GAME_CALIBRATION_CAMERA.primary`: entries inside an export
+- `GAME_CALIBRATION_CAMERA.next`: entries inside an export
 - `rowRect.2`: layout functions, called with the number
 - `800,450`: any point in design units
 
@@ -110,7 +109,6 @@ Each screen reports what it shows on the canvas's `data-*` attributes, which is 
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
 - Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`
-- Connect Client: `connectOpen`, `connectReady`, `connectStatus`, `connectModel`, `connectMessage`
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
@@ -123,8 +121,8 @@ once the screen's entrance animation has finished and it accepts clicks.
 Headless Chromium has no webcam, so by default (`--camera fixture`) the page gets a
 synthetic one, as in the webcam browser tests: the MediaPipe fixture photo
 (`client/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
-it, so Connect Client, calibration and scoring all run for real. `camera 0|1|2` changes
-how many dancers are in shot; start with two for a two-player song, or one for a solo.
+it, so calibration and scoring run for real. `camera 0|1|2` changes how many dancers are
+in shot; start with two for a two-player song, or one for a solo.
 `--camera deny` makes every camera request fail with a permission error, and
 `--camera none` leaves the browser alone (headless has no camera, so requests fail).
 
@@ -154,7 +152,7 @@ Calibrating one player with the fixture camera, from a song's preview:
 node scripts/play.ts camera 1
 node scripts/play.ts click DANCE
 node scripts/play.ts wait gamePhase=calibrating gameReady=true
-node scripts/play.ts click GAME_CALIBRATION_CAMERA.primary   # Start camera
+node scripts/play.ts click GAME_CALIBRATION_PREVIEW   # Start camera
 node scripts/play.ts wait gameCameraStatus=connected
 node scripts/play.ts wait gamePhase=countdown --timeout 60000  # after the 2.5 s hold
 ```

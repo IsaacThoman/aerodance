@@ -19,24 +19,19 @@ import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders).
- * `blocked` (the Connect Client card is open) holds input. onScreenChange hears which screen
- * is showing (Settings carries the Connect Client pill). The canvas reports
- * data-menu-screen / data-menu-ready for tests.
+ * The canvas reports data-menu-screen / data-menu-ready for tests.
  *
  * <MainMenu visible initialScreen="main" onStart={(playerCount) => ...}
- *   onScreenChange={setShown} sound={sound} onSoundChange={setSound} />
+ *   sound={sound} onSoundChange={setSound} />
  */
 
 export type MenuScreen = 'main' | 'players' | 'settings';
 export interface MainMenuProps {
   visible?: boolean;
-  /** Holds input (the Connect Client card is open). */
-  blocked?: boolean;
   /** Where the menu opens when it is shown. */
   initialScreen?: MenuScreen;
   onStart?: (playerCount: PlayerCount) => void;
   onSettingsOpen?: () => void;
-  onScreenChange?: (screen: MenuScreen) => void;
   sound: SoundSettings;
   onSoundChange?: (sound: SoundSettings) => void;
 }
@@ -171,16 +166,15 @@ interface MenuState {
   players: 'one' | 'two';
   /** The widget the keyboard cursor goes to once the screen is in (going back). */
   refocus: string | null;
-  reported?: MenuScreen;
 }
 
 export default function MainMenu({
-  visible = true, blocked = false, initialScreen = 'main', onStart, onSettingsOpen, onScreenChange, sound, onSoundChange,
+  visible = true, initialScreen = 'main', onStart, onSettingsOpen, sound, onSoundChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
   const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, players: 'one', refocus: null });
   const props = useRef<MainMenuProps>({ sound });
-  props.current = { visible, blocked, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange };
+  props.current = { visible, onStart, onSettingsOpen, sound, onSoundChange };
 
   const m = menu.current;
   // A keyboard cursor starts over on the next screen, or going back (also by Escape), on the
@@ -194,7 +188,7 @@ export default function MainMenu({
     }
     m.next = screen;
   };
-  const live = () => !!props.current.visible && !props.current.blocked && m.alpha > 0.3 && m.screen === m.next;
+  const live = () => !!props.current.visible && m.alpha > 0.3 && m.screen === m.next;
   const setSound = (patch: Partial<SoundSettings>) => {
     const { sound: cur, onSoundChange: cb } = props.current;
     cb?.({ ...cur, ...patch });
@@ -259,7 +253,6 @@ export default function MainMenu({
       }
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
       if (props.current.sound !== m.drawnSound) s.invalidate();
-      if (m.screen !== m.reported) { m.reported = m.screen; props.current.onScreenChange?.(m.screen); }
       const { dataset } = gl.domElement;
       dataset.menuScreen = m.screen;
       dataset.menuReady = String(shown && m.alpha > 0.5 && m.screen === m.next && m.swap > 0.95);
@@ -300,5 +293,5 @@ export default function MainMenu({
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 
-  return <FullscreenButton visible={() => !!props.current.visible && !props.current.blocked && m.screen === 'main' && m.next === 'main'} />;
+  return <FullscreenButton visible={() => !!props.current.visible && m.screen === 'main' && m.next === 'main'} />;
 }
