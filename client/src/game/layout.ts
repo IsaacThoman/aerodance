@@ -36,7 +36,9 @@ export const GAME_CALIBRATION_CAMERA = {
   prev: { x: CALIBRATION_PICKER.x, y: CALIBRATION_PICKER.y, w: 80, h: CALIBRATION_PICKER.h },
   next: { x: CALIBRATION_PICKER.x + CALIBRATION_PICKER.w - 80, y: CALIBRATION_PICKER.y, w: 80, h: CALIBRATION_PICKER.h },
 };
-export const GAME_PAUSE_PANEL = { x: 560, y: 250, w: 480, h: 420 };
+// Beside the header, top right: plays the song without the camera.
+export const GAME_CALIBRATION_SKIP = { x: 1172, y: 116, w: 300, h: 68 };
+export const GAME_PAUSE_PANEL ={ x: 560, y: 250, w: 480, h: 420 };
 export const GAME_RESUME = { x: 610, y: 340, w: 380, h: 84 };
 export const GAME_RESTART = { x: 610, y: 444, w: 380, h: 84 };
 export const GAME_QUIT = { x: 610, y: 548, w: 380, h: 84 };

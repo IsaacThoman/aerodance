@@ -141,6 +141,26 @@ test('webcam sessions require a shared still hold and start countdown immediatel
   assert.equal(session.phase, 'playing');
 });
 
+test('continuing without a camera starts the countdown; anyone the camera sees still dances and scores', async () => {
+  const { session, source, step, player } = await setup(2, { sourceKind: 'webcam' });
+  assert.equal(session.phase, 'calibrating');
+  session.continueWithoutCamera();
+  assert.equal(session.phase, 'countdown');
+  assert.equal(session.webcamCalibration, null);
+  assert.ok(session.withoutCamera);
+  assert.equal(player().state, 'playing');
+  assert.ok(source.attached, 'the pose source follows the song clock');
+  step(COUNTDOWN_MS + 200);
+  assert.equal(session.phase, 'playing');
+  // Nobody calibrated by holding still: player 1 steps in mid-song and calibrates as they dance.
+  step(3000, now => source.send([standing(2)[0]], now, 2));
+  assert.ok(session.live[0].calibration);
+  assert.ok(session.livePose(0));
+  assert.equal(session.live[1].calibration, null);
+  session.continueWithoutCamera();
+  assert.equal(session.phase, 'playing', 'only the calibration screen continues without a camera');
+});
+
 test('webcam calibration survives lost tracking and pause/resume but a new game calibrates afresh', async () => {
   const { session, source, step, clock } = await setup(1, { sourceKind: 'webcam' });
   step(2600, now => source.send(standing(1), now));
