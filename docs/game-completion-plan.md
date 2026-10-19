@@ -273,7 +273,7 @@ texts and trophy go out.
   promoted, and update the README's "still to come" notes.
 - **Playtest:** at least five sessions with new players across both modes and
   a battle. Fix what confuses them, then tune the scoring curve on the recordings.
-- **Release:** tag v1, deploy to aerodance.tech, and verify the full flow on
+- **Release:** tag v1, deploy to aerodance.party, and verify the full flow on
   production with both a webcam and the board (local http).
 
 ## Order and parallel work
