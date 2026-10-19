@@ -68,8 +68,8 @@ try {
   assert.equal((await store.project(created.projectId)).metadata.title, saved.metadata.title);
   const backup = await store.download(created.projectId, "backup");
   assert.ok(backup.length > 0);
-  // Existing disk backups import unchanged into browser storage; browser backups
-  // are still consumable by the legacy tool.
+  // Disk adapter backups import unchanged into browser storage, and browser
+  // backups restore on the disk adapter.
   const disk = createStudio({ dataDir: diskRoot }).store;
   const diskProject = await disk.save(newProject("disk-project"), null);
   const oldBackup = await disk.download(diskProject.projectId, "backup");
@@ -77,7 +77,7 @@ try {
     const url = "/__test__/storage.js", { workspace }: typeof Api = await import(url);
     return workspace.restore(new Uint8Array(bytes));
   }, Array.from(oldBackup));
-  assert.equal(migrated.songId, diskProject.songId);
+  assert.equal(migrated.metadata.title, diskProject.metadata.title);
   assert.notEqual(migrated.projectId, diskProject.projectId);
   const roundTrip = await disk.restore(backup);
   assert.equal(roundTrip.metadata.title, saved.metadata.title);
@@ -124,7 +124,7 @@ try {
     }
   });
   await page.goto(base);
-  await page.getByRole("heading", { name: "Make every move yours." }).waitFor();
+  await page.getByRole("heading", { name: "Preview" }).waitFor();
   await page.getByRole("button", { name: "Song details", exact: true }).click();
   await page.getByLabel("Song name", { exact: true }).fill("Unsaved after quota");
   await page.evaluate(() => {
@@ -135,15 +135,16 @@ try {
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: /Browser storage is full/ }).waitFor();
   const download = page.waitForEvent("download");
+  await page.getByText("Project actions", { exact: true }).click();
   await page.getByRole("button", { name: "Backup", exact: true }).click();
   assert.ok((await download).suggestedFilename().endsWith(".aerodance-project.zip"));
   await page.getByRole("alert").filter({ hasText: /Backup contains the last saved revision/ }).waitFor();
   await page.evaluate(() => { const restore = Reflect.get(window, "restoreStoragePut"); if (typeof restore === "function") restore(); });
   page.once("dialog", dialog => dialog.accept());
   await page.reload();
-  await page.getByRole("heading", { name: "Make every move yours." }).waitFor();
+  await page.getByRole("heading", { name: "Preview" }).waitFor();
   assert.deepEqual(apiRequests, []);
-  console.log("Browser storage passed: cross-tab revision race, OPFS assets, quota rollback, legacy backup migration, atomic restore, deletion, and static UI backup/reload with no API requests.");
+  console.log("Browser storage passed: cross-tab revision race, OPFS assets, quota rollback, disk/browser backup exchange, atomic restore, deletion, and static UI backup/reload with no API requests.");
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve)); await dispose(); await rm(diskRoot, { recursive: true, force: true });
 }

@@ -47,15 +47,15 @@ function replaySource() {
   const recording = params.get('recording');
   if (input !== 'recording' || !recording) return null;
   const source = new ReplayPoseSource({ mode: 'recording' });
-  fetch(recording).then((r) => r.text()).then((text) => { source.recording = parseRecording(text); })
+  fetch(recording).then((r) => r.arrayBuffer()).then((bytes) => { source.recording = parseRecording(new Uint8Array(bytes)); })
     .catch((err: unknown) => console.error('pose recording could not load:', err instanceof Error ? err.message : err));
   return source;
 }
 
 type AppScreen = 'menu' | 'songs' | 'game';
 
-function download(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
+function download(name: string, bytes: Uint8Array<ArrayBuffer>) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -153,7 +153,7 @@ export default function App() {
       const results = session.results.map((r, i) => ({ ...PLAYERS[i], ...r }));
       const best = recordResults(session.bundle.song.songId, session.playerCount, session.results);
       resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), best };
-      if (session.recordingText) download(`${session.bundle.song.songId}-poses.ndjson`, session.recordingText);
+      if (session.recordingBytes) download(`${session.bundle.song.songId}-poses.adpose`, session.recordingBytes);
     });
   }, [game]);
 

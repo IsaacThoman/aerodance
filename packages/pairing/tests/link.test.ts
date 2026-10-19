@@ -29,7 +29,7 @@ test('the clock follows the quickest recent round trip, and its error is half th
   assert.equal(clock.uncertaintyMs, 10);
 });
 
-const landmarks = Array.from({ length: 33 }, (_, i) => ({ x: 0.123456789 + i / 100, y: 0.5, z: -0.0000012345, visibility: 0.99999, presence: null }));
+const landmarks = Array.from({ length: 33 }, (_, i) => ({ x: 0.123456789 + i / 100, y: 0.5, z: -0.0000012345, confidence: i === 1 ? null : 0.99999 }));
 const record: WebcamRecord = { schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 's', seq: 3, playerCount: 1,
   input: { width: 480, height: 640, mirrored: false }, modelId: 'lite', mediaTimeMs: 10, frameBrowserTimeMs: 100, resultBrowserTimeMs: 130,
   timingMethod: 'browser-frame-observation', poses: [{ playerId: 0, landmarks }] };
@@ -40,8 +40,8 @@ test('pose messages round their landmarks and still validate in full on arrival'
   if (message?.type !== 'pose') return;
   assert.equal(message.record.poses[0].landmarks[0].x, 0.12346);
   assert.equal(message.record.poses[0].landmarks[0].z, 0);
-  assert.equal(message.record.poses[0].landmarks[0].visibility, 1);
-  assert.equal(message.record.poses[0].landmarks[0].presence, null);
+  assert.equal(message.record.poses[0].landmarks[0].confidence, 1);
+  assert.equal(message.record.poses[0].landmarks[1].confidence, null);
   assert.deepEqual({ ...message.record, poses: [] }, { ...record, poses: [] });
   // A record that isn't one is refused.
   assert.equal(parsePhoneMessage(JSON.stringify({ type: 'pose', record: { ...record, poses: [{ playerId: 0, landmarks: [] }] } })), null);

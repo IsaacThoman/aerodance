@@ -97,7 +97,7 @@ const unit = (n: number | null) => (n === null ? null : round(n, 3));
 export function poseMessage(record: WebcamRecord): string {
   const poses: Pose[] = record.poses.map((pose) => ({
     playerId: pose.playerId,
-    landmarks: pose.landmarks.map((j) => ({ x: round(j.x, 5), y: round(j.y, 5), z: round(j.z, 5), visibility: unit(j.visibility), presence: unit(j.presence) })),
+    landmarks: pose.landmarks.map((j) => ({ x: round(j.x, 5), y: round(j.y, 5), z: round(j.z, 5), confidence: unit(j.confidence) })),
   }));
   return JSON.stringify({ type: 'pose', record: { ...record, poses } });
 }

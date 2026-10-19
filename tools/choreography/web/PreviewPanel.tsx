@@ -19,6 +19,8 @@ export interface PreviewPanelProps {
   /** The project compiled from its unedited tracks. */
   original: CompiledChoreography | null;
   busy: boolean;
+  trackOptionsOpen: boolean;
+  onTrackOptions: () => void;
 }
 const MODES: readonly PreviewMode[] = ["skeleton", "characters", "both"];
 // Placeholder dancers until a take or the song provides calibrations.
@@ -35,7 +37,7 @@ const FALLBACK_TRACKS: readonly PreviewTrack[] = [0, 1].map((playerId) => ({
 }));
 
 // The pose preview, what it shows (song, take or live camera) and how.
-export default function PreviewPanel({ workspace, editor, live, compiled, original, busy }: PreviewPanelProps) {
+export default function PreviewPanel({ workspace, editor, live, compiled, original, busy, trackOptionsOpen, onTrackOptions }: PreviewPanelProps) {
   const { recording, countdown, view, mode, setMode, cursor, readOnly, showingLive, showingTake, selectedTake, changeView } = workspace;
   const { connection, liveTracks } = live;
   const { snapshot, selectedPose, playerId, joint, pointGroup } = editor;
@@ -52,10 +54,7 @@ export default function PreviewPanel({ workspace, editor, live, compiled, origin
   return (
     <>
       <div className="preview-bar">
-        <div>
-          <span className="eyebrow">CHOREOGRAPHY PREVIEW</span>
-          <h1>Make every move yours.</h1>
-        </div>
+        <h1>Preview</h1>
         <div className="segmented" aria-label="Preview mode">
           {MODES.map((v) => (
             <button
@@ -71,35 +70,46 @@ export default function PreviewPanel({ workspace, editor, live, compiled, origin
           ))}
         </div>
       </div>
-      <div className="preview-source segmented" aria-label="Preview source">
-        <button
-          className={!readOnly ? "selected" : ""}
-          aria-pressed={!readOnly}
-          disabled={recording || busy}
-          onClick={() => {
-            changeView("playback");
-          }}
-        >
-          Playback
-        </button>
-        <button
-          className={showingTake ? "selected" : ""}
-          aria-pressed={showingTake}
-          disabled={recording || !selectedTake}
-          onClick={() => changeView("take")}
-        >
-          Take view
-        </button>
-        <button
-          className={showingLive ? "selected" : ""}
-          aria-pressed={showingLive}
-          disabled={recording || busy}
-          onClick={() => {
-            changeView("live");
-          }}
-        >
-          Live view
-        </button>
+      <div className="preview-controls">
+        <div className="preview-source segmented" aria-label="Preview source">
+          <button
+            className={!readOnly ? "selected" : ""}
+            aria-pressed={!readOnly}
+            disabled={recording || busy}
+            onClick={() => {
+              changeView("playback");
+            }}
+          >
+            Playback
+          </button>
+          <button
+            className={showingTake ? "selected" : ""}
+            aria-pressed={showingTake}
+            disabled={recording || !selectedTake}
+            onClick={() => changeView("take")}
+          >
+            Take view
+          </button>
+          <button
+            className={showingLive ? "selected" : ""}
+            aria-pressed={showingLive}
+            disabled={recording || busy}
+            onClick={() => {
+              changeView("live");
+            }}
+          >
+            Live view
+          </button>
+        </div>
+        <div className="player-selector" role="group" aria-label="Selected player">
+          {[0, 1].map(id => <div key={id} className={`player-control player-${id} ${playerId === id ? "selected" : ""}`}>
+            <button className="player-button" aria-label={`Select P${id + 1}`} aria-pressed={playerId === id}
+              onClick={() => editor.selectPlayer(id)}>P{id + 1}</button>
+            {playerId === id && <button className="player-options" aria-label={`P${id + 1} track options`}
+              aria-expanded={trackOptionsOpen} aria-controls="project-sidebar" onClick={onTrackOptions}>Options</button>}
+          </div>)}
+          <span>{readOnly ? "Viewing" : "Editing"} P{playerId + 1}</span>
+        </div>
       </div>
       <Preview
         snapshot={snapshot}
@@ -136,7 +146,7 @@ export default function PreviewPanel({ workspace, editor, live, compiled, origin
         emptyHint={
           showingLive
             ? connection.status === "disconnected"
-              ? "Connect a pose source in the capture panel to preview your moves."
+              ? "Start the camera in Configuration."
               : connection.message || "Step into the camera view."
             : undefined
         }

@@ -7,6 +7,8 @@ export interface PreviewOptions {
   mirror?: boolean;
   /** Without video (a phone tracking remotely): the camera frame's size, to draw the poses in. */
   frame?: FrameSize | null;
+  /** A one-player preview's label is this player's (P2 when only player 2 is tracked). */
+  soloPlayerId?: number;
 }
 
 // Shared setup view: mirrored display only; captured landmarks stay canonical. The player
@@ -14,7 +16,7 @@ export interface PreviewOptions {
 // shows `placeholder` (the caller may draw its own instead).
 export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoElement | null | undefined,
   snapshot: { poses: readonly Pose[] } | null | undefined, rect: PreviewRect, playerCount = 2, placeholder = 'Start camera to preview',
-  { mirror = true, frame = null }: PreviewOptions = {}) {
+  { mirror = true, frame = null, soloPlayerId = 0 }: PreviewOptions = {}) {
   const { x, y, w, h } = rect;
   g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
   g.fillStyle = '#09273b'; g.fillRect(x, y, w, h);
@@ -37,7 +39,7 @@ export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoE
       g.strokeStyle = pose.playerId === 0 ? '#7dffff' : '#ffdc70'; g.lineWidth = 2;
       for (const [a, b] of CONNECTIONS) {
         const p = pose.landmarks[a], q = pose.landmarks[b];
-        if (Math.min(p.visibility ?? 0, p.presence ?? 0, q.visibility ?? 0, q.presence ?? 0) < 0.5) continue;
+        if (Math.min(p.confidence ?? 0, q.confidence ?? 0) < 0.5) continue;
         g.beginPath(); g.moveTo(px(p), dy + p.y * dh); g.lineTo(px(q), dy + q.y * dh); g.stroke();
       }
     }
@@ -48,7 +50,7 @@ export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoE
   if (size && playerCount === 2) {
     g.strokeStyle = '#fff8'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + w / 2, y); g.lineTo(x + w / 2, y + h); g.stroke();
     g.fillText(mirror ? 'P1' : 'P2', x + w / 4, y + 22); g.fillText(mirror ? 'P2' : 'P1', x + w * 3 / 4, y + 22);
-  } else if (size) g.fillText('P1', x + w / 2, y + 22);
+  } else if (size) g.fillText(`P${soloPlayerId + 1}`, x + w / 2, y + 22);
   if (!video && !frame && placeholder) g.fillText(placeholder, x + w / 2, y + h / 2);
   g.restore();
 }

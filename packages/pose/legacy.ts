@@ -1,20 +1,8 @@
+// Dance capture JSON from earlier versions, read only to convert it (tools/pose/migrate-legacy.ts).
 import { assertPoses, finite, isArray, isObject, qualityFor } from './choreography.ts';
-import type { CaptureInput, Pose, PoseQuality } from './choreography.ts';
+import type { PoseQuality } from './choreography.ts';
+import type { MotionTake, TakeSample } from './motion.ts';
 
-/** A take sample on the take's own clock (ms from the start of the capture). */
-export interface TakeSample {
-  takeTimeMs: number; poses: Pose[]; quality?: PoseQuality[];
-  /** Legacy captures only: the combined min(visibility, presence) per player and joint. */
-  legacyConfidence?: number[][];
-}
-/** The part of an aerodance.take v1 that motion playback relies on (validateMotionTake). */
-export interface MotionTake {
-  schema: 'aerodance.take'; schemaVersion: 1;
-  durationMs: number;
-  /** Always unmirrored. */
-  input: CaptureInput;
-  samples: TakeSample[];
-}
 /** A legacy joint: x, y, z and the combined confidence. */
 export type LegacyJoint = [x: number, y: number, z: number, confidence: number];
 /** The pre-take dance capture format (version 1), accepted by explicit migration only. */
@@ -25,7 +13,7 @@ export interface LegacyMotion {
   source: { width: number; height: number; [key: string]: unknown };
   model?: unknown; settings?: unknown; report?: unknown;
 }
-export interface LegacyTakeSample extends TakeSample { quality: PoseQuality[]; legacyConfidence: number[][]; }
+export interface LegacyTakeSample extends TakeSample { quality: PoseQuality[]; }
 export interface LegacyMigratedTake extends MotionTake {
   takeId: 'legacy-demo'; name: string; source: 'legacy-demo';
   offsetMs: 0; timeScale: 1; samples: LegacyTakeSample[];
@@ -54,15 +42,15 @@ export function assertLegacyMotion(data: unknown): asserts data is LegacyMotion 
     }
   });
 }
-// Explicit import only: the tuple's min(visibility, presence) cannot be split back.
+// Explicit import only. The tuple's combined confidence was smoothed with the positions, so
+// it isn't kept: every joint's confidence is unknown.
 export function migrateLegacyMotion(input: unknown): LegacyMigratedTake {
   assertLegacyMotion(input);
   const data = input;
   const samples = data.times.map((time, i): LegacyTakeSample => {
-    const legacyConfidence = data.poses[i].map(points => points.map(j => j[3]));
-    const poses = data.poses[i].map((points, playerId) => ({ playerId, landmarks: points.map(([x,y,z]) => ({ x,y,z,visibility:null,presence:null })) }));
+    const poses = data.poses[i].map((points, playerId) => ({ playerId, landmarks: points.map(([x,y,z]) => ({ x,y,z,confidence:null })) }));
     assertPoses(poses);
-    return { takeTimeMs: time * 1000, poses, quality: qualityFor(poses), legacyConfidence };
+    return { takeTimeMs: time * 1000, poses, quality: qualityFor(poses) };
   });
   return {
     schema: 'aerodance.take', schemaVersion: 1, takeId: 'legacy-demo', name: 'Captured dance preview',
@@ -70,7 +58,7 @@ export function migrateLegacyMotion(input: unknown): LegacyMigratedTake {
     durationMs: data.duration * 1000, offsetMs:0, timeScale:1, samples,
     provenance: { source:data.source, model:data.model ?? null, settings:data.settings ?? null,
       report:data.report ?? null, legacySmoothed:true,
-      limitations:'Combined legacy confidence cannot recover visibility/presence; smoothed capture cannot recover original gaps or repairs.' },
+      limitations:'Legacy confidence is not kept; smoothed capture cannot recover original gaps or repairs.' },
   };
 }
 

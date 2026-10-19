@@ -1,7 +1,7 @@
 // Pose payloads ({ playerId, landmarks }); file clocks are explicitly separate from wire clocks.
 
-/** One MediaPipe pose-33 landmark in image space; confidences are null when unknown. */
-export interface Landmark { x: number; y: number; z: number; visibility: number | null; presence: number | null; }
+/** One MediaPipe pose-33 landmark in image space; confidence is min(visibility, presence), null when unknown. */
+export interface Landmark { x: number; y: number; z: number; confidence: number | null; }
 /** One dancer: playerId 0 (P1) or 1 (P2) and all 33 landmarks. */
 export interface Pose { playerId: number; landmarks: Landmark[]; }
 export type PlayerCount = 1 | 2;
@@ -53,6 +53,15 @@ export const isPlayerCount = (value: unknown): value is PlayerCount => value ===
 function fail(message: string): never { throw Error(message); }
 const unitOrNull = (v: unknown) => v === null || finite(v) && v >= 0 && v <= 1;
 
+// Older JSON stores MediaPipe's visibility and presence separately; they are combined in place.
+function upgradeLandmark(joint: Record<string, unknown>) {
+  if ('confidence' in joint || !('visibility' in joint || 'presence' in joint)) return;
+  const { visibility, presence } = joint;
+  if (!unitOrNull(visibility) || !unitOrNull(presence)) fail('Confidence must be null or between 0 and 1');
+  joint.confidence = visibility === null || presence === null ? null : Math.min(Number(visibility), Number(presence));
+  delete joint.visibility; delete joint.presence;
+}
+/** Validates poses, converting legacy visibility/presence landmarks to a single confidence in place. */
 export function assertPoses(poses: unknown): asserts poses is Pose[] {
   if (!isArray(poses) || poses.length > 2) fail('Expected at most two poses');
   let last = -1;
@@ -62,7 +71,8 @@ export function assertPoses(poses: unknown): asserts poses is Pose[] {
     if (!isArray(pose.landmarks) || pose.landmarks.length !== 33) fail('A pose needs all 33 landmarks');
     for (const joint of pose.landmarks) {
       if (!isObject(joint) || !finite(joint.x) || !finite(joint.y) || !finite(joint.z)) fail('Landmark coordinates must be finite');
-      if (!unitOrNull(joint.visibility) || !unitOrNull(joint.presence)) fail('Confidence must be null or between 0 and 1');
+      upgradeLandmark(joint);
+      if (!unitOrNull(joint.confidence)) fail('Confidence must be null or between 0 and 1');
     }
   }
 }
@@ -70,7 +80,7 @@ export function validatePoses(poses: unknown): Pose[] {
   assertPoses(poses);
   return poses;
 }
-export const confidence = (p: Landmark) => p.visibility === null || p.presence === null ? null : Math.min(p.visibility, p.presence);
+export const confidence = (p: Landmark) => p.confidence;
 export function qualityFor(poses: readonly Pose[], origin: LandmarkOrigin = 'measured'): PoseQuality[] {
   return poses.map(p => ({ playerId: p.playerId, landmarkOrigins: p.landmarks.map(j => confidence(j) === null ? 'missing-confidence' : origin), scoreEligible: p.landmarks.map(j => { const c = confidence(j); return origin === 'measured' && c !== null && c >= .5; }), reviewed: false }));
 }
@@ -89,7 +99,10 @@ export function sampleSnapshot(samples: readonly AnyTimedPoses[], timeMs: number
   if (Math.abs(at(lo)-timeMs)<1e-5) return copy({ poses: a.poses, quality: a.quality || qualityFor(a.poses) });
   if (b&&Math.abs(at(lo + 1)-timeMs)<1e-5) return copy({ poses: b.poses, quality: b.quality || qualityFor(b.poses) });
   if (!b || at(lo + 1) - at(lo) > maxGap) return { poses: [], quality: [] };
-  const alpha = (timeMs - at(lo)) / (at(lo + 1) - at(lo));
+  return interpolatePoses(a, b, (timeMs - at(lo)) / (at(lo + 1) - at(lo)));
+}
+/** The poses alpha of the way from a to b: absence is never interpolated across, kept origins propagate. */
+export function interpolatePoses(a: { poses: Pose[]; quality?: PoseQuality[] }, b: { poses: Pose[]; quality?: PoseQuality[] }, alpha: number): PoseSnapshot {
   const poses: Pose[] = [], quality: PoseQuality[] = [];
   for (const pose of a.poses) {
     const next = b.poses.find(p => p.playerId === pose.playerId);
@@ -100,12 +113,15 @@ export function sampleSnapshot(samples: readonly AnyTimedPoses[], timeMs: number
     poses.push({ playerId: pose.playerId, landmarks: pose.landmarks.map((p,i) => {
       const q = next.landmarks[i];
       return { x: p.x + (q.x-p.x)*alpha, y: p.y + (q.y-p.y)*alpha, z: p.z + (q.z-p.z)*alpha,
-        visibility: lerpOrNull(p.visibility, q.visibility, alpha), presence: lerpOrNull(p.presence, q.presence, alpha) };
+        confidence: lerpOrNull(p.confidence, q.confidence, alpha) };
     }) });
-    quality.push({ playerId: pose.playerId, landmarkOrigins: qa.landmarkOrigins.map((origin,i) => KEPT_ORIGINS.includes(origin) ? origin : KEPT_ORIGINS.includes(qb.landmarkOrigins[i]) ? qb.landmarkOrigins[i] : 'resampled'), scoreEligible: qa.scoreEligible.map((v,i) => v && qb.scoreEligible[i]), reviewed: qa.reviewed && qb.reviewed });
+    quality.push({ playerId: pose.playerId, landmarkOrigins: qa.landmarkOrigins.map((origin,i) => interpolatedOrigin(origin, qb.landmarkOrigins[i])), scoreEligible: qa.scoreEligible.map((v,i) => v && qb.scoreEligible[i]), reviewed: qa.reviewed && qb.reviewed });
   }
   return { poses, quality };
 }
+/** An interpolated joint keeps an edited, repaired or missing-confidence origin from either neighbour. */
+export const interpolatedOrigin = (a: LandmarkOrigin, b: LandmarkOrigin): LandmarkOrigin =>
+  KEPT_ORIGINS.includes(a) ? a : KEPT_ORIGINS.includes(b) ? b : 'resampled';
 export function mirrorPose<T extends { landmarks: Landmark[] }>(pose: T): T {
   const result = copy(pose);
   result.landmarks.forEach(p => { p.x = 1-p.x; });

@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { validateCatalog, validateSong } from '../../packages/pose/song.ts';
 import { DEFAULT_STAGE, STAGE_LIST, resolveStage } from '../../packages/stages/catalog.ts';
 import { discoverSongs } from '../../scripts/songCatalog.ts';
-import { bundleFixture } from './fixtures/songBundle.ts';
+import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 
 test('the stage catalog lists the six dance stages and defaults to openreef', () => {
   assert.deepEqual(STAGE_LIST.map((stage) => stage.id), ['sanctuary', 'reef', 'openreef', 'falls', 'club', 'beach']);
@@ -35,7 +35,7 @@ test('discovered songs carry their stage into the catalog', async (t) => {
   song.stage = 'falls';
   const folder = path.join(root, song.songId);
   await mkdir(folder);
-  const files = { 'song.json': Buffer.from(JSON.stringify(song)), 'choreography.json': Buffer.from(JSON.stringify(choreography)), 'audio.wav': audio };
+  const files = { 'song.json': Buffer.from(JSON.stringify(song)), 'choreography.adpose': Buffer.from(choreographyBytes({ choreography })), 'audio.wav': audio };
   for (const [name, bytes] of Object.entries(files)) await writeFile(path.join(folder, name), bytes);
   await writeFile(path.join(folder, 'checksums.json'), JSON.stringify({
     schema: 'aerodance.checksums', schemaVersion: 1,

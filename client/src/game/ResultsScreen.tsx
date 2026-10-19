@@ -96,6 +96,7 @@ export default function ResultsScreen({ visible = false, blocked = false, show, 
     priority: 2.5,
     active: live,
     keyNav: true,
+    // No primary widget: a stray Enter as the song ends mustn't skip the celebration.
     widgets: () => [{ id: 'retry', rect: RESULTS_RETRY }, { id: 'quit', rect: RESULTS_SONGS }],
     onActivate: ({ id }) => {
       const p = props.current;

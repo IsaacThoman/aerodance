@@ -7,7 +7,7 @@ import type { Project, StudioAssets, Take } from '../core.ts';
 import type { ImportWorkerRequest } from '../web/videoImport.ts';
 import type { PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { readZip } from '../server/zip.ts';
-import { baseUrl, found, read, zipJson } from './helpers.ts';
+import { baseUrl, found, songFolder, storedCalibration, zipPose, openSidebar } from './helpers.ts';
 
 declare global {
   interface Window {
@@ -27,11 +27,11 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 await page.goto(base + '/__test__/empty.html');
 const store = browserStore(page);
 // A take stored by an earlier Android-capable editor must still open beside new video takes.
-const source: Take = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'android', name: 'Original take',
+const source: Take = { schema: 'aerodance.take', schemaVersion: 1, takeId: 'original-take', source: 'imported', name: 'Original take',
   input: { width: 640, height: 480, mirrored: false }, offsetMs: 0, timeScale: 1,
   samples: Array.from({ length: 9 }, (_, i) => ({ takeTimeMs: i * 100, poses: [0, 1].map(playerId => ({ playerId,
     landmarks: Array.from({ length: 33 }, (_, j) => ({ x: playerId ? .25 : .75, y: j < 23 ? .4 : .8,
-      z: 0, visibility: .95, presence: .95 })) })) })) };
+      z: 0, confidence: .95 })) })) })) };
 const original = await store.writeTake('video-browser', source), assets: StudioAssets = new Map([[original.takeId, original]]);
 let p: Project = overwriteTracks(addTake(newProject('video-browser'), original), original, [0, 1], assets);
 for (const dataId of trackDataIds(p)) await store.writeTrack(p.projectId, assets.get(dataId));
@@ -72,25 +72,30 @@ try {
     };
   });
   await page.goto(base);
-  await page.getByRole('heading', { name: 'Make every move yours.' }).waitFor();
-  await page.getByText('legacy capture · 9 samples').waitFor();
+  await page.getByRole('heading', { name: 'Preview' }).waitFor();
+  await page.getByText('imported · 9 samples').waitFor();
   // Keep a real song audio asset while importing video poses.
   const sampleRate = 8000, audio = Buffer.alloc(44 + sampleRate * 2);
   audio.write('RIFF', 0); audio.writeUInt32LE(audio.length - 8, 4); audio.write('WAVEfmt ', 8);
   audio.writeUInt32LE(16, 16); audio.writeUInt16LE(1, 20); audio.writeUInt16LE(1, 22);
   audio.writeUInt32LE(sampleRate, 24); audio.writeUInt32LE(sampleRate * 2, 28);
   audio.writeUInt16LE(2, 32); audio.writeUInt16LE(16, 34); audio.write('data', 36); audio.writeUInt32LE(audio.length - 44, 40);
+  await openSidebar(page, "Import");
   await page.getByLabel('Import song audio', { exact: true }).setInputFiles({ name: 'song.wav', mimeType: 'audio/wav', buffer: audio });
   await page.getByText(/Audio imported/).waitFor();
   const audioBefore = (await store.project(p.projectId)).audio;
+  await openSidebar(page, "Import");
   await page.getByLabel('Import video', { exact: true }).setInputFiles({ name: 'bad.webm', mimeType: 'video/webm', buffer: Buffer.from('not video') });
   await page.getByRole('alert').filter({ hasText: /could not decode/ }).waitFor();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('dialog', { name: 'Import video' }).waitFor({ state: 'hidden' });
   assert.equal((await store.project(p.projectId)).takes.length, 1);
+  await openSidebar(page, "Import");
   await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
   const panel = page.getByRole('dialog', { name: 'Import video' });
   await panel.waitFor();
+  assert.equal(await page.getByLabel('Video pose model').inputValue(), 'heavy');
+  assert.equal(await page.getByRole('checkbox', {name: 'Clean up poses after detection'}).isChecked(), true);
   assert.equal(await page.getByRole('button', { name: 'Process video', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).waitFor();
   await page.waitForFunction(() => (document.querySelector<HTMLVideoElement>('dialog video')?.readyState ?? 0) >= 2);
@@ -117,8 +122,9 @@ try {
   await page.getByText('Saved', { exact: true }).waitFor();
   let saved = await store.project(p.projectId);
   assert.equal(saved.takes.length, 2); assert.deepEqual(saved.tracks, initialTracks); assert.deepEqual(saved.audio, audioBefore);
-  const imported = validateTake(await store.read(p.projectId, 'takes', `${saved.takes[1].takeId}.json`));
+  const imported = validateTake(await store.take(p.projectId, saved.takes[1].takeId));
   assert.equal(imported.source, 'video'); assert.equal(imported.provenance?.modelId, 'full');
+  assert.ok(imported.provenance?.cleanupCounts);
   assert.ok(Math.abs(found(imported.calibrationFrame).mediaTimeMs - 300) < 1);
   assert.ok(imported.samples.length >= 2);
   assert.ok(imported.samples.some(s => s.poses.length === 2));
@@ -130,19 +136,20 @@ try {
   await page.getByRole('menuitem', { name: 'Overwrite both tracks' }).click();
   await page.getByText('Saved', { exact: true }).waitFor();
   saved = await store.project(p.projectId);
-  assert.ok(saved.schemaVersion === 2);
+  assert.ok(saved.schemaVersion === 3);
   for (const track of saved.tracks) {
-    const data = validateTrackData(await store.read(p.projectId, 'tracks', `${track.dataId}.json`));
-    assert.deepEqual(data.calibration, takeCalibration(imported, track.playerId));
+    const data = validateTrackData(await store.track(p.projectId, found(track.dataId)));
+    assert.deepEqual(data.calibration, storedCalibration(takeCalibration(imported, track.playerId)));
   }
   // Check publication uses the selected frame, without requiring metadata clicks.
   saved.metadata.artist = 'Fixture'; saved.metadata.rights.audio.license = 'CC0'; saved.metadata.rights.choreography.license = 'CC0';
   saved.playableEndMs = found(imported.samples.at(-1)).takeTimeMs;
   saved.alignmentReviewed = true; saved = await store.save(saved, saved.revision);
-  const choreography = zipJson(readZip(await store.download(p.projectId, 'export')), `${saved.songId}/choreography.json`);
-  assert.deepEqual(read(choreography, 'tracks', 0, 'calibration'), takeCalibration(imported, 0));
+  const files = readZip(await store.download(p.projectId, 'export'));
+  const choreography = zipPose(files, `${songFolder(files)}/choreography.adpose`);
+  assert.deepEqual(found(choreography.tracks)[0].calibration, storedCalibration(takeCalibration(imported, 0)));
   assert.deepEqual(errors, []);
-  console.log(`Video import browser passed: actual Lite/Full calibration and Full inference, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
+  console.log(`Video import browser passed: actual Heavy/Full calibration and Full inference with cleanup, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
 } catch (error) {
   if (page) {
     console.error(error instanceof Error ? error.message : error);

@@ -2,9 +2,9 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { advance, Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { PCFShadowMap } from 'three';
-import { validateMotion } from '../../../../packages/character/motion.ts';
-import motionUrl from '../../../../packages/character/assets/dance.json?url';
-import type { MotionTake } from '../../../../packages/pose/legacy.ts';
+import { loadMotion } from '../../../../packages/character/motion.ts';
+import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
+import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import { STAGES } from '../../../../packages/stages/index.ts';
 import type { Stage, StageId } from '../../../../packages/stages/index.ts';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
@@ -199,8 +199,8 @@ export default function App() {
   const [motion, setMotion] = useState<MotionTake | null>(null);
   useEffect(() => {
     fetch(motionUrl)
-      .then((r) => r.json())
-      .then((data) => setMotion(validateMotion(data)));
+      .then((r) => r.arrayBuffer())
+      .then((bytes) => setMotion(loadMotion(bytes)));
   }, []);
   return (
     <div className="frame">

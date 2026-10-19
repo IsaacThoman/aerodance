@@ -15,7 +15,7 @@ import { createPoseApplier } from "./retarget.ts";
 import { LivePoseFilter } from './livePoseFilter.ts';
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import modelUrl from "./assets/aero-character.glb?url";
-import type { MotionTake } from "../pose/legacy.ts";
+import type { MotionTake } from "../pose/motion.ts";
 import type { Pose, TrackCalibration } from "../pose/choreography.ts";
 
 export interface CharacterAppearance {
