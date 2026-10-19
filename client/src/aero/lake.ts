@@ -135,6 +135,8 @@ export interface Lake {
   update(t: number, dt: number, camera: THREE.Camera): void;
   /** Diagnostics: false stops the reflection pass (the water keeps its last reflection). */
   reflect: boolean;
+  /** Left out of the reflection (small things the rippled water blurs away anyway). */
+  unreflected: THREE.Object3D[];
 }
 
 /** The reflective lake and its boats. */
@@ -156,7 +158,10 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   let elapsed = 0;
   water.onBeforeRender = (r, sc, cam, geo, mat, group) => {
     if (lake.reflect && (cam.position.z < 280 || cam.position.y > 60) && refresh.shouldRefresh(elapsed, cam)) {
+      const shown = lake.unreflected.filter((o) => o.visible);
+      for (const o of shown) o.visible = false;
       reflect.call(water, r, sc, cam, geo, mat, group);
+      for (const o of shown) o.visible = true;
     }
   };
 
@@ -166,6 +171,7 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
 
   const lake: Lake = {
     reflect: true,
+    unreflected: [],
     update(t, dt, camera) {
       elapsed = t;
       wNorm.offset.set(t * 0.004, t * 0.006);

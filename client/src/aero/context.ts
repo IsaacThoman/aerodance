@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createWorldRandom, type WorldRandom } from './random.ts';
 import type { TreeLod } from './treeField.ts';
-import type { AeroQuality } from './types.ts';
+import type { AeroPart, AeroQuality } from './types.ts';
 import { col } from './util.ts';
 
 export interface QualitySettings {
@@ -13,8 +13,8 @@ export interface QualitySettings {
   motionMul: number;
   /** Where the trees get coarser (treeField.ts). */
   treeLod: TreeLod;
-  /** The lake's reflection: texture size, and refreshes a second. */
-  reflection: { size: number; fps: number };
+  /** The lake's reflection: texture size, refreshes a second, and parts of the world it leaves out. */
+  reflection: { size: number; fps: number; skip: readonly AeroPart[] };
 }
 
 export function resolveQuality(quality: AeroQuality): QualitySettings {
@@ -23,11 +23,16 @@ export function resolveQuality(quality: AeroQuality): QualitySettings {
   const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const motionMul = reduceMotion ? 0.5 : 1;
   // TV: high's world, with coarser distant trees and a cheaper reflection.
-  if (quality === 'tv') return { small: false, Q: 1, motionMul, treeLod: { near: 60, far: 220 }, reflection: { size: 256, fps: 20 } };
+  if (quality === 'tv') {
+    return {
+      small: false, Q: 1, motionMul, treeLod: { near: 50, far: 200 },
+      reflection: { size: 256, fps: 20, skip: ['lamps', 'traffic', 'bubbles', 'birds', 'butterflies', 'sparkles', 'grass', 'flowers', 'tulips', 'windmills'] },
+    };
+  }
   return {
     small, Q: small ? 0.55 : 1, motionMul,
     treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 },
-    reflection: { size: small ? 256 : 512, fps: 30 },
+    reflection: { size: small ? 256 : 512, fps: 30, skip: [] },
   };
 }
 

@@ -104,6 +104,17 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   for (const name of off) for (const o of parts.get(name) ?? []) o.visible = false;
   if (off.has('shadows')) renderer.shadowMap.enabled = false;
   lake.reflect = !off.has('reflection');
+  lake.unreflected = settings.reflection.skip.flatMap((name) => parts.get(name) ?? []);
+
+  // Compile every shader now, for the screen and for the reflection's render target, instead of
+  // stalling for seconds the first time each thing (or the lake) comes into view.
+  renderer.compile(scene, camera);
+  {
+    const probe = new THREE.WebGLRenderTarget(1, 1), target = renderer.getRenderTarget();
+    renderer.setRenderTarget(probe); renderer.compile(scene, camera); renderer.setRenderTarget(target);
+    renderer.compile(flare.scene, flare.camera);
+    probe.dispose();
+  }
   const on = (name: AeroPart) => !off.has(name);
 
   /* ------------------------------------------------------------------- loop */

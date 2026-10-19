@@ -54,8 +54,10 @@ export class TreeField {
   private readonly frustum = new THREE.Frustum();
   private readonly viewProjection = new THREE.Matrix4();
   private readonly sphere = new THREE.Sphere();
-  /** How many times the instance buffers have been repacked (diagnostics). */
+  private readonly plans = new Map<THREE.InstancedMesh, number[]>();
+  /** How many times cells changed, and how many mesh buffers that rewrote (diagnostics). */
   repacks = 0;
+  uploads = 0;
 
   private readonly cellSize: number;
   private readonly lod: TreeLod;
@@ -91,7 +93,7 @@ export class TreeField {
       if (!i || cell[order[i - 1]] !== cell[src]) runs.push(cell[src], i, i + 1);
       else runs[runs.length - 1] = i + 1;
     });
-    for (const meshes of group.levels) for (const m of meshes) { m.count = 0; m.visible = false; m.frustumCulled = false; this.meshes.add(m); }
+    for (const meshes of group.levels) for (const m of meshes) { m.count = 0; m.frustumCulled = false; this.meshes.add(m); }
     this.groups.push({ matrices, colors, runs: Int32Array.from(runs), levels: group.levels });
     for (const c of this.cells) {
       c.box.getCenter(this.sphere.center);
@@ -129,23 +131,32 @@ export class TreeField {
 
   private repack() {
     this.repacks++;
-    for (const m of this.meshes) m.count = 0;
-    for (const g of this.groups) {
+    // Which runs each mesh draws now, in order; a mesh whose list is unchanged keeps its buffers
+    // (each upload goes to the GPU, which can cost more than the copying).
+    const plans = new Map<THREE.InstancedMesh, number[]>();
+    for (const m of this.meshes) plans.set(m, []);
+    this.groups.forEach((g, gi) => {
       for (let k = 0; k < g.runs.length; k += 3) {
         const level = this.cells[g.runs[k]].level;
-        if (level < 0) continue;
-        const first = g.runs[k + 1], end = g.runs[k + 2];
-        for (const m of g.levels[level]) {
-          (m.instanceMatrix.array as Float32Array).set(g.matrices.subarray(first * 16, end * 16), m.count * 16);
-          if (g.colors && m.instanceColor) (m.instanceColor.array as Float32Array).set(g.colors.subarray(first * 3, end * 3), m.count * 3);
-          m.count += end - first;
-        }
+        if (level >= 0) for (const m of g.levels[level]) plans.get(m)?.push(gi, k);
       }
-    }
-    for (const m of this.meshes) {
-      m.visible = m.count > 0;
-      m.instanceMatrix.clearUpdateRanges(); m.instanceMatrix.addUpdateRange(0, m.count * 16); m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) { m.instanceColor.clearUpdateRanges(); m.instanceColor.addUpdateRange(0, m.count * 3); m.instanceColor.needsUpdate = true; }
+    });
+    for (const [m, plan] of plans) {
+      const last = this.plans.get(m);
+      if (last && last.length === plan.length && last.every((v, i) => v === plan[i])) continue;
+      this.plans.set(m, plan);
+      let count = 0;
+      for (let i = 0; i < plan.length; i += 2) {
+        const g = this.groups[plan[i]], k = plan[i + 1], first = g.runs[k + 1], end = g.runs[k + 2];
+        (m.instanceMatrix.array as Float32Array).set(g.matrices.subarray(first * 16, end * 16), count * 16);
+        if (g.colors && m.instanceColor) (m.instanceColor.array as Float32Array).set(g.colors.subarray(first * 3, end * 3), count * 3);
+        count += end - first;
+      }
+      m.count = count;
+      m.visible = count > 0;
+      m.instanceMatrix.clearUpdateRanges(); m.instanceMatrix.addUpdateRange(0, count * 16); m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) { m.instanceColor.clearUpdateRanges(); m.instanceColor.addUpdateRange(0, count * 3); m.instanceColor.needsUpdate = true; }
+      this.uploads++;
     }
   }
 }

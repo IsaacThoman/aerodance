@@ -33,7 +33,8 @@ One JSON object per message:
   about 285 ms with a JIT and 565 ms without on an M5 Pro. Only compare it between hosts on the
   same device.
 - `{"type":"scenario", label, gpu, scenario: "aero-high" | "aero-low", fps, frameMs: {p50, p95,
-  p99, max}, cpuMs: {mean, p95}, drawsPerFrame, trianglesPerFrame, buildMs, firstFrameMs}`.
+  p99, max}, cpuMs: {mean, p95}, drawsPerFrame, trianglesPerFrame, buildMs, firstFrameMs, fpsSeries}`
+  (`fpsSeries`: the frame rate in each 2 s of the measurement).
   `cpuMs` is the time spent in the world's update and render calls. It counts JavaScript and
   WebGL command submission, not the GPU's own work.
 - `{"type":"done", label, results: [...]}`, or `{"type":"error", message}`.

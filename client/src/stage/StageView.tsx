@@ -177,7 +177,8 @@ function StageContent({ id, routine, live, results, onReady, onDancersFail }: St
       infoAutoReset: gl.info.autoReset,
       shadow: { enabled: gl.shadowMap.enabled, type: gl.shadowMap.type, autoUpdate: gl.shadowMap.autoUpdate },
     };
-    Object.assign(gl.shadowMap, { enabled: !diagnostic('nostageshadows'), type: THREE.PCFShadowMap, autoUpdate: true });
+    // The TV tier redraws the stage's shadows every other frame (see below).
+    Object.assign(gl.shadowMap, { enabled: !diagnostic('nostageshadows'), type: THREE.PCFShadowMap, autoUpdate: !tv });
     return () => {
       Object.assign(gl, { toneMapping: saved.toneMapping, toneMappingExposure: saved.toneMappingExposure, autoClear: saved.autoClear });
       Object.assign(gl.shadowMap, saved.shadow);
@@ -188,6 +189,9 @@ function StageContent({ id, routine, live, results, onReady, onDancersFail }: St
   }, [gl]);
 
   useLayoutEffect(() => { resetPost(meta.post); }, [meta]);
+
+  const frame = useRef(0);
+  useFrame(() => { if (tv && frame.current++ % 2 === 0) gl.shadowMap.needsUpdate = true; }, 0.9);
 
   // Beat-reactive lights follow the song while it plays, when it knows its tempo.
   useFrame((_, delta) => {

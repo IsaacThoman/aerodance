@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { inDistrict } from './city.ts';
+import { splitIntoCells } from './instanceCells.ts';
 import type { AeroContext } from './context.ts';
 import { col, paintGeo } from './util.ts';
 
@@ -34,7 +35,10 @@ export function buildStreetLamps(ctx: AeroContext) {
   const lamps = new THREE.InstancedMesh(lampGeo, new THREE.MeshLambertMaterial({ vertexColors: true }), LAMPS.length);
   const d = new THREE.Object3D();
   LAMPS.forEach(([x, z, ry], i) => { d.position.set(x, 0, z); d.rotation.set(0, ry, 0); d.updateMatrix(); lamps.setMatrixAt(i, d.matrix); });
-  lamps.castShadow = true; ctx.root.add(lamps);
+  // In 150 m cells, so only the lamps near the view are drawn.
+  lamps.castShadow = true;
+  for (const cell of splitIntoCells(lamps, 150)) ctx.root.add(cell);
+  lamps.dispose();
 }
 
 /* ------------------------------------------------------------------- cars */

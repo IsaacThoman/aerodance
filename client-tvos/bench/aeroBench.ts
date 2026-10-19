@@ -86,7 +86,7 @@ async function runScenario(canvas: HTMLCanvasElement, renderer: THREE.WebGLRende
   await nextFrame();
   const firstFrameMs = performance.now() - firstStart;
 
-  const intervals: number[] = [], cpu: number[] = [], sync: number[] = [];
+  const intervals: number[] = [], cpu: number[] = [], sync: number[] = [], series: number[] = [];
   let draws = 0, triangles = 0, measured = 0;
   let last = await nextFrame();
   const warmupEnd = last + config.warmupS * 1000, end = warmupEnd + config.measureS * 1000;
@@ -107,6 +107,8 @@ async function runScenario(canvas: HTMLCanvasElement, renderer: THREE.WebGLRende
     if (now < warmupEnd) continue;
     if (now > end) break;
     intervals.push(dt); cpu.push(spent); sync.push(waited);
+    const bucket = Math.floor((now - warmupEnd) / 2000);
+    series[bucket] = (series[bucket] ?? 0) + 1;
     draws += renderer.info.render.calls; triangles += renderer.info.render.triangles; measured++;
   }
   world.dispose();
@@ -122,6 +124,8 @@ async function runScenario(canvas: HTMLCanvasElement, renderer: THREE.WebGLRende
     drawsPerFrame: Math.round(draws / Math.max(1, measured)),
     trianglesPerFrame: Math.round(triangles / Math.max(1, measured)),
     buildMs: round(buildMs, 0), firstFrameMs: round(firstFrameMs, 0),
+    /** Frames a second in each 2 s of the measurement. */
+    fpsSeries: Array.from(series, (n) => (n ?? 0) / 2),
     ...(config.sync ? { syncMs: { mean: round(sync.reduce((a, b) => a + b, 0) / Math.max(1, sync.length)), p95: round(percentile([...sync].sort((a, b) => a - b), 0.95)) } } : {}),
   };
 }
