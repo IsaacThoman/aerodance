@@ -63,7 +63,7 @@ function fixture(t: TestContext) {
     createVideo: () => video as HTMLVideoElement, createWorker: () => worker,
     bitmap: async () => bitmap as ImageBitmap, assetUrl: () => 'https://test.invalid/pose-assets/' });
   t.after(() => source.disconnect());
-  return { source, worker, stream: stream as MediaStream, track, messages,
+  return { source, worker, stream: stream as MediaStream, track, messages, video,
     get now() { return time; },
     setTime(value: number) { time = value; }, get stopped() { return stopped; }, get terminated() { return terminated; },
     get plays() { return plays; }, videoEvent(type: string) { videoListeners.get(type)?.(); },
@@ -194,4 +194,18 @@ test('a stalled camera says whether its pictures or the model stopped, and a pau
   const after = g.plays;
   g.videoEvent('pause');
   assert.equal(g.plays, after);
+});
+test('frames from a camera whose frame metadata never advances (Safari) are still tracked by the video clock', async t => {
+  const f = fixture(t);
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  const sent = () => f.messages.filter(m => m.type === 'frame') as Extract<PoseWorkerRequest, { type: 'frame' }>[];
+  for (let i = 1; i <= 3; i++) {
+    Object.assign(f.video, { currentTime: i / 30 });
+    await f.frame(0, i * 33);
+    f.deliver({ type: 'result', seq: i, landmarks: [], inferenceMs: 5 });
+  }
+  assert.deepEqual(sent().map(m => Math.round(m.timestampMs)), [0, 67, 100], 'each new frame goes to the model, timed by currentTime once mediaTime stops advancing');
+  // A repeat of the same picture is still skipped.
+  await f.frame(0, 120);
+  assert.equal(sent().length, 3);
 });

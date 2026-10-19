@@ -296,7 +296,10 @@ export class WebcamPoseSource {
     const callback = (_time: number, metadata?: VideoFrameCallbackMetadata) => {
       if (generation !== this.generation) return;
       this.schedule();
-      const mediaTimeMs = (metadata?.mediaTime ?? video.currentTime) * 1000;
+      // Safari reports mediaTime 0 for every frame of a live camera (its currentTime advances),
+      // which would make each frame after the first look like a repeat.
+      const reported = (metadata?.mediaTime ?? 0) * 1000;
+      const mediaTimeMs = reported > this.lastMediaTime ? reported : video.currentTime * 1000;
       if (!Number.isFinite(mediaTimeMs) || mediaTimeMs <= this.lastMediaTime) return;
       this.lastMediaTime = mediaTimeMs;
       this.lastFrame = this.now();
