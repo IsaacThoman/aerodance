@@ -105,7 +105,8 @@ static NSDictionary *Stat(std::vector<double> v) {
   double sum = 0;
   for (double x : v) sum += x;
   auto r = [](double x) { return @(std::round(x * 100) / 100); };
-  return @{ @"mean": r(sum / v.size()), @"p50": r(v[v.size() / 2]), @"p95": r(v[std::min(v.size() - 1, (size_t)(v.size() * 0.95))]) };
+  return @{ @"mean": r(sum / v.size()), @"p50": r(v[v.size() / 2]), @"p95": r(v[std::min(v.size() - 1, (size_t)(v.size() * 0.95))]),
+            @"p99": r(v[std::min(v.size() - 1, (size_t)(v.size() * 0.99))]), @"max": r(v.back()) };
 }
 NSString *FrameStats::summary(double fromMs, double toMs) {
   std::lock_guard<std::mutex> g(lock_);
@@ -513,6 +514,14 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
 
 - (void)threadMain {
   pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+  if (gLogUrl) {
+    // Off this thread, so logs arrive even while a long script evaluation holds it.
+    static dispatch_source_t flush;
+    flush = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+    dispatch_source_set_timer(flush, DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC, 100 * NSEC_PER_MSEC);
+    dispatch_source_set_event_handler(flush, ^{ FlushLogs(); });
+    dispatch_resume(flush);
+  }
   self.runLoop = CFRunLoopGetCurrent();
   NSDictionary *c = self.config;
   int mode = c[@"mode"] ? [c[@"mode"] intValue] : 2;
@@ -532,9 +541,10 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
   }
 
   self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
-  self.displayLink.preferredFrameRateRange = CAFrameRateRangeMake(60, 60, 60);
+  // config.fps caps the frame rate (30 paces evenly when frames take 20-40 ms).
+  float fps = c[@"fps"] ? [c[@"fps"] floatValue] : 60;
+  self.displayLink.preferredFrameRateRange = CAFrameRateRangeMake(fps, fps, fps);
   [self.displayLink addToRunLoop:NSRunLoop.currentRunLoop forMode:NSRunLoopCommonModes];
-  if (gLogUrl) [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *) { FlushLogs(); }];
   for (;;) @autoreleasepool { [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture]; }
 }
 

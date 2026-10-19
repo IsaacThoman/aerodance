@@ -240,7 +240,14 @@ export class WebGL2RenderingContext {
     this._resize();
   }
 
-  /** The canvas's size changed: reallocate the default framebuffer. */
+  /** The canvas's size changed: reallocate the default framebuffer once the current task is done
+   *  (setting width and then height would otherwise reallocate twice). */
+  _resizeSoon() {
+    if (this._resizeQueued) return;
+    this._resizeQueued = true;
+    queueMicrotask(() => { this._resizeQueued = false; this._resize(); });
+  }
+  _resizeQueued = false;
   _resize() {
     const w = Math.max(1, this._host.canvas.width | 0), h = Math.max(1, this._host.canvas.height | 0);
     if (w === this._w && h === this._h) return;
@@ -251,8 +258,8 @@ export class WebGL2RenderingContext {
     end();
   }
 
-  get drawingBufferWidth() { return this._w; }
-  get drawingBufferHeight() { return this._h; }
+  get drawingBufferWidth() { return Math.max(1, this._host.canvas.width | 0); }
+  get drawingBufferHeight() { return Math.max(1, this._host.canvas.height | 0); }
   getContextAttributes() { return { ...this._attrs }; }
   isContextLost() { return false; }
   makeXRCompatible() { return Promise.resolve(); }

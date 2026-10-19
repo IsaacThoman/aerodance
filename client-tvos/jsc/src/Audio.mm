@@ -179,8 +179,8 @@ void Start() {
     return RenderBlock(silence, ts, frames, out);
   }];
   [gEngine attachNode:gSourceNode];
-  [gEngine connect:gSourceNode to:gEngine.mainMixerNode format:format];
   NSError *error = nil;
+  if (![gEngine connect:gSourceNode to:gEngine.mainMixerNode format:format error:&error]) HostLog(2, [NSString stringWithFormat:@"audio connect: %@", error]);
   if (![gEngine startAndReturnError:&error]) HostLog(2, [NSString stringWithFormat:@"audio engine: %@", error]);
   os_unfair_lock_lock(&gLock);
   gNodes[0].type = N_DESTINATION;

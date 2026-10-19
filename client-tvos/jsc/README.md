@@ -1,0 +1,75 @@
+# aerodance for Apple TV on JavaScriptCore (experimental)
+
+A tvOS app that runs the game's own JavaScript in the public `JavaScriptCore.framework`, with
+WebGL 2 implemented on OpenGL ES 3.0 and the 2D canvas on CoreGraphics. It uses public APIs only,
+unlike the WebKit app in `client-tvos/`, so it could go to the App Store. OpenGL ES is deprecated
+on tvOS but still ships.
+
+It runs the production game unmodified (`client/src/main.tsx`: React DOM, React Three Fiber,
+three.js) and the Aero benchmark (`client-tvos/bench/`), with the autoplay ghost and the Siri
+Remote.
+
+## How it works
+
+- **`src/Host.mm`**: a thread with a run loop that owns a JavaScriptCore context. It evaluates
+  `runtime.js` and then the app's script, calls `requestAnimationFrame` callbacks from a
+  `CADisplayLink`, runs timers, and exposes the natives in `runtime/native.ts` as JSC C API
+  callbacks: command submission, image decoding (ImageIO), bundled files and HTTP, storage
+  (`NSUserDefaults`), digests (CommonCrypto), fonts and text measuring (CoreText).
+- **`runtime/`**: a small browser. `dom.ts` is enough of the DOM for React DOM and R3F's
+  `<Canvas>`; `web.ts` has timers, `fetch`, `URL`, `Blob`, `TextEncoder`, storage and crypto;
+  `audio.ts` is the Web Audio the game uses (gain automation, buffer sources, `decodeAudioData`)
+  over the mixer in `src/Audio.mm`.
+- **WebGL 2** (`runtime/webgl.ts`): calls that return nothing are encoded into a command buffer
+  in shared memory (`runtime/ops.ts` lists the commands); object handles are numbered in
+  JavaScript, so creating a buffer or texture doesn't wait. The buffer is handed over once a
+  frame; calls that need an answer (`getParameter`, link status, `readPixels`) hand it over
+  first and wait. `src/Executor.mm` runs the GL commands; WebGL's default framebuffer is an FBO
+  (4x MSAA when antialiased) resolved into a `CAEAGLLayer` on present.
+- **2D canvas** (`runtime/canvas2d.ts`, `src/Canvas2D.mm`): drawn by CoreGraphics in the same
+  command stream, so a texture made from a canvas always sees what was drawn before it.
+- **Modes** (`mode` in the launch config): `2` runs the commands on a render thread a frame
+  behind (the default), `1` on the JavaScript thread at the end of each frame, `0` as each call
+  is made (one native call per WebGL call, for comparison).
+
+The game is built as one classic script (`vite.config.ts`), since the host has no module
+loader. Fonts are bundled: Inter (as the web build loads it from Google Fonts) and Nunito.
+
+## Build and run
+
+Requirements are as for `client-tvos/` (Xcode 27, XcodeGen, a paired Apple TV, a team).
+
+```sh
+node scripts/tvos-jsc.ts build --game              # runtime, benchmark and game; app for the Apple TV
+node scripts/tvos-jsc.ts build --game --sim        # ...for the tvOS simulator
+node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?input=ghost","fit":"fill","pixelated":true}'
+node scripts/tvos-jsc.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
+```
+
+Without `--config` (and when opened from the home screen) the app runs `www/config.json`: the
+game after `build --game`, the Aero benchmark otherwise.
+
+The launch config (JSON):
+
+| Key | Meaning |
+| --- | --- |
+| `script` | The script to run, under `www/`: `game.js`, `bench/aero-bench.js`, `bench/bridge.js`, `bench/canvas-test.js` |
+| `url` | The page's URL (`location`); its origin maps to the bundled files |
+| `mode` | `0` direct, `1` batched, `2` threaded (default) |
+| `fit`, `pixelated` | `fill` stretches the canvas to the screen (the game), `contain` letterboxes it |
+| `bench` | Runs the Aero benchmark with this `__benchConfig`; reports gain host timings |
+| `report` | URL that benchmark results, or the game's frame stats every 2 s, are POSTed to |
+| `drive` | Remote key presses for unattended runs, waiting on the canvas's `data-*` state: `[["wait", {"menuReady": "true"}], ["key", "Enter"], ...]` |
+| `logUrl` | URL that console output is POSTed to |
+| `fps` | Caps the frame rate (default 60); 30 paces evenly when frames take 20–40 ms |
+| `gpuTiming` | `glFinish` after every frame, to time the GPU |
+| `glDebug` | Check `glGetError` after every GL command |
+
+`launch` with `devicectl ... --console` attaches a debugger, which makes JavaScript about 1.5x
+slower; measure without it and read the console through `logUrl`.
+
+## Known gaps
+
+- No camera or phone link (as in `client-tvos/`).
+- The `DynamicsCompressor` is a pass-through with a hard clip at full scale.
+- `KHR_parallel_shader_compile` isn't offered, so shaders compile on first use, as in WebKit.

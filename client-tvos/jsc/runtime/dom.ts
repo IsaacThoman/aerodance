@@ -354,7 +354,7 @@ export class HTMLCanvasElementShim extends HTMLElementShim {
   get height() { return this._h; }
   set height(v: number) { this._h = Math.max(0, Math.floor(+v) || 0); this._resized(); }
   _resized() {
-    if (this._gl) this._gl._resize();
+    if (this._gl) this._gl._resizeSoon();
     else if (this._bitmap) { canvasCommands.resize(this._sourceId, this._w, this._h); this._ctx2d?._reset(); }
   }
   getContext(type: string, attributes: WebGLContextAttributes = {}) {
