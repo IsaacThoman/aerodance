@@ -71,8 +71,10 @@ Other findings:
 
 ## Not done yet
 
-- Camera input. tvOS has no camera API, and tvOS WebKit has no WebRTC for the phone link; the
-  JavaScriptCore app needs the phone's poses over a WebSocket (or a native WebRTC library).
+- Real-phone measurements. The phone camera works through the pairing server's relay (the
+  JavaScriptCore app has no WebRTC; see README's Phone camera section), tested with a phone page in
+  Chromium against the app in the simulator and on the Apple TV, but not yet with a real iPhone
+  over home Wi-Fi.
 - OpenGL ES is deprecated on tvOS. If it goes, only the JavaScriptCore app's GL replay layer
   (about 1,000 lines) needs moving to Metal.
 - App icon, top shelf image, and an App Store build pipeline.

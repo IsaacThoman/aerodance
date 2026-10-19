@@ -12,13 +12,20 @@ const www = path.join(appDir, 'www');
 const TEAM_ID = process.env.TVOS_TEAM_ID || 'PX72AL9366';
 const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance.tv.jsc';
 
+// Where the app pairs a phone: the deployed game, whose pairing server relays the phone's poses.
+const SITE = 'https://aerodance.party';
+
 const USAGE = `Usage: node scripts/tvos-jsc.ts <command> [options]
 
-  build [--sim] [--game] [--release]
+  build [--sim] [--game] [--release] [--site <origin>] [--ghost]
                                    bundle the runtime, the Aero benchmark (and with --game the
                                    game) into client-tvos/jsc/www/, then build the app for the
                                    Apple TV (or the simulator). --release leaves out the local
-                                   network permissions that development reports use
+                                   network permissions that development reports use. --site is
+                                   the deployed game the app pairs phones through (default
+                                   ${SITE}; a PR preview is https://<number>.aerodance.party).
+                                   The game plays from a paired phone's camera; --ghost opens it
+                                   with the autoplay ghost instead
   run [--sim <udid>] [--device <udid>] --config <json>
                                    install the built app and launch it with a launch config
                                    (see client-tvos/jsc/README.md), printing its console
@@ -65,7 +72,8 @@ async function copyFonts() {
   }
 }
 
-async function build(sim: boolean, game: boolean, release: boolean) {
+async function build(sim: boolean, game: boolean, release: boolean, site = SITE, ghost = false) {
+  if (!/^https?:\/\/[^/]+$/.test(site)) throw Error(`--site takes an origin like ${SITE}, not ${site}`);
   writeOpsHeader();
   rmSync(www, { recursive: true, force: true });
   mkdirSync(www, { recursive: true });
@@ -80,7 +88,7 @@ async function build(sim: boolean, game: boolean, release: boolean) {
   }
   await copyFonts();
   writeFileSync(path.join(www, 'config.json'), JSON.stringify(game
-    ? { script: 'game.js', url: 'http://aerodance.local/?input=ghost&quality=tv', fit: 'fill', pixelated: true }
+    ? { script: 'game.js', url: `http://aerodance.local/?${ghost ? 'input=ghost&' : ''}quality=tv`, site, fit: 'fill', pixelated: true }
     : { script: 'bench/aero-bench.js', url: 'http://aerodance.local/bench/aero-bench.html', fit: 'contain' }));
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
   const env = { ...process.env, TVOS_TEAM_ID: TEAM_ID, TVOS_BUNDLE_ID: BUNDLE_ID };
@@ -117,7 +125,7 @@ async function main() {
   const flag = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args.splice(i, 2)[1] ?? ''; };
   const has = (name: string) => { const i = args.indexOf(name); if (i >= 0) args.splice(i, 1); return i >= 0; };
   if (!cmd || cmd === 'help' || cmd === '--help') return console.log(USAGE);
-  if (cmd === 'build') return build(has('--sim'), has('--game'), has('--release'));
+  if (cmd === 'build') { const site = flag('--site'); return build(has('--sim'), has('--game'), has('--release'), site, has('--ghost')); }
   if (cmd === 'run') {
     const sim = flag('--sim'), device = flag('--device'), config = flag('--config') ?? readFileSync(path.join(www, 'config.json'), 'utf8');
     if (!sim && !device) throw Error('run needs --sim <udid> or --device <udid>');

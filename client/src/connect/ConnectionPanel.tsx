@@ -113,13 +113,15 @@ export default function ConnectionPanel({ visible = true, open = false, onOpenCh
       // A phone's poses arrive without a video to redraw for.
       if (p.open && camera.phone() && p.source.view.snapshot !== st.snapshot) { st.snapshot = p.source.view.snapshot; s.invalidate(); }
       const pairing = camera.pairing()?.code ?? '';
-      const key = `${status}|${camera.message()}|${p.open}|${ready}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}|${pairing}`;
+      const video = !!p.source.video;
+      const key = `${status}|${camera.message()}|${p.open}|${ready}|${p.connection.model}|${p.connection.cameraId}|${p.connection.cameras?.length}|${pairing}|${video}`;
       if (key !== st.drawn) {
         st.drawn = key;
         s.invalidate();
         Object.assign(gl.domElement.dataset, {
           connectOpen: String(p.open), connectReady: String(ready), connectStatus: status, connectMessage: camera.message(),
           connectModel: p.connection.model || '', connectCamera: p.connection.cameraId || '', connectPairing: pairing,
+          connectVideo: String(video),
         });
       }
     },

@@ -226,7 +226,9 @@ test('a game that cannot reach the pairing server says so', async () => {
 test('the phone is the last camera; choosing it switches the game’s input and only its poses reach the game', async () => {
   store.clear();
   const phone = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair' });
-  const input = new CameraInput({ webcam: new PoseSourceController(), phone });
+  const input = new CameraInput({ webcam: new PoseSourceController(), phone, webcamSupported: true });
+  // Without a webcam (the Apple TV app), the phone is the camera from the start.
+  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource(), webcamSupported: false }).mode, 'phone');
   const heard: PoseSourceEvent[] = [];
   input.subscribeRecords((event) => heard.push(event));
   assert.equal(input.view.sourceKind, 'webcam');
@@ -236,7 +238,7 @@ test('the phone is the last camera; choosing it switches the game’s input and 
   assert.equal(input.view.cameraId, PHONE_CAMERA.deviceId);
   assert.equal(input.video, null);
   assert.equal(store.get('aerodance-camera'), 'phone');
-  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource() }).mode, 'phone');
+  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource(), webcamSupported: true }).mode, 'phone');
 
   const record = { ...phoneRecord(0, 1), timingMethod: 'remote-clock-sync' as const };
   const event = { record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'remote-clock-sync' } };

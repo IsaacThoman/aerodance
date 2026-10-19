@@ -51,6 +51,8 @@ export interface Native {
   readonly config: string;
   /** Web Audio (src/Audio.mm). */
   audio(command: number, ...args: unknown[]): unknown;
+  /** WebSocket and EventSource (src/Net.mm, runtime/net.ts). */
+  net(command: number, ...args: unknown[]): unknown;
 }
 
 export const native = (globalThis as unknown as { __native: Native }).__native;

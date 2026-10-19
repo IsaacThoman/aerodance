@@ -6,8 +6,8 @@ unlike the WebKit app in `client-tvos/`, so it could go to the App Store. OpenGL
 on tvOS but still ships.
 
 It runs the production game unmodified (`client/src/main.tsx`: React DOM, React Three Fiber,
-three.js) and the Aero benchmark (`client-tvos/bench/`), with the autoplay ghost and the Siri
-Remote.
+three.js) and the Aero benchmark (`client-tvos/bench/`), with a paired phone as the camera and
+the Siri Remote.
 
 ## How it works
 
@@ -35,6 +35,16 @@ Remote.
 The game is built as one classic script (`vite.config.ts`), since the host has no module
 loader. Fonts are bundled: Inter (as the web build loads it from Google Fonts) and Nunito.
 
+## The phone camera
+
+The Apple TV has no camera, so the camera is a phone, paired as on the web (README's Phone
+camera section): Connect Client's **Pair phone**, or Enter on the calibration screen, shows a QR
+code for the deployed site's `/phone/#<code>`. The app has no WebRTC, so the phone's poses and
+its preview pictures come through the pairing server's relay (`packages/pairing/relay.ts`), on
+the runtime's `WebSocket` and `EventSource` (`runtime/net.ts`, `src/Net.mm`, on URLSession).
+`site` in the launch config (`build --site`) is that deployed game: its pairing server, and the
+phone page the QR code opens. The app has no webcam, so the phone is its camera from the start.
+
 ## Build and run
 
 Requirements are as for `client-tvos/` (Xcode 27, XcodeGen, a paired Apple TV, a team).
@@ -43,12 +53,21 @@ Requirements are as for `client-tvos/` (Xcode 27, XcodeGen, a paired Apple TV, a
 node scripts/tvos-jsc.ts build --game              # runtime, benchmark and game; app for the Apple TV
 node scripts/tvos-jsc.ts build --game --sim        # ...for the tvOS simulator
 node scripts/tvos-jsc.ts build --game --release    # for TestFlight / the App Store (see below)
-node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?input=ghost&quality=tv","fit":"fill","pixelated":true}'
+node scripts/tvos-jsc.ts build --game --site https://23.aerodance.party   # pair through a PR preview
+node scripts/tvos-jsc.ts build --game --ghost      # play with the autoplay ghost instead of a phone
+node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?quality=tv","site":"https://aerodance.party","fit":"fill","pixelated":true}'
 node scripts/tvos-jsc.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
 ```
 
 Without `--config` (and when opened from the home screen) the app runs `www/config.json`: the
 game after `build --game`, the Aero benchmark otherwise.
+
+`node client-tvos/jsc/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
+pairs a phone page in Chromium, with a synthetic camera and the real MediaPipe model, with the
+app in a tvOS simulator through a local pairing server: pairing, relayed poses and pictures in
+Connect Client, and the phone reloading. The simulator draws OpenGL ES in software at about a
+frame a second, so it leaves the 3D world out; `--device <udid>` (after `build --game`) plays the
+whole game from the phone on an Apple TV instead, calibration and a song included.
 
 The launch config (JSON):
 
@@ -56,6 +75,7 @@ The launch config (JSON):
 | --- | --- |
 | `script` | The script to run, under `www/`: `game.js`, `bench/aero-bench.js`, `bench/bridge.js`, `bench/canvas-test.js` |
 | `url` | The page's URL (`location`); its origin maps to the bundled files |
+| `site` | The deployed game's origin, where phones pair (`globalThis.__aerodanceSite`) |
 | `mode` | `0` direct, `1` batched, `2` threaded (default) |
 | `fit`, `pixelated` | `fill` stretches the canvas to the screen (the game), `contain` letterboxes it |
 | `bench` | Runs the Aero benchmark with this `__benchConfig`; reports gain host timings |
@@ -84,10 +104,11 @@ Development builds add `NSLocalNetworkUsageDescription` and `NSAppTransportSecur
 `NSAllowsLocalNetworking` to `Info.plist`, so the `report` and `logUrl` options can reach a Mac on
 the local network. `build --release` leaves both out, which is what an App Store build should ship;
 the report and log options then have nowhere to send to and stay off. The shipped game opens with
-`?input=ghost&quality=tv` (the autoplay ghost, at the Apple TV quality tier), since the Apple TV has no camera yet.
+`?quality=tv` (the Apple TV quality tier) and pairs phones through `site` over HTTPS.
 
 ## Known gaps
 
-- No camera or phone link (as in `client-tvos/`).
+- The phone camera needs the pairing server for as long as it's paired (the relay), and the
+  phone's preview pictures pass through it.
 - The `DynamicsCompressor` is a pass-through with a hard clip at full scale.
 - `KHR_parallel_shader_compile` isn't offered, so shaders compile on first use, as in WebKit.

@@ -4,6 +4,7 @@
 #import "JSHost.h"
 #import "Renderer.h"
 #import "Audio.h"
+#import "Net.h"
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <ImageIO/ImageIO.h>
@@ -374,6 +375,7 @@ NATIVE(N_setAtRoot) {
   return JSValueMakeUndefined(ctx);
 }
 NATIVE(N_audio) { return AudioNative(ctx, argc, argv); }
+NATIVE(N_net) { return NetNative(ctx, argc, argv); }
 // For the bridge microbenchmark (client-tvos/jsc/bench/bridgeBench.ts).
 NATIVE(N_noop) { return JSValueMakeUndefined(ctx); }
 NATIVE(N_noop4) {
@@ -511,7 +513,7 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
     { "measureText", N_measureText }, { "decodeImage", N_decodeImage }, { "releaseImage", N_releaseImage },
     { "readFile", N_readFile }, { "http", N_http }, { "wake", N_wake }, { "now", N_now }, { "log", N_log },
     { "storageGet", N_storageGet }, { "storageSet", N_storageSet }, { "storageKeys", N_storageKeys },
-    { "digest", N_digest }, { "randomBytes", N_randomBytes }, { "setAtRoot", N_setAtRoot }, { "audio", N_audio },
+    { "digest", N_digest }, { "randomBytes", N_randomBytes }, { "setAtRoot", N_setAtRoot }, { "audio", N_audio }, { "net", N_net },
     { "noop", N_noop }, { "noop4", N_noop4 },
   };
   for (auto &f : fns) {

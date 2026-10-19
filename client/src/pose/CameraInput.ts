@@ -27,7 +27,12 @@ export interface CameraInputView extends PoseInputView {
   /** The phone's frame size, for a preview without video (phone only). */
   frame: FrameSize | null;
 }
-export interface CameraInputOptions { webcam?: PoseSourceController; phone?: PhonePoseSource; }
+export interface CameraInputOptions {
+  webcam?: PoseSourceController;
+  phone?: PhonePoseSource;
+  /** Whether this host can use a webcam at all (the Apple TV app can't: it starts on the phone). */
+  webcamSupported?: boolean;
+}
 type Listener<T> = (value: T) => void;
 
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
@@ -42,9 +47,10 @@ export class CameraInput implements PoseSource {
   listeners = new Set<Listener<CameraInputView>>();
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
-  constructor({ webcam = new PoseSourceController(), phone = new PhonePoseSource() }: CameraInputOptions = {}) {
+  constructor({ webcam = new PoseSourceController(), phone = new PhonePoseSource(),
+    webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone;
-    this.mode = saved() === 'phone' ? 'phone' : 'webcam';
+    this.mode = saved() === 'phone' || !webcamSupported ? 'phone' : 'webcam';
     this.view = this.compose();
     webcam.subscribe(() => this.update());
     phone.subscribe(() => this.update());

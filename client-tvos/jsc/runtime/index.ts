@@ -10,12 +10,15 @@ import * as web from './web.ts';
 import { audioEnded, installAudio } from './audio.ts';
 import { installBench } from './bench.ts';
 import { installGameHooks } from './report.ts';
+import { CloseEventShim, EventSourceShim, MessageEventShim, WebSocketShim } from './net.ts';
 
 const N = native;
 const g = globalThis as unknown as Record<string, unknown>;
-type Config = { url?: string; width?: number; height?: number; [k: string]: unknown };
+type Config = { url?: string; site?: string; width?: number; height?: number; [k: string]: unknown };
 const config = JSON.parse(N.config || '{}') as Config;
 if (config.url) web.setPageUrl(config.url);
+// The deployed site the game pairs a phone through (and the QR code sends the phone to).
+if (config.site) g.__aerodanceSite = config.site;
 if (config.width) dom.viewport.width = config.width;
 if (config.height) dom.viewport.height = config.height;
 
@@ -91,6 +94,7 @@ const classes: Record<string, unknown> = {
   WebGLShaderPrecisionFormat: gl.WebGLShaderPrecisionFormat, WebGLTransformFeedback: gl.WebGLTransformFeedback,
   URL: web.URLShim, URLSearchParams: web.URLSearchParamsShim, TextEncoder: web.TextEncoderShim, TextDecoder: web.TextDecoderShim,
   Blob: web.BlobShim, File: web.FileShim, Response: web.ResponseShim, Request: web.RequestShim, Headers: web.HeadersShim, Storage: web.StorageShim,
+  WebSocket: WebSocketShim, EventSource: EventSourceShim, MessageEvent: MessageEventShim, CloseEvent: CloseEventShim,
 };
 for (const [k, v] of Object.entries(classes)) define(k, v);
 define('createImageBitmap', dom.createImageBitmapShim);
