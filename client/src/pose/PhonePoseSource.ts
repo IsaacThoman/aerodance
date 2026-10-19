@@ -98,6 +98,8 @@ const PING_MS = 500;
 const QUIET_MS = 3000;
 // A connection attempt that hasn't opened in this long is given up (the phone may have gone).
 const ATTEMPT_MS = 20_000;
+// A relay socket of this end's that hasn't connected in this long doesn't hold off a new attempt.
+const RELAY_CONNECT_MS = 4000;
 // The phone's picture counts as showing while a frame arrived this recently.
 const VIDEO_FRESH_MS = 1000;
 const MODEL_KEY = 'aerodance-phone-model';
@@ -254,17 +256,18 @@ export class PhonePoseSource implements PoseSource {
   }
 
   /**
-   * A phone said hello. Relayed, a hello while the link is open crossed it on the way (a phone
-   * that needs a new link has lost this one, which the server closes on both ends), and one
-   * while an attempt is still connecting gets that attempt again rather than a new one that
-   * would replace it. Otherwise: a new connection.
+   * A phone said hello. Relayed, a hello while the link is open (or its attempt still young)
+   * gets this attempt again rather than a new one that would replace it: a phone that still
+   * holds the link ignores it (the hello crossed the link on the way), and one that lost its
+   * socket without the server noticing (a network change) connects to it again, which the
+   * server lets replace the stale socket. Otherwise: a new connection.
    */
   hello(device: string) {
     const { link, channel } = this;
-    if (link && this.control?.readyState === 'open') return;
-    if (link && channel && this.now() - this.offeredAt < ATTEMPT_MS) {
-      if (link.socket.readyState === 1) channel.send({ type: 'relay', epoch: this.epoch }).catch(() => {});
-      return;
+    if (link && channel && (this.control?.readyState === 'open' || this.now() - this.offeredAt < ATTEMPT_MS)) {
+      if (link.socket.readyState === 1) { channel.send({ type: 'relay', epoch: this.epoch }).catch(() => {}); return; }
+      // This end's socket is still connecting (it tells the phone once it's there), unless it's stuck.
+      if (this.now() - this.offeredAt < RELAY_CONNECT_MS) return;
     }
     this.offer(device);
   }
@@ -281,6 +284,15 @@ export class PhonePoseSource implements PoseSource {
       const link = this.link = new RelayLink({ url: relayUrl(this.base, room.code, room.token, epoch), createSocket: this.createSocket });
       link.onsocketopen = () => { if (link === this.link) channel.send({ type: 'relay', epoch }).catch(() => {}); };
       link.onframe = (jpeg) => { if (link === this.link) this.showFrame(jpeg); };
+      // The phone connected to this attempt again (a new socket, maybe a reloaded page): it needs
+      // the game's settings again, and its clock may have started over.
+      link.onreopen = () => {
+        if (link !== this.link) return;
+        this.clock.reset();
+        this.sendConfig();
+        this.send({ type: 'game', playing: this.playing });
+        this.send({ type: 'preview', on: this.preview });
+      };
       ({ live, control } = link);
     } else {
       try {

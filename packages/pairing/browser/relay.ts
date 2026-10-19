@@ -84,6 +84,8 @@ export class RelayLink {
   onsocketopen: (() => void) | null = null;
   /** A preview picture from the phone: JPEG bytes. */
   onframe: ((jpeg: ArrayBuffer) => void) | null = null;
+  /** The other side connected again while this side's link stayed open (it had lost its socket). */
+  onreopen: (() => void) | null = null;
   /** Why the server closed the socket (relay.ts's RELAY_CLOSE), once it has. */
   closeCode = 0;
   constructor({ url, createSocket = (u) => new WebSocket(u) as unknown as RelaySocket }: { url: string; createSocket?: CreateRelaySocket }) {
@@ -104,7 +106,9 @@ export class RelayLink {
     if (kind === SERVER_PREFIX) {
       let event: unknown;
       try { event = JSON.parse(body); } catch { return; }
-      if ((event as { type?: unknown } | null)?.type === 'open') { this.control.opened(); this.live.opened(); }
+      if ((event as { type?: unknown } | null)?.type !== 'open') return;
+      if (this.control.readyState === 'open') this.onreopen?.();
+      else { this.control.opened(); this.live.opened(); }
     } else if (kind === LIVE_PREFIX || kind === CONTROL_PREFIX) {
       const channel = kind === LIVE_PREFIX ? this.live : this.control;
       // Only data is read, as from a data channel's message (hosts without MessageEvent included).
