@@ -5,6 +5,7 @@
 //
 //   node client-tvos/jsc/tests/phone.tvos.ts [--sim <udid>] [--out <dir>]
 //   node client-tvos/jsc/tests/phone.tvos.ts --device <udid>
+//   ... --site https://<number>.aerodance.party   (pair through a deployed site, a PR preview)
 //
 // Run after npm run build, and node scripts/tvos-jsc.ts build --game --sim (or without --sim for
 // a device). The simulator draws OpenGL ES in software, at about a frame a second, so there the
@@ -15,7 +16,7 @@
 // Screenshots go to --out (default .cache/phone-tvos). CHROMIUM_PATH picks the Chromium.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
@@ -33,10 +34,13 @@ const device = option('--device');
 // This Mac's address on its Wi-Fi or Ethernet (en*), not a virtual machine's bridge.
 const lan = Object.entries(os.networkInterfaces()).filter(([name]) => name.startsWith('en'))
   .flatMap(([, addresses]) => addresses ?? []).find((a) => a.family === 'IPv4' && !a.internal)?.address;
-// The app reaches the site at this Mac's address (an Apple TV) or its loopback (the simulator
-// shares the Mac's network); the phone page, on this Mac, always at loopback.
-const SITE = device ? `http://${lan}:${PORT}` : `http://127.0.0.1:${PORT}`;
-const LOCAL = `http://127.0.0.1:${PORT}`;
+// The local site: the app reaches it at this Mac's address (an Apple TV) or its loopback (the
+// simulator shares the Mac's network); the phone page, on this Mac, at loopback. With --site the
+// app and the phone pair through a deployed one instead, and only the reports come here.
+const HERE = device ? `http://${lan}:${PORT}` : `http://127.0.0.1:${PORT}`;
+const remote = option('--site')?.replace(/\/+$/, '');
+const SITE = remote ?? HERE;
+const PHONE_SITE = remote ?? `http://127.0.0.1:${PORT}`;
 
 /** The simulator to use: --sim, else a booted Apple TV, else a new one (booted). */
 function simulator() {
@@ -118,7 +122,7 @@ const toCalibration = [
 // The simulator leaves the 3D world out, to keep its software renderer's frames short.
 const lite = '&aeroHide=sky,ground,city,lake,lamps,trees,traffic,grass,flowers,tulips,windmills,butterflies,birds,balloons,clouds,bubbles,sparkles,jet,flare,shadows,reflection&diag=nodancers';
 const config = { script: 'game.js', url: `http://aerodance.local/?quality=tv${device ? '' : lite}`, site: SITE, fit: 'fill', pixelated: true,
-  label: 'phone-tvos', report: `${SITE}/__report`, drive: device ? toCalibration : toConnectClient };
+  label: 'phone-tvos', report: `${HERE}/__report`, drive: device ? toCalibration : toConnectClient };
 const appLog: string[] = [];
 const appPath = `client-tvos/jsc/build/Build/Products/Release-${device ? 'appletvos' : 'appletvsimulator'}/aerodance.app`;
 const launch = device
@@ -147,6 +151,8 @@ async function openPhone(url: string) {
   const page = await context.newPage();
   page.setDefaultTimeout(90_000);
   page.on('pageerror', (error) => errors.push(`phone: ${error.message}`));
+  // The synthetic camera's picture, wherever the phone page is.
+  await page.route('**/pose-fixture.jpg', (route) => route.fulfill({ path: path.resolve('client/tests/fixtures/mediapipe-pose.jpg'), contentType: 'image/jpeg' }));
   await page.addInitScript(() => {
     for (const Type of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
       if (!Type) continue;
@@ -187,7 +193,7 @@ try {
   const code = tv[codeKey];
   screenshot('1-pairing');
   // The phone opens the QR code's link (/phone/#code on the site).
-  phone = await openPhone(`${LOCAL}/phone/#${code}`);
+  phone = await openPhone(`${PHONE_SITE}/phone/#${code}`);
   await phoneUntil('phoneStage', 'linked');
   await phoneUntil('phoneCameraStatus', 'connected');
   await tvUntil('the phone connected, tracking', (d) => d.connectStatus === 'connected' && /poses\/s/.test(d.connectMessage ?? ''));
@@ -220,7 +226,7 @@ try {
   }
 
   const playing = fpsWhile((d) => d.gamePhase === 'playing');
-  console.log(`Apple TV phone camera passed (${device ? 'on an Apple TV' : 'in the tvOS simulator'}, phone page in Chromium, through the relay):`, JSON.stringify({
+  console.log(`Apple TV phone camera passed (${device ? 'on an Apple TV' : 'in the tvOS simulator'}, phone page in Chromium, through ${remote ? `${remote}'s` : 'a local'} relay):`, JSON.stringify({
     phone: tv.connectMessage, ...(device ? { score: tv.gameScores, appFpsPlaying: playing.length ? `${Math.min(...playing)}–${Math.max(...playing)}` : 'n/a' } : {}),
     seconds: Math.round((Date.now() - started) / 1000), screenshots: out,
   }));
@@ -234,6 +240,8 @@ try {
   process.exitCode = 1;
   console.error(error);
 } finally {
+  // Every report the app sent, for a closer look (frame rates, the phone's pose rate over time).
+  writeFileSync(path.join(out, 'reports.ndjson'), reports.map((r) => JSON.stringify(r)).join('\n') + '\n');
   clearInterval(progress);
   appProcess.kill();
   if (!device) spawnSync('xcrun', ['simctl', 'terminate', sim, BUNDLE_ID], { stdio: 'ignore' });
