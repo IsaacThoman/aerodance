@@ -14,9 +14,11 @@ const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance.tv.js
 
 const USAGE = `Usage: node scripts/tvos-jsc.ts <command> [options]
 
-  build [--sim] [--game]           bundle the runtime, the Aero benchmark (and with --game the
+  build [--sim] [--game] [--release]
+                                   bundle the runtime, the Aero benchmark (and with --game the
                                    game) into client-tvos/jsc/www/, then build the app for the
-                                   Apple TV (or the simulator)
+                                   Apple TV (or the simulator). --release leaves out the local
+                                   network permissions that development reports use
   run [--sim <udid>] [--device <udid>] --config <json>
                                    install the built app and launch it with a launch config
                                    (see client-tvos/jsc/README.md), printing its console
@@ -63,7 +65,7 @@ async function copyFonts() {
   }
 }
 
-async function build(sim: boolean, game: boolean) {
+async function build(sim: boolean, game: boolean, release: boolean) {
   writeOpsHeader();
   rmSync(www, { recursive: true, force: true });
   mkdirSync(www, { recursive: true });
@@ -83,6 +85,12 @@ async function build(sim: boolean, game: boolean) {
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
   const env = { ...process.env, TVOS_TEAM_ID: TEAM_ID, TVOS_BUNDLE_ID: BUNDLE_ID };
   run('xcodegen', ['generate', '--quiet'], appDir, env);
+  if (!release) {
+    // Development builds report to (and log to) the Mac over the local network.
+    const plist = path.join(appDir, 'Info.plist');
+    run('plutil', ['-insert', 'NSLocalNetworkUsageDescription', '-string', "Sends performance diagnostics to the developer's Mac during testing.", plist]);
+    run('plutil', ['-insert', 'NSAppTransportSecurity', '-json', '{"NSAllowsLocalNetworking":true}', plist]);
+  }
   run('xcodebuild', [
     '-project', 'AerodanceJSC.xcodeproj', '-scheme', 'AerodanceJSC', '-configuration', 'Release',
     '-destination', sim ? 'generic/platform=tvOS Simulator' : 'generic/platform=tvOS', '-derivedDataPath', 'build',
@@ -109,7 +117,7 @@ async function main() {
   const flag = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args.splice(i, 2)[1] ?? ''; };
   const has = (name: string) => { const i = args.indexOf(name); if (i >= 0) args.splice(i, 1); return i >= 0; };
   if (!cmd || cmd === 'help' || cmd === '--help') return console.log(USAGE);
-  if (cmd === 'build') return build(has('--sim'), has('--game'));
+  if (cmd === 'build') return build(has('--sim'), has('--game'), has('--release'));
   if (cmd === 'run') {
     const sim = flag('--sim'), device = flag('--device'), config = flag('--config') ?? readFileSync(path.join(www, 'config.json'), 'utf8');
     if (!sim && !device) throw Error('run needs --sim <udid> or --device <udid>');

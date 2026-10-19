@@ -42,6 +42,7 @@ Requirements are as for `client-tvos/` (Xcode 27, XcodeGen, a paired Apple TV, a
 ```sh
 node scripts/tvos-jsc.ts build --game              # runtime, benchmark and game; app for the Apple TV
 node scripts/tvos-jsc.ts build --game --sim        # ...for the tvOS simulator
+node scripts/tvos-jsc.ts build --game --release    # for TestFlight / the App Store (see below)
 node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?input=ghost","fit":"fill","pixelated":true}'
 node scripts/tvos-jsc.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
 ```
@@ -67,6 +68,14 @@ The launch config (JSON):
 
 `launch` with `devicectl ... --console` attaches a debugger, which makes JavaScript about 1.5x
 slower; measure without it and read the console through `logUrl`.
+
+## Release builds
+
+Development builds add `NSLocalNetworkUsageDescription` and `NSAppTransportSecurity`
+`NSAllowsLocalNetworking` to `Info.plist`, so the `report` and `logUrl` options can reach a Mac on
+the local network. `build --release` leaves both out, which is what an App Store build should ship;
+the report and log options then have nowhere to send to and stay off. The shipped game opens with
+`?input=ghost` (the autoplay ghost), since the Apple TV has no camera yet.
 
 ## Known gaps
 
