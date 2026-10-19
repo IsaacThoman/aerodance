@@ -1,6 +1,6 @@
 // Pose wire records (protocol v2), the format of pose recordings and legacy captures, with a
 // bounded NDJSON decoder.
-import { finite, isArray, isObject, oneOf } from './choreography.ts';
+import { finite, isArray, isObject, isPlayerCount, oneOf } from './choreography.ts';
 import type { CaptureInput, PlayerCount, Pose } from './choreography.ts';
 
 export type PipelineState = 'starting' | 'running' | 'error' | 'stopping';
@@ -16,7 +16,8 @@ export interface ProtocolHeartbeat {
 }
 export type ProtocolRecord = ProtocolPoseRecord | ProtocolHeartbeat;
 
-export const MAX_BYTES = 16 * 1024;
+// Room for four players' full-precision landmarks (about 18 KB).
+export const MAX_BYTES = 32 * 1024;
 const states: readonly PipelineState[] = ['starting', 'running', 'error', 'stopping'];
 const integer = (n: unknown, min = 0): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= min;
 const score = (n: unknown) => n === null || (finite(n) && n >= 0 && n <= 1);
@@ -27,7 +28,7 @@ export function assertProtocolRecord(record: unknown): asserts record is Protoco
   } else if (record.type === 'pose') {
     const { input, poses, playerCount } = record;
     if (!integer(record.seq, 1) || !integer(record.frameReceivedTimeMs) || !integer(record.resultTimeMs) || record.resultTimeMs < record.frameReceivedTimeMs ||
-        !isObject(input) || !integer(input.width, 1) || !integer(input.height, 1) || typeof input.mirrored !== 'boolean' || !isArray(poses) || (playerCount !== 1 && playerCount !== 2) || poses.length > playerCount) throw Error('Invalid pose');
+        !isObject(input) || !integer(input.width, 1) || !integer(input.height, 1) || typeof input.mirrored !== 'boolean' || !isArray(poses) || !isPlayerCount(playerCount) || poses.length > playerCount) throw Error('Invalid pose');
     let lastId = -1;
     for (const pose of poses) {
       if (!isObject(pose) || !integer(pose.playerId) || pose.playerId >= playerCount || pose.playerId <= lastId) throw Error('Invalid player ID/order');
@@ -54,7 +55,7 @@ export class NdjsonDecoder {
     for (let end = 0; end <= chunk.length; end++) {
       if (end < chunk.length && chunk[end] !== 10) continue;
       const part = chunk.subarray(start, end);
-      if (this.length + part.length > MAX_BYTES) throw Error('Record exceeds 16 KiB');
+      if (this.length + part.length > MAX_BYTES) throw Error(`Record exceeds ${MAX_BYTES / 1024} KiB`);
       this.buffer.set(part, this.length); this.length += part.length;
       if (end < chunk.length) {
         const value = validate(JSON.parse(this.decoder.decode(this.buffer.subarray(0, this.length))));

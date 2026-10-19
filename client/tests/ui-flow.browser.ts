@@ -12,11 +12,12 @@ import type { BundleFixture } from './fixtures/songBundle.ts';
 import { BACK as MENU_BACK, CREW, MINUS, PLAYERS_GO, PLUS, SETTINGS, START } from '../src/menu/layout.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import {
-  BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect,
+  BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect,
 } from '../src/game/layout.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { resolveStage } from '../../packages/stages/catalog.ts';
 import { validateCatalog, validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
+import type { PlayerCount } from '../../packages/pose/choreography.ts';
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
 type Shape = Rect | Circle | { rect: Rect };
@@ -96,7 +97,7 @@ try {
   };
   const menuOn = (screen: string) => until({ menuScreen: screen, menuReady: 'true' });
   // Players dial: pointing at character n picks n players, then Let's dance.
-  const pickPlayers = async (count: 1 | 2) => {
+  const pickPlayers = async (count: PlayerCount) => {
     await click(CREW[count - 1]);
     await until({ menuPlayers: String(count) });
     await click(PLAYERS_GO);
@@ -135,7 +136,7 @@ try {
   await menuOn('main');
   await shot('main-menu');
 
-  // Start -> the dial. Plus and minus stop at 1-4; three or four players can't start a song yet.
+  // Start -> the dial. Plus and minus stop at 1-4, and every count can start a song.
   await click(START);
   await menuOn('players');
   await shot('player-select');
@@ -146,10 +147,15 @@ try {
   for (let i = 0; i < 4; i++) await click(PLUS);
   await until({ menuPlayers: '4' });
   await click(PLAYERS_GO);
-  await page.waitForTimeout(300);
-  assert.equal((await data()).menuScreen, 'players', "Let's dance is off at four players");
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', playerSlots: 'Connect Client|Connect Client|Connect Client|Connect Client' });
+  await click(BACK);
+  await menuOn('players');
   await click(MINUS);
   await until({ menuPlayers: '3' });
+  await click(PLAYERS_GO);
+  await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Connect Client|Connect Client|Connect Client' });
+  await click(BACK);
+  await menuOn('players');
 
   // One Player -> Song Select (empty catalog) -> Back keeps the player screen.
   await pickPlayers(1);
@@ -186,7 +192,7 @@ try {
   // each opening on its own stage.
   await page.unroute('**/songs/manifest.json');
   const installed = validateCatalog(JSON.parse(await readFile('dist/songs/manifest.json', 'utf8')));
-  const openSong = async (count: 1 | 2, index: number) => {
+  const openSong = async (count: PlayerCount, index: number) => {
     await click(BACK);
     await menuOn('players');
     await pickPlayers(count);
@@ -194,7 +200,7 @@ try {
     await click(rowRect(index));
   };
   for (const [i, song] of installed.songs.slice(0, 4).entries()) {
-    for (const count of [1, 2] as const) {
+    for (const count of [1, 2, 3, 4] as const) {
       if (!song.supportedPlayerCounts.includes(count)) continue;
       await openSong(count, i);
       // The preview plays by itself.
@@ -221,7 +227,7 @@ try {
     });
   };
   await serveFixture();
-  for (const count of [1, 2] as const) {
+  for (const count of [1, 2, 3, 4] as const) {
     await openSong(count, 0);
     await until({ songScreen: 'preview', songReady: 'true', previewState: 'playing', stage: 'openreef', stageReady: 'true' });
     // It plays the playable range (100–900 ms) and loops back to its start.
@@ -253,12 +259,12 @@ try {
   await until({ songScreen: 'list', stage: '' });
 
   // Dancing with the webcam calibrates first, and the camera is set up right there: pressing
-  // the preview starts it (and reports the denial).
+  // the preview starts it (and reports the denial). Three players calibrate in three lanes.
   await serveFixture();
-  await openSong(2, 0);
+  await openSong(3, 0);
   await until({ songScreen: 'preview', songReady: 'true', stageReady: 'true' });
   await click(DANCE);
-  await until({ gamePhase: 'calibrating', gameReady: 'true', gameCalibrationPlayers: 'missing|missing', gameCalibrationPreview: 'false' }, 30000);
+  await until({ gamePhase: 'calibrating', gameReady: 'true', gameCalibrationPlayers: 'missing|missing|missing', gameCalibrationPreview: 'false' }, 30000);
   const requests = await page.evaluate(() => (window as TestWindow).webcamRequests);
   await shot('game-calibration');
   await click(GAME_CALIBRATION_PREVIEW);
@@ -270,12 +276,13 @@ try {
   assert.equal((await data()).gameCameraStatus, undefined);
 
   // A whole song with the autoplay ghost (?input=ghost): ready check, countdown, pause and
-  // resume, scoring, results, Play again and back to Song Select. The test routine's own
-  // choreography plays over silence.
+  // resume, scoring, results, Play again and back to Song Select; then four players. The test
+  // routine's own choreography plays over silence.
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   const routine = new URL('./fixtures/song-70c63c8e/', import.meta.url);
   const song = validateSong(JSON.parse(await readFile(new URL('song.json', routine), 'utf8')));
   song.audio = { path: 'audio.wav', mimeType: 'audio/wav' };
+  song.supportedPlayerCounts = [1, 2, 3, 4];
   await serveFixture(null, {
     song,
     choreography: validateSongChoreography(song, JSON.parse(await readFile(new URL('choreography.json', routine), 'utf8'))),
@@ -319,8 +326,28 @@ try {
   await click(GAME_QUIT);
   await until({ songScreen: 'list', songReady: 'true' }, 10000);
   assert.equal((await data()).gamePhase, undefined);
+
+  // Four ghosts: the duet's two parts, each danced twice, all scored.
+  await click(BACK);
+  await menuOn('players');
+  await pickPlayers(4);
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', playerSlots: 'Detected|Detected|Detected|Detected' }, 30000);
+  await click(rowRect(0));
+  await until({ songScreen: 'preview', songReady: 'true' }, 30000);
+  await shot('preview-4p-ghost');
+  await click(DANCE);
+  await until({ gamePhase: 'playing' }, 30000);
+  await page.waitForTimeout(2000);
+  await shot('game-playing-4p');
+  await until({ gamePhase: 'results', resultsScreen: 'stage' }, 90000);
+  await shot('game-results-4p');
+  const four = ((await data()).gameScores ?? '').split('|').map(Number);
+  assert.equal(four.length, 4);
+  for (const score of four) assert.ok(score > 850000, `each of four ghosts copies its part: ${score}`);
+  await click(RESULTS_SONGS);
+  await until({ songScreen: 'list', songReady: 'true' }, 10000);
   assert.deepEqual(errors, []);
-  console.log('Browser flow passed: Connect Client card (webcam models and permission denial), camera setup on the calibration screen, both player modes, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit) and no runtime errors.');
+  console.log('Browser flow passed: Connect Client card (webcam models and permission denial), camera setup on the calibration screen, one to four players, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit), a scored four-player ghost song and no runtime errors.');
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));

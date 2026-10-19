@@ -1,5 +1,6 @@
 import { sampleSong } from '../pose/song.ts';
 import type { SongBundle } from '../pose/song.ts';
+import { isPlayerCount, partOf } from '../pose/choreography.ts';
 import type { Landmark, PlayerCount } from '../pose/choreography.ts';
 import { LIMBS, TOTAL_WEIGHT, angleBetween, lerpDirections, limbDirections, liveUsable } from './features.ts';
 import type { LimbDirections } from './features.ts';
@@ -90,7 +91,7 @@ export const gradeFor = (accuracy: number) => lookup(GRADES, accuracy);
 type ReferenceGrid = (songTimeMs: number) => LimbDirections | null;
 function referenceGrid(bundle: SongBundle, playerCount: PlayerCount, playerId: number): ReferenceGrid {
   const { song, choreography } = bundle;
-  const { inputWidth, inputHeight } = choreography.tracks[playerId].calibration;
+  const { inputWidth, inputHeight } = choreography.tracks[partOf(playerId, choreography.tracks.length)].calibration;
   const aspect = inputWidth / inputHeight;
   const from = song.playableStartMs - MOTION_MS - 200;
   const count = Math.ceil((song.playableEndMs + 200 - from) / REF_STEP_MS) + 1;
@@ -188,7 +189,7 @@ function liveAt(track: Track, t: number) {
 }
 
 export function createScorer(bundle: SongBundle, playerCount: PlayerCount): Scorer {
-  if (![1, 2].includes(playerCount)) throw Error('Invalid player count');
+  if (!isPlayerCount(playerCount)) throw Error('Invalid player count');
   const tracks = Array.from({ length: playerCount }, (_, id) => createTrack(bundle, playerCount, id));
   const listeners = new Set<(event: JudgementEvent) => void>();
   const emit = (event: JudgementEvent) => { for (const fn of listeners) fn(event); };

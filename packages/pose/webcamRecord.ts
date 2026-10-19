@@ -1,5 +1,5 @@
 // Server-safe webcam capture validation. These records are not protocol-v2 wire records.
-import { assertPoses, finite, isObject } from './choreography.ts';
+import { MAX_PLAYERS, assertPoses, finite, isObject, isPlayerCount } from './choreography.ts';
 import type { CaptureInput, PlayerCount, Pose } from './choreography.ts';
 import { poseModel } from './browser/models.ts';
 import type { PoseModelId } from './browser/models.ts';
@@ -23,7 +23,7 @@ export function assertWebcamRecord(record: unknown): asserts record is WebcamRec
   const { frameBrowserTimeMs, resultBrowserTimeMs, mediaTimeMs, input } = record;
   if (record.schema !== 'aerodance.webcam-record' || record.schemaVersion !== 1 || record.type !== 'pose' ||
       typeof record.sessionId !== 'string' || !record.sessionId.trim() ||
-      !atLeast(record.seq, 1) || (record.playerCount !== 1 && record.playerCount !== 2) ||
+      !atLeast(record.seq, 1) || !isPlayerCount(record.playerCount) ||
       !isObject(input) || !atLeast(input.width, 1) || !atLeast(input.height, 1) || input.mirrored !== false ||
       !time(frameBrowserTimeMs) || !time(resultBrowserTimeMs) || !time(mediaTimeMs) ||
       resultBrowserTimeMs < frameBrowserTimeMs || record.timingMethod !== 'browser-frame-observation') {
@@ -31,7 +31,7 @@ export function assertWebcamRecord(record: unknown): asserts record is WebcamRec
   }
   poseModel(record.modelId);
   const { poses, playerCount } = record;
-  assertPoses(poses);
+  assertPoses(poses, MAX_PLAYERS);
   if (poses.some(pose => pose.playerId >= playerCount)) throw Error('Invalid webcam player ID');
 }
 export function validateWebcamRecord(record: unknown): WebcamRecord {

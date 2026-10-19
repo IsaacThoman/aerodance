@@ -407,7 +407,7 @@ Example `song.json` (illustrative metadata, not a playable committed song):
   "difficulty": "normal",
   "stage": "openreef",
   "tags": ["aero", "duet"],
-  "supportedPlayerCounts": [1, 2],
+  "supportedPlayerCounts": [1, 2, 3, 4],
   "audio": { "path": "audio.mp3", "mimeType": "audio/mpeg" },
   "choreography": { "path": "choreography.json", "schemaVersion": 1 },
   "cover": { "path": "cover.webp", "mimeType": "image/webp" },
@@ -583,7 +583,7 @@ Example catalog entry compatible with the existing outer version:
       "artist": "Example Artist",
       "durationMs": 183420,
       "difficulty": "normal",
-      "supportedPlayerCounts": [1, 2],
+      "supportedPlayerCounts": [1, 2, 3, 4],
       "bundleRevision": 1,
       "bundle": "glass-sky/song.json",
       "cover": "glass-sky/cover.webp"

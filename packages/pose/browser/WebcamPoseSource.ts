@@ -3,6 +3,7 @@ import type { PoseModelId } from './models.ts';
 import { PlayerSlotMapper } from './slots.ts';
 import { validateWebcamRecord } from '../webcamRecord.ts';
 import type { WebcamRecord } from '../webcamRecord.ts';
+import { isPlayerCount } from '../choreography.ts';
 import type { CaptureInput, PlayerCount } from '../choreography.ts';
 import type { PoseDelegate, PoseWorkerRequest, PoseWorkerResponse } from './pose.worker.ts';
 
@@ -145,7 +146,7 @@ export class WebcamPoseSource {
     if (active) await this.connect();
   }
   async setPlayerCount(count: PlayerCount) {
-    if (![1, 2].includes(count)) throw Error('Choose one or two players');
+    if (!isPlayerCount(count)) throw Error('Choose one to four players');
     if (count === this.playerCount) return;
     const active = ACTIVE.includes(this.view.status);
     this.disconnect(); this.playerCount = count;

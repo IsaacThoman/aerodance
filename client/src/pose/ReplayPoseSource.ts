@@ -1,5 +1,5 @@
 import { sampleSong } from '../../../packages/pose/song.ts';
-import { assertPoses, finite, isObject, isPlayerCount } from '../../../packages/pose/choreography.ts';
+import { MAX_PLAYERS, assertPoses, finite, isObject, isPlayerCount } from '../../../packages/pose/choreography.ts';
 import type { CaptureInput, Landmark, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
 import type { ProtocolPoseRecord } from '../../../packages/pose/protocol.ts';
 import type { PoseRecordEvent, RecordTiming } from '../../../packages/pose/browser/WebcamPoseSource.ts';
@@ -83,7 +83,7 @@ function isRecordingEntry(entry: unknown): entry is PoseRecordingEntry {
   if (!isObject(entry) || !finite(entry.songTimeMs) || !isObject(entry.record) || entry.record.type !== 'pose') return false;
   const { input, poses } = entry.record;
   if (!isObject(input) || !finite(input.width) || !finite(input.height) || typeof input.mirrored !== 'boolean') return false;
-  try { assertPoses(poses); } catch { return false; }
+  try { assertPoses(poses, MAX_PLAYERS); } catch { return false; }
   return true;
 }
 
@@ -147,7 +147,7 @@ export class ReplayPoseSource implements PoseSource {
     this.publish({ status: 'disconnected', snapshot: null, message: '' });
   }
   async setPlayerCount(count: PlayerCount) {
-    if (![1, 2].includes(count)) throw Error('Choose one or two players');
+    if (!isPlayerCount(count)) throw Error('Choose one to four players');
     this.playerCount = count;
     this.last = null;
     this.publish({ snapshot: null });
@@ -172,8 +172,8 @@ export class ReplayPoseSource implements PoseSource {
     return landmarks.map((j) => ({ ...j, x: j.x + gaussian(this.rnd) * this.noise, y: j.y + gaussian(this.rnd) * this.noise }));
   }
   standing(): Pose[] {
-    const xs = this.playerCount === 1 ? [0.5] : [0.7, 0.3];
-    return xs.map((cx, playerId) => ({ playerId, landmarks: this.jitter(standingPose(cx)) }));
+    // One player per lane; the mirrored preview shows P1 on the left, so P1's lane is on the camera's right.
+    return Array.from({ length: this.playerCount }, (_, playerId) => ({ playerId, landmarks: this.jitter(standingPose(1 - (playerId + 0.5) / this.playerCount)) }));
   }
   tick() {
     const now = this.now();

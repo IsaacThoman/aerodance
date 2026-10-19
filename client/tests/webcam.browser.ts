@@ -16,7 +16,7 @@ import type { Page } from 'playwright';
 
 /** What the page script adds to window: the synthetic camera's controls and counters. */
 type TestWindow = typeof window & {
-  cameraRequests: number; cameraStops: number; cameraMode: 'normal' | 'denied'; cameraViewScale: number;
+  cameraRequests: number; cameraStops: number; cameraMode: 'normal' | 'denied'; cameraViewScale: number; cameraPeople: number;
   poseDiagnostics?: unknown;
 };
 
@@ -44,7 +44,7 @@ async function pageFor(port: number) {
         if (Reflect.get(Type.prototype, name)) Reflect.set(Type.prototype, name, () => {});
     }
     const w = window as TestWindow;
-    w.cameraRequests = 0; w.cameraStops = 0; w.cameraMode = 'normal'; w.cameraViewScale=1;
+    w.cameraRequests = 0; w.cameraStops = 0; w.cameraMode = 'normal'; w.cameraViewScale=1; w.cameraPeople = 2;
     const NativeWorker = Worker;
     w.Worker = class extends NativeWorker {
       constructor(...args: ConstructorParameters<typeof Worker>) {
@@ -67,8 +67,9 @@ async function pageFor(port: number) {
           g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
           const offset = Math.sin(count++ / 20) * 2;
           g.save(); g.translate(320,240); g.scale(w.cameraViewScale,w.cameraViewScale); g.translate(-320,-240);
-          g.drawImage(image, 200, 0, 600, 667, offset, 40, 320, 356);
-          g.drawImage(image, 200, 0, 600, 667, 320 + offset, 40, 320, 356);
+          // Side by side, one per lane; three are squeezed into narrower lanes at full height.
+          const n = w.cameraPeople, width = 640 / n;
+          for (let i = 0; i < n; i++) g.drawImage(image, 200, 0, 600, 667, i * width + offset, 40, width, 356);
           g.restore();
         };
         draw(); const stream = canvas.captureStream(20), timer = setInterval(draw, 50);
@@ -109,6 +110,13 @@ try {
   await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
   await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
   await click(CREW[1]); await until('menuPlayers', '2'); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected');
+  await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
+  // Three people, one per lane: MediaPipe tracks three poses. (Four copies of this wide-stance
+  // photo are too small or overlap too much to be found; see docs/three-and-four-players.md.)
+  await game.evaluate(() => { (window as TestWindow).cameraPeople = 3; });
+  await click(CREW[2]); await until('menuPlayers', '3'); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected|Detected');
+  assert.equal(await game.evaluate(() => ((window as TestWindow).poseDiagnostics as unknown[] | undefined)?.length), 3, 'MediaPipe reports three poses');
+  await game.evaluate(() => { (window as TestWindow).cameraPeople = 2; });
   await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
   await click(PLAYERS_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
   await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true');

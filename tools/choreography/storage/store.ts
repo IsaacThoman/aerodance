@@ -276,7 +276,8 @@ export class Store {
       durationMs: p.durationMs,
       playableStartMs: p.playableStartMs,
       playableEndMs: p.playableEndMs,
-      supportedPlayerCounts: [1, 2],
+      // Duets: three or four players dance the two parts again (partOf).
+      supportedPlayerCounts: [1, 2, 3, 4],
       audio: { path: filename, mimeType: p.audio.mimeType },
       choreography: { path: "choreography.json", schemaVersion: 1 },
       coachMode: "mirror-player",

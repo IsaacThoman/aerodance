@@ -16,8 +16,8 @@ test('arbitrary byte splits, multiple records and multibyte session names', () =
 test('bounded incomplete lines and records, broken UTF-8, truncated EOF', () => {
   const decoder = new NdjsonDecoder(()=>{});
   decoder.push(new Uint8Array(MAX_BYTES).fill(32));
-  assert.throws(()=>decoder.push(bytes(' ')),/16 KiB/);
-  assert.throws(()=>new NdjsonDecoder(()=>{}).push(new Uint8Array(MAX_BYTES+1).fill(32)),/16 KiB/);
+  assert.throws(()=>decoder.push(bytes(' ')),/32 KiB/);
+  assert.throws(()=>new NdjsonDecoder(()=>{}).push(new Uint8Array(MAX_BYTES+1).fill(32)),/32 KiB/);
   const partial = new NdjsonDecoder(()=>{}); partial.push(bytes('{')); assert.throws(()=>partial.finish(),/Incomplete/);
   assert.throws(()=>new NdjsonDecoder(()=>{}).push(new Uint8Array([255,10])));
 });
@@ -33,8 +33,23 @@ test('two-player snapshots and omissions', () => {
   const both = {...right,poses:[pose().poses[0],right.poses[0]]};
   assert.equal(validate(both),both);
   for (const invalid of [{...right,playerCount:1},{...both,poses:[...both.poses].reverse()},
-      {...both,poses:[pose().poses[0],pose().poses[0]]},{...pose(),playerCount:3},
+      {...both,poses:[pose().poses[0],pose().poses[0]]},{...pose(),playerCount:5},{...pose(),playerCount:0},
       {...pose(),protocolVersion:1},{...pose(),poses:[{...pose().poses[0],playerId:.5}]}]) assert.throws(()=>validate(invalid));
+});
+test('three and four players, each in their own slot', () => {
+  const four = {...pose(),playerCount:4,poses:[0,1,2,3].map(playerId=>({...pose().poses[0],playerId}))};
+  assert.equal(validate(four),four);
+  const third = {...pose(),playerCount:3,poses:[{...pose().poses[0],playerId:2}]};
+  assert.equal(validate(third),third);
+  for (const invalid of [{...third,playerCount:2},{...four,playerCount:3},{...four,poses:[...four.poses].reverse()}]) assert.throws(()=>validate(invalid));
+});
+test('full four-person record fits byte budget', () => {
+  // Full-precision floats, as MediaPipe reports them.
+  const joint = () => ({x:-0.12345678901234566,y:0.9876543210987654,z:-0.3141592653589793,visibility:0.9999912345678901,presence:0.9987654321098766});
+  const record = {...pose(),sessionId:crypto.randomUUID(),seq:123456,frameReceivedTimeMs:1234567,resultTimeMs:1234589,playerCount:4,
+    poses:[0,1,2,3].map(playerId=>({playerId,landmarks:Array.from({length:33},joint)}))};
+  assert.ok(bytes(JSON.stringify(record)).length <= MAX_BYTES);
+  new NdjsonDecoder(()=>{}).push(bytes(JSON.stringify(record)+'\n'));
 });
 test('full two-person record fits byte budget', () => {
   const record = {...pose(),playerCount:2,poses:[pose().poses[0],{...pose().poses[0],playerId:1}]};

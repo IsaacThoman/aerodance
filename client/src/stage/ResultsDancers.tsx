@@ -3,7 +3,7 @@ import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Character from '../../../packages/character/Character.tsx';
-import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
+import { DANCER_LOOKS, dancerSpot } from '../../../packages/stages/shared/Dancers.tsx';
 import type { DancerPlacement, StageMeta } from '../../../packages/stages/index.ts';
 import type { MotionTake } from '../../../packages/pose/legacy.ts';
 import { PLAYERS, REVEAL, easeOut, timeline } from '../game/results.ts';
@@ -14,7 +14,7 @@ import type { ResultsShow } from '../game/results.ts';
  * reference dancers on the song's stage:
  *   - win: the winner steps up to centre stage under a light column, on a glowing halo in
  *     their colour, with confetti; the other dancer steps back and shrinks a little.
- *   - tie: both dancers stay side by side on gold halos.
+ *   - tie: the dancers stay side by side on gold halos.
  *   - solo: the one dancer takes centre stage.
  * Everything animates from the dance-floor positions to the result at the reveal.
  */
@@ -164,7 +164,8 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
     seats.forEach((seat) => {
       const g = groups[seat].current;
       if (!g) return;
-      const start = solo ? 0 : (seat - (count - 1) / 2) * spacing / (count > 2 ? 2 : 1);
+      const spot = dancerSpot(seat, count, spacing);
+      const start = spot.x;
       let x = start;
       let z = 0;
       let sc = 1;
@@ -172,7 +173,7 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
       else if (s.winner === seat) { x = start * (1 - k); z = 0.8 * k; }
       else if (s.winner !== null) { x = start * (1 + 0.55 * k); z = -1.6 * k; sc = 1 - 0.15 * k; }
       g.position.set(x, 0, z);
-      g.scale.setScalar(sc * (count > 2 ? 0.65 : 1));
+      g.scale.setScalar(sc * spot.scale);
       const lit = solo || s.winner === null || s.winner === seat;
       halo[seat].current = lit ? glow : 0;
     });
@@ -189,7 +190,7 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
           <group key={seat} ref={groups[seat]}>
             {/* Mirrored like a dance coach, on an inner group: the outer one is rescaled every frame. */}
             <group scale={[-1, 1, 1]}>
-              <Character motion={motion} person={seat % 2} playback={playback} appearance={DANCER_LOOKS[seat % DANCER_LOOKS.length]} />
+              <Character motion={motion} person={seat % 2} playback={playback} appearance={DANCER_LOOKS[seat]} />
             </group>
             <Halo color={featured === null ? GOLD : PLAYERS[seat % PLAYERS.length].color} intensity={halo[seat]} />
           </group>

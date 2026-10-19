@@ -90,7 +90,9 @@ async function setup(playerCount: PlayerCount = 1, options: SetupOptions = {}) {
   return { clock, session, source, step, player: current };
 }
 
-const standing = (playerCount: PlayerCount): Pose[] => (playerCount === 1 ? [0.5] : [0.3, 0.7]).map((cx, playerId) => ({ playerId, landmarks: standingPose(cx) }));
+// One player in the middle, two at 0.3 and 0.7, three or four spread evenly.
+const laneX = (playerCount: PlayerCount, id: number) => (playerCount === 1 ? 0.5 : playerCount === 2 ? 0.3 + id * 0.4 : (id + 0.5) / playerCount);
+const standing = (playerCount: PlayerCount): Pose[] => Array.from({ length: playerCount }, (_, playerId) => ({ playerId, landmarks: standingPose(laneX(playerCount, playerId)) }));
 const reference = (t: number, playerCount: PlayerCount) => sampleSong(bundle, Math.min(Math.max(t, 0), song.playableEndMs - 1), playerCount).poses;
 
 test('the ready check waits for every player, then counts down into the song', async () => {
@@ -216,6 +218,26 @@ test('a player who copies the routine scores high, judged at capture time despit
   assert.equal(source.attached, null, 'the source is released from the song');
 });
 
+for (const count of [3, 4] as const) {
+  test(`${count} webcam players calibrate together and each scores against their part`, async () => {
+    const { session, source, step, player } = await setup(count, { sourceKind: 'webcam' });
+    assert.equal(session.phase, 'calibrating');
+    // Everyone but the last player: no calibration.
+    step(3000, (now) => source.send(standing(count).slice(0, -1), now, count));
+    assert.equal(session.phase, 'calibrating');
+    step(2600, (now) => source.send(standing(count), now, count));
+    assert.equal(session.phase, 'countdown');
+    for (const [id, live] of session.live.entries()) assert.ok(Math.abs((live.calibration?.baseHip.x ?? -1) - laneX(count, id)) < 1e-6);
+    step(COUNTDOWN_MS + song.playableEndMs + LATE_ALLOWANCE_MS + 500, (now) => {
+      if (player().state === 'playing' && now % 100 === 0) source.send(reference(player().songTimeAt(now), count), now, count);
+    });
+    assert.equal(session.phase, 'results');
+    assert.ok(session.results);
+    assert.equal(session.results.length, count);
+    for (const result of session.results) assert.ok(result.score > 900_000, `player ${result.playerId + 1} scored ${result.score}`);
+  });
+}
+
 test('pausing stops scoring, drops later poses and resumes with a countdown at the same spot', async () => {
   const { session, source, step, player } = await setup(1, { autoStart: false });
   session.start();
@@ -298,6 +320,26 @@ test('the ghost replay dances the routine and stands in its halves without a son
   const ref = reference(5000, 2)[0].landmarks[23];
   assert.ok(Math.abs(pose.x - ref.x) < 0.05 && Math.abs(pose.y - ref.y) < 0.05);
   assert.equal(last.captureBrowserTimeMs, 5000);
+});
+
+test('a four-player ghost stands one per lane and doubles the duet', async () => {
+  let now = 0;
+  const ghost = new ReplayPoseSource({ now: () => now, noise: 0 });
+  const records: PoseRecordEvent<ProtocolPoseRecord>[] = [];
+  ghost.subscribeRecords((e) => records.push(e));
+  await ghost.setPlayerCount(4);
+  ghost.tick();
+  const hips = records[0].record.poses.map((p) => p.landmarks[23].x);
+  assert.deepEqual(records[0].record.poses.map((p) => p.playerId), [0, 1, 2, 3]);
+  assert.ok(hips.every((x, i) => i === 0 || x < hips[i - 1]), 'P1 stands on the right of the camera, P4 on its left');
+  ghost.attachSong({ bundle, songTimeAt: (perf) => perf, perfAtSong: (ms) => ms, playing: () => true });
+  now = 5000;
+  ghost.tick();
+  const last = records[records.length - 1].record;
+  assert.equal(last.playerCount, 4);
+  assert.deepEqual(last.poses[2].landmarks, last.poses[0].landmarks);
+  assert.deepEqual(last.poses[3].landmarks, last.poses[1].landmarks);
+  await assert.rejects(ghost.setPlayerCount(5 as PlayerCount));
 });
 
 test('a pose recording replays at the song times it was captured', async () => {

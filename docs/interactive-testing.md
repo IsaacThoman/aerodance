@@ -86,7 +86,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 | `reload` | Reloads and waits until ready |
 | `eval <js>` | Evaluates an expression in the page and prints the result |
 | `logs [--clear]` | Console messages, page errors, failed requests and page loads so far |
-| `camera <0\|1\|2>` | How many dancers the fixture camera shows |
+| `camera <0-4>` | How many dancers the fixture camera shows |
 | `resize <w>x<h>` | Changes the viewport, e.g. `resize 390x844` for a phone |
 | `targets` | Lists every layout target |
 | `stop` | Closes the browser and the server |
@@ -124,7 +124,7 @@ Headless Chromium has no webcam, so by default (`--camera fixture`) the page get
 synthetic one, as in the webcam browser tests: the MediaPipe fixture photo
 (`client/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
 it, so Connect Client, calibration and scoring all run for real. `camera 0|1|2` changes
-how many dancers are in shot; start with two for a two-player song, or one for a solo.
+how many dancers are in shot (up to four, one per lane); start with as many as the song has players.
 `--camera deny` makes every camera request fail with a permission error, and
 `--camera none` leaves the browser alone (headless has no camera, so requests fail).
 

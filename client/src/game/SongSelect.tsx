@@ -78,6 +78,8 @@ const CATALOG_URL = () => new URL(`${import.meta.env.BASE_URL}songs/manifest.jso
 const ACTIVE = ['connecting'];
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
+const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
+
 // Each player's tracking, from the pose input (reported for tests as data-player-slots).
 function slotStatus(connection: PoseInputView, id: number): { label: string; kind?: 'detected' } {
   if (connection.snapshot?.poses?.some((p) => p.playerId === id)) return { label: 'Detected', kind: 'detected' };
@@ -357,7 +359,7 @@ export default function SongSelect({
         const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
         const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');
         if (error) drawShadowText(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y, { size: 26, color: '#ffb38a' });
-        drawPill(g, DANCE, { label: 'Dance!', sub: p.playerCount === 1 ? 'One player' : 'Two players', icon: 'play', hover: h.dance ?? 0, press: press('dance') });
+        drawPill(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       }
       g.restore();
     },

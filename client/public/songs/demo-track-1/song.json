@@ -2,7 +2,7 @@
   "schema": "aerodance.song",
   "schemaVersion": 1,
   "songId": "demo-track-1",
-  "bundleRevision": 1,
+  "bundleRevision": 2,
   "title": "Demo Track 1",
   "artist": "aerodance",
   "songwriters": [],
@@ -31,7 +31,9 @@
   "playableEndMs": 30000,
   "supportedPlayerCounts": [
     1,
-    2
+    2,
+    3,
+    4
   ],
   "audio": {
     "path": "audio.mp3",

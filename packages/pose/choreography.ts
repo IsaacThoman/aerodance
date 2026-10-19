@@ -2,9 +2,13 @@
 
 /** One MediaPipe pose-33 landmark in image space; confidences are null when unknown. */
 export interface Landmark { x: number; y: number; z: number; visibility: number | null; presence: number | null; }
-/** One dancer: playerId 0 (P1) or 1 (P2) and all 33 landmarks. */
+/** One dancer: playerId 0 (P1) to 3 (P4) and all 33 landmarks. */
 export interface Pose { playerId: number; landmarks: Landmark[]; }
-export type PlayerCount = 1 | 2;
+export type PlayerCount = 1 | 2 | 3 | 4;
+/** The most players a game takes; live pose records carry up to this many poses. */
+export const MAX_PLAYERS = 4;
+/** Choreographies, takes and captures are duets: two dancers. */
+export const DUET = 2;
 export interface Point3 { x: number; y: number; z: number; }
 export interface FrameSize { width: number; height: number; }
 /** The camera or video frame the landmarks were measured in. */
@@ -32,7 +36,7 @@ export interface Choreography {
   schema: 'aerodance.choreography'; schemaVersion: 1;
   durationMs: number; playableStartMs: number; playableEndMs: number;
   coordinates: ChoreographyCoordinates;
-  /** Exactly two, for players 0 and 1 in order. */
+  /** Exactly two, for players 0 and 1 in order (players 2 and 3 dance them again: partOf). */
   tracks: ChoreographyTrack[];
   samples: ChoreographySample[];
 }
@@ -49,15 +53,18 @@ export const clamp = (n: number, a: number, b: number) => Math.min(b, Math.max(a
 export const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 export const isArray = (value: unknown): value is unknown[] => Array.isArray(value);
 export const oneOf = <T>(values: readonly T[], value: unknown): value is T => values.some(v => v === value);
-export const isPlayerCount = (value: unknown): value is PlayerCount => value === 1 || value === 2;
+export const isPlayerCount = (value: unknown): value is PlayerCount => value === 1 || value === 2 || value === 3 || value === 4;
+/** The choreography track a player dances: with three or four players, P3 and P4 dance P1's and P2's parts. */
+export const partOf = (playerId: number, parts = DUET) => playerId % parts;
 function fail(message: string): never { throw Error(message); }
 const unitOrNull = (v: unknown) => v === null || finite(v) && v >= 0 && v <= 1;
 
-export function assertPoses(poses: unknown): asserts poses is Pose[] {
-  if (!isArray(poses) || poses.length > 2) fail('Expected at most two poses');
+/** At most maxPlayers poses (a duet unless it's a live record), with unique ascending ids below it. */
+export function assertPoses(poses: unknown, maxPlayers = DUET): asserts poses is Pose[] {
+  if (!isArray(poses) || poses.length > maxPlayers) fail(`Expected at most ${maxPlayers} poses`);
   let last = -1;
   for (const pose of poses) {
-    if (!isObject(pose) || (pose.playerId !== 0 && pose.playerId !== 1) || pose.playerId <= last) fail('Pose IDs must be unique and ascending');
+    if (!isObject(pose) || typeof pose.playerId !== 'number' || !Number.isInteger(pose.playerId) || pose.playerId < 0 || pose.playerId >= maxPlayers || pose.playerId <= last) fail('Pose IDs must be unique and ascending');
     last = pose.playerId;
     if (!isArray(pose.landmarks) || pose.landmarks.length !== 33) fail('A pose needs all 33 landmarks');
     for (const joint of pose.landmarks) {
@@ -66,8 +73,8 @@ export function assertPoses(poses: unknown): asserts poses is Pose[] {
     }
   }
 }
-export function validatePoses(poses: unknown): Pose[] {
-  assertPoses(poses);
+export function validatePoses(poses: unknown, maxPlayers = DUET): Pose[] {
+  assertPoses(poses, maxPlayers);
   return poses;
 }
 export const confidence = (p: Landmark) => p.visibility === null || p.presence === null ? null : Math.min(p.visibility, p.presence);

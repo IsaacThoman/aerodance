@@ -17,10 +17,13 @@ export const PREVIEW_NOTE = { x: 128, y: 830 };
 
 // Gameplay: the live player panels, as fractions of the screen so the 3D characters
 // (stage/LivePanels.tsx) and their 2D labels (GameScreen.tsx) line up. Player 1 top left,
-// player 2 top right; each character stands in a box `height` tall whose top is at `top`
-// and whose centre is `inset` in from its side.
-export const LIVE_PANEL = { inset: 0.1, top: 0.17, height: 0.27 };
-export const livePanelCenterX = (id: number) => (id === 0 ? LIVE_PANEL.inset : 1 - LIVE_PANEL.inset);
+// player 2 top right; with three or four players, players 1 and 2 share the left corner and
+// the rest the right, in the order they stand. Each character stands in a box `height` tall
+// (shorter for a crowd) whose top is at `top`, centred at livePanelCenterX.
+export const LIVE_PANEL = { top: 0.17, height: 0.27, crowdHeight: 0.22 };
+const LIVE_PANEL_X: Record<number, readonly number[]> = { 1: [0.1], 2: [0.1, 0.9], 3: [0.08, 0.22, 0.9], 4: [0.08, 0.22, 0.78, 0.92] };
+export const livePanelCenterX = (id: number, playerCount: number) => LIVE_PANEL_X[playerCount]?.[id] ?? 0.5;
+export const livePanelHeight = (playerCount: number) => (playerCount > 2 ? LIVE_PANEL.crowdHeight : LIVE_PANEL.height);
 
 // Gameplay overlay (GameScreen.jsx).
 export const GAME_PAUSE = { x: 800, y: 66, r: 30 };
