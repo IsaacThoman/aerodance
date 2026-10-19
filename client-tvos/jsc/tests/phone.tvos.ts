@@ -189,11 +189,13 @@ try {
   phone = await openPhone(`${PHONE_SITE}/phone/#${code}`);
   await phoneUntil('phoneStage', 'linked');
   await phoneUntil('phoneCameraStatus', 'connected');
+  // The phone sends pictures while the app previews (watched on the phone, which answers at
+  // once: the app reports every 2 s, and calibration can be over 2.5 s after the first poses).
+  await phoneUntil('phoneVideo', 'true');
   await tvUntil('the phone connected, tracking', (d) => d.gameCameraStatus === 'connected' && /poses\/s/.test(d.gameCameraMessage ?? ''));
-  // Taken as soon as the picture shows: calibration can be over two and a half seconds later.
-  await tvUntil('the phone’s picture in the preview', (d) => d.gameCalibrationVideo === 'true', device ? 120_000 : 900_000);
+  await tvUntil('the phone’s picture in the preview', (d) => d.gameCalibrationVideo === 'true' || ['countdown', 'playing'].includes(d.gamePhase ?? ''));
+  assert.ok(reports.some((r) => r.dataset?.gameCalibrationVideo === 'true'), 'the app showed the phone’s picture');
   screenshot('2-calibration');
-  assert.equal(await phoneState('phoneVideo'), 'true', 'the phone sends pictures while the app previews');
 
   await tvUntil('calibrated, counting down', (d) => d.gamePhase === 'countdown' || d.gamePhase === 'playing');
   await phoneUntil('phoneVideo', 'false');
