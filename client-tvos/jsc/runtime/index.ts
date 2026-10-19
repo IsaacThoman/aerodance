@@ -7,8 +7,9 @@ import * as gl from './webgl.ts';
 import { CanvasGradient, CanvasPattern, CanvasRenderingContext2D, ImageData, Path2D, TextMetricsLite } from './canvas2d.ts';
 import * as dom from './dom.ts';
 import * as web from './web.ts';
-import { installAudio } from './audio.ts';
+import { audioEnded, installAudio } from './audio.ts';
 import { installBench } from './bench.ts';
+import { installGameHooks } from './report.ts';
 
 const N = native;
 const g = globalThis as unknown as Record<string, unknown>;
@@ -65,8 +66,13 @@ replace('navigator', {
   sendBeacon: () => false, clipboard: { writeText: () => Promise.reject(new Error('no clipboard')) },
 });
 
-// document and DOM classes
+// document and DOM classes, with the web build's mount point (client/index.html)
 replace('document', dom.documentShim);
+{
+  const root = dom.documentShim.createElement('div');
+  root.id = 'root';
+  dom.documentShim.body.appendChild(root);
+}
 const classes: Record<string, unknown> = {
   EventTarget: dom.EventTargetShim, Event: dom.EventShim, CustomEvent: dom.CustomEventShim, KeyboardEvent: dom.KeyboardEventShim,
   MouseEvent: dom.MouseEventShim, PointerEvent: dom.PointerEventShim, WheelEvent: dom.WheelEventShim, FocusEvent: dom.EventShim,
@@ -84,7 +90,7 @@ const classes: Record<string, unknown> = {
   WebGLActiveInfo: gl.WebGLActiveInfo, WebGLSampler: gl.WebGLSampler, WebGLQuery: gl.WebGLQuery, WebGLSync: gl.WebGLSync,
   WebGLShaderPrecisionFormat: gl.WebGLShaderPrecisionFormat, WebGLTransformFeedback: gl.WebGLTransformFeedback,
   URL: web.URLShim, URLSearchParams: web.URLSearchParamsShim, TextEncoder: web.TextEncoderShim, TextDecoder: web.TextDecoderShim,
-  Blob: web.BlobShim, File: web.FileShim, Response: web.ResponseShim, Headers: web.HeadersShim, Storage: web.StorageShim,
+  Blob: web.BlobShim, File: web.FileShim, Response: web.ResponseShim, Request: web.RequestShim, Headers: web.HeadersShim, Storage: web.StorageShim,
 };
 for (const [k, v] of Object.entries(classes)) define(k, v);
 define('createImageBitmap', dom.createImageBitmapShim);
@@ -186,9 +192,11 @@ const host = {
     dom.documentShim.dispatchEvent(new dom.EventShim('visibilitychange'));
   },
   error: web.reportError,
+  audioEnded,
   frames: () => frameCount,
   commands: gl.commands,
 };
 const KEY_CODES: Record<string, number> = { Enter: 13, Escape: 27, ' ': 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Tab: 9, Backspace: 8 };
 g.__host = host;
 installBench(g, config as Parameters<typeof installBench>[1]);
+installGameHooks(config as Parameters<typeof installGameHooks>[0], host);

@@ -340,14 +340,82 @@ static GLenum DefaultAttachment(GLenum a) {
   }
 }
 
+static int TargetSlot(GLenum target) {
+  switch (target) {
+    case GL_TEXTURE_2D: return 0;
+    case GL_TEXTURE_3D: return 2;
+    case GL_TEXTURE_2D_ARRAY: return 3;
+    default: return 1;  // the cube map and its faces
+  }
+}
+int Executor::boundTexture(GLenum target) const { return boundTex_[activeUnit_ & 31][TargetSlot(target)]; }
+
+void Executor::attach(GLenum target, GLenum attachment, int object) {
+  int fb = target == GL_READ_FRAMEBUFFER ? readFB_ : drawFB_;
+  if (!fb) return;
+  auto &list = fbAttachments_[fb];
+  for (auto it = list.begin(); it != list.end();) { if (it->first == attachment) it = list.erase(it); else ++it; }
+  if (object) list.push_back({ attachment, object });
+  if (object && isFresh(object)) fbPending_[fb] = true;
+  updatePending();
+}
+
+void Executor::initAttachments(int fb) {
+  auto pending = fbPending_.find(fb);
+  if (pending == fbPending_.end()) return;
+  fbPending_.erase(pending);
+  bool color = false, depth = false, stencil = false;
+  for (auto &[attachment, object] : fbAttachments_[fb]) {
+    if (!isFresh(object)) continue;
+    markFresh(object, false);
+    if (attachment == GL_DEPTH_ATTACHMENT) depth = true;
+    else if (attachment == GL_STENCIL_ATTACHMENT) stencil = true;
+    else if (attachment == GL_DEPTH_STENCIL_ATTACHMENT) depth = stencil = true;
+    else color = true;
+  }
+  if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) { updatePending(); return; }
+  if (scissorTest_) glDisable(GL_SCISSOR_TEST);
+  if (color) {
+    glColorMask(1, 1, 1, 1);
+    const GLfloat zero[4] = {};
+    GLint maxBuffers = 8;
+    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
+    for (GLint i = 0; i < maxBuffers; i++) glClearBufferfv(GL_COLOR, i, zero);
+    glColorMask(colorMask_[0], colorMask_[1], colorMask_[2], colorMask_[3]);
+  }
+  if (depth) glDepthMask(1);
+  if (stencil) glStencilMask(0xffffffff);
+  if (depth && stencil) glClearBufferfi(GL_DEPTH_STENCIL, 0, 1.0f, 0);
+  else if (depth) { const GLfloat one = 1; glClearBufferfv(GL_DEPTH, 0, &one); }
+  else if (stencil) { const GLint zero = 0; glClearBufferiv(GL_STENCIL, 0, &zero); }
+  if (depth) glDepthMask(depthMask_);
+  if (stencil) { glStencilMaskSeparate(GL_FRONT, stencilMaskFront_); glStencilMaskSeparate(GL_BACK, stencilMaskBack_); }
+  if (scissorTest_) glEnable(GL_SCISSOR_TEST);
+  updatePending();
+}
+
 void Executor::runGL(int op, const int32_t *w, int words) {
+  if (drawPending_) {
+    switch (op) {
+      case OP_CLEAR: case OP_CLEAR_BUFFERFV: case OP_CLEAR_BUFFERIV: case OP_CLEAR_BUFFERUIV: case OP_CLEAR_BUFFERFI:
+      case OP_DRAW_ARRAYS: case OP_DRAW_ELEMENTS: case OP_DRAW_ARRAYS_INSTANCED: case OP_DRAW_ELEMENTS_INSTANCED:
+      case OP_DRAW_RANGE_ELEMENTS: case OP_BLIT_FRAMEBUFFER:
+        initAttachments(drawFB_);
+    }
+  }
+  if (readPending_ && (op == OP_BLIT_FRAMEBUFFER || op == OP_COPY_TEX_IMAGE_2D || op == OP_COPY_TEX_SUB_IMAGE)) {
+    // Initialize through the draw binding, then put it back.
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(readFB_));
+    initAttachments(readFB_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(drawFB_));
+  }
   switch (op) {
     case OP_NOP: break;
     case OP_PRESENT: present(); break;
     case OP_RESIZE_DEFAULT_FB: resizeDefault(w[1], w[2], w[3], w[4], w[5], w[6]); break;
     case OP_FREE_PAYLOAD: break;
 
-    case OP_ACTIVE_TEXTURE: glActiveTexture(w[1]); break;
+    case OP_ACTIVE_TEXTURE: activeUnit_ = w[1] - GL_TEXTURE0; glActiveTexture(w[1]); break;
     case OP_BLEND_COLOR: glBlendColor(FL(1), FL(2), FL(3), FL(4)); break;
     case OP_BLEND_EQUATION: glBlendEquation(w[1]); break;
     case OP_BLEND_EQUATION_SEPARATE: glBlendEquationSeparate(w[1], w[2]); break;
@@ -357,10 +425,10 @@ void Executor::runGL(int op, const int32_t *w, int words) {
     case OP_CLEAR_COLOR: glClearColor(FL(1), FL(2), FL(3), FL(4)); break;
     case OP_CLEAR_DEPTH: glClearDepthf(FL(1)); break;
     case OP_CLEAR_STENCIL: glClearStencil(w[1]); break;
-    case OP_COLOR_MASK: glColorMask(w[1], w[2], w[3], w[4]); break;
+    case OP_COLOR_MASK: for (int i = 0; i < 4; i++) colorMask_[i] = w[1 + i]; glColorMask(w[1], w[2], w[3], w[4]); break;
     case OP_CULL_FACE: glCullFace(w[1]); break;
     case OP_DEPTH_FUNC: glDepthFunc(w[1]); break;
-    case OP_DEPTH_MASK: glDepthMask(w[1]); break;
+    case OP_DEPTH_MASK: depthMask_ = w[1]; glDepthMask(w[1]); break;
     case OP_DEPTH_RANGE: glDepthRangef(FL(1), FL(2)); break;
     case OP_DISABLE: if (w[1] == GL_SCISSOR_TEST) scissorTest_ = false; glDisable(w[1]); break;
     case OP_ENABLE: if (w[1] == GL_SCISSOR_TEST) scissorTest_ = true; glEnable(w[1]); break;
@@ -386,7 +454,11 @@ void Executor::runGL(int op, const int32_t *w, int words) {
     case OP_SAMPLE_COVERAGE: glSampleCoverage(FL(1), w[2]); break;
     case OP_SCISSOR: glScissor(w[1], w[2], w[3], w[4]); break;
     case OP_STENCIL_FUNC_SEPARATE: glStencilFuncSeparate(w[1], w[2], w[3], w[4]); break;
-    case OP_STENCIL_MASK_SEPARATE: glStencilMaskSeparate(w[1], w[2]); break;
+    case OP_STENCIL_MASK_SEPARATE:
+      if (w[1] != GL_BACK) stencilMaskFront_ = w[2];
+      if (w[1] != GL_FRONT) stencilMaskBack_ = w[2];
+      glStencilMaskSeparate(w[1], w[2]);
+      break;
     case OP_STENCIL_OP_SEPARATE: glStencilOpSeparate(w[1], w[2], w[3], w[4]); break;
     case OP_VIEWPORT: glViewport(w[1], w[2], w[3], w[4]); break;
     case OP_FLUSH: glFlush(); break;
@@ -418,6 +490,8 @@ void Executor::runGL(int op, const int32_t *w, int words) {
         case K_VAO: glDeleteVertexArrays(1, &n); break;
         case K_FRAMEBUFFER:
           glDeleteFramebuffers(1, &n);
+          fbAttachments_.erase(w[2]);
+          fbPending_.erase(w[2]);
           if (drawFB_ == w[2]) drawFB_ = 0;
           if (readFB_ == w[2]) readFB_ = 0;
           break;
@@ -438,10 +512,11 @@ void Executor::runGL(int op, const int32_t *w, int words) {
       if (w[1] == GL_FRAMEBUFFER || w[1] == GL_DRAW_FRAMEBUFFER) drawFB_ = w[2];
       if (w[1] == GL_FRAMEBUFFER || w[1] == GL_READ_FRAMEBUFFER) readFB_ = w[2];
       glBindFramebuffer(w[1], framebuffer(w[2]));
+      updatePending();
       break;
     case OP_BIND_RENDERBUFFER: renderbuffer_ = w[2]; glBindRenderbuffer(w[1], name(w[2])); break;
     case OP_BIND_SAMPLER: glBindSampler(w[1], name(w[2])); break;
-    case OP_BIND_TEXTURE: glBindTexture(w[1], name(w[2])); break;
+    case OP_BIND_TEXTURE: boundTex_[activeUnit_ & 31][TargetSlot(w[1])] = w[2]; glBindTexture(w[1], name(w[2])); break;
     case OP_BIND_VERTEX_ARRAY: glBindVertexArray(name(w[1])); break;
 
     case OP_BUFFER_DATA: {
@@ -553,20 +628,26 @@ void Executor::runGL(int op, const int32_t *w, int words) {
     case OP_SAMPLER_PARAMETERI: glSamplerParameteri(name(w[1]), w[2], w[3]); break;
     case OP_SAMPLER_PARAMETERF: glSamplerParameterf(name(w[1]), w[2], FL(3)); break;
     case OP_GENERATE_MIPMAP: glGenerateMipmap(w[1]); break;
-    case OP_TEX_STORAGE_2D: glTexStorage2D(w[1], w[2], w[3], w[4], w[5]); break;
-    case OP_TEX_STORAGE_3D: glTexStorage3D(w[1], w[2], w[3], w[4], w[5], w[6]); break;
-    case OP_TEX_IMAGE: texImage(w); break;
+    case OP_TEX_STORAGE_2D: markFresh(boundTexture(w[1]), true); glTexStorage2D(w[1], w[2], w[3], w[4], w[5]); break;
+    case OP_TEX_STORAGE_3D: markFresh(boundTexture(w[1]), true); glTexStorage3D(w[1], w[2], w[3], w[4], w[5], w[6]); break;
+    case OP_TEX_IMAGE:
+      // Allocating without data leaves the texture fresh; uploading pixels initializes it.
+      if (w[1] == T_IMAGE2D || w[1] == T_IMAGE3D) markFresh(boundTexture(w[2]), w[14] == P_NONE);
+      else if (w[14] != P_NONE) markFresh(boundTexture(w[2]), false);
+      texImage(w);
+      break;
     case OP_COPY_TEX_IMAGE_2D: glCopyTexImage2D(w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8]); break;
     case OP_COPY_TEX_SUB_IMAGE:
       if (w[5] < 0) glCopyTexSubImage2D(w[1], w[2], w[3], w[4], w[6], w[7], w[8], w[9]);
       else glCopyTexSubImage3D(w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8], w[9]);
       break;
 
-    case OP_FRAMEBUFFER_RENDERBUFFER: glFramebufferRenderbuffer(w[1], w[2], w[3], name(w[4])); break;
-    case OP_FRAMEBUFFER_TEXTURE_2D: glFramebufferTexture2D(w[1], w[2], w[3], name(w[4]), w[5]); break;
-    case OP_FRAMEBUFFER_TEXTURE_LAYER: glFramebufferTextureLayer(w[1], w[2], name(w[3]), w[4], w[5]); break;
+    case OP_FRAMEBUFFER_RENDERBUFFER: glFramebufferRenderbuffer(w[1], w[2], w[3], name(w[4])); attach(w[1], w[2], w[4]); break;
+    case OP_FRAMEBUFFER_TEXTURE_2D: glFramebufferTexture2D(w[1], w[2], w[3], name(w[4]), w[5]); attach(w[1], w[2], w[4]); break;
+    case OP_FRAMEBUFFER_TEXTURE_LAYER: glFramebufferTextureLayer(w[1], w[2], name(w[3]), w[4], w[5]); attach(w[1], w[2], w[3]); break;
     case OP_RENDERBUFFER_STORAGE: {
       GLenum fmt = w[3] == WEBGL_DEPTH_STENCIL ? GL_DEPTH24_STENCIL8 : (GLenum)w[3];
+      markFresh(renderbuffer_, true);
       if (w[2] > 0) glRenderbufferStorageMultisample(w[1], w[2], fmt, w[4], w[5]);
       else glRenderbufferStorage(w[1], fmt, w[4], w[5]);
       break;

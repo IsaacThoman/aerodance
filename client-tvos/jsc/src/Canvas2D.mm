@@ -189,6 +189,27 @@ void AddArc(CGMutablePathRef path, const CGAffineTransform *t, CGFloat x, CGFloa
   CGPathAddArc(path, t, x, y, r, a0, a1, ccw);
 }
 
+/** A line's glyph outlines, in a y-down space with the origin on the baseline at its start. */
+CGPathRef LinePath(CTLineRef line) {
+  CGMutablePathRef path = CGPathCreateMutable();
+  CFArrayRef runs = CTLineGetGlyphRuns(line);
+  for (CFIndex r = 0; r < CFArrayGetCount(runs); r++) {
+    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, r);
+    CTFontRef font = (CTFontRef)CFDictionaryGetValue(CTRunGetAttributes(run), kCTFontAttributeName);
+    CFIndex n = CTRunGetGlyphCount(run);
+    std::vector<CGGlyph> glyphs(n);
+    std::vector<CGPoint> positions(n);
+    CTRunGetGlyphs(run, CFRangeMake(0, n), glyphs.data());
+    CTRunGetPositions(run, CFRangeMake(0, n), positions.data());
+    for (CFIndex i = 0; i < n; i++) {
+      CGAffineTransform t = CGAffineTransformMake(1, 0, 0, -1, positions[i].x, -positions[i].y);
+      CGPathRef glyph = CTFontCreatePathForGlyph(font, glyphs[i], &t);
+      if (glyph) { CGPathAddPath(path, nullptr, glyph); CGPathRelease(glyph); }
+    }
+  }
+  return path;
+}
+
 }  // namespace
 
 void Canvas2D::run(int op, const int32_t *w, int words) {
@@ -487,8 +508,12 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
         bool layer = HasShadow(s);
         if (layer) CGContextBeginTransparencyLayer(ctx, nullptr);
         CGContextSaveGState(ctx);
-        CGContextSetTextDrawingMode(ctx, stroke ? kCGTextStrokeClip : kCGTextClip);
-        CTLineDraw(line, ctx);
+        // Clip to the glyph outlines (kCGTextClip doesn't clip through CTLineDraw).
+        CGPathRef outline = LinePath(line);
+        CGContextAddPath(ctx, outline);
+        CGPathRelease(outline);
+        if (stroke) CGContextReplacePathWithStrokedPath(ctx);
+        CGContextClip(ctx);
         // Gradients are in the canvas's user space, before this text's own offset.
         CGContextScaleCTM(ctx, 1 / sx, 1);
         CGContextTranslateCTM(ctx, -(x + dx), -(y + dy));

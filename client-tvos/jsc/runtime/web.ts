@@ -348,8 +348,24 @@ const MIME: Record<string, string> = {
 export let pageUrl = 'http://aerodance.local/';
 export const setPageUrl = (url: string) => { pageUrl = url; };
 
-export function fetchShim(input: string | URLShim | { url: string }, init: { method?: string; body?: BlobPart | null; headers?: Record<string, string> } = {}) {
+type RequestInit = { method?: string; body?: BlobPart | null; headers?: Record<string, string> | HeadersShim; credentials?: string; signal?: unknown; mode?: string };
+export class RequestShim {
+  readonly url: string; readonly method: string; readonly headers: HeadersShim; readonly body: BlobPart | null;
+  readonly credentials: string; readonly signal: unknown; readonly mode: string;
+  constructor(input: string | URLShim | RequestShim, init: RequestInit = {}) {
+    const base = input instanceof RequestShim ? input : null;
+    this.url = base ? base.url : String(input instanceof URLShim ? input.href : input);
+    this.method = (init.method ?? base?.method ?? 'GET').toUpperCase();
+    this.headers = new HeadersShim(init.headers ?? base?.headers);
+    this.body = init.body ?? base?.body ?? null;
+    this.credentials = init.credentials ?? 'same-origin'; this.signal = init.signal ?? null; this.mode = init.mode ?? 'cors';
+  }
+  clone() { return new RequestShim(this); }
+}
+
+export function fetchShim(input: string | URLShim | RequestShim, initArg: RequestInit = {}) {
   const raw = typeof input === 'string' ? input : input instanceof URLShim ? input.href : input.url;
+  const init: RequestInit = input instanceof RequestShim ? { method: input.method, body: input.body, headers: input.headers, ...initArg } : initArg;
   return new Promise<ResponseShim>((resolve, reject) => {
     const blob = blobUrls.get(raw);
     if (blob) { resolve(new ResponseShim(blob._bytes, { headers: { 'content-type': blob.type } })); return; }
@@ -377,7 +393,8 @@ export function fetchShim(input: string | URLShim | { url: string }, init: { met
       return;
     }
     const body = init.body === undefined || init.body === null ? null : typeof init.body === 'string' ? init.body : toBytes(init.body);
-    N.http(method, url.href, body, JSON.stringify(init.headers ?? {}), (status, bytes, headers) => {
+    const headers = init.headers instanceof HeadersShim ? Object.fromEntries(init.headers._map) : init.headers ?? {};
+    N.http(method, url.href, body, JSON.stringify(headers), (status, bytes, headers) => {
       if (status === 0) { reject(new TypeError(`fetch failed: ${headers}`)); return; }
       resolve(new ResponseShim(bytes ? new Uint8Array(bytes) : null, { status, url: url.href, headers: JSON.parse(headers || '{}') as Record<string, string> }));
     });

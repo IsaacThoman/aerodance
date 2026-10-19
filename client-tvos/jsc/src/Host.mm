@@ -169,6 +169,10 @@ static uint8_t *BytesOf(JSContextRef ctx, JSValueRef v, size_t *length) {
   uint8_t *base = (uint8_t *)JSObjectGetTypedArrayBytesPtr(ctx, o, nullptr);
   return base ? base + (gTypedArrayPointerIncludesOffset ? 0 : JSObjectGetTypedArrayByteOffset(ctx, o, nullptr)) : nullptr;
 }
+JSHost *CurrentHost() { return gHost; }
+uint8_t *JSBytesOf(JSContextRef ctx, JSValueRef v, size_t *length) { return BytesOf(ctx, v, length); }
+JSValueRef JSStringValue(JSContextRef ctx, NSString *s) { return MakeString(ctx, s); }
+
 static JSValueRef ToJS(JSContextRef ctx, id value) {
   if (!value || value == [NSNull null]) return JSValueMakeNull(ctx);
   if ([value isKindOfClass:NSString.class]) return MakeString(ctx, value);

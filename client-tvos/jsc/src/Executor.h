@@ -62,6 +62,24 @@ class Executor {
   bool flipY_ = false, premultiply_ = false;
   int unpackAlignment_ = 4, unpackRowLength_ = 0, unpackImageHeight_ = 0, unpackSkipPixels_ = 0, unpackSkipRows_ = 0, unpackSkipImages_ = 0;
   int boundPixelUnpack_ = 0;
+  // WebGL clears new framebuffer attachments (colour 0, depth 1, stencil 0) before their first
+  // use; OpenGL ES leaves them undefined. Images allocated without data are "fresh" until a
+  // framebuffer they're attached to is drawn to, cleared, read or blitted.
+  void markFresh(int jsId, bool fresh) { if (jsId > 0) { if ((size_t)jsId >= fresh_.size()) fresh_.resize(jsId * 2 + 64); fresh_[jsId] = fresh; } }
+  bool isFresh(int jsId) const { return jsId > 0 && (size_t)jsId < fresh_.size() && fresh_[jsId]; }
+  int boundTexture(GLenum target) const;
+  void attach(GLenum target, GLenum attachment, int object);
+  void initAttachments(int fb);
+  void updatePending() { drawPending_ = drawFB_ && fbPending_.count(drawFB_); readPending_ = readFB_ && fbPending_.count(readFB_); }
+  std::vector<uint8_t> fresh_;
+  std::unordered_map<int, std::vector<std::pair<GLenum, int>>> fbAttachments_;
+  std::unordered_map<int, bool> fbPending_;
+  bool drawPending_ = false, readPending_ = false;
+  int activeUnit_ = 0;
+  int boundTex_[32][4] = {};
+  GLboolean colorMask_[4] = { 1, 1, 1, 1 };
+  GLboolean depthMask_ = 1;
+  GLuint stencilMaskFront_ = 0xffffffff, stencilMaskBack_ = 0xffffffff;
   // Frame timing.
   double frameExecMs_ = 0;
   int frameWords_ = 0;

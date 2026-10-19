@@ -71,6 +71,7 @@ async function build(sim: boolean, game: boolean) {
   run('node', ['scripts/tvos.ts', 'bench']);
   cpSync(path.join(root, 'client-tvos/bench/dist'), path.join(www, 'bench'), { recursive: true });
   run('npx', ['rolldown', './client-tvos/jsc/bench/bridgeBench.ts', '--format', 'iife', '--minify', '--file', 'client-tvos/jsc/www/bench/bridge.js']);
+  run('npx', ['rolldown', './client-tvos/jsc/bench/canvasTest.ts', '--format', 'iife', '--minify', '--file', 'client-tvos/jsc/www/bench/canvas-test.js']);
   if (game) {
     run('npx', ['vite', 'build', '--config', 'client-tvos/jsc/vite.config.ts']);
     cpSync(path.join(appDir, 'dist'), path.join(www), { recursive: true });

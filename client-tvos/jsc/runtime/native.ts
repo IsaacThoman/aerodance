@@ -50,7 +50,7 @@ export interface Native {
   /** Launch configuration as JSON. */
   readonly config: string;
   /** Web Audio (src/Audio.mm). */
-  audio(command: number, a?: unknown, b?: unknown, c?: unknown, d?: unknown, e?: unknown): unknown;
+  audio(command: number, ...args: unknown[]): unknown;
 }
 
 export const native = (globalThis as unknown as { __native: Native }).__native;
