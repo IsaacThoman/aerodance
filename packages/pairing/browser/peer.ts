@@ -8,7 +8,7 @@ import type { IceCandidate, IceServer, Signal } from '../signals.ts';
  *
  * Game:  const peer = new Peer({ epoch, iceServers, send }); create channels; await peer.offer();
  *        later peer.accept(answer.sdp) and peer.addIce(candidate)
- * Phone: const peer = new Peer({ epoch: offer.epoch, iceServers, send }); await peer.answer(offer.sdp);
+ * Phone: const peer = new Peer({ epoch: offer.epoch, iceServers, send }); await peer.answer(offer.sdp, prepare);
  */
 
 export type CreatePeerConnection = (config: RTCConfiguration) => RTCPeerConnection;
@@ -40,9 +40,10 @@ export class Peer {
     this.sendDescription('offer');
   }
 
-  /** The phone: take the game's offer and send an answer. */
-  async answer(sdp: string) {
+  /** The phone: take the game's offer and send an answer (prepare sets up the offered tracks first). */
+  async answer(sdp: string, prepare?: () => void) {
     await this.pc.setRemoteDescription({ type: 'offer', sdp });
+    prepare?.();
     await this.flush();
     await this.pc.setLocalDescription(await this.pc.createAnswer());
     this.sendDescription('answer');

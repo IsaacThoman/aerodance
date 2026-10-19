@@ -27,7 +27,8 @@ import type { WebcamStatus, WebcamView } from '../../../packages/pose/browser/We
  *             dims the screen to save battery while the phone tracks (tap to wake)
  *   ended     why, and a way to enter another code
  *
- * The canvas reports data-phone-stage / -ready / -camera-status / -dim / -mode for tests.
+ * The canvas reports data-phone-stage / -ready / -camera-status / -dim / -mode / -video (sending
+ * the game its picture) for tests.
  *
  * <PhoneScreen link view camera mode onMode dim onDim />
  */
@@ -176,10 +177,12 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
         st.lastPreview = s.time;
         s.invalidate();
       }
-      const report = JSON.stringify([view.stage, camera.status, p.dim, p.mode]);
+      const sending = !!p.link.sentTrack;
+      const report = JSON.stringify([view.stage, camera.status, p.dim, p.mode, sending]);
       if (report !== st.reported) {
         st.reported = report;
-        Object.assign(gl.domElement.dataset, { phoneStage: view.stage, phoneReady: 'true', phoneCameraStatus: camera.status, phoneDim: String(p.dim), phoneMode: p.mode });
+        Object.assign(gl.domElement.dataset, { phoneStage: view.stage, phoneReady: 'true', phoneCameraStatus: camera.status, phoneDim: String(p.dim), phoneMode: p.mode,
+          phoneVideo: String(sending) });
       }
     },
     draw: (g, s) => {

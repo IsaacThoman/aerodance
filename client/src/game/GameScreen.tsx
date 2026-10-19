@@ -261,6 +261,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
         gameCalibrationProgress: calibration ? calibration.progress.toFixed(3) : '',
         gameCalibrationPlayers: calibration?.players.join('|') ?? '',
         gameCalibrationPreview: calibration ? String(!!p.source.video || !!view.frame) : '',
+        gameCalibrationVideo: calibration ? String(!!p.source.video) : '',
         gameCameraStatus: calibration ? view.status : '',
         gameCameraModel: calibration ? view.model : '',
         gameCameraMessage: calibration ? camera.message() : '',
@@ -378,7 +379,7 @@ export default function GameScreen({ visible = false, blocked = false, session, 
 
   useEffect(() => {
     if (!visible) {
-      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage', 'gamePairing']) delete gl.domElement.dataset[key];
+      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCalibrationVideo', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage', 'gamePairing']) delete gl.domElement.dataset[key];
       st.reported = '';
     }
     ui.invalidate();

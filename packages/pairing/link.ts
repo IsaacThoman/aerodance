@@ -10,6 +10,8 @@ import type { PoseDelegate } from '../pose/browser/pose.worker.ts';
 /*
  * What the game and a paired phone say over their WebRTC data channels. The phone tracks
  * the players and sends only their poses; the game sends its settings and clock pings.
+ * While the game shows a setup preview, the phone also sends a small, low-frame-rate copy
+ * of its camera on the connection's one video track (empty the rest of the time).
  *
  *   live     unordered, never resent: poses and clock pings, where a late one is useless
  *   control  reliable and in order: settings and the phone's status
@@ -39,11 +41,13 @@ export interface PhoneStatus {
  *   config  how many players to track and with which model
  *   game    whether a song is on (the phone dims its screen while one plays)
  *   ping    a clock round trip, answered with pong (packages/pairing/clock.ts)
+ *   preview whether the game is showing a setup preview: the phone sends its video while on
  */
 export type GameMessage =
   | { type: 'config'; playerCount: PlayerCount; modelId: PoseModelId }
   | { type: 'game'; playing: boolean }
-  | { type: 'ping'; id: number; t0: number };
+  | { type: 'ping'; id: number; t0: number }
+  | { type: 'preview'; on: boolean };
 /** A pose record's times are on the phone's clock. */
 export type PhoneMessage =
   | PhoneStatus
@@ -66,6 +70,7 @@ export function parseGameMessage(data: unknown): GameMessage | null {
   if (m?.type === 'config' && isPlayerCount(m.playerCount) && isPoseModelId(m.modelId)) return { type: 'config', playerCount: m.playerCount, modelId: m.modelId };
   if (m?.type === 'game' && typeof m.playing === 'boolean') return { type: 'game', playing: m.playing };
   if (m?.type === 'ping' && Number.isSafeInteger(m.id) && finite(m.t0)) return { type: 'ping', id: m.id as number, t0: m.t0 };
+  if (m?.type === 'preview' && typeof m.on === 'boolean') return { type: 'preview', on: m.on };
   return null;
 }
 

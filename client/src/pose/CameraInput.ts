@@ -52,8 +52,8 @@ export class CameraInput implements PoseSource {
     phone.subscribeRecords((event) => { if (this.mode === 'phone') this.emit(event); });
   }
 
-  /** This computer's camera feed, for the setup preview; null for a phone. */
-  get video() { return this.mode === 'webcam' ? this.webcam.video : null; }
+  /** The camera feed for the setup preview: this computer's webcam, or the phone's picture while it sends one. */
+  get video() { return this.mode === 'webcam' ? this.webcam.video : this.phone.video; }
   get playerCount() { return this.webcam.playerCount; }
   get active() { return this.mode === 'webcam' ? this.webcam : this.phone; }
 
@@ -98,4 +98,6 @@ export class CameraInput implements PoseSource {
   refreshCameras() { return this.webcam.refreshCameras(); }
   /** Whether a song is on (a paired phone dims while one plays). */
   setPlaying(playing: boolean) { this.phone.setPlaying(playing); }
+  /** Whether a setup preview is on screen (a phone sends its picture only then). */
+  setPreview(on: boolean) { this.phone.setPreview(on); }
 }

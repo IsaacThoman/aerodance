@@ -29,6 +29,10 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
  * (a phone on a stand has no one to press anything), waiting longer each time it fails
  * without tracking; a camera that never worked (permission denied) waits for the player.
  *
+ * While the game shows a setup preview it asks for the camera's picture: the phone puts its
+ * camera on the connection's video track, scaled down to PREVIEW_LONG_SIDE at a low frame
+ * rate and bitrate, and takes it off again when the preview goes.
+ *
  * const link = new PhoneLink(); link.subscribe(render); link.join('123456');
  */
 
@@ -65,6 +69,10 @@ const ATTEMPT_MS = 15_000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const MAX_CAMERA_RETRY_MS = 30_000;
+// The picture the game previews: its long side, frame rate and bitrate at most.
+export const PREVIEW_LONG_SIDE = 320;
+const PREVIEW_FPS = 12;
+const PREVIEW_BITRATE = 250_000;
 const TOKEN_KEY = 'aerodance-phone-token';
 
 /** What the game calls this phone. */
@@ -116,6 +124,10 @@ export class PhoneLink {
   cameraTracked = false;
   cameraRetries = 0;
   cameraRetry: ReturnType<typeof setTimeout> | undefined;
+  /** The game wants the camera's picture; where it goes, and the camera track on it. */
+  previewWanted = false;
+  videoSender: RTCRtpSender | null = null;
+  sentTrack: MediaStreamTrack | null = null;
   constructor({ camera, base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName(), cameraRetryMs = 2000 }: PhoneLinkOptions = {}) {
     this.camera = camera ?? new WebcamPoseSource({ settingsKey: 'aerodance-phone', adaptToResize: true });
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
@@ -237,7 +249,14 @@ export class PhoneLink {
     peer.pc.onconnectionstatechange = () => {
       if (mine() && ['failed', 'closed'].includes(peer.pc.connectionState)) this.unlinked();
     };
-    peer.answer(sdp).catch(() => { if (mine()) this.unlinked(); });
+    // The game offers a video track for its preview: this side sends on it.
+    const prepare = () => {
+      const video = peer.pc.getTransceivers?.().find((t) => t.receiver.track.kind === 'video');
+      if (!video) return;
+      video.direction = 'sendonly';
+      this.videoSender = video.sender;
+    };
+    peer.answer(sdp, prepare).catch(() => { if (mine()) this.unlinked(); });
   }
 
   linked() {
@@ -256,6 +275,25 @@ export class PhoneLink {
     this.hello();
   }
 
+  /** Puts the camera on the video track while the game previews it, and takes it off after. */
+  updateVideo() {
+    const sender = this.videoSender;
+    const track = (this.previewWanted && this.camera.stream?.getVideoTracks()[0]) || null;
+    if (!sender || track === this.sentTrack) return;
+    this.sentTrack = track;
+    void sender.replaceTrack(track).then(() => { if (track && this.sentTrack === track) return this.limitVideo(sender, track); }).catch(() => {});
+  }
+
+  /** A small, slow picture: it's only for lining the players up. */
+  async limitVideo(sender: RTCRtpSender, track: MediaStreamTrack) {
+    const { width = 640, height = 480 } = track.getSettings();
+    const params = sender.getParameters();
+    if (!params.encodings?.length) return;
+    Object.assign(params.encodings[0], { maxBitrate: PREVIEW_BITRATE, maxFramerate: PREVIEW_FPS,
+      scaleResolutionDownBy: Math.max(1, Math.max(width, height) / PREVIEW_LONG_SIDE) });
+    await sender.setParameters(params);
+  }
+
   closePeer() {
     for (const channel of [this.live, this.control]) {
       if (!channel) continue;
@@ -265,6 +303,8 @@ export class PhoneLink {
     this.live = this.control = null;
     this.peer?.close();
     this.peer = null;
+    this.videoSender = null;
+    this.sentTrack = null;
   }
 
   /** Starts the camera while linked and showing (the page hidden stops it). */
@@ -290,6 +330,7 @@ export class PhoneLink {
     if (!message) return;
     if (message.type === 'ping') this.send(this.live, { type: 'pong', id: message.id, t0: message.t0, t1: this.now() });
     else if (message.type === 'game') this.publish({ playing: message.playing });
+    else if (message.type === 'preview') { this.previewWanted = message.on; this.updateVideo(); }
     else {
       this.publish({ playerCount: message.playerCount });
       void this.camera.setPlayerCount(message.playerCount).catch(() => {});
@@ -304,6 +345,8 @@ export class PhoneLink {
   }
 
   onCamera(view: WebcamView) {
+    // A restarted camera is a new track.
+    this.updateVideo();
     if (view.status === 'connected') { this.cameraTracked = true; this.cameraRetries = 0; void this.keepAwake(); }
     // A failed camera starts again shortly, so the screen stays on meanwhile.
     // (Saying so publishes the camera again, which sends its status.)

@@ -162,6 +162,10 @@ export default function App() {
   useEffect(() => {
     source.setPlaying(!!gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase));
   }, [source, gamePhase]);
+  // ...and sends its camera's picture only while a setup preview shows it.
+  useEffect(() => {
+    source.setPreview(connectOpen || (screen === 'game' && gamePhase === 'calibrating'));
+  }, [source, connectOpen, screen, gamePhase]);
 
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';

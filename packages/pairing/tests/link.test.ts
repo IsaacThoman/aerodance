@@ -53,6 +53,8 @@ test('messages each way are checked before use', () => {
   assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 3, modelId: 'full' })), null);
   assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 1, modelId: 'huge' })), null);
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'ping', id: 4, t0: 12.5 })), { type: 'ping', id: 4, t0: 12.5 });
+  assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'preview', on: true })), { type: 'preview', on: true });
+  assert.equal(parseGameMessage(JSON.stringify({ type: 'preview', on: 'yes' })), null);
   assert.equal(parseGameMessage('{'), null);
   assert.equal(parseGameMessage({ type: 'game', playing: true }), null);
   const status = { type: 'status', status: 'connected', message: 'Lite', model: 'lite', delegate: 'GPU', facing: 'environment', inferenceMs: 12 };

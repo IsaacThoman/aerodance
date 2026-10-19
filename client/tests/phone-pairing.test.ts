@@ -310,3 +310,36 @@ test('a phone starts its camera again when it fails after tracking, but not one 
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.equal(phone.cameraRetries, retries);
 });
+
+test('the game asks for the phone’s picture only while it previews, and the phone sends a small one', async (t) => {
+  const base = await pairingServer(t);
+  const options = { base, createStream: fetchEventStream, createConnection: createFakeConnection };
+  const host = new PhonePoseSource({ ...options, origin: () => 'https://game.test' });
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ ...options, camera: camera as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  host.setPreview(true);
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  // Asked for as soon as the link opens, and dropped when the preview goes.
+  await until(() => phone.previewWanted, 'the preview request');
+  host.setPreview(false);
+  await until(() => !phone.previewWanted, 'the preview to stop');
+  assert.equal(host.video, null, 'no picture without a preview');
+
+  // The phone's end of the video track (the loopback connection has none of its own).
+  const calls: unknown[] = [];
+  const params: RTCRtpSendParameters = { encodings: [{}], transactionId: '', codecs: [], headerExtensions: [], rtcp: {} };
+  phone.videoSender = { replaceTrack: async (track: MediaStreamTrack | null) => { calls.push(track); },
+    getParameters: () => params, setParameters: async (p: RTCRtpSendParameters) => { calls.push(p.encodings[0]); } } as unknown as RTCRtpSender;
+  const track = { kind: 'video', getSettings: () => ({ width: 480, height: 640 }) } as unknown as MediaStreamTrack;
+  Object.assign(camera, { stream: { getVideoTracks: () => [track] } });
+  phone.previewWanted = true; phone.updateVideo(); phone.updateVideo();
+  await until(() => calls.length === 2, 'the track and its limits');
+  assert.equal(calls[0], track, 'the camera goes on the track once');
+  assert.deepEqual(calls[1], { maxBitrate: 250_000, maxFramerate: 12, scaleResolutionDownBy: 2 }, 'scaled to 320 on its long side');
+  phone.previewWanted = false; phone.updateVideo();
+  await until(() => calls.length === 3, 'the track to come off');
+  assert.equal(calls[2], null);
+});

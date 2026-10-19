@@ -43,7 +43,7 @@ export interface SongClock {
 
 export interface PoseSource {
   readonly view: PoseInputView;
-  /** The camera feed, for the setup preview (this computer's webcam only). */
+  /** The camera feed, for the setup preview (a webcam, or a phone's picture while it sends one). */
   readonly video?: HTMLVideoElement | null;
   subscribeRecords(listener: (event: PoseSourceEvent) => void): () => void;
   /** Sources that play back poses follow the song; the webcam ignores it. */

@@ -134,6 +134,11 @@ try {
   await until(game, 'gameCameraStatus', 'connected');
   await until(game, 'gameCalibrationPreview', 'true');
   assert.equal(await data(game, 'gamePairing'), '', 'the code goes once the phone is connected');
+  // The calibration preview shows the phone's own picture under the skeletons.
+  await until(phone, 'phoneVideo', 'true');
+  await until(game, 'gameCalibrationVideo', 'true');
+  const received = await game.evaluate(() => Math.max(...[...document.querySelectorAll('video')].map((v) => Math.max(v.videoWidth, v.videoHeight))));
+  assert.ok(received > 0 && received <= 320, `the phone's picture is small (${received}px on its long side)`);
   if (process.env.UI_ARTIFACTS) {
     await game.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-game.png` });
     // The mirror shows each player once they've held still for a moment, as the game does.
@@ -144,6 +149,7 @@ try {
   // The phone's poses calibrate the player and start the song; the phone dims.
   await until(game, 'gamePhase', 'countdown');
   await until(phone, 'phoneDim', 'true');
+  await until(phone, 'phoneVideo', 'false');
   await until(game, 'gamePhase', 'playing');
 
   await until(game, 'gamePhase', 'results');

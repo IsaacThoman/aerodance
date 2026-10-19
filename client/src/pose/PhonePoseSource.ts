@@ -30,6 +30,10 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
  * A connected phone keeps going if the pairing server goes away (a redeploy); only pairing
  * again needs it.
  *
+ * setPreview(true) while a setup preview is on screen: the phone sends a small copy of its
+ * camera, and video is that picture (null without one, so previews draw the skeletons alone).
+ * The skeletons come with each pose, so they can run ahead of the picture under them.
+ *
  * The phone tracks with the model and player count set here (configure, setPlayerCount)
  * or on the phone itself; the view follows what the phone reports.
  */
@@ -57,6 +61,7 @@ export interface PhonePoseSourceOptions {
   now?: () => number;
   /** The site the phone opens (the QR code's link). */
   origin?: () => string;
+  createVideo?: () => HTMLVideoElement;
 }
 type Listener<T> = (value: T) => void;
 
@@ -68,6 +73,8 @@ const PING_MS = 500;
 const QUIET_MS = 3000;
 // A connection attempt that hasn't opened in this long is given up (the phone may have gone).
 const ATTEMPT_MS = 20_000;
+// The phone's picture counts as showing while a frame arrived this recently.
+const VIDEO_FRESH_MS = 1000;
 const MODEL_KEY = 'aerodance-phone-model';
 const saved = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing. */ } };
@@ -83,7 +90,11 @@ export class PhonePoseSource implements PoseSource {
   listeners = new Set<Listener<PhoneView>>();
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: PhoneView;
-  readonly video = null;
+  createVideo: () => HTMLVideoElement;
+  /** The phone's picture, while it sends one, and when its last frame arrived. */
+  remoteVideo: HTMLVideoElement | null = null;
+  videoAt = -Infinity;
+  preview = false;
   playerCount: PlayerCount = 1;
   playing = false;
   generation = 0;
@@ -104,9 +115,9 @@ export class PhonePoseSource implements PoseSource {
   arrivals: number[] = [];
   offeredAt = -Infinity;
   constructor({ base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
-    origin = () => location.origin }: PhonePoseSourceOptions = {}) {
+    origin = () => location.origin, createVideo = () => document.createElement('video') }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
-    this.now = now; this.origin = origin;
+    this.now = now; this.origin = origin; this.createVideo = createVideo;
     const model = saved(MODEL_KEY);
     this.view = { status: 'disconnected', sourceKind: 'phone', message: 'Pair your phone to use it as the camera.', snapshot: null,
       configuring: false, model: isPoseModelId(model) ? model : 'lite', pairing: null, device: '', frame: null, stats: null,
@@ -117,6 +128,9 @@ export class PhonePoseSource implements PoseSource {
   subscribeRecords(listener: Listener<PoseSourceEvent>) { this.recordListeners.add(listener); return () => { this.recordListeners.delete(listener); }; }
   publish(patch: Partial<PhoneView>) { this.view = { ...this.view, ...patch }; for (const listener of this.listeners) listener(this.view); }
   emit(event: PoseSourceEvent) { for (const listener of this.recordListeners) listener(event); }
+
+  /** The phone's camera picture for a setup preview, while one is coming in. */
+  get video() { return this.preview && this.now() - this.videoAt < VIDEO_FRESH_MS ? this.remoteVideo : null; }
 
   /** Starts pairing: a new code for a phone to scan. */
   async connect() {
@@ -174,6 +188,13 @@ export class PhonePoseSource implements PoseSource {
     this.sendConfig();
   }
 
+  /** Whether a setup preview is on screen: the phone sends its picture only then. */
+  setPreview(on: boolean) {
+    if (on === this.preview) return;
+    this.preview = on;
+    this.send({ type: 'preview', on });
+  }
+
   /** Whether a song is on; the phone dims its screen while one plays. */
   setPlaying(playing: boolean) {
     if (playing === this.playing) return;
@@ -212,6 +233,9 @@ export class PhonePoseSource implements PoseSource {
       return;
     }
     const live = this.live = peer.pc.createDataChannel(LIVE_CHANNEL, { ordered: false, maxRetransmits: 0 });
+    // The phone's preview picture: offered from the start, so turning it on needs no renegotiation.
+    peer.pc.addTransceiver?.('video', { direction: 'recvonly' });
+    peer.pc.ontrack = ({ track }) => { if (mine() && track.kind === 'video') this.showVideo(track); };
     const control = this.control = peer.pc.createDataChannel(CONTROL_CHANNEL);
     const mine = () => peer === this.peer;
     live.onmessage = control.onmessage = ({ data }) => { if (mine()) this.onMessage(data); };
@@ -219,6 +243,7 @@ export class PhonePoseSource implements PoseSource {
       if (!mine()) return;
       this.sendConfig();
       this.send({ type: 'game', playing: this.playing });
+      this.send({ type: 'preview', on: this.preview });
       this.pingTimer = setInterval(() => this.send({ type: 'ping', id: ++this.pings, t0: this.now() }), PING_MS);
       this.publish({ status: 'initializing', message: `${device} connected. Starting its camera…` });
     };
@@ -251,10 +276,33 @@ export class PhonePoseSource implements PoseSource {
     this.live = this.control = null;
     this.peer?.close();
     this.peer = null;
+    if (this.remoteVideo) { this.remoteVideo.srcObject = null; this.remoteVideo.remove?.(); }
+    this.remoteVideo = null;
+    this.videoAt = -Infinity;
     this.clock.reset();
     this.phone = null;
     this.arrivals = [];
     this.lastPose = -Infinity;
+  }
+
+  /** Plays the phone's video track, noting each frame as it arrives. */
+  showVideo(track: MediaStreamTrack) {
+    const video = this.remoteVideo ?? this.createVideo();
+    this.remoteVideo = video;
+    video.muted = true; video.playsInline = true; video.srcObject = new MediaStream([track]);
+    if (video.style && !video.isConnected) {
+      // Safari only decodes a video that's in the page.
+      Object.assign(video.style, { position: 'fixed', width: '1px', height: '1px', opacity: '0', pointerEvents: 'none' });
+      video.setAttribute('aria-hidden', 'true'); document.body.append(video);
+    }
+    void video.play().catch(() => {});
+    const frame = () => {
+      if (this.remoteVideo !== video) return;
+      this.videoAt = this.now();
+      video.requestVideoFrameCallback(frame);
+    };
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(frame);
+    else video.ontimeupdate = () => { if (this.remoteVideo === video) this.videoAt = this.now(); };
   }
 
   send(message: GameMessage) {
