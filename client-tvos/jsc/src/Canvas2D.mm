@@ -167,6 +167,15 @@ void Prepare(CGContextRef ctx, const CanvasState &s) {
 }
 bool HasShadow(const CanvasState &s) { return s.shadowColor[3] > 0 && (s.shadowBlur > 0 || s.shadowX != 0 || s.shadowY != 0); }
 
+/** A transparency layer (so a gradient or pattern fill casts one shadow) just big enough for
+ *  `bounds` (in the current user space, `scale` device pixels per unit) and its shadow. A layer
+ *  over the whole canvas costs a full-canvas composite per shape. */
+void BeginShadowLayer(CGContextRef ctx, const CanvasState &s, CGRect bounds, CGFloat scale) {
+  CGFloat margin = (s.shadowBlur * 2 + fabs(s.shadowX) + fabs(s.shadowY) + 2) / std::max<CGFloat>(scale, 1e-3);
+  CGContextBeginTransparencyLayerWithRect(ctx, CGRectInset(bounds, -margin, -margin), nullptr);
+}
+CGFloat Scale(const CGAffineTransform &m) { return sqrt(fabs(m.a * m.d - m.b * m.c)); }
+
 void DrawGradient(CGContextRef ctx, Paint *p) {
   const CGGradientDrawingOptions ext = kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation;
   if (p->kind == 1) CGContextDrawLinearGradient(ctx, p->cg(), CGPointMake(p->a[0], p->a[1]), CGPointMake(p->a[2], p->a[3]), ext);
@@ -389,7 +398,7 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
         if (evenOdd) CGContextEOFillPath(ctx); else CGContextFillPath(ctx);
       } else {
         bool layer = HasShadow(s);
-        if (layer) CGContextBeginTransparencyLayer(ctx, nullptr);
+        if (layer) BeginShadowLayer(ctx, s, CGPathGetBoundingBox(p), 1);
         CGContextSaveGState(ctx);
         CGContextAddPath(ctx, p);
         if (evenOdd) CGContextEOClip(ctx); else CGContextClip(ctx);
@@ -438,7 +447,7 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
         CGContextStrokePath(ctx);
       } else {
         bool layer = HasShadow(s);
-        if (layer) CGContextBeginTransparencyLayer(ctx, nullptr);
+        if (layer) BeginShadowLayer(ctx, s, CGRectInset(CGPathGetBoundingBox(user), -s.lineWidth, -s.lineWidth), Scale(s.m));
         CGContextReplacePathWithStrokedPath(ctx);
         CGContextClip(ctx);
         if (paint->kind != 4) DrawGradient(ctx, paint);
@@ -506,10 +515,10 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
         CTLineDraw(line, ctx);
       } else {
         bool layer = HasShadow(s);
-        if (layer) CGContextBeginTransparencyLayer(ctx, nullptr);
+        CGPathRef outline = LinePath(line);
+        if (layer) BeginShadowLayer(ctx, s, CGRectInset(CGPathGetBoundingBox(outline), -s.lineWidth, -s.lineWidth), Scale(s.m) * sqrt(sx));
         CGContextSaveGState(ctx);
         // Clip to the glyph outlines (kCGTextClip doesn't clip through CTLineDraw).
-        CGPathRef outline = LinePath(line);
         CGContextAddPath(ctx, outline);
         CGPathRelease(outline);
         if (stroke) CGContextReplacePathWithStrokedPath(ctx);

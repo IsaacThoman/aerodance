@@ -718,8 +718,10 @@ NSString *Executor::programInfo(GLuint program) {
       [blocks addObject:@{ @"name": [NSString stringWithUTF8String:buf], @"index": @(i) }];
     }
   }
+  // Browsers report no log for a program that links; Apple's compiler adds warnings that three.js
+  // would print for every program.
   return JSON(@{ @"link": @(link != 0), @"validate": @(validate != 0), @"shaders": @(shaders),
-                 @"log": [NSString stringWithUTF8String:log.c_str()] ?: @"",
+                 @"log": link ? @"" : ([NSString stringWithUTF8String:log.c_str()] ?: @""),
                  @"uniforms": uniforms, @"attribs": attribs, @"blocks": blocks });
 }
 
