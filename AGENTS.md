@@ -1,9 +1,8 @@
----
-name: play
-description: Run and drive aerodance (the game or Dance Studio) in a GPU-rendered browser to see a change working - click canvas menus, wait on screen state, screenshot. Use when asked to run, play, screenshot or interactively test the app.
----
+# Agent notes
 
-Use `node scripts/play.ts`; [docs/interactive-testing.md](../../../docs/interactive-testing.md) is the full guide.
+## Running and driving aerodance
+
+When you need to run, play, screenshot or interactively test the game or Dance Studio, use `node scripts/play.ts`. [docs/interactive-testing.md](docs/interactive-testing.md) is the full guide.
 
 1. `node scripts/play.ts start` (add `--studio`, `--dist`, `--url '/?input=ghost'` as needed). Check that the printed renderer is a GPU, not SwiftShader.
 2. Drive it: `click <LAYOUT_TARGET>` (`node scripts/play.ts targets` lists them), `key Escape`, then `wait key=value ...` on the canvas's `data-*` state before the next step. Wait for `menuReady=true` / `songReady=true` after each screen change.
