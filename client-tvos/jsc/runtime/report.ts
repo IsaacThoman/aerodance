@@ -6,11 +6,11 @@
 //   "drive": [["wait", {"menuScreen": "main", "menuReady": "true"}], ["key", "Enter"], ...]
 import { Q, native } from './native.ts';
 import { screenCanvas } from './dom.ts';
-import { commands } from './webgl.ts';
+import { commands, counters } from './webgl.ts';
 import { setIntervalShim } from './web.ts';
 
 type Step = ['wait', Record<string, string>, number?] | ['key', string] | ['sleep', number] | ['report', string];
-type Config = { report?: string; label?: string; bench?: unknown; drive?: Step[] };
+type Config = { report?: string; label?: string; bench?: unknown; drive?: Step[]; profile?: boolean };
 type Host = { key(type: string, key: string, code: string, repeat: boolean): void };
 
 const dataset = () => (screenCanvas.current?.dataset ?? {}) as Record<string, string>;
@@ -27,7 +27,36 @@ function loopBenchmark() {
   return { ms: round(performance.now() - t, 1), sink: s > 0 };
 }
 
+/** With "profile" in the launch config: time spent in each WebGL and 2D canvas method. */
+const profile = new Map<string, { calls: number; ms: number }>();
+function installProfiler() {
+  const g = globalThis as unknown as Record<string, { prototype: Record<string, unknown> }>;
+  for (const cls of ['WebGL2RenderingContext', 'CanvasRenderingContext2D']) {
+    const proto = g[cls].prototype;
+    for (const key of Object.getOwnPropertyNames(proto)) {
+      const d = Object.getOwnPropertyDescriptor(proto, key);
+      if (!d || typeof d.value !== 'function' || key === 'constructor' || key.startsWith('_')) continue;
+      const fn = d.value as (...a: unknown[]) => unknown;
+      const name = `${cls === 'WebGL2RenderingContext' ? 'gl' : '2d'}.${key}`;
+      const entry = { calls: 0, ms: 0 };
+      profile.set(name, entry);
+      proto[key] = function (this: unknown, ...args: unknown[]) {
+        const t = native.now();
+        try { return fn.apply(this, args); } finally { entry.ms += native.now() - t; entry.calls++; }
+      };
+    }
+  }
+}
+function takeProfile(frames: number) {
+  const top = [...profile.entries()].filter(([, e]) => e.calls).sort((a, b) => b[1].ms - a[1].ms).slice(0, 12)
+    .map(([k, e]) => `${k} ${round(e.calls / frames, 1)}x ${round(e.ms / frames)}ms`);
+  const total = [...profile.values()].reduce((a, e) => a + e.ms, 0) / frames;
+  for (const e of profile.values()) { e.calls = 0; e.ms = 0; }
+  return { totalMs: round(total), top };
+}
+
 export function installGameHooks(config: Config, host: Host) {
+  if (config.profile) installProfiler();
   let atRoot: boolean | null = null;
   setIntervalShim(() => {
     const d = dataset();
@@ -42,17 +71,21 @@ export function installGameHooks(config: Config, host: Host) {
     const loop = loopBenchmark();
     post(url, { type: 'start', label, loopMs: loop.ms, mode: ['direct', 'batched', 'threaded'][native.mode] });
     let lastDraws = commands();
+    let last = { ...counters };
     setIntervalShim(() => {
-      const stats = JSON.parse(native.query(Q.frameStats, 2000) as string) as { frames: number; jsMs: { mean: number; p95: number }; execMs: { mean: number }; intervalMs: { mean: number; p50: number; p95: number } };
+      const stats = JSON.parse(native.query(Q.frameStats, 2000) as string) as { frames: number; jsMs: { mean: number; p95: number }; execMs: { mean: number }; intervalMs: { mean: number; p50: number; p95: number }; wordsPerFrame: { mean: number } };
       const draws = commands();
       const frames = Math.max(1, stats.frames);
       post(url, {
         type: 'game', label, mark, t: Math.round(performance.now()),
         fps: stats.intervalMs.mean ? round(1000 / stats.intervalMs.mean, 1) : 0,
-        frameMs: { p50: stats.intervalMs.p50, p95: stats.intervalMs.p95 }, jsMs: stats.jsMs, execMs: stats.execMs,
+        frameMs: { p50: stats.intervalMs.p50, p95: stats.intervalMs.p95 }, jsMs: stats.jsMs, execMs: stats.execMs, wordsPerFrame: Math.round(stats.wordsPerFrame.mean),
         drawsPerFrame: Math.round((draws - lastDraws) / frames), frames: stats.frames, dataset: { ...dataset() },
+        ...(config.profile ? { profile: takeProfile(frames) } : {}),
+        perFrame: Object.fromEntries(Object.entries(counters).map(([k, v]) => [k, round((v - last[k as keyof typeof counters]) / frames, 1)])),
       });
       lastDraws = draws;
+      last = { ...counters };
     }, 2000);
   }
   if (config.drive) void drive(config.drive, host, url, label, (m) => { mark = m; });

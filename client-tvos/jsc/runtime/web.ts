@@ -235,11 +235,13 @@ export class URLShim {
     this.searchParams = new URLSearchParamsShim(q >= 0 ? p.slice(q + 1) : '');
     p = q >= 0 ? p.slice(0, q) : p;
     if (this.protocol === 'blob:' || this.protocol === 'data:') { this.pathname = p; return; }
+    // Dot segments: a trailing '.' or '..' leaves the path ending in a slash.
     const out: string[] = [];
-    for (const seg of p.split('/').slice(1)) {
-      if (seg === '..') out.pop();
-      else if (seg !== '.') out.push(seg);
-    }
+    const segs = p.split('/').slice(1);
+    segs.forEach((seg, i) => {
+      const last = i === segs.length - 1;
+      if (seg === '..') { out.pop(); if (last) out.push(''); } else if (seg === '.') { if (last) out.push(''); } else out.push(seg);
+    });
     this.pathname = `/${out.join('/')}`;
   }
   get search() { const s = this.searchParams.toString(); return s ? `?${s}` : ''; }

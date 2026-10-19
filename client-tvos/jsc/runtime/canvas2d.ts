@@ -6,7 +6,7 @@ import { OP, PAINT } from './ops.ts';
 import { Q, native } from './native.ts';
 import { parseColor, serializeColor } from './color.ts';
 import type { RGBA } from './color.ts';
-import { F, I, U8, begin, end, isPixelSource, query } from './webgl.ts';
+import { F, I, U8, begin, counters, end, isPixelSource, query } from './webgl.ts';
 import type { PixelSource } from './webgl.ts';
 
 const N = native;
@@ -149,7 +149,7 @@ export class CanvasRenderingContext2D {
   /** The canvas was resized: its bitmap and state are new. */
   _reset() { this._s = defaultState(); this._stack = []; }
 
-  _op(op: number, words: number) { if (selected !== this._id) select(this._id); return begin(op, words); }
+  _op(op: number, words: number) { counters.canvasOps++; if (selected !== this._id) select(this._id); return begin(op, words); }
 
   save() { this._stack.push({ ...this._s, dash: this._s.dash.slice(), m: [...this._s.m] }); this._op(OP.C_SAVE, 1); end(); }
   restore() {
@@ -288,6 +288,7 @@ export class CanvasRenderingContext2D {
     const key = `${f}|${ls}|${text}`;
     let m = measured.get(key);
     if (!m) {
+      counters.measureMisses++;
       N.measureText(f, String(text), ls, metricsScratch);
       m = new TextMetricsLite(metricsScratch);
       if (measured.size > 4096) measured.clear();
@@ -297,6 +298,7 @@ export class CanvasRenderingContext2D {
   }
   _text(op: number, text: string, x: number, y: number, maxWidth?: number) {
     this._fontId();
+    counters.strings++;
     const p = this._op(op, 5); I[p + 1] = N.str(String(text)); F[p + 2] = x; F[p + 3] = y; F[p + 4] = maxWidth ?? -1; end();
   }
   fillText(text: string, x: number, y: number, maxWidth?: number) { this._text(OP.C_FILL_TEXT, text, x, y, maxWidth); }

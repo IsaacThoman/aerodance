@@ -36,8 +36,11 @@ export function begin(op: number, words: number) {
 /** Ends a command started with begin(); in direct mode it runs now. */
 export function end() { if (DIRECT) submit(false); }
 export const commands = () => commandCount;
+/** Counters for the game's frame reports (report.ts). */
+export const counters = { textureUploads: 0, canvasOps: 0, measureMisses: 0, strings: 0, queries: 0 };
 /** A native query, after everything encoded so far has run. */
 export function query(kind: number, a?: number, b?: number, c?: number, d?: number, e?: number, f?: number, out?: ArrayBufferView) {
+  counters.queries++;
   submit(false);
   return N.query(kind, a, b, c, d, e, f, out);
 }
@@ -162,6 +165,7 @@ const isImageData = (v: unknown): v is ImageDataLike => typeof v === 'object' &&
 function texUpload(variant: number, target: number, level: number, internalformat: number,
   x: number, y: number, z: number, w: number, h: number, d: number, border: number, format: number, type: number,
   src: unknown, srcOffset = 0, srcLength?: number) {
+  counters.textureUploads++;
   let p: number;
   const HEAD = 14;
   if (src === null || src === undefined) {
