@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
 import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
 import type { Circle, Point, Rect } from './draw.ts';
+import { tv } from '../quality.ts';
 
 /**
  * An in-engine 2D overlay: a canvas the size of the render buffer, laid out in design
@@ -179,6 +180,9 @@ function onNavKey(e: KeyboardEvent) {
 }
 
 const DEFAULT_DESIGN = (): DesignSize => ({ w: 1600, h: 900 });
+// Each redraw is uploaded as a full texture. On the TV tier an overlay animating every frame
+// (the song HUD) redraws at most every 1/40 s, so every other frame at 60 fps.
+const MIN_REDRAW_S = tv ? 1 / 40 : 0;
 // A press that travels this far (design units) turns into a scroll.
 const SCROLL_SLOP = 14;
 
@@ -259,6 +263,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
   const ui = ref.current;
   ui.requestFrame = requestFrame;
   const focusRing = useRef(createFocusRing()).current;
+  const drawnAt = useRef(-Infinity);
 
   useEffect(() => {
     const el = gl.domElement;
@@ -453,8 +458,10 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       return;
     }
 
-    if (s.dirty) {
+    if (s.dirty && s.time - drawnAt.current < MIN_REDRAW_S - 1e-3) s.requestFrame();
+    else if (s.dirty) {
       s.dirty = false;
+      drawnAt.current = s.time;
       const { g } = overlay;
       const sx = overlay.canvas.width / s.w;
       const sy = overlay.canvas.height / s.h;

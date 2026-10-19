@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { AeroContext } from './context.ts';
+import { DepthOrder } from './depthOrder.ts';
 import type { FlightPath } from './flight.ts';
 import { STREETS } from './streets.ts';
 import { TAU } from './util.ts';
@@ -7,9 +8,10 @@ import { TAU } from './util.ts';
 /** A soap bubble: rises by `rise` m/s and loops back after `range` m (0: hovers in place). */
 export interface BubbleSpec { x: number; y: number; z: number; r: number; rise: number; range: number }
 
-interface Bubble extends BubbleSpec { m: THREE.Mesh; y0: number; ph: number }
+interface Bubble extends BubbleSpec { y0: number; ph: number }
 
-const bubbleVS = `varying vec3 vN;varying vec3 vV;varying vec3 vWN;void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vN=normalize(normalMatrix*normal);vV=-mv.xyz;vWN=normal;gl_Position=projectionMatrix*mv;}`;
+// One instanced draw: instances are spheres moved and scaled (never turned), so the normal needs no instance transform.
+const bubbleVS = `varying vec3 vN;varying vec3 vV;varying vec3 vWN;void main(){vec4 mv=modelViewMatrix*instanceMatrix*vec4(position,1.0);vN=normalize(normalMatrix*normal);vV=-mv.xyz;vWN=normal;gl_Position=projectionMatrix*mv;}`;
 const bubbleFS = `uniform vec3 uLight;uniform float uTime;varying vec3 vN;varying vec3 vV;varying vec3 vWN;
     void main(){vec3 n=normalize(vN),v=normalize(vV);float ndv=clamp(dot(n,v),0.0,1.0);float f=pow(1.0-ndv,2.2);
       vec3 ir=0.5+0.5*cos(6.2831*(vec3(0.0,0.33,0.67)+f*1.4+vWN.y*0.3+uTime*0.05));
@@ -34,16 +36,31 @@ export function buildBubbles(ctx: AeroContext, path: FlightPath, specs: BubbleSp
   const high = path.points.filter((p) => p.y > 120);
   for (let i = 0; i < 22; i++) { const p = pick(high); BUBS.push({ x: p.x + R(-60, 60), y: p.y + R(-20, 30), z: p.z + R(-60, 60), r: R(3, 10), rise: R(0.5, 1.5), range: 50 }); }
   BUBS.push({ x: -330, y: 85, z: 700, r: 75, rise: 0, range: 0 }, { x: 620, y: 150, z: -620, r: 130, rise: 0, range: 0 }, { x: -120, y: 42, z: 860, r: 28, rise: 0, range: 0 });
-  for (const b of BUBS) { const m = new THREE.Mesh(bg, bubMat); m.scale.setScalar(b.r); m.position.set(b.x, b.y, b.z); m.renderOrder = 2; ctx.root.add(m); BUBBLES.push(Object.assign(b, { m, y0: b.y, ph: R(0, TAU) })); }
+  for (const b of BUBS) BUBBLES.push(Object.assign(b, { y0: b.y, ph: R(0, TAU) }));
+  const n = BUBBLES.length, mesh = new THREE.InstancedMesh(bg, bubMat, n);
+  mesh.renderOrder = 2; mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  ctx.root.add(mesh);
+  // Positions this frame, drawn farthest first as three.js sorted the separate bubbles.
+  const pos = new Float64Array(n * 3), order = new DepthOrder(n), fwd = new THREE.Vector3(), m = mesh.instanceMatrix.array as Float32Array;
 
   return {
     /** Needs the camera's matrices for this frame (lit in view space). */
     update(t: number, dt: number, camera: THREE.Camera) {
       uLight.value.copy(ctx.sun).transformDirection(camera.matrixWorldInverse);
-      for (const b of BUBBLES) {
+      BUBBLES.forEach((b, i) => {
         if (b.range) { b.y += b.rise * dt; if (b.y > b.y0 + b.range) b.y = b.y0; }
-        b.m.position.set(b.x + Math.sin(t * 0.5 + b.ph) * b.r * 0.6, b.y + (b.range ? 0 : Math.sin(t * 0.3 + b.ph) * 4), b.z + Math.cos(t * 0.4 + b.ph) * b.r * 0.6);
+        pos[i * 3] = b.x + Math.sin(t * 0.5 + b.ph) * b.r * 0.6;
+        pos[i * 3 + 1] = b.y + (b.range ? 0 : Math.sin(t * 0.3 + b.ph) * 4);
+        pos[i * 3 + 2] = b.z + Math.cos(t * 0.4 + b.ph) * b.r * 0.6;
+      });
+      camera.getWorldDirection(fwd);
+      order.update(pos, 3, 0, camera.position.x, camera.position.y, camera.position.z, fwd.x, fwd.y, fwd.z);
+      for (let k = 0; k < n; k++) {
+        const i = order.order[k], r = BUBBLES[i].r, o = k * 16;
+        m[o] = r; m[o + 5] = r; m[o + 10] = r; m[o + 15] = 1;
+        m[o + 12] = pos[i * 3]; m[o + 13] = pos[i * 3 + 1]; m[o + 14] = pos[i * 3 + 2];
       }
+      mesh.instanceMatrix.needsUpdate = true;
     },
   };
 }

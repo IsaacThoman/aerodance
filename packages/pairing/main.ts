@@ -23,6 +23,12 @@ const server = http.createServer((req, res) => {
     if (!handled) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"Not found"}'); }
   });
 });
+// The relay's WebSockets (relay.ts).
+server.on('upgrade', (req, socket, head) => {
+  const url = req.url || '/';
+  if (url.startsWith(`${PREFIX}/`)) req.url = url.slice(PREFIX.length);
+  if (!pairing.upgrade(req, socket, head)) socket.destroy();
+});
 const port = Number(process.env.PAIRING_PORT) || 3001;
 server.listen(port, process.env.PAIRING_HOST || undefined, () => console.log(`Pairing server listening on ${port}`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

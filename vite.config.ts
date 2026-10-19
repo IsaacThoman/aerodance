@@ -6,11 +6,22 @@ import { discoverSongs, songCatalogMiddleware } from './scripts/songCatalog.ts';
 import { poseAssetsPlugin } from './scripts/poseAssets.ts';
 import { createPairingServer } from './packages/pairing/server.ts';
 import type { Connect } from 'vite';
+import type { IncomingMessage, Server } from 'node:http';
+import type { Http2SecureServer } from 'node:http2';
+import type { Duplex } from 'node:stream';
 
 // Phone pairing (packages/pairing/server.ts) at /pair, as nginx proxies it in production.
 const pairing = createPairingServer();
 const pairingMiddleware: Connect.NextHandleFunction = (req, res, next) => {
   pairing.handle(req, res).then((handled) => { if (!handled) next(); }, next);
+};
+// The relay's WebSockets (packages/pairing/relay.ts), beside Vite's own (its HMR socket ignores these).
+const pairingUpgrade = (httpServer: Server | Http2SecureServer | null) => {
+  httpServer?.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (!req.url?.startsWith('/pair/')) return;
+    req.url = req.url.slice('/pair'.length);
+    if (!pairing.upgrade(req, socket, head)) socket.destroy();
+  });
 };
 // The phone page is typed as /phone; nginx adds the slash itself, Vite would serve the game.
 const phoneSlash: Connect.NextHandleFunction = (req, res, next) => {
@@ -23,8 +34,8 @@ export default defineConfig({
   root: 'client',
   plugins: [react(), poseAssetsPlugin(), {
     name: 'phone-pairing',
-    configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); },
-    configurePreviewServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); },
+    configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); pairingUpgrade(server.httpServer); },
+    configurePreviewServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); pairingUpgrade(server.httpServer); },
   }, {
     name: 'song-discovery',
     configureServer(server) {

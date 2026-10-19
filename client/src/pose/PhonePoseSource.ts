@@ -3,12 +3,15 @@ import { CONTROL_CHANNEL, LIVE_CHANNEL, parsePhoneMessage } from '../../../packa
 import type { GameMessage, PhoneStatus } from '../../../packages/pairing/link.ts';
 import { Peer } from '../../../packages/pairing/browser/peer.ts';
 import type { CreatePeerConnection } from '../../../packages/pairing/browser/peer.ts';
+import { RelayLink, relayUrl } from '../../../packages/pairing/browser/relay.ts';
+import type { CreateRelaySocket, LinkChannel } from '../../../packages/pairing/browser/relay.ts';
 import { PAIRING_BASE, SignalChannel, createRoom } from '../../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../../packages/pairing/browser/signalChannel.ts';
 import type { CreatedRoom, PairingEvent } from '../../../packages/pairing/signals.ts';
 import { isPoseModelId, poseModel } from '../../../packages/pose/browser/models.ts';
 import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
 import type { RecordTiming } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { PreviewFrame, PreviewPicture } from '../../../packages/pose/browser/preview.ts';
 import type { WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
 import type { FrameSize, PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts';
@@ -29,6 +32,12 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
  *
  * A connected phone keeps going if the pairing server goes away (a redeploy); only pairing
  * again needs it.
+ *
+ * Without WebRTC (the Apple TV app), or with ?transport=relay, the two talk through the pairing
+ * server's relay instead (packages/pairing/relay.ts): the same messages on stand-ins for the
+ * data channels, and the preview as small JPEGs. That link does need the server throughout.
+ * An app that bundles the game sets globalThis.__aerodanceSite to the deployed site's origin,
+ * where it pairs and where the QR code sends the phone.
  *
  * setPreview(true) while a setup preview is on screen: the phone sends a small copy of its
  * camera, and video is that picture (null without one, so previews draw the skeletons alone).
@@ -62,9 +71,25 @@ export interface PhonePoseSourceOptions {
   /** The site the phone opens (the QR code's link). */
   origin?: () => string;
   createVideo?: () => HTMLVideoElement;
+  /** WebRTC, or the pairing server's relay; 'auto' relays where there's no RTCPeerConnection. */
+  transport?: Transport;
+  createSocket?: CreateRelaySocket;
+  /** Decodes a relayed preview picture (JPEG bytes). */
+  decodeFrame?: (jpeg: ArrayBuffer) => Promise<PreviewFrame>;
 }
+export type Transport = 'auto' | 'webrtc' | 'relay';
 type Listener<T> = (value: T) => void;
 
+// An app that bundles the game (the Apple TV app) names the deployed site it pairs through.
+const site = () => ((globalThis as { __aerodanceSite?: string }).__aerodanceSite ?? '').replace(/\/+$/, '');
+const askedTransport = (): Transport => {
+  const asked = new URLSearchParams(globalThis.location?.search ?? '').get('transport');
+  return asked === 'relay' || asked === 'webrtc' ? asked : 'auto';
+};
+async function decodeJpeg(jpeg: ArrayBuffer): Promise<PreviewFrame> {
+  const bitmap = await createImageBitmap(new Blob([jpeg], { type: 'image/jpeg' }));
+  return { image: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
+}
 // Poses older than this when they arrive (or that never line up with our clock) are dropped,
 // like the webcam's slow results.
 const STALE_MS = 500;
@@ -73,6 +98,8 @@ const PING_MS = 500;
 const QUIET_MS = 3000;
 // A connection attempt that hasn't opened in this long is given up (the phone may have gone).
 const ATTEMPT_MS = 20_000;
+// A relay socket of this end's that hasn't connected in this long doesn't hold off a new attempt.
+const RELAY_CONNECT_MS = 4000;
 // The phone's picture counts as showing while a frame arrived this recently.
 const VIDEO_FRESH_MS = 1000;
 const MODEL_KEY = 'aerodance-phone-model';
@@ -91,8 +118,15 @@ export class PhonePoseSource implements PoseSource {
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: PhoneView;
   createVideo: () => HTMLVideoElement;
+  /** Connecting through the pairing server's relay rather than WebRTC. */
+  relayed: boolean;
+  createSocket: CreateRelaySocket | undefined;
+  decodeFrame: (jpeg: ArrayBuffer) => Promise<PreviewFrame>;
   /** The phone's picture, while it sends one, and when its last frame arrived. */
   remoteVideo: HTMLVideoElement | null = null;
+  /** ...or, relayed, its latest still picture (and whether the next is still decoding). */
+  remoteFrame: PreviewFrame | null = null;
+  decoding = false;
   videoAt = -Infinity;
   preview = false;
   playerCount: PlayerCount = 1;
@@ -101,9 +135,10 @@ export class PhonePoseSource implements PoseSource {
   room: CreatedRoom | null = null;
   channel: SignalChannel | null = null;
   peer: Peer | null = null;
+  link: RelayLink | null = null;
   epoch = 0;
-  live: RTCDataChannel | null = null;
-  control: RTCDataChannel | null = null;
+  live: LinkChannel | null = null;
+  control: LinkChannel | null = null;
   clock = new ClockSync();
   phone: PhoneStatus | null = null;
   pings = 0;
@@ -114,10 +149,12 @@ export class PhonePoseSource implements PoseSource {
   lastPose = -Infinity;
   arrivals: number[] = [];
   offeredAt = -Infinity;
-  constructor({ base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
-    origin = () => location.origin, createVideo = () => document.createElement('video') }: PhonePoseSourceOptions = {}) {
+  constructor({ base = site() ? `${site()}/pair` : PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
+    origin = () => site() || location.origin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
+    decodeFrame = decodeJpeg }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
-    this.now = now; this.origin = origin; this.createVideo = createVideo;
+    this.now = now; this.origin = origin; this.createVideo = createVideo; this.createSocket = createSocket; this.decodeFrame = decodeFrame;
+    this.relayed = transport === 'relay' || (transport === 'auto' && !createConnection && typeof RTCPeerConnection === 'undefined');
     const model = saved(MODEL_KEY);
     this.view = { status: 'disconnected', sourceKind: 'phone', message: 'Pair your phone to use it as the camera.', snapshot: null,
       configuring: false, model: isPoseModelId(model) ? model : 'lite', pairing: null, device: '', frame: null, stats: null,
@@ -130,7 +167,7 @@ export class PhonePoseSource implements PoseSource {
   emit(event: PoseSourceEvent) { for (const listener of this.recordListeners) listener(event); }
 
   /** The phone's camera picture for a setup preview, while one is coming in. */
-  get video() { return this.preview && this.now() - this.videoAt < VIDEO_FRESH_MS ? this.remoteVideo : null; }
+  get video(): PreviewPicture | null { return this.preview && this.now() - this.videoAt < VIDEO_FRESH_MS ? this.remoteFrame ?? this.remoteVideo : null; }
 
   /** Starts pairing: a new code for a phone to scan. */
   async connect() {
@@ -204,11 +241,11 @@ export class PhonePoseSource implements PoseSource {
 
   onSignal(event: PairingEvent) {
     const { peer } = this;
-    if (event.type === 'hello') this.offer(event.device || 'Phone');
+    if (event.type === 'hello') this.hello(event.device || 'Phone');
     else if (event.type === 'answer' && peer?.epoch === event.epoch) peer.accept(event.sdp).catch(() => { if (peer === this.peer) this.lost(); });
     else if (event.type === 'ice' && peer?.epoch === event.epoch) void peer.addIce(event.candidate);
     // The phone left before the connection opened: show the code again.
-    else if (event.type === 'peer' && event.left && peer && this.control?.readyState !== 'open') this.lost();
+    else if (event.type === 'peer' && event.left && (peer || this.link) && this.control?.readyState !== 'open') this.lost();
     else if (event.type === 'closed') {
       // The room is gone, but a connected phone carries on without it.
       if (this.control?.readyState === 'open') {
@@ -218,42 +255,89 @@ export class PhonePoseSource implements PoseSource {
     }
   }
 
-  /** A phone said hello: a fresh connection for it, replacing any earlier one. */
+  /**
+   * A phone said hello. Relayed, a hello while the link is open (or its attempt still young)
+   * gets this attempt again rather than a new one that would replace it: a phone that still
+   * holds the link ignores it (the hello crossed the link on the way), and one that lost its
+   * socket without the server noticing (a network change) connects to it again, which the
+   * server lets replace the stale socket. Otherwise: a new connection.
+   */
+  hello(device: string) {
+    const { link, channel } = this;
+    if (link && channel && (this.control?.readyState === 'open' || this.now() - this.offeredAt < ATTEMPT_MS)) {
+      if (link.socket.readyState === 1) { channel.send({ type: 'relay', epoch: this.epoch }).catch(() => {}); return; }
+      // This end's socket is still connecting (it tells the phone once it's there), unless it's stuck.
+      if (this.now() - this.offeredAt < RELAY_CONNECT_MS) return;
+    }
+    this.offer(device);
+  }
+
+  /** A fresh connection for the phone, replacing any earlier one. */
   offer(device: string) {
     const { room, channel } = this;
     if (!room || !channel) return;
     this.closePeer();
-    let peer: Peer;
-    try {
-      peer = this.peer = new Peer({ epoch: ++this.epoch, iceServers: room.iceServers, createConnection: this.createConnection,
-        send: (signal) => { channel.send(signal).catch(() => {}); } });
-    } catch (error) {
-      // An ICE server entry the browser won't take (PAIRING_ICE_SERVERS).
-      this.fail(Error(`Couldn't start a connection to the phone: ${reason(error)}`));
-      return;
+    const epoch = ++this.epoch;
+    let live: LinkChannel, control: LinkChannel, peer: Peer | null = null;
+    if (this.relayed) {
+      // The link opens once the phone has connected too; it's told to once this end's socket is there.
+      const link = this.link = new RelayLink({ url: relayUrl(this.base, room.code, room.token, epoch), createSocket: this.createSocket });
+      link.onsocketopen = () => { if (link === this.link) channel.send({ type: 'relay', epoch }).catch(() => {}); };
+      link.onframe = (jpeg) => { if (link === this.link) this.showFrame(jpeg); };
+      // The phone connected to this attempt again (a new socket, maybe a reloaded page): it needs
+      // the game's settings again, and its clock may have started over.
+      link.onreopen = () => {
+        if (link !== this.link) return;
+        this.clock.reset();
+        this.sendConfig();
+        this.send({ type: 'game', playing: this.playing });
+        this.send({ type: 'preview', on: this.preview });
+      };
+      ({ live, control } = link);
+    } else {
+      try {
+        peer = this.peer = new Peer({ epoch, iceServers: room.iceServers, createConnection: this.createConnection,
+          send: (signal) => { channel.send(signal).catch(() => {}); } });
+      } catch (error) {
+        // An ICE server entry the browser won't take (PAIRING_ICE_SERVERS).
+        this.fail(Error(`Couldn't start a connection to the phone: ${reason(error)}`));
+        return;
+      }
+      const { pc } = peer;
+      live = pc.createDataChannel(LIVE_CHANNEL, { ordered: false, maxRetransmits: 0 });
+      // The phone's preview picture: offered from the start, so turning it on needs no renegotiation.
+      pc.addTransceiver?.('video', { direction: 'recvonly' });
+      pc.ontrack = ({ track }) => { if (mine() && track.kind === 'video') this.showVideo(track); };
+      control = pc.createDataChannel(CONTROL_CHANNEL);
+      pc.onconnectionstatechange = () => {
+        if (mine() && ['failed', 'closed'].includes(pc.connectionState)) this.lost();
+      };
     }
-    const live = this.live = peer.pc.createDataChannel(LIVE_CHANNEL, { ordered: false, maxRetransmits: 0 });
-    // The phone's preview picture: offered from the start, so turning it on needs no renegotiation.
-    peer.pc.addTransceiver?.('video', { direction: 'recvonly' });
-    peer.pc.ontrack = ({ track }) => { if (mine() && track.kind === 'video') this.showVideo(track); };
-    const control = this.control = peer.pc.createDataChannel(CONTROL_CHANNEL);
-    const mine = () => peer === this.peer;
+    this.live = live; this.control = control;
+    const attempt = this.link ?? this.peer;
+    const mine = () => (this.link ?? this.peer) === attempt;
     live.onmessage = control.onmessage = ({ data }) => { if (mine()) this.onMessage(data); };
+    let opened = false;
     control.onopen = () => {
       if (!mine()) return;
+      opened = true;
       this.sendConfig();
       this.send({ type: 'game', playing: this.playing });
       this.send({ type: 'preview', on: this.preview });
       this.pingTimer = setInterval(() => this.send({ type: 'ping', id: ++this.pings, t0: this.now() }), PING_MS);
       this.publish({ status: 'initializing', message: `${device} connected. Starting its camera…` });
     };
-    control.onclose = () => { if (mine()) this.lost(); };
-    peer.pc.onconnectionstatechange = () => {
-      if (mine() && ['failed', 'closed'].includes(peer.pc.connectionState)) this.lost();
+    control.onclose = () => {
+      if (!mine()) return;
+      const reattempt = !!this.link && opened;
+      this.lost();
+      // Relayed, a link that was open and dropped on this end alone (the phone may not know yet)
+      // gets a new attempt at once: the server takes it as replacing the old link on both ends.
+      if (reattempt && this.channel) this.offer(device);
     };
     this.offeredAt = this.now();
     this.publish({ status: 'initializing', device, snapshot: null, message: `Connecting to ${device}…` });
-    peer.offer().catch(() => { if (mine()) this.lost(); });
+    peer?.offer().catch(() => { if (mine()) this.lost(); });
   }
 
   /** The connection dropped: wait for the phone to come back (or another to pair). */
@@ -276,6 +360,10 @@ export class PhonePoseSource implements PoseSource {
     this.live = this.control = null;
     this.peer?.close();
     this.peer = null;
+    this.link?.close();
+    this.link = null;
+    this.remoteFrame?.close?.();
+    this.remoteFrame = null;
     if (this.remoteVideo) { this.remoteVideo.srcObject = null; this.remoteVideo.remove?.(); }
     this.remoteVideo = null;
     this.videoAt = -Infinity;
@@ -303,6 +391,20 @@ export class PhonePoseSource implements PoseSource {
     };
     if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(frame);
     else video.ontimeupdate = () => { if (this.remoteVideo === video) this.videoAt = this.now(); };
+  }
+
+  /** A relayed preview picture: decoded and shown (one at a time; any that come meanwhile are skipped). */
+  showFrame(jpeg: ArrayBuffer) {
+    if (this.decoding || !this.preview) return;
+    this.decoding = true;
+    const link = this.link;
+    this.decodeFrame(jpeg).then((frame) => {
+      this.decoding = false;
+      if (link !== this.link || !link) { frame.close?.(); return; }
+      this.remoteFrame?.close?.();
+      this.remoteFrame = frame;
+      this.videoAt = this.now();
+    }, () => { this.decoding = false; });
   }
 
   send(message: GameMessage) {
@@ -355,6 +457,6 @@ export class PhonePoseSource implements PoseSource {
     const now = this.now();
     if (this.view.snapshot && now - this.view.snapshot.frameBrowserTimeMs >= STALE_MS) this.publish({ snapshot: null });
     if (this.view.status === 'connected' && now - this.lastPose > QUIET_MS) this.publish({ status: 'initializing', stats: null, message: this.describe() });
-    if (this.peer && this.control?.readyState !== 'open' && now - this.offeredAt > ATTEMPT_MS) this.lost();
+    if ((this.peer || this.link) && this.control?.readyState !== 'open' && now - this.offeredAt > ATTEMPT_MS) this.lost();
   }
 }

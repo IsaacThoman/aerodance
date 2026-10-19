@@ -10,6 +10,9 @@ only, and builds that reference non-public APIs are refused on upload (`ITMS-903
 Installing a development build on your own registered Apple TVs is fine. Apple can also change
 or remove the private WebKit in any tvOS update.
 
+For the App Store-legal app, see [`jsc/`](jsc/README.md): the same game in the public
+JavaScriptCore, at 60 fps. [docs/apple-tv.md](../docs/apple-tv.md) compares the approaches.
+
 ## How it works
 
 `src/main.m` is the whole app:
@@ -51,7 +54,16 @@ development profile, which lasts about a year; deploy again to renew it.
 
 `--report` sends the frame rate, the JavaScript time per frame and the draw calls per frame from
 the Apple TV to this Mac (port 8765), along with a short JavaScript loop benchmark taken at
-launch. Opened from the home screen, the app reports nothing.
+launch, and any errors the page throws. Opened from the home screen, the app reports nothing.
+
+With `--report`, `?drive=` in the page drives the game for a benchmark and reports
+`{"type":"done"}` when it's finished: `--path '/?drive=menu'` idles on the main menu for a
+minute, `--path '/?input=ghost&drive=play'` goes from the main menu through One Player, the first
+song's preview and Dance! to the results.
+
+The app sets the game's `tv` graphics tier (see `client/src/quality.ts`); `?quality=high` in
+the page overrides it. Each app on an Apple TV needs its own `TVOS_PORT` (default 8417) for the
+page's local server, or one app's page can be served by another app's server.
 
 ## What doesn't work yet
 
@@ -65,6 +77,12 @@ launch. Opened from the home screen, the app reports nothing.
   simulator on an M5 Pro). The launch benchmark takes about 1,050–1,230 ms against 283 ms with a
   JIT and 565 ms without one on the M5 Pro, which suggests tvOS WebKit runs JavaScript without a
   JIT; that is inferred from timing, not confirmed. Fewer draw calls is the main lever.
+  Since then the Aero world draws about 200 objects a frame instead of 1,000 (instanced clouds,
+  gulls, butterflies, bubbles, boats and balloons; batched static meshes) and about 1–2 million
+  triangles instead of 6 (trees culled and simplified by area), and the app picks the `tv` tier:
+  the main menu runs at about 45–50 fps over the meadow (JS about 10 ms a frame) and a song at
+  about 55 fps. Downtown, where the lake reflection doubles the work, is the slowest stretch.
+  Both the JavaScript and the GPU (mostly vertex work: trees, grass) still matter there.
 - **First stage load.** In the simulator, the first visit to a stage stalled for 15–20 seconds
   while its shaders compiled, and about 2 seconds once WebKit's shader cache was warm. tvOS can
   purge that cache.
@@ -74,12 +92,6 @@ launch. Opened from the home screen, the app reports nothing.
 
 ## Getting it onto the App Store
 
-That needs public APIs only, which rules out WebKit on tvOS. The options:
-
-- An iPhone/iPad app (where `WKWebView` is public) that shows the game on the Apple TV as an
-  AirPlay external display. Same code; adds the AirPlay delay.
-- A tvOS app that runs the game's JavaScript in the public JavaScriptCore (or Hermes) with native
-  graphics (three.js's WebGPU renderer on Dawn, or WebGL over Metal) and Skia for the canvas UI.
-  No JIT there either, so expect speeds like this app's.
-- A native renderer (Swift with RealityKit or Metal, or an engine such as Godot or Unity).
-- Streaming video from an iPad or Mac to a tvOS player app.
+That needs public APIs only, which rules out WebKit on tvOS. [`jsc/`](jsc/README.md) is the
+App Store-legal app; [docs/apple-tv.md](../docs/apple-tv.md) has the other approaches that were
+tried and how they measured.

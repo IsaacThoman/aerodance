@@ -112,7 +112,9 @@ export default function ResultsScreen({ visible = false, show, song, onRetry, on
       // Gameplay already showed an opaque overlay: results and their controls must be
       // ready together, including a Play again click on the very first results frame.
       st.alpha = p.visible ? 1 : s.ease(st.alpha, 0, 8);
-      if (p.visible) s.invalidate(); // reveal and score count
+      // The reveal and score count animate; after them the picture holds still (the buttons'
+      // hover still redraws it).
+      if (p.visible && (!p.show.current || timeline(p.show.current, performance.now() / 1000).t < REVEAL + 1)) s.invalidate();
       if (p.visible && p.show.current) {
         Object.assign(gl.domElement.dataset, {
           resultsScreen: 'stage',

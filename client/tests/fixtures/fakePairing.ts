@@ -1,11 +1,13 @@
 // Stand-ins for the browser APIs phone pairing uses, so the game's and the phone's ends can
 // talk in Node: a loopback RTCPeerConnection, an EventSource over fetch, and a pairing
-// server on a free port.
+// server on a free port (with its relay's WebSockets, which Node's own WebSocket can open).
 import http from 'node:http';
+import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import type { TestContext } from 'node:test';
 import { createPairingServer } from '../../../packages/pairing/server.ts';
 import type { EventStream } from '../../../packages/pairing/browser/signalChannel.ts';
+import type { RelaySocket } from '../../../packages/pairing/browser/relay.ts';
 
 /** The pairing server mounted at /pair on a free port; returns its base URL (and the server as `pairingServer.last`). */
 export async function pairingServer(t: TestContext) {
@@ -13,6 +15,10 @@ export async function pairingServer(t: TestContext) {
   const server = http.createServer((req, res) => {
     req.url = (req.url || '/').replace(/^\/pair/, '') || '/';
     void pairing.handle(req, res).then((handled) => { if (!handled) { res.writeHead(404); res.end(); } });
+  });
+  server.on('upgrade', (req, socket, head) => {
+    req.url = (req.url || '/').replace(/^\/pair/, '') || '/';
+    if (!pairing.upgrade(req, socket, head)) socket.destroy();
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
@@ -159,4 +165,40 @@ export async function until<T>(check: () => T, what: string, timeoutMs = 5000): 
     if (Date.now() > end) throw Error(`Timed out waiting for ${what}`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+}
+
+/**
+ * A TCP proxy in front of the pairing server for relay sockets: cut() drops a connection's near
+ * end and leaves the server's open and silent (a network change the server doesn't hear about),
+ * and while hang is on, new connections go nowhere.
+ */
+export async function relayProxy(t: TestContext, base: string) {
+  const serverPort = Number(new URL(base).port);
+  const pairs: { client: net.Socket; upstream: net.Socket | null }[] = [];
+  const state = { hang: false };
+  const proxy = net.createServer((client) => {
+    client.on('error', () => {});
+    if (state.hang) { pairs.push({ client, upstream: null }); return; }
+    const upstream = net.connect(serverPort, '127.0.0.1');
+    upstream.on('error', () => {});
+    client.pipe(upstream); upstream.pipe(client);
+    pairs.push({ client, upstream });
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+  const port = (proxy.address() as AddressInfo).port;
+  t.after(() => { for (const p of pairs) { p.client.destroy(); p.upstream?.destroy(); } proxy.close(); });
+  return {
+    state,
+    /** Relay sockets through the proxy. */
+    createSocket: (url: string) => new WebSocket(url.replace(`:${serverPort}/`, `:${port}/`)) as unknown as RelaySocket,
+    /** Cuts the newest connection on this side; returns a function that closes the server's end too. */
+    cut() {
+      const pair = pairs.at(-1);
+      if (!pair?.upstream) throw Error('no connection to cut');
+      const { client, upstream } = pair;
+      client.unpipe(upstream); upstream.unpipe(client); upstream.pause();
+      client.destroy();
+      return () => upstream.destroy();
+    },
+  };
 }

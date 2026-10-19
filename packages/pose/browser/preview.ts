@@ -14,22 +14,31 @@ export interface PreviewOptions {
 // Shared setup view: mirrored display only; captured landmarks stay canonical. The player
 // lanes show once the camera's picture (or, without one, its frame) does; without either it
 // shows `placeholder` (the caller may draw its own instead).
-export function drawWebcamPreview(g: CanvasRenderingContext2D, video: HTMLVideoElement | null | undefined,
+/** A still picture to preview under the skeletons (a phone's, sent through the pairing relay). */
+export interface PreviewFrame { image: CanvasImageSource; width: number; height: number; close?(): void; }
+/** What a preview shows: a live video, or the latest still picture. */
+export type PreviewPicture = HTMLVideoElement | PreviewFrame;
+const isFrame = (picture: PreviewPicture): picture is PreviewFrame => 'image' in picture;
+/** The picture's size once it has one to show (a video's first frame has decoded). */
+const shownSize = (p: PreviewPicture) => isFrame(p) ? (p.width ? { width: p.width, height: p.height } : null)
+  : p.readyState >= 2 && p.videoWidth ? { width: p.videoWidth, height: p.videoHeight } : null;
+
+export function drawWebcamPreview(g: CanvasRenderingContext2D, video: PreviewPicture | null | undefined,
   snapshot: { poses: readonly Pose[] } | null | undefined, rect: PreviewRect, playerCount = 2, placeholder = 'Start camera to preview',
   { mirror = true, frame = null, soloPlayerId = 0 }: PreviewOptions = {}) {
   const { x, y, w, h } = rect;
   g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
   g.fillStyle = '#09273b'; g.fillRect(x, y, w, h);
-  const showing = !!video && video.readyState >= 2 && !!video.videoWidth;
-  const size = video && showing ? { width: video.videoWidth, height: video.videoHeight } : video ? null : frame;
+  const shown = video ? shownSize(video) : null;
+  const size = shown ?? (video ? null : frame);
   if (size) {
     const scale = Math.min(w / size.width, h / size.height);
     const dw = size.width * scale, dh = size.height * scale;
     const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
-    if (video && showing) {
+    if (video && shown) {
       g.save();
       if (mirror) { g.translate(dx + dw, dy); g.scale(-1, 1); } else g.translate(dx, dy);
-      g.drawImage(video, 0, 0, dw, dh);
+      g.drawImage(isFrame(video) ? video.image : video, 0, 0, dw, dh);
       g.restore();
     } else {
       g.fillStyle = '#0e3a57'; g.fillRect(dx, dy, dw, dh);

@@ -10,10 +10,11 @@ import { PoseSourceController } from '../../packages/pose/browser/PoseSourceCont
 import type { WebcamConfigureOptions, WebcamPoseSource, WebcamRecordEvent, WebcamView } from '../../packages/pose/browser/WebcamPoseSource.ts';
 import type { WebcamRecord } from '../../packages/pose/webcamRecord.ts';
 import type { PlayerCount } from '../../packages/pose/choreography.ts';
-import { FakeConnection, createFakeConnection, fetchEventStream, pairingServer, until } from './fixtures/fakePairing.ts';
+import { FakeConnection, createFakeConnection, fetchEventStream, pairingServer, relayProxy, until } from './fixtures/fakePairing.ts';
 import { SignalChannel } from '../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../packages/pairing/browser/signalChannel.ts';
 import type { PairingEvent } from '../../packages/pairing/signals.ts';
+import type { PreviewFrame } from '../../packages/pose/browser/preview.ts';
 
 /** The phone's camera, driven by the test: it emits whatever records the test gives it. */
 class FakeCamera {
@@ -39,6 +40,7 @@ class FakeCamera {
   }
 }
 
+const noDecode = async () => ({ image: {} as CanvasImageSource, width: 1, height: 1 });
 const store = new Map<string, string>();
 Object.defineProperty(globalThis, 'localStorage', { configurable: true,
   value: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); } } });
@@ -225,7 +227,9 @@ test('a game that cannot reach the pairing server says so', async () => {
 test('the phone is the last camera; choosing it switches the game’s input and only its poses reach the game', async () => {
   store.clear();
   const phone = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair' });
-  const input = new CameraInput({ webcam: new PoseSourceController(), phone });
+  const input = new CameraInput({ webcam: new PoseSourceController(), phone, webcamSupported: true });
+  // Without a webcam (the Apple TV app), the phone is the camera from the start.
+  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource(), webcamSupported: false }).mode, 'phone');
   const heard: PoseSourceEvent[] = [];
   input.subscribeRecords((event) => heard.push(event));
   assert.equal(input.view.sourceKind, 'webcam');
@@ -235,7 +239,7 @@ test('the phone is the last camera; choosing it switches the game’s input and 
   assert.equal(input.view.cameraId, PHONE_CAMERA.deviceId);
   assert.equal(input.video, null);
   assert.equal(store.get('aerodance-camera'), 'phone');
-  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource() }).mode, 'phone');
+  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource(), webcamSupported: true }).mode, 'phone');
 
   const record = { ...phoneRecord(0, 1), timingMethod: 'remote-clock-sync' as const };
   const event = { record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'remote-clock-sync' } };
@@ -342,4 +346,165 @@ test('the game asks for the phone’s picture only while it previews, and the ph
   phone.previewWanted = false; phone.updateVideo();
   await until(() => calls.length === 3, 'the track to come off');
   assert.equal(calls[2], null);
+});
+
+test('without WebRTC, a phone links through the pairing server’s relay: poses on the game’s clock, previews as pictures, reconnecting', async (t) => {
+  const base = await pairingServer(t);
+  const pictures: number[] = [];
+  // The game decodes pictures to their size; the phone sends a "JPEG" naming its own (240 × 180).
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test',
+    decodeFrame: async (jpeg) => { const [w, h] = new Uint16Array(jpeg); pictures.push(w); return { image: {} as CanvasImageSource, width: w, height: h }; } });
+  const events: PoseSourceEvent[] = [];
+  host.subscribeRecords((event) => events.push(event));
+  const camera = new FakeCamera();
+  // A camera with a picture to send.
+  Object.assign(camera, { stream: {}, video: {} });
+  const captured: number[] = [];
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: camera as unknown as WebcamPoseSource, now: phoneNow, device: 'Relay phone',
+    captureFrame: async (_video, longSide) => { captured.push(longSide); return new Uint16Array([240, 180]).buffer; } });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  assert.equal(host.relayed, true);
+
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a pairing code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked', 'the phone to link through the relay');
+  assert.ok(phone.link && !phone.peer, 'relayed, not WebRTC');
+  await until(() => host.view.message.startsWith('Relay phone: Lite'), 'the phone’s status');
+  await host.setPlayerCount(2);
+  await until(() => camera.playerCount === 2, 'the player count');
+
+  await until(() => host.clock.ready, 'clock sync over the relay', 4000);
+  const sent = phoneRecord(30);
+  camera.emit(sent);
+  const event = await until(() => events.find(isPoseRecordEvent), 'a relayed pose');
+  assert.ok(Math.abs(event.captureBrowserTimeMs - (sent.frameBrowserTimeMs - PHONE_AHEAD_MS)) < 15, 'capture time on the game’s clock');
+  assert.equal(host.view.status, 'connected');
+
+  // The preview: small pictures while it's on, none after.
+  assert.equal(host.video, null);
+  host.setPreview(true);
+  await until(() => host.video, 'a preview picture');
+  assert.deepEqual([(host.video as PreviewFrame | null)?.width, captured[0]], [240, 240]);
+  assert.ok(phone.sendingVideo);
+  host.setPreview(false);
+  await until(() => !phone.sendingVideo, 'the pictures to stop');
+  const count = pictures.length;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.ok(pictures.length <= count + 1, 'no more pictures after the preview');
+
+  // The phone's socket drops: both ends notice, the phone says hello and they link again.
+  const epoch = host.epoch;
+  phone.link?.socket.close();
+  await until(() => host.epoch > epoch && phone.view.stage === 'linked' && host.control?.readyState === 'open', 'relinking');
+  await until(() => host.clock.ready, 'clock sync again', 4000);
+  camera.emit(phoneRecord(20));
+  await until(() => events.filter(isPoseRecordEvent).length === 2, 'poses after relinking');
+
+  host.disconnect();
+  await until(() => phone.view.stage === 'ended', 'the phone to hear pairing ended');
+});
+
+test('the game relays where there is no WebRTC, unless told otherwise', () => {
+  assert.equal(typeof RTCPeerConnection, 'undefined');
+  assert.equal(new PhonePoseSource().relayed, true);
+  assert.equal(new PhonePoseSource({ transport: 'webrtc' }).relayed, false);
+  assert.equal(new PhonePoseSource({ createConnection: createFakeConnection }).relayed, false);
+});
+
+test('through the relay, a hello that overlaps a reconnection doesn’t keep the two from relinking', async (t) => {
+  const base = await pairingServer(t);
+  // A network with some latency, so a hello can cross the attempt it overlaps.
+  const slow: typeof fetch = async (...args) => { await new Promise((resolve) => setTimeout(resolve, 60)); return fetch(...args); };
+  const host = new PhonePoseSource({ base, fetch: slow, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: async () => ({ image: {} as CanvasImageSource, width: 1, height: 1 }) });
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ base, fetch: slow, createStream: fetchEventStream, camera: camera as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  for (const gap of [40, 120, 250]) {
+    const epoch = host.epoch;
+    phone.link?.socket.close();
+    // The phone's hello timer ticks while it's reconnecting.
+    await new Promise((resolve) => setTimeout(resolve, gap));
+    phone.hello();
+    await until(() => host.epoch > epoch && phone.view.stage === 'linked' && host.control?.readyState === 'open', `relinking (hello ${gap} ms in)`, 8000);
+    // ...and it stays linked: no attempts keep replacing each other.
+    const settled = host.epoch;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(host.epoch, settled, 'no more attempts once linked');
+    assert.equal(phone.view.stage, 'linked');
+  }
+});
+
+test('through the relay, a phone whose socket dies without the server noticing (a network change) relinks at once', async (t) => {
+  const base = await pairingServer(t);
+  const proxy = await relayProxy(t, base);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: noDecode });
+  const events: PoseSourceEvent[] = [];
+  host.subscribeRecords((event) => events.push(event));
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: camera as unknown as WebcamPoseSource, now: phoneNow, createSocket: proxy.createSocket });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  await host.setPlayerCount(2);
+  await until(() => host.clock.ready, 'clock sync', 4000);
+
+  const before = phone.link, stages: string[] = [];
+  phone.subscribe((view) => stages.push(view.stage));
+  const epoch = host.epoch, cutAt = performance.now();
+  const closeServerEnd = proxy.cut();
+  await until(() => stages.includes('linking') && phone.view.stage === 'linked' && phone.link !== before, 'relinking', 3000);
+  assert.equal(host.epoch, epoch, 'to the same attempt');
+  assert.ok(performance.now() - cutAt < 1000, 'at once, not after the server’s heartbeat');
+  await until(() => host.clock.ready, 'clock sync again', 4000);
+  camera.emit(phoneRecord(20));
+  await until(() => events.find(isPoseRecordEvent), 'poses again');
+  // The game told the phone its settings again.
+  assert.equal(phone.view.playerCount, 2);
+  closeServerEnd();
+});
+
+test('through the relay, a game whose socket dies on its side alone starts again at once, and the phone follows', async (t) => {
+  const base = await pairingServer(t);
+  const proxy = await relayProxy(t, base);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: noDecode, createSocket: proxy.createSocket });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: new FakeCamera() as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  const epoch = host.epoch, cutAt = performance.now();
+  const closeServerEnd = proxy.cut();
+  await until(() => host.epoch > epoch && host.control?.readyState === 'open' && phone.view.stage === 'linked', 'relinking', 5000);
+  assert.ok(performance.now() - cutAt < 3000, `within a few round trips (${Math.round(performance.now() - cutAt)} ms)`);
+  closeServerEnd();
+});
+
+test('through the relay, a phone whose reconnection hangs gives it up and links again', async (t) => {
+  const base = await pairingServer(t);
+  const proxy = await relayProxy(t, base);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: noDecode });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: new FakeCamera() as unknown as WebcamPoseSource, createSocket: proxy.createSocket });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  // The network goes (the phone's reconnection hangs), then comes back a moment later.
+  proxy.state.hang = true;
+  const cutAt = performance.now();
+  const closeServerEnd = proxy.cut();
+  await until(() => phone.view.stage === 'linking' && phone.link, 'the phone reconnecting');
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  proxy.state.hang = false;
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'relinking', 15_000);
+  assert.ok(performance.now() - cutAt < 12_000, `well before the server's heartbeat (${Math.round(performance.now() - cutAt)} ms)`);
+  closeServerEnd();
 });

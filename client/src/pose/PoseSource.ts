@@ -1,4 +1,5 @@
 import type { CameraInfo, PoseRecordEvent, SourceStoppedEvent, WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { PreviewPicture } from '../../../packages/pose/browser/preview.ts';
 import type { CaptureInput, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
 import type { SongBundle } from '../../../packages/pose/song.ts';
 
@@ -48,7 +49,7 @@ export interface SongClock {
 export interface PoseSource {
   readonly view: PoseInputView;
   /** The camera feed, for the setup preview (a webcam, or a phone's picture while it sends one). */
-  readonly video?: HTMLVideoElement | null;
+  readonly video?: PreviewPicture | null;
   subscribeRecords(listener: (event: PoseSourceEvent) => void): () => void;
   /** Sources that play back poses follow the song; the webcam ignores it. */
   attachSong?(song: SongClock | null): void;

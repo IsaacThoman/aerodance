@@ -28,12 +28,15 @@ export interface IceCandidate { candidate: string; sdpMid?: string | null; sdpML
  *   offer    game → phone
  *   answer   phone → game
  *   ice      either way
+ *   relay    game → phone: no WebRTC here (an Apple TV), so connect through the pairing
+ *            server's relay instead (relay.ts), for this attempt
  */
 export type Signal =
   | { type: 'hello'; device: string }
   | { type: 'offer'; epoch: number; sdp: string }
   | { type: 'answer'; epoch: number; sdp: string }
-  | { type: 'ice'; epoch: number; candidate: IceCandidate };
+  | { type: 'ice'; epoch: number; candidate: IceCandidate }
+  | { type: 'relay'; epoch: number };
 
 /** From the server itself: the other side's events stream opened or closed (left: the phone left for good), or the room is gone. */
 export type ServerEvent = { type: 'peer'; present: boolean; left?: boolean } | { type: 'closed'; reason: string };
@@ -59,6 +62,7 @@ export function parsePairingEvent(value: unknown): PairingEvent | null {
     case 'offer':
     case 'answer': return epochOf(value.epoch) && typeof value.sdp === 'string' ? { type: value.type, epoch: value.epoch as number, sdp: value.sdp } : null;
     case 'ice': return epochOf(value.epoch) && isCandidate(value.candidate) ? { type: 'ice', epoch: value.epoch as number, candidate: value.candidate } : null;
+    case 'relay': return epochOf(value.epoch) ? { type: 'relay', epoch: value.epoch as number } : null;
     case 'peer': return typeof value.present === 'boolean' ? { type: 'peer', present: value.present, ...(value.left === true ? { left: true } : {}) } : null;
     case 'closed': return typeof value.reason === 'string' ? { type: 'closed', reason: value.reason } : null;
     default: return null;

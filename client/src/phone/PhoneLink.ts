@@ -2,6 +2,8 @@ import { CONTROL_CHANNEL, LIVE_CHANNEL, MAX_LIVE_BUFFER, parseGameMessage, poseM
 import type { Facing, PhoneMessage, PhoneStatus } from '../../../packages/pairing/link.ts';
 import { Peer } from '../../../packages/pairing/browser/peer.ts';
 import type { CreatePeerConnection } from '../../../packages/pairing/browser/peer.ts';
+import { RelayLink, relayUrl } from '../../../packages/pairing/browser/relay.ts';
+import type { CreateRelaySocket, LinkChannel } from '../../../packages/pairing/browser/relay.ts';
 import { PAIRING_BASE, SignalChannel, joinRoom } from '../../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../../packages/pairing/browser/signalChannel.ts';
 import { isPairingCode } from '../../../packages/pairing/signals.ts';
@@ -33,6 +35,11 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
  * camera on the connection's video track, scaled down to PREVIEW_LONG_SIDE at a low frame
  * rate and bitrate, and takes it off again when the preview goes.
  *
+ * A game without WebRTC (the Apple TV app) answers hello with a relay signal instead of an
+ * offer: the phone then connects through the pairing server's relay
+ * (packages/pairing/relay.ts), with the same messages, and sends the preview as small JPEGs
+ * (RELAY_PREVIEW_LONG_SIDE, RELAY_PREVIEW_FPS) since there's no video track.
+ *
  * const link = new PhoneLink(); link.subscribe(render); link.join('123456');
  */
 
@@ -59,13 +66,18 @@ export interface PhoneLinkOptions {
   device?: string;
   /** The first wait before starting a failed camera again (doubling, up to 30 s). */
   cameraRetryMs?: number;
+  createSocket?: CreateRelaySocket;
+  /** A JPEG of the camera's picture, its long side at most longSide (null while there's none yet). */
+  captureFrame?: (video: HTMLVideoElement, longSide: number) => Promise<ArrayBuffer | null>;
 }
 type Listener<T> = (value: T) => void;
 
 // Asks the game again this often while it hasn't connected (it may have been reloading)...
 const HELLO_MS = 4000;
-// ...but gives a connection attempt this long before asking for another.
+// ...but gives a connection attempt this long before asking for another (a relayed one, which
+// needs only a round trip to the server, this long to open).
 const ATTEMPT_MS = 15_000;
+const RELAY_OPEN_MS = 5000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const MAX_CAMERA_RETRY_MS = 30_000;
@@ -73,6 +85,10 @@ const MAX_CAMERA_RETRY_MS = 30_000;
 export const PREVIEW_LONG_SIDE = 320;
 const PREVIEW_FPS = 12;
 const PREVIEW_BITRATE = 250_000;
+// Relayed, the preview is a JPEG this often, its long side this many pixels, at this quality.
+export const RELAY_PREVIEW_LONG_SIDE = 240;
+export const RELAY_PREVIEW_FPS = 8;
+const RELAY_PREVIEW_QUALITY = 0.6;
 const TOKEN_KEY = 'aerodance-phone-token';
 
 /** What the game calls this phone. */
@@ -87,6 +103,20 @@ export function linkCode(url: URL) {
   const code = url.hash.slice(1) || url.searchParams.get('code') || '';
   return isPairingCode(code) ? code : '';
 }
+let snapshotCanvas: HTMLCanvasElement | null = null;
+/** The video's current picture as a small JPEG (one canvas, reused). */
+export async function captureJpeg(video: HTMLVideoElement, longSide: number): Promise<ArrayBuffer | null> {
+  const { videoWidth: w, videoHeight: h } = video;
+  if (video.readyState < 2 || !w || !h) return null;
+  const scale = Math.min(1, longSide / Math.max(w, h));
+  const canvas = snapshotCanvas ??= document.createElement('canvas');
+  canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
+  // A canvas in memory, not on the GPU: encoding it then needs no readback from the GPU.
+  canvas.getContext('2d', { willReadFrequently: true })?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', RELAY_PREVIEW_QUALITY));
+  return blob ? blob.arrayBuffer() : null;
+}
+
 const stored = (code: string) => { try { return sessionStorage.getItem(`${TOKEN_KEY}-${code}`); } catch { return null; } };
 const store = (code: string, token: string) => { try { sessionStorage.setItem(`${TOKEN_KEY}-${code}`, token); } catch { /* Private browsing. */ } };
 
@@ -96,6 +126,8 @@ export class PhoneLink {
   fetch: typeof fetch | undefined;
   createStream: ((url: string) => EventStream) | undefined;
   createConnection: CreatePeerConnection | undefined;
+  createSocket: CreateRelaySocket | undefined;
+  captureFrame: (video: HTMLVideoElement, longSide: number) => Promise<ArrayBuffer | null>;
   now: () => number;
   device: string;
   listeners = new Set<Listener<PhoneLinkView>>();
@@ -104,8 +136,10 @@ export class PhoneLink {
   channel: SignalChannel | null = null;
   iceServers: IceServer[] = [];
   peer: Peer | null = null;
-  live: RTCDataChannel | null = null;
-  control: RTCDataChannel | null = null;
+  /** ...or, through the relay, the link. */
+  link: RelayLink | null = null;
+  live: LinkChannel | null = null;
+  control: LinkChannel | null = null;
   helloTimer: ReturnType<typeof setInterval> | undefined;
   /** When the game's latest offer arrived, and its attempt number. */
   offeredAt = -Infinity;
@@ -128,9 +162,15 @@ export class PhoneLink {
   previewWanted = false;
   videoSender: RTCRtpSender | null = null;
   sentTrack: MediaStreamTrack | null = null;
-  constructor({ camera, base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName(), cameraRetryMs = 2000 }: PhoneLinkOptions = {}) {
+  /** Relayed: the timer sending JPEGs while the game previews, a capture in progress, and when the next may start. */
+  frameTimer: ReturnType<typeof setInterval> | undefined;
+  capturing = false;
+  nextFrameAt = -Infinity;
+  constructor({ camera, base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName(), cameraRetryMs = 2000,
+    createSocket, captureFrame = captureJpeg }: PhoneLinkOptions = {}) {
     this.camera = camera ?? new WebcamPoseSource({ settingsKey: 'aerodance-phone', adaptToResize: true });
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
+    this.createSocket = createSocket; this.captureFrame = captureFrame;
     this.now = now; this.device = device; this.cameraRetryMs = cameraRetryMs;
     // The back camera by default: it's the better one, and the phone faces the players.
     if (!this.camera.view.facing && !this.camera.view.cameraId) this.camera.publish({ facing: 'environment' });
@@ -167,7 +207,9 @@ export class PhoneLink {
     this.publish({ stage: 'linking', message: 'Connecting to the game…' });
     this.hello();
     this.helloTimer = setInterval(() => {
-      const attempt = this.peer && !['failed', 'closed'].includes(this.peer.pc.connectionState);
+      // A relayed link that hasn't opened in this long won't (its socket hangs): drop it, and ask again.
+      if (this.link?.control.readyState === 'connecting' && this.now() - this.offeredAt > RELAY_OPEN_MS) this.closePeer();
+      const attempt = (this.peer && !['failed', 'closed'].includes(this.peer.pc.connectionState)) || (this.link && this.link.control.readyState !== 'closed');
       if (this.view.stage === 'linking' && !(attempt && this.now() - this.offeredAt < ATTEMPT_MS)) this.hello();
     }, HELLO_MS);
   }
@@ -199,6 +241,7 @@ export class PhoneLink {
 
   onSignal(event: PairingEvent) {
     if (event.type === 'offer') this.answer(event.epoch, event.sdp);
+    else if (event.type === 'relay') this.relayTo(event.epoch);
     else if (event.type === 'ice') {
       if (event.epoch === this.peer?.epoch) void this.peer.addIce(event.candidate);
       // Newer than any offer so far: keep it for that offer (older attempts' are dropped).
@@ -259,6 +302,25 @@ export class PhoneLink {
     peer.answer(sdp, prepare).catch(() => { if (mine()) this.unlinked(); });
   }
 
+  /** The game asked to connect through the relay for this attempt. */
+  relayTo(epoch: number) {
+    const channel = this.channel;
+    // As with offers, only a newer attempt replaces this one (the same one again only once its
+    // link has gone: the game repeats the signal when a hello reached it mid-attempt).
+    if (!channel || epoch < this.epoch || (epoch === this.epoch && this.link) || epoch < (this.early?.epoch ?? -1)) return;
+    this.epoch = epoch;
+    this.closePeer();
+    this.early = null;
+    this.offeredAt = this.now();
+    const link = this.link = new RelayLink({ url: relayUrl(this.base, channel.code, channel.token, epoch), createSocket: this.createSocket });
+    const mine = () => link === this.link;
+    this.live = link.live;
+    this.control = link.control;
+    link.live.onmessage = link.control.onmessage = ({ data }) => { if (mine()) this.onMessage(data); };
+    link.control.onopen = () => { if (mine()) this.linked(); };
+    link.control.onclose = () => { if (mine()) this.unlinked(); };
+  }
+
   linked() {
     this.publish({ stage: 'linked', message: '' });
     this.sentStatus = '';
@@ -268,15 +330,23 @@ export class PhoneLink {
 
   /** The connection dropped: ask the game to connect again. */
   unlinked() {
+    // A relayed attempt fails within a round trip (an overlapping hello replaced it): asking again
+    // at once would replace the next one too, so only a link that had opened asks straight away.
+    // Otherwise the hello timer asks, unless the attempt that replaced this one links first.
+    const retry = this.view.stage === 'linked' || !this.link;
     this.closePeer();
     if (this.view.stage !== 'linked' && this.view.stage !== 'linking') return;
     if (!this.channel) { this.end(this.endReason || 'Lost the game. Scan its code again.'); return; }
     this.publish({ stage: 'linking', message: 'Reconnecting to the game…' });
-    this.hello();
+    if (retry) this.hello();
   }
+
+  /** Whether the camera's picture is going to the game. */
+  get sendingVideo() { return !!this.sentTrack || !!this.frameTimer; }
 
   /** Puts the camera on the video track while the game previews it, and takes it off after. */
   updateVideo() {
+    if (this.link) { this.updateFrames(); return; }
     const sender = this.videoSender;
     const track = (this.previewWanted && this.camera.stream?.getVideoTracks()[0]) || null;
     if (!sender || track === this.sentTrack) return;
@@ -294,7 +364,32 @@ export class PhoneLink {
     await sender.setParameters(params);
   }
 
+  /** Relayed: JPEGs of the camera at RELAY_PREVIEW_FPS while the game previews it. */
+  updateFrames() {
+    const wanted = this.previewWanted && this.control?.readyState === 'open' && !!this.camera.stream;
+    if (wanted === !!this.frameTimer) return;
+    clearInterval(this.frameTimer);
+    this.frameTimer = wanted ? setInterval(() => void this.sendFrame(), 1000 / RELAY_PREVIEW_FPS) : undefined;
+  }
+
+  async sendFrame() {
+    const link = this.link, video = this.camera.video, start = this.now();
+    if (!link || !video || this.capturing || start < this.nextFrameAt) return;
+    this.capturing = true;
+    try {
+      const jpeg = await this.captureFrame(video, RELAY_PREVIEW_LONG_SIDE);
+      // A slow link skips pictures rather than queueing them.
+      if (jpeg && link === this.link) link.sendFrame(jpeg);
+    } catch { /* No picture this time. */ } finally {
+      this.capturing = false;
+      // Tracking comes first: a phone that's slow to take pictures takes fewer (at most a fifth of its time).
+      this.nextFrameAt = this.now() + 4 * (this.now() - start);
+    }
+  }
+
   closePeer() {
+    clearInterval(this.frameTimer);
+    this.frameTimer = undefined;
     for (const channel of [this.live, this.control]) {
       if (!channel) continue;
       channel.onmessage = channel.onopen = channel.onclose = null;
@@ -303,6 +398,8 @@ export class PhoneLink {
     this.live = this.control = null;
     this.peer?.close();
     this.peer = null;
+    this.link?.close();
+    this.link = null;
     this.videoSender = null;
     this.sentTrack = null;
   }
@@ -319,7 +416,7 @@ export class PhoneLink {
   setFacing(facing: Facing) { return this.camera.configure({ facing, cameraId: '' }); }
   setModel(modelId: string) { return this.camera.configure({ modelId }); }
 
-  send(channel: RTCDataChannel | null, message: PhoneMessage | string) {
+  send(channel: LinkChannel | null, message: PhoneMessage | string) {
     if (channel?.readyState !== 'open') return false;
     channel.send(typeof message === 'string' ? message : JSON.stringify(message));
     return true;
