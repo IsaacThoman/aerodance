@@ -14,6 +14,7 @@ import { FakeConnection, createFakeConnection, fetchEventStream, pairingServer, 
 import { SignalChannel } from '../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../packages/pairing/browser/signalChannel.ts';
 import type { PairingEvent } from '../../packages/pairing/signals.ts';
+import type { PreviewFrame } from '../../packages/pose/browser/preview.ts';
 
 /** The phone's camera, driven by the test: it emits whatever records the test gives it. */
 class FakeCamera {
@@ -342,4 +343,68 @@ test('the game asks for the phone’s picture only while it previews, and the ph
   phone.previewWanted = false; phone.updateVideo();
   await until(() => calls.length === 3, 'the track to come off');
   assert.equal(calls[2], null);
+});
+
+test('without WebRTC, a phone links through the pairing server’s relay: poses on the game’s clock, previews as pictures, reconnecting', async (t) => {
+  const base = await pairingServer(t);
+  const pictures: number[] = [];
+  // The game decodes pictures to their size; the phone sends a "JPEG" naming its own (240 × 180).
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test',
+    decodeFrame: async (jpeg) => { const [w, h] = new Uint16Array(jpeg); pictures.push(w); return { image: {} as CanvasImageSource, width: w, height: h }; } });
+  const events: PoseSourceEvent[] = [];
+  host.subscribeRecords((event) => events.push(event));
+  const camera = new FakeCamera();
+  // A camera with a picture to send.
+  Object.assign(camera, { stream: {}, video: {} });
+  const captured: number[] = [];
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: camera as unknown as WebcamPoseSource, now: phoneNow, device: 'Relay phone',
+    captureFrame: async (_video, longSide) => { captured.push(longSide); return new Uint16Array([240, 180]).buffer; } });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  assert.equal(host.relayed, true);
+
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a pairing code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked', 'the phone to link through the relay');
+  assert.ok(phone.link && !phone.peer, 'relayed, not WebRTC');
+  await until(() => host.view.message.startsWith('Relay phone: Lite'), 'the phone’s status');
+  await host.setPlayerCount(2);
+  await until(() => camera.playerCount === 2, 'the player count');
+
+  await until(() => host.clock.ready, 'clock sync over the relay', 4000);
+  const sent = phoneRecord(30);
+  camera.emit(sent);
+  const event = await until(() => events.find(isPoseRecordEvent), 'a relayed pose');
+  assert.ok(Math.abs(event.captureBrowserTimeMs - (sent.frameBrowserTimeMs - PHONE_AHEAD_MS)) < 15, 'capture time on the game’s clock');
+  assert.equal(host.view.status, 'connected');
+
+  // The preview: small pictures while it's on, none after.
+  assert.equal(host.video, null);
+  host.setPreview(true);
+  await until(() => host.video, 'a preview picture');
+  assert.deepEqual([(host.video as PreviewFrame | null)?.width, captured[0]], [240, 240]);
+  assert.ok(phone.sendingVideo);
+  host.setPreview(false);
+  await until(() => !phone.sendingVideo, 'the pictures to stop');
+  const count = pictures.length;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.ok(pictures.length <= count + 1, 'no more pictures after the preview');
+
+  // The phone's socket drops: both ends notice, the phone says hello and they link again.
+  const epoch = host.epoch;
+  phone.link?.socket.close();
+  await until(() => host.epoch > epoch && phone.view.stage === 'linked' && host.control?.readyState === 'open', 'relinking');
+  await until(() => host.clock.ready, 'clock sync again', 4000);
+  camera.emit(phoneRecord(20));
+  await until(() => events.filter(isPoseRecordEvent).length === 2, 'poses after relinking');
+
+  host.disconnect();
+  await until(() => phone.view.stage === 'ended', 'the phone to hear pairing ended');
+});
+
+test('the game relays where there is no WebRTC, unless told otherwise', () => {
+  assert.equal(typeof RTCPeerConnection, 'undefined');
+  assert.equal(new PhonePoseSource().relayed, true);
+  assert.equal(new PhonePoseSource({ transport: 'webrtc' }).relayed, false);
+  assert.equal(new PhonePoseSource({ createConnection: createFakeConnection }).relayed, false);
 });

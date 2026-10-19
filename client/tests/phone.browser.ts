@@ -5,7 +5,8 @@
 // while dimmed, then leaves and comes back through the QR code's link.
 //
 // PHONE_BROWSER=webkit runs the phone page in WebKit (Safari's engine) as an iPhone, talking to
-// the game in Chromium. HEADED=1 shows both windows; BROWSER_GPU=metal renders on the Mac's GPU
+// the game in Chromium. PHONE_TRANSPORT=relay connects them through the pairing server's relay
+// (as the Apple TV app does, having no WebRTC), with the preview as small pictures. HEADED=1 shows both windows; BROWSER_GPU=metal renders on the Mac's GPU
 // instead of SwiftShader (needed with UI_RENDER=1, which is too slow in software).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -43,6 +44,11 @@ app.get('/songs/fixture/:file', (req, res) => {
 });
 app.use(express.static('dist'));
 const server = app.listen(4183, '127.0.0.1');
+server.on('upgrade', (req, socket, head) => {
+  req.url = (req.url || '/').replace(/^\/pair/, '') || '/';
+  if (!pairing.upgrade(req, socket, head)) socket.destroy();
+});
+const relayed = process.env.PHONE_TRANSPORT === 'relay';
 await new Promise(resolve => server.once('listening', resolve));
 const headless = process.env.HEADED !== '1';
 const gpu = process.env.BROWSER_GPU === 'metal' ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
@@ -110,7 +116,7 @@ try {
     const [w, h] = 'w' in r ? [r.w, r.h] : [0, 0];
     await game.mouse.click(frame.x + (r.x + w / 2) / 1600 * frame.width, frame.y + (r.y + h / 2) / 900 * frame.height);
   };
-  await game.goto(ORIGIN);
+  await game.goto(relayed ? `${ORIGIN}/?transport=relay` : ORIGIN);
   await until(game, 'menuReady', 'true');
   await click(START); await until(game, 'menuScreen', 'players'); await until(game, 'menuReady', 'true');
   await click(ONE_PLAYER); await until(game, 'songReady', 'true'); await click(rowRect(0));
@@ -137,8 +143,13 @@ try {
   // The calibration preview shows the phone's own picture under the skeletons.
   await until(phone, 'phoneVideo', 'true');
   await until(game, 'gameCalibrationVideo', 'true');
-  const received = await game.evaluate(() => Math.max(...[...document.querySelectorAll('video')].map((v) => Math.max(v.videoWidth, v.videoHeight))));
-  assert.ok(received > 0 && received <= 320, `the phone's picture is small (${received}px on its long side)`);
+  if (relayed) {
+    // Pictures, not a video track.
+    assert.equal(await game.evaluate(() => document.querySelectorAll('video').length), 0);
+  } else {
+    const received = await game.evaluate(() => Math.max(...[...document.querySelectorAll('video')].map((v) => Math.max(v.videoWidth, v.videoHeight))));
+    assert.ok(received > 0 && received <= 320, `the phone's picture is small (${received}px on its long side)`);
+  }
   if (process.env.UI_ARTIFACTS) {
     await game.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-game.png` });
     // The mirror shows each player once they've held still for a moment, as the game does.
@@ -172,7 +183,7 @@ try {
   // Leaving the song keeps the phone; closing the page ends its link.
   await phone.close();
   assert.deepEqual(errors, []);
-  console.log(`Phone camera passed (game in Chromium, phone in ${phoneBrowser.browserType().name()}): pairing by code, real WebRTC poses from a portrait phone camera, calibration and a song from them, tracking while dimmed, and rejoining from the link.`);
+  console.log(`Phone camera passed (game in Chromium, phone in ${phoneBrowser.browserType().name()}, ${relayed ? 'through the relay' : 'WebRTC'}): pairing by code, real ${relayed ? 'relayed' : 'WebRTC'} poses from a portrait phone camera, calibration and a song from them, tracking while dimmed, and rejoining from the link.`);
 } catch (error) {
   console.error('Game state:', await game.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
   console.error('Phone state:', await phone.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));

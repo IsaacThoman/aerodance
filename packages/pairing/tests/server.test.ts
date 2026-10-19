@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { createPairingServer } from '../server.ts';
 import type { PairingServerOptions } from '../server.ts';
 import { isPairingCode } from '../signals.ts';
+import { WebSocket } from 'ws';
 
 /** A pairing server on a free port, mounted at /pair like nginx and the dev server mount it. */
 async function serve(t: TestContext, options: PairingServerOptions = {}) {
@@ -13,6 +14,10 @@ async function serve(t: TestContext, options: PairingServerOptions = {}) {
   const server = http.createServer((req, res) => {
     req.url = (req.url || '/').replace(/^\/pair/, '') || '/';
     void pairing.handle(req, res).then((handled) => { if (!handled) { res.writeHead(404); res.end(); } });
+  });
+  server.on('upgrade', (req, socket, head) => {
+    req.url = (req.url || '/').replace(/^\/pair/, '') || '/';
+    if (!pairing.upgrade(req, socket, head)) socket.destroy();
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/pair`;
@@ -314,4 +319,113 @@ test('a release that arrives just after the phone said hello again is ignored', 
   await post(`/rooms/${room.code}/messages`, { token: phone.token, message: { type: 'hello', device: 'x' } });
   await post(`/rooms/${room.code}/release`, { token: room.token });
   assert.equal((await post(`/rooms/${room.code}/join`)).status, 409);
+});
+
+/** A relay socket: frames received (text as strings, binary as Buffers), and how it closed. */
+async function relaySocket(t: TestContext, base: string, code: string, token: string, epoch: number | string) {
+  const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/rooms/${code}/link?token=${token}&epoch=${epoch}`);
+  const frames: (string | Buffer)[] = [];
+  const closed = new Promise<number>((resolve) => ws.on('close', (code) => resolve(code)));
+  ws.on('message', (data, isBinary) => { frames.push(isBinary ? Buffer.from(data as Buffer) : String(data)); });
+  t.after(() => ws.terminate());
+  const opened = await new Promise<number>((resolve) => {
+    ws.on('open', () => resolve(101));
+    ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+    ws.on('error', () => resolve(0));
+  });
+  const until = async (count: number) => {
+    for (let i = 0; i < 200 && frames.length < count; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    return frames;
+  };
+  return { ws, opened, frames, closed, until };
+}
+
+async function relayRoom(t: TestContext, options: PairingServerOptions = {}) {
+  const served = await serve(t, options);
+  const room = await (await served.post('/rooms')).json();
+  const joined = await (await served.post(`/rooms/${room.code}/join`)).json();
+  return { ...served, code: room.code as string, host: room.token as string, phone: joined.token as string };
+}
+
+test('through the relay, a game and its phone pass frames both ways, pictures only from the phone', async (t) => {
+  const { base, code, host, phone, post } = await relayRoom(t);
+  // A relay signal is the game's to send.
+  assert.equal((await post(`/rooms/${code}/messages`, { token: host, message: { type: 'relay', epoch: 1 } })).status, 204);
+  assert.equal((await post(`/rooms/${code}/messages`, { token: phone, message: { type: 'relay', epoch: 1 } })).status, 400);
+
+  const game = await relaySocket(t, base, code, host, 1);
+  assert.equal(game.opened, 101);
+  const mobile = await relaySocket(t, base, code, phone, 1);
+  assert.equal(mobile.opened, 101);
+  assert.deepEqual(await game.until(1), ['S{"type":"open"}']);
+  assert.deepEqual(await mobile.until(1), ['S{"type":"open"}']);
+
+  game.ws.send('C{"type":"config"}');
+  mobile.ws.send('L{"type":"pose"}');
+  const picture = Buffer.from([0xff, 0xd8, 1, 2, 3]);
+  mobile.ws.send(picture);
+  assert.deepEqual((await mobile.until(2))[1], 'C{"type":"config"}');
+  const got = await game.until(3);
+  assert.equal(got[1], 'L{"type":"pose"}');
+  assert.ok(Buffer.isBuffer(got[2]) && got[2].equals(picture));
+
+  // The game may not send pictures, and nobody may send frames of another kind.
+  game.ws.send(Buffer.from([1]));
+  assert.equal(await game.closed, 4003);
+  // ...which ends the link for the phone too.
+  assert.equal(await mobile.closed, 4000);
+});
+
+test('relay sockets need the room’s token and, for the phone, the game’s current attempt', async (t) => {
+  const { base, code, host, phone } = await relayRoom(t);
+  assert.equal((await relaySocket(t, base, code, 'wrong', 1)).opened, 404);
+  assert.equal((await relaySocket(t, base, code === '000000' ? '000001' : '000000', host, 1)).opened, 404);
+  assert.equal((await relaySocket(t, base, code, host, 'x')).opened, 400);
+  // The phone can't connect before the game, or to another attempt.
+  assert.equal((await relaySocket(t, base, code, phone, 1)).opened, 409);
+  await relaySocket(t, base, code, host, 2);
+  assert.equal((await relaySocket(t, base, code, phone, 1)).opened, 409);
+  assert.equal((await relaySocket(t, base, code, phone, 2)).opened, 101);
+});
+
+test('a new attempt replaces the last link, either side leaving ends it, and so does the room ending', async (t) => {
+  const { base, code, host, phone, post } = await relayRoom(t);
+  const game1 = await relaySocket(t, base, code, host, 1);
+  const phone1 = await relaySocket(t, base, code, phone, 1);
+  await phone1.until(1);
+  const game2 = await relaySocket(t, base, code, host, 2);
+  assert.equal(await game1.closed, 4001);
+  assert.equal(await phone1.closed, 4001);
+  const phone2 = await relaySocket(t, base, code, phone, 2);
+  assert.deepEqual(await game2.until(1), ['S{"type":"open"}']);
+  phone2.ws.close();
+  assert.equal(await game2.closed, 4000);
+
+  const game3 = await relaySocket(t, base, code, host, 3);
+  const phone3 = await relaySocket(t, base, code, phone, 3);
+  await phone3.until(1);
+  assert.equal((await post(`/rooms/${code}/close`, { token: host })).status, 204);
+  assert.equal(await game3.closed, 4002);
+  assert.equal(await phone3.closed, 4002);
+});
+
+test('the relay drops live frames beyond its rate but passes control frames, and refuses oversized ones', async (t) => {
+  // A clock that stands still: no budget comes back during the test.
+  const { base, code, host, phone } = await relayRoom(t, { now: () => 5_000_000 });
+  const game = await relaySocket(t, base, code, host, 1);
+  const mobile = await relaySocket(t, base, code, phone, 1);
+  await game.until(1);
+  const picture = Buffer.alloc(60 * 1024, 7);
+  for (let i = 0; i < 40; i++) mobile.ws.send(picture);
+  for (let i = 0; i < 20; i++) mobile.ws.send(`C{"n":${i}}`);
+  const frames = await game.until(1 + 20);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const pictures = frames.filter((f) => Buffer.isBuffer(f)).length, controls = frames.filter((f) => typeof f === 'string' && f.startsWith('C')).length;
+  // Twice the phone's 512 KB/s at most, in a burst: 17 of the 60 KB pictures.
+  assert.ok(pictures >= 10 && pictures <= 18, `${pictures} pictures passed`);
+  assert.equal(controls, 20);
+  // Over the frame limit: the socket closes (1009, message too big).
+  mobile.ws.send(Buffer.alloc(70 * 1024));
+  assert.equal(await mobile.closed, 1009);
+  assert.equal(await game.closed, 4000);
 });

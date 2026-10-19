@@ -19,13 +19,14 @@ CMD ["sh", "-c", "node client/tests/webcam.browser.ts && node client/tests/webca
 
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine
 # Phone pairing runs in this container beside nginx: Node from the build image (the same
-# Alpine) and the pairing server's own folder.
+# Alpine), the pairing server's own folder and ws, its one dependency (for the relay).
 USER root
 RUN apk add --no-cache libstdc++
 USER 101
 COPY --from=build /usr/local/bin/node /usr/local/bin/node
 COPY package.json /app/
 COPY packages/pairing /app/packages/pairing
+COPY --from=build /app/node_modules/ws /app/node_modules/ws
 COPY --chmod=755 pairing-start.sh /docker-entrypoint.d/05-pairing.sh
 ENV PAIRING_HOST=127.0.0.1
 COPY nginx.conf /etc/nginx/conf.d/default.conf

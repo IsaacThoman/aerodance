@@ -1,6 +1,6 @@
 // Stand-ins for the browser APIs phone pairing uses, so the game's and the phone's ends can
 // talk in Node: a loopback RTCPeerConnection, an EventSource over fetch, and a pairing
-// server on a free port.
+// server on a free port (with its relay's WebSockets, which Node's own WebSocket can open).
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { TestContext } from 'node:test';
@@ -13,6 +13,10 @@ export async function pairingServer(t: TestContext) {
   const server = http.createServer((req, res) => {
     req.url = (req.url || '/').replace(/^\/pair/, '') || '/';
     void pairing.handle(req, res).then((handled) => { if (!handled) { res.writeHead(404); res.end(); } });
+  });
+  server.on('upgrade', (req, socket, head) => {
+    req.url = (req.url || '/').replace(/^\/pair/, '') || '/';
+    if (!pairing.upgrade(req, socket, head)) socket.destroy();
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => {

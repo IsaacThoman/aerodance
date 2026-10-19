@@ -177,7 +177,7 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
         st.lastPreview = s.time;
         s.invalidate();
       }
-      const sending = !!p.link.sentTrack;
+      const sending = p.link.sendingVideo;
       const report = JSON.stringify([view.stage, camera.status, p.dim, p.mode, sending]);
       if (report !== st.reported) {
         st.reported = report;
