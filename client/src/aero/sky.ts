@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FOG_BASE, FOG_DENSITY, FOG_WHITE, type AeroContext } from './context.ts';
 import type { FlightPath } from './flight.ts';
+import { DepthOrder } from './depthOrder.ts';
 import { mulberry32 } from './random.ts';
 import { TAU, canvas2d, clamp, col, sstep } from './util.ts';
 
@@ -86,7 +87,7 @@ export function buildLights(ctx: AeroContext) {
 }
 
 /* ------------------------------------------------------------------ clouds */
-function cloudTex(ctx: AeroContext, seed: number) {
+function cloudCanvas(seed: number) {
   const S = 256, { c, g } = canvas2d(S, S), rr = mulberry32(seed), r = (a: number, b: number) => a + (b - a) * rr();
   for (let i = 0; i < 28; i++) {
     const x = 128 + r(-78, 78) * (1 - i / 40), y = 150 + r(-40, 25) - Math.max(0, 40 - Math.abs(x - 128) * 0.5) * rr(), rad = r(26, 58);
@@ -95,8 +96,38 @@ function cloudTex(ctx: AeroContext, seed: number) {
   }
   g.globalCompositeOperation = 'source-atop';
   const sh = g.createLinearGradient(0, 80, 0, 210); sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(150,178,214,.55)'); g.fillStyle = sh; g.fillRect(0, 0, S, S);
-  return ctx.tex(c);
+  return c;
 }
+
+// Every cloud is a sprite (a camera-facing quad, as three.js draws a Sprite), all in one
+// instanced draw: a = position + rotation, b = size + base opacity + picture (texture layer).
+const cloudVS = `
+  attribute vec4 cloudA;attribute vec4 cloudB;uniform vec3 fadeEye;
+  varying vec2 vUv;varying float vOpacity;varying float vLayer;
+  #include <common>
+  #include <fog_pars_vertex>
+  void main(){
+    vUv=uv;
+    vec4 mvPosition=modelViewMatrix*vec4(cloudA.xyz,1.0);
+    vec2 p=position.xy*cloudB.xy;float r=cloudA.w;
+    mvPosition.xy+=vec2(cos(r)*p.x-sin(r)*p.y,sin(r)*p.x+cos(r)*p.y);
+    gl_Position=projectionMatrix*mvPosition;
+    vOpacity=cloudB.z*smoothstep(8.0,70.0,distance(cloudA.xyz,fadeEye));
+    vLayer=cloudB.w;
+    #include <fog_vertex>
+  }`;
+const cloudFS = `
+  uniform sampler2DArray cloudMap;varying vec2 vUv;varying float vOpacity;varying float vLayer;
+  #include <common>
+  #include <fog_pars_fragment>
+  void main(){
+    vec4 diffuseColor=vec4(1.0,1.0,1.0,vOpacity)*texture(cloudMap,vec3(vUv,vLayer));
+    vec3 outgoingLight=diffuseColor.rgb;
+    #include <opaque_fragment>
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    #include <fog_fragment>
+  }`;
 
 export interface Clouds {
   /** Fades nearby clouds, thickens the fog inside cloud banks. */
@@ -109,16 +140,16 @@ export function buildClouds(ctx: AeroContext, path: FlightPath): Clouds {
   const { root, fog } = ctx;
   const { R, pick } = ctx.random;
   const Q = ctx.quality.Q;
-  const CT = [11, 23, 37, 59].map((seed) => cloudTex(ctx, seed));
-  const CLOUDS: { s: THREE.Sprite; m: THREE.SpriteMaterial; base: number }[] = [];
+  const layers = [0, 1, 2, 3];
+  const map = ctx.texArray([11, 23, 37, 59].map(cloudCanvas));
+  const A: number[] = [], B: number[] = [];
   const CLUSTERS: { p: THREE.Vector3; r: number }[] = [];
   function cluster(cx: number, cy: number, cz: number, sx: number, sy: number, sz: number, n: number, size: number, fogR: number) {
     for (let i = 0; i < n; i++) {
-      const m = new THREE.SpriteMaterial({ map: pick(CT), transparent: true, depthWrite: false, fog: true, rotation: R(-0.12, 0.12) });
-      const s = new THREE.Sprite(m);
-      s.position.set(cx + R(-sx, sx), cy + R(-sy, sy), cz + R(-sz, sz));
-      const k = size * R(0.6, 1.3); s.scale.set(k, k * 0.72, 1); root.add(s);
-      CLOUDS.push({ s, m, base: R(0.82, 1) });
+      const layer = pick(layers), rotation = R(-0.12, 0.12);
+      A.push(cx + R(-sx, sx), cy + R(-sy, sy), cz + R(-sz, sz), rotation);
+      const k = size * R(0.6, 1.3);
+      B.push(k, k * 0.72, R(0.82, 1), layer);
     }
     if (fogR) CLUSTERS.push({ p: new THREE.Vector3(cx, cy, cz), r: fogR });
   }
@@ -128,14 +159,49 @@ export function buildClouds(ctx: AeroContext, path: FlightPath): Clouds {
   for (let i = 0; i < Math.round(36 * Q + 10); i++) { const a = R(0, TAU), r = R(900, 2400); cluster(Math.cos(a) * r, R(150, 380), Math.sin(a) * r, 160, 40, 160, 5, R(160, 300), 0); }
   for (let i = 0; i < 10; i++) cluster(R(-200, 250), R(110, 150), R(380, 950), 80, 15, 80, 4, 110, 0);
 
+  // The sprite quad: centred, 1 x 1.
+  const n = A.length / 4, src = { a: Float32Array.from(A), b: Float32Array.from(B) };
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+  const a = new THREE.InstancedBufferAttribute(src.a.slice(), 4), b = new THREE.InstancedBufferAttribute(src.b.slice(), 4);
+  a.setUsage(THREE.DynamicDrawUsage); b.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('cloudA', a); geo.setAttribute('cloudB', b);
+  geo.instanceCount = n;
+  const fadeEye: THREE.IUniform<THREE.Vector3> = { value: new THREE.Vector3() };
+  const mat = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { cloudMap: { value: null } }]),
+    vertexShader: cloudVS, fragmentShader: cloudFS, transparent: true, depthWrite: false, fog: true,
+  });
+  mat.uniforms.cloudMap.value = map;
+  mat.uniforms.fadeEye = fadeEye;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  root.add(mesh);
+  // Sorted back to front each frame, as three.js would sort separate sprites.
+  const order = new DepthOrder(n), fwd = new THREE.Vector3();
+
   let cloudAmt = 0;
   return {
     get amount() { return cloudAmt; },
     update(dt, camera) {
       let ca = 0; for (const c of CLUSTERS) ca = Math.max(ca, sstep(c.r * 1.25, c.r * 0.35, c.p.distanceTo(camera.position)));
       cloudAmt += (ca - cloudAmt) * Math.min(1, dt * 3);
-      for (const c of CLOUDS) c.m.opacity = c.base * sstep(8, 70, c.s.position.distanceTo(camera.position));
       fog.density = FOG_DENSITY + cloudAmt * 0.011; fog.color.copy(FOG_BASE).lerp(FOG_WHITE, cloudAmt);
+      fadeEye.value.copy(camera.position);
+      if (!mesh.visible) return;
+      camera.getWorldDirection(fwd);
+      const e = camera.position;
+      if (order.update(src.a, 4, 0, e.x, e.y, e.z, fwd.x, fwd.y, fwd.z)) {
+        const da = a.array as Float32Array, db = b.array as Float32Array;
+        for (let i = 0; i < n; i++) {
+          const k = order.order[i] * 4, j = i * 4;
+          da[j] = src.a[k]; da[j + 1] = src.a[k + 1]; da[j + 2] = src.a[k + 2]; da[j + 3] = src.a[k + 3];
+          db[j] = src.b[k]; db[j + 1] = src.b[k + 1]; db[j + 2] = src.b[k + 2]; db[j + 3] = src.b[k + 3];
+        }
+        a.needsUpdate = true; b.needsUpdate = true;
+      }
     },
   };
 }

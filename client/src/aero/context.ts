@@ -38,6 +38,11 @@ export interface AeroContext {
   readonly time: THREE.IUniform<number>;
   /** Wraps a canvas as a texture that is disposed with the world. */
   tex(c: HTMLCanvasElement, repeat?: boolean, color?: boolean): THREE.CanvasTexture;
+  /**
+   * Stacks same-sized canvases into one colour texture array, sampled like tex() would sample
+   * each canvas, so one instanced draw can pick a picture per instance (sampler2DArray).
+   */
+  texArray(canvases: readonly HTMLCanvasElement[]): THREE.DataArrayTexture;
   /** Resources that are not reachable from the scene graph, freed on dispose. */
   readonly disposables: (Disposable | null)[];
   /** Puts back the renderer, scene and camera settings the world changed and frees everything. */
@@ -84,6 +89,25 @@ export function createAeroContext({ renderer, scene, camera, quality }: ContextO
     return t;
   }
 
+  function texArray(canvases: readonly HTMLCanvasElement[]) {
+    const w = canvases[0].width, h = canvases[0].height, row = w * 4;
+    const data = new Uint8Array(row * h * canvases.length);
+    canvases.forEach((c, layer) => {
+      const g = c.getContext('2d');
+      if (!g) throw new Error('2D canvas unavailable');
+      const px = g.getImageData(0, 0, w, h).data;
+      // Bottom row first, as a CanvasTexture (flipY) uploads it.
+      for (let y = 0; y < h; y++) data.set(px.subarray((h - 1 - y) * row, (h - y) * row), (layer * h + y) * row);
+    });
+    const t = new THREE.DataArrayTexture(data, w, h, canvases.length);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+    t.anisotropy = ANISO;
+    t.needsUpdate = true;
+    textures.push(t);
+    return t;
+  }
+
   const fog = new THREE.FogExp2(FOG_BASE.clone(), FOG_DENSITY);
   scene.fog = fog;
   const disposables: (Disposable | null)[] = [];
@@ -111,7 +135,7 @@ export function createAeroContext({ renderer, scene, camera, quality }: ContextO
   }
 
   return {
-    renderer, scene, camera, root, fog, quality, tex, disposables, dispose,
+    renderer, scene, camera, root, fog, quality, tex, texArray, disposables, dispose,
     // The main random stream is fixed so the scene looks the same every load.
     random: createWorldRandom(20261010),
     sun: new THREE.Vector3(0.45, 0.5, -0.74).normalize(),

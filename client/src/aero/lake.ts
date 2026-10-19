@@ -114,6 +114,8 @@ function buildBoats(ctx: AeroContext, glassMat: THREE.Material) {
 
 export interface Lake {
   update(t: number, dt: number, camera: THREE.Camera): void;
+  /** Diagnostics: false stops the reflection pass (the water keeps its last reflection). */
+  reflect: boolean;
 }
 
 /** The reflective lake and its boats. */
@@ -134,7 +136,7 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   const refresh = new ReflectionRefresh(30);
   let elapsed = 0;
   water.onBeforeRender = (r, sc, cam, geo, mat, group) => {
-    if ((cam.position.z < 280 || cam.position.y > 60) && refresh.shouldRefresh(elapsed, cam)) {
+    if (lake.reflect && (cam.position.z < 280 || cam.position.y > 60) && refresh.shouldRefresh(elapsed, cam)) {
       reflect.call(water, r, sc, cam, geo, mat, group);
     }
   };
@@ -142,7 +144,8 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   // Boats: sailboats and small motor launches drifting along the lake, each with a wake
   const BOATS = ctx.random.withRng(9090, () => buildBoats(ctx, glassMat));
 
-  return {
+  const lake: Lake = {
+    reflect: true,
     update(t, dt, camera) {
       elapsed = t;
       wNorm.offset.set(t * 0.004, t * 0.006);
@@ -155,4 +158,5 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
       }
     },
   };
+  return lake;
 }

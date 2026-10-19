@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AeroContext } from './context.ts';
 import type { FlightPath } from './flight.ts';
 import { TAU, canvas2d, col, hexMul } from './util.ts';
@@ -134,33 +135,81 @@ function wingTex(ctx: AeroContext, kind: WingKind) {
   return ctx.tex(c);
 }
 
-interface Butterfly { g: THREE.Group; r: THREE.Group; l: THREE.Group; ax: number; az: number; ay: number; ph: number; f: number; sp: number; rad: number }
+interface Butterfly { kind: number; i: number; s: number; ax: number; az: number; ay: number; ph: number; f: number; sp: number; rad: number }
+
+// Butterflies are instanced: one mesh of wing pairs per wing pattern, one of bodies. The wings
+// beat in the vertex shader: each wing turns by a = sin(t * f + ph) * 1.05 + 0.2 about the body,
+// the left one mirrored (wingSide -1). wingBeat = (f, ph) per butterfly.
+const beatVertex = `
+  attribute float wingSide;attribute vec2 wingBeat;uniform float uTime;
+  vec3 beatPose(vec3 p){
+    float a=sin(uTime*wingBeat.x+wingBeat.y)*1.05+0.2,c=cos(a),s=sin(a);
+    p=vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);p.x*=wingSide;return p;
+  }`;
 
 export function buildButterflies(ctx: AeroContext, path: FlightPath) {
   const { R, pick } = ctx.random;
   const BFLY: Butterfly[] = [];
   const wg = new THREE.PlaneGeometry(1, 1); wg.translate(0.5, 0, 0); wg.rotateX(Math.PI / 2);
   const kinds: WingKind[] = ['monarch', 'morpho', 'swallow'];
-  const mats = kinds.map((k) => { const t = wingTex(ctx, k); return new THREE.MeshLambertMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.35, alphaTest: 0.5, side: THREE.DoubleSide }); });
+  const mats = kinds.map((k, kind) => {
+    const t = wingTex(ctx, k);
+    const m = new THREE.MeshLambertMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.35, alphaTest: 0.5, side: THREE.DoubleSide });
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = ctx.time;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', `#include <common>\n${beatVertex}`)
+        .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = beatPose(normal);')
+        .replace('#include <begin_vertex>', 'vec3 transformed = beatPose(position);');
+    };
+    m.customProgramCacheKey = () => 'butterfly-wings';
+    return { m, kind };
+  });
   const body = new THREE.CylinderGeometry(0.035, 0.025, 0.5, 5); body.rotateX(Math.PI / 2);
   const bm = new THREE.MeshBasicMaterial({ color: col('#1a120a') });
+  const perKind = [0, 0, 0];
   for (let i = 0; i < Math.round(80 * ctx.quality.Q + 20); i++) {
-    const [x, z, p] = path.nearMeadow(14), m = pick(mats), g = new THREE.Group();
-    const r = new THREE.Group(), l = new THREE.Group();
-    r.add(new THREE.Mesh(wg, m)); l.add(new THREE.Mesh(wg, m)); l.scale.x = -1; g.add(r, l, new THREE.Mesh(body, bm));
-    g.scale.setScalar(R(0.45, 0.75)); ctx.root.add(g);
+    const [x, z, p] = path.nearMeadow(14), { kind } = pick(mats);
+    const s = R(0.45, 0.75);
     let ax = x; const az = z, dx = x - p.x, dz = z - p.z; if (dx * dx + dz * dz < 9) ax += dx < 0 ? -3 : 3;
-    BFLY.push({ g, r, l, ax, az, ay: R(1.2, 3.2), ph: R(0, TAU), f: R(9, 14), sp: R(0.3, 0.7), rad: R(1.5, 4) });
+    BFLY.push({ kind, i: perKind[kind]++, s, ax, az, ay: R(1.2, 3.2), ph: R(0, TAU), f: R(9, 14), sp: R(0.3, 0.7), rad: R(1.5, 4) });
   }
-  const tmp = new THREE.Vector3();
+  // A pair of wings: the left copy mirrored and wound the other way round.
+  const flat = wg.toNonIndexed(), nv = flat.attributes.position.count;
+  const pair = mergeGeometries([flat, flat]);
+  pair.setAttribute('wingSide', new THREE.BufferAttribute(new Float32Array(nv * 2).fill(1, 0, nv).fill(-1, nv), 1));
+  const index: number[] = [];
+  for (let i = 0; i < nv; i += 3) index.push(i, i + 1, i + 2);
+  for (let i = nv; i < 2 * nv; i += 3) index.push(i, i + 2, i + 1);
+  pair.setIndex(index);
+  flat.dispose(); wg.dispose();
+  const wings = mats.map(({ m, kind }) => {
+    const list = BFLY.filter((b) => b.kind === kind);
+    const geo = pair.clone();
+    geo.setAttribute('wingBeat', new THREE.InstancedBufferAttribute(Float32Array.from(list.flatMap((b) => [b.f, b.ph])), 2));
+    return new THREE.InstancedMesh(geo, m, list.length);
+  });
+  pair.dispose();
+  const bodies = new THREE.InstancedMesh(body, bm, BFLY.length);
+  // They stay over the meadow: one bounding sphere for culling, and no posing while it's out of view.
+  const box = new THREE.Box3();
+  for (const b of BFLY) box.expandByPoint(new THREE.Vector3(b.ax, b.ay, b.az));
+  const bounds = box.getBoundingSphere(new THREE.Sphere()); bounds.radius += 8;
+  for (const m of [...wings, bodies]) { m.boundingSphere = bounds.clone(); m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); ctx.root.add(m); }
+  const tmp = new THREE.Vector3(), d = new THREE.Object3D(), frustum = new THREE.Frustum(), pv = new THREE.Matrix4();
   return {
-    update(t: number) {
-      for (const b of BFLY) {
+    update(t: number, camera: THREE.Camera) {
+      if (!bodies.visible) return;
+      frustum.setFromProjectionMatrix(pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+      if (!frustum.intersectsSphere(bounds)) return;
+      BFLY.forEach((b, k) => {
         const q = t * b.sp + b.ph, y = b.ay + Math.sin(q * 1.7) * 0.6;
         tmp.set(b.ax + Math.sin(q + 0.05) * b.rad, y, b.az + Math.cos((q + 0.05) * 0.8) * b.rad);
-        b.g.position.set(b.ax + Math.sin(q) * b.rad, y, b.az + Math.cos(q * 0.8) * b.rad); b.g.lookAt(tmp);
-        const a = Math.sin(t * b.f + b.ph) * 1.05 + 0.2; b.r.rotation.z = a; b.l.rotation.z = -a;
-      }
+        d.position.set(b.ax + Math.sin(q) * b.rad, y, b.az + Math.cos(q * 0.8) * b.rad); d.scale.setScalar(b.s); d.lookAt(tmp);
+        d.updateMatrix();
+        wings[b.kind].setMatrixAt(b.i, d.matrix); bodies.setMatrixAt(k, d.matrix);
+      });
+      for (const m of [...wings, bodies]) m.instanceMatrix.needsUpdate = true;
     },
   };
 }

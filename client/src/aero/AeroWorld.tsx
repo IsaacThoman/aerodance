@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createAeroWorld, type AeroQuality, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
+import { createAeroWorld, type AeroPart, type AeroQuality, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
 
 export interface AeroWorldProps {
   speed?: number;
@@ -10,6 +10,8 @@ export interface AeroWorldProps {
   fps?: number;
   paused?: boolean;
   onTelemetry?: (telemetry: AeroTelemetry) => void;
+  /** Diagnostics: parts of the world left out (createAeroWorld's hide). */
+  hide?: readonly AeroPart[];
 }
 
 /**
@@ -25,7 +27,7 @@ export interface AeroWorldProps {
  *
  * <AeroWorld speed={1} quality="auto" fps={15} paused={false} onTelemetry={(t) => ...} />
  */
-export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = false, onTelemetry }: AeroWorldProps) {
+export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = false, onTelemetry, hide }: AeroWorldProps) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
@@ -48,7 +50,7 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
     let world: AeroWorldHandle | null = null;
     // Deferred one tick so StrictMode's mount/unmount/mount only builds the scene once.
     const timer = setTimeout(() => {
-      world = createAeroWorld({ renderer: gl, scene, camera, speed, quality, onTelemetry: (t) => teleRef.current?.(t) });
+      world = createAeroWorld({ renderer: gl, scene, camera, speed, quality, hide, onTelemetry: (t) => teleRef.current?.(t) });
       worldRef.current = world;
     }, 0);
     return () => {

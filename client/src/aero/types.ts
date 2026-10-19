@@ -22,10 +22,21 @@ export interface AeroSettings {
   onTelemetry?: ((telemetry: AeroTelemetry) => void) | null;
 }
 
+/**
+ * A part of the world that diagnostics can leave out, to measure what it costs: each builder's
+ * objects, plus 'shadows' (the sun's shadow map) and 'reflection' (the lake's reflection pass).
+ */
+export type AeroPart =
+  | 'sky' | 'ground' | 'city' | 'lake' | 'lamps' | 'trees' | 'traffic' | 'grass' | 'flowers' | 'tulips'
+  | 'windmills' | 'butterflies' | 'birds' | 'balloons' | 'clouds' | 'bubbles' | 'sparkles' | 'jet' | 'flare'
+  | 'shadows' | 'reflection';
+
 export interface AeroWorldOptions extends AeroSettings {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  /** Diagnostics: parts left out. They are still built (the layout doesn't change), just not drawn or animated. */
+  hide?: readonly AeroPart[];
 }
 
 export interface AeroWorldHandle {
