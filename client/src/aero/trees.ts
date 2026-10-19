@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AeroContext } from './context.ts';
 import type { FlightPath } from './flight.ts';
 import { groundY } from './ground.ts';
 import { STREETS } from './streets.ts';
+import { mergeTreeGeometry } from './treeGeometry.ts';
 import { TAU, canvas2d, clamp, col, hsl, noise3, paintGeo } from './util.ts';
 
 export type TreeKind = 'round' | 'poplar' | 'conifer' | 'farRound' | 'farPoplar';
@@ -86,10 +87,10 @@ function trunkGeo(h: number, r0: number, r1: number, branches: [number, number, 
     b.translate(0, from, 0); parts.push(b);
   }
   const flat = parts.map((g) => { g.deleteAttribute('uv'); return paintGeo(g.toNonIndexed(), (x, y, z, c) => { const v = 0.75 + 0.25 * noise3(x * 8, y * 3, z * 8); c.copy(col('#7a5534')).multiplyScalar(v); }); });
-  const g = mergeGeometries(flat); parts.forEach((p) => p.dispose()); flat.forEach((p) => p.dispose());
+  const g = mergeTreeGeometry(flat); parts.forEach((p) => p.dispose()); flat.forEach((p) => p.dispose());
   return g;
 }
-function canopyMerge(list: THREE.BufferGeometry[]) { const flat = list.map((g) => (g.index ? g.toNonIndexed() : g)); const g = mergeGeometries(flat); list.forEach((x) => x.dispose()); return g; }
+function canopyMerge(list: THREE.BufferGeometry[]) { const g = mergeTreeGeometry(list); list.forEach((x) => x.dispose()); return g; }
 
 function makeRound(ctx: AeroContext, seed: number): TreeVariant {
   const { R, RI } = ctx.random;
