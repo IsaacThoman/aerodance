@@ -42,7 +42,7 @@ Requirements are as for `client-tvos/` (Xcode 27, XcodeGen, a paired Apple TV, a
 ```sh
 node scripts/tvos-jsc.ts build --game              # runtime, benchmark and game; app for the Apple TV
 node scripts/tvos-jsc.ts build --game --sim        # ...for the tvOS simulator
-node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?input=ghost","fit":"fill","pixelated":true}'
+node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?input=ghost&quality=tv","fit":"fill","pixelated":true}'
 node scripts/tvos-jsc.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
 ```
 
@@ -67,6 +67,15 @@ The launch config (JSON):
 
 `launch` with `devicectl ... --console` attaches a debugger, which makes JavaScript about 1.5x
 slower; measure without it and read the console through `logUrl`.
+
+## Performance
+
+On an Apple TV 4K (A15, tvOS 27) at the `tv` quality tier the game holds 60 fps on every screen:
+about 6 ms of JavaScript a frame on the main menu (up to ~12 ms while the city is in view), about
+5.5 ms in gameplay, and the Aero benchmark at 59.9 fps. JavaScript runs interpreted (no JIT on
+tvOS), so frame cost tracks the number of objects and draws. The first visit to a stage stalls
+for about 5 s while it builds. [docs/apple-tv.md](../../docs/apple-tv.md) has the measurements
+and how this compares with the other approaches.
 
 ## Known gaps
 

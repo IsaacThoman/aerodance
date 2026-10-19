@@ -10,6 +10,9 @@ only, and builds that reference non-public APIs are refused on upload (`ITMS-903
 Installing a development build on your own registered Apple TVs is fine. Apple can also change
 or remove the private WebKit in any tvOS update.
 
+For the App Store-legal app, see [`jsc/`](jsc/README.md): the same game in the public
+JavaScriptCore, at 60 fps. [docs/apple-tv.md](../docs/apple-tv.md) compares the approaches.
+
 ## How it works
 
 `src/main.m` is the whole app:
@@ -89,12 +92,6 @@ page's local server, or one app's page can be served by another app's server.
 
 ## Getting it onto the App Store
 
-That needs public APIs only, which rules out WebKit on tvOS. The options:
-
-- An iPhone/iPad app (where `WKWebView` is public) that shows the game on the Apple TV as an
-  AirPlay external display. Same code; adds the AirPlay delay.
-- A tvOS app that runs the game's JavaScript in the public JavaScriptCore (or Hermes) with native
-  graphics (three.js's WebGPU renderer on Dawn, or WebGL over Metal) and Skia for the canvas UI.
-  No JIT there either, so expect speeds like this app's.
-- A native renderer (Swift with RealityKit or Metal, or an engine such as Godot or Unity).
-- Streaming video from an iPad or Mac to a tvOS player app.
+That needs public APIs only, which rules out WebKit on tvOS. [`jsc/`](jsc/README.md) is the
+App Store-legal app; [docs/apple-tv.md](../docs/apple-tv.md) has the other approaches that were
+tried and how they measured.
