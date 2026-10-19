@@ -251,7 +251,7 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
         drawWebcamPreview(g, p.link.camera.video, camera.snapshot, r, view.playerCount, 'Starting camera…', { mirror: camera.facing === 'user' });
       } else if (!camera.snapshot?.poses.length) {
         // The mirror (PhoneReflection) shows nobody yet.
-        shadowed(g, () => text(g, camera.status === 'connected' ? 'Step into view' : 'Starting camera…', r.x + r.w / 2, r.y + r.h / 2, { size: 30, weight: 800, align: 'center' }));
+        shadowed(g, () => text(g, camera.status === 'connected' ? 'Step into view' : ACTIVE.includes(camera.status) ? 'Starting camera…' : 'Camera off', r.x + r.w / 2, r.y + r.h / 2, { size: 30, weight: 800, align: 'center' }));
       }
       roundRect(g, r.x, r.y, r.w, r.h, 18);
       g.lineWidth = 3;

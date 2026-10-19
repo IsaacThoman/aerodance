@@ -13,6 +13,15 @@ export const phoneDesign = (cssW: number, cssH: number): DesignSize => (cssW >= 
   ? { w: Math.round(SHORT_SIDE * cssW / cssH), h: SHORT_SIDE }
   : { w: SHORT_SIDE, h: Math.round(SHORT_SIDE * cssH / cssW) });
 
+/** The render buffer's long side, at most (never more than the page's CSS pixels). */
+export const PHONE_LONG_SIDE = 640;
+
+/** The buffer for a page of this CSS size: the same shape, at most PHONE_LONG_SIDE long. */
+export function phoneBuffer(cssW: number, cssH: number) {
+  const scale = Math.min(1, PHONE_LONG_SIDE / Math.max(cssW, cssH, 1));
+  return { w: Math.max(1, Math.round(cssW * scale)), h: Math.max(1, Math.round(cssH * scale)) };
+}
+
 export interface PhoneLayout {
   w: number; h: number; landscape: boolean;
   /** The wordmark's left end and baseline. */
