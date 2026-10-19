@@ -19,6 +19,8 @@ const USAGE = `Usage: node scripts/tvos.ts <command> [options]
   deploy [options] [--skip-web-build]
                                    build the game and the app, install it and launch it
   launch [options]                 relaunch the installed app
+  bench                            build the Aero world benchmark (client-tvos/bench/) into
+                                   client-tvos/bench/dist/; deploy ships it at /bench/
 
 Options:
   --device <name>                  the Apple TV to use (needed when more than one is paired)
@@ -90,6 +92,8 @@ function buildApp(tv: AppleTV, skipWebBuild: boolean) {
   rmSync(www, { recursive: true, force: true });
   // The Apple TV has no camera, so the pose-tracking models (most of dist/) stay behind.
   cpSync(path.join(root, 'dist'), www, { recursive: true, filter: (src) => !src.startsWith(path.join(root, 'dist/pose-assets')) });
+  const bench = path.join(appDir, 'bench/dist');
+  if (existsSync(bench)) cpSync(bench, path.join(www, 'bench'), { recursive: true });
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
   const env = { ...process.env, TVOS_TEAM_ID: TEAM_ID, TVOS_BUNDLE_ID: BUNDLE_ID };
   run('xcodegen', ['generate', '--quiet'], appDir, env);
@@ -99,6 +103,14 @@ function buildApp(tv: AppleTV, skipWebBuild: boolean) {
     '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', '-quiet', 'build',
   ], appDir, env);
   return path.join(appDir, 'build/Build/Products/Release-appletvos/aerodance.app');
+}
+
+function buildBench() {
+  const out = path.join(appDir, 'bench/dist');
+  rmSync(out, { recursive: true, force: true });
+  run('npx', ['rolldown', './client-tvos/bench/aeroBench.ts', '--format', 'iife', '--minify', '--file', 'client-tvos/bench/dist/aero-bench.js']);
+  cpSync(path.join(appDir, 'bench/aero-bench.html'), path.join(out, 'aero-bench.html'));
+  console.log(`Built ${path.relative(root, out)}/aero-bench.{html,js}`);
 }
 
 function launch(tv: AppleTV, page: string, report: boolean) {
@@ -145,6 +157,7 @@ function main() {
     const tvs = appleTVs();
     return console.log(tvs.map((tv) => `${tv.name}  tvOS ${tv.osVersion}  ${tv.pairing}  ${tv.udid}`).join('\n') || 'No Apple TVs found.');
   }
+  if (cmd === 'bench') return buildBench();
   if (cmd !== 'deploy' && cmd !== 'launch') throw Error(`Unknown command ${cmd}\n\n${USAGE}`);
   const device = flag('--device');
   const page = flag('--path') || '/?input=ghost';

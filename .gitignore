@@ -13,3 +13,4 @@ client-tvos/www/
 client-tvos/build/
 client-tvos/Info.plist
 client-tvos/*.xcodeproj/
+client-tvos/bench/dist/
