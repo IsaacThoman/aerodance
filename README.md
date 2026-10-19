@@ -139,9 +139,9 @@ See [Coolify's Docker Compose documentation](https://coolify.io/docs/application
 
 ### Pull request previews
 
-Bee Coolify deploys `dev`, the primary branch, at https://aerodance.tech. Its GitHub App automatically builds previews for repository members' pull requests targeting `dev`, updates them when commits are pushed, and removes them when the PR is closed or merged.
+Bee Coolify deploys `dev`, the primary branch, at https://aerodance.party. Its GitHub App automatically builds previews for repository members' pull requests targeting `dev`, updates them when commits are pushed, and removes them when the PR is closed or merged.
 
-The preview URL template is `{{pr_id}}-aerodance.deathgrips.org`, so PR #3 is available at https://3-aerodance.deathgrips.org. Wildcard DNS for `*.deathgrips.org` routes these hosts to Bee through Cloudflare. Set service `app` domains to internal port `3000` in Coolify; previews inherit that port from the production domain configuration.
+The preview URL template is `{{pr_id}}.aerodance.party`, so PR #3 is available at https://3.aerodance.party. Wildcard DNS for `*.aerodance.party` routes these hosts to Bee through Cloudflare. Set service `app` domains to internal port `3000` in Coolify; previews inherit that port from the production domain configuration.
 
 ## Local development
 
