@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AeroContext } from './context.ts';
 import { splitIntoCells } from './instanceCells.ts';
-import { mergeStatic } from './mergeStatic.ts';
+import { freezeMatrices, mergeStatic } from './mergeStatic.ts';
 import type { FlightPath } from './flight.ts';
 import { TAU, canvas2d, col, hexMul } from './util.ts';
 
@@ -168,7 +168,7 @@ export function buildWindmills(ctx: AeroContext) {
     }
     g.add(bl); ctx.root.add(g); MILLS.push(bl); ctx.moving.push(bl);
     // The sails turn as one: two meshes (arms, sails) instead of eight.
-    for (const arm of bl.children) arm.matrixAutoUpdate = false;
+    for (const arm of bl.children) freezeMatrices(arm);
     mergeStatic(bl, [...bl.children]);
   }
   return {

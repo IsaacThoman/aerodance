@@ -6,6 +6,15 @@ type Static = THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
 const plainRender = THREE.Object3D.prototype.onBeforeRender;
 const plainCompile = THREE.Material.prototype.onBeforeCompile;
 
+/**
+ * Marks `object` and its descendants as never moving: computes each local matrix from its
+ * position, rotation and scale, then stops three.js recomputing it every frame. (Turning
+ * `matrixAutoUpdate` off without this freezes whatever matrix was last computed, often identity.)
+ */
+export function freezeMatrices(object: THREE.Object3D) {
+  object.traverse((o) => { o.updateMatrix(); o.matrixAutoUpdate = false; });
+}
+
 /** True for a plain opaque mesh that never moves (it and its parents keep their matrices). */
 function mergeable(o: THREE.Object3D, top: THREE.Object3D): o is Static {
   if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || o instanceof THREE.SkinnedMesh) return false;

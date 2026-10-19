@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { FOG_BASE, FOG_DENSITY, FOG_WHITE, type AeroContext } from './context.ts';
 import type { FlightPath } from './flight.ts';
 import { DepthOrder } from './depthOrder.ts';
-import { mergeStatic } from './mergeStatic.ts';
+import { freezeMatrices, mergeStatic } from './mergeStatic.ts';
 import { mulberry32 } from './random.ts';
 import { TAU, canvas2d, clamp, col, sstep } from './util.ts';
 
@@ -220,7 +220,7 @@ export function buildJet(ctx: AeroContext) {
   const cm = new THREE.MeshBasicMaterial({ map: ctx.tex(c), transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, opacity: 0.9 });
   for (const oz of [-3.5, 3.5]) for (const r of [0, Math.PI / 2]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(700, 2.2), cm); p.position.set(-352, 0, oz); p.rotation.x = r; jet.add(p); }
   jet.scale.setScalar(3); ctx.root.add(jet); ctx.moving.push(jet);
-  for (const part of jet.children) part.matrixAutoUpdate = false;
+  for (const part of jet.children) freezeMatrices(part);
   mergeStatic(jet, [...jet.children]);
   return {
     update(t: number) { jet.position.set(((t * 90) % 7000) - 3500, 950, -1900); },

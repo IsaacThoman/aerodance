@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Box3, BoxGeometry, Group, InstancedMesh, Mesh, MeshBasicMaterial, Vector3 } from 'three';
+import type { BufferAttribute, Object3D } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { mergeStatic } from '../src/aero/mergeStatic.ts';
+import { freezeMatrices, mergeStatic } from '../src/aero/mergeStatic.ts';
+import { buildWindmills } from '../src/aero/meadow.ts';
+import type { AeroContext } from '../src/aero/context.ts';
 
-const freeze = (o: { traverse: (f: (x: { matrixAutoUpdate: boolean; updateMatrix(): void }) => void) => void }) => o.traverse((x) => { x.updateMatrix(); x.matrixAutoUpdate = false; });
 const bounds = (o: Group) => { o.updateMatrixWorld(true); return new Box3().setFromObject(o, true); };
 
 test('static meshes sharing a material become one, in place; moving, transparent and instanced ones stay', () => {
@@ -21,7 +23,7 @@ test('static meshes sharing a material become one, in place; moving, transparent
   const clear = new Mesh(new BoxGeometry(), glass), clear2 = new Mesh(new BoxGeometry(), glass);
   const many = new InstancedMesh(new BoxGeometry(), red, 3);
   root.add(a, holder, c, d, both, clear, clear2, many);
-  freeze(root);
+  freezeMatrices(root);
   const mover = new Mesh(new BoxGeometry(), red); root.add(mover);
   const before = bounds(root);
   const kept = mergeStatic(root, [...root.children]);
@@ -44,7 +46,7 @@ test('meshes keep still relative to a moving parent', () => {
   const sail = new Group(), mat = new MeshBasicMaterial();
   for (let k = 0; k < 4; k++) { const arm = new Group(); arm.rotation.x = (k * Math.PI) / 2; const m = new Mesh(new BoxGeometry(0.3, 13, 0.4), mat); m.position.y = 6.5; arm.add(m); sail.add(arm); }
   sail.position.set(3, 17, 0); sail.rotation.x = 0.3;
-  for (const arm of sail.children) freeze(arm);
+  for (const arm of sail.children) freezeMatrices(arm);
   const before = bounds(sail as Group);
   mergeStatic(sail, [...sail.children]);
   sail.updateMatrixWorld(true);
@@ -52,4 +54,20 @@ test('meshes keep still relative to a moving parent', () => {
   assert.equal(merged.length, 1);
   const after = bounds(sail as Group);
   assert.ok(after.min.distanceTo(before.min) < 1e-4 && after.max.distanceTo(before.max) < 1e-4);
+});
+
+test('windmills keep all four sails once their builder merges them', () => {
+  // The builder merges each windmill's arms before the world computes any matrices, so each arm's
+  // turn has to be baked in (not an identity matrix that stacks all four sails into one).
+  const ctx = { root: new Group(), moving: [] as Object3D[] } as unknown as AeroContext;
+  buildWindmills(ctx);
+  const sails = ctx.moving[0];
+  assert.ok(sails);
+  const meshes = sails.children.filter((o): o is Mesh => o instanceof Mesh);
+  assert.equal(meshes.length, 2, 'arms and sails, one mesh each');
+  for (const m of meshes) {
+    const box = new Box3().setFromBufferAttribute(m.geometry.attributes.position as BufferAttribute);
+    // Arms at right angles reach out both ways along y and z.
+    assert.ok(box.max.y > 9 && box.min.y < -9 && box.max.z > 9 && box.min.z < -9, `${box.min.toArray()} ${box.max.toArray()}`);
+  }
 });
