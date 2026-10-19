@@ -1,8 +1,15 @@
 // The webcam capture record WebcamPoseSource emits, and its validation.
-import { assertPoses, finite, isObject } from './choreography.ts';
+import { assertPoses, finite, isObject, oneOf } from './choreography.ts';
 import type { CaptureInput, PlayerCount, Pose } from './choreography.ts';
 import { poseModel } from './browser/models.ts';
 import type { PoseModelId } from './browser/models.ts';
+
+/**
+ * How a record's browser times were measured: the frame observed in this browser, or in a
+ * paired phone's browser and moved onto this one's clock (packages/pairing/clock.ts).
+ */
+export type WebcamTimingMethod = 'browser-frame-observation' | 'remote-clock-sync';
+export const WEBCAM_TIMING_METHODS: readonly WebcamTimingMethod[] = ['browser-frame-observation', 'remote-clock-sync'];
 
 /** One webcam tracking result, timed by the browser frame it was measured from. */
 export interface WebcamRecord {
@@ -12,7 +19,7 @@ export interface WebcamRecord {
   input: CaptureInput;
   modelId: PoseModelId;
   mediaTimeMs: number; frameBrowserTimeMs: number; resultBrowserTimeMs: number;
-  timingMethod: 'browser-frame-observation';
+  timingMethod: WebcamTimingMethod;
   poses: Pose[];
 }
 const atLeast = (n: unknown, min: number) => typeof n === 'number' && Number.isSafeInteger(n) && n >= min;
@@ -26,7 +33,7 @@ export function assertWebcamRecord(record: unknown): asserts record is WebcamRec
       !atLeast(record.seq, 1) || (record.playerCount !== 1 && record.playerCount !== 2) ||
       !isObject(input) || !atLeast(input.width, 1) || !atLeast(input.height, 1) || input.mirrored !== false ||
       !time(frameBrowserTimeMs) || !time(resultBrowserTimeMs) || !time(mediaTimeMs) ||
-      resultBrowserTimeMs < frameBrowserTimeMs || record.timingMethod !== 'browser-frame-observation') {
+      resultBrowserTimeMs < frameBrowserTimeMs || !oneOf(WEBCAM_TIMING_METHODS, record.timingMethod)) {
     throw invalid();
   }
   poseModel(record.modelId);

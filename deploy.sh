@@ -29,7 +29,8 @@ echo "Rebuilding and deploying the main app locally with ${engine}…"
 
 echo 'Waiting for the app to become ready…'
 for ((attempt = 1; attempt <= 60; attempt++)); do
-  if "${compose[@]}" exec -T app wget -q -T 2 -O /dev/null http://127.0.0.1:3000/ >/dev/null 2>&1; then
+  if "${compose[@]}" exec -T app wget -q -T 2 -O /dev/null http://127.0.0.1:3000/ >/dev/null 2>&1 &&
+    "${compose[@]}" exec -T app wget -q -T 2 -O /dev/null http://127.0.0.1:3000/pair/health >/dev/null 2>&1; then
     echo 'Deployment healthy. Open the local address shown below (default: http://localhost:3000).'
     "${compose[@]}" ps
     exit 0

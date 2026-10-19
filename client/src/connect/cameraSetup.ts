@@ -3,16 +3,16 @@ import type { Rect } from '../ui/draw.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
 import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
-import type { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
 import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { CameraInput, CameraInputView } from '../pose/CameraInput.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 
 /**
- * The webcam controls Connect Client and the calibration screen share: the camera arrows,
- * the Lite / Full / Heavy tracking buttons and Start camera / Disconnect (Connect Client
- * only; calibration starts the camera from its preview). Each screen lays them out
- * (CameraLayout), adds cameraWidgets() to its widgets and hands presses to
- * CameraSetup.activate().
+ * The webcam controls Connect Client and the calibration screen share: the camera arrows
+ * (this computer's cameras, then the phone), the Lite / Full / Heavy tracking buttons and
+ * Start camera / Disconnect (Connect Client only; calibration starts the camera from its
+ * preview). Each screen lays them out (CameraLayout), adds cameraWidgets() to its widgets and
+ * hands presses to CameraSetup.activate().
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
  * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg); onStep: camera.step(wdg, dir, repeat);
@@ -43,11 +43,18 @@ export const cameraWidgets = ({ prev, next, models, primary }: CameraLayout): Ca
 /** The camera actions, and the error from the last one that failed. */
 export class CameraSetup {
   error = '';
-  target: () => { source: PoseSourceController; connection: PoseInputView };
-  constructor(target: () => { source: PoseSourceController; connection: PoseInputView }) { this.target = target; }
+  target: () => { source: CameraInput; connection: CameraInputView };
+  constructor(target: () => { source: CameraInput; connection: CameraInputView }) { this.target = target; }
 
   /** The camera is on or on its way. */
   active() { return ACTIVE.includes(this.target().connection.status); }
+  /** The phone is the chosen camera. */
+  phone() { return this.target().connection.sourceKind === 'phone'; }
+  /** The code and link to show while waiting for a phone to pair. */
+  pairing() {
+    const { connection } = this.target();
+    return connection.status === 'connecting' ? connection.pairing : null;
+  }
   /** What to tell the player: the last error, or the source's own message. */
   message() { return this.error || this.target().connection.message || ''; }
   failed() { return !!this.error || this.target().connection.status === 'error'; }
@@ -122,13 +129,16 @@ export function drawModelPicker(g: CanvasRenderingContext2D, { models }: CameraL
   }));
 }
 
-/** Start camera, or Disconnect / Cancel connection while it is on. */
+/** Start camera (Pair phone), or Disconnect / Cancel connection while it is on. */
 export function drawCameraButton(g: CanvasRenderingContext2D, layout: CameraLayout, setup: CameraSetup, hover: number, press: number) {
   if (!layout.primary) return;
   const { status } = setup.target().connection;
   const active = setup.active();
-  const label = active ? (status === 'connected' ? 'Disconnect' : 'Cancel connection') : 'Start camera';
-  drawPill(g, layout.primary, { label, icon: active ? 'close' : 'play', hover, press });
+  const phone = setup.phone();
+  const label = active
+    ? (status === 'connecting' && phone ? 'Cancel pairing' : status === 'connected' || phone ? 'Disconnect' : 'Cancel connection')
+    : phone ? 'Pair phone' : 'Start camera';
+  drawPill(g, layout.primary, { label, icon: active ? 'close' : phone ? 'phone' : 'play', hover, press });
 }
 
 export const modelDescription = (connection: PoseInputView) => MODELS.find(model => model.id === connection.model)?.description || '';
