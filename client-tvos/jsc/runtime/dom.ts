@@ -3,7 +3,7 @@
 import { PAYLOAD } from './ops.ts';
 import { native } from './native.ts';
 import { CanvasRenderingContext2D, canvasCommands } from './canvas2d.ts';
-import { WebGL2RenderingContext } from './webgl.ts';
+import { WebGL2RenderingContext, releaseImage } from './webgl.ts';
 import { BlobShim, URLShim, blobForUrl, pageUrl, reportError, setTimeoutShim } from './web.ts';
 
 const N = native;
@@ -338,6 +338,10 @@ export class HTMLMediaElementShim extends HTMLElementShim {
 // Canvas and images
 
 let nextSource = 1;
+/** Canvas bitmaps and decoded images are native memory: free them when their element is
+ *  collected. Both go through the command stream, after any command that still uses them. */
+const freeCanvas = new FinalizationRegistry<number>((id) => canvasCommands.destroy(id));
+const freeImage = new FinalizationRegistry<number>((id) => releaseImage(id));
 /** The canvas that shows on screen: the first one with a WebGL context. */
 export const screenCanvas: { current: HTMLCanvasElementShim | null } = { current: null };
 
@@ -361,7 +365,11 @@ export class HTMLCanvasElementShim extends HTMLElementShim {
     if (type === '2d') {
       if (this._gl) return null;
       if (!this._ctx2d) {
-        if (!this._bitmap) { canvasCommands.create(this._sourceId, this._w, this._h); this._bitmap = true; }
+        if (!this._bitmap) {
+          canvasCommands.create(this._sourceId, this._w, this._h);
+          this._bitmap = true;
+          freeCanvas.register(this, this._sourceId);
+        }
         this._ctx2d = new CanvasRenderingContext2D(this);
       }
       return this._ctx2d;
@@ -387,8 +395,8 @@ export class HTMLCanvasElementShim extends HTMLElementShim {
 export class ImageBitmapShim {
   readonly _sourceKind: number = PAYLOAD.image;
   _sourceId: number; width: number; height: number;
-  constructor(idn: number, w: number, h: number) { this._sourceId = idn; this.width = w; this.height = h; }
-  close() { if (this._sourceId) N.releaseImage(this._sourceId); this._sourceId = 0; }
+  constructor(idn: number, w: number, h: number) { this._sourceId = idn; this.width = w; this.height = h; freeImage.register(this, idn, this); }
+  close() { if (!this._sourceId) return; freeImage.unregister(this); releaseImage(this._sourceId); this._sourceId = 0; }
 }
 
 /** Starts a native decode of a URL (bundled path, blob: or data:) or bytes. */
@@ -437,8 +445,9 @@ export class HTMLImageElementShim extends HTMLElementShim {
         for (const p of this._waiters.splice(0)) p.reject(new Error(error ?? 'image failed'));
         return;
       }
-      if (this._sourceId) N.releaseImage(this._sourceId);
-      this._sourceId = idn; this.naturalWidth = w; this.naturalHeight = h;
+      if (this._sourceId) { freeImage.unregister(this); releaseImage(this._sourceId); }
+      this._sourceId = idn;
+      freeImage.register(this, idn, this); this.naturalWidth = w; this.naturalHeight = h;
       this.dispatchEvent(new EventShim('load'));
       for (const p of this._waiters.splice(0)) p.resolve();
     });

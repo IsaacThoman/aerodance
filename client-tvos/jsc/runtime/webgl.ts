@@ -36,6 +36,8 @@ export function begin(op: number, words: number) {
 /** Ends a command started with begin(); in direct mode it runs now. */
 export function end() { if (DIRECT) submit(false); }
 export const commands = () => commandCount;
+/** Frees a decoded image once the commands already encoded no longer need it. */
+export function releaseImage(imageId: number) { const p = begin(OP.RELEASE_IMAGE, 2); I[p + 1] = imageId; end(); }
 /** Counters for the game's frame reports (report.ts). */
 export const counters = { textureUploads: 0, canvasOps: 0, measureMisses: 0, strings: 0, queries: 0 };
 /** A native query, after everything encoded so far has run. */
@@ -707,8 +709,14 @@ export class WebGL2RenderingContext {
   getFramebufferAttachmentParameter() { return null; }
   getRenderbufferParameter() { return 0; }
   readPixels(x: number, y: number, w: number, h: number, format: number, type: number, dst: ArrayBufferView | number | null, dstOffset = 0) {
-    if (!dst || typeof dst === 'number') return;
-    query(Q.readPixels, x, y, w, h, format, type, bytesOf(dst, dstOffset));
+    if (typeof dst === 'number') {
+      // Into the bound PIXEL_PACK_BUFFER at byte offset dst: no need to wait.
+      const p = begin(OP.READ_PIXELS, 8);
+      I[p + 1] = x; I[p + 2] = y; I[p + 3] = w; I[p + 4] = h; I[p + 5] = format; I[p + 6] = type; I[p + 7] = dst;
+      end();
+      return;
+    }
+    if (dst) query(Q.readPixels, x, y, w, h, format, type, bytesOf(dst, dstOffset));
   }
 
   // Queries and syncs: no timer queries are offered, so these only need to be harmless.

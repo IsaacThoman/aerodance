@@ -34,6 +34,7 @@ class Executor {
   void runGL(int op, const int32_t *w, int words);
   void resizeDefault(int w, int h, bool antialias, bool depth, bool stencil, bool alpha);
   void present();
+  void readPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void *dst);
   void texImage(const int32_t *w);
   const uint8_t *payload(const int32_t *p, std::vector<uint8_t> &holder, size_t *length);
   GLuint name(int jsId) const { return jsId > 0 && (size_t)jsId < names_.size() ? names_[jsId] : 0; }
@@ -60,7 +61,7 @@ class Executor {
   bool scissorTest_ = false;
   // WebGL pixel unpacking.
   bool flipY_ = false, premultiply_ = false;
-  int unpackAlignment_ = 4, unpackRowLength_ = 0, unpackImageHeight_ = 0, unpackSkipPixels_ = 0, unpackSkipRows_ = 0, unpackSkipImages_ = 0;
+  int packAlignment_ = 4, unpackAlignment_ = 4, unpackRowLength_ = 0, unpackImageHeight_ = 0, unpackSkipPixels_ = 0, unpackSkipRows_ = 0, unpackSkipImages_ = 0;
   int boundPixelUnpack_ = 0;
   // WebGL clears new framebuffer attachments (colour 0, depth 1, stencil 0) before their first
   // use; OpenGL ES leaves them undefined. Images allocated without data are "fresh" until a

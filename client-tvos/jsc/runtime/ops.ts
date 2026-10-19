@@ -6,7 +6,7 @@
 export const GL_OPS = [
   'NOP',
   // Host
-  'PRESENT', 'RESIZE_DEFAULT_FB', 'FREE_PAYLOAD',
+  'PRESENT', 'RESIZE_DEFAULT_FB', 'RELEASE_IMAGE',
   // State
   'ACTIVE_TEXTURE', 'BLEND_COLOR', 'BLEND_EQUATION', 'BLEND_EQUATION_SEPARATE', 'BLEND_FUNC', 'BLEND_FUNC_SEPARATE',
   'CLEAR', 'CLEAR_COLOR', 'CLEAR_DEPTH', 'CLEAR_STENCIL', 'COLOR_MASK', 'CULL_FACE', 'DEPTH_FUNC', 'DEPTH_MASK',
@@ -40,6 +40,8 @@ export const GL_OPS = [
   'CLEAR_BUFFERUIV', 'CLEAR_BUFFERFI',
   // Queries
   'BEGIN_QUERY', 'END_QUERY',
+  // readPixels into a PIXEL_PACK_BUFFER
+  'READ_PIXELS',
 ] as const;
 
 // Canvas 2D commands draw on the canvas chosen by the last C_SELECT.
@@ -51,7 +53,7 @@ export const CANVAS_OPS = [
   'C_SMOOTHING', 'C_BEGIN_PATH', 'C_MOVE_TO', 'C_LINE_TO', 'C_BEZIER_TO', 'C_QUAD_TO', 'C_ARC', 'C_ARC_TO',
   'C_ELLIPSE', 'C_RECT', 'C_ROUND_RECT', 'C_CLOSE_PATH', 'C_FILL', 'C_STROKE', 'C_CLIP', 'C_FILL_RECT',
   'C_STROKE_RECT', 'C_CLEAR_RECT', 'C_FILL_TEXT', 'C_STROKE_TEXT', 'C_DRAW_IMAGE', 'C_PUT_IMAGE_DATA',
-  'C_GRADIENT', 'C_GRADIENT_STOP', 'C_PATTERN', 'C_PAINT_DELETE', 'C_PATH_SELECT', 'C_PATH_ADD', 'C_FILTER',
+  'C_PATH_SELECT', 'C_PATH_ADD', 'C_FILTER',
 ] as const;
 
 const index = <T extends readonly string[]>(names: T, base: number) =>

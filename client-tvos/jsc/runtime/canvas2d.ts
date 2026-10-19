@@ -27,27 +27,25 @@ const JOINS = ['miter', 'round', 'bevel'];
 const ALIGNS = ['start', 'end', 'left', 'right', 'center'];
 const BASELINES = ['alphabetic', 'top', 'hanging', 'middle', 'ideographic', 'bottom'];
 
-let nextPaintId = 1;
+/** Gradients and patterns live only here: they're sent by value (C_FILL_PAINT / C_STROKE_PAINT)
+ *  when they become the fill or stroke style, and again if they change before the next draw, so
+ *  the native canvas state owns its copy and nothing needs freeing. `_v` counts changes. */
 export class CanvasGradient {
-  _id = nextPaintId++;
-  constructor(kind: number, a: number[]) {
-    const p = begin(OP.C_GRADIENT, 3 + a.length); I[p + 1] = this._id; I[p + 2] = kind;
-    for (let i = 0; i < a.length; i++) F[p + 3 + i] = a[i];
-    end();
-  }
+  _kind: number; _a: number[]; _stops: number[] = []; _v = 0;
+  constructor(kind: number, a: number[]) { this._kind = kind; this._a = a; }
   addColorStop(offset: number, color: string) {
     const c = parseColor(color);
     if (!c) throw new SyntaxError(`addColorStop: ${color} is not a colour`);
-    const p = begin(OP.C_GRADIENT_STOP, 7); I[p + 1] = this._id; F[p + 2] = offset; F[p + 3] = c[0]; F[p + 4] = c[1]; F[p + 5] = c[2]; F[p + 6] = c[3];
-    end();
+    if (!(offset >= 0 && offset <= 1)) throw new RangeError('addColorStop: offset out of range');
+    this._stops.push(offset, c[0], c[1], c[2], c[3]);
+    this._v++;
   }
 }
 export class CanvasPattern {
-  _id = nextPaintId++;
+  _kind = PAINT.pattern; _sourceKind: number; _sourceId: number; _repeat: number; _v = 0;
   constructor(source: PixelSource, repetition: string) {
-    const p = begin(OP.C_PATTERN, 5); I[p + 1] = this._id; I[p + 2] = source._sourceKind; I[p + 3] = source._sourceId;
-    I[p + 4] = ['repeat', 'repeat-x', 'repeat-y', 'no-repeat'].indexOf(repetition || 'repeat');
-    end();
+    this._sourceKind = source._sourceKind; this._sourceId = source._sourceId;
+    this._repeat = Math.max(0, ['repeat', 'repeat-x', 'repeat-y', 'no-repeat'].indexOf(repetition || 'repeat'));
   }
   setTransform() {}
 }
@@ -98,12 +96,14 @@ interface State {
   shadowX: number; shadowY: number; font: string; fontId: number; textAlign: string; textBaseline: string;
   letterSpacing: string; letterSpacingPx: number; smoothing: boolean; smoothingQuality: string; filter: string;
   direction: string; m: [number, number, number, number, number, number];
+  /** The version of a gradient or pattern style last sent (-1 for colours). */
+  fillSent: number; strokeSent: number;
 }
 const defaultState = (): State => ({
   fill: '#000000', stroke: '#000000', lineWidth: 1, lineCap: 'butt', lineJoin: 'miter', miterLimit: 10, dash: [], dashOffset: 0,
   alpha: 1, composite: 'source-over', shadowBlur: 0, shadowColor: 'rgba(0, 0, 0, 0)', shadowX: 0, shadowY: 0,
   font: '10px sans-serif', fontId: -1, textAlign: 'start', textBaseline: 'alphabetic', letterSpacing: '0px', letterSpacingPx: 0,
-  smoothing: true, smoothingQuality: 'low', filter: 'none', direction: 'ltr', m: [1, 0, 0, 1, 0, 0],
+  smoothing: true, smoothingQuality: 'low', filter: 'none', direction: 'ltr', m: [1, 0, 0, 1, 0, 0], fillSent: -1, strokeSent: -1,
 });
 
 const fontIds = new Map<string, number>();
@@ -196,13 +196,40 @@ export class CanvasRenderingContext2D {
       const p = this._op(op, 5); F[p + 1] = c[0]; F[p + 2] = c[1]; F[p + 3] = c[2]; F[p + 4] = c[3]; end();
       return true;
     }
-    if (v instanceof CanvasGradient || v instanceof CanvasPattern) { const p = this._op(opPaint, 2); I[p + 1] = v._id; end(); return true; }
+    if (v instanceof CanvasGradient || v instanceof CanvasPattern) { this._sendPaint(opPaint, v); return true; }
     return false;
   }
+  /** Layout: kind, 6 floats (gradient geometry), source kind, source id, repetition, stop count,
+   *  then offset, r, g, b, a per stop. */
+  _sendPaint(op: number, v: CanvasGradient | CanvasPattern) {
+    const stops = v instanceof CanvasGradient ? v._stops : [];
+    const p = this._op(op, 12 + stops.length);
+    I[p + 1] = v._kind;
+    for (let i = 0; i < 6; i++) F[p + 2 + i] = v instanceof CanvasGradient ? v._a[i] ?? 0 : 0;
+    I[p + 8] = v instanceof CanvasPattern ? v._sourceKind : 0;
+    I[p + 9] = v instanceof CanvasPattern ? v._sourceId : 0;
+    I[p + 10] = v instanceof CanvasPattern ? v._repeat : 0;
+    I[p + 11] = stops.length / 5;
+    for (let i = 0; i < stops.length; i++) F[p + 12 + i] = stops[i];
+    end();
+    if (op === OP.C_FILL_PAINT) this._s.fillSent = v._v; else this._s.strokeSent = v._v;
+  }
+  /** Before drawing with a gradient that gained stops since it was set, sends it again. */
+  _fresh(fill: boolean) {
+    const s = this._s, v = fill ? s.fill : s.stroke;
+    if (typeof v === 'string' || v._v === (fill ? s.fillSent : s.strokeSent)) return;
+    this._sendPaint(fill ? OP.C_FILL_PAINT : OP.C_STROKE_PAINT, v);
+  }
   get fillStyle(): Paint { const f = this._s.fill; return typeof f === 'string' ? normalizeColor(f) : f; }
-  set fillStyle(v: Paint) { if (v !== this._s.fill && this._paint(OP.C_FILL_COLOR, OP.C_FILL_PAINT, v)) this._s.fill = v; }
+  set fillStyle(v: Paint) {
+    if (v === this._s.fill && (typeof v === 'string' || v._v === this._s.fillSent)) return;
+    if (this._paint(OP.C_FILL_COLOR, OP.C_FILL_PAINT, v)) this._s.fill = v;
+  }
   get strokeStyle(): Paint { const f = this._s.stroke; return typeof f === 'string' ? normalizeColor(f) : f; }
-  set strokeStyle(v: Paint) { if (v !== this._s.stroke && this._paint(OP.C_STROKE_COLOR, OP.C_STROKE_PAINT, v)) this._s.stroke = v; }
+  set strokeStyle(v: Paint) {
+    if (v === this._s.stroke && (typeof v === 'string' || v._v === this._s.strokeSent)) return;
+    if (this._paint(OP.C_STROKE_COLOR, OP.C_STROKE_PAINT, v)) this._s.stroke = v;
+  }
   _f(op: number, v: number) { const p = this._op(op, 2); F[p + 1] = v; end(); }
   _i(op: number, v: number) { const p = this._op(op, 2); I[p + 1] = v; end(); }
   get lineWidth() { return this._s.lineWidth; }
@@ -298,6 +325,7 @@ export class CanvasRenderingContext2D {
   }
   _text(op: number, text: string, x: number, y: number, maxWidth?: number) {
     this._fontId();
+    this._fresh(op === OP.C_FILL_TEXT);
     counters.strings++;
     const p = this._op(op, 5); I[p + 1] = N.str(String(text)); F[p + 2] = x; F[p + 3] = y; F[p + 4] = maxWidth ?? -1; end();
   }
@@ -341,9 +369,10 @@ export class CanvasRenderingContext2D {
   fill(a?: Path2D | string, b?: string) {
     const rule = (typeof a === 'string' ? a : b) === 'evenodd' ? 1 : 0;
     const path = this._usePath(a);
+    this._fresh(true);
     const p = this._op(OP.C_FILL, 3); I[p + 1] = rule; I[p + 2] = path; end();
   }
-  stroke(path?: Path2D) { const id = this._usePath(path); const p = this._op(OP.C_STROKE, 2); I[p + 1] = id; end(); }
+  stroke(path?: Path2D) { const id = this._usePath(path); this._fresh(false); const p = this._op(OP.C_STROKE, 2); I[p + 1] = id; end(); }
   clip(a?: Path2D | string, b?: string) {
     const rule = (typeof a === 'string' ? a : b) === 'evenodd' ? 1 : 0;
     const path = this._usePath(a);
@@ -351,14 +380,14 @@ export class CanvasRenderingContext2D {
   }
   isPointInPath() { return false; }
   isPointInStroke() { return false; }
-  fillRect(x: number, y: number, w: number, h: number) { const p = this._op(OP.C_FILL_RECT, 5); F[p + 1] = x; F[p + 2] = y; F[p + 3] = w; F[p + 4] = h; end(); }
-  strokeRect(x: number, y: number, w: number, h: number) { const p = this._op(OP.C_STROKE_RECT, 5); F[p + 1] = x; F[p + 2] = y; F[p + 3] = w; F[p + 4] = h; end(); }
+  fillRect(x: number, y: number, w: number, h: number) { this._fresh(true); const p = this._op(OP.C_FILL_RECT, 5); F[p + 1] = x; F[p + 2] = y; F[p + 3] = w; F[p + 4] = h; end(); }
+  strokeRect(x: number, y: number, w: number, h: number) { this._fresh(false); const p = this._op(OP.C_STROKE_RECT, 5); F[p + 1] = x; F[p + 2] = y; F[p + 3] = w; F[p + 4] = h; end(); }
   clearRect(x: number, y: number, w: number, h: number) { const p = this._op(OP.C_CLEAR_RECT, 5); F[p + 1] = x; F[p + 2] = y; F[p + 3] = w; F[p + 4] = h; end(); }
 
   // Paint objects
-  createLinearGradient(x0: number, y0: number, x1: number, y1: number) { select(this._id); return new CanvasGradient(PAINT.linear, [x0, y0, x1, y1]); }
-  createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) { select(this._id); return new CanvasGradient(PAINT.radial, [x0, y0, r0, x1, y1, r1]); }
-  createConicGradient(angle: number, x: number, y: number) { select(this._id); return new CanvasGradient(PAINT.conic, [angle, x, y]); }
+  createLinearGradient(x0: number, y0: number, x1: number, y1: number) { return new CanvasGradient(PAINT.linear, [x0, y0, x1, y1]); }
+  createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) { return new CanvasGradient(PAINT.radial, [x0, y0, r0, x1, y1, r1]); }
+  createConicGradient(angle: number, x: number, y: number) { return new CanvasGradient(PAINT.conic, [angle, x, y]); }
   createPattern(source: unknown, repetition: string) { return isPixelSource(source) ? new CanvasPattern(source, repetition) : null; }
 
   // Images and pixels

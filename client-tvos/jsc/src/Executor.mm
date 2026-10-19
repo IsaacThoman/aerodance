@@ -160,8 +160,15 @@ void Executor::resizeDefault(int w, int h, bool antialias, bool depth, bool sten
   GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
   if (status != GL_FRAMEBUFFER_COMPLETE) HostLog(2, [NSString stringWithFormat:@"default framebuffer incomplete: 0x%x", status]);
   HostLog(0, [NSString stringWithFormat:@"default framebuffer %dx%d%s", rw, rh, antialias ? " 4x MSAA" : ""]);
-  glClearColor(0, 0, 0, 0);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+  // Start the new buffers cleared, without touching the app's clear values, masks or scissor.
+  if (scissorTest_) glDisable(GL_SCISSOR_TEST);
+  glColorMask(1, 1, 1, 1); glDepthMask(1); glStencilMask(0xffffffff);
+  const GLfloat zero[4] = {};
+  glClearBufferfv(GL_COLOR, 0, zero);
+  if (depth || stencil) glClearBufferfi(GL_DEPTH_STENCIL, 0, 1.0f, 0);
+  glColorMask(colorMask_[0], colorMask_[1], colorMask_[2], colorMask_[3]); glDepthMask(depthMask_);
+  glStencilMaskSeparate(GL_FRONT, stencilMaskFront_); glStencilMaskSeparate(GL_BACK, stencilMaskBack_);
+  if (scissorTest_) glEnable(GL_SCISSOR_TEST);
   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(drawFB_));
   glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer(readFB_));
   glBindRenderbuffer(GL_RENDERBUFFER, name(renderbuffer_));
@@ -394,6 +401,30 @@ void Executor::initAttachments(int fb) {
   updatePending();
 }
 
+/** glReadPixels from the current read framebuffer; the multisampled default framebuffer is
+ *  resolved into the display's first. */
+void Executor::readPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void *dst) {
+  if (readPending_) {
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(readFB_));
+    initAttachments(readFB_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(drawFB_));
+  }
+  bool resolve = readFB_ == 0 && msaaFBO_;
+  if (resolve) {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFBO_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, displayFBO_);
+    if (scissorTest_) glDisable(GL_SCISSOR_TEST);
+    glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if (scissorTest_) glEnable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, displayFBO_);
+  }
+  glReadPixels(x, y, w, h, format, type, dst);
+  if (resolve) {
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(drawFB_));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer(readFB_));
+  }
+}
+
 void Executor::runGL(int op, const int32_t *w, int words) {
   if (drawPending_) {
     switch (op) {
@@ -413,7 +444,8 @@ void Executor::runGL(int op, const int32_t *w, int words) {
     case OP_NOP: break;
     case OP_PRESENT: present(); break;
     case OP_RESIZE_DEFAULT_FB: resizeDefault(w[1], w[2], w[3], w[4], w[5], w[6]); break;
-    case OP_FREE_PAYLOAD: break;
+    case OP_RELEASE_IMAGE: gPayloads.releaseImage(w[1]); break;
+    case OP_READ_PIXELS: readPixels(w[1], w[2], w[3], w[4], w[5], w[6], (void *)(intptr_t)w[7]); break;
 
     case OP_ACTIVE_TEXTURE: activeUnit_ = w[1] - GL_TEXTURE0; glActiveTexture(w[1]); break;
     case OP_BLEND_COLOR: glBlendColor(FL(1), FL(2), FL(3), FL(4)); break;
@@ -442,6 +474,7 @@ void Executor::runGL(int op, const int32_t *w, int words) {
         case UNPACK_COLORSPACE_CONVERSION_WEBGL: break;
         default:
           if (w[1] == GL_UNPACK_ALIGNMENT) unpackAlignment_ = w[2];
+          else if (w[1] == GL_PACK_ALIGNMENT) packAlignment_ = w[2];
           else if (w[1] == GL_UNPACK_ROW_LENGTH) unpackRowLength_ = w[2];
           else if (w[1] == GL_UNPACK_IMAGE_HEIGHT) unpackImageHeight_ = w[2];
           else if (w[1] == GL_UNPACK_SKIP_PIXELS) unpackSkipPixels_ = w[2];
@@ -492,8 +525,10 @@ void Executor::runGL(int op, const int32_t *w, int words) {
           glDeleteFramebuffers(1, &n);
           fbAttachments_.erase(w[2]);
           fbPending_.erase(w[2]);
-          if (drawFB_ == w[2]) drawFB_ = 0;
-          if (readFB_ == w[2]) readFB_ = 0;
+          // GL falls back to framebuffer 0, which isn't WebGL's default framebuffer here.
+          if (drawFB_ == w[2]) { drawFB_ = 0; glBindFramebuffer(GL_DRAW_FRAMEBUFFER, defaultFBO_); }
+          if (readFB_ == w[2]) { readFB_ = 0; glBindFramebuffer(GL_READ_FRAMEBUFFER, defaultFBO_); }
+          updatePending();
           break;
         case K_RENDERBUFFER: glDeleteRenderbuffers(1, &n); if (renderbuffer_ == w[2]) renderbuffer_ = 0; break;
         case K_SAMPLER: glDeleteSamplers(1, &n); break;
@@ -816,25 +851,17 @@ id Executor::query(int kind, const double *a, void *out, size_t outLength) {
       return programInfo(p);
     }
     case Q_READ_PIXELS: {
-      GLint x = a[0], y = a[1]; GLsizei w = a[2], h = a[3]; GLenum format = a[4], type = a[5];
-      size_t need = (size_t)w * h * BytesPerPixel(format, type);
+      GLsizei w = a[2], h = a[3];
+      size_t need = (size_t)w * h * BytesPerPixel(a[4], a[5]);
       if (!out || outLength < need) return @(0);
-      bool resolve = readFB_ == 0 && msaaFBO_;
-      if (resolve) {
-        // The multisampled default framebuffer can't be read: resolve it into the display's first.
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFBO_);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, displayFBO_);
-        if (scissorTest_) glDisable(GL_SCISSOR_TEST);
-        glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-        if (scissorTest_) glEnable(GL_SCISSOR_TEST);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, displayFBO_);
-      }
+      // Into client memory: tightly packed, as the runtime sized the view.
+      GLint pbo = 0;
+      glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pbo);
+      if (pbo) glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
       glPixelStorei(GL_PACK_ALIGNMENT, 1);
-      glReadPixels(x, y, w, h, format, type, out);
-      if (resolve) {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(drawFB_));
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer(readFB_));
-      }
+      readPixels(a[0], a[1], w, h, a[4], a[5], out);
+      glPixelStorei(GL_PACK_ALIGNMENT, packAlignment_);
+      if (pbo) glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
       return @(1);
     }
     case Q_BUFFER_SUB_DATA: {

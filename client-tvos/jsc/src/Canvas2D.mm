@@ -34,7 +34,8 @@ struct Paint {
 
 struct CanvasState {
   CGFloat fill[4] = { 0, 0, 0, 1 }, stroke[4] = { 0, 0, 0, 1 };
-  int fillPaint = 0, strokePaint = 0;
+  // Gradients and patterns, sent by value with the style (runtime/canvas2d.ts), owned by the state.
+  std::shared_ptr<Paint> fillPaint, strokePaint;
   CGFloat lineWidth = 1, miter = 10, dashOffset = 0;
   int cap = 0, join = 0;
   std::vector<CGFloat> dash;
@@ -113,7 +114,6 @@ static const CGBlendMode kBlend[] = {
 Canvas2D::Canvas2D() {}
 Canvas2D::~Canvas2D() {
   for (auto &[k, v] : surfaces_) delete v;
-  for (auto &[k, v] : paints_) delete v;
 }
 
 bool Canvas2D::bitmap(int canvas, CanvasBitmap *out) {
@@ -219,6 +219,20 @@ CGPathRef LinePath(CTLineRef line) {
   return path;
 }
 
+/** C_FILL_PAINT / C_STROKE_PAINT: kind, 6 floats, source kind, source id, repetition, stop count,
+ *  then offset, r, g, b, a per stop. */
+std::shared_ptr<Paint> ReadPaint(const int32_t *w) {
+  auto p = std::make_shared<Paint>();
+  p->kind = w[1];
+  for (int i = 0; i < 6; i++) p->a[i] = FL(2 + i);
+  p->sourceKind = w[8]; p->sourceId = w[9]; p->repeat = w[10];
+  for (int i = 0; i < w[11]; i++) {
+    const int32_t *q = w + 12 + i * 5;
+    p->stops.push_back({ *(const float *)&q[0], { *(const float *)&q[1], *(const float *)&q[2], *(const float *)&q[3], *(const float *)&q[4] } });
+  }
+  return p;
+}
+
 }  // namespace
 
 void Canvas2D::run(int op, const int32_t *w, int words) {
@@ -241,30 +255,6 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
     if (it != surfaces_.end()) { if (current_ == it->second) current_ = nullptr; delete it->second; surfaces_.erase(it); }
     return;
   }
-  // Paints are global, not per canvas.
-  if (op == OP_C_GRADIENT) {
-    auto *p = new Paint();
-    p->kind = w[2];
-    for (int i = 0; i < 6 && 3 + i < words; i++) p->a[i] = FL(3 + i);
-    delete paints_[w[1]];
-    paints_[w[1]] = p;
-    return;
-  }
-  if (op == OP_C_GRADIENT_STOP) {
-    Paint *p = paints_[w[1]];
-    if (!p) return;
-    p->stops.push_back({ FL(2), { FL(3), FL(4), FL(5), FL(6) } });
-    if (p->gradient) { CGGradientRelease(p->gradient); p->gradient = nullptr; }
-    return;
-  }
-  if (op == OP_C_PATTERN) {
-    auto *p = new Paint();
-    p->kind = 4; p->sourceKind = w[2]; p->sourceId = w[3]; p->repeat = w[4];
-    delete paints_[w[1]];
-    paints_[w[1]] = p;
-    return;
-  }
-  if (op == OP_C_PAINT_DELETE) { delete paints_[w[1]]; paints_.erase(w[1]); return; }
 
   CanvasSurface *c = current_;
   if (!c || !c->ctx) return;
@@ -281,10 +271,10 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
       break;
     case OP_C_SET_TRANSFORM: s.m = CGAffineTransformMake(FL(1), FL(2), FL(3), FL(4), FL(5), FL(6)); break;
     case OP_C_TRANSFORM: s.m = CGAffineTransformConcat(CGAffineTransformMake(FL(1), FL(2), FL(3), FL(4), FL(5), FL(6)), s.m); break;
-    case OP_C_FILL_COLOR: s.fillPaint = 0; for (int i = 0; i < 4; i++) s.fill[i] = FL(1 + i); break;
-    case OP_C_FILL_PAINT: s.fillPaint = w[1]; break;
-    case OP_C_STROKE_COLOR: s.strokePaint = 0; for (int i = 0; i < 4; i++) s.stroke[i] = FL(1 + i); break;
-    case OP_C_STROKE_PAINT: s.strokePaint = w[1]; break;
+    case OP_C_FILL_COLOR: s.fillPaint = nullptr; for (int i = 0; i < 4; i++) s.fill[i] = FL(1 + i); break;
+    case OP_C_FILL_PAINT: s.fillPaint = ReadPaint(w); break;
+    case OP_C_STROKE_COLOR: s.strokePaint = nullptr; for (int i = 0; i < 4; i++) s.stroke[i] = FL(1 + i); break;
+    case OP_C_STROKE_PAINT: s.strokePaint = ReadPaint(w); break;
     case OP_C_LINE_WIDTH: s.lineWidth = FL(1); break;
     case OP_C_LINE_CAP: s.cap = w[1]; break;
     case OP_C_LINE_JOIN: s.join = w[1]; break;
@@ -391,7 +381,7 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
       c->changed();
       CGContextSaveGState(ctx);
       Prepare(ctx, s);
-      Paint *paint = s.fillPaint ? paints_[s.fillPaint] : nullptr;
+      Paint *paint = s.fillPaint.get();
       if (!paint) {
         CGContextSetRGBFillColor(ctx, s.fill[0], s.fill[1], s.fill[2], s.fill[3]);
         CGContextAddPath(ctx, p);
@@ -440,7 +430,7 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
       CGContextSetLineJoin(ctx, (CGLineJoin)s.join);
       CGContextSetMiterLimit(ctx, s.miter);
       CGContextSetLineDash(ctx, s.dashOffset, s.dash.empty() ? nullptr : s.dash.data(), s.dash.size());
-      Paint *paint = s.strokePaint ? paints_[s.strokePaint] : nullptr;
+      Paint *paint = s.strokePaint.get();
       CGContextAddPath(ctx, user);
       if (!paint) {
         CGContextSetRGBStrokeColor(ctx, s.stroke[0], s.stroke[1], s.stroke[2], s.stroke[3]);
@@ -502,7 +492,7 @@ void Canvas2D::run(int op, const int32_t *w, int words) {
       CGContextSetTextMatrix(ctx, CGAffineTransformMakeScale(1, -1));
       CGContextSetTextPosition(ctx, 0, 0);
       bool stroke = op == OP_C_STROKE_TEXT;
-      Paint *paint = stroke ? (s.strokePaint ? paints_[s.strokePaint] : nullptr) : (s.fillPaint ? paints_[s.fillPaint] : nullptr);
+      Paint *paint = stroke ? s.strokePaint.get() : s.fillPaint.get();
       if (stroke) {
         CGContextSetLineWidth(ctx, s.lineWidth);
         CGContextSetLineJoin(ctx, (CGLineJoin)s.join);
