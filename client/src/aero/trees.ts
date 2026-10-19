@@ -4,6 +4,7 @@ import type { AeroContext } from './context.ts';
 import type { FlightPath } from './flight.ts';
 import { groundY } from './ground.ts';
 import { STREETS } from './streets.ts';
+import { TreeField, type FieldTree } from './treeField.ts';
 import { mergeTreeGeometry } from './treeGeometry.ts';
 import { TAU, clamp, col, hsl, noise3, paintGeo } from './util.ts';
 
@@ -23,11 +24,15 @@ export interface TreeSpec {
 
 /** One modelled tree, instanced many times. */
 interface TreeVariant {
-  trunk: THREE.BufferGeometry;
-  canopy: THREE.BufferGeometry;
+  /** Detail levels: [as modelled, coarser, coarsest] (see treeField.ts). */
+  trunk: THREE.BufferGeometry[];
+  canopy: THREE.BufferGeometry[];
   /** A random leaf colour for one instance. */
   tint(): THREE.Color;
 }
+
+const LEVELS = [0, 1, 2] as const;
+type Level = (typeof LEVELS)[number];
 
 const KIND_SCALE: Record<TreeKind, number> = { round: 1, poplar: 0.9, conifer: 0.85, farRound: 1, farPoplar: 0.9 };
 
@@ -52,13 +57,13 @@ function blob(cx: number, cy: number, cz: number, r: number, sy: number, seed: n
   paintGeo(g, (x, y, z, c) => { const t = clamp((y - (cy - r * sy)) / (2 * r * sy), 0, 1); const v = 0.52 + 0.5 * t + (noise3(x * 3, y * 3, z * 3 + seed) - 0.5) * 0.25; c.setRGB(v * 0.97, v, v * 0.88); });
   return g;
 }
-/** Trunk plus branches [x, y, z, fromHeight], vertex-shaded bark. */
-function trunkGeo(h: number, r0: number, r1: number, branches: [number, number, number, number][]) {
+/** Trunk plus branches [x, y, z, fromHeight], vertex-shaded bark; coarser (fewer sides, no branches) at higher levels. */
+function trunkGeo(h: number, r0: number, r1: number, branches: [number, number, number, number][], level: Level = 0) {
   const parts: THREE.BufferGeometry[] = [];
-  const t = new THREE.CylinderGeometry(r1, r0, h, 7, 3); t.translate(0, h / 2, 0); parts.push(t);
-  for (const [bx, by, bz, from] of branches) {
+  const t = new THREE.CylinderGeometry(r1, r0, h, [7, 5, 4][level], level ? 1 : 3); t.translate(0, h / 2, 0); parts.push(t);
+  for (const [bx, by, bz, from] of level === 2 ? [] : branches) {
     const v = new THREE.Vector3(bx, by - from, bz), L = v.length();
-    const b = new THREE.CylinderGeometry(r1 * 0.35, r1 * 0.7, L, 5); b.translate(0, L / 2, 0);
+    const b = new THREE.CylinderGeometry(r1 * 0.35, r1 * 0.7, L, level ? 4 : 5); b.translate(0, L / 2, 0);
     b.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize()));
     b.translate(0, from, 0); parts.push(b);
   }
@@ -67,36 +72,47 @@ function trunkGeo(h: number, r0: number, r1: number, branches: [number, number, 
   return g;
 }
 function canopyMerge(list: THREE.BufferGeometry[]) { const g = mergeTreeGeometry(list); list.forEach((x) => x.dispose()); return g; }
+type Blob = [cx: number, cy: number, cz: number, r: number, sy: number, seed: number];
+/** A canopy of blobs at each detail level: icosphere detail `top`, then one and none (never finer than top). */
+function blobCanopy(blobs: Blob[], top: number) {
+  const byDetail = new Map<number, THREE.BufferGeometry>();
+  return LEVELS.map((level) => {
+    const det = Math.min(top, 2 - level);
+    let g = byDetail.get(det);
+    if (!g) byDetail.set(det, g = canopyMerge(blobs.map((b) => blob(...b, det))));
+    return g;
+  });
+}
+const trunkLevels = (h: number, r0: number, r1: number, branches: [number, number, number, number][] = []) => LEVELS.map((level) => trunkGeo(h, r0, r1, branches, level));
 
 function makeRound(ctx: AeroContext, seed: number): TreeVariant {
   const { R, RI } = ctx.random;
   const small = ctx.quality.small, detail = small ? 1 : 2;
-  const blobs: THREE.BufferGeometry[] = [], br: [number, number, number, number][] = [];
-  blobs.push(blob(0, 3.0, 0, 1.25, 0.88, seed, detail)); skipLeafRandom(ctx, (small ? 10 : 18) * 6);
+  const blobs: Blob[] = [], br: [number, number, number, number][] = [];
+  blobs.push([0, 3.0, 0, 1.25, 0.88, seed]); skipLeafRandom(ctx, (small ? 10 : 18) * 6);
   const n = RI(6, 8);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + R(-0.3, 0.3), rr = R(0.75, 0.95), y = R(2.45, 3.7), r = R(0.62, 0.92);
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-    blobs.push(blob(x, y, z, r, 0.85, seed + i * 7.1, detail)); skipLeafRandom(ctx, (small ? 5 : 9) * 6);
+    blobs.push([x, y, z, r, 0.85, seed + i * 7.1]); skipLeafRandom(ctx, (small ? 5 : 9) * 6);
     if (i % 2 === 0) br.push([x * 0.6, y - 0.5, z * 0.6, 1.5]);
   }
-  return { trunk: trunkGeo(2.2, 0.2, 0.12, br), canopy: canopyMerge(blobs), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.32, 0.45)) };
+  return { trunk: trunkLevels(2.2, 0.2, 0.12, br), canopy: blobCanopy(blobs, detail), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.32, 0.45)) };
 }
 function makePoplar(ctx: AeroContext, seed: number): TreeVariant {
   const { R } = ctx.random;
   const small = ctx.quality.small, detail = small ? 1 : 2;
-  const blobs: THREE.BufferGeometry[] = [];
+  const blobs: Blob[] = [];
   [[2.0, 0.7], [2.9, 0.78], [3.8, 0.68], [4.6, 0.5], [5.2, 0.3]].forEach(([y, r], i) => {
-    blobs.push(blob(R(-0.1, 0.1), y, R(-0.1, 0.1), r, 1.35, seed + i * 3.3, detail));
+    blobs.push([R(-0.1, 0.1), y, R(-0.1, 0.1), r, 1.35, seed + i * 3.3]);
     skipLeafRandom(ctx, (small ? 5 : 9) * 6);
   });
-  return { trunk: trunkGeo(1.6, 0.16, 0.1, []), canopy: canopyMerge(blobs), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.36, 0.48)) };
+  return { trunk: trunkLevels(1.6, 0.16, 0.1), canopy: blobCanopy(blobs, detail), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.36, 0.48)) };
 }
-function makeConifer(ctx: AeroContext, seed: number): TreeVariant {
-  const { R } = ctx.random;
+function coniferCanopy(seed: number, level: Level) {
   const tiers: THREE.BufferGeometry[] = [];
   for (let i = 0; i < 5; i++) {
-    let g: THREE.BufferGeometry = new THREE.ConeGeometry(1.55 - i * 0.28, 2.0, 11, 3, false);
+    let g: THREE.BufferGeometry = new THREE.ConeGeometry(1.55 - i * 0.28, 2.0, [11, 7, 5][level], [3, 2, 1][level], false);
     g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g);
     const p = g.attributes.position, yb = 1.0 + i * 1.05;
     for (let k = 0; k < p.count; k++) {
@@ -108,22 +124,26 @@ function makeConifer(ctx: AeroContext, seed: number): TreeVariant {
     paintGeo(g, (x, y, z, c) => { const v = 0.6 + 0.4 * clamp((Math.hypot(x, z) + (y - yb) * 0.3) / 1.4, 0, 1) + (noise3(x * 4, y * 4, z * 4) - 0.5) * 0.2; c.setRGB(v * 0.9, v, v * 0.95); });
     tiers.push(g);
   }
-  return { trunk: trunkGeo(1.4, 0.2, 0.12, []), canopy: canopyMerge(tiers), tint: () => hsl(R(0.36, 0.42), R(0.45, 0.6), R(0.22, 0.32)) };
+  return canopyMerge(tiers);
+}
+function makeConifer(ctx: AeroContext, seed: number): TreeVariant {
+  const { R } = ctx.random;
+  return { trunk: trunkLevels(1.4, 0.2, 0.12), canopy: LEVELS.map((level) => coniferCanopy(seed, level)), tint: () => hsl(R(0.36, 0.42), R(0.45, 0.6), R(0.22, 0.32)) };
 }
 // Lighter variants for trees only seen from a distance: coarse canopies.
 function makeRoundFar(ctx: AeroContext, seed: number): TreeVariant {
   const { R } = ctx.random;
-  const blobs = [blob(0, 3.0, 0, 1.3, 0.88, seed, 1)];
+  const blobs: Blob[] = [[0, 3.0, 0, 1.3, 0.88, seed]];
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * TAU + R(-0.3, 0.3);
-    blobs.push(blob(Math.cos(a) * 0.8, R(2.5, 3.4), Math.sin(a) * 0.8, R(0.75, 0.95), 0.85, seed + i * 7.1, 1));
+    blobs.push([Math.cos(a) * 0.8, R(2.5, 3.4), Math.sin(a) * 0.8, R(0.75, 0.95), 0.85, seed + i * 7.1]);
   }
-  return { trunk: trunkGeo(2.2, 0.2, 0.12, []), canopy: canopyMerge(blobs), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.3, 0.43)) };
+  return { trunk: trunkLevels(2.2, 0.2, 0.12), canopy: blobCanopy(blobs, 1), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.3, 0.43)) };
 }
 function makePoplarFar(ctx: AeroContext, seed: number): TreeVariant {
   const { R } = ctx.random;
-  const blobs = [[2.2, 0.75], [3.4, 0.72], [4.5, 0.5]].map(([y, r], i) => blob(0, y, 0, r, 1.4, seed + i * 3.3, 1));
-  return { trunk: trunkGeo(1.6, 0.16, 0.1, []), canopy: canopyMerge(blobs), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.34, 0.46)) };
+  const blobs = [[2.2, 0.75], [3.4, 0.72], [4.5, 0.5]].map(([y, r], i): Blob => [0, y, 0, r, 1.4, seed + i * 3.3]);
+  return { trunk: trunkLevels(1.6, 0.16, 0.1), canopy: blobCanopy(blobs, 1), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.34, 0.46)) };
 }
 
 export interface TreeLists {
@@ -133,8 +153,15 @@ export interface TreeLists {
   district: TreeSpec[];
 }
 
+export interface Trees {
+  /** Picks the trees to draw for this camera. */
+  update(camera: THREE.Camera): void;
+  /** Call before each render: a frame that draws the shadow map draws every tree as modelled. */
+  beforeRender(renderer: THREE.WebGLRenderer): void;
+}
+
 /** Plants and instances every tree: city, lakeside, meadow groves and the countryside woods. */
-export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, district: DTREES }: TreeLists) {
+export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, district: DTREES }: TreeLists): Trees {
   const { root } = ctx;
   const { R, RI, rnd, pick, withRng } = ctx.random;
   skipLeafRandom(ctx, 70 * 8); // Former leaf texture: eight draws for each painted leaf.
@@ -167,6 +194,12 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
   for (let i = 0; i < 120; i++) tree(rnd() < 0.5 ? R(-320, -230) : R(240, 360), R(300, 1100), R(2.8, 5.2), pick(['round', 'poplar', 'conifer'] as const));
   const trunkMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   const canopyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  // Two copies of every tree: `full`, as modelled, all of them, for the sun's shadow map (drawn
+  // only in a frame that renders it); and `field`, culled and simplified by area (treeField.ts),
+  // drawn the rest of the time.
+  const full = new THREE.Group(), lod = new THREE.Group(), all = new THREE.Group();
+  all.add(full, lod); root.add(all);
+  const field = new TreeField(160, ctx.quality.treeLod);
   function instanceTrees(list: TreeSpec[]) {
     const keep = list.filter((t) => t.y > 0 || path.clearOfPath(t.x, 2.2 * t.s, t.z, t.s * 2.6 + 9));
     const groups = new Map<string, { v: TreeVariant; kind: TreeKind; list: TreeSpec[] }>();
@@ -179,14 +212,25 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
     const d = new THREE.Object3D();
     for (const { v, kind, list: items } of groups.values()) {
       const n = items.length;
-      const tm = new THREE.InstancedMesh(v.trunk, trunkMat, n), cm = new THREE.InstancedMesh(v.canopy, canopyMat, n);
+      const tm = new THREE.InstancedMesh(v.trunk[0], trunkMat, n), cm = new THREE.InstancedMesh(v.canopy[0], canopyMat, n);
+      const shown: FieldTree[] = [], matrices: number[] = [], colors: number[] = [];
       items.forEach((t, i) => {
         const s = t.hidden ? 0 : t.s * KIND_SCALE[kind];
         d.position.set(t.x, t.y, t.z); d.rotation.set(R(-0.04, 0.04), R(0, TAU), R(-0.04, 0.04)); d.scale.set(s * R(0.9, 1.1), s * R(0.9, 1.15), s * R(0.9, 1.1)); d.updateMatrix();
         tm.setMatrixAt(i, d.matrix); cm.setMatrixAt(i, d.matrix);
         const tint = v.tint(); cm.setColorAt(i, tint);
+        // Every model fits in a sphere of 3.6 m around (0, 3, 0) at scale 1 (1.15 with the stretch above).
+        if (s) { shown.push({ x: t.x, y: t.y + 3 * s * 1.15, z: t.z, radius: 3.6 * s * 1.15 }); matrices.push(...d.matrix.elements); colors.push(tint.r, tint.g, tint.b); }
       });
-      for (const m of [tm, cm]) { m.castShadow = true; m.receiveShadow = m !== tm; root.add(m); }
+      for (const m of [tm, cm]) { m.castShadow = true; m.receiveShadow = m !== tm; full.add(m); }
+      const parts = [v.trunk, v.canopy].map((geos, part) => geos.map((g) => {
+        const m = new THREE.InstancedMesh(g, part ? canopyMat : trunkMat, shown.length);
+        if (part) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(shown.length * 3), 3);
+        m.receiveShadow = part === 1;
+        lod.add(m);
+        return m;
+      }));
+      field.add({ trees: shown, matrices: Float32Array.from(matrices), colors: Float32Array.from(colors), parts });
     }
   }
   instanceTrees(TREES);
@@ -238,5 +282,15 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
     instanceTrees(FTREES);
   });
 
-  for (const v of Object.values(TREE_KINDS).flat()) ctx.disposables.push(v.trunk, v.canopy);
+  for (const v of Object.values(TREE_KINDS).flat()) ctx.disposables.push(...v.trunk, ...v.canopy);
+
+  return {
+    /** Picks the trees to draw for this camera. */
+    update(camera: THREE.Camera) { field.update(camera); },
+    /** Before rendering: all trees, as modelled, while the shadow map is being drawn. */
+    beforeRender(renderer: THREE.WebGLRenderer) {
+      const shadows = renderer.shadowMap.enabled && renderer.shadowMap.needsUpdate;
+      full.visible = shadows; lod.visible = !shadows;
+    },
+  };
 }

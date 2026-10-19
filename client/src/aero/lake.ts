@@ -106,7 +106,7 @@ function buildBoats(ctx: AeroContext, glassMat: THREE.Material) {
     const wake = new THREE.Mesh(wakeGeo, wakeMat); wake.renderOrder = 1; g.add(wake);
     const dir = rnd() < 0.5 ? 1 : -1;
     g.scale.setScalar(sailing ? 1 : 0.85);
-    root.add(g);
+    root.add(g); ctx.moving.push(g);
     BOATS.push({ g, x: R(-600, 600), z: R(-450, -300), dir, v: sailing ? R(1.5, 3) : R(4, 7), ph: R(0, TAU), heel: sailing ? R(0.08, 0.16) : 0 });
   }
   return BOATS;

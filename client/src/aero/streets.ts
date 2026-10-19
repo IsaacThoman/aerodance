@@ -41,22 +41,42 @@ export function buildStreetLamps(ctx: AeroContext) {
 /** A car driving along one street: on the line x = c (ax) or z = c, between lo and hi. */
 interface Car { ax: boolean; c: number; dir: number; s: number; v: number; lo: number; hi: number }
 
-function moveCars(mesh: THREE.InstancedMesh, list: Car[], dt: number, dmy: THREE.Object3D) {
-  for (let i = 0; i < list.length; i++) {
-    const c = list[i]; c.s += c.dir * c.v * dt; if (c.s > c.hi) c.s = c.lo; if (c.s < c.lo) c.s = c.hi;
-    if (c.ax) dmy.position.set(c.c, 0, c.s); else dmy.position.set(c.s, 0, c.c);
-    dmy.rotation.set(0, (c.ax ? 0 : Math.PI / 2) + (c.dir < 0 ? Math.PI : 0), 0); dmy.updateMatrix(); mesh.setMatrixAt(i, dmy.matrix);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
+// Cars drive in the vertex shader: each starts at s0 on its street and moves dir * v metres a
+// second, wrapping round between lo and hi. carLane = (along x?, c, dir * v, s0), carSpan = (lo, hi).
+const carVertex = `
+  attribute vec4 carLane;attribute vec2 carSpan;uniform float uTime;
+  vec3 carPose(vec3 p,float w){
+    float span=carSpan.y-carSpan.x,s=carSpan.x+mod(carLane.w-carSpan.x+carLane.z*uTime,span);
+    float a=(carLane.x>0.5?0.0:1.5707963)+(carLane.z<0.0?3.1415927:0.0),c=cos(a),sn=sin(a);
+    p=vec3(c*p.x+sn*p.z,p.y,-sn*p.x+c*p.z);
+    return p+w*(carLane.x>0.5?vec3(carLane.y,0.0,s):vec3(s,0.0,carLane.y));
+  }`;
+
+function carMaterial(ctx: AeroContext) {
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true });
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = ctx.time;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>\n${carVertex}`)
+      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = carPose(normal, 0.0);')
+      .replace('#include <begin_vertex>', 'vec3 transformed = carPose(position, 1.0);');
+  };
+  m.customProgramCacheKey = () => 'aero-car';
+  return m;
 }
 
-export interface Traffic {
-  /** `scratch` is a reusable Object3D for building instance matrices. */
-  update(dt: number, scratch: THREE.Object3D): void;
+function carMesh(geo: THREE.BufferGeometry, mat: THREE.Material, list: Car[], colors: THREE.Color[]) {
+  const g = geo.clone();
+  g.setAttribute('carLane', new THREE.InstancedBufferAttribute(Float32Array.from(list.flatMap((c) => [c.ax ? 1 : 0, c.c, c.dir * c.v, c.s])), 4));
+  g.setAttribute('carSpan', new THREE.InstancedBufferAttribute(Float32Array.from(list.flatMap((c) => [c.lo, c.hi])), 2));
+  const mesh = new THREE.InstancedMesh(g, mat, list.length);
+  colors.forEach((c, i) => mesh.setColorAt(i, c));
+  mesh.frustumCulled = false;
+  return mesh;
 }
 
-/** Downtown and district traffic. */
-export function buildTraffic(ctx: AeroContext): Traffic {
+/** Downtown and district traffic, driven by the shared shader clock. */
+export function buildTraffic(ctx: AeroContext) {
   const { root } = ctx;
   const { R, RI, rnd, pick } = ctx.random;
   const Q = ctx.quality.Q;
@@ -70,20 +90,18 @@ export function buildTraffic(ctx: AeroContext): Traffic {
     const g = mergeGeometries([paint(a, '#ffffff'), paint(b, '#3a5470'), ...wl]);
     return g;
   })();
-  const carMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const cars = new THREE.InstancedMesh(carGeo, carMat, CARN);
-  const CARS: Car[] = [];
+  const carMat = carMaterial(ctx);
+  const CARS: Car[] = [], colors: THREE.Color[] = [];
   const carCols = ['#ffffff', '#e8edf2', '#2a7bff', '#ff4040', '#ffd23a', '#28b46a', '#2b3036', '#9aa7b4'];
   for (let i = 0; i < CARN; i++) {
     const dir = rnd() < 0.5 ? 1 : -1;
     CARS.push({ ax: rnd() < 0.5, c: pick(STREETS) + dir * 4, dir, s: R(-245, 245), v: R(7, 12), lo: -245, hi: 245 });
-    cars.setColorAt(i, col(pick(carCols)));
+    colors.push(col(pick(carCols)));
   }
-  cars.frustumCulled = false; root.add(cars);
+  root.add(carMesh(carGeo, carMat, CARS, colors));
   // traffic on the district streets
-  const DCARS: Car[] = [];
+  const DCARS: Car[] = [], dcolors: THREE.Color[] = [];
   const dcarN = Math.round(260 * Q);
-  const dcars = new THREE.InstancedMesh(carGeo, carMat, dcarN);
   ctx.random.withRng(616161, () => {
     for (let i = 0; i < dcarN; i++) {
       const dir = rnd() < 0.5 ? 1 : -1, east = rnd() < 0.55;
@@ -99,14 +117,9 @@ export function buildTraffic(ctx: AeroContext): Traffic {
           : { ax: false, c: -595 - 70 * RI(0, 2) + dir * 4, lo: -665, hi: 665 };
       }
       DCARS.push({ ...car, dir, s: R(car.lo, car.hi), v: R(7, 12) });
-      dcars.setColorAt(i, col(pick(carCols)));
+      dcolors.push(col(pick(carCols)));
     }
   });
-  dcars.frustumCulled = false; root.add(dcars);
-  return {
-    update(dt, scratch) {
-      moveCars(cars, CARS, dt, scratch);
-      moveCars(dcars, DCARS, dt, scratch);
-    },
-  };
+  root.add(carMesh(carGeo, carMat, DCARS, dcolors));
+  ctx.disposables.push(carGeo);
 }

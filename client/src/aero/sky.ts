@@ -65,6 +65,7 @@ export function buildSky(ctx: AeroContext): SkyDome {
   }
   const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTex(ctx), blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));
   sunSprite.scale.set(1500, 1500, 1); sunSprite.renderOrder = -1; root.add(sunSprite);
+  ctx.moving.push(sky, sunSprite);
   return {
     follow(camera) {
       sky.position.copy(camera.position);
@@ -217,7 +218,7 @@ export function buildJet(ctx: AeroContext) {
   gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.85, 'rgba(255,255,255,.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 8);
   const cm = new THREE.MeshBasicMaterial({ map: ctx.tex(c), transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, opacity: 0.9 });
   for (const oz of [-3.5, 3.5]) for (const r of [0, Math.PI / 2]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(700, 2.2), cm); p.position.set(-352, 0, oz); p.rotation.x = r; jet.add(p); }
-  jet.scale.setScalar(3); ctx.root.add(jet);
+  jet.scale.setScalar(3); ctx.root.add(jet); ctx.moving.push(jet);
   return {
     update(t: number) { jet.position.set(((t * 90) % 7000) - 3500, 950, -1900); },
   };

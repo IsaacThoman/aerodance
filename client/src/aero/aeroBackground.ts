@@ -77,8 +77,8 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
 
   const lake = part('lake', () => buildLake(ctx, pondNormals, materials.capglass));
   part('lamps', () => buildStreetLamps(ctx));
-  part('trees', () => buildTrees(ctx, path, { city: cityTrees, district: districtTrees }));
-  const traffic = part('traffic', () => buildTraffic(ctx));
+  const trees = part('trees', () => buildTrees(ctx, path, { city: cityTrees, district: districtTrees }));
+  part('traffic', () => buildTraffic(ctx));
   part('grass', () => buildMeadowGrass(ctx, path));
   part('flowers', () => buildFlowers(ctx, path));
   part('tulips', () => buildTulips(ctx));
@@ -92,6 +92,11 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   const jet = part('jet', () => buildJet(ctx));
   const flare = buildLensFlare(ctx, builder.occluders);
   parts.set('flare', [flare.scene]);
+  // Only what moves keeps recomposing its matrix every frame.
+  const moving = new Set(ctx.moving);
+  ctx.root.updateMatrixWorld(true);
+  ctx.root.traverse((o) => { if (!moving.has(o)) o.matrixAutoUpdate = false; });
+
   const off = new Set(hide);
   for (const name of off) for (const o of parts.get(name) ?? []) o.visible = false;
   if (off.has('shadows')) renderer.shadowMap.enabled = false;
@@ -101,7 +106,6 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   /* ------------------------------------------------------------------- loop */
   const flight = createDroneFlight(camera, path, { start, speed, motionMul: settings.motionMul });
   let teleT = 0, frameN = 0, elapsed = 0, disposed = false;
-  const scratch = new THREE.Object3D();
   renderer.shadowMap.needsUpdate = true;
 
   function update(delta: number) {
@@ -113,7 +117,7 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
     sky.follow(camera);
     clouds.update(dt, camera);
     lake.update(t, dt, camera);
-    if (on('traffic')) traffic.update(dt, scratch);
+    if (on('trees')) trees.update(camera);
     if (on('butterflies')) butterflies.update(t, camera);
     if (on('birds')) birds.update(t, dt);
     if (on('balloons')) balloons.update(t, dt);
@@ -132,6 +136,7 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
     oCam.left = -camera.aspect; oCam.right = camera.aspect; oCam.updateProjectionMatrix();
     const ac = renderer.autoClear;
     renderer.autoClear = false;
+    trees.beforeRender(renderer);
     renderer.clear(); renderer.render(scene, camera); renderer.clearDepth(); renderer.render(flare.scene, oCam);
     renderer.autoClear = ac;
   }

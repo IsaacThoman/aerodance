@@ -38,7 +38,7 @@ export function buildBalloons(ctx: AeroContext, path: FlightPath) {
     const f = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), flame); f.position.y = -3.6; g.add(f);
     const lp: number[] = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) lp.push(sx * 1.3, -5.3, sz * 1.3, sx * 2.2, 0.2, sz * 2.2);
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3)); g.add(new THREE.LineSegments(lg, rope));
-    g.scale.setScalar(R(0.85, 1.45)); g.rotation.y = R(0, TAU); ctx.root.add(g);
+    g.scale.setScalar(R(0.85, 1.45)); g.rotation.y = R(0, TAU); ctx.root.add(g); ctx.moving.push(g);
     BAL.push({ g, y, ph: R(0, TAU), x, z });
   }
   return {

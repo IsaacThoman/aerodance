@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createWorldRandom, type WorldRandom } from './random.ts';
+import type { TreeLod } from './treeField.ts';
 import type { AeroQuality } from './types.ts';
 import { col } from './util.ts';
 
@@ -10,13 +11,15 @@ export interface QualitySettings {
   Q: number;
   /** Halved with prefers-reduced-motion. */
   motionMul: number;
+  /** Where the trees get coarser (treeField.ts). */
+  treeLod: TreeLod;
 }
 
 export function resolveQuality(quality: AeroQuality): QualitySettings {
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   const small = quality === 'low' || (quality === 'auto' && coarse);
   const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  return { small, Q: small ? 0.55 : 1, motionMul: reduceMotion ? 0.5 : 1 };
+  return { small, Q: small ? 0.55 : 1, motionMul: reduceMotion ? 0.5 : 1, treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 } };
 }
 
 export const FOG_BASE = col('#cfeaff'), FOG_WHITE = col('#f4f9ff'), FOG_DENSITY = 0.00032;
@@ -45,6 +48,12 @@ export interface AeroContext {
   texArray(canvases: readonly HTMLCanvasElement[]): THREE.DataArrayTexture;
   /** Resources that are not reachable from the scene graph, freed on dispose. */
   readonly disposables: (Disposable | null)[];
+  /**
+   * Objects whose own position, rotation or scale changes as the world runs. Everything else
+   * keeps the matrix it was built with (matrixAutoUpdate off), so three.js doesn't recompose
+   * thousands of static matrices every frame.
+   */
+  readonly moving: THREE.Object3D[];
   /** Puts back the renderer, scene and camera settings the world changed and frees everything. */
   dispose(overlays: THREE.Object3D[]): void;
 }
@@ -135,7 +144,7 @@ export function createAeroContext({ renderer, scene, camera, quality }: ContextO
   }
 
   return {
-    renderer, scene, camera, root, fog, quality, tex, texArray, disposables, dispose,
+    renderer, scene, camera, root, fog, quality, tex, texArray, disposables, dispose, moving: [],
     // The main random stream is fixed so the scene looks the same every load.
     random: createWorldRandom(20261010),
     sun: new THREE.Vector3(0.45, 0.5, -0.74).normalize(),

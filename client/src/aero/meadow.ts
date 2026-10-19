@@ -112,7 +112,7 @@ export function buildWindmills(ctx: AeroContext) {
       const s = new THREE.Mesh(new THREE.BoxGeometry(0.15, 10, 2.4), sail); s.position.set(0, 8, 1.3); arm.add(s);
       bl.add(arm);
     }
-    g.add(bl); ctx.root.add(g); MILLS.push(bl);
+    g.add(bl); ctx.root.add(g); MILLS.push(bl); ctx.moving.push(bl);
   }
   return {
     update(dt: number) { for (const m of MILLS) m.rotation.x += dt * 0.5; },
