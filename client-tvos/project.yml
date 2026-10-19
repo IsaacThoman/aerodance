@@ -1,0 +1,35 @@
+# XcodeGen spec for the Apple TV app; scripts/tvos.ts generates the project and builds it.
+# The team and bundle ID come from TVOS_TEAM_ID and TVOS_BUNDLE_ID.
+name: AerodanceTV
+options:
+  deploymentTarget:
+    tvOS: "27.0"
+targets:
+  AerodanceTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: src/main.m
+      - path: src/inject.js
+        buildPhase: resources
+      # The production web build, copied here by scripts/tvos.ts.
+      - path: www
+        type: folder
+        buildPhase: resources
+    # XcodeGen writes Info.plist from these properties.
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: aerodance
+        CFBundleShortVersionString: "0.1"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSLocalNetworkUsageDescription: Sends performance diagnostics to the developer's Mac during testing.
+    settings:
+      PRODUCT_NAME: aerodance
+      PRODUCT_BUNDLE_IDENTIFIER: ${TVOS_BUNDLE_ID}
+      DEVELOPMENT_TEAM: ${TVOS_TEAM_ID}
+      CODE_SIGN_STYLE: Automatic
+      GENERATE_INFOPLIST_FILE: NO
+      CLANG_ENABLE_OBJC_ARC: YES

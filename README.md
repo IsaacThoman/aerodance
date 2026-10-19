@@ -80,6 +80,10 @@ A phone can be the camera instead of a webcam: pick **Phone camera** with the ca
 
 `client/tests/phone-pairing.test.ts` drives the game's and the phone's ends against the real pairing server with a loopback WebRTC stand-in. After a build, `node client/tests/phone.browser.ts` pairs a phone page with the game in Chromium over real WebRTC and real MediaPipe tracking, calibrates and plays a song from its poses, and reconnects. Real phones, networks and battery life still need manual testing.
 
+## Apple TV (experimental)
+
+[`client-tvos/`](client-tvos/README.md) is a tvOS app that runs the production build on an Apple TV in WebKit, with the autoplay ghost and the Siri Remote. tvOS doesn't let apps use WebKit, so the app reaches it through private API: it installs on your own paired Apple TVs (`npm run tvos -- deploy`) but can never go on the App Store. It runs at about 20 fps on an Apple TV 4K, and the phone camera doesn't work there yet (no WebRTC); its README has the details and the App Store-safe alternatives.
+
 ## Shared packages
 
 The dance stages live in [`packages/stages`](packages/stages/README.md) and the glass character, its retargeting and the menu dance capture in [`packages/character`](packages/character/README.md). The game, Dance Studio and the thumbnail renderer share them.
