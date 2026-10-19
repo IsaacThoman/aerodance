@@ -4,7 +4,6 @@ import Scene from './Scene.tsx';
 import MainMenu from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
 import MenuDancers from './menu/MenuDancers.tsx';
-import PlayerCrew from './menu/PlayerCrew.tsx';
 import { loadSound, saveSound } from './menu/soundSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import ConnectionPanel from './connect/ConnectionPanel.tsx';
@@ -191,9 +190,10 @@ export default function App() {
         <MenuDancers
           visible={(menuOpen || songsOpen) && !stage.showing}
           raised={songsOpen}
-          solo={songsOpen && playerCount === 1}
+          // One dancer per player: the dial's count on the players screen, the chosen count on
+          // Song Select, and the duet everywhere else.
+          count={songsOpen ? playerCount : menuOpen && menuShown === 'players' ? dialCount : 2}
         />
-        <PlayerCrew visible={menuOpen && menuShown === 'players'} count={dialCount} />
         <MainMenu
           visible={menuOpen}
           blocked={connectOpen}

@@ -5,7 +5,7 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { staticStudio, browserStore } from '../../tools/choreography/tests/static-helpers.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
-import { BACK as MENU_BACK, CREW, PLAYERS_BACK, PLAYERS_GO, SETTINGS, START } from '../src/menu/layout.ts';
+import { BACK as MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START } from '../src/menu/layout.ts';
 import { BACK, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { appendOperation, trackDataIds, validateProject, validateTake, validateTrackData } from '../../tools/choreography/core.ts';
@@ -95,6 +95,13 @@ try {
       frame.y + (rect.y + h / 2) / 900 * frame.height);
   };
   const until = (key: string, value: string) => gamePage.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
+  // Turns the players dial one step at a time to n, waiting for each step.
+  const dialTo = async (n: number) => {
+    for (let cur = Number(await gamePage.locator('canvas').getAttribute('data-menu-players')); cur !== n; cur += cur < n ? 1 : -1) {
+      await click(cur < n ? PLUS : MINUS);
+      await until('menuPlayers', String(cur < n ? cur + 1 : cur - 1));
+    }
+  };
   await until('menuReady', 'true'); await click(SETTINGS); await until('menuScreen', 'settings'); await until('menuReady', 'true'); await click(PILL); await until('connectReady', 'true');
   assert.equal(await game.evaluate(() => (window as TestWindow).cameraRequests), 0, 'opening Connect Client does not request permission');
   await game.evaluate(() => { (window as TestWindow).cameraMode = 'denied'; }); await click(PRIMARY); await until('connectStatus', 'error');
@@ -109,12 +116,12 @@ try {
   await game.keyboard.press('Escape'); await until('connectOpen', 'false');
   await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
   await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
-  await click(CREW[1]); await until('menuPlayers', '2'); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected');
+  await dialTo(2); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected');
   await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
   // Three people, one per lane: MediaPipe tracks three poses. (Four copies of this wide-stance
   // photo are too small or overlap too much to be found; see docs/three-and-four-players.md.)
   await game.evaluate(() => { (window as TestWindow).cameraPeople = 3; });
-  await click(CREW[2]); await until('menuPlayers', '3'); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected|Detected');
+  await dialTo(3); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected|Detected');
   assert.equal(await game.evaluate(() => ((window as TestWindow).poseDiagnostics as unknown[] | undefined)?.length), 3, 'MediaPipe reports three poses');
   await game.evaluate(() => { (window as TestWindow).cameraPeople = 2; });
   await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
@@ -243,7 +250,7 @@ try {
   await game.keyboard.press('Escape'); await until('connectOpen', 'false');
   await click(MENU_BACK); await until('menuScreen', 'main'); await until('menuReady', 'true');
   await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
-  await click(CREW[1]); await until('menuPlayers', '2'); await click(PLAYERS_GO); await until('songReady', 'true'); await click(rowRect(0));
+  await dialTo(2); await click(PLAYERS_GO); await until('songReady', 'true'); await click(rowRect(0));
   await until('previewState', 'playing'); await until('stageReady', 'true');
   await studio.getByRole('button', { name: 'Disconnect', exact: true }).click();
   await studio.reload(); await studio.getByText(/webcam ·/).first().waitFor();

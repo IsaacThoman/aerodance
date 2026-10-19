@@ -9,7 +9,7 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { bundleFixture, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
-import { BACK as MENU_BACK, CREW, MINUS, PLAYERS_GO, PLUS, SETTINGS, START } from '../src/menu/layout.ts';
+import { BACK as MENU_BACK, MINUS, PLAYERS_GO, PLUS, SETTINGS, START } from '../src/menu/layout.ts';
 import { PILL, PRIMARY, MODEL_RECTS } from '../src/connect/layout.ts';
 import {
   BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect,
@@ -96,10 +96,15 @@ try {
     }, entries, timeout ? { timeout } : undefined);
   };
   const menuOn = (screen: string) => until({ menuScreen: screen, menuReady: 'true' });
-  // Players dial: pointing at character n picks n players, then Let's dance.
+  // Turns the players dial one step at a time to n, waiting for each step.
+  const dialTo = async (n: number) => {
+    for (let cur = Number((await data()).menuPlayers); cur !== n; cur += cur < n ? 1 : -1) {
+      await click(cur < n ? PLUS : MINUS);
+      await until({ menuPlayers: String(cur < n ? cur + 1 : cur - 1) });
+    }
+  };
   const pickPlayers = async (count: PlayerCount) => {
-    await click(CREW[count - 1]);
-    await until({ menuPlayers: String(count) });
+    await dialTo(count);
     await click(PLAYERS_GO);
   };
   const shot = async (name: string) => { if (process.env.UI_ARTIFACTS) await page.screenshot({ path: `${process.env.UI_ARTIFACTS}/${name}.png` }); };
@@ -144,8 +149,10 @@ try {
   await click(MINUS);
   await page.waitForTimeout(200);
   assert.equal((await data()).menuPlayers, '1');
-  for (let i = 0; i < 4; i++) await click(PLUS);
-  await until({ menuPlayers: '4' });
+  await dialTo(4);
+  await click(PLUS);
+  await page.waitForTimeout(200);
+  assert.equal((await data()).menuPlayers, '4');
   await click(PLAYERS_GO);
   await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', playerSlots: 'Connect Client|Connect Client|Connect Client|Connect Client' });
   await click(BACK);

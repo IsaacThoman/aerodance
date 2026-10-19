@@ -9,15 +9,15 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import FullscreenButton from './FullscreenButton.tsx';
 import {
-  BACK, COUNT_X, CREW, MAX_PLAYERS, MINUS, PLAYERS_BACK, PLAYERS_GO, PLAYERS_TITLE_Y, PLUS, SETTINGS, START, TITLE,
+  BACK, COUNT_X, MAX_PLAYERS, MINUS, PLAYERS_BACK, PLAYERS_GO, PLAYERS_TITLE_Y, PLUS, SETTINGS, START, TITLE,
 } from './layout.ts';
 
 /**
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in 16:9 design units and
  * drawn after the world (useFrame priority 2).
  *
- * Screens: main (Start, Settings), players (a 1-4 dial over the player characters drawn by
- * menu/PlayerCrew.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings (sound: Master / Music / Effects volume, Menu music and Mute
+ * Screens: main (Start, Settings), players (a 1-4 dial, shown by that many dancers on the
+ * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings (sound: Master / Music / Effects volume, Menu music and Mute
  * all, which audio/mixer.ts applies). The main screen also shows the fullscreen bubble in the
  * corner.
  *
@@ -83,8 +83,6 @@ const WIDGETS: Record<Exclude<MenuScreen, 'players'>, MenuWidget[]> & { players:
     { id: 'plus', circle: PLUS },
     // Let's dance only takes input for counts a song can be danced with.
     ...(isPlayerCount(count) ? [{ id: 'go', rect: PLAYERS_GO }] : []),
-    // Pointing at a character picks that many players.
-    ...CREW.map((rect, i) => ({ id: `crew${i + 1}`, rect, nav: false })),
   ],
   settings: [
     { id: 'back', circle: BACK },
@@ -286,7 +284,6 @@ export default function MainMenu({
           break;
         }
         default:
-          if (wdg.id.startsWith('crew')) setCount(Number(wdg.id.slice(4)));
       }
       s.invalidate();
     },
@@ -336,7 +333,6 @@ export default function MainMenu({
         drawPill(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start') });
         drawPill(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle });
       } else if (m.screen === 'players') {
-        // The characters under the dial are 3D (PlayerCrew).
         const n = count();
         const playable = isPlayerCount(n);
         drawHeader(g, PLAYERS_BACK, 'PLAYERS', h.back ?? 0);

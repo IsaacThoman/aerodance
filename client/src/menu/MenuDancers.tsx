@@ -8,35 +8,55 @@ import type { CharacterAppearance } from '../../../packages/character/Character.
 import { validateMotion } from '../../../packages/character/motion.ts';
 import type { MotionTake } from '../../../packages/pose/legacy.ts';
 import motionUrl from '../../../packages/character/assets/dance.json?url';
+import { MAX_PLAYERS, PLAYER_COLORS } from './layout.ts';
 
 /**
- * The two captured Frutiger dancers on a glass puck, pinned to the right of the screen.
- * They live in their own scene with a fixed camera, so they ride along with the drone
- * flight instead of being left behind in the city. Drawn after the world and before the
- * menu (useFrame priority 1.5); they slide off to the right while the menu is hidden.
+ * The captured Frutiger dancers on a glass puck, pinned to the right of the screen: one per
+ * player (`count`, 1-4) in the player colours, spaced evenly and centred on the puck. They
+ * live in their own scene with a fixed camera, so they ride along with the drone flight
+ * instead of being left behind in the city. Drawn after the world and before the menu
+ * (useFrame priority 1.5); they slide off to the right while the menu is hidden.
+ *
+ * When the count changes everything eases: a dancer joining splits out of its neighbour, one
+ * leaving slides into its neighbour and fades once they overlap, and the puck widens for three
+ * and four (the whole stage scales down a little at four so it stays on screen).
  *
  * On Song Select the stage rises to the middle of the screen (`raised`, nothing sits above
- * it there), and in one-player mode a single dancer stands in the middle of it (`solo`).
+ * it there).
  *
- * <MenuDancers visible raised solo />
+ * <MenuDancers visible raised count={3} />
  */
 
-const DANCERS: readonly { x: number; appearance: CharacterAppearance }[] = [
-  { x: -1.45, appearance: { color: '#078fff', gloss: 85, accessory: 'None' } },
-  { x: 1.45, appearance: { color: '#b86bff', gloss: 85, accessory: 'None' } },
-];
+const APPEARANCES: readonly CharacterAppearance[] = PLAYER_COLORS.map((color) => ({ color, gloss: 85, accessory: 'None' }));
 const PUCK = { r: 3.1, h: 0.26 };
 // Stage placement in front of the fixed camera (looking down -Z), then turned to face it.
 const STAGE = { x: 4.3, y: -2.6, z: -19, tilt: 0.2, turn: -0.22 };
+// Distance between neighbouring dancers: two keep their original spots, three and four
+// stand a little closer.
+const spacing = (n: number) => (n <= 2 ? 2.9 : 2.5);
+// Puck room past the outermost dancer's centre.
+const PUCK_MARGIN = 1.65;
+// The widest the puck may look on screen (its radius in world units, after scaling).
+const FIT_RADIUS = 4.4;
 // How far the stage rises when it's raised.
 const RAISE = 1.5;
 const SLIDE = 12;
 // Easing approaches its target forever; snap once the remaining step is imperceptible.
 const SPOT_EPSILON = 0.01;
-const SOLO_HIDE_PROGRESS = 0.95;
-const SOLO_FADE_SECONDS = 0.05;
+// A leaving dancer fades once it is this close to the neighbour it slides into.
+const MERGE_DISTANCE = 0.08;
+const FADE_SECONDS = 0.05;
+// Players three and four dance the duet's parts a beat behind one and two.
+const LAG = [0, 0, 3.5, 3.5];
 
-export function Environment({ scene }: { scene: THREE.Scene }) {
+const slotX = (i: number, n: number) => (i - (n - 1) / 2) * spacing(n);
+/** Where dancer i stands for n players; one not playing hides in the last player's spot. */
+const targetX = (i: number, n: number) => slotX(Math.min(i, n - 1), n);
+const puckRadius = (n: number) => Math.max(PUCK.r, ((n - 1) / 2) * spacing(n) + PUCK_MARGIN);
+const stageScale = (n: number) => Math.min(1, FIT_RADIUS / puckRadius(n));
+const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, Math.round(n)));
+
+function Environment({ scene }: { scene: THREE.Scene }) {
   const gl = useThree((state) => state.gl);
   useEffect(() => {
     const pmrem = new THREE.PMREMGenerator(gl);
@@ -81,7 +101,7 @@ function Puck() {
   );
 }
 
-export class Quiet extends Component<{ children?: ReactNode }, { failed: boolean }> {
+class Quiet extends Component<{ children?: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(err: unknown) { console.warn('Menu dancers could not load', err); }
@@ -92,22 +112,34 @@ export interface MenuDancersProps {
   visible?: boolean;
   /** Song Select: the stage rises to the middle of the screen. */
   raised?: boolean;
-  /** One player: a single dancer in the middle. */
-  solo?: boolean;
+  /** Dancers on the puck, one per player (1-4). */
+  count?: number;
 }
 
-export default function MenuDancers({ visible = true, raised = false, solo = false }: MenuDancersProps) {
+export default function MenuDancers({ visible = true, raised = false, count = 2 }: MenuDancersProps) {
   const gl = useThree((state) => state.gl);
   const camera = useThree((state) => state.camera);
   const [motion, setMotion] = useState<MotionTake | null>(null);
   const stage = useMemo(() => new THREE.Scene(), []);
   const cam = useMemo(() => new THREE.PerspectiveCamera(30, 16 / 9, 0.5, 60), []);
   const rig = useRef<THREE.Group>(null);
-  const playback = useRef(0);
+  const puck = useRef<THREE.Group>(null);
+  const clock = useRef(0);
   const shown = useRef(0);
   const lift = useRef(0);
+  const n = clampCount(count);
+  // The puck's radius and the stage's scale, eased towards the current count's.
+  const size = useRef({ r: puckRadius(n), s: stageScale(n) });
+  // The puck mounts after the motion loads: start it at the current size.
+  const sizePuck = (g: THREE.Group | null) => {
+    puck.current = g;
+    g?.scale.set(size.current.r / PUCK.r, 1, size.current.r / PUCK.r);
+  };
   const spots = useRef<(THREE.Group | null)[]>([]);
-  const purpleOpacity = useRef(1);
+  const placed = useRef<boolean[]>([]);
+  const initial = useRef(n);
+  const opacity = useMemo(() => APPEARANCES.map((_, i) => ({ current: i < initial.current ? 1 : 0 })), []);
+  const playback = useMemo(() => APPEARANCES.map(() => ({ current: 0 })), []);
   const still = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
   useEffect(() => {
@@ -126,37 +158,44 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
     const dt = Math.min(delta, 0.1);
     shown.current += ((visible ? 1 : 0) - shown.current) * Math.min(1, dt * (visible ? 2.5 : 5));
     if (!motion || !rig.current || shown.current < 0.005) return;
-    if (!still) playback.current += dt;
+    if (!still) clock.current += dt;
+    playback.forEach((p, i) => { p.current = clock.current + LAG[i]; });
 
     const t = state.clock.elapsedTime;
     const away = 1 - shown.current;
-    // Rise and both dancers' steps to the middle ease in, unless the stage is off screen.
+    // Rise, regrouping and the puck's size ease in, unless the stage is off screen.
     const k = shown.current < 0.05 ? 1 : Math.min(1, dt * 4);
     lift.current += ((raised ? RAISE : 0) - lift.current) * k;
-    // Converge twice as quickly while keeping the return split's existing timing.
-    const move = solo ? Math.min(1, k * 2) : k;
-    DANCERS.forEach((d, i) => {
+    const sz = size.current;
+    sz.r += (puckRadius(n) - sz.r) * k;
+    sz.s += (stageScale(n) - sz.s) * k;
+    puck.current?.scale.set(sz.r / PUCK.r, 1, sz.r / PUCK.r);
+
+    APPEARANCES.forEach((_, i) => {
       const spot = spots.current[i];
       if (!spot) return;
-      const target = solo ? 0 : d.x;
-      spot.position.x += (target - spot.position.x) * move;
+      const playing = i < n;
+      const target = targetX(i, n);
+      // A leaving dancer slides into its neighbour twice as quickly as the others regroup.
+      spot.position.x += (target - spot.position.x) * (playing ? k : Math.min(1, k * 2));
       if (Math.abs(target - spot.position.x) < SPOT_EPSILON) spot.position.x = target;
-      if (i === 1) {
-        // Fade purple after convergence, and fade it back in as the dancers split out.
-        const show = !solo || Math.abs(spot.position.x) > Math.abs(d.x) * (1 - SOLO_HIDE_PROGRESS);
-        const targetOpacity = show ? 1 : 0;
-        const fadeStep = dt / SOLO_FADE_SECONDS;
-        purpleOpacity.current = Math.abs(targetOpacity - purpleOpacity.current) <= fadeStep + Number.EPSILON
-          ? targetOpacity
-          : purpleOpacity.current + (show ? fadeStep : -fadeStep);
-        spot.visible = purpleOpacity.current > 0;
-      }
+      // Shown while playing, or still on its way into its neighbour.
+      const show = playing || Math.abs(target - spot.position.x) > MERGE_DISTANCE;
+      const o = opacity[i];
+      const step = dt / FADE_SECONDS;
+      const goal = show ? 1 : 0;
+      o.current = Math.abs(goal - o.current) <= step + Number.EPSILON ? goal : o.current + (show ? step : -step);
+      spot.visible = o.current > 0;
     });
+
+    // The stage keeps its right edge where it was as the puck widens.
+    const grow = sz.r * sz.s - PUCK.r;
     rig.current.position.set(
-      STAGE.x + away * away * SLIDE,
+      STAGE.x - grow * 0.6 + away * away * SLIDE,
       STAGE.y + lift.current + (still ? 0 : Math.sin(t * 1.3) * 0.06),
       STAGE.z,
     );
+    rig.current.scale.setScalar(sz.s);
     rig.current.rotation.set(STAGE.tilt, STAGE.turn, still ? 0 : Math.sin(t * 0.7) * 0.012);
   }, 0.5);
 
@@ -185,20 +224,29 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
       <group ref={rig} position={[STAGE.x + SLIDE, STAGE.y, STAGE.z]}>
         <Quiet>
           <Suspense fallback={null}>
-            <Puck />
-            {DANCERS.map((d, person) => (
+            <group ref={sizePuck}>
+              <Puck />
+            </group>
+            {APPEARANCES.map((appearance, i) => (
               <group
-                key={person}
-                ref={(g) => { spots.current[person] = g; }}
-                position={[d.x, 0, 0]}
+                key={i}
+                ref={(g) => {
+                  // Placed once; after that the frame loop eases it, so a new count never snaps it.
+                  if (g && !placed.current[i]) {
+                    placed.current[i] = true;
+                    g.position.x = targetX(i, n);
+                    g.visible = i < n;
+                  }
+                  spots.current[i] = g;
+                }}
                 scale={[-1, 1, 1]}
               >
                 <Character
                   motion={motion}
-                  person={person}
-                  playback={playback}
-                  appearance={d.appearance}
-                  opacityRef={person === 1 ? purpleOpacity : undefined}
+                  person={i % 2}
+                  playback={playback[i]}
+                  appearance={appearance}
+                  opacityRef={opacity[i]}
                 />
               </group>
             ))}
