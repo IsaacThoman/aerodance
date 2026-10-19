@@ -78,7 +78,7 @@ async function build(sim: boolean, game: boolean) {
   }
   await copyFonts();
   writeFileSync(path.join(www, 'config.json'), JSON.stringify(game
-    ? { script: 'game.js', url: 'http://aerodance.local/?input=ghost', fit: 'fill', pixelated: true }
+    ? { script: 'game.js', url: 'http://aerodance.local/?input=ghost&quality=tv', fit: 'fill', pixelated: true }
     : { script: 'bench/aero-bench.js', url: 'http://aerodance.local/bench/aero-bench.html', fit: 'contain' }));
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
   const env = { ...process.env, TVOS_TEAM_ID: TEAM_ID, TVOS_BUNDLE_ID: BUNDLE_ID };
