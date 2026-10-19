@@ -20,6 +20,8 @@ class Renderer;
 - (void)wakeAfter:(double)ms;
 - (void)sendKey:(NSString *)key code:(NSString *)code type:(NSString *)type repeat:(BOOL)repeat;
 - (void)setHidden:(BOOL)hidden;
+/** Pauses frames (and finishes GL work) while the app isn't active. Main thread. */
+- (void)setActive:(BOOL)active;
 @end
 
 /** The running host, for natives outside Host.mm. */

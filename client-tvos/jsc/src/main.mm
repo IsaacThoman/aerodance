@@ -18,6 +18,8 @@ static NSDictionary *LaunchConfig() {
 
 @interface GameViewController : UIViewController
 @property(nonatomic, strong) JSHost *host;
+/** Presses the game took when they began (Menu on the main menu goes to the system instead). */
+@property(nonatomic, strong) NSMutableSet<UIPress *> *taken;
 @property(nonatomic, strong) DisplayTarget *display;
 @end
 
@@ -88,26 +90,40 @@ static NSString *KeyForPress(UIPressType type) {
   return key && !(press.type == UIPressTypeMenu && self.host.atRoot);
 }
 
+// Whether the game takes a press is decided once, when it begins, so a press that started on the
+// main menu goes to the system to the end even if the menu changes meanwhile.
 - (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
-  BOOL passOn = NO;
+  if (!self.taken) self.taken = [NSMutableSet set];
+  NSMutableSet *others = [NSMutableSet set];
   for (UIPress *press in presses) {
-    if ([self handles:press]) [self.host sendKey:KeyForPress(press.type) code:KeyForPress(press.type) type:@"keydown" repeat:NO];
-    else passOn = YES;
+    if ([self handles:press]) {
+      [self.taken addObject:press];
+      [self.host sendKey:KeyForPress(press.type) code:KeyForPress(press.type) type:@"keydown" repeat:NO];
+    } else [others addObject:press];
   }
-  if (passOn) [super pressesBegan:presses withEvent:event];
+  if (others.count) [super pressesBegan:others withEvent:event];
 }
 
 - (void)pressesEnded:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
-  BOOL passOn = NO;
+  NSMutableSet *others = [NSMutableSet set];
   for (UIPress *press in presses) {
-    if ([self handles:press]) [self.host sendKey:KeyForPress(press.type) code:KeyForPress(press.type) type:@"keyup" repeat:NO];
-    else passOn = YES;
+    if ([self.taken containsObject:press]) {
+      [self.taken removeObject:press];
+      [self.host sendKey:KeyForPress(press.type) code:KeyForPress(press.type) type:@"keyup" repeat:NO];
+    } else [others addObject:press];
   }
-  if (passOn) [super pressesEnded:presses withEvent:event];
+  if (others.count) [super pressesEnded:others withEvent:event];
 }
 
 - (void)pressesCancelled:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
-  for (UIPress *press in presses) if (![self handles:press]) { [super pressesCancelled:presses withEvent:event]; return; }
+  NSMutableSet *others = [NSMutableSet set];
+  for (UIPress *press in presses) {
+    if ([self.taken containsObject:press]) {
+      [self.taken removeObject:press];
+      [self.host sendKey:KeyForPress(press.type) code:KeyForPress(press.type) type:@"keyup" repeat:NO];
+    } else [others addObject:press];
+  }
+  if (others.count) [super pressesCancelled:others withEvent:event];
 }
 
 @end
@@ -121,6 +137,12 @@ static NSString *KeyForPress(UIPressType type) {
   self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
   self.window.rootViewController = [GameViewController new];
   [self.window makeKeyAndVisible];
+}
+- (void)sceneWillResignActive:(UIScene *)scene {
+  [((GameViewController *)self.window.rootViewController).host setActive:NO];
+}
+- (void)sceneDidBecomeActive:(UIScene *)scene {
+  [((GameViewController *)self.window.rootViewController).host setActive:YES];
 }
 - (void)sceneDidEnterBackground:(UIScene *)scene {
   [((GameViewController *)self.window.rootViewController).host setHidden:YES];

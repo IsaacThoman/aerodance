@@ -73,13 +73,13 @@ export function installGameHooks(config: Config, host: Host) {
     let lastDraws = commands();
     let last = { ...counters };
     setIntervalShim(() => {
-      const stats = JSON.parse(native.query(Q.frameStats, 2000) as string) as { frames: number; jsMs: { mean: number; p95: number }; execMs: { mean: number }; intervalMs: { mean: number; p50: number; p95: number }; wordsPerFrame: { mean: number } };
+      const stats = JSON.parse(native.query(Q.frameStats, 2000) as string) as { frames: number; jsMs: { mean: number; p95: number }; execMs: { mean: number }; intervalMs: { mean: number; p50: number; p95: number }; wordsPerFrame: { mean: number }; memMB: number };
       const draws = commands();
       const frames = Math.max(1, stats.frames);
       post(url, {
         type: 'game', label, mark, t: Math.round(performance.now()),
         fps: stats.intervalMs.mean ? round(1000 / stats.intervalMs.mean, 1) : 0,
-        frameMs: { p50: stats.intervalMs.p50, p95: stats.intervalMs.p95 }, jsMs: stats.jsMs, execMs: stats.execMs, wordsPerFrame: Math.round(stats.wordsPerFrame.mean),
+        frameMs: { p50: stats.intervalMs.p50, p95: stats.intervalMs.p95 }, jsMs: stats.jsMs, execMs: stats.execMs, memMB: stats.memMB, wordsPerFrame: Math.round(stats.wordsPerFrame.mean),
         drawsPerFrame: Math.round((draws - lastDraws) / frames), frames: stats.frames, dataset: { ...dataset() },
         ...(config.profile ? { profile: takeProfile(frames) } : {}),
         perFrame: Object.fromEntries(Object.entries(counters).map(([k, v]) => [k, round((v - last[k as keyof typeof counters]) / frames, 1)])),
