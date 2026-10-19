@@ -57,33 +57,59 @@ function gullAssets(ctx: AeroContext) {
 
 type GullAssets = ReturnType<typeof gullAssets>;
 
-// All the gulls are drawn as three instanced meshes (bodies, inner wings, outer wings). Each
-// wing mesh holds both wings: `wingSide` mirrors the left one. A gull's pose is its instance
-// matrix plus `flap` (inner wing roll, outer wing roll, inner wing sweep), applied here as the
-// gull's wing joints were: shoulder at (0.16, 0.12, 0.18), wrist 1.15 out along the wing.
-const wingVertex = `
-  attribute float wingSide;attribute vec3 flap;
-  vec3 wingPose(vec3 p,float w){
+// All the gulls are drawn as three instanced meshes (bodies, inner wings, outer wings), flown
+// and posed entirely in the vertex shader. Each wing mesh holds both wings: `wingSide` mirrors
+// the left one. A circling gull goes round centre c at radius rad from angle a0 at w rad/s,
+// bobbing by hv, facing along its path and banked into the turn; the V formation circles above
+// the clouds. The wings flap at the shoulder (0.16, 0.12, 0.18) and the wrist, 1.15 out.
+// gullA = (c, rad) or (offset in the V, -1); gullB = (a0, w, hv, ph); gullC = (flap rate, scale).
+const gullVertex = `
+  attribute vec4 gullA;attribute vec4 gullB;attribute vec2 gullC;uniform float uTime;
+  #ifdef GULL_WING
+  attribute float wingSide;
+  #endif
+  vec3 gullPose(vec3 p,float w){
+    float t=uTime,ph=gullB.w,glide;vec3 at;mat3 turn;
+    if(gullA.w>0.0){
+      float a=gullB.x+gullB.y*t,a2=a+gullB.y*0.2,r=gullA.w;
+      glide=0.5+0.5*sin(t*0.35+ph);
+      at=vec3(gullA.x+cos(a)*r,gullA.y+sin(a*2.0+ph)*gullB.z-sin(t*gullC.x+ph)*0.12*glide,gullA.z+sin(a)*r);
+      vec3 ahead=vec3(gullA.x+cos(a2)*r,gullA.y+sin(a2*2.0+ph)*gullB.z,gullA.z+sin(a2)*r);
+      vec3 zA=normalize(ahead-at),xA=normalize(cross(vec3(0.0,1.0,0.0),zA)),yA=cross(zA,xA);
+      float roll=-sign(gullB.y)*0.32,cr=cos(roll),sr=sin(roll);
+      turn=mat3(xA,yA,zA)*mat3(cr,sr,0.0,-sr,cr,0.0,0.0,0.0,1.0);
+    }else{
+      float va=0.05*t,yaw=atan(-sin(va),cos(va)),cy=cos(yaw),sy=sin(yaw),cr=cos(-0.12),sr=sin(-0.12);
+      vec3 off=vec3(gullA.x*cy+gullA.z*sy,gullA.y,-gullA.x*sy+gullA.z*cy);
+      glide=0.75;
+      at=vec3(230.0+cos(va)*170.0+off.x,305.0+off.y+sin(t*0.5+ph)*0.4,-260.0+sin(va)*170.0+off.z);
+      turn=mat3(cy,0.0,-sy,0.0,1.0,0.0,sy,0.0,cy)*mat3(cr,sr,0.0,-sr,cr,0.0,0.0,0.0,1.0);
+    }
+    #ifdef GULL_WING
+    float f=t*gullC.x+ph;
     #ifdef OUTER_WING
-    float cb=cos(flap.y),sb=sin(flap.y);p=vec3(cb*p.x-sb*p.y,sb*p.x+cb*p.y,p.z);p.x+=1.15*w;
+    float b=sin(f-0.9)*0.5*glide+0.06,cb=cos(b),sb=sin(b);p=vec3(cb*p.x-sb*p.y,sb*p.x+cb*p.y,p.z);p.x+=1.15*w;
     #endif
-    float ca=cos(flap.x),sa=sin(flap.x),cy=cos(flap.z),sy=sin(flap.z);
+    float a=sin(f)*0.62*glide+0.08,ca=cos(a),sa=sin(a),fy=sin(f+1.2)*0.12*glide,cy2=cos(fy),sy2=sin(fy);
     p=vec3(ca*p.x-sa*p.y,sa*p.x+ca*p.y,p.z);
-    p=vec3(cy*p.x+sy*p.z,p.y,-sy*p.x+cy*p.z);
-    p+=w*vec3(0.16,0.12,0.18);p.x*=wingSide;return p;
+    p=vec3(cy2*p.x+sy2*p.z,p.y,-sy2*p.x+cy2*p.z);
+    p+=w*vec3(0.16,0.12,0.18);p.x*=wingSide;
+    #endif
+    return turn*(p*(w>0.5?gullC.y:1.0))+w*at;
   }`;
 
-/** Lambert material whose vertices are posed by wingPose (see above). */
-function wingMaterial(base: THREE.MeshLambertMaterial, outer: boolean) {
+/** A material whose vertices are flown and posed by gullPose (see above). */
+function gullMaterial(base: THREE.MeshLambertMaterial, part: 'body' | 'inner' | 'outer', ctx: AeroContext) {
   const m = base.clone();
-  if (outer) m.defines = { ...m.defines, OUTER_WING: '' };
+  if (part !== 'body') m.defines = { ...m.defines, GULL_WING: '', ...(part === 'outer' ? { OUTER_WING: '' } : {}) };
   m.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = ctx.time;
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', `#include <common>\n${wingVertex}`)
-      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = wingPose(normal, 0.0);')
-      .replace('#include <begin_vertex>', 'vec3 transformed = wingPose(position, 1.0);');
+      .replace('#include <common>', `#include <common>\n${gullVertex}`)
+      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = gullPose(normal, 0.0);')
+      .replace('#include <begin_vertex>', 'vec3 transformed = gullPose(position, 1.0);');
   };
-  m.customProgramCacheKey = () => (outer ? 'gull-outer-wing' : 'gull-inner-wing');
+  m.customProgramCacheKey = () => `gull-${part}`;
   return m;
 }
 
@@ -103,79 +129,37 @@ function pairOfWings(g: THREE.BufferGeometry) {
   return both;
 }
 
-interface Gull { i: number }
-/** A gull circling centre c at radius rad, bobbing by hv. */
-interface CirclingGull extends Gull { c: THREE.Vector3; rad: number; a: number; w: number; hv: number; ph: number; fs: number; s: number }
-interface FormationGull extends Gull { off: THREE.Vector3; ph: number; fs: number }
-
-/** Circling gull flocks, plus a V formation above the clouds. */
+/** Circling gull flocks, plus a V formation above the clouds. Everything moves in the shader. */
 export function buildBirds(ctx: AeroContext) {
   const { root } = ctx;
   const { R, rnd } = ctx.random;
   const GULL: GullAssets = gullAssets(ctx);
-  const BIRDS: CirclingGull[] = [];
+  const A: number[] = [], B: number[] = [], C: number[] = [];
   const flocks: [centre: [number, number, number], radius: [number, number], count: number, scale: number][] = [[[0, 150, 0], [60, 160], 14, 1.5], [[90, 215, -470], [30, 90], 10, 1.5], [[-70, 72, -330], [30, 80], 8, 1.3], [[40, 26, 560], [40, 110], 8, 0.9], [[260, 260, -380], [40, 100], 8, 1.5]];
-  let count = 0;
   for (const [c, [r0, r1], n, sc] of flocks) for (let i = 0; i < n; i++) {
     const s = sc * R(0.85, 1.15);
-    BIRDS.push({ i: count++, s, c: new THREE.Vector3(...c).add(new THREE.Vector3(R(-20, 20), R(-15, 15), R(-20, 20))), rad: R(r0, r1), a: R(0, TAU), w: R(0.08, 0.16) * (rnd() < 0.5 ? 1 : -1), hv: R(4, 12), ph: R(0, TAU), fs: R(5.5, 7.5) });
+    const centre = new THREE.Vector3(...c).add(new THREE.Vector3(R(-20, 20), R(-15, 15), R(-20, 20)));
+    const rad = R(r0, r1), a = R(0, TAU), w = R(0.08, 0.16) * (rnd() < 0.5 ? 1 : -1), hv = R(4, 12), ph = R(0, TAU), fs = R(5.5, 7.5);
+    A.push(centre.x, centre.y, centre.z, rad); B.push(a, w, hv, ph); C.push(fs, s);
   }
   // V formation above the clouds
-  const VFORM = { c: new THREE.Vector3(230, 305, -260), rad: 170, a: 0, w: 0.05 }, VBIRDS: FormationGull[] = [];
   for (let k = 0; k < 9; k++) {
     const rank = Math.ceil(k / 2), side = k === 0 ? 0 : k % 2 ? 1 : -1;
-    VBIRDS.push({ i: count++, off: new THREE.Vector3(side * rank * 5, R(-0.6, 0.6), -rank * 5), ph: k * 0.35, fs: 6 });
+    A.push(side * rank * 5, R(-0.6, 0.6), -rank * 5, -1); B.push(0, 0, 0, k * 0.35); C.push(6, 1.6);
   }
-
+  const count = C.length / 2;
   const inner = pairOfWings(GULL.inner), outer = pairOfWings(GULL.outer);
   GULL.inner.dispose(); GULL.outer.dispose();
-  const flap = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-  flap.setUsage(THREE.DynamicDrawUsage);
-  inner.setAttribute('flap', flap); outer.setAttribute('flap', flap);
+  const meshes = ([[GULL.bodyGeo, GULL.bodyMat, 'body'], [inner, GULL.innerMat, 'inner'], [outer, GULL.outerMat, 'outer']] as const).map(([geo, mat, part]) => {
+    geo.setAttribute('gullA', new THREE.InstancedBufferAttribute(Float32Array.from(A), 4));
+    geo.setAttribute('gullB', new THREE.InstancedBufferAttribute(Float32Array.from(B), 4));
+    geo.setAttribute('gullC', new THREE.InstancedBufferAttribute(Float32Array.from(C), 2));
+    const m = new THREE.InstancedMesh(geo, gullMaterial(mat, part, ctx), count);
+    m.frustumCulled = false;
+    root.add(m);
+    return m;
+  });
+  for (const m of [GULL.bodyMat, GULL.innerMat, GULL.outerMat]) m.dispose();
   ctx.disposables.push(GULL.bodyGeo, inner, outer);
-  const meshes = [
-    new THREE.InstancedMesh(GULL.bodyGeo, GULL.bodyMat, count),
-    new THREE.InstancedMesh(inner, wingMaterial(GULL.innerMat, false), count),
-    new THREE.InstancedMesh(outer, wingMaterial(GULL.outerMat, true), count),
-  ];
-  GULL.innerMat.dispose(); GULL.outerMat.dispose();
-  for (const m of meshes) { m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); root.add(m); }
-
-  const tmp = new THREE.Vector3(), heading = new THREE.Vector3(), d = new THREE.Object3D();
-  const pose = (i: number, t: number, f: number, ph: number, glide: number) => {
-    d.updateMatrix();
-    for (const m of meshes) m.setMatrixAt(i, d.matrix);
-    const fa = flap.array as Float32Array;
-    fa[i * 3] = Math.sin(t * f + ph) * 0.62 * glide + 0.08;
-    fa[i * 3 + 1] = Math.sin(t * f + ph - 0.9) * 0.5 * glide + 0.06;
-    fa[i * 3 + 2] = Math.sin(t * f + ph + 1.2) * 0.12 * glide;
-  };
-  return {
-    update(t: number, dt: number) {
-      for (const b of BIRDS) {
-        b.a += b.w * dt;
-        const yAt = (a: number) => b.c.y + Math.sin(a * 2 + b.ph) * b.hv;
-        const a2 = b.a + b.w * 0.2;
-        tmp.set(b.c.x + Math.cos(a2) * b.rad, yAt(a2), b.c.z + Math.sin(a2) * b.rad);
-        const glide = 0.5 + 0.5 * Math.sin(t * 0.35 + b.ph);
-        d.position.set(b.c.x + Math.cos(b.a) * b.rad, yAt(b.a) - Math.sin(t * b.fs + b.ph) * 0.12 * glide, b.c.z + Math.sin(b.a) * b.rad);
-        d.scale.setScalar(b.s);
-        d.lookAt(tmp); d.rotateZ(-Math.sign(b.w) * 0.32);
-        pose(b.i, t, b.fs, b.ph, glide);
-      }
-      VFORM.a += VFORM.w * dt;
-      const lx = VFORM.c.x + Math.cos(VFORM.a) * VFORM.rad, lz = VFORM.c.z + Math.sin(VFORM.a) * VFORM.rad;
-      heading.set(-Math.sin(VFORM.a), 0, Math.cos(VFORM.a));
-      const yaw = Math.atan2(heading.x, heading.z);
-      d.scale.setScalar(1.6);
-      for (const b of VBIRDS) {
-        tmp.copy(b.off).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
-        d.position.set(lx + tmp.x, VFORM.c.y + tmp.y + Math.sin(t * 0.5 + b.ph) * 0.4, lz + tmp.z);
-        d.rotation.set(0, yaw, 0); d.rotateZ(-0.12);
-        pose(b.i, t, b.fs, b.ph, 0.75);
-      }
-      for (const m of meshes) m.instanceMatrix.needsUpdate = true;
-      flap.needsUpdate = true;
-    },
-  };
+  return meshes;
 }

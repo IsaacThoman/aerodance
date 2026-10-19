@@ -84,8 +84,8 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   part('flowers', () => buildFlowers(ctx, path));
   part('tulips', () => buildTulips(ctx));
   const mills = part('windmills', () => buildWindmills(ctx));
-  const butterflies = part('butterflies', () => buildButterflies(ctx, path));
-  const birds = part('birds', () => buildBirds(ctx));
+  part('butterflies', () => buildButterflies(ctx, path));
+  part('birds', () => buildBirds(ctx));
   const balloons = part('balloons', () => buildBalloons(ctx, path));
   const clouds = part('clouds', () => buildClouds(ctx, path));
   const bubbles = part('bubbles', () => buildBubbles(ctx, path, bubbleSpecs));
@@ -132,8 +132,6 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
     clouds.update(dt, camera);
     lake.update(t, dt, camera);
     if (on('trees')) trees.update(camera);
-    if (on('butterflies')) butterflies.update(t, camera);
-    if (on('birds')) birds.update(t, dt);
     if (on('balloons')) balloons.update(t, dt);
     if (on('bubbles')) bubbles.update(t, dt, camera);
     if (on('sparkles')) sparkles.update(t);
