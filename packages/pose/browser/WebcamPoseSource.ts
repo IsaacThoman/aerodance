@@ -7,6 +7,8 @@ import type { CaptureInput, PlayerCount } from '../choreography.ts';
 import type { PoseDelegate, PoseWorkerRequest, PoseWorkerResponse } from './pose.worker.ts';
 
 export type WebcamStatus = 'disconnected' | 'connecting' | 'initializing' | 'connected' | 'error';
+/** Which way the camera faces when no camera is chosen: towards the screen (user) or away. */
+export type CameraFacing = 'user' | 'environment';
 export interface CameraInfo { deviceId: string; label: string; }
 /** The latest tracked frame, as the view shows it. */
 export interface WebcamSnapshot extends WebcamRecord { sourceKind: 'webcam'; frameId: number; }
@@ -23,6 +25,8 @@ export interface WebcamView {
   snapshot: WebcamSnapshot | null;
   configuring: boolean; message: string;
   model: PoseModelId; cameraId: string; cameras: CameraInfo[];
+  /** Asked of the browser when no camera is chosen (phones: front or back camera). */
+  facing?: CameraFacing;
   stats: WebcamStats | null;
   modelConfig?: WebcamModelConfig;
   delegate?: PoseDelegate;
@@ -50,8 +54,12 @@ export interface WebcamPoseSourceOptions {
   bitmap?: (video: HTMLVideoElement) => Promise<ImageBitmap>;
   now?: () => number;
   assetUrl?: () => string;
+  /** Prefix of the saved model and camera settings (a phone camera keeps its own). */
+  settingsKey?: string;
+  /** A camera that changes size (a phone turned sideways) carries on at the new size instead of failing. */
+  adaptToResize?: boolean;
 }
-export interface WebcamConfigureOptions { modelId?: string; cameraId?: string; }
+export interface WebcamConfigureOptions { modelId?: string; cameraId?: string; facing?: CameraFacing; }
 interface PendingFrame { seq: number; mediaTimeMs: number; frameBrowserTimeMs: number; }
 
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
@@ -83,6 +91,8 @@ export class WebcamPoseSource {
   bitmap: (video: HTMLVideoElement) => Promise<ImageBitmap>;
   now: () => number;
   assetUrl: () => string;
+  settingsKey: string;
+  adaptToResize: boolean;
   listeners = new Set<Listener<WebcamView>>();
   recordListeners = new Set<Listener<WebcamRecordEvent>>();
   generation = 0;
@@ -105,6 +115,8 @@ export class WebcamPoseSource {
   sessionId = '';
   seq = 0;
   lastMediaTime = -Infinity;
+  /** When the camera last delivered a new frame (tracked or not). */
+  lastFrame = 0;
   slots = new PlayerSlotMapper();
   resultTimes: number[] = [];
   startedAt = 0;
@@ -116,14 +128,17 @@ export class WebcamPoseSource {
     createVideo = () => document.createElement('video'),
     bitmap = video => createImageBitmap(video), now = () => performance.now(),
     assetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href,
+    settingsKey = 'aerodance-webcam', adaptToResize = false,
   }: WebcamPoseSourceOptions = {}) {
     this.mediaDevices = mediaDevices; this.createWorker = createWorker; this.createVideo = createVideo;
-    this.bitmap = bitmap; this.now = now; this.assetUrl = assetUrl;
-    const savedModel = saved('aerodance-webcam-model', 'lite');
+    this.bitmap = bitmap; this.now = now; this.assetUrl = assetUrl; this.settingsKey = settingsKey; this.adaptToResize = adaptToResize;
+    const savedModel = saved(`${settingsKey}-model`, 'lite');
     const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
+    const facing = saved(`${settingsKey}-facing`, '');
     this.view = { status: 'disconnected', sourceKind: 'webcam', snapshot: null, configuring: false,
       message: 'Choose a camera and model, then Start camera.', model: modelId,
-      cameraId: saved('aerodance-webcam-camera', ''), cameras: [], stats: null };
+      cameraId: saved(`${settingsKey}-camera`, ''), cameras: [], stats: null,
+      ...(facing === 'user' || facing === 'environment' ? { facing } : {}) };
   }
   subscribe(listener: Listener<WebcamView>) { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
   subscribeRecords(listener: Listener<WebcamRecordEvent>) { this.recordListeners.add(listener); return () => this.recordListeners.delete(listener); }
@@ -135,13 +150,14 @@ export class WebcamPoseSource {
       .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `Camera ${i + 1}` }));
     this.publish({ cameras });
   }
-  async configure({ modelId = this.view.model, cameraId = this.view.cameraId }: WebcamConfigureOptions = {}) {
+  async configure({ modelId = this.view.model, cameraId = this.view.cameraId, facing = this.view.facing }: WebcamConfigureOptions = {}) {
     const model = poseModel(modelId).id;
-    if (model === this.view.model && cameraId === this.view.cameraId) return;
+    if (model === this.view.model && cameraId === this.view.cameraId && facing === this.view.facing) return;
     const active = ACTIVE.includes(this.view.status);
     this.disconnect();
-    this.publish({ model, cameraId });
-    save('aerodance-webcam-model', model); save('aerodance-webcam-camera', cameraId);
+    this.publish({ model, cameraId, facing });
+    save(`${this.settingsKey}-model`, model); save(`${this.settingsKey}-camera`, cameraId);
+    if (facing) save(`${this.settingsKey}-facing`, facing);
     if (active) await this.connect();
   }
   async setPlayerCount(count: PlayerCount) {
@@ -189,7 +205,7 @@ export class WebcamPoseSource {
       if (!this.mediaDevices?.getUserMedia) throw Error('Camera access requires HTTPS or localhost and a browser with webcam support.');
       const stream = await this.mediaDevices.getUserMedia({ audio: false, video: {
         width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 },
-        ...(this.view.cameraId ? { deviceId: { exact: this.view.cameraId } } : {}),
+        ...(this.view.cameraId ? { deviceId: { exact: this.view.cameraId } } : this.view.facing ? { facingMode: { ideal: this.view.facing } } : {}),
       } });
       if (!current()) { for (const track of stream.getTracks()) track.stop(); return; }
       this.stream = stream;
@@ -203,13 +219,16 @@ export class WebcamPoseSource {
       if (!current()) return;
       const deviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
       const actualCamera = deviceId !== undefined && this.view.cameras.some(camera => camera.deviceId === deviceId) ? deviceId : this.view.cameraId;
-      this.publish({ cameraId: actualCamera }); save('aerodance-webcam-camera', actualCamera);
+      // A camera picked by facing stays unchosen, so turning the phone round picks again.
+      if (!this.view.facing || this.view.cameraId) { this.publish({ cameraId: actualCamera }); save(`${this.settingsKey}-camera`, actualCamera); }
       const video = this.video = this.createVideo();
       video.muted = true; video.playsInline = true; video.srcObject = stream;
       if (video.style) {
         Object.assign(video.style, { position: 'fixed', width: '1px', height: '1px', opacity: '0', pointerEvents: 'none' });
         video.setAttribute('aria-hidden', 'true'); document.body.append(video);
       }
+      // Browsers may pause a muted video they think nobody sees (Safari does); keep it playing.
+      video.addEventListener?.('pause', () => { if (current()) void video.play().catch(() => {}); });
       this.startupTimeout = setTimeout(() => { if (current()) this.fail(Error('Camera/model startup timed out. Try again or choose Lite.')); }, 60000);
       await aborted(video.play(), controller.signal);
       if (!current()) return;
@@ -218,7 +237,7 @@ export class WebcamPoseSource {
       const model = poseModel(this.view.model);
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
       this.slots = new PlayerSlotMapper(); this.resultTimes = [];
-      this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.startedAt;
+      this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.lastFrame = this.startedAt;
       const worker = this.worker = this.createWorker();
       worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
       worker.onerror = event => { if (current()) this.fail(Error(event.message || 'Pose worker failed. Try another model or browser.')); };
@@ -231,7 +250,10 @@ export class WebcamPoseSource {
       this.watchdog = setInterval(() => {
         if (!current()) return;
         if (this.view.snapshot && this.now() - this.view.snapshot.frameBrowserTimeMs >= 500) this.publish({ snapshot: null });
-        if (this.view.status === 'connected' && this.now() - this.lastResult > 10000) this.fail(Error('Camera tracking stopped responding. Start camera to retry.'));
+        // Say which half stopped: the camera's pictures, or the model on them.
+        if (this.view.status === 'connected' && this.now() - this.lastResult > 10000) {
+          this.fail(Error(this.now() - this.lastFrame > 5000 ? 'The camera stopped sending pictures. Start camera to retry.' : 'Camera tracking stopped responding. Start camera to retry.'));
+        }
       }, 100);
     } catch (error) { if (current()) this.fail(error); }
   }
@@ -274,12 +296,20 @@ export class WebcamPoseSource {
     const callback = (_time: number, metadata?: VideoFrameCallbackMetadata) => {
       if (generation !== this.generation) return;
       this.schedule();
-      const mediaTimeMs = (metadata?.mediaTime ?? video.currentTime) * 1000;
+      // Safari reports mediaTime 0 for every frame of a live camera (its currentTime advances),
+      // which would make each frame after the first look like a repeat.
+      const reported = (metadata?.mediaTime ?? 0) * 1000;
+      const mediaTimeMs = reported > this.lastMediaTime ? reported : video.currentTime * 1000;
       if (!Number.isFinite(mediaTimeMs) || mediaTimeMs <= this.lastMediaTime) return;
       this.lastMediaTime = mediaTimeMs;
+      this.lastFrame = this.now();
       if (this.busy) { this.dropped++; return; }
       if (video.videoWidth !== this.input?.width || video.videoHeight !== this.input.height) {
-        this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return;
+        if (!this.adaptToResize || !video.videoWidth || !video.videoHeight) { this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return; }
+        // No frame is in flight (busy returned above), so no result mixes the two sizes.
+        // Calibration and the live characters start afresh when a record's input size changes.
+        this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
+        this.slots = new PlayerSlotMapper();
       }
       this.busy = true;
       const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs: this.now() };

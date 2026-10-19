@@ -20,8 +20,8 @@ import type { StageState } from './stage/StageView.tsx';
 import type { LiveDancers } from './stage/LivePanels.tsx';
 import type { LoadedSongBundle } from './songs/loadBundle.ts';
 import { resolveStage } from '../../packages/stages/catalog.ts';
-import { PoseSourceController } from '../../packages/pose/browser/PoseSourceController.ts';
 import type { PlayerCount } from '../../packages/pose/choreography.ts';
+import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
 
@@ -68,8 +68,8 @@ export default function App() {
   // The menu screen actually showing; the Connect Client pill lives on Settings.
   const [menuShown, setMenuShown] = useState<MenuScreen>('main');
   const [playerCount, setPlayerCount] = useState<PlayerCount>(1);
-  // The live webcam input, with optional URL replay.
-  const [source] = useState(() => new PoseSourceController());
+  // The live camera (this computer's webcam or a paired phone), with optional URL replay.
+  const [source] = useState(() => new CameraInput());
   const [replay] = useState(replaySource);
   const [connection, setConnection] = useState(source.view);
   const [replayView, setReplayView] = useState(replay?.view ?? null);
@@ -158,6 +158,14 @@ export default function App() {
   }, [game]);
 
   useEffect(() => { saveSound(sound); applySound(sound); }, [sound]);
+  // A paired phone dims its screen while a song is on.
+  useEffect(() => {
+    source.setPlaying(!!gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase));
+  }, [source, gamePhase]);
+  // ...and sends its camera's picture only while a setup preview shows it.
+  useEffect(() => {
+    source.setPreview(connectOpen || (screen === 'game' && gamePhase === 'calibrating'));
+  }, [source, connectOpen, screen, gamePhase]);
 
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';

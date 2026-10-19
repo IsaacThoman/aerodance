@@ -15,7 +15,7 @@ export default function WebcamControls({ source, connection, disabled, captureMo
     const draw = () => {
       const { source, connection, captureMode } = state.current;
       const g = canvas.current?.getContext('2d');
-      if (g) drawWebcamPreview(g, source.video, connection.snapshot, { x: 0, y: 0, w: 320, h: 180 }, detectionCount(captureMode), undefined, captureMode === 'p2' ? 1 : 0);
+      if (g) drawWebcamPreview(g, source.video, connection.snapshot, { x: 0, y: 0, w: 320, h: 180 }, detectionCount(captureMode), undefined, { soloPlayerId: captureMode === 'p2' ? 1 : 0 });
       frame = requestAnimationFrame(draw);
     };
     draw(); return () => cancelAnimationFrame(frame);
