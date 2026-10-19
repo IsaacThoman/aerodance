@@ -74,8 +74,10 @@ type Listener<T> = (value: T) => void;
 
 // Asks the game again this often while it hasn't connected (it may have been reloading)...
 const HELLO_MS = 4000;
-// ...but gives a connection attempt this long before asking for another.
+// ...but gives a connection attempt this long before asking for another (a relayed one, which
+// needs only a round trip to the server, this long to open).
 const ATTEMPT_MS = 15_000;
+const RELAY_OPEN_MS = 5000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const MAX_CAMERA_RETRY_MS = 30_000;
@@ -205,6 +207,8 @@ export class PhoneLink {
     this.publish({ stage: 'linking', message: 'Connecting to the game…' });
     this.hello();
     this.helloTimer = setInterval(() => {
+      // A relayed link that hasn't opened in this long won't (its socket hangs): drop it, and ask again.
+      if (this.link?.control.readyState === 'connecting' && this.now() - this.offeredAt > RELAY_OPEN_MS) this.closePeer();
       const attempt = (this.peer && !['failed', 'closed'].includes(this.peer.pc.connectionState)) || (this.link && this.link.control.readyState !== 'closed');
       if (this.view.stage === 'linking' && !(attempt && this.now() - this.offeredAt < ATTEMPT_MS)) this.hello();
     }, HELLO_MS);

@@ -1,6 +1,4 @@
 import { test } from 'node:test';
-import net from 'node:net';
-import type { AddressInfo } from 'node:net';
 import assert from 'node:assert/strict';
 import { PhonePoseSource } from '../src/pose/PhonePoseSource.ts';
 import { CameraInput, PHONE_CAMERA } from '../src/pose/CameraInput.ts';
@@ -12,12 +10,11 @@ import { PoseSourceController } from '../../packages/pose/browser/PoseSourceCont
 import type { WebcamConfigureOptions, WebcamPoseSource, WebcamRecordEvent, WebcamView } from '../../packages/pose/browser/WebcamPoseSource.ts';
 import type { WebcamRecord } from '../../packages/pose/webcamRecord.ts';
 import type { PlayerCount } from '../../packages/pose/choreography.ts';
-import { FakeConnection, createFakeConnection, fetchEventStream, pairingServer, until } from './fixtures/fakePairing.ts';
+import { FakeConnection, createFakeConnection, fetchEventStream, pairingServer, relayProxy, until } from './fixtures/fakePairing.ts';
 import { SignalChannel } from '../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../packages/pairing/browser/signalChannel.ts';
 import type { PairingEvent } from '../../packages/pairing/signals.ts';
 import type { PreviewFrame } from '../../packages/pose/browser/preview.ts';
-import type { RelaySocket } from '../../packages/pairing/browser/relay.ts';
 
 /** The phone's camera, driven by the test: it emits whatever records the test gives it. */
 class FakeCamera {
@@ -43,6 +40,7 @@ class FakeCamera {
   }
 }
 
+const noDecode = async () => ({ image: {} as CanvasImageSource, width: 1, height: 1 });
 const store = new Map<string, string>();
 Object.defineProperty(globalThis, 'localStorage', { configurable: true,
   value: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); } } });
@@ -443,25 +441,12 @@ test('through the relay, a hello that overlaps a reconnection doesn’t keep the
 
 test('through the relay, a phone whose socket dies without the server noticing (a network change) relinks at once', async (t) => {
   const base = await pairingServer(t);
-  const serverPort = Number(new URL(base).port);
-  // A proxy for the phone's relay sockets: it can cut the phone's end and leave the server's open and silent.
-  const pairs: { client: net.Socket; upstream: net.Socket }[] = [];
-  const proxy = net.createServer((client) => {
-    const upstream = net.connect(serverPort, '127.0.0.1');
-    client.pipe(upstream); upstream.pipe(client);
-    client.on('error', () => {}); upstream.on('error', () => {});
-    pairs.push({ client, upstream });
-  });
-  await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
-  const proxyPort = (proxy.address() as AddressInfo).port;
-  t.after(() => { for (const p of pairs) { p.client.destroy(); p.upstream.destroy(); } proxy.close(); });
-  const createSocket = (url: string) => new WebSocket(url.replace(`:${serverPort}/`, `:${proxyPort}/`)) as unknown as RelaySocket;
-  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test',
-    decodeFrame: async () => ({ image: {} as CanvasImageSource, width: 1, height: 1 }) });
+  const proxy = await relayProxy(t, base);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: noDecode });
   const events: PoseSourceEvent[] = [];
   host.subscribeRecords((event) => events.push(event));
   const camera = new FakeCamera();
-  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: camera as unknown as WebcamPoseSource, now: phoneNow, createSocket });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: camera as unknown as WebcamPoseSource, now: phoneNow, createSocket: proxy.createSocket });
   t.after(() => { host.disconnect(); phone.stop(); });
   await host.connect();
   const { code } = await until(() => host.view.pairing, 'a code');
@@ -470,14 +455,10 @@ test('through the relay, a phone whose socket dies without the server noticing (
   await host.setPlayerCount(2);
   await until(() => host.clock.ready, 'clock sync', 4000);
 
-  const before = phone.link;
-  const cut = pairs.at(-1);
-  assert.ok(cut);
-  cut.client.unpipe(cut.upstream); cut.upstream.unpipe(cut.client); cut.upstream.pause();
-  const stages: string[] = [];
+  const before = phone.link, stages: string[] = [];
   phone.subscribe((view) => stages.push(view.stage));
   const epoch = host.epoch, cutAt = performance.now();
-  cut.client.destroy();
+  const closeServerEnd = proxy.cut();
   await until(() => stages.includes('linking') && phone.view.stage === 'linked' && phone.link !== before, 'relinking', 3000);
   assert.equal(host.epoch, epoch, 'to the same attempt');
   assert.ok(performance.now() - cutAt < 1000, 'at once, not after the server’s heartbeat');
@@ -486,6 +467,44 @@ test('through the relay, a phone whose socket dies without the server noticing (
   await until(() => events.find(isPoseRecordEvent), 'poses again');
   // The game told the phone its settings again.
   assert.equal(phone.view.playerCount, 2);
-  // The server's end of the cut socket would wait out its closing handshake otherwise.
-  cut.upstream.destroy();
+  closeServerEnd();
+});
+
+test('through the relay, a game whose socket dies on its side alone starts again at once, and the phone follows', async (t) => {
+  const base = await pairingServer(t);
+  const proxy = await relayProxy(t, base);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: noDecode, createSocket: proxy.createSocket });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: new FakeCamera() as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  const epoch = host.epoch, cutAt = performance.now();
+  const closeServerEnd = proxy.cut();
+  await until(() => host.epoch > epoch && host.control?.readyState === 'open' && phone.view.stage === 'linked', 'relinking', 5000);
+  assert.ok(performance.now() - cutAt < 3000, `within a few round trips (${Math.round(performance.now() - cutAt)} ms)`);
+  closeServerEnd();
+});
+
+test('through the relay, a phone whose reconnection hangs gives it up and links again', async (t) => {
+  const base = await pairingServer(t);
+  const proxy = await relayProxy(t, base);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, transport: 'relay', origin: () => 'https://game.test', decodeFrame: noDecode });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, camera: new FakeCamera() as unknown as WebcamPoseSource, createSocket: proxy.createSocket });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  // The network goes (the phone's reconnection hangs), then comes back a moment later.
+  proxy.state.hang = true;
+  const cutAt = performance.now();
+  const closeServerEnd = proxy.cut();
+  await until(() => phone.view.stage === 'linking' && phone.link, 'the phone reconnecting');
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  proxy.state.hang = false;
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'relinking', 15_000);
+  assert.ok(performance.now() - cutAt < 12_000, `well before the server's heartbeat (${Math.round(performance.now() - cutAt)} ms)`);
+  closeServerEnd();
 });

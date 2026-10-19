@@ -317,15 +317,24 @@ export class PhonePoseSource implements PoseSource {
     const attempt = this.link ?? this.peer;
     const mine = () => (this.link ?? this.peer) === attempt;
     live.onmessage = control.onmessage = ({ data }) => { if (mine()) this.onMessage(data); };
+    let opened = false;
     control.onopen = () => {
       if (!mine()) return;
+      opened = true;
       this.sendConfig();
       this.send({ type: 'game', playing: this.playing });
       this.send({ type: 'preview', on: this.preview });
       this.pingTimer = setInterval(() => this.send({ type: 'ping', id: ++this.pings, t0: this.now() }), PING_MS);
       this.publish({ status: 'initializing', message: `${device} connected. Starting its camera…` });
     };
-    control.onclose = () => { if (mine()) this.lost(); };
+    control.onclose = () => {
+      if (!mine()) return;
+      const reattempt = !!this.link && opened;
+      this.lost();
+      // Relayed, a link that was open and dropped on this end alone (the phone may not know yet)
+      // gets a new attempt at once: the server takes it as replacing the old link on both ends.
+      if (reattempt && this.channel) this.offer(device);
+    };
     this.offeredAt = this.now();
     this.publish({ status: 'initializing', device, snapshot: null, message: `Connecting to ${device}…` });
     peer?.offer().catch(() => { if (mine()) this.lost(); });
