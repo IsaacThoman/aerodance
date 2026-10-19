@@ -43,7 +43,10 @@ export class CanvasGradient {
 }
 export class CanvasPattern {
   _kind = PAINT.pattern; _sourceKind: number; _sourceId: number; _repeat: number; _v = 0;
+  /** Keeps the source (and its native pixels) alive while the pattern can be drawn with. */
+  _source: PixelSource;
   constructor(source: PixelSource, repetition: string) {
+    this._source = source;
     this._sourceKind = source._sourceKind; this._sourceId = source._sourceId;
     this._repeat = Math.max(0, ['repeat', 'repeat-x', 'repeat-y', 'no-repeat'].indexOf(repetition || 'repeat'));
   }
