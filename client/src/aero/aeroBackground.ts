@@ -16,7 +16,8 @@
  *
  * Options: speed (multiplier), quality ('auto' | 'high' | 'low'), start (0..1 loop position),
  *          (default start 0.08: low over the meadow, facing the skyline)
- *          onTelemetry(({ altitude, speedKmh, zone, progress }) => ...) called ~4x per second.
+ *          onTelemetry(({ altitude, speedKmh, zone, progress }) => ...) called ~4x per second,
+ *          hide (diagnostics: parts left out, e.g. ['clouds', 'shadows'], see AeroPart).
  *
  * The world is assembled from one module per feature. Builders draw from one seeded random
  * stream, so the order of the build steps below decides the layout: keep it.
@@ -33,56 +34,92 @@ import { createDroneFlight, createFlightPath, zoneName } from './flight.ts';
 import { buildGround } from './ground.ts';
 import { buildLake, buildLakeShore } from './lake.ts';
 import { buildLensFlare } from './lensFlare.ts';
+import { mergeStatic } from './mergeStatic.ts';
 import { buildButterflies, buildFlowers, buildMeadowGrass, buildSparkles, buildTulips, buildWindmills } from './meadow.ts';
 import { buildClouds, buildJet, buildLights, buildSky } from './sky.ts';
 import { buildStreetLamps, buildTraffic } from './streets.ts';
 import { buildTrees, type TreeSpec } from './trees.ts';
-import type { AeroBackgroundHandle, AeroBackgroundOptions, AeroQuality, AeroWorldHandle, AeroWorldOptions } from './types.ts';
+import type { AeroBackgroundHandle, AeroBackgroundOptions, AeroPart, AeroQuality, AeroWorldHandle, AeroWorldOptions } from './types.ts';
 import { clamp } from './util.ts';
 
 export type {
-  AeroBackgroundHandle, AeroBackgroundOptions, AeroQuality, AeroSettings, AeroTelemetry, AeroWorldHandle, AeroWorldOptions, AeroZone,
+  AeroBackgroundHandle, AeroBackgroundOptions, AeroPart, AeroQuality, AeroSettings, AeroTelemetry, AeroWorldHandle, AeroWorldOptions, AeroZone,
 } from './types.ts';
 
-export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 'auto', start = 0.08, onTelemetry = null }: AeroWorldOptions): AeroWorldHandle {
+export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 'auto', start = 0.08, onTelemetry = null, hide = [] }: AeroWorldOptions): AeroWorldHandle {
   const settings = resolveQuality(quality);
   const ctx = createAeroContext({ renderer, scene, camera, quality: settings });
 
-  const sky = buildSky(ctx);
+  // Each part's objects, so diagnostics can leave parts out (options.hide) without changing
+  // the random stream: everything is still built, hidden parts just aren't drawn or animated.
+  const parts = new Map<AeroPart, THREE.Object3D[]>();
+  const part = <T>(name: AeroPart, build: () => T): T => {
+    const before = ctx.root.children.length;
+    const result = build();
+    parts.set(name, [...(parts.get(name) ?? []), ...ctx.root.children.slice(before)]);
+    return result;
+  };
+  const sky = part('sky', () => buildSky(ctx));
   buildLights(ctx);
   const path = createFlightPath(ctx.random);
-  const ground = buildGround(ctx);
+  const ground = part('ground', () => buildGround(ctx));
 
   // Static city: towers, parks, quays and the bridge are merged into one mesh per material.
   const materials = createCityMaterials(ctx, ground.grassCanvas);
   const cityTrees: TreeSpec[] = [], districtTrees: TreeSpec[] = [];
   const bubbleSpecs: BubbleSpec[] = [];
   const builder = new CityBuilder(ctx.random, cityTrees);
-  const city = buildCity(ctx, builder, { grassTex: ground.grassTex, path, bubbles: bubbleSpecs, districtTrees });
-  const pondNormals = buildLakeShore(ctx, builder, city.pondMat);
-  builder.merge(ctx.root, materials);
+  const pondNormals = part('city', () => {
+    const city = buildCity(ctx, builder, { grassTex: ground.grassTex, path, bubbles: bubbleSpecs, districtTrees });
+    const pondNormals = buildLakeShore(ctx, builder, city.pondMat);
+    builder.merge(ctx.root, materials);
+    return pondNormals;
+  });
 
-  const lake = buildLake(ctx, pondNormals, materials.capglass);
-  buildStreetLamps(ctx);
-  buildTrees(ctx, path, { city: cityTrees, district: districtTrees });
-  const traffic = buildTraffic(ctx);
-  buildMeadowGrass(ctx, path);
-  buildFlowers(ctx, path);
-  buildTulips(ctx);
-  const mills = buildWindmills(ctx);
-  const butterflies = buildButterflies(ctx, path);
-  const birds = buildBirds(ctx);
-  const balloons = buildBalloons(ctx, path);
-  const clouds = buildClouds(ctx, path);
-  const bubbles = buildBubbles(ctx, path, bubbleSpecs);
-  const sparkles = buildSparkles(ctx, path);
-  const jet = buildJet(ctx);
+  const lake = part('lake', () => buildLake(ctx, pondNormals, materials.capglass));
+  part('lamps', () => buildStreetLamps(ctx));
+  const trees = part('trees', () => buildTrees(ctx, path, { city: cityTrees, district: districtTrees }));
+  part('traffic', () => buildTraffic(ctx));
+  part('grass', () => buildMeadowGrass(ctx, path));
+  part('flowers', () => buildFlowers(ctx, path));
+  part('tulips', () => buildTulips(ctx));
+  const mills = part('windmills', () => buildWindmills(ctx));
+  part('butterflies', () => buildButterflies(ctx, path));
+  part('birds', () => buildBirds(ctx));
+  const balloons = part('balloons', () => buildBalloons(ctx, path));
+  const clouds = part('clouds', () => buildClouds(ctx, path));
+  const bubbles = part('bubbles', () => buildBubbles(ctx, path, bubbleSpecs));
+  const sparkles = part('sparkles', () => buildSparkles(ctx, path));
+  const jet = part('jet', () => buildJet(ctx));
   const flare = buildLensFlare(ctx, builder.occluders);
+  parts.set('flare', [flare.scene]);
+  // Only what moves keeps recomposing its matrix every frame.
+  const moving = new Set(ctx.moving);
+  ctx.root.updateMatrixWorld(true);
+  ctx.root.traverse((o) => { if (!moving.has(o)) o.matrixAutoUpdate = false; });
+  // ...and what doesn't move is drawn in as few meshes as possible.
+  for (const [name, objects] of parts) if (name !== 'flare') parts.set(name, mergeStatic(ctx.root, objects));
+
+  const off = new Set(hide);
+  for (const name of off) for (const o of parts.get(name) ?? []) o.visible = false;
+  if (off.has('shadows')) renderer.shadowMap.enabled = false;
+  lake.reflect = !off.has('reflection');
+  lake.unreflected = settings.reflection.skip.flatMap((name) => parts.get(name) ?? []);
+
+  // Compile every shader now, for the screen and for the reflection's render target, instead of
+  // stalling for seconds the first time each thing (or the lake) comes into view.
+  renderer.compile(scene, camera);
+  {
+    const probe = new THREE.WebGLRenderTarget(1, 1), target = renderer.getRenderTarget();
+    renderer.setRenderTarget(probe); renderer.compile(scene, camera); renderer.setRenderTarget(target);
+    renderer.compile(flare.scene, flare.camera);
+    probe.dispose();
+  }
+  const on = (name: AeroPart) => !off.has(name);
 
   /* ------------------------------------------------------------------- loop */
   const flight = createDroneFlight(camera, path, { start, speed, motionMul: settings.motionMul });
   let teleT = 0, frameN = 0, elapsed = 0, disposed = false;
-  const scratch = new THREE.Object3D();
   renderer.shadowMap.needsUpdate = true;
 
   function update(delta: number) {
@@ -94,15 +131,13 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
     sky.follow(camera);
     clouds.update(dt, camera);
     lake.update(t, dt, camera);
-    traffic.update(dt, scratch);
-    butterflies.update(t);
-    birds.update(t, dt);
-    balloons.update(t, dt);
-    bubbles.update(t, dt, camera);
-    sparkles.update(t);
-    mills.update(dt);
-    jet.update(t);
-    flare.update(dt, frameN, camera, clouds.amount);
+    if (on('trees')) trees.update(camera);
+    if (on('balloons')) balloons.update(t, dt);
+    if (on('bubbles')) bubbles.update(t, dt, camera);
+    if (on('sparkles')) sparkles.update(t);
+    if (on('windmills')) mills.update(dt);
+    if (on('jet')) jet.update(t);
+    if (on('flare')) flare.update(dt, frameN, camera, clouds.amount);
 
     if (onTelemetry && (teleT -= dt) <= 0) { teleT = 0.25; onTelemetry({ altitude: Math.round(p.y), speedKmh: Math.round(v * 3.6), zone: zoneName(p), progress: u }); }
   }
@@ -113,6 +148,7 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
     oCam.left = -camera.aspect; oCam.right = camera.aspect; oCam.updateProjectionMatrix();
     const ac = renderer.autoClear;
     renderer.autoClear = false;
+    trees.beforeRender(renderer);
     renderer.clear(); renderer.render(scene, camera); renderer.clearDepth(); renderer.render(flare.scene, oCam);
     renderer.autoClear = ac;
   }

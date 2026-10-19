@@ -96,6 +96,10 @@ export interface RenderPipelineProps {
   height?: number;
   /** The frame the buffer is displayed at. */
   aspect?: number;
+  /** MSAA samples for the scene (0: none). */
+  samples?: number;
+  /** false leaves bloom out whatever the stage asks for (cheaper on weak GPUs). */
+  bloom?: boolean;
 }
 
 /**
@@ -105,16 +109,16 @@ export interface RenderPipelineProps {
  * It renders the scene and camera of the store it is mounted in, so inside a
  * createPortal it draws that portal's stage.
  */
-export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect = 16 / 9 }: RenderPipelineProps) {
+export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect = 16 / 9, samples = 4, bloom: bloomOn = true }: RenderPipelineProps) {
   const gl = useThree((s) => s.gl);
 
   const fx = useMemo(() => {
     const target = new THREE.WebGLRenderTarget(width, height, {
       type: THREE.HalfFloatType,
-      samples: 4,
+      samples,
     });
     const composer = new EffectComposer(gl, target);
-    // RenderPass draws the scene into rt2 with 4x MSAA and depth. Grade writes
+    // RenderPass draws the scene into rt2 with MSAA and depth. Grade writes
     // only a fullscreen quad into rt1; grade + output swap twice, so the scene
     // keeps rt2 every frame. rt1 needs neither MSAA nor a depth attachment.
     composer.renderTarget1.samples = 0;
@@ -132,7 +136,7 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
     composer.addPass(grade);
     composer.addPass(output);
     return { composer, render, bloom, grade, gradeUniforms, output };
-  }, [gl, width, height]);
+  }, [gl, width, height, samples]);
 
   useEffect(
     () => () => {
@@ -149,7 +153,7 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
     const { composer, render, bloom, gradeUniforms } = fx;
     render.scene = state.scene;
     render.camera = state.camera;
-    bloom.enabled = post.bloomStrength > 0;
+    bloom.enabled = bloomOn && post.bloomStrength > 0;
     bloom.strength = post.bloomStrength;
     bloom.radius = post.bloomRadius;
     bloom.threshold = post.bloomThreshold;

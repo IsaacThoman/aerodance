@@ -11,6 +11,15 @@ node scripts/tvos.ts bench     # → client-tvos/bench/dist/aero-bench.{html,js}
 `deploy` ships the bundle in the Apple TV app at `/bench/aero-bench.html`. Query parameters
 `?scenarios=high,low&warmupS=5&measureS=30&label=…&report=<url>` configure it in a page.
 
+The default run (high, then low, from 0.08 round the loop) flies over the meadow. For diagnosis
+a scenario can also be `tv` (the Apple TV tier), leave parts of the world out (`high:trees+grass`,
+see `AeroPart` in `client/src/aero/types.ts`), render smaller (`high@0.5` is 320×240) or start
+elsewhere on the loop (`high#0.2` is downtown with the lake reflection; escape `#` as `%23` in a
+URL). `sync=1` waits for the GPU after every frame (a 1-pixel `readPixels`) and reports how long
+that took as `syncMs`, which roughly separates the GPU's (and WebKit's GPU process's) time from
+JavaScript's; it lowers the frame rate, so measure frame rates without it. `antialias=0` turns
+the renderer's MSAA off.
+
 ## Host contract
 
 The bundle is a classic IIFE script. It needs:
@@ -32,8 +41,9 @@ One JSON object per message:
 - `{"type":"start", label, loopMs, config, userAgent}`. `loopMs` times a tight numeric loop:
   about 285 ms with a JIT and 565 ms without on an M5 Pro. Only compare it between hosts on the
   same device.
-- `{"type":"scenario", label, gpu, scenario: "aero-high" | "aero-low", fps, frameMs: {p50, p95,
-  p99, max}, cpuMs: {mean, p95}, drawsPerFrame, trianglesPerFrame, buildMs, firstFrameMs}`.
+- `{"type":"scenario", label, gpu, scenario: "aero-high" | "aero-low" | …, fps, frameMs: {p50, p95,
+  p99, max}, cpuMs: {mean, p95}, drawsPerFrame, trianglesPerFrame, buildMs, firstFrameMs, fpsSeries}`
+  (`fpsSeries`: the frame rate in each 2 s of the measurement).
   `cpuMs` is the time spent in the world's update and render calls. It counts JavaScript and
   WebGL command submission, not the GPU's own work.
 - `{"type":"done", label, results: [...]}`, or `{"type":"error", message}`.

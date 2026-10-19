@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createWorldRandom, type WorldRandom } from './random.ts';
-import type { AeroQuality } from './types.ts';
+import type { TreeLod } from './treeField.ts';
+import type { AeroPart, AeroQuality } from './types.ts';
 import { col } from './util.ts';
 
 export interface QualitySettings {
@@ -10,13 +11,31 @@ export interface QualitySettings {
   Q: number;
   /** Halved with prefers-reduced-motion. */
   motionMul: number;
+  /** Where the trees get coarser (treeField.ts). */
+  treeLod: TreeLod;
+  /** Coarser tree models at every distance (the TV tier). */
+  leanTrees: boolean;
+  /** The lake's reflection: texture size, refreshes a second, and parts of the world it leaves out. */
+  reflection: { size: number; fps: number; skip: readonly AeroPart[] };
 }
 
 export function resolveQuality(quality: AeroQuality): QualitySettings {
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   const small = quality === 'low' || (quality === 'auto' && coarse);
   const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  return { small, Q: small ? 0.55 : 1, motionMul: reduceMotion ? 0.5 : 1 };
+  const motionMul = reduceMotion ? 0.5 : 1;
+  // TV: high's world, with coarser distant trees and a cheaper reflection.
+  if (quality === 'tv') {
+    return {
+      small: false, Q: 1, motionMul, treeLod: { near: 50, far: 200 }, leanTrees: true,
+      reflection: { size: 256, fps: 20, skip: ['lamps', 'traffic', 'bubbles', 'birds', 'butterflies', 'sparkles', 'grass', 'flowers', 'tulips', 'windmills'] },
+    };
+  }
+  return {
+    small, Q: small ? 0.55 : 1, motionMul,
+    treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 }, leanTrees: false,
+    reflection: { size: small ? 256 : 512, fps: 30, skip: [] },
+  };
 }
 
 export const FOG_BASE = col('#cfeaff'), FOG_WHITE = col('#f4f9ff'), FOG_DENSITY = 0.00032;
@@ -38,8 +57,19 @@ export interface AeroContext {
   readonly time: THREE.IUniform<number>;
   /** Wraps a canvas as a texture that is disposed with the world. */
   tex(c: HTMLCanvasElement, repeat?: boolean, color?: boolean): THREE.CanvasTexture;
+  /**
+   * Stacks same-sized canvases into one colour texture array, sampled like tex() would sample
+   * each canvas, so one instanced draw can pick a picture per instance (sampler2DArray).
+   */
+  texArray(canvases: readonly HTMLCanvasElement[]): THREE.DataArrayTexture;
   /** Resources that are not reachable from the scene graph, freed on dispose. */
   readonly disposables: (Disposable | null)[];
+  /**
+   * Objects whose own position, rotation or scale changes as the world runs. Everything else
+   * keeps the matrix it was built with (matrixAutoUpdate off), so three.js doesn't recompose
+   * thousands of static matrices every frame.
+   */
+  readonly moving: THREE.Object3D[];
   /** Puts back the renderer, scene and camera settings the world changed and frees everything. */
   dispose(overlays: THREE.Object3D[]): void;
 }
@@ -84,6 +114,25 @@ export function createAeroContext({ renderer, scene, camera, quality }: ContextO
     return t;
   }
 
+  function texArray(canvases: readonly HTMLCanvasElement[]) {
+    const w = canvases[0].width, h = canvases[0].height, row = w * 4;
+    const data = new Uint8Array(row * h * canvases.length);
+    canvases.forEach((c, layer) => {
+      const g = c.getContext('2d');
+      if (!g) throw new Error('2D canvas unavailable');
+      const px = g.getImageData(0, 0, w, h).data;
+      // Bottom row first, as a CanvasTexture (flipY) uploads it.
+      for (let y = 0; y < h; y++) data.set(px.subarray((h - 1 - y) * row, (h - y) * row), (layer * h + y) * row);
+    });
+    const t = new THREE.DataArrayTexture(data, w, h, canvases.length);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+    t.anisotropy = ANISO;
+    t.needsUpdate = true;
+    textures.push(t);
+    return t;
+  }
+
   const fog = new THREE.FogExp2(FOG_BASE.clone(), FOG_DENSITY);
   scene.fog = fog;
   const disposables: (Disposable | null)[] = [];
@@ -111,7 +160,7 @@ export function createAeroContext({ renderer, scene, camera, quality }: ContextO
   }
 
   return {
-    renderer, scene, camera, root, fog, quality, tex, disposables, dispose,
+    renderer, scene, camera, root, fog, quality, tex, texArray, disposables, dispose, moving: [],
     // The main random stream is fixed so the scene looks the same every load.
     random: createWorldRandom(20261010),
     sun: new THREE.Vector3(0.45, 0.5, -0.74).normalize(),

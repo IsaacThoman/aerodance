@@ -18,7 +18,7 @@ function balloonTex(ctx: AeroContext, scheme: readonly string[], alt?: boolean) 
   return ctx.tex(c);
 }
 
-interface Balloon { g: THREE.Group; y: number; ph: number; x: number; z: number }
+interface Balloon { y: number; ph: number; x: number; z: number; scale: number; turn: number; scheme: number }
 
 /** Hot-air balloons drifting around the route, lifted clear of the flight path. */
 export function buildBalloons(ctx: AeroContext, path: FlightPath) {
@@ -32,18 +32,40 @@ export function buildBalloons(ctx: AeroContext, path: FlightPath) {
   const spots = [[140, 250, -560], [300, 265, -520], [330, 240, -360], [470, 300, -210], [520, 250, 40], [370, 270, 110], [200, 320, -330], [0, 190, -120], [-150, 205, 80], [120, 175, 180], [-60, 60, 640], [170, 72, 700], [-210, 95, 520], [270, 115, 430], [-300, 160, -150], [60, 330, -260]];
   for (const [x, y0, z] of spots) {
     let y = y0; while (!path.clearOfPath(x, y, z, 40)) y += 30;
-    const g = new THREE.Group(); g.position.set(x, y, z);
-    g.add(new THREE.Mesh(env, pick(mats)));
-    const b = new THREE.Mesh(new THREE.BoxGeometry(3, 2.4, 3), basket); b.position.y = -6.5; g.add(b);
-    const f = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), flame); f.position.y = -3.6; g.add(f);
-    const lp: number[] = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) lp.push(sx * 1.3, -5.3, sz * 1.3, sx * 2.2, 0.2, sz * 2.2);
-    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3)); g.add(new THREE.LineSegments(lg, rope));
-    g.scale.setScalar(R(0.85, 1.45)); g.rotation.y = R(0, TAU); ctx.root.add(g);
-    BAL.push({ g, y, ph: R(0, TAU), x, z });
+    const scheme = mats.indexOf(pick(mats));
+    BAL.push({ y, x, z, scheme, scale: R(0.85, 1.45), turn: R(0, TAU), ph: R(0, TAU) });
   }
+  // One instanced mesh per envelope pattern, one for the baskets and one for the burner flames;
+  // the ropes of every balloon in one set of lines, moved here each frame.
+  const at = (x: number, y: number, z: number) => new THREE.Matrix4().makeTranslation(x, y, z);
+  const parts = [
+    ...mats.map((m, scheme) => ({ geo: env as THREE.BufferGeometry, mat: m as THREE.Material, local: at(0, 0, 0), of: BAL.filter((b) => b.scheme === scheme) })),
+    { geo: new THREE.BoxGeometry(3, 2.4, 3), mat: basket, local: at(0, -6.5, 0), of: BAL },
+    { geo: new THREE.SphereGeometry(0.6, 8, 6), mat: flame, local: at(0, -3.6, 0), of: BAL },
+  ].filter((p) => p.of.length).map((p) => {
+    const mesh = new THREE.InstancedMesh(p.geo, p.mat, p.of.length);
+    mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    ctx.root.add(mesh);
+    return { mesh, local: p.local, of: p.of };
+  });
+  const lp: number[] = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) lp.push(sx * 1.3, -5.3, sz * 1.3, sx * 2.2, 0.2, sz * 2.2);
+  const ropePos = new Float32Array(BAL.length * lp.length);
+  const ropeGeo = new THREE.BufferGeometry(); ropeGeo.setAttribute('position', new THREE.BufferAttribute(ropePos, 3).setUsage(THREE.DynamicDrawUsage));
+  const ropes = new THREE.LineSegments(ropeGeo, rope); ropes.frustumCulled = false; ctx.root.add(ropes);
+  const d = new THREE.Object3D(), matrices = BAL.map(() => new THREE.Matrix4()), m = new THREE.Matrix4(), v = new THREE.Vector3();
   return {
     update(t: number, dt: number) {
-      for (const b of BAL) { b.g.position.set(b.x + Math.sin(t * 0.04 + b.ph) * 12, b.y + Math.sin(t * 0.25 + b.ph) * 3, b.z + Math.cos(t * 0.03 + b.ph) * 12); b.g.rotation.y += dt * 0.02; }
+      BAL.forEach((b, i) => {
+        b.turn += dt * 0.02;
+        d.position.set(b.x + Math.sin(t * 0.04 + b.ph) * 12, b.y + Math.sin(t * 0.25 + b.ph) * 3, b.z + Math.cos(t * 0.03 + b.ph) * 12);
+        d.rotation.set(0, b.turn, 0); d.scale.setScalar(b.scale); d.updateMatrix(); matrices[i].copy(d.matrix);
+        for (let k = 0; k < lp.length; k += 3) v.set(lp[k], lp[k + 1], lp[k + 2]).applyMatrix4(d.matrix).toArray(ropePos, i * lp.length + k);
+      });
+      for (const p of parts) {
+        p.of.forEach((b, i) => p.mesh.setMatrixAt(i, m.multiplyMatrices(matrices[BAL.indexOf(b)], p.local)));
+        p.mesh.instanceMatrix.needsUpdate = true;
+      }
+      ropeGeo.attributes.position.needsUpdate = true;
     },
   };
 }

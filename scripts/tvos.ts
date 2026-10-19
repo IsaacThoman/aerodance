@@ -11,6 +11,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const appDir = path.join(root, 'client-tvos');
 const TEAM_ID = process.env.TVOS_TEAM_ID || 'PX72AL9366';
 const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance.tv';
+const PORT = process.env.TVOS_PORT || '8417';
 const REPORT_PORT = 8765;
 
 const USAGE = `Usage: node scripts/tvos.ts <command> [options]
@@ -28,7 +29,8 @@ Options:
   --report                         print the app's frame rate, JavaScript time per frame and
                                    draw calls every two seconds, until Ctrl-C
 
-Signing uses TVOS_TEAM_ID (default ${TEAM_ID}) and TVOS_BUNDLE_ID (default ${BUNDLE_ID}).`;
+Signing uses TVOS_TEAM_ID (default ${TEAM_ID}) and TVOS_BUNDLE_ID (default ${BUNDLE_ID}). The app serves the
+game on 127.0.0.1:TVOS_PORT (default ${PORT}); give each app on the Apple TV its own.`;
 
 type AppleTV = { name: string; udid: string; pairing: string; osVersion: string };
 type DeviceList = {
@@ -95,7 +97,7 @@ function buildApp(tv: AppleTV, skipWebBuild: boolean) {
   const bench = path.join(appDir, 'bench/dist');
   if (existsSync(bench)) cpSync(bench, path.join(www, 'bench'), { recursive: true });
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
-  const env = { ...process.env, TVOS_TEAM_ID: TEAM_ID, TVOS_BUNDLE_ID: BUNDLE_ID };
+  const env = { ...process.env, TVOS_TEAM_ID: TEAM_ID, TVOS_BUNDLE_ID: BUNDLE_ID, TVOS_PORT: PORT };
   run('xcodegen', ['generate', '--quiet'], appDir, env);
   run('xcodebuild', [
     '-project', 'AerodanceTV.xcodeproj', '-scheme', 'AerodanceTV', '-configuration', 'Release',
