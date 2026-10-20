@@ -329,6 +329,7 @@ test('Resume while a call still holds the audio pauses again instead of a countd
   assert.equal(session.waitingForAudio, false);
   step(AUDIO_START_MS - 100);
   assert.equal(session.phase, 'countdown', 'the audio gets a moment to start');
+  assert.equal(session.countdownMs(), COUNTDOWN_MS, 'the countdown waits at 3, not 4');
   step(100);
   assert.equal(session.phase, 'paused');
   assert.equal(session.waitingForAudio, true, 'the pause screen says what it waits for');

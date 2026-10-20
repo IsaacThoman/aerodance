@@ -222,7 +222,9 @@ export class GameSession {
   /** Milliseconds until the song (re)starts, during the countdown. */
   countdownMs() {
     if (this.phase !== 'countdown') return 0;
-    return Math.max(0, this.resumeFromMs() - this.loaded().rawTimeMs());
+    // The song is scheduled a moment after the countdown starts, and audio that hasn't started
+    // holds the clock further back: never more than the 3 seconds shown.
+    return Math.min(COUNTDOWN_MS, Math.max(0, this.resumeFromMs() - this.loaded().rawTimeMs()));
   }
   resumeFromMs() { return this.pausedAtMs ?? this.bundle.song.playableStartMs; }
   /** The song position the players have heard (and, on a TV, seen), from the start of this play. */
