@@ -377,6 +377,21 @@ const ICONS: readonly Shot[] = [
       { name: 'dancers', dancers: true },
     ],
   },
+  {
+    ...shotById('falls-closeup'),
+    format: 'tv-icon',
+    // The dancers a little to the left, so the purple one fills the left of the wider frame and
+    // the bigger wordmark has the sky on the right.
+    dancers: { position: [-0.8, 0, 0] },
+    logo: { y: 255, size: 215, x: 'right' },
+    layers: [
+      { name: 'sky', near: 40 }, // the valley, mesas, falls and sky beyond the clifftop
+      { name: 'meadow', near: 2 },
+      { name: 'logo', wordmark: true },
+      { name: 'dancers', near: 2, dancers: true },
+      { name: 'foreground', dancers: true }, // the grass and planter just in front of the lens
+    ],
+  },
 ];
 
 // Each icon twice: as above, and with see-through dancers (<id>-glass), so the layers behind
