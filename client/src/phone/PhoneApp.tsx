@@ -8,7 +8,7 @@ import { PhoneLink, linkCode } from './PhoneLink.ts';
 import { phoneBuffer } from './layout.ts';
 
 /*
- * A phone as the game's camera: open /phone/#<code> (the game's QR code) or type the code.
+ * A phone as the game's camera: open /pair/#<code> (the game's QR code) or type the code.
  * The phone tracks the players itself and sends the game only their poses (PhoneLink).
  *
  * The whole page is one canvas like the game's: the Aero sky, the players' mirror

@@ -69,7 +69,7 @@ export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: Ph
   y += 38 * k;
   y += paragraph(g, 'Scan the code with your phone’s camera, or open', x, y, w, { size: Math.round(19 * k), lineH: 24 * k });
   g.font = `800 ${Math.round(23 * k)}px ${FONT}`;
-  text(g, ellipsize(g, `${url.host}/phone`, w), x, y + 4 * k, { size: Math.round(23 * k), weight: 800, color: '#bff4ff' });
+  text(g, ellipsize(g, `${url.host}/pair`, w), x, y + 4 * k, { size: Math.round(23 * k), weight: 800, color: '#bff4ff' });
   y += 34 * k;
   text(g, 'and type:', x, y, { size: Math.round(19 * k), color: 'rgba(255,255,255,0.88)' });
   y += 44 * k;

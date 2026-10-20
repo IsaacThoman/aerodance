@@ -98,7 +98,7 @@ export function deviceName(ua = globalThis.navigator?.userAgent ?? '') {
   if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
   return 'Phone';
 }
-/** The code a link carries: /phone/#123456 (or ?code=123456). */
+/** The code a link carries: /pair/#123456 (or ?code=123456). */
 export function linkCode(url: URL) {
   const code = url.hash.slice(1) || url.searchParams.get('code') || '';
   return isPairingCode(code) ? code : '';

@@ -32,7 +32,7 @@ body,
   image-rendering: pixelated;
 }
 
-/* The phone camera page (client/phone/) fills the phone's screen, either way up. */
+/* The phone camera page (client/pair/) fills the phone's screen, either way up. */
 .canvas-frame.phone {
   width: 100vw;
   height: 100dvh;

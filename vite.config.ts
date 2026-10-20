@@ -23,10 +23,12 @@ const pairingUpgrade = (httpServer: Server | Http2SecureServer | null) => {
     if (!pairing.upgrade(req, socket, head)) socket.destroy();
   });
 };
-// The phone page is typed as /phone; nginx adds the slash itself, Vite would serve the game.
-const phoneSlash: Connect.NextHandleFunction = (req, res, next) => {
-  if (req.url !== '/phone' && !req.url?.startsWith('/phone?')) { next(); return; }
-  res.writeHead(302, { location: `/phone/${req.url.slice('/phone'.length)}` });
+// The phone page is /pair/, typed as /pair (nginx adds the slash itself, Vite would serve the
+// game); old /phone links go there too, as nginx sends them.
+const phonePage: Connect.NextHandleFunction = (req, res, next) => {
+  const path = req.url?.split('?')[0];
+  if (path !== '/pair' && path !== '/phone' && !path?.startsWith('/phone/')) { next(); return; }
+  res.writeHead(302, { location: `/pair/${req.url!.slice(path.length)}` });
   res.end();
 };
 
@@ -34,8 +36,8 @@ export default defineConfig({
   root: 'client',
   plugins: [react(), poseAssetsPlugin(), {
     name: 'phone-pairing',
-    configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); pairingUpgrade(server.httpServer); },
-    configurePreviewServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phoneSlash); pairingUpgrade(server.httpServer); },
+    configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phonePage); pairingUpgrade(server.httpServer); },
+    configurePreviewServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phonePage); pairingUpgrade(server.httpServer); },
   }, {
     name: 'song-discovery',
     configureServer(server) {
@@ -59,7 +61,7 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         main: fileURLToPath(new URL('./client/index.html', import.meta.url)),
-        phone: fileURLToPath(new URL('./client/phone/index.html', import.meta.url)),
+        pair: fileURLToPath(new URL('./client/pair/index.html', import.meta.url)),
       },
     },
   },
