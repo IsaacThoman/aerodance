@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
 import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
 import type { Circle, Point, Rect } from './draw.ts';
-import { tv } from '../quality.ts';
 
 /**
  * An in-engine 2D overlay: a canvas the size of the render buffer, laid out in design
@@ -180,9 +179,9 @@ function onNavKey(e: KeyboardEvent) {
 }
 
 const DEFAULT_DESIGN = (): DesignSize => ({ w: 1600, h: 900 });
-// Each redraw is uploaded as a full texture. On the TV tier an overlay animating every frame
-// (the song HUD) redraws at most every 1/40 s, so every other frame at 60 fps.
-const MIN_REDRAW_S = tv ? 1 / 40 : 0;
+// Each redraw is uploaded as a full texture, so an overlay animating every frame (the song HUD)
+// redraws at most every 1/40 s: every other frame at 60 fps.
+const MIN_REDRAW_S = 1 / 40;
 // A press that travels this far (design units) turns into a scroll.
 const SCROLL_SLOP = 14;
 

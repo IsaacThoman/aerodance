@@ -1,8 +1,5 @@
 import type * as THREE from 'three';
 
-/** 'tv': high's world, drawn more cheaply for weak GPUs and interpreted JavaScript (Apple TV). */
-export type AeroQuality = 'auto' | 'high' | 'low' | 'tv';
-
 export type AeroZone = 'Above the clouds' | 'Cloud layer' | 'Downtown' | 'The lake' | 'Flower meadow' | 'Skyline';
 
 export interface AeroTelemetry {
@@ -16,7 +13,6 @@ export interface AeroTelemetry {
 export interface AeroSettings {
   /** Flight speed multiplier. */
   speed?: number;
-  quality?: AeroQuality;
   /** Starting position around the loop, 0..1. */
   start?: number;
   /** Called about four times per second. */

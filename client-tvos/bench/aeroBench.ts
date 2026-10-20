@@ -5,16 +5,15 @@
 import * as THREE from 'three';
 import { createAeroWorld, type AeroPart } from '../../client/src/aero/aeroBackground.ts';
 
-type Quality = 'high' | 'low' | 'tv';
-// A scenario is a quality, optionally with parts of the world left out, a render scale and a
-// start on the loop: 'high', 'low', 'tv', 'high:clouds+birds' (no clouds or birds), 'high@0.5'
-// (320x240), 'high#0.2' (from 0.2 round the loop: downtown and the lake instead of the meadow).
+// A scenario is 'world', optionally with parts of the world left out, a render scale and a start
+// on the loop: 'world', 'world:clouds+birds' (no clouds or birds), 'world@0.5' (320x240),
+// 'world#0.2' (from 0.2 round the loop: downtown and the lake instead of the meadow).
 type Scenario = string;
 type Config = {
   scenarios: Scenario[]; warmupS: number; measureS: number; start: number; width: number; height: number; label: string;
   /** Diagnostics: wait for the GPU after each frame (a 1-pixel readPixels) and report how long that took. */
   sync: boolean;
-  /** The renderer's MSAA (default on, as in the game). */
+  /** The renderer's MSAA (default off, as in the game). */
   antialias: boolean;
 };
 type Host = typeof globalThis & {
@@ -27,12 +26,12 @@ type Host = typeof globalThis & {
 const host = globalThis as Host;
 
 function readConfig(): Config {
-  const config: Config = { scenarios: ['high', 'low'], warmupS: 5, measureS: 30, start: 0.08, width: 640, height: 480, label: 'unknown', sync: false, antialias: true };
+  const config: Config = { scenarios: ['world'], warmupS: 5, measureS: 30, start: 0.08, width: 640, height: 480, label: 'unknown', sync: false, antialias: false };
   const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
   const scenarios = q.get('scenarios');
   if (scenarios) config.scenarios = scenarios.split(',');
   if (q.get('sync')) config.sync = q.get('sync') === '1';
-  if (q.get('antialias')) config.antialias = q.get('antialias') !== '0';
+  if (q.get('antialias')) config.antialias = q.get('antialias') === '1';
   for (const key of ['warmupS', 'measureS', 'start'] as const) if (q.get(key)) config[key] = Number(q.get(key));
   if (q.get('label')) config.label = q.get('label') ?? config.label;
   if (q.get('report')) host.__benchReportUrl = q.get('report') ?? undefined;
@@ -64,20 +63,20 @@ function loopBenchmark() {
 function parseScenario(spec: Scenario) {
   const [main, start] = spec.split('#');
   const [rest, scale = '1'] = main.split('@');
-  const [quality, hide = ''] = rest.split(':');
+  const [, hide = ''] = rest.split(':');
   // (An unescaped + in a query string arrives as a space.)
-  return { quality: quality as Quality, hide: hide ? hide.split(/[+ ]/) as AeroPart[] : [], scale: Number(scale) || 1, start: start === undefined ? undefined : Number(start) };
+  return { hide: hide ? hide.split(/[+ ]/) as AeroPart[] : [], scale: Number(scale) || 1, start: start === undefined ? undefined : Number(start) };
 }
 
 async function runScenario(canvas: HTMLCanvasElement, renderer: THREE.WebGLRenderer, config: Config, spec: Scenario) {
-  const { quality, hide, scale, start = config.start } = parseScenario(spec);
+  const { hide, scale, start = config.start } = parseScenario(spec);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(66, config.width / config.height, 0.3, 6500);
   renderer.setSize(Math.round(config.width * scale), Math.round(config.height * scale), false);
   const pixel = new Uint8Array(4);
   const gl = renderer.getContext();
   const buildStart = performance.now();
-  const world = createAeroWorld({ renderer, scene, camera, quality, start, hide });
+  const world = createAeroWorld({ renderer, scene, camera, start, hide });
   const buildMs = performance.now() - buildStart;
 
   // The first frames compile shaders; time them separately.
@@ -117,7 +116,7 @@ async function runScenario(canvas: HTMLCanvasElement, renderer: THREE.WebGLRende
   const total = intervals.reduce((a, b) => a + b, 0);
   void canvas;
   return {
-    scenario: `aero-${spec}`, quality, frames: measured,
+    scenario: `aero-${spec}`, frames: measured,
     fps: round(measured / (total / 1000), 1),
     frameMs: { p50: round(percentile(sortedIntervals, 0.5)), p95: round(percentile(sortedIntervals, 0.95)), p99: round(percentile(sortedIntervals, 0.99)), max: round(sortedIntervals.at(-1) ?? 0) },
     cpuMs: { mean: round(cpu.reduce((a, b) => a + b, 0) / Math.max(1, cpu.length)), p95: round(percentile(sortedCpu, 0.95)) },

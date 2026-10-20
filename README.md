@@ -19,10 +19,10 @@ migration from older disk-based deployments.
 
 The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display is one letterboxed 16:9 frame rendered at a fixed 640x480 buffer and scaled up with `image-rendering: pixelated`; the HUD sits inside the frame.
 
-- `client/src/aero/aeroBackground.ts` builds the world. `createAeroWorld({ renderer, scene, camera, speed, quality })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
-- `client/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} quality="auto" />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
+- `client/src/aero/aeroBackground.ts` builds the world. `createAeroWorld({ renderer, scene, camera, speed })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
+- `client/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
 - The loop starts low over the meadow facing the skyline (`start` 0.08). Downtown, the east/west districts and the north district across the lake all sit on one 70 m street grid; the lake uses a reflective water surface with boats and quays.
-- `quality="low"` thins out grass, flowers and leaf detail for weaker GPUs; `auto` picks it on touch devices.
+- There is one graphics setting everywhere, tuned to hold 60 fps on an Apple TV: coarse distant trees, a small lake reflection that leaves the small things out, and no MSAA.
 
 ### Sound
 
@@ -78,11 +78,11 @@ A phone can be the camera instead of a webcam: pick **Phone camera** with the ca
 - **Without WebRTC: the relay.** A game that has no WebRTC (the Apple TV app) answers the phone's hello with a relay signal instead of an offer, and both ends then send the same messages over a WebSocket each to the pairing server (`/pair/rooms/<code>/link`, `packages/pairing/relay.ts`), which passes them on unread. The preview is a small JPEG (at most 240 pixels on its long side, 8 a second, fewer when the phone is slow to take them) instead of a video track. Poses through the relay drop when late as on the data channel, and the server caps each link's rate, so a room can't be used as a free pipe. The link needs the pairing server for as long as it lasts, and the preview pictures pass through it (not stored). `?transport=relay` makes the web game relay too, for testing.
 - **HTTPS.** The phone's camera needs HTTPS, and the phone has to reach the game's address, so a `localhost` game can't pair (the pairing card says so). Test on a deployment (PR previews work), or put the dev server behind an HTTPS tunnel (`npm run dev -- --host` and a tunnel to port 5173).
 
-`client/tests/phone-pairing.test.ts` drives the game's and the phone's ends against the real pairing server with a loopback WebRTC stand-in, and through the relay with Node's own WebSocket. After a build, `node client/tests/phone.browser.ts` pairs a phone page with the game in Chromium over real WebRTC and real MediaPipe tracking, calibrates and plays a song from its poses, and reconnects; `PHONE_TRANSPORT=relay` does the same through the relay. `client-tvos/jsc/tests/phone.tvos.ts` pairs a phone page with the Apple TV app, in the tvOS simulator or on an Apple TV. Real phones, networks and battery life still need manual testing.
+`client/tests/phone-pairing.test.ts` drives the game's and the phone's ends against the real pairing server with a loopback WebRTC stand-in, and through the relay with Node's own WebSocket. After a build, `node client/tests/phone.browser.ts` pairs a phone page with the game in Chromium over real WebRTC and real MediaPipe tracking, calibrates and plays a song from its poses, and reconnects; `PHONE_TRANSPORT=relay` does the same through the relay. `client-tvos/tests/phone.tvos.ts` pairs a phone page with the Apple TV app, in the tvOS simulator or on an Apple TV. Real phones, networks and battery life still need manual testing.
 
 ## Apple TV (experimental)
 
-[`client-tvos/jsc/`](client-tvos/jsc/README.md) is a tvOS app that runs the production game's own JavaScript in the system JavaScriptCore, with WebGL 2 on OpenGL ES and the 2D canvas on CoreGraphics. It uses public APIs only, so it can go to the App Store, and with the `tv` quality tier it holds 60 fps on an Apple TV 4K, with a paired phone as the camera (through the pairing server's relay, since there's no WebRTC there) and the Siri Remote (`npm run tvos -- build --game`, then `run`). [docs/apple-tv.md](docs/apple-tv.md) compares everything that was tried, with device measurements.
+[`client-tvos/`](client-tvos/README.md) is a tvOS app that runs the production game's own JavaScript in the system JavaScriptCore, with WebGL 2 on OpenGL ES and the 2D canvas on CoreGraphics. It uses public APIs only, so it can go to the App Store, and it holds 60 fps on an Apple TV 4K, with a paired phone as the camera (through the pairing server's relay, since there's no WebRTC there) and the Siri Remote (`npm run tvos -- build --game`, then `run`). [docs/apple-tv.md](docs/apple-tv.md) compares everything that was tried, with device measurements.
 
 ## Shared packages
 

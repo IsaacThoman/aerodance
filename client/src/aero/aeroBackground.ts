@@ -14,7 +14,7 @@
  *      const aero = createAeroBackground(canvas, { speed: 1 });
  *      aero.setPaused(true); aero.setSpeed(0.5); aero.destroy();
  *
- * Options: speed (multiplier), quality ('auto' | 'high' | 'low'), start (0..1 loop position),
+ * Options: speed (multiplier), start (0..1 loop position),
  *          (default start 0.08: low over the meadow, facing the skyline)
  *          onTelemetry(({ altitude, speedKmh, zone, progress }) => ...) called ~4x per second,
  *          hide (diagnostics: parts left out, e.g. ['clouds', 'shadows'], see AeroPart).
@@ -28,27 +28,26 @@ import { buildBirds } from './birds.ts';
 import { buildBubbles, type BubbleSpec } from './bubbles.ts';
 import { buildCity } from './city.ts';
 import { CityBuilder } from './cityBuilder.ts';
-import { createAeroContext, resolveQuality } from './context.ts';
+import { createAeroContext } from './context.ts';
 import { createCityMaterials } from './facades.ts';
 import { createDroneFlight, createFlightPath, zoneName } from './flight.ts';
 import { buildGround } from './ground.ts';
-import { buildLake, buildLakeShore } from './lake.ts';
+import { UNREFLECTED, buildLake, buildLakeShore } from './lake.ts';
 import { buildLensFlare } from './lensFlare.ts';
 import { mergeStatic } from './mergeStatic.ts';
 import { buildButterflies, buildFlowers, buildMeadowGrass, buildSparkles, buildTulips, buildWindmills } from './meadow.ts';
 import { buildClouds, buildJet, buildLights, buildSky } from './sky.ts';
 import { buildStreetLamps, buildTraffic } from './streets.ts';
 import { buildTrees, type TreeSpec } from './trees.ts';
-import type { AeroBackgroundHandle, AeroBackgroundOptions, AeroPart, AeroQuality, AeroWorldHandle, AeroWorldOptions } from './types.ts';
+import type { AeroBackgroundHandle, AeroBackgroundOptions, AeroPart, AeroWorldHandle, AeroWorldOptions } from './types.ts';
 import { clamp } from './util.ts';
 
 export type {
-  AeroBackgroundHandle, AeroBackgroundOptions, AeroPart, AeroQuality, AeroSettings, AeroTelemetry, AeroWorldHandle, AeroWorldOptions, AeroZone,
+  AeroBackgroundHandle, AeroBackgroundOptions, AeroPart, AeroSettings, AeroTelemetry, AeroWorldHandle, AeroWorldOptions, AeroZone,
 } from './types.ts';
 
-export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 'auto', start = 0.08, onTelemetry = null, hide = [] }: AeroWorldOptions): AeroWorldHandle {
-  const settings = resolveQuality(quality);
-  const ctx = createAeroContext({ renderer, scene, camera, quality: settings });
+export function createAeroWorld({ renderer, scene, camera, speed = 1, start = 0.08, onTelemetry = null, hide = [] }: AeroWorldOptions): AeroWorldHandle {
+  const ctx = createAeroContext({ renderer, scene, camera });
 
   // Each part's objects, so diagnostics can leave parts out (options.hide) without changing
   // the random stream: everything is still built, hidden parts just aren't drawn or animated.
@@ -104,7 +103,7 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   for (const name of off) for (const o of parts.get(name) ?? []) o.visible = false;
   if (off.has('shadows')) renderer.shadowMap.enabled = false;
   lake.reflect = !off.has('reflection');
-  lake.unreflected = settings.reflection.skip.flatMap((name) => parts.get(name) ?? []);
+  lake.unreflected = UNREFLECTED.flatMap((name) => parts.get(name) ?? []);
 
   // Compile every shader now, for the screen and for the reflection's render target, instead of
   // stalling for seconds the first time each thing (or the lake) comes into view.
@@ -118,7 +117,9 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
   const on = (name: AeroPart) => !off.has(name);
 
   /* ------------------------------------------------------------------- loop */
-  const flight = createDroneFlight(camera, path, { start, speed, motionMul: settings.motionMul });
+  // Half speed with prefers-reduced-motion.
+  const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const flight = createDroneFlight(camera, path, { start, speed, motionMul: reduceMotion ? 0.5 : 1 });
   let teleT = 0, frameN = 0, elapsed = 0, disposed = false;
   renderer.shadowMap.needsUpdate = true;
 
@@ -169,14 +170,12 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, quality = 
 
 /* Standalone version: owns its renderer, loop and resizing. */
 export function createAeroBackground(canvas: HTMLCanvasElement, options: AeroBackgroundOptions = {}): AeroBackgroundHandle {
-  const { maxPixelRatio = 1.75, quality = 'auto', ...rest } = options;
-  const area = canvas.clientWidth * canvas.clientHeight || innerWidth * innerHeight;
-  const q: AeroQuality = quality === 'auto' ? (area < 1100000 ? 'low' : 'high') : quality;
+  const { maxPixelRatio = 1.75, ...rest } = options;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, q === 'low' ? 1.5 : maxPixelRatio));
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, maxPixelRatio));
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(66, 1, 0.3, 6500);
-  const world = createAeroWorld({ renderer, scene, camera, quality: q, ...rest });
+  const world = createAeroWorld({ renderer, scene, camera, ...rest });
 
   let width = 0, height = 0;
   function resize() {
