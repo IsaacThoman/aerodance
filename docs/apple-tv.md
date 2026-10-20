@@ -21,9 +21,10 @@ tier (`?quality=tv`, which the app opens) it holds 60 fps on every screen:
 
 Opening a stage for the first time stalls for about 5 s while it builds and compiles.
 
-[`client-tvos/`](../client-tvos/README.md) is the same game in tvOS's WebKit, which apps can only
-reach through private API: development installs only, never the App Store. It is kept for
-comparison and debugging.
+An earlier app ran the web build in tvOS's WebKit, which apps can only reach through private API
+(development installs only, never the App Store). It's measured below as "tvOS WebKit (private)"
+and was removed once the JavaScriptCore app overtook it; it's in the git history at `3ac1686`
+(`client-tvos/src/main.m`, `scripts/tvos.ts`).
 
 ## Why JavaScript is slow there
 

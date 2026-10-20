@@ -1,9 +1,9 @@
 # aerodance for Apple TV on JavaScriptCore (experimental)
 
 A tvOS app that runs the game's own JavaScript in the public `JavaScriptCore.framework`, with
-WebGL 2 implemented on OpenGL ES 3.0 and the 2D canvas on CoreGraphics. It uses public APIs only,
-unlike the WebKit app in `client-tvos/`, so it could go to the App Store. OpenGL ES is deprecated
-on tvOS but still ships.
+WebGL 2 implemented on OpenGL ES 3.0 and the 2D canvas on CoreGraphics. It uses public APIs only
+(tvOS's WebKit is private), so it could go to the App Store. OpenGL ES is deprecated on tvOS but
+still ships.
 
 It runs the production game unmodified (`client/src/main.tsx`: React DOM, React Three Fiber,
 three.js) and the Aero benchmark (`client-tvos/bench/`), with a paired phone as the camera and
@@ -47,7 +47,19 @@ phone page the QR code opens. The app has no webcam, so the phone is its camera 
 
 ## Build and run
 
-Requirements are as for `client-tvos/` (Xcode 27, XcodeGen, a paired Apple TV, a team).
+Requirements:
+
+- A Mac with Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+- An Apple TV on tvOS 27, paired with the Mac. On the Apple TV, open Settings → Remotes and
+  Devices → Remote App and Devices; then pair from Xcode's Devices window, or run
+  `xcrun devicectl manage pair --device <name>` and type the code the TV shows. The tvOS
+  simulator needs none of this.
+- A paid Apple Developer team, signed in to Xcode. Builds use `TVOS_TEAM_ID` (default
+  `PX72AL9366`) and `TVOS_BUNDLE_ID` (default `com.isaacthoman.aerodance.tv.jsc`); other teams
+  need their own bundle ID. The first build registers the Apple TV with the team. tvOS may ask
+  you to turn on Developer Mode (Settings → Privacy & Security) and restart.
+
+`npm run tvos -- <command>` is the same as `node scripts/tvos-jsc.ts <command>`.
 
 ```sh
 node scripts/tvos-jsc.ts build --game              # runtime, benchmark and game; app for the Apple TV
