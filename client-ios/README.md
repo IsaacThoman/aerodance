@@ -46,7 +46,7 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
 - **App icon.** [`assets/app-icon/aerodance.icon`](../assets/README.md#phone-app-icons), an Icon
   Composer document, is the app icon (`ASSETCATALOG_COMPILER_APPICON_NAME`). Xcode compiles its
   layers into the Liquid Glass icon, with its dark, tinted and clear looks, and renders flat
-  PNGs from it for iOS 17 to 25. Edit it in Icon Composer (in Xcode's Open Developer Tool menu).
+  PNGs from it for iOS before 26. Edit it in Icon Composer (in Xcode's Open Developer Tool menu).
 - **Screen.** On the iPhone the game is landscape only (the app launches sideways even from a
   portrait home screen); while the game is on a TV, the remote is upright only, and the app turns
   the screen to it however the phone is held (and back to landscape when the TV goes). The iPad
