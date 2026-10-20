@@ -239,7 +239,7 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
       }
 
       // Setup.
-      const players = view.playerCount === 2 ? '2 players' : '1 player';
+      const players = view.playerCount === 1 ? '1 player' : `${view.playerCount} players`;
       drawHeader(g, L, `Connected · ${players}${view.playing ? ' · dancing' : ''}`, camera.status);
       drawGlassCircle(g, L.leave, h.leave ?? 0);
       g.save();

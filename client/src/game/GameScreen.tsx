@@ -20,7 +20,7 @@ import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import {
   GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_CALIBRATION_SKIP, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
-  LIVE_PANEL, livePanelCenterX,
+  LIVE_PANEL, livePanelCenterX, livePanelHeight,
 } from './layout.ts';
 
 /**
@@ -63,12 +63,13 @@ const JUDGEMENT_LOOK: Record<WindowJudgement, [label: string, face: Face]> = {
   lost: ['LOST TRACKING', ['#ffffff', '#e2e9f2', '#9fb3c8']],
 };
 const POPUP_S = 0.9;
-const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color: string]> = {
-  missing: ['Step into view', '#ffffff'],
-  body: ['Keep your whole body in view', '#ffe27a'],
-  moving: ['Movement detected — hold still', '#ffe27a'],
-  holding: ['Hold still…', '#bff4ff'],
-  ready: ['Calibrated!', '#9effdf'],
+// Each status's label, colour and a short label for the narrow lanes of three or four players.
+const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color: string, short: string]> = {
+  missing: ['Step into view', '#ffffff', 'Step in'],
+  body: ['Keep your whole body in view', '#ffe27a', 'Show your feet'],
+  moving: ['Movement detected — hold still', '#ffe27a', 'Hold still!'],
+  holding: ['Hold still…', '#bff4ff', 'Hold still…'],
+  ready: ['Calibrated!', '#9effdf', 'Calibrated!'],
 };
 
 const fmt = (ms: number) => {
@@ -77,14 +78,16 @@ const fmt = (ms: number) => {
 };
 
 // Without a camera (tracking false) there is nothing to say about tracking.
-function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean) {
-  const cx = livePanelCenterX(id) * 1600;
-  const top = (LIVE_PANEL.top + LIVE_PANEL.height) * 900 + 14;
+function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean) {
+  const cx = livePanelCenterX(id, count) * 1600;
+  const top = (LIVE_PANEL.top + livePanelHeight(count)) * 900 + 14;
   const p = PLAYERS[id];
+  // Three or four panels share the corners, so their text is smaller.
+  const crowd = count > 2;
   drawCaps(g, `PLAYER ${id + 1}`, cx, top + 19, { size: 18, align: 'center' });
-  headline(g, (result?.score ?? 0).toLocaleString('en-US'), cx, top + 76, 46, ['#ffffff', p.light, p.color], 300);
-  if (result && result.combo > 1) drawShadowText(g, `${result.combo} combo`, cx, top + 108, { size: 22, weight: 800, align: 'center', color: '#bff4ff' });
-  if (tracking && readiness === 'missing') drawShadowText(g, 'Step back into view', cx, top + 138, { size: 20, weight: 700, align: 'center', color: '#ffe27a' });
+  headline(g, (result?.score ?? 0).toLocaleString('en-US'), cx, top + (crowd ? 66 : 76), crowd ? 36 : 46, ['#ffffff', p.light, p.color], crowd ? 200 : 300);
+  if (result && result.combo > 1) drawShadowText(g, `${result.combo} combo`, cx, top + (crowd ? 94 : 108), { size: crowd ? 18 : 22, weight: 800, align: 'center', color: '#bff4ff' });
+  if (tracking && readiness === 'missing') drawShadowText(g, crowd ? 'Step back in' : 'Step back into view', cx, top + (crowd ? 120 : 138), { size: crowd ? 17 : 20, weight: 700, align: 'center', color: '#ffe27a' });
   // The newest judgement pops in over the character's feet and floats up.
   const pop = popups.filter((j) => j.playerId === id && (tracking || j.judgement !== 'lost')).at(-1);
   if (pop) {
@@ -116,19 +119,21 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   drawGlassPanel(g, card, 30);
   text(g, 'Stand still for 2.5 seconds', mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
 
-  drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
+  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
   const pairing = camera.pairing();
   if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
-  // Each player's status under their lane label (the setup preview is mirrored: player 1 is
-  // on its left-hand side).
+  // Each player's status under their lane label, over the camera picture's lanes (the setup
+  // preview is mirrored: player 1 is on its left-hand side).
   const live = connection.status === 'connected';
   if (live) {
-    const lane = preview.w / session.playerCount;
+    const lane = picture.w / session.playerCount;
+    const crowd = session.playerCount > 2;
+    const size = crowd ? 17 : 20;
     calibration.players.forEach((status, id) => {
-      const [label, color] = CALIBRATION_STATUS[status];
-      g.font = `800 20px ${FONT}`;
-      drawShadowText(g, ellipsize(g, label, lane - 32), preview.x + lane * (id + 0.5), preview.y + 50, { size: 20, weight: 800, align: 'center', color });
+      const [label, color, short] = CALIBRATION_STATUS[status];
+      g.font = `800 ${size}px ${FONT}`;
+      drawShadowText(g, ellipsize(g, crowd ? short : label, lane - 24), picture.x + lane * (id + 0.5), preview.y + 50, { size, weight: 800, align: 'center', color });
     });
   }
 
@@ -148,6 +153,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   const message = !live ? (camera.phone() ? 'Pair your phone and prop it up, then step back until it can see your feet.' : 'Start the camera, then step back until it can see your feet.')
     : calibration.complete ? 'Calibrated! Starting…'
     : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
+    : session.playerCount > 2 && calibration.players.includes('missing') ? 'One player per lane, side by side, with your feet in view.'
     : 'The countdown starts automatically once everyone is calibrated.';
   text(g, message, mid, y, { size: 21, align: 'center', color: '#e6f8ff' });
 }
@@ -327,7 +333,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
       const scores = session.scorer.results();
       const readiness = session.readiness();
       const tracking = !session.withoutCamera || p.source.view.status === 'connected';
-      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, scores[id], readiness[id], st.popups, now, tracking);
+      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, session.playerCount, scores[id], readiness[id], st.popups, now, tracking);
       if (ph !== 'paused') {
         drawGlassCircle(g, GAME_PAUSE, h.pause ?? 0);
         g.save();

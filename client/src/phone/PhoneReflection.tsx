@@ -3,6 +3,7 @@ import { createPortal, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../packages/character/Character.tsx';
+import { MAX_PLAYERS } from '../../../packages/pose/choreography.ts';
 import type { PlayerCount, Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
 import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
 import { createLivePlayer } from '../game/livePose.ts';
@@ -20,8 +21,8 @@ import type { PhoneLink } from './PhoneLink.ts';
 
 // The character's height at scale 1 with its arms down.
 const HEIGHT = 3.4;
-// Player 1 on the left of the mirror, player 2 on the right.
-const SPREAD = 1.25;
+// Player 1 on the left of the mirror, then the others to its right, this far apart.
+const SPACING = 2.5;
 const FOV = 30;
 const PRESENT_MS = 400;
 const LOOKS = DANCER_LOOKS.map((look) => ({ ...look, opacity: 0.92 }));
@@ -58,10 +59,10 @@ export default function PhoneReflection({ visible, link, playerCount }: PhoneRef
   const stage = useMemo(() => new THREE.Scene(), []);
   const cam = useMemo(() => new THREE.PerspectiveCamera(FOV, 1, 0.5, 60), []);
   // A fresh calibration for every camera session and player count.
-  const players = useMemo(() => [0, 1].map((playerId) => createLivePlayer({ playerId })), [playerCount]); // eslint-disable-line react-hooks/exhaustive-deps
-  const present = useRef([-Infinity, -Infinity]);
-  const poses = useRef<(Pose | null)[]>([null, null]);
-  const [calibrations, setCalibrations] = useState<(TrackCalibration | null)[]>([null, null]);
+  const players = useMemo(() => Array.from({ length: MAX_PLAYERS }, (_, playerId) => createLivePlayer({ playerId })), [playerCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  const present = useRef(Array<number>(MAX_PLAYERS).fill(-Infinity));
+  const poses = useRef<(Pose | null)[]>(Array<Pose | null>(MAX_PLAYERS).fill(null));
+  const [calibrations, setCalibrations] = useState<(TrackCalibration | null)[]>(Array<TrackCalibration | null>(MAX_PLAYERS).fill(null));
 
   useEffect(() => {
     const off = link.camera.subscribeRecords((event) => {
@@ -95,7 +96,7 @@ export default function PhoneReflection({ visible, link, playerCount }: PhoneRef
     // Fit everyone, standing, with room for raised and outstretched arms.
     const aspect = w / h;
     const tan = Math.tan((FOV * Math.PI) / 360);
-    const width = playerCount === 2 ? SPREAD * 2 + 3.6 : 4;
+    const width = Math.max(4, (playerCount - 1) * SPACING + 3.6);
     const distance = Math.max((HEIGHT * 1.4) / 2 / tan, width / 2 / (tan * aspect));
     cam.aspect = aspect;
     cam.position.set(0, HEIGHT * 0.52, distance);
@@ -117,7 +118,7 @@ export default function PhoneReflection({ visible, link, playerCount }: PhoneRef
     gl.autoClear = ac;
   }, 1.5);
 
-  const xs = playerCount === 2 ? [-SPREAD, SPREAD] : [0];
+  const xs = Array.from({ length: playerCount }, (_, id) => (id - (playerCount - 1) / 2) * SPACING);
   return createPortal(
     <>
       <Environment scene={stage} />

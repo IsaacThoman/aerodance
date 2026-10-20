@@ -65,7 +65,11 @@ export default function App() {
   // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select) or 'game' (a song).
   const [screen, setScreen] = useState<AppScreen>('menu');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
+  // The menu screen actually showing.
+  const [menuShown, setMenuShown] = useState<MenuScreen>('main');
   const [playerCount, setPlayerCount] = useState<PlayerCount>(1);
+  // The players screen's dial; it only becomes playerCount once Let's dance is pressed.
+  const [dialCount, setDialCount] = useState<PlayerCount>(1);
   // The live camera (this computer's webcam or a paired phone), with optional URL replay.
   const [source] = useState(() => new CameraInput());
   const [replay] = useState(replaySource);
@@ -192,12 +196,17 @@ export default function App() {
         <MenuDancers
           visible={(menuOpen || songsOpen) && !stage.showing && !diagnostic('nodancers')}
           raised={songsOpen}
-          solo={songsOpen && playerCount === 1}
+          // One dancer per player: the dial's count on the players screen, the chosen count on
+          // Song Select, and the duet everywhere else.
+          count={songsOpen ? playerCount : menuOpen && menuShown === 'players' ? dialCount : 2}
         />
         <MainMenu
           visible={menuOpen}
           initialScreen={menuScreen}
+          playerCount={dialCount}
+          onPlayerCountChange={setDialCount}
           onStart={choosePlayers}
+          onScreenChange={setMenuShown}
           sound={sound}
           onSoundChange={setSound}
         />

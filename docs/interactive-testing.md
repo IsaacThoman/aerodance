@@ -10,7 +10,7 @@ npm install
 node scripts/play.ts start                       # Vite dev server + headless Chromium on the GPU
 node scripts/play.ts click START
 node scripts/play.ts wait menuScreen=players menuReady=true
-node scripts/play.ts click ONE_PLAYER
+node scripts/play.ts click PLAYERS_GO              # Let's dance, with the dial on 1
 node scripts/play.ts wait songScreen=list songReady=true catalog=ready
 node scripts/play.ts click rowRect.0             # the first song
 node scripts/play.ts wait previewState=playing stageReady=true
@@ -86,7 +86,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 | `reload` | Reloads and waits until ready |
 | `eval <js>` | Evaluates an expression in the page and prints the result |
 | `logs [--clear]` | Console messages, page errors, failed requests and page loads so far |
-| `camera <0\|1\|2>` | How many dancers the fixture camera shows |
+| `camera <0-4>` | How many dancers the fixture camera shows |
 | `resize <w>x<h>` | Changes the viewport, e.g. `resize 390x844` for a phone |
 | `targets` | Lists every layout target |
 | `stop` | Closes the browser and the server |
@@ -121,8 +121,8 @@ once the screen's entrance animation has finished and it accepts clicks.
 Headless Chromium has no webcam, so by default (`--camera fixture`) the page gets a
 synthetic one, as in the webcam browser tests: the MediaPipe fixture photo
 (`client/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
-it, so calibration and scoring run for real. `camera 0|1|2` changes how many dancers are
-in shot; start with two for a two-player song, or one for a solo.
+it, so calibration and scoring run for real. `camera 0`–`4` changes how many dancers are
+in shot, one per lane; start with as many as the song has players.
 `--camera deny` makes every camera request fail with a permission error, and
 `--camera none` leaves the browser alone (headless has no camera, so requests fail).
 
@@ -137,7 +137,9 @@ A whole two-player song with the ghost:
 node scripts/play.ts goto '/?input=ghost'
 node scripts/play.ts click START
 node scripts/play.ts wait menuScreen=players menuReady=true
-node scripts/play.ts click TWO_PLAYERS
+node scripts/play.ts click PLUS                    # the dial to 2 (MINUS turns it down)
+node scripts/play.ts wait menuPlayers=2
+node scripts/play.ts click PLAYERS_GO
 node scripts/play.ts wait songReady=true 'playerSlots=Detected|Detected'
 node scripts/play.ts click rowRect.0
 node scripts/play.ts wait songScreen=preview songReady=true
