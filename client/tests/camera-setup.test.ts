@@ -42,3 +42,11 @@ test('cameras the browser lists without an id (before permission) are left out',
   await source.refreshCameras();
   assert.deepEqual(source.view.cameras, [{ deviceId: 'facetime', label: 'FaceTime HD Camera' }]);
 });
+
+test("iOS's multi-lens cameras are left out, its real lenses kept", async () => {
+  const labels = ['Front Camera', 'Back Triple Camera', 'Back Dual Wide Camera', 'Back Ultra Wide Camera', 'Back Dual Camera', 'Back Camera', 'Back Telephoto Camera'];
+  const devices = labels.map((label, i) => ({ kind: 'videoinput', deviceId: `camera-${i}`, label })) as MediaDeviceInfo[];
+  const source = new WebcamPoseSource({ mediaDevices: { getUserMedia: async () => { throw Error('unused'); }, enumerateDevices: async () => devices } });
+  await source.refreshCameras();
+  assert.deepEqual(source.view.cameras.map(camera => camera.label), ['Front Camera', 'Back Ultra Wide Camera', 'Back Camera', 'Back Telephoto Camera']);
+});
