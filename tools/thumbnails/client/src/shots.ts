@@ -38,8 +38,10 @@ export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | numb
  * seeThrough: on the layer that adds the dancers, keep their glass partly transparent, so the
  * layers behind show through them as they move, instead of what was behind them in the shot.
  * wordmark: this entry is where the wordmark goes, rendering nothing itself.
+ * blur: soften the layer like a shallow depth of field: a Gaussian blur, its sigma in pixels of
+ * a 1280-wide image (scaled with the size the layer is written at).
  */
-export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; }
+export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; blur?: number; }
 export interface Shot {
   id: string;
   stage: StageId;
@@ -85,7 +87,7 @@ const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && is
 
 const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
-  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark);
+  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark) && optionalNumber(v.blur);
 // Each rendered layer shows everything the one behind it does (see ShotLayer); one wordmark at most.
 const isLayerStack = (v: unknown) => {
   if (!Array.isArray(v) || !v.every(isLayer) || v.filter((layer) => layer.wordmark).length > 1) return false;
@@ -353,7 +355,7 @@ const shotById = (id: string): Shot => {
  * allows two to five layers with an opaque one at the back; tvOS shifts and tilts them for the
  * parallax effect, so the layers are split by depth: `near` is a distance from the camera.
  */
-const ICONS: readonly Shot[] = [
+const ICONS: Shot[] = [
   {
     ...shotById('falls-meadow'),
     format: 'tv-icon',
@@ -393,6 +395,17 @@ const ICONS: readonly Shot[] = [
     ],
   },
 ];
+
+// The falls close-up with the scenery in front of and behind the dancer out of focus.
+ICONS.push({
+  ...ICONS[ICONS.length - 1],
+  id: 'falls-closeup-soft',
+  layers: ICONS[ICONS.length - 1].layers?.map((layer) => {
+    if (layer.name === 'sky' || layer.name === 'meadow') return { ...layer, blur: 7 };
+    if (layer.name === 'foreground') return { ...layer, blur: 5 };
+    return layer;
+  }),
+});
 
 // Each icon twice: as above, and with see-through dancers (<id>-glass), so the layers behind
 // show through the glass as they move.

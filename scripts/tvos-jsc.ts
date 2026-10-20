@@ -49,7 +49,7 @@ function writeOpsHeader() {
 
 // The home-screen icon: one of the layered (parallax) icons in assets/tv-icon, rendered by
 // tools/thumbnails (render.ts --tv-icons), as Xcode image stacks in src/generated/.
-const ICON = 'falls-closeup-glass';
+const ICON = 'falls-closeup-soft-glass';
 // The brand assets name project.yml gives as the app icon.
 const ICON_SET = 'App Icon & Top Shelf Image';
 const ICON_STACKS = [

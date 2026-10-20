@@ -173,6 +173,44 @@ function resample(rgba: Buffer, sw: number, sh: number, dw: number, dh: number) 
   return bytes;
 }
 
+// Gaussian blur of straight-alpha RGBA (sigma in pixels), with alpha premultiplied so clear
+// pixels don't darken the edges. The image's edges are extended.
+function blur(rgba: Buffer, width: number, height: number, sigma: number) {
+  const radius = Math.ceil(sigma * 3);
+  const kernel = Array.from({ length: radius * 2 + 1 }, (_, i) => Math.exp(-((i - radius) ** 2) / (2 * sigma * sigma)));
+  const total = kernel.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < kernel.length; i++) kernel[i] /= total;
+  let src = new Float32Array(width * height * 4);
+  for (let i = 0; i < src.length; i += 4) {
+    const a = rgba[i + 3] / 255;
+    src.set([rgba[i] * a, rgba[i + 1] * a, rgba[i + 2] * a, rgba[i + 3]], i);
+  }
+  for (const [n, lines, at] of [
+    [width, height, (line: number, k: number) => (line * width + k) * 4],
+    [height, width, (line: number, k: number) => (k * width + line) * 4],
+  ] as const) {
+    const out = new Float32Array(src.length);
+    for (let line = 0; line < lines; line++) {
+      for (let d = 0; d < n; d++) {
+        const o = at(line, d);
+        for (let j = -radius; j <= radius; j++) {
+          const i = at(line, Math.min(n - 1, Math.max(0, d + j)));
+          const w = kernel[j + radius];
+          for (let c = 0; c < 4; c++) out[o + c] += src[i + c] * w;
+        }
+      }
+    }
+    src = out;
+  }
+  const bytes = Buffer.alloc(rgba.length);
+  for (let i = 0; i < bytes.length; i += 4) {
+    const a = src[i + 3];
+    for (let c = 0; c < 3; c++) bytes[i + c] = a > 0 ? Math.min(255, Math.round((src[i + c] * 255) / a)) : 0;
+    bytes[i + 3] = Math.round(a);
+  }
+  return bytes;
+}
+
 // Draws straight-alpha RGBA `top` over `under`, in place.
 function over(under: Buffer, top: Buffer) {
   for (let i = 0; i < under.length; i += 4) {
@@ -194,7 +232,9 @@ async function writeLayers(dir: string, shot: Shot, frame: ThumbnailFrame) {
     await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true });
     for (const [i, layer] of layers.entries()) {
-      const rgba = resample(Buffer.from(layer.rgba, 'base64'), frame.width, frame.height, width, height);
+      let rgba = resample(Buffer.from(layer.rgba, 'base64'), frame.width, frame.height, width, height);
+      const sigma = shot.layers?.find((l) => l.name === layer.name)?.blur;
+      if (sigma) rgba = blur(rgba, width, height, (sigma * width) / 1280);
       await writeFile(path.join(folder, `${i + 1}-${layer.name}.png`), encodePng(width, height, rgba, 4));
       if (width === sizes[0][0]) flat = flat ? over(flat, rgba) : Buffer.from(rgba);
     }
