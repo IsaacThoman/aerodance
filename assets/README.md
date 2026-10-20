@@ -1,0 +1,41 @@
+# Assets
+
+Promotional images for Aerodance.
+
+| File | What |
+| --- | --- |
+| `falls-meadow.png` | The `falls` stage from the meadow, with the "aerodance." wordmark. 2160×1440 (3:2). |
+| `falls-meadow-no-logo.png` | The same frame without the wordmark. |
+| `beach-hero.png` | The `beach` stage at sunset, with the wordmark. 2160×1440 (3:2). |
+| `beach-hero-no-logo.png` | The same frame without the wordmark. |
+
+Each pair is the shot of the same name from the [thumbnail renderer](../tools/thumbnails), rendered in-engine. To render one again:
+
+```sh
+node tools/thumbnails/scripts/render.ts --only falls-meadow --out /tmp/thumbs
+cp /tmp/thumbs/with-logo/falls-meadow.png assets/falls-meadow.png
+cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
+```
+
+## Apple TV app icons
+
+`tv-icon/` holds two layered 5:3 app icons for Apple TV's parallax effect, made from the same two shots: `falls-meadow/` and `beach-hero/`. Each has its layers, back to front, at the icon's three sizes, and the whole icon flattened for reference (`flat.png`):
+
+| Folder | Size | Used for |
+| --- | --- | --- |
+| `1280x768/` | 1280×768 | App Store |
+| `800x480/` | 800×480 | Home screen @2x |
+| `400x240/` | 400×240 | Home screen @1x |
+
+| Icon | Layers |
+| --- | --- |
+| `falls-meadow` | `1-sky` (the valley, falls and sky beyond the clifftop), `2-meadow`, `3-dancers`, `4-foreground` (the grass in front of the lens), `5-logo` |
+| `beach-hero` | `1-sky` (the sun, clouds and horizon), `2-sea`, `3-beach` (the sand and the palm), `4-dancers`, `5-logo` |
+
+The back layer is opaque and the rest are transparent. Each layer is rendered in-engine with what's in front of it cut away, so the layers behind still hold the scene where the tilt uncovers it, and the dancers' shadows stay on the ground behind them. Drop a size's layers into Apple's Parallax Previewer to see the effect or export an `.lsr`, or into an Xcode image stack. Leave out `5-logo` for an icon without the wordmark.
+
+To render them again:
+
+```sh
+node tools/thumbnails/scripts/render.ts --tv-icons
+```
