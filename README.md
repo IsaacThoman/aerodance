@@ -17,7 +17,7 @@ migration from older disk-based deployments.
 
 ## Aero background
 
-The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display is one letterboxed 16:9 frame rendered at a fixed 640x480 buffer and scaled up with `image-rendering: pixelated`; the HUD sits inside the frame.
+The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display is one letterboxed 16:9 frame rendered at a fixed 640x480 buffer and scaled up with `image-rendering: pixelated`; the HUD sits inside the frame. On phones and tablets the frame keeps clear of the safe-area insets (the Dynamic Island, rounded corners and home indicator): it is the largest 16:9 frame inside them, moved off centre only as far as an inset needs, so an iPhone in landscape loses just the home indicator's strip and an iPad nothing (`client/src/styles.css`).
 
 - `client/src/aero/aeroBackground.ts` builds the world. `createAeroWorld({ renderer, scene, camera, speed })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
 - `client/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
