@@ -22,7 +22,7 @@ files.set('checksums.json', Buffer.from(JSON.stringify({ schema: 'aerodance.chec
   files: [...files].map(([path, body]) => ({ path, bytes: body.length, sha256: createHash('sha256').update(body).digest('hex') })),
 })));
 const app = express();
-app.get('/pose-fixture.jpg', (_req, res) => res.sendFile(path.resolve('client/tests/fixtures/mediapipe-pose.jpg')));
+app.get('/pose-fixture.jpg', (_req, res) => res.sendFile(path.resolve('client/tests/fixtures/mediapipe-pose.jpg'), { dotfiles: 'allow' }));
 app.get('/songs/manifest.json', (_req, res) => res.json({ version: 1, songs: [fixture.entry] }));
 app.get('/songs/fixture/:file', (req, res) => {
   const body = files.get(req.params.file);

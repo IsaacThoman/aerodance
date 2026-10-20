@@ -255,6 +255,7 @@ try {
   // Three people, one per lane: MediaPipe tracks three poses. (Four copies of this wide-stance
   // photo are too small or overlap too much to be found; see docs/three-and-four-players.md.)
   await game.evaluate(() => { (window as TestWindow).cameraPeople = 3; });
+  await until('songReady', 'true'); await game.waitForTimeout(500);
   await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
   await dialTo(3); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected|Detected');
   assert.equal(await game.evaluate(() => ((window as TestWindow).poseDiagnostics as unknown[] | undefined)?.length), 3, 'MediaPipe reports three poses');
