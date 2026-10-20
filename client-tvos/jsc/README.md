@@ -55,9 +55,10 @@ Requirements:
   `xcrun devicectl manage pair --device <name>` and type the code the TV shows. The tvOS
   simulator needs none of this.
 - A paid Apple Developer team, signed in to Xcode. Builds use `TVOS_TEAM_ID` (default
-  `PX72AL9366`) and `TVOS_BUNDLE_ID` (default `com.isaacthoman.aerodance.tv.jsc`); other teams
-  need their own bundle ID. The first build registers the Apple TV with the team. tvOS may ask
-  you to turn on Developer Mode (Settings → Privacy & Security) and restart.
+  `PX72AL9366`) and `TVOS_BUNDLE_ID` (default `com.isaacthoman.aerodance`, shared with the
+  planned iPhone and iPad app so they're one App Store listing); other teams need their own
+  bundle ID. The first build registers the Apple TV with the team. tvOS may ask you to turn on
+  Developer Mode (Settings → Privacy & Security) and restart.
 
 `npm run tvos -- <command>` is the same as `node scripts/tvos-jsc.ts <command>`.
 

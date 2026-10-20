@@ -29,7 +29,7 @@ const args = process.argv.slice(2);
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
 const out = path.resolve(option('--out') ?? '.cache/phone-tvos');
 mkdirSync(out, { recursive: true });
-const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance.tv.jsc';
+const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance';
 const PORT = 4891;
 const device = option('--device');
 // This Mac's address on its Wi-Fi or Ethernet (en*), not a virtual machine's bridge.

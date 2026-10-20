@@ -10,7 +10,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const appDir = path.join(root, 'client-tvos/jsc');
 const www = path.join(appDir, 'www');
 const TEAM_ID = process.env.TVOS_TEAM_ID || 'PX72AL9366';
-const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance.tv.jsc';
+const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance';
 
 // Where the app pairs a phone: the deployed game, whose pairing server relays the phone's poses.
 const SITE = 'https://aerodance.party';
