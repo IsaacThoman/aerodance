@@ -185,8 +185,8 @@ try {
   await tvUntil('a pairing code', (d) => /^\d{6}$/.test(d.gamePairing ?? ''));
   const code = tv.gamePairing;
   screenshot('1-pairing');
-  // The phone opens the QR code's link (/phone/#code on the site).
-  phone = await openPhone(`${PHONE_SITE}/phone/#${code}`);
+  // The phone opens the QR code's link (/pair/#code on the site).
+  phone = await openPhone(`${PHONE_SITE}/pair/#${code}`);
   await phoneUntil('phoneStage', 'linked');
   await phoneUntil('phoneCameraStatus', 'connected');
   // The phone sends pictures while the app previews (watched on the phone, which answers at

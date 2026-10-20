@@ -189,7 +189,7 @@ export class PhonePoseSource implements PoseSource {
     this.room = room;
     this.channel = channel;
     channel.open();
-    this.publish({ status: 'connecting', pairing: { code: room.code, url: `${this.origin()}/phone/#${room.code}` }, message: 'Scan the code with your phone’s camera.' });
+    this.publish({ status: 'connecting', pairing: { code: room.code, url: `${this.origin()}/pair/#${room.code}` }, message: 'Scan the code with your phone’s camera.' });
     this.watchdog = setInterval(() => this.check(), 250);
   }
 

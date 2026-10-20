@@ -132,7 +132,7 @@ try {
   assert.equal(await data(game, 'gameCameraStatus'), 'connecting');
 
   // The phone types the code.
-  await phone.goto(`${ORIGIN}/phone/`);
+  await phone.goto(`${ORIGIN}/pair/`);
   await until(phone, 'phoneStage', 'code');
   await phone.keyboard.type(code);
   await until(phone, 'phoneStage', 'linked');
@@ -174,7 +174,7 @@ try {
   // its poses come back.
   await phone.goto('about:blank');
   await until(game, 'gameCameraStatus', /^(connecting|initializing)$/);
-  await phone.goto(`${ORIGIN}/phone/#${code}`);
+  await phone.goto(`${ORIGIN}/pair/#${code}`);
   await until(phone, 'phoneStage', 'linked');
   await until(phone, 'phoneCameraStatus', 'connected');
   await until(game, 'gameCameraStatus', 'connected');
