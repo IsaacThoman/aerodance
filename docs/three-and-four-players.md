@@ -11,8 +11,8 @@ extra person costs something:
 - **Speed.** PoseLandmarker runs its person detector on the whole frame, then the landmark
   model once per person it tracks, so inference grows about linearly with players. Four
   people cost roughly twice what two do; on slower machines or the CPU fallback that can
-  drop below the 15 poses/s the game already warns about, and the existing "Slow tracking;
-  try Lite" message covers this. (Not measured on real hardware yet; see below.)
+  drop below the 15 poses/s the game already warns about ("Slow tracking; close other
+  apps": the game already tracks with Lite). (Not measured on real hardware yet; see below.)
 - **Space.** Four dancers with arms out need about 4 m side by side. A typical webcam sees
   about 1.6 m of width per metre of distance, so the players stand about 2.5–3 m back, which
   is also where full bodies (feet included, which calibration needs) fit the frame. Three
@@ -92,7 +92,7 @@ with four.
 - Webcam tracking asks MediaPipe for up to four poses and splits the picture into that
   many lanes; the setup preview draws the lanes over the camera picture itself (not the
   letterbox around it) and each player's skeleton in their colour. A paired phone's own
-  preview and mirror show the lanes and characters too.
+  preview shows the lanes too.
 - `?record` recordings (`.adpose` kind `recording`) have one slot per player, up to four;
   every other `.adpose` kind still has at most two ([pose binary format](pose-binary-format.md)).
 - Calibration has every player hold still together, as before, with shorter status labels

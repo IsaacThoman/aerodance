@@ -57,7 +57,8 @@ downloads `<songId>-poses.adpose`, which `?input=recording&recording=<url>`
 replays.
 
 One-player preview selects player ID 0 from the same choreography. Two-player
-preview selects IDs 0 and 1. The shared finite sampler preserves absence and
+preview selects IDs 0 and 1, and three or four players dance those two parts again
+(players 3 and 4 copy IDs 0 and 1, `partOf`). The shared finite sampler preserves absence and
 refuses interpolation over gaps longer than the authored limit (at most 200 ms).
 Authored exclusions clear score eligibility without changing the visual pose.
 Coach reflection is visual only; stored anatomy and player IDs remain unchanged.

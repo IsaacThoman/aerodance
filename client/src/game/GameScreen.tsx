@@ -107,7 +107,7 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, r
       const s = backOut(clamp01(age / 0.22));
       g.translate(cx, top - 24 - age * 30);
       g.scale(s, s);
-      headline(g, label, 0, 0, pop.judgement === 'lost' ? 26 : 38, face, 320);
+      headline(g, label, 0, 0, pop.judgement === 'lost' ? 26 : 38, face, crowd ? 200 : 320);
       g.restore();
     }
   }
@@ -144,14 +144,15 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   }
   if (live) {
     // Each player's status under their lane label, over the camera picture's lanes (the setup
-    // preview is mirrored: player 1 is on its left-hand side).
+    // preview is mirrored: player 1 is on its left-hand side), short where the lane is narrow.
     const lane = picture.w / session.playerCount;
     const crowd = session.playerCount > 2;
     const size = crowd ? 17 : 20;
     calibration.players.forEach((status, id) => {
       const [label, color, short] = CALIBRATION_STATUS[status];
       g.font = `800 ${size}px ${FONT}`;
-      drawShadowText(g, ellipsize(g, crowd ? short : label, lane - 24), picture.x + lane * (id + 0.5), preview.y + 50, { size, weight: 800, align: 'center', color });
+      const fits = !crowd && g.measureText(label).width <= lane - 24;
+      drawShadowText(g, ellipsize(g, fits ? label : short, lane - 24), picture.x + lane * (id + 0.5), preview.y + 50, { size, weight: 800, align: 'center', color });
     });
     const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
     const message = calibration.complete ? 'Calibrated! Starting…'

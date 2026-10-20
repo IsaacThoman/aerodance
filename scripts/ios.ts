@@ -38,7 +38,7 @@ Options:
   --report                         print the app's frame rate, JavaScript time per frame and
                                    draw calls every two seconds, until Ctrl-C
   --report-to <url>                send those reports to another address instead
-  --flow                           play One Player → first song → Dance! → results with the
+  --flow                           play one player → first song → Dance! → results with the
                                    remote's keys (use with --path '/?input=ghost')
   --drive <json>                   play these steps, as the Apple TV app's launch config takes
                                    them: [["wait", {"menuReady": "true"}], ["key", "Enter"],
