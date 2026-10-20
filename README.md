@@ -105,7 +105,7 @@ The dance stages live in [`packages/stages`](packages/stages/README.md) and the 
 
 All menus, Song Select and the game screens are drawn on 2D canvases that share the render buffer, so they get the same pixels and stretch as the world. `client/src/ui/useCanvasUI.ts` handles the overlay (canvas texture, design-unit layout, hit testing, press/hover/drag, scrolling, opt-in keyboard navigation with one cursor shared across overlays; `client/src/ui/focusRing.ts` draws its ring) and `client/src/ui/draw.ts` holds the aero drawing kit (bubble pills, glass panels, headers, the title, icons, status lights, progress bars).
 
-- **Fullscreen:** the main menu shows a fullscreen bubble in the bottom-right corner (`client/src/menu/FullscreenButton.tsx`). It slides off the right edge on submenus and slides back in on return to the main menu. Press Esc to exit fullscreen. Safari on macOS is supported, and the existing 16:9 letterboxing and fixed render resolution are preserved.
+- **Fullscreen:** where the browser supports it, the main menu shows a fullscreen bubble in the bottom-right corner (`client/src/menu/FullscreenButton.tsx`). It slides off the right edge on submenus and slides back in on return to the main menu. Press Esc to exit fullscreen. Safari on macOS is supported, and the existing 16:9 letterboxing and fixed render resolution are preserved.
 
 ## Run locally with Docker Compose
 

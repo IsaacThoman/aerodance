@@ -11,7 +11,7 @@ import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
 import { SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
-import type { FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ThumbnailWindow } from './shots.ts';
+import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ThumbnailWindow } from './shots.ts';
 
 /*
  * Renders one thumbnail in-engine: a dance stage, the two captured dancers holding a pose,
@@ -93,9 +93,9 @@ function makeLogo(logo: ShotLogo, buffer: FrameBuffer) {
   const g = canvas.getContext('2d');
   if (!g) throw new Error('2D canvas unavailable');
   g.setTransform(buffer.width / design.width, 0, 0, buffer.height / design.height, 0, 0);
-  const w = titleWidth(g, logo.size);
+  const w = titleWidth(g, logo.size, logo.stacked, logo.light);
   const x = logo.x === 'left' ? 96 : logo.x === 'right' ? design.width - 96 - w : typeof logo.x === 'number' ? logo.x : (design.width - w) / 2;
-  drawTitle(g, { x, y: logo.y, size: logo.size });
+  drawTitle(g, { x, y: logo.y, size: logo.size, stacked: logo.stacked, outline: logo.outline, halo: logo.halo, light: logo.light });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -141,7 +141,12 @@ interface Pass {
   bloom: boolean;
   /** false: the scenery still hides what's behind it, but draws nothing (for see-through dancers). */
   scenery?: boolean;
+  /** Only this part of the dancers draws; the other still casts its shadow. */
+  parts?: DancerPart;
 }
+
+// The rig's floating hands are the Arm.L and Arm.R meshes; the body is everything else.
+const partOf = (mesh: THREE.Mesh): DancerPart => (mesh.name.startsWith('Arm') ? 'hands' : 'body');
 
 // See-through dancers: drawn alone (the scenery still hides them where it's in front, but draws
 // nothing) into a transparent buffer, where the glass leaves its real alpha. The layer then gets
@@ -262,6 +267,21 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   };
   // Hidden dancers still cast their shadows: the shadow pass ignores colorWrite.
   const materials = new Map([...materialsOf(dancers)].map((m) => [m, m.depthWrite] as const));
+  // A part is hidden by giving its meshes a copy of their material that draws nothing (one
+  // material is shared by a dancer's parts); the shadow pass ignores colorWrite.
+  const meshes = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+  dancers.traverse((o) => { if (o instanceof THREE.Mesh) meshes.set(o, o.material); });
+  const invisible = new Map<THREE.Material, THREE.Material>();
+  const hide = (m: THREE.Material) => {
+    let copy = invisible.get(m);
+    if (!copy) {
+      copy = m.clone();
+      copy.colorWrite = false;
+      copy.depthWrite = false;
+      invisible.set(m, copy);
+    }
+    return copy;
+  };
   const scenery = new Map([...materialsOf(scene)].filter((m) => !materials.has(m)).map((m) => [m, m.colorWrite] as const));
   const { near, far } = camera;
   const setUp = (pass: Pass) => {
@@ -273,6 +293,10 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
       m.depthWrite = pass.dancers && depthWrite;
     }
     for (const [m, colorWrite] of scenery) m.colorWrite = pass.scenery !== false && colorWrite;
+    for (const [mesh, material] of meshes) {
+      const shown = !pass.parts || partOf(mesh) === pass.parts;
+      mesh.material = shown ? material : Array.isArray(material) ? material.map(hide) : hide(material);
+    }
   };
   const draw = (pass: Pass) => {
     setUp(pass);
@@ -286,13 +310,14 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   const out: { name: string; rgba: Uint8Array }[] = [];
   let behindColor: Uint8Array | null = null;
   layers.forEach((layer, k) => {
-    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false };
+    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false, parts: layer.dancerParts };
     const rgba = draw({ ...pass, bloom: true });
     const color = rgba.slice();
     const below = layers[k - 1];
     if (layer.seeThrough) {
-      if (!below || (below.near ?? near) !== pass.near || !pass.dancers || below.dancers) {
-        throw new Error(`Layer "${layer.name}": only the layer that adds the dancers can be see-through`);
+      // Over a layer at the same depth without the dancers, or over another see-through part.
+      if (!below || (below.near ?? near) !== pass.near || !pass.dancers || (below.dancers && !below.seeThrough)) {
+        throw new Error(`Layer "${layer.name}": only a layer that adds the dancers can be see-through`);
       }
       setUp({ ...pass, scenery: false });
       out.push({ name: layer.name, rgba: renderSeeThrough(gl, scene, camera, buffer) });
@@ -318,6 +343,7 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   });
   // Leave the scene as it was.
   draw({ near, far, dancers: true, bloom: true });
+  for (const copy of invisible.values()) copy.dispose();
   return out;
 }
 
@@ -363,7 +389,7 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
         await until(() => scene.getObjectsByProperty('name', 'Root').filter((o) => 'isBone' in o).length >= 2, 'the dancers');
         // The wordmark's two Inter weights (index.html); never fall back to another font.
         if (shot.logo) {
-          const faces = await Promise.all(['800', '200'].map((wt) => document.fonts.load(`${wt} 64px Inter`, 'aerodance')));
+          const faces = await Promise.all(['800', String(shot.logo.light ?? 200)].map((wt) => document.fonts.load(`${wt} 64px Inter`, 'aerodance')));
           if (faces.some((f) => !f.length)) throw new Error('Inter did not load, so the wordmark cannot be drawn');
         }
         await nextTask();
@@ -389,8 +415,15 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
         if (shot.layers) {
           const camera = get().camera;
           if (!(camera instanceof THREE.PerspectiveCamera) || !dancers.current) throw new Error('The shot camera or dancers are missing');
-          const parts = renderLayers(gl, scene, camera, dancers.current, shot.layers, frames * STEP, buffer);
-          if (wordmark) parts.push({ name: 'logo', rgba: wordmark });
+          const rendered = shot.layers.filter((layer) => !layer.wordmark);
+          // Hidden layers are rendered, so the layer above is cut against them, but left out.
+          const parts = renderLayers(gl, scene, camera, dancers.current, rendered, frames * STEP, buffer).filter((_, i) => !rendered[i].hidden);
+          if (wordmark) {
+            // On top, unless a wordmark entry puts it lower.
+            const kept = shot.layers.filter((layer) => !layer.hidden);
+            const at = kept.findIndex((layer) => layer.wordmark);
+            parts.splice(at < 0 ? parts.length : at, 0, { name: at < 0 ? 'logo' : kept[at].name, rgba: wordmark });
+          }
           layers = parts.map(({ name, rgba }) => ({ name, rgba: base64(rgba) }));
         }
         return { width: buffer.width, height: buffer.height, plain, logo, layers };

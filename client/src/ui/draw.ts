@@ -36,62 +36,84 @@ export function roundRect(g: Ctx, x: number, y: number, w: number, h: number, r:
   g.roundRect(x, y, w, h, r);
 }
 
-// "aerodance." wordmark with its baseline at y.
-export function drawTitle(g: Ctx, { x, y, size }: { x: number; y: number; size: number }) {
+// "aerodance." wordmark with its baseline at y. stacked puts "dance." on a second line under
+// "aero", STACKED_LEADING sizes lower, both lines starting at x. outline (a fraction of size)
+// edges the letters in the shadow's navy, so the thin "dance" reads on light backgrounds; halo
+// scales the opacity of the wide dark glow behind them; light is the weight of "dance" (200).
+export const STACKED_LEADING = 0.86;
+
+export function drawTitle(g: Ctx, { x, y, size, stacked = false, outline = 0, halo = 1, light = 200 }: {
+  x: number; y: number; size: number; stacked?: boolean; outline?: number; halo?: number; light?: number;
+}) {
   g.save();
   if ('letterSpacing' in g) g.letterSpacing = `${-size * 0.045}px`;
   g.textBaseline = 'alphabetic';
   g.font = `800 ${size}px ${FONT}`;
   const aeroW = g.measureText('aero').width;
-  g.font = `200 ${size}px ${FONT}`;
+  g.font = `${light} ${size}px ${FONT}`;
   const danceW = g.measureText('dance').width;
   const s = size * 0.15;
-  const dotX = x + aeroW + danceW + size * 0.04;
+  const dance = stacked ? { x, y: y + size * STACKED_LEADING } : { x: x + aeroW, y };
+  const dotX = dance.x + danceW + size * 0.04;
 
-  const text = (fill: string | CanvasGradient) => {
-    g.fillStyle = fill;
+  const text = (fill: (baseline: number) => string | CanvasGradient) => {
+    g.fillStyle = fill(y);
     g.font = `800 ${size}px ${FONT}`;
     g.fillText('aero', x, y);
-    g.font = `200 ${size}px ${FONT}`;
-    g.fillText('dance', x + aeroW, y);
+    g.fillStyle = fill(dance.y);
+    g.font = `${light} ${size}px ${FONT}`;
+    g.fillText('dance', dance.x, dance.y);
   };
 
   // 1) Wide, dark halo so the title separates from bright sky and clouds.
-  g.shadowColor = 'rgba(0, 28, 70, 0.55)';
+  g.shadowColor = `rgba(0, 28, 70, ${Math.min(1, 0.55 * halo)})`;
   g.shadowBlur = 46;
   g.shadowOffsetY = 10;
-  text('rgba(0, 40, 90, 0.35)');
+  text(() => 'rgba(0, 40, 90, 0.35)');
   // 2) Tight, hard drop shadow for an embossed, aero-style edge.
   g.shadowColor = 'rgba(0, 34, 84, 0.75)';
   g.shadowBlur = 4;
   g.shadowOffsetY = 7;
-  text('#ffffff');
-  // 3) Glossy face: white with a cool tint towards the baseline.
+  text(() => '#ffffff');
+  // 3) Optional navy edge, half of it showing outside the face.
   g.shadowColor = 'transparent';
-  const face = g.createLinearGradient(0, y - size * 0.75, 0, y);
-  face.addColorStop(0, '#ffffff');
-  face.addColorStop(0.55, '#ffffff');
-  face.addColorStop(1, '#d5f3ff');
-  text(face);
+  if (outline > 0) {
+    g.lineJoin = 'round';
+    g.lineWidth = size * outline;
+    g.strokeStyle = 'rgba(0, 34, 84, 0.7)';
+    g.font = `800 ${size}px ${FONT}`;
+    g.strokeText('aero', x, y);
+    g.font = `${light} ${size}px ${FONT}`;
+    g.strokeText('dance', dance.x, dance.y);
+    g.strokeRect(dotX, dance.y - s, s, s);
+  }
+  // 4) Glossy face: white with a cool tint towards the baseline.
+  text((baseline) => {
+    const face = g.createLinearGradient(0, baseline - size * 0.75, 0, baseline);
+    face.addColorStop(0, '#ffffff');
+    face.addColorStop(0.55, '#ffffff');
+    face.addColorStop(1, '#d5f3ff');
+    return face;
+  });
 
   // Mint full stop.
   g.shadowColor = 'rgba(0, 34, 84, 0.75)';
   g.shadowBlur = 4;
   g.shadowOffsetY = 7;
   g.fillStyle = '#6ff3d6';
-  g.fillRect(dotX, y - s, s, s);
+  g.fillRect(dotX, dance.y - s, s, s);
   g.restore();
 }
 
-export function titleWidth(g: Ctx, size: number) {
+export function titleWidth(g: Ctx, size: number, stacked = false, light = 200) {
   g.save();
   if ('letterSpacing' in g) g.letterSpacing = `${-size * 0.045}px`;
   g.font = `800 ${size}px ${FONT}`;
   const aeroW = g.measureText('aero').width;
-  g.font = `200 ${size}px ${FONT}`;
+  g.font = `${light} ${size}px ${FONT}`;
   const danceW = g.measureText('dance').width;
   g.restore();
-  return aeroW + danceW + size * 0.19;
+  return stacked ? Math.max(aeroW, danceW + size * 0.19) : aeroW + danceW + size * 0.19;
 }
 
 export function drawDisc(g: Ctx, cx: number, cy: number, r: number) {

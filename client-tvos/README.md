@@ -55,9 +55,10 @@ Requirements:
   `xcrun devicectl manage pair --device <name>` and type the code the TV shows. The tvOS
   simulator needs none of this.
 - A paid Apple Developer team, signed in to Xcode. Builds use `TVOS_TEAM_ID` (default
-  `PX72AL9366`) and `TVOS_BUNDLE_ID` (default `com.isaacthoman.aerodance.tv.jsc`); other teams
-  need their own bundle ID. The first build registers the Apple TV with the team. tvOS may ask
-  you to turn on Developer Mode (Settings → Privacy & Security) and restart.
+  `PX72AL9366`) and `TVOS_BUNDLE_ID` (default `com.isaacthoman.aerodance`, shared with the
+  planned iPhone and iPad app so they're one App Store listing); other teams need their own
+  bundle ID. The first build registers the Apple TV with the team. tvOS may ask you to turn on
+  Developer Mode (Settings → Privacy & Security) and restart.
 
 `npm run tvos -- <command>` is the same as `node scripts/tvos.ts <command>`.
 
@@ -73,6 +74,10 @@ node scripts/tvos.ts run --sim <udid> --config '{"script":"bench/aero-bench.js",
 
 Without `--config` (and when opened from the home screen) the app runs `www/config.json`: the
 game after `build --game`, the Aero benchmark otherwise.
+
+The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../assets/README.md)
+(`ICON` in `scripts/tvos.ts`, now `falls-sky-soft-glass`). `build` turns its layers into the App
+Store and home-screen image stacks in `src/generated/Assets.xcassets`.
 
 `node client-tvos/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
 pairs a phone page in Chromium, with a synthetic camera and the real MediaPipe model, with the
