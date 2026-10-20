@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "play": "node scripts/play.ts",
-    "tvos": "node scripts/tvos.ts",
+    "tvos": "node scripts/tvos-jsc.ts",
     "character:build": "blender -b -t 2 -P packages/character/source/build-character.py",
     "studio:dev": "vite --config tools/choreography/vite.config.ts",
     "studio:build": "vite build --config tools/choreography/vite.config.ts",

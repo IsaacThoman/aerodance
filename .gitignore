@@ -9,10 +9,6 @@ tools/choreography/dist/
 *.blend1
 *.blend2
 .idea/
-client-tvos/www/
-client-tvos/build/
-client-tvos/Info.plist
-client-tvos/*.xcodeproj/
 client-tvos/bench/dist/
 client-tvos/jsc/www/
 client-tvos/jsc/build/

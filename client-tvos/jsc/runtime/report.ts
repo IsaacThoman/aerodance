@@ -1,6 +1,6 @@
 // The game's host hooks: tells the app when the main menu is showing (the Menu button then
 // leaves the app), and, with a report URL in the launch config, posts frame stats every two
-// seconds like client-tvos/src/inject.js does for the WebKit app. A launch config can also
+// seconds. A launch config can also
 // drive the game with remote key presses, waiting on the canvas's data-* state between them
 // (the same state scripts/play.ts and the browser tests read), for unattended runs:
 //   "drive": [["wait", {"menuScreen": "main", "menuReady": "true"}], ["key", "Enter"], ...]

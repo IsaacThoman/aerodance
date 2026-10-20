@@ -72,13 +72,21 @@ async function copyFonts() {
   }
 }
 
+/** The Aero world benchmark (client-tvos/bench/) into client-tvos/bench/dist/. */
+function buildBench() {
+  const out = path.join(root, 'client-tvos/bench/dist');
+  rmSync(out, { recursive: true, force: true });
+  run('npx', ['rolldown', './client-tvos/bench/aeroBench.ts', '--format', 'iife', '--minify', '--file', 'client-tvos/bench/dist/aero-bench.js']);
+  cpSync(path.join(root, 'client-tvos/bench/aero-bench.html'), path.join(out, 'aero-bench.html'));
+}
+
 async function build(sim: boolean, game: boolean, release: boolean, site = SITE, ghost = false) {
   if (!/^https?:\/\/[^/]+$/.test(site)) throw Error(`--site takes an origin like ${SITE}, not ${site}`);
   writeOpsHeader();
   rmSync(www, { recursive: true, force: true });
   mkdirSync(www, { recursive: true });
   run('npx', ['rolldown', './client-tvos/jsc/runtime/index.ts', '--format', 'iife', '--minify', '--file', 'client-tvos/jsc/www/runtime.js']);
-  run('node', ['scripts/tvos.ts', 'bench']);
+  buildBench();
   cpSync(path.join(root, 'client-tvos/bench/dist'), path.join(www, 'bench'), { recursive: true });
   run('npx', ['rolldown', './client-tvos/jsc/bench/bridgeBench.ts', '--format', 'iife', '--minify', '--file', 'client-tvos/jsc/www/bench/bridge.js']);
   run('npx', ['rolldown', './client-tvos/jsc/bench/canvasTest.ts', '--format', 'iife', '--minify', '--file', 'client-tvos/jsc/www/bench/canvas-test.js']);
