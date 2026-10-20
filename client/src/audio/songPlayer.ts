@@ -1,4 +1,4 @@
-import { getMixer } from './mixer.ts';
+import { getMixer, resumeAudio } from './mixer.ts';
 
 /**
  * Plays a song bundle's audio on the mixer's music bus (so Master, Music and Mute all apply),
@@ -99,7 +99,7 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
     },
     play({ delayMs = 0 } = {}) {
       if (player.state === 'playing') return;
-      if (ctx.state === 'suspended') ctx.resume();
+      resumeAudio(ctx);
       if (positionMs >= end - 1) positionMs = startMs;
       player.ended = false;
       playFrom = positionMs;

@@ -1,5 +1,6 @@
 import { loadSound } from '../menu/soundSettings.ts';
 import type { SoundSettings } from '../menu/soundSettings.ts';
+import { onHostChange } from '../host.ts';
 
 /*
  * One AudioContext for the page, wired like a little mixing desk:
@@ -19,7 +20,10 @@ import type { SoundSettings } from '../menu/soundSettings.ts';
  * in afterwards, without touching the Menu music setting.
  *
  * Browsers keep audio suspended until the first click, tap or key press; the context
- * resumes on that gesture.
+ * resumes on that gesture. The same goes after an interruption: a phone call, Siri or an
+ * alarm stops WebKit's context ('interrupted', a WebKit-only state, or 'suspended'), and
+ * WebKit doesn't always start it again afterwards, so the next gesture does (resumeAudio).
+ * In the iPhone/iPad app, the end of the interruption (host.ts) tries straight away too.
  */
 
 export interface Mixer {
@@ -65,11 +69,18 @@ export function getMixer(): Mixer {
   const mixer: Mixer = { ctx, master, music, menuMusic, menuDuck, sfx };
   page[KEY] = mixer;
 
-  const unlock = () => { if (ctx.state === 'suspended') ctx.resume(); };
+  const unlock = () => resumeAudio(ctx);
   for (const type of ['pointerdown', 'pointerup', 'keydown', 'touchend']) window.addEventListener(type, unlock, true);
+  onHostChange((host) => { if (!host.interrupted) unlock(); });
 
   applySound(loadSound());
   return mixer;
+}
+
+/** Starts a suspended or interrupted context again (works from a user gesture). */
+export function resumeAudio(ctx: AudioContext = getMixer().ctx) {
+  // 'interrupted' isn't in TypeScript's AudioContextState, so test for what can't resume.
+  if (ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {});
 }
 
 const set = (param: AudioParam, value: number, ctx: BaseAudioContext) => {

@@ -25,6 +25,8 @@ export type PoseSourceEvent = PoseRecordEvent<LivePoseRecord> | SourceStoppedEve
 export interface PoseInputView {
   status: WebcamStatus;
   message: string;
+  /** The camera is on but the browser has muted it (iOS took it away); it comes back by itself. */
+  interrupted?: boolean;
   /** A live camera (this computer's or a paired phone's), or a replay. */
   sourceKind: 'webcam' | 'phone' | 'replay';
   /** The latest tracked poses, or null while nobody is tracked. */

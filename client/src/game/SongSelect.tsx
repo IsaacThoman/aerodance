@@ -82,6 +82,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : ''
 // Each player's tracking, from the pose input (reported for tests as data-player-slots).
 function slotStatus(connection: PoseInputView, id: number): { label: string; kind?: 'detected' } {
   if (connection.snapshot?.poses?.some((p) => p.playerId === id)) return { label: 'Detected', kind: 'detected' };
+  if (connection.interrupted) return { label: 'Camera interrupted' };
   if (connection.status === 'initializing') return { label: 'Camera starting…' };
   if (connection.status === 'connected') return { label: 'Step into view' };
   if (ACTIVE.includes(connection.status)) return { label: 'Connecting…' };

@@ -4,6 +4,7 @@ import type { Widget } from '../ui/useCanvasUI.ts';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
 import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import { PHONE_CAMERA } from '../pose/CameraInput.ts';
+import { hostState } from '../host.ts';
 import type { CameraInput, CameraInputView } from '../pose/CameraInput.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 
@@ -51,8 +52,15 @@ export class CameraSetup {
     const { connection } = this.target();
     return connection.status === 'connecting' ? connection.pairing : null;
   }
-  /** What to tell the player: the last error, or the source's own message. */
-  message() { return this.error || this.target().connection.message || ''; }
+  /** The camera is on but iOS has taken it away for now. */
+  interrupted() { return !!this.target().connection.interrupted; }
+  /** What to tell the player: why the camera is interrupted, the last error, or the source's own message. */
+  message() {
+    const { connection } = this.target();
+    // iPadOS stops the camera while aerodance shares the screen, and only full screen brings it back.
+    if (connection.interrupted) return hostState().multitasking ? 'The camera only works with aerodance full screen.' : 'The camera was interrupted. It comes back by itself.';
+    return this.error || connection.message || '';
+  }
   failed() { return !!this.error || this.target().connection.status === 'error'; }
 
   /** Start camera, unless it is on or on its way. */

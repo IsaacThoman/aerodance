@@ -24,6 +24,12 @@ export interface WebcamView {
   status: WebcamStatus; sourceKind: 'webcam';
   snapshot: WebcamSnapshot | null;
   configuring: boolean; message: string;
+  /**
+   * The browser has muted the camera: WebKit does while iOS has taken it away (a phone call,
+   * or an iPad app that isn't full screen). Its pictures stop, so nobody is tracked, but it
+   * comes back by itself (status 'initializing' meanwhile).
+   */
+  interrupted?: boolean;
   model: PoseModelId; cameraId: string; cameras: CameraInfo[];
   /** Asked of the browser when no camera is chosen (phones: front or back camera). */
   facing?: CameraFacing;
@@ -73,6 +79,7 @@ function aborted<T>(promise: Promise<T>, signal: AbortSignal) {
     if (signal.aborted) cancel();
   });
 }
+const INTERRUPTED = 'The camera was interrupted. Tracking carries on when it comes back.';
 const CAMERA_ERRORS: Partial<Record<string, string>> = { NotAllowedError: 'Camera permission was denied. Allow camera access for this site, then start again.',
   NotFoundError: 'No camera was found. Connect a camera, then start again.',
   NotReadableError: 'The camera is busy or unavailable. Close other camera applications, then start again.',
@@ -136,7 +143,7 @@ export class WebcamPoseSource {
     const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
     const facing = saved(`${settingsKey}-facing`, '');
     this.view = { status: 'disconnected', sourceKind: 'webcam', snapshot: null, configuring: false,
-      message: 'Choose a camera and model, then Start camera.', model: modelId,
+      message: 'Choose a camera and model, then Start camera.', interrupted: false, model: modelId,
       cameraId: saved(`${settingsKey}-camera`, ''), cameras: [], stats: null,
       ...(facing === 'user' || facing === 'environment' ? { facing } : {}) };
   }
@@ -189,7 +196,7 @@ export class WebcamPoseSource {
     if (this.pagehide) globalThis.window?.removeEventListener('pagehide', this.pagehide);
     this.pending = null; this.busy = false;
     this.emit({ event: { type: 'source-stopped', reason: message }, receivedBrowserTimeMs: this.now() });
-    this.publish({ status: 'disconnected', snapshot: null, configuring: false, stats: null, message });
+    this.publish({ status: 'disconnected', snapshot: null, configuring: false, stats: null, interrupted: false, message });
   }
   fail(error: unknown) {
     const message = cameraMessage(error);
@@ -210,12 +217,23 @@ export class WebcamPoseSource {
       } });
       if (!current()) { for (const track of stream.getTracks()) track.stop(); return; }
       this.stream = stream;
-      for (const track of stream.getVideoTracks()) track.addEventListener('ended', () => { if (current()) this.fail(Error('Camera disconnected. Choose a camera and start again.')); });
+      for (const track of stream.getVideoTracks()) {
+        track.addEventListener('ended', () => { if (current()) this.fail(Error('Camera disconnected. Choose a camera and start again.')); });
+        track.addEventListener('mute', () => { if (current()) this.interrupt(); });
+        track.addEventListener('unmute', () => { if (current()) this.uninterrupt(); });
+      }
       this.hidden = () => { if (document.hidden) this.disconnect('Tab was hidden. Start camera to resume.'); };
       this.pagehide = () => this.disconnect();
       globalThis.document?.addEventListener('visibilitychange', this.hidden);
       globalThis.window?.addEventListener('pagehide', this.pagehide);
       if (globalThis.document?.hidden) { this.disconnect('Tab was hidden. Start camera to resume.'); return; }
+      // Started while iOS has the camera (an iPad app in Split View): wait for it to come back.
+      const muted = stream.getVideoTracks().find(track => track.muted);
+      if (muted) {
+        this.interrupt();
+        await aborted(new Promise(resolve => muted.addEventListener('unmute', resolve, { once: true })), controller.signal);
+        if (!current()) return;
+      }
       await this.refreshCameras();
       if (!current()) return;
       const deviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
@@ -230,7 +248,7 @@ export class WebcamPoseSource {
       }
       // Browsers may pause a muted video they think nobody sees (Safari does); keep it playing.
       video.addEventListener?.('pause', () => { if (current()) void video.play().catch(() => {}); });
-      this.startupTimeout = setTimeout(() => { if (current()) this.fail(Error('Camera/model startup timed out. Try again or choose Lite.')); }, 60000);
+      this.armStartup();
       await aborted(video.play(), controller.signal);
       if (!current()) return;
       if (!video.videoWidth || !video.videoHeight) throw Error('Camera produced no video frames. Start again.');
@@ -258,16 +276,39 @@ export class WebcamPoseSource {
       }, 100);
     } catch (error) { if (current()) this.fail(error); }
   }
+  /** Fails a start that hasn't tracked a frame within a minute (the camera's silence doesn't count). */
+  armStartup() {
+    const generation = this.generation;
+    clearTimeout(this.startupTimeout);
+    this.startupTimeout = setTimeout(() => {
+      if (generation === this.generation && !this.view.interrupted) this.fail(Error('Camera/model startup timed out. Try again or choose Lite.'));
+    }, 60000);
+  }
+  /** The camera was muted: say so, rather than look like nobody is in view. */
+  interrupt() {
+    if (this.view.interrupted) return;
+    this.publish({ interrupted: true, status: this.view.status === 'connected' ? 'initializing' : this.view.status, snapshot: null, stats: null, message: INTERRUPTED });
+  }
+  /** The camera is back: tracking carries on (connected again with the next result). */
+  uninterrupt() {
+    if (!this.view.interrupted) return;
+    // The watchdog counts the silence from now.
+    this.lastResult = this.lastFrame = this.now();
+    if (this.video && !this.completed) this.armStartup();
+    this.publish({ interrupted: false, message: this.worker ? 'Camera is back. Waiting for the first pose result…' : 'Starting camera…' });
+  }
   handleWorker(data: PoseWorkerResponse) {
     if (data.type === 'error') { this.fail(Error(data.message)); return; }
     if (data.type === 'ready') {
       this.publish({ delegate: data.delegate, modelConfig: this.view.modelConfig && { ...this.view.modelConfig, delegate: data.delegate },
-        message: data.fallback ? 'GPU unavailable; using CPU. Waiting for the first pose result…' : 'Waiting for the first pose result…' });
+        ...(this.view.interrupted ? {} : { message: data.fallback ? 'GPU unavailable; using CPU. Waiting for the first pose result…' : 'Waiting for the first pose result…' }) });
       this.schedule(); return;
     }
     if (data.type !== 'result' || !this.pending || data.seq !== this.pending.seq) return;
     const pending = this.pending;
     this.pending = null; this.busy = false;
+    // A frame from before the camera was muted mustn't mark it connected again.
+    if (this.view.interrupted) return;
     const receivedBrowserTimeMs = this.now();
     this.lastResult = receivedBrowserTimeMs;
     const frameAgeMs = receivedBrowserTimeMs - pending.frameBrowserTimeMs;

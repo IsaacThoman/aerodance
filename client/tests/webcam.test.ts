@@ -47,11 +47,17 @@ test('webcam slots use camera regions, preserve missing dancers and reject ambig
 
 // The camera, video and bitmap fakes implement only what WebcamPoseSource uses.
 function fixture(t: TestContext) {
-  let time = 0, stopped = 0, terminated = 0, plays = 0;
+  let time = 0, stopped = 0, terminated = 0, plays = 0, opened = 0;
   const videoListeners = new Map<string, () => void>();
+  // The camera track's events (ended, mute, unmute); muted as WebKit sets it.
+  const trackListeners = new Map<string, (() => void)[]>();
   let callback: VideoFrameRequestCallback | null = null;
   const messages: PoseWorkerRequest[] = [];
-  const track: Partial<MediaStreamTrack> = { stop() { stopped++; }, addEventListener() {}, getSettings: () => ({ deviceId: 'camera' }) };
+  const track = { muted: false, stop() { stopped++; }, getSettings: () => ({ deviceId: 'camera' }),
+    addEventListener: ((type: string, fn: () => void, options?: { once?: boolean }) => {
+      const once = () => { trackListeners.set(type, (trackListeners.get(type) ?? []).filter(f => f !== once)); fn(); };
+      trackListeners.set(type, [...trackListeners.get(type) ?? [], options?.once ? once : fn]);
+    }) as MediaStreamTrack['addEventListener'] };
   const stream: Partial<MediaStream> = { getTracks: () => [track as MediaStreamTrack], getVideoTracks: () => [track as MediaStreamVideoTrack] };
   const video: Partial<HTMLVideoElement> = { videoWidth: 640, videoHeight: 480, play: async () => { plays++; }, pause() {}, remove() {},
     addEventListener: ((type: string, fn: () => void) => { videoListeners.set(type, fn); }) as HTMLVideoElement['addEventListener'],
@@ -59,14 +65,19 @@ function fixture(t: TestContext) {
   const worker: PoseWorker = { onmessage: null, onerror: null, postMessage: data => { messages.push(data); }, terminate() { terminated++; } };
   const bitmap: Partial<ImageBitmap> = { close() {} };
   const source = new WebcamPoseSource({ now: () => time,
-    mediaDevices: { getUserMedia: async () => stream as MediaStream, enumerateDevices: async () => [] },
+    mediaDevices: { getUserMedia: async () => { opened++; return stream as MediaStream; }, enumerateDevices: async () => [] },
     createVideo: () => video as HTMLVideoElement, createWorker: () => worker,
     bitmap: async () => bitmap as ImageBitmap, assetUrl: () => 'https://test.invalid/pose-assets/' });
   t.after(() => source.disconnect());
-  return { source, worker, stream: stream as MediaStream, track, messages, video,
+  return { source, worker, stream: stream as MediaStream, track: track as Partial<MediaStreamTrack>, messages, video,
     get now() { return time; },
     setTime(value: number) { time = value; }, get stopped() { return stopped; }, get terminated() { return terminated; },
-    get plays() { return plays; }, videoEvent(type: string) { videoListeners.get(type)?.(); },
+    get plays() { return plays; }, get opened() { return opened; }, videoEvent(type: string) { videoListeners.get(type)?.(); },
+    /** WebKit muting or unmuting the camera (track.muted changes first). */
+    trackEvent(type: 'mute' | 'unmute' | 'ended') {
+      if (type !== 'ended') track.muted = type === 'mute';
+      for (const fn of trackListeners.get(type) ?? []) fn();
+    },
     async frame(mediaTime: number, now = mediaTime * 1000) {
       time = now;
       assert.ok(callback, 'a video frame callback is registered');
@@ -208,4 +219,59 @@ test('frames from a camera whose frame metadata never advances (Safari) are stil
   // A repeat of the same picture is still skipped.
   await f.frame(0, 120);
   assert.equal(sent().length, 3);
+});
+test('a muted camera says it was interrupted instead of looking empty, and tracks again on unmute without restarting', async t => {
+  const tick = () => new Promise(resolve => setTimeout(resolve, 150));
+  const f = fixture(t); const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'CPU', fallback: '' });
+  const session = f.source.sessionId;
+  await f.frame(1); f.setTime(1050); f.deliver({ type: 'result', seq: 1, landmarks: [points(0.25)], inferenceMs: 30 });
+  assert.equal(f.source.view.status, 'connected');
+  // A frame is in flight when iOS takes the camera (a phone call, or Split View on iPad).
+  await f.frame(2);
+  f.trackEvent('mute');
+  assert.equal(f.source.view.interrupted, true);
+  assert.equal(f.source.view.status, 'initializing', 'not connected, so nobody reads as out of view');
+  assert.equal(f.source.view.snapshot, null);
+  assert.match(f.source.view.message, /^The camera was interrupted/);
+  f.setTime(2050); f.deliver({ type: 'result', seq: 2, landmarks: [points(0.25)], inferenceMs: 30 });
+  assert.equal(f.source.view.status, 'initializing', 'a frame from before the mute does not reconnect it');
+  assert.equal(records.length, 1);
+  // Muted for longer than the watchdog allows: still waiting, not failed.
+  f.setTime(20_000); await tick();
+  assert.equal(f.source.view.status, 'initializing');
+  assert.equal(f.source.view.interrupted, true);
+  f.trackEvent('unmute');
+  assert.equal(f.source.view.interrupted, false);
+  await f.frame(21, 21_000); f.setTime(21_050); f.deliver({ type: 'result', seq: 3, landmarks: [points(0.25)], inferenceMs: 30 });
+  assert.equal(f.source.view.status, 'connected');
+  assert.equal(records.length, 2);
+  assert.equal(f.source.sessionId, session, 'the same camera and session carry on');
+  assert.equal(f.opened, 1); assert.equal(f.stopped, 0);
+  // Unplugging still fails as before.
+  f.trackEvent('ended');
+  assert.equal(f.source.view.status, 'error');
+  assert.equal(f.source.view.interrupted, false);
+});
+test('a camera that starts muted (an iPad app in Split View) waits for it before tracking', async t => {
+  const f = fixture(t);
+  Object.assign(f.track, { muted: true });
+  const starting = f.source.connect();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.source.view.interrupted, true);
+  assert.equal(f.messages.length, 0, 'no model loads for a camera iOS is holding');
+  f.trackEvent('unmute');
+  await starting;
+  assert.equal(f.source.view.interrupted, false);
+  assert.equal(f.messages[0]?.type, 'initialize');
+  // Stopping while still waiting releases the camera.
+  const g = fixture(t);
+  Object.assign(g.track, { muted: true });
+  const waiting = g.source.connect();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  g.source.disconnect();
+  await waiting;
+  assert.equal(g.stopped, 1); assert.equal(g.messages.length, 0);
+  assert.equal(g.source.view.status, 'disconnected'); assert.equal(g.source.view.interrupted, false);
 });

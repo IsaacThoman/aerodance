@@ -8,8 +8,8 @@ import type { Fullscreen } from './useFullscreen.ts';
  * The main menu's fullscreen bubble, drawn in-engine in the bottom-right corner (priority
  * 3.5). It slides off to the right outside the main menu and back in on return. Click it on
  * the display itself: browsers only enter fullscreen from the user's own input. It isn't
- * drawn at all where the page can't go fullscreen (iPhone Safari, the tvOS app, iframes
- * without allowfullscreen).
+ * drawn at all where the page can't go fullscreen (iPhone Safari, the tvOS app, the iPhone/iPad
+ * app, which turns element fullscreen off, and iframes without allowfullscreen).
  *
  * <FullscreenButton visible={() => isMainScreen} />
  */
