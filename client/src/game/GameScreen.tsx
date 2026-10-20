@@ -67,7 +67,7 @@ const POPUP_S = 0.9;
 // Each status's label, colour and a short label for the narrow lanes of three or four players.
 const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color: string, short: string]> = {
   missing: ['Step into view', '#ffffff', 'Step in'],
-  body: ['Keep your whole body in view', '#ffe27a', 'Show your feet'],
+  body: ['Keep your whole body in view', '#ffe27a', 'Whole body'],
   moving: ['Movement detected — hold still', '#ffe27a', 'Hold still!'],
   holding: ['Hold still…', '#bff4ff', 'Hold still…'],
   ready: ['Calibrated!', '#9effdf', 'Calibrated!'],

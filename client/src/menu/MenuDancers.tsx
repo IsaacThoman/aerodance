@@ -332,9 +332,13 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
     fx.gelBursts.forEach((b) => b.update(dt));
     fx.filmBursts.forEach((b) => b.update(dt));
 
+    // Raised on Song Select, the song list sits to the left: four players' stage shrinks to
+    // three players' width there so it stays clear of the list.
+    const fit = 1 - (1 - Math.min(1, puckWidth(3) / width.current)) * (lift.current / RAISE);
+    rig.current.scale.setScalar(fit);
     // The puck widens around its middle; shift the stage left so its right edge stays put.
     rig.current.position.set(
-      STAGE.x - (width.current - PUCK.r) * 0.8 + away * away * SLIDE,
+      STAGE.x - (width.current * fit - PUCK.r) * 0.8 + away * away * SLIDE,
       STAGE.y + lift.current + (still ? 0 : Math.sin(t * 1.3) * 0.06),
       STAGE.z,
     );
