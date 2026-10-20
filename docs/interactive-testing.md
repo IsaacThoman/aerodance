@@ -93,9 +93,9 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 
 ### Clicking the canvas
 
-Every game screen is drawn on the canvas in 1600×900 design units, and the layout
+Every game screen is drawn on the canvas in 1600×900 (16:9) or 1200×900 (4:3) design units, and the layout
 modules (`client/src/menu/layout.ts`, `client/src/game/layout.ts`) export the position
-of each control. `click` takes their names and clicks the middle of the rect or circle, wherever the letterboxed frame is:
+of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
 - `menu.BACK`, `game.BACK`: a module prefix where names clash
@@ -108,6 +108,7 @@ of each control. `click` takes their names and clicks the middle of the rect or 
 Each screen reports what it shows on the canvas's `data-*` attributes, which is what the
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
+- Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen. Both keep the canvas buffer at 640×480.
 - Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`

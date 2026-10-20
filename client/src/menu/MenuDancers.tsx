@@ -333,13 +333,17 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
     fx.gelBursts.forEach((b) => b.update(dt));
     fx.filmBursts.forEach((b) => b.update(dt));
 
-    // Raised on Song Select, the song list sits to the left: four players' stage shrinks to
-    // three players' width there so it stays clear of the list.
-    const fit = 1 - (1 - Math.min(1, puckWidth(3) / width.current)) * (lift.current / RAISE);
-    rig.current.scale.setScalar(fit);
+    // A 4:3 display keeps the stage smaller, in its own area on the right.
+    const compact = state.size.width / state.size.height < 1.5;
+    const display = compact ? 0.72 : 1;
+    // Raised on Song Select, the song list sits to the left, and in 4:3 the players dial: four
+    // players' stage shrinks to three players' width there so it stays clear of them.
+    const squeeze = compact ? 1 : lift.current / RAISE;
+    const fit = 1 - (1 - Math.min(1, puckWidth(3) / width.current)) * squeeze;
+    rig.current.scale.setScalar(display * fit);
     // The puck widens around its middle; shift the stage left so its right edge stays put.
     rig.current.position.set(
-      STAGE.x - (width.current * fit - PUCK.r) * 0.8 + away * away * SLIDE,
+      (compact ? 3.65 : STAGE.x) - (width.current * fit - PUCK.r) * 0.8 * display + away * away * SLIDE,
       STAGE.y + lift.current + (still ? 0 : Math.sin(t * 1.3) * 0.06),
       STAGE.z,
     );
@@ -348,7 +352,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
 
   useFrame(() => {
     if (!motion || !rig.current || shown.current < 0.005) return;
-    // Match the world camera's aspect so the stretch to 16:9 is shared.
+    // Match the world's selected display aspect, including anamorphic widescreen.
     if ('aspect' in camera && cam.aspect !== camera.aspect) { cam.aspect = camera.aspect; cam.updateProjectionMatrix(); }
     const ac = gl.autoClear;
     const tm = gl.toneMapping;

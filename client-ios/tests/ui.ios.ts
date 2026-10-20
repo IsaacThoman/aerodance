@@ -16,8 +16,9 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLAYERS_GO, START } from '../../client/src/menu/layout.ts';
-import { rowRect } from '../../client/src/game/layout.ts';
+import { menuLayout } from '../../client/src/menu/layout.ts';
+import { gameLayout } from '../../client/src/game/layout.ts';
+import { DISPLAY_MODES } from '../../client/src/display.ts';
 
 const args = process.argv.slice(2);
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
@@ -83,7 +84,11 @@ for (const file of ['project.yml', 'AerodanceUITests.swift']) cpSync(path.join(h
 const generated = spawnSync('xcodegen', ['generate', '--quiet'], { cwd: work, stdio: 'inherit' });
 if (generated.error || generated.status !== 0) throw Error('XcodeGen is needed to generate the test project: brew install xcodegen');
 
-const layout = { design: [1600, 900], start: START, letsDance: PLAYERS_GO, firstSong: rowRect(0) };
+const layout = Object.fromEntries(Object.entries(DISPLAY_MODES).map(([mode, design]) => {
+  const menu = menuLayout(design.w);
+  const game = gameLayout(design.w);
+  return [mode, { design: [design.w, design.h], start: menu.START, letsDance: menu.PLAYERS_GO, firstSong: game.rowRect(0), dance: game.DANCE }];
+}));
 const only = option('--only');
 const env = { ...process.env, TEST_RUNNER_AERODANCE_BUNDLE_ID: BUNDLE_ID, TEST_RUNNER_AERODANCE_PORT: port, TEST_RUNNER_AERODANCE_PATH: '/?input=ghost',
   TEST_RUNNER_AERODANCE_RUNNER: runner, TEST_RUNNER_AERODANCE_LAYOUT: JSON.stringify(layout) };

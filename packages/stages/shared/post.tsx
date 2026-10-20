@@ -109,7 +109,7 @@ export interface RenderPipelineProps {
  * It renders the scene and camera of the store it is mounted in, so inside a
  * createPortal it draws that portal's stage.
  */
-export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect = 16 / 9, samples = 4, bloom: bloomOn = true }: RenderPipelineProps) {
+export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect, samples = 4, bloom: bloomOn = true }: RenderPipelineProps) {
   const gl = useThree((s) => s.gl);
 
   const fx = useMemo(() => {
@@ -158,7 +158,7 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
     bloom.radius = post.bloomRadius;
     bloom.threshold = post.bloomThreshold;
     gradeUniforms.uVignette.value = post.vignette;
-    gradeUniforms.uAspect.value = aspect;
+    gradeUniforms.uAspect.value = aspect ?? state.size.width / Math.max(1, state.size.height);
     gradeUniforms.uSaturation.value = post.saturation;
     gradeUniforms.uTint.value.setRGB(...post.tint);
     gl.toneMapping = post.toneMapping;

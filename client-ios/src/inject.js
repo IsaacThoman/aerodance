@@ -145,13 +145,13 @@
   // --drive runs a script in the Apple TV app's launch-config format (client-tvos/runtime/report.ts),
   // waiting on the canvas's data-* state between steps, plus taps for the touch screen:
   //   ["wait", {"menuReady": "true"}, timeoutMs?], ["key", "Enter"], ["tap", x, y], ["sleep", ms], ["report", mark]
-  // Taps are in the canvas UI's design units (1600×900 across the 16:9 frame, client/src/ui/useCanvasUI.ts).
+  // Taps use the current layout's design units: 1200×900 (4:3) or 1600×900 (16:9).
   // Each step is reported.
-  const DESIGN = { w: 1600, h: 900 };
   const tap = (x, y) => {
     const el = canvas(), frame = document.querySelector('.canvas-frame')?.getBoundingClientRect();
     if (!el || !frame) return false;
-    const at = { clientX: frame.left + (x / DESIGN.w) * frame.width, clientY: frame.top + (y / DESIGN.h) * frame.height };
+    const width = el.dataset.displayMode === 'standard' ? 1200 : 1600;
+    const at = { clientX: frame.left + (x / width) * frame.width, clientY: frame.top + (y / 900) * frame.height };
     const init = { ...at, bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: 'touch', isPrimary: true, button: 0 };
     el.dispatchEvent(new PointerEvent('pointermove', { ...init, button: -1 }));
     el.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));

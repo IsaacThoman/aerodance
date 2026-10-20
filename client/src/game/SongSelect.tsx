@@ -20,9 +20,8 @@ import type { SongRoutine } from './GameSession.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 import { preloadStage, resolveStage } from '../../../packages/stages/index.ts';
 import type { StageState } from '../stage/StageView.tsx';
-import {
-  BACK, DANCE, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, rowRect,
-} from './layout.ts';
+import { gameLayout } from './layout.ts';
+import { displayDesign } from '../display.ts';
 
 /**
  * Song Select, drawn in-engine after the player count is picked (menu/MainMenu.tsx).
@@ -96,6 +95,8 @@ export default function SongSelect({
   stageState = {}, onPreviewChange, onDance,
 }: SongSelectProps) {
   const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
+  const { BACK, DANCE, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, rowRect } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance });
   props.current = { visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance };
   const st = useRef<SongSelectState>({
@@ -375,13 +376,13 @@ export default function SongSelect({
         const { song } = st.bundle;
         drawHeader(g, BACK, 'PREVIEW', h.back ?? 0);
         g.font = `800 64px ${FONT}`;
-        drawShadowText(g, ellipsize(g, song.title, 900), BACK.x - 38, BACK.y + 84, { size: 64, weight: 800 });
+        drawShadowText(g, ellipsize(g, song.title, s.w - BACK.x - 90), BACK.x - 38, BACK.y + 84, { size: 64, weight: 800 });
         g.font = `700 30px ${FONT}`;
-        drawShadowText(g, ellipsize(g, `${song.artist} · ${resolveStage(song.stage)}`, 900), BACK.x - 36, BACK.y + 140, { size: 30, color: '#d8f6ff' });
+        drawShadowText(g, ellipsize(g, `${song.artist} · ${resolveStage(song.stage)}`, s.w - BACK.x - 90), BACK.x - 36, BACK.y + 140, { size: 30, color: '#d8f6ff' });
 
         const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
         const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');
-        if (error) drawShadowText(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y, { size: 26, color: '#ffb38a' });
+        if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, DANCE.x - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
         drawPill(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       }
       g.restore();

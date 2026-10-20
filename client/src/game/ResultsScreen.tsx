@@ -7,7 +7,8 @@ import type { Face, IconName, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import { PLAYERS, REVEAL, backOut, clamp01, timeline } from './results.ts';
 import type { ResultsShow } from './results.ts';
-import { RESULTS_RETRY, RESULTS_SONGS } from './layout.ts';
+import { gameLayout } from './layout.ts';
+import { displayDesign } from '../display.ts';
 import type { RefObject } from 'react';
 import type { Song } from '../../../packages/pose/song.ts';
 
@@ -23,7 +24,7 @@ export interface ResultsScreenProps {
 const GOLD: Face = ['#fff6cc', '#ffd34d', '#f0a500'];
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
-function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number, song: Song) {
+function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number, song: Song, width: number) {
   const { results, winner, leaders } = show;
   const { t, count, reveal } = timeline(show, now);
   const solo = results.length === 1;
@@ -38,18 +39,19 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     else { const p = PLAYERS[winner % PLAYERS.length]; title = `${results[winner].name.toUpperCase()} WINS!`; face = ['#ffffff', p.light, p.color]; }
   }
   g.save();
-  g.translate(800, 116);
+  g.translate(width / 2, 116);
   g.scale(pop, pop);
-  headline(g, title, 0, 0, t < REVEAL && !solo ? 70 : 96, face, 1200);
+  headline(g, title, 0, 0, t < REVEAL && !solo ? 70 : 96, face, width - 120);
   g.restore();
   g.font = `600 24px ${FONT}`;
-  drawShadowText(g, ellipsize(g, [song.title, song.artist].filter(Boolean).join(' · '), 1100), 800, 172, { size: 24, weight: 600, align: 'center' });
+  drawShadowText(g, ellipsize(g, [song.title, song.artist].filter(Boolean).join(' · '), width - 160), width / 2, 172, { size: 24, weight: 600, align: 'center' });
 
   // One score centred, two side by side, or three or four in narrower columns.
+  const compact = width === 1200;
   const crowd = results.length > 2;
-  const column = crowd ? 1600 / (results.length + 0.5) : 600;
+  const column = crowd ? width / (results.length + 0.5) : compact ? 500 : 600;
   results.forEach((r, i) => {
-    const x = 800 + (i - (results.length - 1) / 2) * column;
+    const x = width / 2 + (i - (results.length - 1) / 2) * column;
     const p = PLAYERS[i % PLAYERS.length];
     const win = !solo && winner === i;
     // With three or four players a tie can leave others behind: they fade like a loser.
@@ -64,7 +66,7 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     g.save();
     g.translate(x, 700);
     g.scale(1 + grow, 1 + grow);
-    headline(g, Math.round(r.score * count).toLocaleString('en-US'), 0, 0, crowd ? 62 : 78, win && reveal > 0 ? GOLD : ['#ffffff', p.light, p.color], Math.min(520, column - 40));
+    headline(g, Math.round(r.score * count).toLocaleString('en-US'), 0, 0, crowd ? 62 : 78, win && reveal > 0 ? GOLD : ['#ffffff', p.light, p.color], Math.min(compact ? 430 : 520, column - 40));
     g.restore();
     // Grade, accuracy and judgements once the count finishes.
     g.globalAlpha *= clamp01((t - REVEAL + 0.2) / 0.4);
@@ -73,30 +75,32 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     const counts = `${j.perfect} Perfect · ${j.good} Good · ${j.ok} OK · ${j.miss + j.lost} Miss`;
     const combo = `combo ${r.maxCombo}`;
     const size = crowd ? 17 : 19;
-    const width = Math.min(560, column - 30);
+    const room = Math.min(compact ? 470 : 560, column - 30);
     g.font = `700 ${size}px ${FONT}`;
     // Narrow columns put the max combo on a line of its own, or after OK and Miss when a long
     // song's counts don't fit on one.
     const lines = !crowd ? [`${counts} · ${combo}`]
-      : g.measureText(counts).width <= width ? [counts, combo]
+      : g.measureText(counts).width <= room ? [counts, combo]
       : [`${j.perfect} Perfect · ${j.good} Good`, `${j.ok} OK · ${j.miss + j.lost} Miss · ${combo}`];
-    lines.forEach((line, k) => drawShadowText(g, ellipsize(g, line, width), x, (crowd ? 762 : 770) + k * 21, { size, weight: 700, align: 'center', color: '#e6f8ff' }));
+    lines.forEach((line, k) => drawShadowText(g, ellipsize(g, line, room), x, (crowd ? 762 : 770) + k * 21, { size, weight: 700, align: 'center', color: '#e6f8ff' }));
     if (r.coverage < 0.8) drawShadowText(g, `Tracked for ${pct(r.coverage)} of the song`, x, 560, { size: 19, weight: 700, align: 'center', color: '#ffe27a' });
     g.restore();
   });
   if (show.best?.isNewBest) {
     g.save();
     g.globalAlpha *= clamp01((t - REVEAL - 0.3) / 0.4);
-    headline(g, 'NEW BEST!', 800, 232, 40, GOLD, 600);
+    headline(g, 'NEW BEST!', width / 2, 232, 40, GOLD, 600);
     g.restore();
   } else if (show.best?.best) {
-    drawShadowText(g, `Best ${show.best.best.score.toLocaleString('en-US')} (${show.best.best.grade})`, 800, 222, { size: 22, weight: 700, align: 'center', color: '#bff4ff' });
+    drawShadowText(g, `Best ${show.best.best.score.toLocaleString('en-US')} (${show.best.best.grade})`, width / 2, 222, { size: 22, weight: 700, align: 'center', color: '#bff4ff' });
   }
 }
 
 /** The song's stage celebration: the winner (or the solo score), grades and a new best. */
 export default function ResultsScreen({ visible = false, show, song, onRetry, onQuit }: ResultsScreenProps) {
   const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
+  const { RESULTS_RETRY, RESULTS_SONGS } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, show, song, onRetry, onQuit });
   props.current = { visible, show, song, onRetry, onQuit };
   const st = useRef({ alpha: 0 }).current;
@@ -139,7 +143,7 @@ export default function ResultsScreen({ visible = false, show, song, onRetry, on
     draw: (g, s) => {
       const p = props.current;
       if (!p.show.current || !p.song) return;
-      drawResults(g, p.show.current, performance.now() / 1000, p.song);
+      drawResults(g, p.show.current, performance.now() / 1000, p.song, s.w);
       const button = (id: string, rect: Rect, label: string, icon: IconName) => drawPill(g, rect, {
         label, icon, hover: s.hover[id] ?? 0, press: s.press * (s.hover[id] ?? 0),
       });

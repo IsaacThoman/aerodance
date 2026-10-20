@@ -15,12 +15,12 @@ import XCTest
 //   AERODANCE_LAYOUT      JSON from the game's layout.ts: the design size and the rects tapped
 //
 // The game draws its UI on a canvas, so there are no elements to find: taps go to design units
-// converted to points inside the game's 16:9 frame, and waits are on the reported state.
+// converted to points inside the game's selected frame, and waits are on the reported state.
 final class AerodanceUITests: XCTestCase {
   struct Layout: Decodable {
     struct Rect: Decodable { let x, y, w, h: Double }
     let design: [Double]
-    let start, letsDance, firstSong: Rect
+    let start, letsDance, firstSong, dance: Rect
   }
 
   let env = ProcessInfo.processInfo.environment
@@ -60,7 +60,7 @@ final class AerodanceUITests: XCTestCase {
   // Real touches: Let's dance (the players dial starts at one), then the first song, at their
   // layout positions.
   func test3TapsThroughToSongPreview() throws {
-    let layout = try JSONDecoder().decode(Layout.self, from: Data((env["AERODANCE_LAYOUT"] ?? "").utf8))
+    let layouts = try JSONDecoder().decode([String: Layout].self, from: Data((env["AERODANCE_LAYOUT"] ?? "").utf8))
     XCUIDevice.shared.orientation = .landscapeLeft
     launch()
     waitFor(["menuScreen": "main", "menuReady": "true"])
@@ -68,6 +68,7 @@ final class AerodanceUITests: XCTestCase {
     let window = app.windows.firstMatch
     XCTAssertTrue(waitUntil { window.frame.width > window.frame.height }, "the app didn't turn to landscape")
     sleep(1)
+    let layout = try XCTUnwrap(layouts[state()["displayMode"] ?? "widescreen"])
     let frame = gameFrame(design: layout.design)
     tap(layout.start, in: frame, design: layout.design)
     waitFor(["menuScreen": "players", "menuReady": "true"])
@@ -76,8 +77,11 @@ final class AerodanceUITests: XCTestCase {
     waitFor(["songScreen": "list", "songReady": "true", "catalog": "ready"])
     shot("3-song-list")
     tap(layout.firstSong, in: frame, design: layout.design)
-    waitFor(["songScreen": "preview"])
+    waitFor(["songScreen": "preview", "songReady": "true"])
     shot("3-song-preview")
+    tap(layout.dance, in: frame, design: layout.design)
+    waitFor(["gamePhase": "countdown"])
+    shot("3-game-countdown")
   }
 
   // The iPad game follows the iPad round: a screenshot each way up.
@@ -180,8 +184,8 @@ final class AerodanceUITests: XCTestCase {
     return false
   }
 
-  /// The game's 16:9 frame in the app's points: the picture inside the black bars of a screenshot,
-  /// or the largest 16:9 rectangle centred in the window if that can't be told.
+  /// The game's selected frame in the app's points: the picture inside the black bars of a screenshot,
+  /// or the largest rectangle of that aspect centred in the window if that can't be told.
   func gameFrame(design: [Double]) -> CGRect {
     let window = app.windows.firstMatch.frame
     let aspect = design[0] / design[1]
@@ -207,7 +211,7 @@ final class AerodanceUITests: XCTestCase {
     let row = (0..<w).filter { lit($0, h / 2) }, column = (0..<h).filter { lit(w / 2, $0) }
     guard let left = row.first, let right = row.last, let top = column.first, let bottom = column.last else { return centred }
     let found = CGRect(x: window.minX + CGFloat(left), y: window.minY + CGFloat(top), width: CGFloat(right - left + 1), height: CGFloat(bottom - top + 1))
-    // Anything but a 16:9 picture (a dark scene at an edge) isn't the frame.
+    // Anything but the selected aspect (a dark scene at an edge) isn't the frame.
     let frame = abs(found.width / found.height - aspect) < 0.03 ? found : centred
     NSLog("aerodance: the game's frame is \(frame) in a \(window.size) window (lit: \(found))")
     return frame

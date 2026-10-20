@@ -34,7 +34,7 @@ const server = app.listen(4182, '127.0.0.1');
 await new Promise(resolve => server.once('listening', resolve));
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required',
   '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 page.setDefaultTimeout(60000);
 const errors: string[] = [];
 page.on('pageerror', error => errors.push(error.message));

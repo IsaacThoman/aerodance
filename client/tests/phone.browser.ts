@@ -106,7 +106,7 @@ const until = (page: Page, key: string, value: string | RegExp) => page.waitForF
 }, [key, value instanceof RegExp ? value.source : value, value instanceof RegExp ? value.flags : null] as const);
 const data = (page: Page, key: string) => page.locator('canvas').evaluate((c, key) => (c as HTMLCanvasElement).dataset[key] ?? '', key);
 
-const game = await open({ width: 1280, height: 900 });
+const game = await open({ width: 1280, height: 800 });
 const phone = await open({ width: 390, height: 844 }, true);
 try {
   // A layout rect, or a circle (clicked at its centre).
