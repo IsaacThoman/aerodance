@@ -7,11 +7,12 @@ import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import { STAGES } from '../../../../packages/stages/index.ts';
 import type { Stage, StageId } from '../../../../packages/stages/index.ts';
+import type { Vec3 } from '../../../../packages/stages/catalog.ts';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
 import { APP_ICONS, SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
-import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ThumbnailWindow } from './shots.ts';
+import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ShotPanel, ThumbnailWindow } from './shots.ts';
 
 /*
  * Renders one thumbnail in-engine: a dance stage, the two captured dancers holding a pose,
@@ -110,6 +111,36 @@ function makeLogo(logo: ShotLogo, buffer: FrameBuffer) {
   return { scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1), context: g };
 }
 
+// Captures the scene around `at` (without the dancers) as the reflections it gives, in place of
+// the stage's environment map, at `brightness`, with soft light panels added to it alone.
+function reflectScene(gl: THREE.WebGLRenderer, scene: THREE.Scene, dancers: THREE.Object3D, at: Vec3, brightness: number,
+  panels: readonly ShotPanel[] = []) {
+  const pmrem = new THREE.PMREMGenerator(gl);
+  const plane = new THREE.PlaneGeometry(1, 1);
+  const softboxes = panels.map(({ from, size, color = '#ffffff', intensity }) => {
+    // Brighter by 1 / brightness, which the environment's intensity takes back off.
+    const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity / brightness), side: THREE.DoubleSide, fog: false });
+    const mesh = new THREE.Mesh(plane, material);
+    mesh.position.set(at[0] + from[0], at[1] + from[1], at[2] + from[2]);
+    mesh.scale.set(size[0], size[1], 1);
+    mesh.lookAt(...at);
+    scene.add(mesh);
+    return mesh;
+  });
+  dancers.visible = false;
+  // Far enough for the sky dome; the same blur as the stages' own environment maps.
+  const target = pmrem.fromScene(scene, 0.04, 0.1, 10000, { position: new THREE.Vector3(...at) });
+  dancers.visible = true;
+  for (const mesh of softboxes) {
+    scene.remove(mesh);
+    (mesh.material as THREE.Material).dispose();
+  }
+  plane.dispose();
+  pmrem.dispose();
+  scene.environment = target.texture;
+  scene.environmentIntensity = brightness;
+}
+
 // Reads the drawing buffer top-down as RGBA.
 function readPixels(gl: THREE.WebGLRenderer, { width, height }: FrameBuffer) {
   const ctx = gl.getContext();
@@ -143,6 +174,8 @@ interface Pass {
   scenery?: boolean;
   /** Only this part of the dancers draws; the other still casts its shadow. */
   parts?: DancerPart;
+  /** Scales the camera's exposure. */
+  exposure?: number;
 }
 
 // The rig's floating hands are the Arm.L and Arm.R meshes; the body is everything else.
@@ -300,17 +333,18 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   };
   const draw = (pass: Pass) => {
     setUp(pass);
-    const threshold = post.bloomThreshold;
+    const { bloomThreshold, exposure } = post;
     if (!pass.bloom) post.bloomThreshold = NO_BLOOM;
+    post.exposure *= pass.exposure ?? 1;
     advance(time);
-    post.bloomThreshold = threshold;
+    Object.assign(post, { bloomThreshold, exposure });
     return readPixels(gl, buffer);
   };
   const differ = (a: Uint8Array, b: Uint8Array, i: number) => a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2];
   const out: { name: string; rgba: Uint8Array }[] = [];
   let behindColor: Uint8Array | null = null;
   layers.forEach((layer, k) => {
-    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false, parts: layer.dancerParts };
+    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false, parts: layer.dancerParts, exposure: layer.exposure };
     const rgba = draw({ ...pass, bloom: true });
     const color = rgba.slice();
     const below = layers[k - 1];
@@ -401,6 +435,11 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
         for (let i = 1; i <= frames; i++) {
           advance(i * STEP);
           if (i % 20 === 0) await nextTask();
+        }
+        if (shot.reflections !== undefined) {
+          if (!dancers.current) throw new Error('The dancers are missing');
+          reflectScene(gl, scene, dancers.current, shot.camera.target, shot.reflections, shot.panels);
+          advance(frames * STEP); // the same frame again, with them
         }
         const plain = readFrame(gl, buffer);
         let logo: string | null = null;
