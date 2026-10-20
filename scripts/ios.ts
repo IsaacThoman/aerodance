@@ -38,6 +38,12 @@ Options:
   --report-to <url>                send those reports to another address instead
   --flow                           play One Player → first song → Dance! → results with the
                                    remote's keys (use with --path '/?input=ghost')
+  --drive <json>                   play these steps, as the Apple TV app's launch config takes
+                                   them: [["wait", {"menuReady": "true"}], ["key", "Enter"],
+                                   ["tap", 800, 450], ["sleep", 500], ...] (taps in the canvas
+                                   UI's 1600×900 design units)
+  --clear-website-data             clear the page's storage first, as if WebKit had, to check
+                                   the app restores saved scores and settings
   --port <port>                    serve the game on this loopback port instead of 8417, so
                                    simulators can run side by side (saved scores and settings
                                    belong to the port)
@@ -158,19 +164,23 @@ async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator'
   return path.join(appDir, `build/Build/Products/Release-${sdk}/aerodance.app`);
 }
 
-function appArgs(page: string, reportUrl: string | undefined, flow: boolean, port: string | undefined) {
-  return ['--path', page, ...(reportUrl ? ['--report', reportUrl] : []), ...(flow ? ['--flow'] : []), ...(port ? ['--port', port] : [])];
+type LaunchOptions = { page: string; reportUrl?: string; flow: boolean; drive?: string; clearWebsiteData: boolean; port?: string };
+
+function appArgs({ page, reportUrl, flow, drive, clearWebsiteData, port }: LaunchOptions) {
+  return ['--path', page, ...(reportUrl ? ['--report', reportUrl] : []), ...(flow ? ['--flow'] : []), ...(drive ? ['--drive', drive] : []),
+    ...(clearWebsiteData ? ['--clear-website-data'] : []), ...(port ? ['--port', port] : [])];
 }
 
 type Report = {
-  type?: string; step?: string; waitedMs?: number;
+  type?: string; step?: string | unknown[]; index?: number; waitedMs?: number; ms?: number; message?: string;
   fps?: number; frameMs?: { p95?: number }; jsMsPerFrame?: number; drawsPerFrame?: number; numericLoopMs?: number; display?: string;
-  dataset?: Record<string, string>;
+  dataset?: Record<string, string>; thermal?: string; lowPower?: boolean; safeArea?: string; storage?: Record<string, string>;
+  host?: { multitasking: boolean; interrupted: boolean };
 };
 
 // Prints what the app's injected script (client-ios/src/inject.js) posts every two seconds.
 function receiveReports() {
-  let first = true;
+  let first = true, safeArea: string | undefined, host = '';
   http.createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -179,12 +189,20 @@ function receiveReports() {
       let r: Report;
       try { r = JSON.parse(body) as Report; } catch { return; }
       const time = new Date().toTimeString().slice(0, 8);
-      if (r.type === 'flow') return console.log(`${time}  flow: ${r.step} after ${r.waitedMs} ms`);
+      if (r.type === 'flow') return console.log(`${time}  flow: ${String(r.step)} after ${r.waitedMs} ms`);
+      if (r.type === 'drive') return console.log(`${time}  drive ${r.index}: ${JSON.stringify(r.step)} after ${r.waitedMs} ms`);
+      if (r.type === 'done') return console.log(`${time}  drive: done after ${r.ms} ms`);
+      if (r.type === 'error') return console.log(`${time}  ${r.message}; canvas state ${JSON.stringify(r.dataset ?? {})}`);
       if (first && r.numericLoopMs !== undefined) console.log(`JavaScript loop benchmark: ${r.numericLoopMs} ms (about 285 with a JIT, 565 without, on an M5 Pro)`);
+      if (r.storage) console.log(`Saved: ${Object.keys(r.storage).join(', ') || 'nothing'}`);
       first = false;
+      // The page's env(safe-area-inset-*) and the app's host state, when they change.
+      if (r.safeArea !== undefined && r.safeArea !== safeArea) { safeArea = r.safeArea; console.log(`Safe area: ${safeArea} px (top right bottom left)`); }
+      if (r.host && JSON.stringify(r.host) !== host) { host = JSON.stringify(r.host); console.log(`Host: ${host}`); }
       const d = r.dataset ?? {};
       const screen = d.gamePhase ? `game ${d.gamePhase}` : d.songScreen === 'preview' ? 'song preview' : `menu ${d.menuScreen ?? '?'}`;
-      console.log(`${time}  ${String(r.fps).padStart(5)} fps  p95 ${String(r.frameMs?.p95).padStart(5)} ms  JS ${String(r.jsMsPerFrame).padStart(6)} ms/frame  ${String(r.drawsPerFrame).padStart(4)} draws  ${screen}  on ${r.display}`);
+      const heat = `${r.thermal ?? '?'}${r.lowPower ? ', low power' : ''}`;
+      console.log(`${time}  ${String(r.fps).padStart(5)} fps  p95 ${String(r.frameMs?.p95).padStart(5)} ms  JS ${String(r.jsMsPerFrame).padStart(6)} ms/frame  ${String(r.drawsPerFrame).padStart(4)} draws  ${heat}  ${screen}  on ${r.display}`);
     });
   }).on('error', (error) => {
     console.error(`Can't receive reports on port ${REPORT_PORT}: ${error.message}`);
@@ -216,6 +234,13 @@ async function main() {
   const report = has('--report');
   const reportTo = flag('--report-to');
   const flow = has('--flow');
+  const drive = flag('--drive');
+  if (drive !== undefined) {
+    let steps: unknown;
+    try { steps = JSON.parse(drive); } catch { /* reported below */ }
+    if (!Array.isArray(steps)) throw Error(`--drive takes a JSON array of steps, not ${drive}`);
+  }
+  const clearWebsiteData = has('--clear-website-data');
   const port = flag('--port');
   if (port !== undefined && !/^\d+$/.test(port)) throw Error(`--port takes a number, not ${port}`);
   const skipWebBuild = has('--skip-web-build');
@@ -223,12 +248,13 @@ async function main() {
   if (report && !reportTo) receiveReports();
   const sim = cmd === 'sim';
   const reportUrl = reportTo || (report ? `http://${sim ? '127.0.0.1' : lanAddress()}:${REPORT_PORT}/report` : undefined);
+  const launch = appArgs({ page, reportUrl, flow, drive, clearWebsiteData, port });
 
   if (sim) {
     const udid = pickSimulator(device);
     const app = await buildApp(`id=${udid}`, 'iphonesimulator', { release, site, skipWebBuild });
     run('xcrun', ['simctl', 'install', udid, app]);
-    run('xcrun', ['simctl', 'launch', '--terminate-running-process', udid, BUNDLE_ID, ...appArgs(page, reportUrl, flow, port)]);
+    run('xcrun', ['simctl', 'launch', '--terminate-running-process', udid, BUNDLE_ID, ...launch]);
     return console.log(`Launched aerodance in simulator ${udid} at ${page}`);
   }
   const phone = pickDevice(device);
@@ -237,7 +263,7 @@ async function main() {
     run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', phone.udid, '--quiet', app]);
     console.log(`Installed on ${phone.name}`);
   }
-  run('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', phone.udid, '--terminate-existing', '--quiet', BUNDLE_ID, ...appArgs(page, reportUrl, flow, port)]);
+  run('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', phone.udid, '--terminate-existing', '--quiet', BUNDLE_ID, ...launch]);
   console.log(`Launched aerodance on ${phone.name} at ${page}`);
 }
 

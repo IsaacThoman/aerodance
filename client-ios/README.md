@@ -35,6 +35,24 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
 - **Camera.** The game's own pose tracking (MediaPipe in the page) can use the phone's camera:
   the app has a camera usage description and grants the page's camera requests, video only.
 - The phone doesn't lock while the app is open.
+- **Screen.** On the iPhone the game is landscape only (the app launches sideways even from a
+  portrait home screen); while the game is on a TV, the remote may also be upright. The iPad
+  takes every orientation and window size (Split View, Stage Manager; no `UIRequiresFullScreen`)
+  and the page letterboxes itself. The web view is edge to edge (`viewport-fit=cover`), so the
+  page gets the notch and home indicator as `env(safe-area-inset-*)`; while the game is on the
+  phone, the status bar is hidden and the home indicator hides itself.
+- **Host state.** `globalThis.__aerodanceHost` is `{ multitasking, interrupted }`, set before the
+  game's scripts run, and every change also fires
+  `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { multitasking, interrupted } }))`.
+  `multitasking` is true while the app's window doesn't fill the screen (iPad Split View, Slide
+  Over, Stage Manager), where iPadOS stops the camera. `interrupted` is true from the start to the
+  end of an audio interruption (a call, Siri, an alarm); at the end the app reactivates its audio
+  session but leaves the song paused for the player to resume. A page that loads or reloads later
+  (after `webViewWebContentProcessDidTerminate`) starts with the current state.
+- **Saved data.** Scores and settings live in the page's `localStorage`. The app also keeps a copy
+  of every key starting with `aerodance` in `NSUserDefaults` (per port), updated whenever the page
+  changes one, and puts back any key the page has lost before the game starts, in case WebKit
+  clears the site's data. A key the page still has is never overwritten.
 
 ## Requirements
 
@@ -62,14 +80,26 @@ each its own with `--port <port>` (saved scores and settings belong to the port)
 
 ## Release builds
 
-Development builds take the launch options above (`--path`, `--report`, `--flow`, `--port`), are
+Development builds take the launch options above (`--path`, `--report`, `--flow`, `--drive`,
+`--clear-website-data`, `--port`), are
 inspectable in Safari's Web Inspector, and add `NSLocalNetworkUsageDescription` and
 `NSAllowsLocalNetworking` to `Info.plist` so `--report` can reach the Mac. `build --release`
 leaves all of that out, which is what an App Store build should ship.
 
-`--report` sends the frame rate, the 95th-percentile frame time, the JavaScript time per frame and
-the draw calls per frame to this Mac (port 8766); `--report-to <url>` sends them elsewhere.
+`--report` sends the frame rate, the 95th-percentile frame time, the JavaScript time per frame,
+the draw calls per frame and the device's thermal state (`ProcessInfo.thermalState`, and Low Power
+Mode) to this Mac (port 8766); `--report-to <url>` sends them elsewhere. It also prints the page's
+safe area insets, the host state and the saved keys.
 `--flow` presses through One Player, the first song and Dance! to the results, for benchmarks.
+`--drive '<json>'` plays steps in the Apple TV app's format, waiting on the canvas's `data-*`
+state between them, plus taps in the canvas UI's 1600×900 design units. Each step is reported:
+
+```sh
+npm run ios -- sim --path '/?input=ghost' --report --drive '[["wait", {"menuScreen": "main", "menuReady": "true"}], ["tap", 348, 534], ["wait", {"menuScreen": "players"}, 5000], ["key", "Enter"], ["sleep", 500], ["report", "mark"]]'
+```
+
+`--clear-website-data` deletes the page's website data before it loads, to check that saved
+scores and settings come back from the app's copy.
 `/bench/aero-bench.html` is the Aero world benchmark (`client-tvos/bench/`), when it has been built.
 
 ## Playing on an Apple TV
