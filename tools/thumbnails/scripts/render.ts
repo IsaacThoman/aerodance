@@ -9,8 +9,8 @@
 // as an exact 4x3 block (2160x1440, 3:2) into a lossless PNG: no filtering or resampling.
 //
 // --tv-icons renders TV_ICONS instead, into assets/tv-icon/<id>/: each layer as a transparent
-// PNG at Apple TV's three app icon sizes (<size>/<n>-<layer>.png), and the whole icon
-// flattened (flat.png). Those sizes aren't whole multiples of the 600x480 buffer, so they're
+// PNG at Apple TV's three app icon sizes (<size>/<n>-<layer>.png), and the layers stacked back
+// together (flat.png). Those sizes aren't whole multiples of the 600x480 buffer, so they're
 // area-averaged.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -173,22 +173,74 @@ function resample(rgba: Buffer, sw: number, sh: number, dw: number, dh: number) 
   return bytes;
 }
 
+// Gaussian blur of straight-alpha RGBA (sigma in pixels), with alpha premultiplied so clear
+// pixels don't darken the edges. The image's edges are extended.
+function blur(rgba: Buffer, width: number, height: number, sigma: number) {
+  const radius = Math.ceil(sigma * 3);
+  const kernel = Array.from({ length: radius * 2 + 1 }, (_, i) => Math.exp(-((i - radius) ** 2) / (2 * sigma * sigma)));
+  const total = kernel.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < kernel.length; i++) kernel[i] /= total;
+  let src = new Float32Array(width * height * 4);
+  for (let i = 0; i < src.length; i += 4) {
+    const a = rgba[i + 3] / 255;
+    src.set([rgba[i] * a, rgba[i + 1] * a, rgba[i + 2] * a, rgba[i + 3]], i);
+  }
+  for (const [n, lines, at] of [
+    [width, height, (line: number, k: number) => (line * width + k) * 4],
+    [height, width, (line: number, k: number) => (k * width + line) * 4],
+  ] as const) {
+    const out = new Float32Array(src.length);
+    for (let line = 0; line < lines; line++) {
+      for (let d = 0; d < n; d++) {
+        const o = at(line, d);
+        for (let j = -radius; j <= radius; j++) {
+          const i = at(line, Math.min(n - 1, Math.max(0, d + j)));
+          const w = kernel[j + radius];
+          for (let c = 0; c < 4; c++) out[o + c] += src[i + c] * w;
+        }
+      }
+    }
+    src = out;
+  }
+  const bytes = Buffer.alloc(rgba.length);
+  for (let i = 0; i < bytes.length; i += 4) {
+    const a = src[i + 3];
+    for (let c = 0; c < 3; c++) bytes[i + c] = a > 0 ? Math.min(255, Math.round((src[i + c] * 255) / a)) : 0;
+    bytes[i + 3] = Math.round(a);
+  }
+  return bytes;
+}
+
+// Draws straight-alpha RGBA `top` over `under`, in place.
+function over(under: Buffer, top: Buffer) {
+  for (let i = 0; i < under.length; i += 4) {
+    const a = top[i + 3] / 255, b = (under[i + 3] / 255) * (1 - a), out = a + b;
+    for (let c = 0; c < 3; c++) under[i + c] = out > 0 ? Math.round((top[i + c] * a + under[i + c] * b) / out) : 0;
+    under[i + 3] = Math.round(out * 255);
+  }
+  return under;
+}
+
 // A layered shot: each layer at every icon size (or the 4x3 upscale for a 3:2 shot), plus the
-// whole frame flattened.
+// layers stacked back together at the first size, as the icon looks at rest.
 async function writeLayers(dir: string, shot: Shot, frame: ThumbnailFrame) {
   const layers = frame.layers ?? [];
-  const flat = frame.logo ?? frame.plain;
   const sizes = shot.format === 'tv-icon' ? TV_ICON_SIZES : [[frame.width * UPSCALE[0], frame.height * UPSCALE[1]] as const];
+  let flat: Buffer | null = null;
   for (const [width, height] of sizes) {
     const folder = path.join(dir, `${width}x${height}`);
+    await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true });
     for (const [i, layer] of layers.entries()) {
-      const rgba = resample(Buffer.from(layer.rgba, 'base64'), frame.width, frame.height, width, height);
+      let rgba = resample(Buffer.from(layer.rgba, 'base64'), frame.width, frame.height, width, height);
+      const sigma = shot.layers?.find((l) => l.name === layer.name)?.blur;
+      if (sigma) rgba = blur(rgba, width, height, (sigma * width) / 1280);
       await writeFile(path.join(folder, `${i + 1}-${layer.name}.png`), encodePng(width, height, rgba, 4));
+      if (width === sizes[0][0]) flat = flat ? over(flat, rgba) : Buffer.from(rgba);
     }
   }
   const [width, height] = sizes[0];
-  await writeFile(path.join(dir, 'flat.png'), encodePng(width, height, resample(Buffer.from(flat, 'base64'), frame.width, frame.height, width, height), 4));
+  if (flat) await writeFile(path.join(dir, 'flat.png'), encodePng(width, height, flat, 4));
 }
 
 // --- Capture ------------------------------------------------------------------------

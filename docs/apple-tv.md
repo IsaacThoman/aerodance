@@ -78,4 +78,4 @@ Other findings:
   through production (aerodance.party), but not yet with a real iPhone over home Wi-Fi.
 - OpenGL ES is deprecated on tvOS. If it goes, only the JavaScriptCore app's GL replay layer
   (about 1,000 lines) needs moving to Metal.
-- App icon, top shelf image, and an App Store build pipeline.
+- A top shelf image and an App Store build pipeline. (The JavaScriptCore app has its layered app icon.)

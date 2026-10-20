@@ -22,22 +22,34 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *   pose: seconds into the dance capture the dancers hold (0-14)
  *   camera: { position, target, fov, near?, far? }
  *   dancers: overrides for the stage's dancer placement ({ position, rotationY, spacing })
- *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered) } in design units
+ *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered), stacked?: two lines,
+ *     outline?, halo?, light?: see drawTitle } in design units
  *   format: 'thumbnail' (3:2, the default) or 'tv-icon' (5:3)
  *   layers: split the frame into layers for a parallax icon (ShotLayer)
  */
 export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
-export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; }
+export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; stacked?: boolean; outline?: number; halo?: number; light?: 200 | 300 | 400; }
 /**
  * One layer of a layered (parallax) image, back to front. Each layer is the shot rendered with
  * the camera's near plane at `near`, cutting away nearer scenery, and with the dancers shown or
  * hidden (their shadows stay). It keeps the pixels that differ from the layer behind it, so each
  * layer must show everything the one behind it does: `near` never grows, and once the dancers
- * are shown they stay. The wordmark, if any, is one more layer on top.
+ * are shown they stay. The wordmark, if any, is one more layer, on top unless a `wordmark` entry
+ * puts it lower in the stack.
  * seeThrough: on the layer that adds the dancers, keep their glass partly transparent, so the
  * layers behind show through them as they move, instead of what was behind them in the shot.
+ * wordmark: this entry is where the wordmark goes, rendering nothing itself.
+ * hidden: render the layer (so the one above is cut against it) but leave it out of the image.
+ * dancerParts: with the dancers, only their bodies (heads, eyes and feet too) or only their
+ * floating hands; the other part draws nothing but still casts its shadow.
+ * blur: soften the layer like a shallow depth of field: a Gaussian blur, its sigma in pixels of
+ * a 1280-wide image (scaled with the size the layer is written at).
  */
-export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; }
+export type DancerPart = 'body' | 'hands';
+export interface ShotLayer {
+  name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; hidden?: boolean; blur?: number;
+  dancerParts?: DancerPart;
+}
 export interface Shot {
   id: string;
   stage: StageId;
@@ -79,14 +91,20 @@ const isCamera = (v: unknown): v is ShotCamera => isFields(v) && isVec3(v.positi
 const isDancers = (v: unknown): v is Partial<DancerPlacement> => isFields(v) && (v.position === undefined || isVec3(v.position)) &&
   optionalNumber(v.rotationY) && optionalNumber(v.spacing) && optionalNumber(v.scale);
 const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && isNumber(v.size) &&
-  (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x));
+  (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x)) && (v.stacked === undefined || typeof v.stacked === 'boolean') &&
+  optionalNumber(v.outline) && optionalNumber(v.halo) && (v.light === undefined || v.light === 200 || v.light === 300 || v.light === 400);
 
 const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
-  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough);
-// Each layer shows everything the one behind it does (see ShotLayer).
-const isLayerStack = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every(isLayer) &&
-  v.every((layer, i) => i === 0 || ((layer.near ?? 0) <= (v[i - 1].near ?? 0) && (layer.dancers || !v[i - 1].dancers)));
+  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark) && optionalBoolean(v.hidden) && optionalNumber(v.blur) &&
+  (v.dancerParts === undefined || v.dancerParts === 'body' || v.dancerParts === 'hands');
+// Each rendered layer shows everything the one behind it does (see ShotLayer); one wordmark at most.
+const isLayerStack = (v: unknown) => {
+  if (!Array.isArray(v) || !v.every(isLayer) || v.filter((layer) => layer.wordmark).length > 1) return false;
+  const rendered = v.filter((layer) => !layer.wordmark);
+  return rendered.length > 0 && rendered.every((layer, i) => i === 0 ||
+    ((layer.near ?? 0) <= (rendered[i - 1].near ?? 0) && (layer.dancers || !rendered[i - 1].dancers)));
+};
 
 export function assertShot(shot: unknown): asserts shot is Shot {
   if (!isFields(shot) || typeof shot.id !== 'string' || !isStageId(shot.stage) || !isNumber(shot.time) || !isNumber(shot.pose) ||
@@ -347,7 +365,7 @@ const shotById = (id: string): Shot => {
  * allows two to five layers with an opaque one at the back; tvOS shifts and tilts them for the
  * parallax effect, so the layers are split by depth: `near` is a distance from the camera.
  */
-const ICONS: readonly Shot[] = [
+const ICONS: Shot[] = [
   {
     ...shotById('falls-meadow'),
     format: 'tv-icon',
@@ -361,14 +379,58 @@ const ICONS: readonly Shot[] = [
   {
     ...shotById('beach-hero'),
     format: 'tv-icon',
+    // Bigger than on the thumbnail, just above the dancers' heads and behind them.
+    logo: { y: 262, size: 250 },
     layers: [
       { name: 'sky', near: 150 }, // the sun, clouds and horizon
       { name: 'sea', near: 14 }, // beyond the palm
       { name: 'beach' },
+      { name: 'logo', wordmark: true },
       { name: 'dancers', dancers: true },
     ],
   },
+  {
+    ...shotById('falls-closeup'),
+    format: 'tv-icon',
+    // The dancers a little to the left, so the purple one fills the left of the wider frame and
+    // the wordmark, on two lines to be much bigger, has the sky on the right.
+    dancers: { position: [-0.8, 0, 0] },
+    logo: { y: 318, size: 340, x: 'right', stacked: true },
+    layers: [
+      { name: 'sky', near: 40 }, // the valley, mesas, falls and sky beyond the clifftop
+      { name: 'meadow', near: 2 },
+      { name: 'logo', wordmark: true },
+      { name: 'dancers', near: 2, dancers: true },
+      { name: 'foreground', dancers: true }, // the grass and planter just in front of the lens
+    ],
+  },
 ];
+
+// The falls close-up with the scenery in front of and behind the dancer out of focus, and the
+// same against nothing but the soft sky, the wordmark centered beside her.
+ICONS.push({
+  ...ICONS[ICONS.length - 1],
+  id: 'falls-closeup-soft',
+  layers: ICONS[ICONS.length - 1].layers?.map((layer) => {
+    if (layer.name === 'sky' || layer.name === 'meadow') return { ...layer, blur: 7 };
+    if (layer.name === 'foreground') return { ...layer, blur: 5 };
+    return layer;
+  }),
+});
+ICONS.push({
+  ...ICONS[ICONS.length - 1],
+  id: 'falls-sky-soft',
+  // A heavier "dance" with a navy edge and a darker glow: the thin weight is hard to read on the pale sky.
+  logo: { y: 391, size: 340, x: 'right', stacked: true, light: 400, outline: 0.02, halo: 1.4 },
+  layers: [
+    { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
+    { name: 'meadow', near: 2, hidden: true },
+    { name: 'logo', wordmark: true },
+    { name: 'dancers', near: 2, dancers: true, dancerParts: 'body' },
+    { name: 'hands', near: 2, dancers: true, dancerParts: 'hands' }, // in front, for more depth
+    { name: 'foreground', dancers: true, hidden: true },
+  ],
+});
 
 // Each icon twice: as above, and with see-through dancers (<id>-glass), so the layers behind
 // show through the glass as they move.
@@ -377,6 +439,6 @@ export const TV_ICONS: readonly Shot[] = [
   ...ICONS.map((icon) => ({
     ...icon,
     id: `${icon.id}-glass`,
-    layers: icon.layers?.map((layer) => (layer.name === 'dancers' ? { ...layer, seeThrough: true } : layer)),
+    layers: icon.layers?.map((layer) => (layer.name === 'dancers' || layer.dancerParts === 'hands' ? { ...layer, seeThrough: true } : layer)),
   })),
 ];

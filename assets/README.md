@@ -19,7 +19,7 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 
 ## Apple TV app icons
 
-`tv-icon/` holds two layered 5:3 app icons for Apple TV's parallax effect, made from the same two shots: `falls-meadow/` and `beach-hero/`. Each has its layers, back to front, at the icon's three sizes, and the whole icon flattened for reference (`flat.png`):
+`tv-icon/` holds layered 5:3 app icons for Apple TV's parallax effect: `falls-meadow/` and `beach-hero/` (the shots above), `falls-closeup/`, `falls-closeup-soft/` (the same with the scenery in front of and behind the dancer out of focus), and `falls-sky-soft/` (the dancer against nothing but the soft sky, the wordmark centered beside her: `1-sky`, `2-logo`, `3-dancers`, `4-hands`, her floating hands on their own in front). Each has its layers, back to front, at the icon's three sizes, and the layers stacked back together for reference (`flat.png`):
 
 | Folder | Size | Used for |
 | --- | --- | --- |
@@ -30,11 +30,12 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 | Icon | Layers |
 | --- | --- |
 | `falls-meadow` | `1-sky` (the valley, falls and sky beyond the clifftop), `2-meadow`, `3-dancers`, `4-foreground` (the grass in front of the lens), `5-logo` |
-| `beach-hero` | `1-sky` (the sun, clouds and horizon), `2-sea`, `3-beach` (the sand and the palm), `4-dancers`, `5-logo` |
+| `beach-hero` | `1-sky` (the sun, clouds and horizon), `2-sea`, `3-beach` (the sand and the palm), `4-logo` (bigger, behind the dancers), `5-dancers` |
+| `falls-closeup` | `1-sky`, `2-meadow`, `3-logo` (on two lines, much bigger, behind the dancer), `4-dancers` (the purple one, close up), `5-foreground` (the grass and planter in front of the lens) |
 
-`falls-meadow-glass/` and `beach-hero-glass/` are the same icons with see-through dancers: their layer keeps the glass's real transparency, so the layers behind show through them as the icon tilts, instead of a copy of what was behind them in the shot. The dancers are tone-mapped on their own there, so they come out a little deeper than in the game, and without the bloom of their glints.
+Each `-glass/` folder is the same icon with see-through dancers: their layer keeps the glass's real transparency, so the layers behind show through them as the icon tilts, instead of a copy of what was behind them in the shot. The dancers are tone-mapped on their own there, so they come out a little deeper than in the game, and without the bloom of their glints.
 
-The back layer is opaque and the rest are transparent. Each layer is rendered in-engine with what's in front of it cut away, so the layers behind still hold the scene where the tilt uncovers it, and the dancers' shadows stay on the ground behind them. Drop a size's layers into Apple's Parallax Previewer to see the effect or export an `.lsr`, or into an Xcode image stack. Leave out `5-logo` for an icon without the wordmark.
+The back layer is opaque and the rest are transparent. Each layer is rendered in-engine with what's in front of it cut away, so the layers behind still hold the scene where the tilt uncovers it, and the dancers' shadows stay on the ground behind them. Drop a size's layers into Apple's Parallax Previewer to see the effect or export an `.lsr`, or into an Xcode image stack. Leave out the `logo` layer for an icon without the wordmark. The Apple TV app uses `falls-sky-soft-glass`.
 
 To render them again:
 
