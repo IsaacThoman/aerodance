@@ -33,11 +33,13 @@ export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | numb
  * the camera's near plane at `near`, cutting away nearer scenery, and with the dancers shown or
  * hidden (their shadows stay). It keeps the pixels that differ from the layer behind it, so each
  * layer must show everything the one behind it does: `near` never grows, and once the dancers
- * are shown they stay. The wordmark, if any, is one more layer on top.
+ * are shown they stay. The wordmark, if any, is one more layer, on top unless a `wordmark` entry
+ * puts it lower in the stack.
  * seeThrough: on the layer that adds the dancers, keep their glass partly transparent, so the
  * layers behind show through them as they move, instead of what was behind them in the shot.
+ * wordmark: this entry is where the wordmark goes, rendering nothing itself.
  */
-export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; }
+export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; }
 export interface Shot {
   id: string;
   stage: StageId;
@@ -83,10 +85,14 @@ const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && is
 
 const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
-  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough);
-// Each layer shows everything the one behind it does (see ShotLayer).
-const isLayerStack = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every(isLayer) &&
-  v.every((layer, i) => i === 0 || ((layer.near ?? 0) <= (v[i - 1].near ?? 0) && (layer.dancers || !v[i - 1].dancers)));
+  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark);
+// Each rendered layer shows everything the one behind it does (see ShotLayer); one wordmark at most.
+const isLayerStack = (v: unknown) => {
+  if (!Array.isArray(v) || !v.every(isLayer) || v.filter((layer) => layer.wordmark).length > 1) return false;
+  const rendered = v.filter((layer) => !layer.wordmark);
+  return rendered.length > 0 && rendered.every((layer, i) => i === 0 ||
+    ((layer.near ?? 0) <= (rendered[i - 1].near ?? 0) && (layer.dancers || !rendered[i - 1].dancers)));
+};
 
 export function assertShot(shot: unknown): asserts shot is Shot {
   if (!isFields(shot) || typeof shot.id !== 'string' || !isStageId(shot.stage) || !isNumber(shot.time) || !isNumber(shot.pose) ||
@@ -361,10 +367,13 @@ const ICONS: readonly Shot[] = [
   {
     ...shotById('beach-hero'),
     format: 'tv-icon',
+    // Bigger than on the thumbnail, just above the dancers' heads and behind them.
+    logo: { y: 262, size: 270 },
     layers: [
       { name: 'sky', near: 150 }, // the sun, clouds and horizon
       { name: 'sea', near: 14 }, // beyond the palm
       { name: 'beach' },
+      { name: 'logo', wordmark: true },
       { name: 'dancers', dancers: true },
     ],
   },
