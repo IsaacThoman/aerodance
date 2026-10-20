@@ -10,9 +10,11 @@ export interface BubbleSpec { x: number; y: number; z: number; r: number; rise: 
 
 interface Bubble extends BubbleSpec { y0: number; ph: number }
 
-// One instanced draw: instances are spheres moved and scaled (never turned), so the normal needs no instance transform.
-const bubbleVS = `varying vec3 vN;varying vec3 vV;varying vec3 vWN;void main(){vec4 mv=modelViewMatrix*instanceMatrix*vec4(position,1.0);vN=normalize(normalMatrix*normal);vV=-mv.xyz;vWN=normal;gl_Position=projectionMatrix*mv;}`;
-const bubbleFS = `uniform vec3 uLight;uniform float uTime;varying vec3 vN;varying vec3 vV;varying vec3 vWN;
+// The iridescent soap-bubble look, also used by the menu stage (menu/stageEffects.ts). Here it is
+// one instanced draw: instances are spheres moved and scaled (never turned), so the normal needs
+// no instance transform.
+export const bubbleVS = (instanced: boolean) => `varying vec3 vN;varying vec3 vV;varying vec3 vWN;void main(){vec4 mv=modelViewMatrix*${instanced ? 'instanceMatrix*' : ''}vec4(position,1.0);vN=normalize(normalMatrix*normal);vV=-mv.xyz;vWN=normal;gl_Position=projectionMatrix*mv;}`;
+export const bubbleFS = `uniform vec3 uLight;uniform float uTime;varying vec3 vN;varying vec3 vV;varying vec3 vWN;
     void main(){vec3 n=normalize(vN),v=normalize(vV);float ndv=clamp(dot(n,v),0.0,1.0);float f=pow(1.0-ndv,2.2);
       vec3 ir=0.5+0.5*cos(6.2831*(vec3(0.0,0.33,0.67)+f*1.4+vWN.y*0.3+uTime*0.05));
       vec3 c=mix(vec3(0.86,0.95,1.0),ir,0.5);
@@ -26,7 +28,7 @@ export function buildBubbles(ctx: AeroContext, path: FlightPath, specs: BubbleSp
   const uLight: THREE.IUniform<THREE.Vector3> = { value: new THREE.Vector3() };
   const bubMat = new THREE.ShaderMaterial({
     uniforms: { uLight, uTime: ctx.time }, transparent: true, depthWrite: false,
-    vertexShader: bubbleVS, fragmentShader: bubbleFS,
+    vertexShader: bubbleVS(true), fragmentShader: bubbleFS,
   });
   const BUBBLES: Bubble[] = [];
   const BUBS = specs;

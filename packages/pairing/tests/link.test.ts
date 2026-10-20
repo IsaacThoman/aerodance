@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ClockSync } from '../clock.ts';
 import { parseGameMessage, parsePhoneMessage, poseMessage } from '../link.ts';
+import { MAX_RELAY_FRAME } from '../relay.ts';
 import { codeDigits, parsePairingEvent, spacedCode } from '../signals.ts';
 import type { WebcamRecord } from '../../pose/webcamRecord.ts';
 
@@ -48,9 +49,20 @@ test('pose messages round their landmarks and still validate in full on arrival'
   assert.equal(parsePhoneMessage(JSON.stringify({ type: 'pose', record: { ...record, timingMethod: 'guess' } })), null);
 });
 
+test('a four-player pose message validates and fits a relay frame', () => {
+  const four: WebcamRecord = { ...record, playerCount: 4, poses: [0, 1, 2, 3].map((playerId) => ({ playerId, landmarks })) };
+  const text = poseMessage(four);
+  assert.ok(new TextEncoder().encode(text).length < MAX_RELAY_FRAME / 4);
+  const message = parsePhoneMessage(text);
+  assert.equal(message?.type === 'pose' && message.record.poses.length, 4);
+  // A player beyond the record's count is refused.
+  assert.equal(parsePhoneMessage(poseMessage({ ...four, playerCount: 3 })), null);
+});
+
 test('messages each way are checked before use', () => {
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 2, modelId: 'full' })), { type: 'config', playerCount: 2, modelId: 'full' });
-  assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 3, modelId: 'full' })), null);
+  assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 4, modelId: 'full' })), { type: 'config', playerCount: 4, modelId: 'full' });
+  assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 5, modelId: 'full' })), null);
   assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 1, modelId: 'huge' })), null);
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'ping', id: 4, t0: 12.5 })), { type: 'ping', id: 4, t0: 12.5 });
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'preview', on: true })), { type: 'preview', on: true });

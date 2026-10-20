@@ -38,12 +38,12 @@ Options:
   --report                         print the app's frame rate, JavaScript time per frame and
                                    draw calls every two seconds, until Ctrl-C
   --report-to <url>                send those reports to another address instead
-  --flow                           play One Player → first song → Dance! → results with the
+  --flow                           play one player → first song → Dance! → results with the
                                    remote's keys (use with --path '/?input=ghost')
   --drive <json>                   play these steps, as the Apple TV app's launch config takes
                                    them: [["wait", {"menuReady": "true"}], ["key", "Enter"],
                                    ["tap", 800, 450], ["sleep", 500], ...] (taps in the canvas
-                                   UI's 1600×900 design units)
+                                   UI's design units: 1600×900, or 1200×900 in 4:3)
   --clear-website-data             clear the page's storage first, as if WebKit had, to check
                                    the app restores saved scores and settings
   --port <port>                    serve the game on this loopback port instead of 8417, so

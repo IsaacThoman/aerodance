@@ -110,7 +110,7 @@ choreography normally has a single `FRMS` chunk.
 | 0 | u16 | `formatVersion` | `1` |
 | 2 | u8 | `kind` | 1 `choreography`, 2 `take`, 3 `track`, 4 `capture`, 5 `recording` |
 | 3 | u8 | `clock` | Meaning of frame time: 1 song, 2 take, 3 media |
-| 4 | u8 | `playerSlots` | `1` or `2`; the number of pose slots per frame |
+| 4 | u8 | `playerSlots` | `1` to `4`; the number of pose slots per frame. Only a `recording` has more than `2` |
 | 5 | u8 | `landmarkSet` | `1` = MediaPipe pose-33 (`landmarkCount` 33) |
 | 6 | u8 | `flags` | bit 0: frames carry joint flags (see [Quality](#quality)); other bits 0 |
 | 7 | u8 | `modelId` | 0 unknown, 1 `lite`, 2 `full`, 3 `heavy` |
@@ -123,8 +123,11 @@ choreography normally has a single `FRMS` chunk.
 | … | f64[] | `extensionBases` | One base time in ms per extension field, in the same order |
 
 `playerSlots` is the slot count, not the number of dancers present. A slot can
-be empty in any frame. A `track` file has one slot. The player it holds is
-named in `TRAK`.
+be empty in any frame. A `track` file has one slot; the player it holds is named
+in `TRAK`. A game `recording` has one per player, up to four (three and four
+players dance a duet's parts again; see
+[three and four players](three-and-four-players.md)); every other kind is a duet
+at most.
 
 ### Frame extension fields
 
@@ -441,7 +444,7 @@ could delta-encode positions per joint and add a compression chunk flag.
 ```ts
 interface PoseFrames {
   kind: PoseFileKind; clock: 'song' | 'take' | 'media';
-  playerSlots: 1 | 2; input: FrameSize; modelId: PoseModelId | null;
+  playerSlots: 1 | 2 | 3 | 4; input: FrameSize; modelId: PoseModelId | null;
   times: Float64Array;          // [frame]
   present: Uint8Array;          // [frame] bitmask
   reviewed: Uint8Array;         // [frame] bitmask

@@ -6,35 +6,85 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../packages/character/Character.tsx';
 import type { CharacterAppearance } from '../../../packages/character/Character.tsx';
 import { loadMotion } from '../../../packages/character/motion.ts';
+import { MAX_PLAYERS } from '../../../packages/pose/choreography.ts';
 import type { MotionTake } from '../../../packages/pose/motion.ts';
 import motionUrl from '../../../packages/character/assets/dance.adpose?url';
+import { PLAYER_COLORS } from './layout.ts';
+import { Burst, SpawnBubble, bubbleMaterial, clamp01, easeOutBack, easeOutCubic, exclaimSprite } from './stageEffects.ts';
 
 /**
- * The two captured Frutiger dancers on a glass puck, pinned to the right of the screen.
- * They live in their own scene with a fixed camera, so they ride along with the drone
- * flight instead of being left behind in the city. Drawn after the world and before the
- * menu (useFrame priority 1.5); they slide off to the right while the menu is hidden.
+ * The captured Frutiger dancers on a glass puck, pinned to the right of the screen: one per
+ * player (`count`, 1-4) in the player colours, spaced evenly and centred on the puck. They
+ * live in their own scene with a fixed camera, so they ride along with the drone flight
+ * instead of being left behind in the city. Drawn after the world and before the menu
+ * (useFrame priority 1.5); they slide off to the right while the menu is hidden.
+ *
+ * When the count goes up, the new dancer arrives in a soap bubble that pops, and the others
+ * cheer (a few hops). When it goes down, the leaving dancer swells and pops into droplets,
+ * and the others start back in shock (they freeze, hop, and a "!" pops up) before dancing on.
+ * The rest regroup around the middle, and the puck widens (never deepens) for three and four.
  *
  * On Song Select the stage rises to the middle of the screen (`raised`, nothing sits above
- * it there), and in one-player mode a single dancer stands in the middle of it (`solo`).
+ * it there).
  *
- * <MenuDancers visible raised solo />
+ * <MenuDancers visible raised count={3} />
  */
 
-const DANCERS: readonly { x: number; appearance: CharacterAppearance }[] = [
-  { x: -1.45, appearance: { color: '#078fff', gloss: 85, accessory: 'None' } },
-  { x: 1.45, appearance: { color: '#b86bff', gloss: 85, accessory: 'None' } },
-];
+const APPEARANCES: readonly CharacterAppearance[] = PLAYER_COLORS.map((color) => ({ color, gloss: 85, accessory: 'None' }));
 const PUCK = { r: 3.1, h: 0.26 };
 // Stage placement in front of the fixed camera (looking down -Z), then turned to face it.
 const STAGE = { x: 4.3, y: -2.6, z: -19, tilt: 0.2, turn: -0.22 };
+// Distance between neighbouring dancers: two keep their original spots, three and four
+// stand a little closer.
+const spacing = (n: number) => (n <= 2 ? 2.9 : n === 3 ? 2.5 : 2.35);
+// Puck room past the outermost dancer's centre.
+const PUCK_MARGIN = 1.55;
 // How far the stage rises when it's raised.
 const RAISE = 1.5;
 const SLIDE = 12;
 // Easing approaches its target forever; snap once the remaining step is imperceptible.
 const SPOT_EPSILON = 0.01;
-const SOLO_HIDE_PROGRESS = 0.95;
-const SOLO_FADE_SECONDS = 0.05;
+// Players three and four dance the duet's parts a beat behind one and two.
+const LAG = [0, 0, 3.5, 3.5];
+// A dancer's middle and the top of its head, and its bubble's radius (stage units).
+const BODY_Y = 1.5;
+const HEAD_Y = 3.3;
+const BUBBLE_R = 1.9;
+// Arriving: the bubble grows in, wobbles, and pops at BUBBLE_POP; the dancer is settled by SPAWN_END.
+const BUBBLE_POP = 0.8;
+const SPAWN_END = 0.95;
+// Leaving: the dancer swells for this long, then bursts.
+const POP_TIME = 0.16;
+// Shocked: frozen for SHOCK_FREEZE, one hop, the "!" until SHOCK_END.
+const SHOCK_FREEZE = 0.8;
+const SHOCK_END = 1.1;
+// Cheering: three hops.
+const CHEER_HOP = 0.34;
+const CHEER_END = CHEER_HOP * 3;
+
+const slotX = (i: number, n: number) => (i - (n - 1) / 2) * spacing(n);
+/** The puck's half width; its depth stays the original radius. */
+const puckWidth = (n: number) => Math.max(PUCK.r, ((n - 1) / 2) * spacing(n) + PUCK_MARGIN);
+const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, Math.round(n)));
+
+type Phase = 'in' | 'out' | 'spawn' | 'pop';
+interface Dancer { phase: Phase; t: number; burst: boolean }
+interface Reaction { kind: 'shock' | 'cheer' | null; t: number; who: boolean[] }
+
+/** How a dancer reacting moves: lift, vertical stretch and backwards lean. */
+function reactionPose(r: Reaction) {
+  const s = r.t;
+  if (r.kind === 'shock' && s < SHOCK_END) {
+    const hop = clamp01(s / 0.45);
+    const lean = Math.min(clamp01(s / 0.12), clamp01((SHOCK_END - s) / 0.3));
+    return { y: 0.5 * Math.sin(Math.PI * hop), stretch: 1 + 0.12 * Math.sin(Math.PI * hop), lean: -0.32 * lean };
+  }
+  if (r.kind === 'cheer' && s < CHEER_END) {
+    const ph = (s % CHEER_HOP) / CHEER_HOP;
+    return { y: 0.42 * Math.sin(Math.PI * ph), stretch: 1 + 0.1 * Math.sin(Math.PI * ph), lean: 0 };
+  }
+  return { y: 0, stretch: 1, lean: 0 };
+}
 
 function Environment({ scene }: { scene: THREE.Scene }) {
   const gl = useThree((state) => state.gl);
@@ -92,23 +142,62 @@ export interface MenuDancersProps {
   visible?: boolean;
   /** Song Select: the stage rises to the middle of the screen. */
   raised?: boolean;
-  /** One player: a single dancer in the middle. */
-  solo?: boolean;
+  /** Dancers on the puck, one per player (1-4). */
+  count?: number;
 }
 
-export default function MenuDancers({ visible = true, raised = false, solo = false }: MenuDancersProps) {
+export default function MenuDancers({ visible = true, raised = false, count = 2 }: MenuDancersProps) {
   const gl = useThree((state) => state.gl);
   const camera = useThree((state) => state.camera);
   const [motion, setMotion] = useState<MotionTake | null>(null);
   const stage = useMemo(() => new THREE.Scene(), []);
   const cam = useMemo(() => new THREE.PerspectiveCamera(30, 16 / 9, 0.5, 60), []);
   const rig = useRef<THREE.Group>(null);
-  const playback = useRef(0);
+  const puck = useRef<THREE.Group>(null);
+  const clock = useRef(0);
   const shown = useRef(0);
   const lift = useRef(0);
+  const n = clampCount(count);
+  // The puck's half width, eased towards the current count's.
+  const width = useRef(puckWidth(n));
+  // The puck mounts after the motion loads: start it at the current width.
+  const sizePuck = (g: THREE.Group | null) => {
+    puck.current = g;
+    g?.scale.set(width.current / PUCK.r, 1, 1);
+  };
   const spots = useRef<(THREE.Group | null)[]>([]);
-  const purpleOpacity = useRef(1);
+  const placed = useRef<boolean[]>([]);
+  const initial = useRef(n);
+  const dancers = useRef<Dancer[]>(APPEARANCES.map((_, i) => ({ phase: i < n ? 'in' : 'out', t: 0, burst: false })));
+  const lastCount = useRef(n);
+  const reaction = useRef<Reaction>({ kind: null, t: 0, who: [] });
+  const opacity = useMemo(() => APPEARANCES.map((_, i) => ({ current: i < initial.current ? 1 : 0 })), []);
+  const playback = useMemo(() => APPEARANCES.map(() => ({ current: 0 })), []);
   const still = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
+  // One bubble, two droplet sprays (the dancer's gel, and bubble film) and a "!" per dancer.
+  const fx = useMemo(() => {
+    const ball = new THREE.SphereGeometry(1, 32, 24);
+    const drop = new THREE.SphereGeometry(1, 12, 8);
+    const film = bubbleMaterial();
+    const gels = PLAYER_COLORS.map((color) => new THREE.MeshPhysicalMaterial({
+      color, roughness: 0.12, clearcoat: 1, transparent: true, opacity: 0.85, depthWrite: false,
+    }));
+    return {
+      ball, drop, film, gels,
+      bubbles: APPEARANCES.map(() => new SpawnBubble(ball)),
+      gelBursts: gels.map((gel) => new Burst(drop, gel, 14, 0.2)),
+      filmBursts: APPEARANCES.map(() => new Burst(drop, film, 10, 0.16)),
+      exclaims: APPEARANCES.map(() => exclaimSprite()),
+    };
+  }, []);
+  useEffect(() => () => {
+    fx.ball.dispose();
+    fx.drop.dispose();
+    fx.film.dispose();
+    fx.gels.forEach((m) => m.dispose());
+    fx.bubbles.forEach((b) => b.dispose());
+    fx.exclaims.forEach((s) => { s.material.map?.dispose(); s.material.dispose(); });
+  }, [fx]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -126,36 +215,135 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
     const dt = Math.min(delta, 0.1);
     shown.current += ((visible ? 1 : 0) - shown.current) * Math.min(1, dt * (visible ? 2.5 : 5));
     if (!motion || !rig.current || shown.current < 0.005) return;
-    if (!still) playback.current += dt;
 
     const t = state.clock.elapsedTime;
     const away = 1 - shown.current;
-    // Rise and both dancers' steps to the middle ease in, unless the stage is off screen.
-    const k = shown.current < 0.05 ? 1 : Math.min(1, dt * 4);
+    // Off screen (or with reduced motion) everything snaps: no bubbles, pops or reactions.
+    const offscreen = shown.current < 0.05;
+    const animate = !offscreen && !still;
+    const k = offscreen ? 1 : Math.min(1, dt * 4);
+    const list = dancers.current;
+    const startReaction = (kind: Reaction['kind']) => {
+      reaction.current = { kind, t: 0, who: list.map((d) => d.phase === 'in') };
+    };
+
+    // A new count: newcomers start in a bubble at their spot, leavers start to pop. A dancer
+    // whose character hasn't loaded yet just takes its new state: nobody saw it to begin with.
+    if (n !== lastCount.current) {
+      let popped = false;
+      list.forEach((d, i) => {
+        const playing = i < n;
+        const spot = spots.current[i];
+        const shown = animate && !!spot;
+        if (playing && (d.phase === 'out' || d.phase === 'pop')) {
+          Object.assign(d, { phase: shown ? 'spawn' : 'in', t: 0, burst: false });
+          if (spot) spot.position.x = slotX(i, n);
+        } else if (!playing && (d.phase === 'in' || d.phase === 'spawn')) {
+          Object.assign(d, { phase: shown ? 'pop' : 'out', t: 0, burst: false });
+          fx.bubbles[i].hide();
+          popped ||= shown;
+        }
+      });
+      if (popped) startReaction('shock');
+      lastCount.current = n;
+    }
+
+    const react = reaction.current;
+    react.t += dt;
+    // The dance freezes mid-move while the others are shocked (one arriving then, in its bubble
+    // too: they all keep time).
+    const frozen = react.kind === 'shock' && react.t < SHOCK_FREEZE;
+    if (!still && !frozen) clock.current += dt;
+    playback.forEach((p, i) => { p.current = clock.current + LAG[i]; });
+
+    // Rise, regrouping and the puck's width ease in, unless the stage is off screen.
     lift.current += ((raised ? RAISE : 0) - lift.current) * k;
-    // Converge twice as quickly while keeping the return split's existing timing.
-    const move = solo ? Math.min(1, k * 2) : k;
-    DANCERS.forEach((d, i) => {
+    width.current += (puckWidth(n) - width.current) * k;
+    puck.current?.scale.set(width.current / PUCK.r, 1, 1);
+
+    const pose = reactionPose(react);
+    list.forEach((d, i) => {
       const spot = spots.current[i];
       if (!spot) return;
-      const target = solo ? 0 : d.x;
-      spot.position.x += (target - spot.position.x) * move;
-      if (Math.abs(target - spot.position.x) < SPOT_EPSILON) spot.position.x = target;
-      if (i === 1) {
-        // Fade purple after convergence, and fade it back in as the dancers split out.
-        const show = !solo || Math.abs(spot.position.x) > Math.abs(d.x) * (1 - SOLO_HIDE_PROGRESS);
-        const targetOpacity = show ? 1 : 0;
-        const fadeStep = dt / SOLO_FADE_SECONDS;
-        purpleOpacity.current = Math.abs(targetOpacity - purpleOpacity.current) <= fadeStep + Number.EPSILON
-          ? targetOpacity
-          : purpleOpacity.current + (show ? fadeStep : -fadeStep);
-        spot.visible = purpleOpacity.current > 0;
+      const o = opacity[i];
+      const bubble = fx.bubbles[i];
+      const target = slotX(Math.min(i, n - 1), n);
+      d.t += dt;
+      let size = 1;
+      let stretch = 1;
+      let y = 0;
+      let lean = 0;
+      if (d.phase === 'in' || d.phase === 'spawn') {
+        spot.position.x += (target - spot.position.x) * k;
+        if (Math.abs(target - spot.position.x) < SPOT_EPSILON) spot.position.x = target;
+      }
+      const x = spot.position.x;
+      if (d.phase === 'in') {
+        o.current = 1;
+        if (react.who[i]) ({ y, stretch, lean } = pose);
+      } else if (d.phase === 'spawn') {
+        // The bubble grows in with a wobble, carrying the dancer down to the puck, then pops.
+        const g = d.t;
+        if (g < BUBBLE_POP) {
+          const wobble = 1 + 0.07 * Math.sin(g * 16) * (1 - clamp01(g / BUBBLE_POP));
+          bubble.set(x, BODY_Y + 0.6 * (1 - easeOutCubic(g / BUBBLE_POP)), BUBBLE_R * easeOutBack(g / 0.32), wobble, 1);
+        } else {
+          const pp = clamp01((g - BUBBLE_POP) / (SPAWN_END - BUBBLE_POP));
+          bubble.set(x, BODY_Y, BUBBLE_R * (1 + 0.35 * pp), 1, 1 - pp);
+          if (!d.burst) {
+            d.burst = true;
+            fx.filmBursts[i].fire(x, BODY_Y, BUBBLE_R, 3.2);
+            startReaction('cheer');
+          }
+        }
+        size = 0.5 + 0.5 * easeOutCubic((g - 0.1) / 0.7);
+        y = 0.6 * (1 - easeOutCubic((g - 0.2) / (BUBBLE_POP - 0.2)));
+        o.current = clamp01(g / 0.2);
+        if (g >= SPAWN_END) { d.phase = 'in'; bubble.hide(); }
+      } else if (d.phase === 'pop') {
+        // Swells and stretches, then bursts into droplets of its own gel.
+        const q = clamp01(d.t / POP_TIME);
+        size = 1 + 0.25 * q * q;
+        stretch = 1 + 0.1 * q;
+        o.current = 1;
+        if (d.t >= POP_TIME) {
+          fx.gelBursts[i].fire(x, BODY_Y, 1.1, 4.2);
+          d.phase = 'out';
+          o.current = 0;
+        }
+      } else {
+        o.current = 0;
+        spot.position.x = target;
+      }
+      spot.visible = o.current > 0.001;
+      spot.position.y = y;
+      spot.scale.set(-size / Math.sqrt(stretch), size * stretch, size / Math.sqrt(stretch));
+      spot.rotation.x = lean;
+
+      // The shocked show a "!" over their heads.
+      const mark = fx.exclaims[i];
+      const showMark = react.kind === 'shock' && react.who[i] && d.phase === 'in' && react.t < SHOCK_END;
+      mark.visible = showMark;
+      if (showMark) {
+        const s = 0.9 * easeOutBack(react.t / 0.15) * clamp01((SHOCK_END - react.t) / 0.2);
+        mark.scale.set(s, s, 1);
+        mark.position.set(x + 0.55, HEAD_Y + y, 0.3);
       }
     });
+    fx.gelBursts.forEach((b) => b.update(dt));
+    fx.filmBursts.forEach((b) => b.update(dt));
+
+    // A 4:3 display keeps the stage smaller, in its own area on the right.
     const compact = state.size.width / state.size.height < 1.5;
-    rig.current.scale.setScalar(compact ? 0.72 : 1);
+    const display = compact ? 0.72 : 1;
+    // Raised on Song Select, the song list sits to the left, and in 4:3 the players dial: four
+    // players' stage shrinks to three players' width there so it stays clear of them.
+    const squeeze = compact ? 1 : lift.current / RAISE;
+    const fit = 1 - (1 - Math.min(1, puckWidth(3) / width.current)) * squeeze;
+    rig.current.scale.setScalar(display * fit);
+    // The puck widens around its middle; shift the stage left so its right edge stays put.
     rig.current.position.set(
-      (compact ? 3.65 : STAGE.x) + away * away * SLIDE,
+      (compact ? 3.65 : STAGE.x) - (width.current * fit - PUCK.r) * 0.8 * display + away * away * SLIDE,
       STAGE.y + lift.current + (still ? 0 : Math.sin(t * 1.3) * 0.06),
       STAGE.z,
     );
@@ -187,20 +375,33 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
       <group ref={rig} position={[STAGE.x + SLIDE, STAGE.y, STAGE.z]}>
         <Quiet>
           <Suspense fallback={null}>
-            <Puck />
-            {DANCERS.map((d, person) => (
+            <group ref={sizePuck}>
+              <Puck />
+            </group>
+            {fx.bubbles.map((b, i) => <primitive key={`bubble${i}`} object={b.mesh} />)}
+            {[...fx.gelBursts, ...fx.filmBursts].map((b, i) => <primitive key={`burst${i}`} object={b.group} />)}
+            {fx.exclaims.map((s, i) => <primitive key={`mark${i}`} object={s} />)}
+            {APPEARANCES.map((appearance, i) => (
               <group
-                key={person}
-                ref={(g) => { spots.current[person] = g; }}
-                position={[d.x, 0, 0]}
-                scale={[-1, 1, 1]}
+                key={i}
+                ref={(g) => {
+                  // Placed once; after that the frame loop moves it, so a new count never snaps it.
+                  if (g && !placed.current[i]) {
+                    placed.current[i] = true;
+                    g.position.x = slotX(Math.min(i, n - 1), n);
+                    g.scale.set(-1, 1, 1);
+                    g.visible = i < n;
+                  }
+                  spots.current[i] = g;
+                }}
               >
                 <Character
                   motion={motion}
-                  person={person}
-                  playback={playback}
-                  appearance={d.appearance}
-                  opacityRef={person === 1 ? purpleOpacity : undefined}
+                  person={i % 2}
+                  playback={playback[i]}
+                  appearance={appearance}
+                  // Player 1 never leaves, so it keeps the solid (depth-writing) outline.
+                  opacityRef={i ? opacity[i] : undefined}
                 />
               </group>
             ))}

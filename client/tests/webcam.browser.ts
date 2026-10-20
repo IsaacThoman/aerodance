@@ -5,8 +5,8 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { staticStudio, browserStore } from '../../tools/choreography/tests/static-helpers.ts';
 import { openSidebar } from '../../tools/choreography/tests/helpers.ts';
-import { START, TWO_PLAYERS } from '../src/menu/layout.ts';
-import { DANCE, GAME_CALIBRATION_PREVIEW, rowRect } from '../src/game/layout.ts';
+import { MINUS, PLAYERS_GO, PLUS, START } from '../src/menu/layout.ts';
+import { BACK, DANCE, GAME_CALIBRATION_PREVIEW, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { appendOperation, trackDataIds, validateProject, validateTake, validateTrackData } from '../../tools/choreography/core.ts';
 import type { ProjectV3, StudioAssets, Take } from '../../tools/choreography/core.ts';
@@ -16,7 +16,7 @@ import type { Page } from 'playwright';
 
 /** What the page script adds to window: the synthetic camera's controls and counters. */
 type TestWindow = typeof window & {
-  cameraRequests: number; cameraStops: number; cameraMode: 'normal' | 'denied'; cameraViewScale: number;
+  cameraRequests: number; cameraStops: number; cameraMode: 'normal' | 'denied'; cameraViewScale: number; cameraPeople: number;
   poseDiagnostics?: unknown;
 };
 
@@ -44,7 +44,7 @@ async function pageFor(port: number) {
         if (Reflect.get(Type.prototype, name)) Reflect.set(Type.prototype, name, () => {});
     }
     const w = window as TestWindow;
-    w.cameraRequests = 0; w.cameraStops = 0; w.cameraMode = 'normal'; w.cameraViewScale=1;
+    w.cameraRequests = 0; w.cameraStops = 0; w.cameraMode = 'normal'; w.cameraViewScale=1; w.cameraPeople = 2;
     const NativeWorker = Worker;
     w.Worker = class extends NativeWorker {
       constructor(...args: ConstructorParameters<typeof Worker>) {
@@ -67,8 +67,9 @@ async function pageFor(port: number) {
           g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
           const offset = Math.sin(count++ / 20) * 2;
           g.save(); g.translate(320,240); g.scale(w.cameraViewScale,w.cameraViewScale); g.translate(-320,-240);
-          g.drawImage(image, 200, 0, 600, 667, offset, 40, 320, 356);
-          g.drawImage(image, 200, 0, 600, 667, 320 + offset, 40, 320, 356);
+          // Side by side, one per lane; three are squeezed into narrower lanes at full height.
+          const n = w.cameraPeople, width = 640 / n;
+          for (let i = 0; i < n; i++) g.drawImage(image, 200, 0, 600, 667, i * width + offset, 40, width, 356);
           g.restore();
         };
         draw(); const stream = canvas.captureStream(20), timer = setInterval(draw, 50);
@@ -94,6 +95,13 @@ try {
       frame.y + (rect.y + h / 2) / 900 * frame.height);
   };
   const until = (key: string, value: string) => gamePage.waitForFunction(([key, value]) => document.querySelector('canvas')?.dataset[key] === value, [key, value]);
+  // Turns the players dial one step at a time to n, waiting for each step.
+  const dialTo = async (n: number) => {
+    for (let cur = Number(await gamePage.locator('canvas').getAttribute('data-menu-players')); cur !== n; cur += cur < n ? 1 : -1) {
+      await click(cur < n ? PLUS : MINUS);
+      await until('menuPlayers', String(cur < n ? cur + 1 : cur - 1));
+    }
+  };
   await until('menuReady', 'true');
 
   studio = await pageFor(4181);
@@ -228,7 +236,7 @@ try {
     supportedPlayerCounts: [1, 2], bundleRevision: song.bundleRevision, bundle: 'webcam-capture/song.json',
   }] }) }));
   await click(START); await until('menuScreen', 'players'); await until('menuReady', 'true');
-  await click(TWO_PLAYERS); await until('songReady', 'true'); await click(rowRect(0));
+  await dialTo(2); await click(PLAYERS_GO); await until('songReady', 'true'); await click(rowRect(0));
   await until('previewState', 'playing'); await until('stageReady', 'true');
   await studio.getByRole('button', { name: 'Live view', exact: true }).click();
   await openSidebar(studio, 'Configuration');
@@ -244,8 +252,15 @@ try {
   await game.evaluate(() => { (window as TestWindow).cameraMode = 'normal'; }); await click(GAME_CALIBRATION_PREVIEW);
   await until('gameCameraStatus', 'connected'); await until('gameCameraModel', 'lite');
   await game.keyboard.press('Escape'); await until('songScreen', 'list'); await until('playerSlots', 'Detected|Detected');
+  // Three people, one per lane: MediaPipe tracks three poses. (Four copies of this wide-stance
+  // photo are too small or overlap too much to be found; see docs/three-and-four-players.md.)
+  await game.evaluate(() => { (window as TestWindow).cameraPeople = 3; });
+  await until('songReady', 'true'); await game.waitForTimeout(500);
+  await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
+  await dialTo(3); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected|Detected');
+  assert.equal(await game.evaluate(() => ((window as TestWindow).poseDiagnostics as unknown[] | undefined)?.length), 3, 'MediaPipe reports three poses');
   assert.deepEqual(errors, []);
-  console.log('Webcam integration passed: all Studio models, real two-player inference, game camera permissions on calibration, cleanup, Studio live view, frame-timed recording, export, game bundle playback, persistence.');
+  console.log('Webcam integration passed: all Studio models, real two- and three-player inference, game camera permissions on calibration, cleanup, Studio live view, frame-timed recording, export, game bundle playback, persistence.');
 } catch (error) {
   if (game) console.error('Game state:', await game.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
   if (studio) console.error('Studio capture:', await studio.locator('.body-calibration, .connection-status, [role=status]').allInnerTexts().catch(() => []));

@@ -13,7 +13,7 @@ import ResultsScreen from './game/ResultsScreen.tsx';
 import { GameSession } from './game/GameSession.ts';
 import type { GamePhase, SongRoutine } from './game/GameSession.ts';
 import { recordResults } from './game/bestScores.ts';
-import { PLAYERS, winnerOf } from './game/results.ts';
+import { PLAYERS, leadersOf, winnerOf } from './game/results.ts';
 import type { ResultsShow } from './game/results.ts';
 import StageView from './stage/StageView.tsx';
 import { diagnostic } from './diagnostics.ts';
@@ -80,7 +80,11 @@ export default function App() {
   // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select) or 'game' (a song).
   const [screen, setScreen] = useState<AppScreen>('menu');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
+  // The menu screen actually showing.
+  const [menuShown, setMenuShown] = useState<MenuScreen>('main');
   const [playerCount, setPlayerCount] = useState<PlayerCount>(1);
+  // The players screen's dial; it only becomes playerCount once Let's dance is pressed.
+  const [dialCount, setDialCount] = useState<PlayerCount>(1);
   // The live camera (this computer's webcam or a paired phone), with optional URL replay.
   const [source] = useState(() => new CameraInput());
   const [replay] = useState(replaySource);
@@ -163,7 +167,7 @@ export default function App() {
       if (session.phase !== 'results' || !session.results) return;
       const results = session.results.map((r, i) => ({ ...PLAYERS[i], ...r }));
       const best = recordResults(session.bundle.song.songId, session.playerCount, session.results);
-      resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), best };
+      resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), leaders: leadersOf(results), best };
       if (session.recordingBytes) download(`${session.bundle.song.songId}-poses.adpose`, session.recordingBytes);
     });
   }, [game]);
@@ -208,12 +212,17 @@ export default function App() {
           <MenuDancers
             visible={(menuOpen || songsOpen) && !stage.showing && !diagnostic('nodancers')}
             raised={songsOpen}
-            solo={songsOpen && playerCount === 1}
+            // One dancer per player: the dial's count on the players screen, the chosen count on
+            // Song Select, and the duet everywhere else.
+            count={songsOpen ? playerCount : menuOpen && menuShown === 'players' ? dialCount : 2}
           />
           <MainMenu
             visible={menuOpen}
             initialScreen={menuScreen}
+            playerCount={dialCount}
+            onPlayerCountChange={setDialCount}
             onStart={choosePlayers}
+            onScreenChange={setMenuShown}
             sound={sound}
             onSoundChange={setSound}
           />

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { WebcamPoseSource } from '../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PoseWorker, WebcamPoseSourceOptions } from '../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PoseWorkerRequest, PoseWorkerResponse } from '../../packages/pose/browser/pose.worker.ts';
-import { assignPlayerSlots, PlayerSlotMapper } from '../../packages/pose/browser/slots.ts';
+import { assignPlayerSlots, laneOf, PlayerSlotMapper } from '../../packages/pose/browser/slots.ts';
 import { validateWebcamRecord } from '../../packages/pose/webcamRecord.ts';
 import type { WebcamRecord } from '../../packages/pose/webcamRecord.ts';
 
@@ -32,6 +32,20 @@ test('two-player slots require consecutive evidence and clear immediately on amb
   assert.deepEqual(slots.map([points(0.25)], 2), []);
   assert.deepEqual(slots.map([points(0.75)], 2), []);
   assert.deepEqual(slots.map([points(0.75)], 2).map(p => p.playerId), [0]);
+});
+test('three and four players get one camera lane each, P1 on the left of the mirrored preview', () => {
+  // Unmirrored camera x: P1's lane is on the camera's right.
+  assert.deepEqual([0.875, 0.625, 0.375, 0.125].map(x => laneOf(x, 4)), [0, 1, 2, 3]);
+  assert.deepEqual([0.85, 0.5, 0.15].map(x => laneOf(x, 3)), [0, 1, 2]);
+  assert.deepEqual([0.5, 0.26, 0.74].map(x => laneOf(x, 4)), [null, null, null]);
+  assert.deepEqual([1 / 3, 2 / 3].map(x => laneOf(x, 3)), [null, null]);
+  assert.deepEqual(assignPlayerSlots([points(0.1), points(0.9), points(0.4)], 4).map(p => p.playerId), [0, 2, 3]);
+  assert.deepEqual(assignPlayerSlots([points(0.6), points(0.7)], 4), []);
+  const slots = new PlayerSlotMapper();
+  const all = [points(0.875), points(0.625), points(0.375), points(0.125)];
+  assert.deepEqual(slots.map(all, 4), []);
+  assert.deepEqual(slots.map(all, 4).map(p => p.playerId), [0, 1, 2, 3]);
+  assert.deepEqual(slots.map(all.slice(0, 3), 4).map(p => p.playerId), [0, 1, 2]);
 });
 test('webcam slots use camera regions, preserve missing dancers and reject ambiguity', () => {
   assert.deepEqual(assignPlayerSlots([points(0.75), points(0.25)], 2).map(p => [p.playerId, p.landmarks[0].x]), [[0, 0.75], [1, 0.25]]);

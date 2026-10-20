@@ -25,7 +25,7 @@ const GOLD: Face = ['#fff6cc', '#ffd34d', '#f0a500'];
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number, song: Song, width: number) {
-  const { results, winner } = show;
+  const { results, winner, leaders } = show;
   const { t, count, reveal } = timeline(show, now);
   const solo = results.length === 1;
   let title;
@@ -46,32 +46,43 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
   g.font = `600 24px ${FONT}`;
   drawShadowText(g, ellipsize(g, [song.title, song.artist].filter(Boolean).join(' · '), width - 160), width / 2, 172, { size: 24, weight: 600, align: 'center' });
 
+  // One score centred, two side by side, or three or four in narrower columns.
+  const compact = width === 1200;
+  const crowd = results.length > 2;
+  const column = crowd ? width / (results.length + 0.5) : compact ? 500 : 600;
   results.forEach((r, i) => {
-    // One score centred, or two side by side.
-    const spacing = width === 1200 ? 500 : 600;
-    const x = width / 2 + (solo ? 0 : (i - 0.5) * spacing);
+    const x = width / 2 + (i - (results.length - 1) / 2) * column;
     const p = PLAYERS[i % PLAYERS.length];
     const win = !solo && winner === i;
-    const lose = !solo && winner !== null && !win;
+    // With three or four players a tie can leave others behind: they fade like a loser.
+    const lose = !solo && !leaders.includes(i);
     g.save();
     g.globalAlpha *= lose ? 1 - 0.2 * reveal : 1;
-    const status = solo ? 'FINAL SCORE' : winner === null && t >= REVEAL ? 'TIED' : null;
+    const status = solo ? 'FINAL SCORE' : winner === null && leaders.includes(i) && t >= REVEAL ? 'TIED' : null;
     if (status) drawCaps(g, status, x, 590, { size: 20, align: 'center' });
     g.font = `800 22px ${FONT}`;
-    drawCaps(g, ellipsize(g, r.name.toUpperCase(), 350), x, 625, { size: 22, align: 'center' });
+    drawCaps(g, ellipsize(g, r.name.toUpperCase(), Math.min(350, column - 40)), x, 625, { size: 22, align: 'center' });
     const grow = win ? 0.12 * backOut(clamp01((t - REVEAL) / 0.32)) : 0;
     g.save();
     g.translate(x, 700);
     g.scale(1 + grow, 1 + grow);
-    headline(g, Math.round(r.score * count).toLocaleString('en-US'), 0, 0, 78, win && reveal > 0 ? GOLD : ['#ffffff', p.light, p.color], width === 1200 ? 430 : 520);
+    headline(g, Math.round(r.score * count).toLocaleString('en-US'), 0, 0, crowd ? 62 : 78, win && reveal > 0 ? GOLD : ['#ffffff', p.light, p.color], Math.min(compact ? 430 : 520, column - 40));
     g.restore();
     // Grade, accuracy and judgements once the count finishes.
     g.globalAlpha *= clamp01((t - REVEAL + 0.2) / 0.4);
     const j = r.judgements;
-    drawShadowText(g, `Grade ${r.grade} · ${pct(r.accuracy)}`, x, 742, { size: 24, weight: 800, align: 'center' });
-    const line = `${j.perfect} Perfect · ${j.good} Good · ${j.ok} OK · ${j.miss + j.lost} Miss · combo ${r.maxCombo}`;
-    g.font = `700 19px ${FONT}`;
-    drawShadowText(g, ellipsize(g, line, width === 1200 ? 470 : 560), x, 770, { size: 19, weight: 700, align: 'center', color: '#e6f8ff' });
+    drawShadowText(g, `Grade ${r.grade} · ${pct(r.accuracy)}`, x, crowd ? 738 : 742, { size: crowd ? 22 : 24, weight: 800, align: 'center' });
+    const counts = `${j.perfect} Perfect · ${j.good} Good · ${j.ok} OK · ${j.miss + j.lost} Miss`;
+    const combo = `combo ${r.maxCombo}`;
+    const size = crowd ? 17 : 19;
+    const room = Math.min(compact ? 470 : 560, column - 30);
+    g.font = `700 ${size}px ${FONT}`;
+    // Narrow columns put the max combo on a line of its own, or after OK and Miss when a long
+    // song's counts don't fit on one.
+    const lines = !crowd ? [`${counts} · ${combo}`]
+      : g.measureText(counts).width <= room ? [counts, combo]
+      : [`${j.perfect} Perfect · ${j.good} Good`, `${j.ok} OK · ${j.miss + j.lost} Miss · ${combo}`];
+    lines.forEach((line, k) => drawShadowText(g, ellipsize(g, line, room), x, (crowd ? 762 : 770) + k * 21, { size, weight: 700, align: 'center', color: '#e6f8ff' }));
     if (r.coverage < 0.8) drawShadowText(g, `Tracked for ${pct(r.coverage)} of the song`, x, 560, { size: 19, weight: 700, align: 'center', color: '#ffe27a' });
     g.restore();
   });

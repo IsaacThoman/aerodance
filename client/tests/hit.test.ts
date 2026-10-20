@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MIN_TOUCH_PX, hit, widgetAt } from '../src/ui/hit.ts';
 import type { Rect } from '../src/ui/draw.ts';
-import { BACK as MENU_BACK, ONE_PLAYER, TWO_PLAYERS } from '../src/menu/layout.ts';
+import { MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS } from '../src/menu/layout.ts';
 import { BACK, DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_READY_BACK, PAGE_DOWN, PAGE_UP,
   RESULTS_RETRY, RESULTS_SONGS, rowRect } from '../src/game/layout.ts';
 
@@ -75,9 +75,11 @@ test('on an iPhone SE, the game’s small targets answer 44 points across, or up
   // The page arrows give way to the songs beside them, halfway across the gap.
   assert.equal(widgetAt(list, { x: PAGE_UP.x - PAGE_UP.r - 8, y: PAGE_UP.y }, SE)?.id, 'row-0');
 
-  const players: Shape[] = [{ id: 'back', circle: MENU_BACK }, asRect('one', ONE_PLAYER), asRect('two', TWO_PLAYERS)];
-  assert.ok(points(span(players, 'one', 'y', SE)) >= 44 - 0.5);
-  assert.ok(points(span(players, 'back', 'x', SE)) >= 44 - 0.5);
+  const players: Shape[] = [{ id: 'back', circle: PLAYERS_BACK }, { id: 'minus', circle: MINUS }, { id: 'plus', circle: PLUS }, asRect('go', PLAYERS_GO)];
+  for (const id of ['back', 'minus', 'plus']) {
+    for (const axis of ['x', 'y'] as const) assert.ok(points(span(players, id, axis, SE)) >= 44 - 0.5, `${id} ${axis}`);
+  }
+  assert.ok(points(span(players, 'go', 'y', SE)) >= 44 - 0.5);
 
   const calibration: Shape[] = [{ id: 'quit', circle: GAME_READY_BACK }, asRect('start-camera', GAME_CALIBRATION_PREVIEW),
     asRect('camera-prev', GAME_CALIBRATION_CAMERA.prev), asRect('camera-next', GAME_CALIBRATION_CAMERA.next)];

@@ -52,6 +52,32 @@ test('absence and long gaps cannot become frozen or interpolated players',()=>{
   bundle.choreography.samples.splice(1,1);
   assert.deepEqual(sampleSong(decoded(bundle),250,2).poses,[]);
 });
+test('three and four players dance the parts of the duet again, with their own ids and exclusions',()=>{
+  const bundle = bundleFixture(), song = decoded(bundle);
+  const two = sampleSong(song,200,2), four = sampleSong(song,200,4), three = sampleSong(song,200,3);
+  assert.deepEqual(four.poses.map(p=>p.playerId),[0,1,2,3]);
+  assert.deepEqual(four.quality.map(q=>q.playerId),[0,1,2,3]);
+  assert.deepEqual(four.poses[2].landmarks,two.poses[0].landmarks); assert.deepEqual(four.poses[3].landmarks,two.poses[1].landmarks);
+  assert.notEqual(four.poses[2].landmarks,four.poses[0].landmarks);
+  assert.deepEqual(three.poses.map(p=>p.playerId),[0,1,2]);
+  assert.ok(sampleSong(song,350,4).quality.every(q=>q.scoreEligible.every(v=>!v)));
+  assert.ok(sampleSong(song,400,4).quality.every(q=>q.scoreEligible.some(Boolean)));
+  // Each part's exclusions follow everyone who dances it.
+  const parts = bundleFixture();
+  parts.choreography.tracks[1].unscorableIntervals = [{startMs:500,endMs:600,reason:'Part 2 only'}];
+  const excluded = (t: number) => sampleSong(decoded(parts),t,4).quality.map(q=>q.scoreEligible.every(v=>!v));
+  assert.deepEqual(excluded(350),[true,false,true,false]);
+  assert.deepEqual(excluded(550),[false,true,false,true]);
+  // A missing part is missing for everyone who dances it.
+  bundle.choreography.samples[1].poses = [bundle.choreography.samples[1].poses[1]];
+  bundle.choreography.samples[1].quality = [bundle.choreography.samples[1].quality[1]];
+  assert.deepEqual(sampleSong(decoded(bundle),300,4).poses.map(p=>p.playerId),[1,3]);
+});
+test('songs list every player count from one up to four',()=>{
+  const {entry} = bundleFixture();
+  for (const counts of [[1,2],[1,2,3],[1,2,3,4]]) validateCatalog({version:1,songs:[{...entry,supportedPlayerCounts:counts}]});
+  for (const counts of [[1],[2,1],[1,3],[1,2,3,4,5],[1,2,4]]) assert.throws(()=>validateCatalog({version:1,songs:[{...entry,supportedPlayerCounts:counts}]}));
+});
 test('a schema 1 JSON choreography loads into the same frames as its binary export',()=>{
   const binary = decoded(bundleFixture()), legacy = bundleFixture();
   const json = { song: legacy.song, choreography: validateSongChoreography(legacy.song, legacyJson(legacy)) };

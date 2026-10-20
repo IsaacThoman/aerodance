@@ -112,7 +112,7 @@ Store build. Archiving and exporting, uploading to TestFlight and build numbers
 the draw calls per frame and the device's thermal state (`ProcessInfo.thermalState`, and Low Power
 Mode) to this Mac (port 8766); `--report-to <url>` sends them elsewhere. It also prints the page's
 safe area insets, the host state and the saved keys.
-`--flow` presses through One Player, the first song and Dance! to the results, for benchmarks.
+`--flow` presses through one player (the dial's starting count), the first song and Dance! to the results, for benchmarks.
 `--drive '<json>'` plays steps in the Apple TV app's format, waiting on the canvas's `data-*`
 state between them, plus taps in the current canvas layout's design units: 1200×900 for Standard (4:3),
 1600×900 for Widescreen (16:9), reported as `dataset.displayMode`. Each step is reported:
@@ -151,7 +151,7 @@ xcrun simctl io <simulator UDID> screenshot --display=external tv.png
 
 `tests/` has UI tests (XCTest) that drive the installed app in a simulator by its bundle ID, with
 real touches: it launches and reaches the main menu, an iPhone holds it in landscape even upright,
-One Player and the first song tapped at their `layout.ts` positions open the song preview, an
+Let's dance (for one player, the dial's starting count) and the first song tapped at their `layout.ts` positions open the song preview, an
 iPad turns portrait, landscape and back, and a TV connected (through `tools/simscreen.m`) while
 the device is held sideways shows the remote with every control on screen, upright on an iPhone,
 and the game comes back in landscape when the TV goes.

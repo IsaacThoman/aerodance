@@ -1,9 +1,10 @@
 import type { PlayerResult } from '../../../packages/score/scorer.ts';
 import type { BestScoreRecord } from './bestScores.ts';
+import { PLAYER_COLORS } from '../menu/layout.ts';
 
 /*
  * Round outcomes for the results screens: one entry per
- * dancer, seat 0 the blue dancer and seat 1 the purple one, each with its score.
+ * dancer, seats 0-3 the blue, purple, green and pink dancers, each with its score.
  */
 
 /** A seat's name and colours (the dancers' gel colours, lighter and darker). */
@@ -18,13 +19,23 @@ export interface ResultsShow {
   results: SeatResult[];
   /** The winning seat, or null for a tie or a solo round. */
   winner: number | null;
+  /** The seats sharing the top score: the winner, everyone tied for first, or the solo dancer. */
+  leaders: number[];
   best: BestScoreRecord;
 }
 
 export const PLAYERS: readonly PlayerLook[] = [
-  { name: 'Player 1', color: '#078fff', light: '#7fd0ff', dark: '#0558b0' },
-  { name: 'Player 2', color: '#b86bff', light: '#dcb8ff', dark: '#6a2bc0' },
+  { name: 'Player 1', color: PLAYER_COLORS[0], light: '#7fd0ff', dark: '#0558b0' },
+  { name: 'Player 2', color: PLAYER_COLORS[1], light: '#dcb8ff', dark: '#6a2bc0' },
+  { name: 'Player 3', color: PLAYER_COLORS[2], light: '#a3f5c6', dark: '#0e8a48' },
+  { name: 'Player 4', color: PLAYER_COLORS[3], light: '#ffbfe0', dark: '#c02a7c' },
 ];
+
+/** The seats with the highest score. */
+export function leadersOf(results: readonly { score: number }[]) {
+  const top = Math.max(...results.map((r) => r.score));
+  return results.flatMap((r, i) => (r.score === top ? [i] : []));
+}
 
 /** Index of the single highest score; null for a tie or a solo round. */
 export function winnerOf(results: readonly { score: number }[]) {

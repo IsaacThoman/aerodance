@@ -20,7 +20,7 @@ final class AerodanceUITests: XCTestCase {
   struct Layout: Decodable {
     struct Rect: Decodable { let x, y, w, h: Double }
     let design: [Double]
-    let start, onePlayer, firstSong, dance: Rect
+    let start, letsDance, firstSong, dance: Rect
   }
 
   let env = ProcessInfo.processInfo.environment
@@ -57,7 +57,8 @@ final class AerodanceUITests: XCTestCase {
     XCTAssertGreaterThan(size.width, size.height, "the app's window is \(size.width)x\(size.height) with the phone upright: not landscape")
   }
 
-  // Real touches: One Player, then the first song, at their layout positions.
+  // Real touches: Let's dance (the players dial starts at one), then the first song, at their
+  // layout positions.
   func test3TapsThroughToSongPreview() throws {
     let layouts = try JSONDecoder().decode([String: Layout].self, from: Data((env["AERODANCE_LAYOUT"] ?? "").utf8))
     XCUIDevice.shared.orientation = .landscapeLeft
@@ -72,7 +73,7 @@ final class AerodanceUITests: XCTestCase {
     tap(layout.start, in: frame, design: layout.design)
     waitFor(["menuScreen": "players", "menuReady": "true"])
     shot("3-players")
-    tap(layout.onePlayer, in: frame, design: layout.design)
+    tap(layout.letsDance, in: frame, design: layout.design)
     waitFor(["songScreen": "list", "songReady": "true", "catalog": "ready"])
     shot("3-song-list")
     tap(layout.firstSong, in: frame, design: layout.design)

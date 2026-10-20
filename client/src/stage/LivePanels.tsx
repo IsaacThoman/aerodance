@@ -3,14 +3,16 @@ import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type * as THREE from 'three';
 import Character from '../../../packages/character/Character.tsx';
+import { MAX_PLAYERS } from '../../../packages/pose/choreography.ts';
 import type { PlayerCount, Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
 import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
 import { displayDesign } from '../display.ts';
-import { LIVE_PANEL, livePanelCenterX } from '../game/layout.ts';
+import { LIVE_PANEL, livePanelCenterX, livePanelHeight } from '../game/layout.ts';
 
 /*
- * The players' own characters during a song: one small glass dancer per player in the top
- * corners (player 1 left, player 2 right), copying their live pose. They ride along in
+ * The players' own characters during a song: one small glass dancer per player in their
+ * colour in the top corners (player 1 left, player 2 right; with three or four, players 1 and
+ * 2 left and the rest right), copying their live pose. They ride along in
  * front of the stage camera, so they stay put while it drifts, and are mirrored like the
  * reference dancers so a player's raised right hand shows on the same side as the coach's.
  *
@@ -53,7 +55,7 @@ function LivePlayer({ id, live, anchor }: LivePlayerProps) {
 
 export default function LivePanels({ live }: { live: LiveDancers }) {
   const root = useRef<THREE.Group>(null);
-  const anchors = useMemo((): RefObject<THREE.Group | null>[] => [{ current: null }, { current: null }], []);
+  const anchors = useMemo((): RefObject<THREE.Group | null>[] => Array.from({ length: MAX_PLAYERS }, () => ({ current: null })), []);
   useFrame(({ camera, size }) => {
     const g = root.current;
     if (!g || !('isPerspectiveCamera' in camera)) return;
@@ -63,11 +65,13 @@ export default function LivePanels({ live }: { live: LiveDancers }) {
     g.quaternion.copy(camera.quaternion);
     const viewH = 2 * DISTANCE * Math.tan((camera.fov * Math.PI) / 360);
     const viewW = viewH * camera.aspect;
-    const scale = (LIVE_PANEL.height * viewH) / HEIGHT;
-    for (let id = 0; id < live.playerCount; id++) {
+    const count = live.playerCount;
+    const height = livePanelHeight(count);
+    const scale = (height * viewH) / HEIGHT;
+    for (let id = 0; id < count; id++) {
       const a = anchors[id].current;
       if (!a) continue;
-      a.position.set((livePanelCenterX(id, displayDesign(size.width, size.height).w) - 0.5) * viewW, (0.5 - LIVE_PANEL.top - LIVE_PANEL.height) * viewH, -DISTANCE);
+      a.position.set((livePanelCenterX(id, count, displayDesign(size.width, size.height).w) - 0.5) * viewW, (0.5 - LIVE_PANEL.top - height) * viewH, -DISTANCE);
       a.scale.setScalar(scale);
     }
   }, 0.5);
