@@ -32,6 +32,8 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 | `falls-meadow` | `1-sky` (the valley, falls and sky beyond the clifftop), `2-meadow`, `3-dancers`, `4-foreground` (the grass in front of the lens), `5-logo` |
 | `beach-hero` | `1-sky` (the sun, clouds and horizon), `2-sea`, `3-beach` (the sand and the palm), `4-dancers`, `5-logo` |
 
+`falls-meadow-glass/` and `beach-hero-glass/` are the same icons with see-through dancers: their layer keeps the glass's real transparency, so the layers behind show through them as the icon tilts, instead of a copy of what was behind them in the shot. The dancers are tone-mapped on their own there, so they come out a little deeper than in the game, and without the bloom of their glints.
+
 The back layer is opaque and the rest are transparent. Each layer is rendered in-engine with what's in front of it cut away, so the layers behind still hold the scene where the tilt uncovers it, and the dancers' shadows stay on the ground behind them. Drop a size's layers into Apple's Parallax Previewer to see the effect or export an `.lsr`, or into an Xcode image stack. Leave out `5-logo` for an icon without the wordmark.
 
 To render them again:
