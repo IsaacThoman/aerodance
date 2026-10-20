@@ -157,7 +157,10 @@ OSStatus RenderBlock(BOOL *silence, const AudioTimeStamp *ts, AVAudioFrameCount 
     return noErr;
   }
   double t0 = gFrames / gRate;
-  if (ts->mFlags & kAudioTimeStampHostTimeValid) { gStampContext = t0; gStampPerf = HostMs(ts->mHostTime) + gLatency * 1000; }
+  // getOutputTimestamp: the context time being heard at a host time, as browsers report it. t0
+  // reaches the speakers gLatency after this render's host time, so at that host time the
+  // speakers play t0 - gLatency (songPlayer.ts's audibleTime then adds no latency of its own).
+  if (ts->mFlags & kAudioTimeStampHostTimeValid) { gStampContext = t0 - gLatency; gStampPerf = HostMs(ts->mHostTime); }
   gBlock++;
   Render(0, (int)frames, t0, ended);
   Retire(t0 + frames / gRate, ended);

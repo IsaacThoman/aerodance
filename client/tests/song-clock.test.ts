@@ -23,6 +23,15 @@ test('WebKit\'s timestamp is the rendered position, so the output latency it lea
   close(audibleTime(ctx, 5100, 5100), 10.1 - 0.195);
 });
 
+test('the Apple TV app\'s timestamp already trails by its latency, so nothing more is taken off', () => {
+  // client-tvos/src/Audio.mm: a render of 10.0 s starts at host time 5000 ms and is heard 210 ms
+  // later (Bluetooth), so it reports 9.79 s at 5000 ms; one 512-frame block is rendered past it.
+  const ctx: AudioClock = { state: 'running', currentTime: 10 + 512 / 48000, baseLatency: 0.005, outputLatency: 0.21,
+    getOutputTimestamp: () => ({ contextTime: 10 - 0.21, performanceTime: 5000 }) };
+  close(audibleTime(ctx, 5000, 5000), 9.79);
+  close(audibleTime(ctx, 5210, 5000), 10, 'the 10 s render is heard 210 ms after it started');
+});
+
 test('without a timestamp, the clock is the context time less its latency', () => {
   const ctx: AudioClock = { state: 'running', currentTime: 10, baseLatency: 0.01, outputLatency: 0 };
   close(audibleTime(ctx, 5000, 5000), 9.99);
