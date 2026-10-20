@@ -99,6 +99,11 @@ export type PoseHeaderInput = Omit<PoseFileHeader, 'positionStep' | 'extensionId
 
 function fail(message: string): never { throw Error(`Invalid pose file: ${message}`); }
 function check(condition: unknown, message: string): asserts condition { if (!condition) fail(message); }
+// Only a game recording holds three or four players; everything Studio makes is a duet.
+function checkSlots(kind: PoseFileKind, playerSlots: number) {
+  check(Number.isInteger(playerSlots) && playerSlots >= 1 && playerSlots <= MAX_PLAYERS, `player slots must be 1 to ${MAX_PLAYERS}`);
+  if (kind !== 'recording') check(playerSlots <= DUET, `a ${kind} holds at most two slots`);
+}
 const encoder = new TextEncoder();
 const pad8 = (n: number) => (8 - n % 8) % 8;
 export const confidenceValue = (byte: number) => byte === NULL_CONFIDENCE ? null : byte / 254;
@@ -180,6 +185,7 @@ export function buildFrames(header: PoseHeaderInput, inputs: readonly FrameInput
   const positionStep = header.positionStep ?? DEFAULT_POSITION_STEP;
   const extensionIds = header.extensionIds ?? [];
   const extensionBases = header.extensionBases ?? extensionIds.map(id => inputs[0]?.extensions?.[id] ?? 0);
+  checkSlots(header.kind, header.playerSlots);
   const full: PoseFileHeader = { ...header, positionStep, extensionIds, extensionBases };
   const P = header.playerSlots, n = inputs.length, threshold = thresholdOf(header);
   const frames: PoseFrames = {
@@ -372,7 +378,7 @@ function readHead(payload: Uint8Array) {
   check(r.u16() === 1, 'unsupported format version');
   const kind = KINDS[r.u8() - 1], clock = CLOCKS[r.u8() - 1], playerSlots = r.u8(), landmarkSet = r.u8(), flags = r.u8(), model = r.u8();
   check(kind && clock === KIND_CLOCK[kind], 'unknown kind or clock');
-  check(playerSlots >= 1 && playerSlots <= MAX_PLAYERS, `player slots must be 1 to ${MAX_PLAYERS}`);
+  checkSlots(kind, playerSlots);
   check(landmarkSet === 1, 'unknown landmark set');
   check((flags & ~1) === 0 && model <= MODEL_IDS.length, 'unknown header flags or model');
   const input = { width: r.u16(), height: r.u16() }, positionStep = r.f32();
@@ -553,8 +559,6 @@ export function decodePoseFile(bytes: Uint8Array, { allowTruncated = false }: De
 }
 function checkKind(h: PoseFileHeader, tracks: TrackHeader[]) {
   if (h.kind === 'choreography' || h.kind === 'take' || h.kind === 'track') check(!h.extensionIds.length, `a ${h.kind} has no extension fields`);
-  // Only a game recording holds three or four players; everything Studio makes is a duet.
-  if (h.kind !== 'recording') check(h.playerSlots <= DUET, `a ${h.kind} holds at most two slots`);
   if (h.kind === 'choreography') {
     check(h.playerSlots === 2 && tracks.length === 2 && tracks.every((t, i) => t.slot === i && t.playerId === i), 'both tracks are required');
     const s = h.song!;

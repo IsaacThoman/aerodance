@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { qualityFor, sampleSnapshot } from '../choreography.ts';
-import type { LandmarkOrigin, Pose, PoseQuality, PoseSnapshot } from '../choreography.ts';
+import type { LandmarkOrigin, PlayerCount, Pose, PoseQuality, PoseSnapshot } from '../choreography.ts';
 import {
   CONFIDENCE_THRESHOLD, DEFAULT_POSITION_STEP, EXTENSION, PoseFileWriter, buildFrames, decodePoseFile, encodePoseFile,
   firstPresentFrame, framesFromSamples, framesToSamples, quantizeConfidence, quantizePosition, sampleFrames, sparseSamples, strideOf,
@@ -176,13 +176,14 @@ test('a game recording holds up to four players; every other kind at most two', 
   assert.equal(decoded.playerSlots, 4);
   assertClose(framesToSamples(decoded, 'songTimeMs')[0], { poses: four, quality: qualityFor(four) }, 0);
   assert.deepEqual(framesToSamples(decoded, 'songTimeMs')[1].poses.map(p => p.playerId), [3]);
-  // Five slots, or a three-slot capture, are refused.
+  // Five slots, or three in anything but a recording, are refused when writing and reading.
   const five = bytes.slice(); five[chunkAt(five, 'HEAD') + 4] = 5;
   assert.throws(() => decodePoseFile(five), /player slots must be 1 to 4/);
-  const capture: PoseHeaderInput = { kind: 'capture', playerSlots: 3, input: { width: 640, height: 480 }, modelId: 'lite', capture: { sourceKind: 'webcam', sessionId: 's', audioPlaybackRate: 1 } };
-  assert.throws(() => decodePoseFile(encodePoseFile(buildFrames(capture, [{ timeMs: 0, poses: four.slice(0, 3) }]))), /at most two slots/);
-  const take: PoseHeaderInput = { kind: 'take', playerSlots: 3, input: { width: 640, height: 480 }, modelId: null };
-  assert.throws(() => decodePoseFile(encodePoseFile(buildFrames(take, [{ timeMs: 0, poses: four.slice(0, 3) }]))), /at most two slots/);
+  assert.throws(() => buildFrames({ ...header, playerSlots: 5 as PlayerCount }, []), /player slots must be 1 to 4/);
+  for (const kind of ['capture', 'take', 'track', 'choreography'] as const)
+    assert.throws(() => buildFrames({ ...header, kind, playerSlots: 3, extensionIds: [] }, []), /at most two slots/, kind);
+  const valid3 = valid(); valid3[chunkAt(valid3, 'HEAD') + 4] = 3;
+  assert.throws(() => decodePoseFile(valid3), /a choreography holds at most two slots/);
 });
 
 const valid = () => encodePoseFile(framesFromSamples(choreographyHeader, [0, 1000, 2000].map(songTimeMs => ({ songTimeMs, poses: [pose(0, songTimeMs), pose(1, songTimeMs)] })), 'songTimeMs'));

@@ -433,7 +433,11 @@ async function main() {
     case 'goto': return print(await send(session, { cmd, target: args[0] ?? '/' }));
     case 'eval': return print(await send(session, { cmd, js: args.join(' ') }));
     case 'logs': return print(await send(session, { cmd, clear: args.includes('--clear') }));
-    case 'camera': return print(await send(session, { cmd, dancers: Number(args[0]) }));
+    case 'camera': {
+      const dancers = Number(args[0]);
+      if (!Number.isInteger(dancers) || dancers < 0 || dancers > 4) throw Error('camera takes 0 to 4 dancers');
+      return print(await send(session, { cmd, dancers }));
+    }
     case 'resize': {
       const [width, height] = (args[0] ?? '').split('x').map(Number);
       if (!width || !height) throw Error('resize needs <width>x<height>');

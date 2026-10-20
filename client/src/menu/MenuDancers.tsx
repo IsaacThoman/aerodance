@@ -389,7 +389,8 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
                   person={i % 2}
                   playback={playback[i]}
                   appearance={appearance}
-                  opacityRef={opacity[i]}
+                  // Player 1 never leaves, so it keeps the solid (depth-writing) outline.
+                  opacityRef={i ? opacity[i] : undefined}
                 />
               </group>
             ))}

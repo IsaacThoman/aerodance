@@ -123,11 +123,11 @@ choreography normally has a single `FRMS` chunk.
 | … | f64[] | `extensionBases` | One base time in ms per extension field, in the same order |
 
 `playerSlots` is the slot count, not the number of dancers present. A slot can
-be empty in any frame. A `track` file has one slot. A game `recording` has one
-per player, up to four (three and four players dance a duet's parts again; see
+be empty in any frame. A `track` file has one slot; the player it holds is named
+in `TRAK`. A game `recording` has one per player, up to four (three and four
+players dance a duet's parts again; see
 [three and four players](three-and-four-players.md)); every other kind is a duet
-at most. The player it holds is
-named in `TRAK`.
+at most.
 
 ### Frame extension fields
 

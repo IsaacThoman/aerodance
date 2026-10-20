@@ -170,6 +170,8 @@ export default function Character({
     if (opacityRef) {
       gel.opacity = (appearance.opacity ?? 0.72) * opacityRef.current;
       ink.opacity = opacityRef.current;
+      // Faded out entirely: nobody sees the pose, so skip it.
+      if (opacityRef.current <= 0) return;
     }
     if (applyPose) {
       const pose = poseRef?.current ?? null;
