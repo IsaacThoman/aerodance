@@ -148,6 +148,15 @@ test('player 1 in one-player mode scores the same as in two-player mode', () => 
   assert.deepEqual(solo[0], perfect[0]);
 });
 
+test('players 3 and 4 score against parts 1 and 2, the same as players 1 and 2', () => {
+  const four = play((id, t) => reference(id % 2, t), { players: 4 });
+  assert.equal(four.length, 4);
+  for (const id of [0, 1, 2, 3]) assert.equal(four[id].score, perfect[id % 2].score, `player ${id + 1}`);
+  // Player 3 copying part 2 instead of part 1 loses points.
+  const swapped = play((id, t) => reference(id === 2 ? 1 : id % 2, t), { players: 4 });
+  assert.ok(swapped[2].score < perfect[0].score * 0.9, `swapped part scored ${swapped[2].score}`);
+});
+
 test('judgements are emitted once per second of song with a running combo', () => {
   const scorer = createScorer(bundle, 1);
   const events: JudgementEvent[] = [];

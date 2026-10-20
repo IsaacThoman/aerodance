@@ -3,7 +3,7 @@ import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Character from '../../../packages/character/Character.tsx';
-import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
+import { DANCER_LOOKS, dancerSpot } from '../../../packages/stages/shared/Dancers.tsx';
 import type { DancerPlacement, StageMeta } from '../../../packages/stages/index.ts';
 import type { MotionTake } from '../../../packages/pose/motion.ts';
 import { PLAYERS, REVEAL, easeOut, timeline } from '../game/results.ts';
@@ -14,7 +14,8 @@ import type { ResultsShow } from '../game/results.ts';
  * reference dancers on the song's stage:
  *   - win: the winner steps up to centre stage under a light column, on a glowing halo in
  *     their colour, with confetti; the other dancer steps back and shrinks a little.
- *   - tie: both dancers stay side by side on gold halos.
+ *   - tie: the dancers stay side by side, the tied ones on gold halos (the rest step back as
+ *     in a win).
  *   - solo: the one dancer takes centre stage.
  * Everything animates from the dance-floor positions to the result at the reveal.
  */
@@ -164,16 +165,22 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
     seats.forEach((seat) => {
       const g = groups[seat].current;
       if (!g) return;
-      const start = solo ? 0 : (seat - (count - 1) / 2) * spacing / (count > 2 ? 2 : 1);
+      const spot = dancerSpot(seat, count, spacing);
+      const start = spot.x;
       let x = start;
       let z = 0;
       let sc = 1;
       if (solo) z = 0.6 * k;
       else if (s.winner === seat) { x = start * (1 - k); z = 0.8 * k; }
-      else if (s.winner !== null) { x = start * (1 + 0.55 * k); z = -1.6 * k; sc = 1 - 0.15 * k; }
+      else if (!s.leaders.includes(seat)) {
+        // In a crowd, losers also step aside, away from the centre the winner walks to (one
+        // starting in the middle, away from the winner's side), so none is left behind them.
+        const aside = count > 2 && s.winner !== null ? Math.sign(start || start - dancerSpot(s.winner, count, spacing).x) * spacing * 0.35 * k : 0;
+        x = start * (1 + 0.55 * k) + aside; z = -1.6 * k; sc = 1 - 0.15 * k;
+      }
       g.position.set(x, 0, z);
-      g.scale.setScalar(sc * (count > 2 ? 0.65 : 1));
-      const lit = solo || s.winner === null || s.winner === seat;
+      g.scale.setScalar(sc * spot.scale);
+      const lit = solo || s.leaders.includes(seat);
       halo[seat].current = lit ? glow : 0;
     });
     column.current = (solo || s.winner !== null ? 1 : 0) * glow;

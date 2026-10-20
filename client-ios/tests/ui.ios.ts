@@ -1,5 +1,5 @@
 // The iPhone/iPad app's UI tests in a simulator (AerodanceUITests.swift): it launches, reaches
-// the main menu, is landscape on an iPhone, taps through One Player and a song to the song
+// the main menu, is landscape on an iPhone, taps through Let's dance for one player and a song to the song
 // preview, turns both ways on an iPad, and shows the remote when a TV connects (the simulator's
 // TV-out screen, through ../tools/simscreen.m).
 //
@@ -87,7 +87,7 @@ if (generated.error || generated.status !== 0) throw Error('XcodeGen is needed t
 const layout = Object.fromEntries(Object.entries(DISPLAY_MODES).map(([mode, design]) => {
   const menu = menuLayout(design.w);
   const game = gameLayout(design.w);
-  return [mode, { design: [design.w, design.h], start: menu.START, onePlayer: menu.ONE_PLAYER, firstSong: game.rowRect(0), dance: game.DANCE }];
+  return [mode, { design: [design.w, design.h], start: menu.START, letsDance: menu.PLAYERS_GO, firstSong: game.rowRect(0), dance: game.DANCE }];
 }));
 const only = option('--only');
 const env = { ...process.env, TEST_RUNNER_AERODANCE_BUNDLE_ID: BUNDLE_ID, TEST_RUNNER_AERODANCE_PORT: port, TEST_RUNNER_AERODANCE_PATH: '/?input=ghost',

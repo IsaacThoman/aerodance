@@ -1,5 +1,6 @@
 import { sampleSong } from '../pose/song.ts';
 import type { SongBundle } from '../pose/song.ts';
+import { isPlayerCount, partOf } from '../pose/choreography.ts';
 import type { Landmark, PlayerCount } from '../pose/choreography.ts';
 import { LIMBS, TOTAL_WEIGHT, angleBetween, lerpDirections, limbDirections, liveUsable } from './features.ts';
 import type { LimbDirections } from './features.ts';
@@ -86,20 +87,25 @@ export const pointsShare = (s: number) => Math.min(1, Math.max(0, (s - FLOOR) / 
 export const judge = (s: number) => lookup(JUDGEMENTS, s);
 export const gradeFor = (accuracy: number) => lookup(GRADES, accuracy);
 
-/** Reference limb directions for one track on a fixed grid, from the bundle's choreography. */
+/**
+ * Reference limb directions for one choreography track (a part) on a fixed grid. Players who
+ * dance the same part (P1 and P3, P2 and P4) share it.
+ */
 type ReferenceGrid = (songTimeMs: number) => LimbDirections | null;
-function referenceGrid(bundle: SongBundle, playerCount: PlayerCount, playerId: number): ReferenceGrid {
+function referenceGrid(bundle: SongBundle, playerCount: PlayerCount, part: number): ReferenceGrid {
   const { song, choreography } = bundle;
-  const { inputWidth, inputHeight } = choreography.tracks[playerId].calibration;
+  const { inputWidth, inputHeight } = choreography.tracks[part].calibration;
+  // Only the parts are sampled: players 3 and 4 would just copy them.
+  const sampled = Math.min(playerCount, choreography.tracks.length) as PlayerCount;
   const aspect = inputWidth / inputHeight;
   const from = song.playableStartMs - MOTION_MS - 200;
   const count = Math.ceil((song.playableEndMs + 200 - from) / REF_STEP_MS) + 1;
   const dirs: (LimbDirections | null)[] = new Array(count);
   for (let i = 0; i < count; i++) {
     const t = from + i * REF_STEP_MS;
-    const { poses, quality } = sampleSong(bundle, t, playerCount);
-    const pose = poses.find((p) => p.playerId === playerId);
-    const q = quality.find((p) => p.playerId === playerId);
+    const { poses, quality } = sampleSong(bundle, t, sampled);
+    const pose = poses.find((p) => p.playerId === part);
+    const q = quality.find((p) => p.playerId === part);
     dirs[i] = pose && q ? limbDirections(pose.landmarks, aspect, q.scoreEligible) : null;
   }
   // Grid points sit exactly on multiples of REF_STEP_MS from `from`, so lookups are exact.
@@ -152,9 +158,8 @@ interface Track {
   scored: number; trackedIntervals: number; offsetSum: number; offsetCount: number;
   window: WindowEntry[]; judgements: JudgementCounts; combo: number; maxCombo: number;
 }
-function createTrack(bundle: SongBundle, playerCount: PlayerCount, playerId: number): Track {
+function createTrack(bundle: SongBundle, playerId: number, ref: ReferenceGrid): Track {
   const { song } = bundle;
-  const ref = referenceGrid(bundle, playerCount, playerId);
   const total = Math.floor((song.playableEndMs - song.playableStartMs) / INTERVAL_MS);
   const times = Array.from({ length: total }, (_, k) => song.playableStartMs + (k + 0.5) * INTERVAL_MS);
   // The scorable set is fixed by the reference alone: missing live input never shrinks it.
@@ -188,8 +193,11 @@ function liveAt(track: Track, t: number) {
 }
 
 export function createScorer(bundle: SongBundle, playerCount: PlayerCount): Scorer {
-  if (![1, 2].includes(playerCount)) throw Error('Invalid player count');
-  const tracks = Array.from({ length: playerCount }, (_, id) => createTrack(bundle, playerCount, id));
+  if (!isPlayerCount(playerCount)) throw Error('Invalid player count');
+  const parts = bundle.choreography.tracks.length;
+  const grids = new Map<number, ReferenceGrid>();
+  const gridFor = (part: number) => grids.get(part) ?? grids.set(part, referenceGrid(bundle, playerCount, part)).get(part)!;
+  const tracks = Array.from({ length: playerCount }, (_, id) => createTrack(bundle, id, gridFor(partOf(id, parts))));
   const listeners = new Set<(event: JudgementEvent) => void>();
   const emit = (event: JudgementEvent) => { for (const fn of listeners) fn(event); };
 

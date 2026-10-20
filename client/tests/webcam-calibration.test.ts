@@ -5,7 +5,8 @@ import type { CalibrationRecord } from '../src/game/webcamCalibration.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
 import type { PlayerCount, Pose } from '../../packages/pose/choreography.ts';
 
-const poses = (count: PlayerCount = 2): Pose[] => Array.from({ length: count }, (_, playerId) => ({ playerId, landmarks: standingPose(count === 1 ? 0.5 : 0.3 + playerId * 0.4) }));
+const laneX = (count: PlayerCount, id: number) => (count === 1 ? 0.5 : count === 2 ? 0.3 + id * 0.4 : (id + 0.5) / count);
+const poses = (count: PlayerCount = 2): Pose[] => Array.from({ length: count }, (_, playerId) => ({ playerId, landmarks: standingPose(laneX(count, playerId)) }));
 function camera(count: PlayerCount = 2) {
   const calibration = new WebcamCalibration(count);
   let seq = 0;
@@ -17,6 +18,21 @@ function camera(count: PlayerCount = 2) {
   };
   return { calibration, send, hold };
 }
+
+test('four players hold together; anyone missing or moving restarts the hold', () => {
+  const { calibration, send, hold } = camera(4);
+  hold(0, 2000, p => p.filter(pose => pose.playerId !== 2));
+  assert.deepEqual(calibration.status(2000).players, ['holding', 'holding', 'missing', 'holding']);
+  assert.equal(calibration.status(2000).progress, 0);
+  hold(2100, 3000);
+  hold(3100, 3100, p => { p[3].landmarks.forEach(j => { j.x += 0.05; }); return p; });
+  assert.equal(calibration.status(3100).players[3], 'moving');
+  hold(3200, 5600);
+  assert.equal(send(5700), true);
+  assert.deepEqual(calibration.status(5700).players, ['ready', 'ready', 'ready', 'ready']);
+  assert.equal(calibration.tracks?.length, 4);
+  for (const [id, track] of (calibration.tracks ?? []).entries()) assert.ok(Math.abs(track.baseHip.x - laneX(4, id)) < 0.003);
+});
 
 test('both players hold together for 2.5 seconds; jitter is allowed and each stance is calibrated', () => {
   const { calibration, send, hold } = camera();

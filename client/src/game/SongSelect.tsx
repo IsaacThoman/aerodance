@@ -78,6 +78,8 @@ const CATALOG_URL = () => new URL(`${import.meta.env.BASE_URL}songs/manifest.jso
 const ACTIVE = ['connecting'];
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
+const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
+
 // Each player's tracking, from the pose input (reported for tests as data-player-slots).
 function slotStatus(connection: PoseInputView, id: number): { label: string; kind?: 'detected' } {
   if (connection.snapshot?.poses?.some((p) => p.playerId === id)) return { label: 'Detected', kind: 'detected' };
@@ -321,12 +323,20 @@ export default function SongSelect({
           drawShadowText(g, ellipsize(g, st.catalog.error, ROWS.w), ROWS.x, ROWS.y + 46, { size: 28, color: '#ffb38a' });
           drawPill(g, RETRY, { label: 'Retry', icon: 'replay', hover: h.retry ?? 0, press: press('retry') });
         } else if (!list.length) {
-          drawShadowText(g, 'The first routine is on its way', ROWS.x, ROWS.y + 40, { size: 38, weight: 800 });
+          // Songs published before three and four players were supported only list one and two.
+          const others = st.catalog.songs.length > 0;
+          const heading = others ? `No songs for ${COUNT_NAMES[p.playerCount - 1].toLowerCase()} yet` : 'The first routine is on its way';
+          // Smaller where it would run past the list (the 4:3 list is narrower).
+          g.font = `800 38px ${FONT}`;
+          const size = Math.min(38, Math.floor((38 * ROWS.w) / g.measureText(heading).width));
+          drawShadowText(g, heading, ROWS.x, ROWS.y + 40, { size, weight: 800 });
           g.save();
           g.shadowColor = 'rgba(0, 34, 84, 0.75)';
           g.shadowBlur = 5;
           g.shadowOffsetY = 2;
-          paragraph(g, 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
+          paragraph(g, others
+            ? 'Re-export these songs from Dance Studio to dance them with three or four players, or pick fewer players.'
+            : 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
           g.restore();
         } else {
           pageSongs().forEach((song, i) => {
@@ -377,7 +387,7 @@ export default function SongSelect({
         const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
         const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');
         if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, DANCE.x - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
-        drawPill(g, DANCE, { label: 'Dance!', sub: p.playerCount === 1 ? 'One player' : 'Two players', icon: 'play', hover: h.dance ?? 0, press: press('dance') });
+        drawPill(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       }
       g.restore();
     },

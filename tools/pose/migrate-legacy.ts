@@ -6,7 +6,7 @@ import { decodeMotion, encodeMotion } from '../../packages/pose/motion.ts';
 import { assertSongTimeline, songChoreographyFromTimeline, validateSong } from '../../packages/pose/song.ts';
 import { EXTENSION, buildFrames, decodePoseFile, encodePoseFile } from '../../packages/pose/binary.ts';
 import type { FrameInput } from '../../packages/pose/binary.ts';
-import { finite, isObject, isPlayerCount, validatePoses } from '../../packages/pose/choreography.ts';
+import { MAX_PLAYERS, finite, isObject, isPlayerCount, validatePoses } from '../../packages/pose/choreography.ts';
 
 const usage = `Usage:
   node tools/pose/migrate-legacy.ts <song bundle directory>     convert choreography.json to choreography.adpose
@@ -64,7 +64,7 @@ function convertRecording(lines: unknown[]) {
     if (typeof entry.timing === 'string') timing ??= entry.timing;
     // Replays and webcam records name the capture time differently; old recordings may have neither.
     const capture = record.frameBrowserTimeMs ?? record.frameReceivedTimeMs;
-    frames.push({ timeMs: entry.songTimeMs, poses: validatePoses(record.poses).filter(p => p.playerId < playerCount),
+    frames.push({ timeMs: entry.songTimeMs, poses: validatePoses(record.poses, MAX_PLAYERS).filter(p => p.playerId < playerCount),
       extensions: finite(capture) ? { [EXTENSION.captureBrowserTimeMs]: capture } : {} });
   }
   frames.sort((a, b) => a.timeMs - b.timeMs);
