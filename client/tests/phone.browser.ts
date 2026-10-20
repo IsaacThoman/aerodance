@@ -6,7 +6,9 @@
 //
 // PHONE_BROWSER=webkit runs the phone page in WebKit (Safari's engine) as an iPhone, talking to
 // the game in Chromium. PHONE_TRANSPORT=relay connects them through the pairing server's relay
-// (as the Apple TV app does, having no WebRTC), with the preview as small pictures. HEADED=1 shows both windows; BROWSER_GPU=metal renders on the Mac's GPU
+// (as the Apple TV app does, having no WebRTC), with the preview as small pictures.
+// PHONE_TRANSPORT=fallback makes the game's first WebRTC connection unable to connect, so the two
+// fall back to the relay, then move to WebRTC by a probe once the song has ended. HEADED=1 shows both windows; BROWSER_GPU=metal renders on the Mac's GPU
 // instead of SwiftShader (needed with UI_RENDER=1, which is too slow in software).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -49,21 +51,24 @@ server.on('upgrade', (req, socket, head) => {
   if (!pairing.upgrade(req, socket, head)) socket.destroy();
 });
 const relayed = process.env.PHONE_TRANSPORT === 'relay';
+const fallback = process.env.PHONE_TRANSPORT === 'fallback';
 await new Promise(resolve => server.once('listening', resolve));
 const headless = process.env.HEADED !== '1';
 const gpu = process.env.BROWSER_GPU === 'metal' ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
   : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 const browser = await chromium.launch({ headless, executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required',
   ...gpu,
-  // Plain loopback candidates: both ends run on this machine.
-  '--disable-features=WebRtcHideLocalIpsWithMdns'] });
+  // Plain loopback candidates: both ends run on this machine (and on a VPN, the others may not reach it).
+  '--disable-features=WebRtcHideLocalIpsWithMdns', '--allow-loopback-in-peer-connection'] });
 const phoneBrowser: Browser = process.env.PHONE_BROWSER === 'webkit' ? await webkit.launch({ headless }) : browser;
 const render = process.env.UI_RENDER === '1';
 const errors: string[] = [];
 const ORIGIN = 'http://127.0.0.1:4183';
 
 async function open(viewport: { width: number; height: number }, mobile = false) {
-  const context = await (mobile ? phoneBrowser : browser).newContext({ viewport, ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
+  const target = mobile ? phoneBrowser : browser;
+  // In Chromium, camera permission, as a real phone page has: without it, it offers one interface's candidates only.
+  const context = await target.newContext({ viewport, ...(target === browser ? { permissions: ['camera'] } : {}), ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
   const page = await context.newPage();
   page.setDefaultTimeout(60000);
   page.on('pageerror', error => errors.push(`${viewport.width}: ${error.message}`));
@@ -107,6 +112,14 @@ const until = (page: Page, key: string, value: string | RegExp) => page.waitForF
 const data = (page: Page, key: string) => page.locator('canvas').evaluate((c, key) => (c as HTMLCanvasElement).dataset[key] ?? '', key);
 
 const game = await open({ width: 1280, height: 900 });
+// Its first connection gathers no candidates (relayed ones only, and there's no TURN server), so it never connects.
+if (fallback) await game.addInitScript(() => {
+  const Native = window.RTCPeerConnection;
+  let made = 0;
+  window.RTCPeerConnection = class extends Native {
+    constructor(config?: RTCConfiguration) { super(made++ ? config : { ...config, iceTransportPolicy: 'relay' }); }
+  };
+});
 const phone = await open({ width: 390, height: 844 }, true);
 try {
   // A layout rect, or a circle (clicked at its centre).
@@ -140,11 +153,12 @@ try {
   await until(phone, 'phoneCameraStatus', 'connected');
   await until(game, 'gameCameraStatus', 'connected');
   await until(game, 'gameCalibrationPreview', 'true');
+  assert.equal(await data(phone, 'phoneTransport'), relayed || fallback ? 'relay' : 'webrtc');
   assert.equal(await data(game, 'gamePairing'), '', 'the code goes once the phone is connected');
   // The calibration preview shows the phone's own picture under the skeletons.
   await until(phone, 'phoneVideo', 'true');
   await until(game, 'gameCalibrationVideo', 'true');
-  if (relayed) {
+  if (relayed || fallback) {
     // Pictures, not a video track.
     assert.equal(await game.evaluate(() => document.querySelectorAll('video').length), 0);
   } else {
@@ -165,6 +179,11 @@ try {
   await until(game, 'gamePhase', 'playing');
 
   await until(game, 'gamePhase', 'results');
+  // The song over, a probe moves a relayed phone to WebRTC without it unlinking.
+  if (fallback) {
+    await until(phone, 'phoneTransport', 'webrtc');
+    assert.equal(await data(phone, 'phoneStage'), 'linked');
+  }
 
   // Still tracking long after dimming (more than the camera's 10 s watchdog).
   await phone.waitForTimeout(12000);
@@ -184,7 +203,8 @@ try {
   // Leaving the song keeps the phone; closing the page ends its link.
   await phone.close();
   assert.deepEqual(errors, []);
-  console.log(`Phone camera passed (game in Chromium, phone in ${phoneBrowser.browserType().name()}, ${relayed ? 'through the relay' : 'WebRTC'}): pairing by code, real ${relayed ? 'relayed' : 'WebRTC'} poses from a portrait phone camera, calibration and a song from them, tracking while dimmed, and rejoining from the link.`);
+  const how = relayed ? 'through the relay' : fallback ? 'WebRTC after a fallback to the relay' : 'WebRTC';
+  console.log(`Phone camera passed (game in Chromium, phone in ${phoneBrowser.browserType().name()}, ${how}): pairing by code, real ${relayed ? 'relayed' : 'WebRTC'} poses from a portrait phone camera, calibration and a song from them, tracking while dimmed, and rejoining from the link.`);
 } catch (error) {
   console.error('Game state:', await game.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));
   console.error('Phone state:', await phone.locator('canvas').evaluate(c => JSON.stringify(c.dataset)).catch(() => ''));

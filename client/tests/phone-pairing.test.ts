@@ -10,7 +10,7 @@ import { PoseSourceController } from '../../packages/pose/browser/PoseSourceCont
 import type { WebcamConfigureOptions, WebcamPoseSource, WebcamRecordEvent, WebcamView } from '../../packages/pose/browser/WebcamPoseSource.ts';
 import type { WebcamRecord } from '../../packages/pose/webcamRecord.ts';
 import type { PlayerCount } from '../../packages/pose/choreography.ts';
-import { FakeConnection, createFakeConnection, fetchEventStream, pairingServer, relayProxy, until } from './fixtures/fakePairing.ts';
+import { FakeConnection, createFakeConnection, fakeConnectionOn, fetchEventStream, pairingServer, relayProxy, until } from './fixtures/fakePairing.ts';
 import { SignalChannel } from '../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../packages/pairing/browser/signalChannel.ts';
 import type { PairingEvent } from '../../packages/pairing/signals.ts';
@@ -61,7 +61,8 @@ const phoneRecord = (ageMs: number, playerCount: PlayerCount = 2, sessionId = 'p
 test('a phone pairs with the game, tracks for it on the game’s clock, reconnects and is told when pairing ends', async (t) => {
   const base = await pairingServer(t);
   const options = { base, createStream: fetchEventStream, createConnection: createFakeConnection };
-  const host = new PhonePoseSource({ ...options, origin: () => 'https://game.test' });
+  // WebRTC alone: falling back to the relay has tests of its own.
+  const host = new PhonePoseSource({ ...options, origin: () => 'https://game.test', transport: 'webrtc' });
   const events: PoseSourceEvent[] = [];
   host.subscribeRecords((event) => events.push(event));
   const camera = new FakeCamera();
@@ -482,6 +483,11 @@ test('the game relays where there is no WebRTC, unless told otherwise', () => {
   assert.equal(new PhonePoseSource().relayed, true);
   assert.equal(new PhonePoseSource({ transport: 'webrtc' }).relayed, false);
   assert.equal(new PhonePoseSource({ createConnection: createFakeConnection }).relayed, false);
+  // Only a game with both falls back from one to the other.
+  assert.equal(new PhonePoseSource().fallback, false);
+  assert.equal(new PhonePoseSource({ createConnection: createFakeConnection }).fallback, true);
+  assert.equal(new PhonePoseSource({ createConnection: createFakeConnection, transport: 'webrtc' }).fallback, false);
+  assert.equal(new PhonePoseSource({ createConnection: createFakeConnection, transport: 'relay' }).fallback, false);
 });
 
 test('through the relay, a hello that overlaps a reconnection doesn’t keep the two from relinking', async (t) => {
@@ -579,4 +585,120 @@ test('through the relay, a phone whose reconnection hangs gives it up and links 
   await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'relinking', 15_000);
   assert.ok(performance.now() - cutAt < 12_000, `well before the server's heartbeat (${Math.round(performance.now() - cutAt)} ms)`);
   closeServerEnd();
+});
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('WebRTC that fails mid-song falls back to the relay at once; after the song, a WebRTC probe beside it takes over once it has proved itself', async (t) => {
+  const base = await pairingServer(t);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, createConnection: createFakeConnection, origin: () => 'https://game.test', decodeFrame: noDecode });
+  const events: PoseSourceEvent[] = [];
+  host.subscribeRecords((event) => events.push(event));
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, createConnection: createFakeConnection, camera: camera as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open', 'the first link');
+  assert.ok(host.peer && !host.link, 'WebRTC first');
+  await host.setPlayerCount(2);
+  host.setPlaying(true);
+  await until(() => phone.view.playing, 'the song on the phone');
+
+  // WebRTC fails mid-song: the relay takes over at once, and the phone hears the song is still on.
+  const droppedAt = performance.now();
+  (host.peer.pc as unknown as FakeConnection).fail();
+  await until(() => host.link && host.control?.readyState === 'open' && phone.link && phone.view.stage === 'linked', 'the relay', 3000);
+  assert.ok(performance.now() - droppedAt < 1500, `at once (${Math.round(performance.now() - droppedAt)} ms)`);
+  assert.ok(phone.view.playing);
+  await until(() => host.clock.ready, 'clock sync over the relay', 4000);
+  camera.emit(phoneRecord(20));
+  await until(() => events.find(isPoseRecordEvent), 'poses over the relay');
+  await sleep(500);
+  assert.equal(host.probe, null, 'no probe during the song');
+
+  // The song ends: a probe beside the relayed link, which carries on until the probe has proved itself.
+  const stages: string[] = [];
+  phone.subscribe((view) => stages.push(view.stage));
+  host.setPlaying(false);
+  await until(() => host.probe && phone.probe, 'a probe');
+  assert.ok(host.link && phone.link, 'the relay carries on meanwhile');
+  await until(() => host.peer && !host.link && !host.probe && phone.peer && !phone.link && !phone.probe && host.control?.readyState === 'open', 'WebRTC to take over', 6000);
+  assert.equal(phone.view.stage, 'linked');
+  assert.ok(!stages.includes('linking'), 'without the phone unlinking');
+  const count = events.filter(isPoseRecordEvent).length;
+  camera.emit(phoneRecord(20));
+  await until(() => events.filter(isPoseRecordEvent).length > count, 'poses over WebRTC');
+  assert.equal(phone.view.playerCount, 2);
+  // And it stays there.
+  const epoch = host.epoch;
+  await sleep(1000);
+  assert.ok(host.peer && !host.link && host.epoch === epoch);
+});
+
+test('a WebRTC attempt that never opens falls back to the relay; probes that fail leave the relay alone, and stop after three', async (t) => {
+  const base = await pairingServer(t);
+  let network: FakeConnection['network'] = 'hang';
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, createConnection: fakeConnectionOn(() => network), origin: () => 'https://game.test', decodeFrame: noDecode });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, createConnection: createFakeConnection, camera: new FakeCamera() as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  const joinedAt = performance.now();
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.link && host.control?.readyState === 'open', 'the relay', 12_000);
+  assert.ok(performance.now() - joinedAt > 7000, 'after giving WebRTC its chance');
+
+  network = 'fail';
+  const { link } = host, phoneLink = phone.link, stages: string[] = [];
+  phone.subscribe((view) => stages.push(view.stage));
+  for (let song = 1; song <= 3; song++) {
+    host.setPlaying(true);
+    host.setPlaying(false);
+    // (A failing probe can come and go between polls.)
+    await until(() => host.probeFailures === song && !host.probe, `probe ${song} to fail`);
+  }
+  assert.equal(host.probeFailures, 3);
+  host.setPlaying(true);
+  host.setPlaying(false);
+  await sleep(600);
+  assert.equal(host.probe, null, 'no fourth probe');
+  assert.ok(host.link === link && phone.link === phoneLink && !stages.includes('linking'), 'the relayed link carried on throughout');
+});
+
+test('a song starting ends a probe, and the relay carries on', async (t) => {
+  const base = await pairingServer(t);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, createConnection: fakeConnectionOn(() => 'hang'), origin: () => 'https://game.test', decodeFrame: noDecode });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, createConnection: createFakeConnection, camera: new FakeCamera() as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.link && host.control?.readyState === 'open', 'the relay', 12_000);
+  host.setPlaying(true);
+  host.setPlaying(false);
+  await until(() => host.probe, 'a probe');
+  host.setPlaying(true);
+  assert.equal(host.probe, null);
+  assert.equal(host.probeFailures, 0, 'not a failure: there was no time');
+  await sleep(500);
+  assert.ok(host.link && host.control?.readyState === 'open' && phone.view.stage === 'linked' && phone.view.playing);
+});
+
+test('WebRTC that goes quiet without failing falls back to the relay within a few seconds', async (t) => {
+  const base = await pairingServer(t);
+  const host = new PhonePoseSource({ base, createStream: fetchEventStream, createConnection: createFakeConnection, origin: () => 'https://game.test', decodeFrame: noDecode });
+  const phone = new PhoneLink({ base, createStream: fetchEventStream, createConnection: createFakeConnection, camera: new FakeCamera() as unknown as WebcamPoseSource, now: phoneNow });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  await host.connect();
+  const { code } = await until(() => host.view.pairing, 'a code');
+  await phone.join(code);
+  await until(() => phone.view.stage === 'linked' && host.peer && host.control?.readyState === 'open', 'WebRTC');
+  const pc = host.peer?.pc as unknown as FakeConnection;
+  const quietAt = performance.now();
+  pc.silence();
+  await until(() => host.link && host.control?.readyState === 'open' && phone.link && phone.view.stage === 'linked', 'the relay', 8000);
+  assert.ok(performance.now() - quietAt < 5000, `within a few seconds (${Math.round(performance.now() - quietAt)} ms)`);
+  assert.equal(pc.connectionState, 'closed');
 });

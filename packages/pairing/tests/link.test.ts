@@ -72,5 +72,10 @@ test('pairing signals and codes', () => {
   assert.equal(parsePairingEvent({ type: 'ice', epoch: -1, candidate: { candidate: 'c' } }), null);
   assert.equal(parsePairingEvent({ type: 'offer', epoch: 1 }), null);
   assert.deepEqual(parsePairingEvent({ type: 'hello', device: 'x'.repeat(200) }), { type: 'hello', device: 'x'.repeat(80) });
+  // A phone that takes probes says so, and a probe says it's one; anything but true is left out.
+  assert.deepEqual(parsePairingEvent({ type: 'hello', device: 'p', probes: true }), { type: 'hello', device: 'p', probes: true });
+  assert.deepEqual(parsePairingEvent({ type: 'hello', device: 'p', probes: 'yes' }), { type: 'hello', device: 'p' });
+  assert.deepEqual(parsePairingEvent({ type: 'offer', epoch: 3, sdp: 's', probe: true }), { type: 'offer', epoch: 3, sdp: 's', probe: true });
+  assert.deepEqual(parsePairingEvent({ type: 'answer', epoch: 3, sdp: 's', probe: true }), { type: 'answer', epoch: 3, sdp: 's' });
   assert.equal(parsePairingEvent({ type: 'bogus' }), null);
 });

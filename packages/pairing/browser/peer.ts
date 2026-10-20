@@ -9,6 +9,8 @@ import type { IceCandidate, IceServer, Signal } from '../signals.ts';
  * Game:  const peer = new Peer({ epoch, iceServers, send }); create channels; await peer.offer();
  *        later peer.accept(answer.sdp) and peer.addIce(candidate)
  * Phone: const peer = new Peer({ epoch: offer.epoch, iceServers, send }); await peer.answer(offer.sdp, prepare);
+ *
+ * probe: the game's offer says it's a probe (signals.ts), made alongside a relayed link.
  */
 
 export type CreatePeerConnection = (config: RTCConfiguration) => RTCPeerConnection;
@@ -18,6 +20,7 @@ export interface PeerOptions {
   /** Posts a signal for the other side. */
   send: (signal: Signal) => void;
   createConnection?: CreatePeerConnection;
+  probe?: boolean;
 }
 
 export class Peer {
@@ -26,8 +29,9 @@ export class Peer {
   send: (signal: Signal) => void;
   pending: IceCandidate[] = [];
   closed = false;
-  constructor({ epoch, iceServers, send, createConnection = (config) => new RTCPeerConnection(config) }: PeerOptions) {
-    this.epoch = epoch; this.send = send;
+  probe: boolean;
+  constructor({ epoch, iceServers, send, createConnection = (config) => new RTCPeerConnection(config), probe = false }: PeerOptions) {
+    this.epoch = epoch; this.send = send; this.probe = probe;
     this.pc = createConnection({ iceServers });
     this.pc.onicecandidate = ({ candidate }) => {
       if (candidate && !this.closed) send({ type: 'ice', epoch, candidate: candidate.toJSON() as IceCandidate });
@@ -72,7 +76,8 @@ export class Peer {
 
   sendDescription(type: 'offer' | 'answer') {
     const sdp = this.pc.localDescription?.sdp;
-    if (sdp && !this.closed) this.send({ type, epoch: this.epoch, sdp });
+    if (!sdp || this.closed) return;
+    this.send(type === 'offer' && this.probe ? { type, epoch: this.epoch, sdp, probe: true } : { type, epoch: this.epoch, sdp });
   }
 
   async flush() {
