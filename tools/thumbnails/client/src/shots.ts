@@ -394,21 +394,23 @@ export const TV_ICONS: readonly Shot[] = [
  * Square phone app icons (render.ts --app-icons), into assets/app-icon/. Layered like the TV
  * icons: the layers can make a layered icon (Icon Composer on iOS), and stacked they're the flat one.
  */
+// The purple dancer's head close up, see-through like the Apple TV icon's dancer, her floating
+// hands on a layer of their own. The scenery is rendered, so she's cut against it, but left out.
+const GLASS_PORTRAIT: Omit<Shot, 'id'> = {
+  format: 'app-icon',
+  stage: 'falls',
+  time: 10,
+  pose: 5,
+  camera: { position: [2, 2.45, 3.2], target: [2, 2.35, 0], fov: 40 },
+  layers: [
+    { name: 'scenery', near: 1, hidden: true },
+    { name: 'dancers', near: 1, dancers: true, dancerParts: 'body', seeThrough: true },
+    { name: 'hands', near: 1, dancers: true, dancerParts: 'hands', seeThrough: true },
+  ],
+};
 export const APP_ICONS: readonly Shot[] = [
-  // The purple dancer's head close up against the Apple TV icon's soft sky, see-through like its
-  // dancers, her floating hands on a layer of their own.
-  {
-    id: 'portrait-purple-sky-glass',
-    format: 'app-icon',
-    stage: 'falls',
-    time: 10,
-    pose: 5,
-    camera: { position: [2, 2.45, 3.2], target: [2, 2.35, 0], fov: 40 },
-    layers: [
-      { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
-      { name: 'scenery', near: 1, hidden: true },
-      { name: 'dancers', near: 1, dancers: true, dancerParts: 'body', seeThrough: true },
-      { name: 'hands', near: 1, dancers: true, dancerParts: 'hands', seeThrough: true },
-    ],
-  },
+  // Against the Apple TV icon's soft sky.
+  { ...GLASS_PORTRAIT, id: 'portrait-purple-sky-glass', layers: [{ name: 'sky', near: 800, blur: 7 }, ...GLASS_PORTRAIT.layers ?? []] },
+  // Against nothing: transparent, for putting on a background of your own.
+  { ...GLASS_PORTRAIT, id: 'portrait-transparent-bg' },
 ];
