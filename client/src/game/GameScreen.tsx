@@ -29,7 +29,7 @@ import {
  *
  *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
  *              pressed, over the camera picker; every player holds still together for
- *              2.5 seconds. With No camera picked, the preview is a Continue button that
+ *              2.5 seconds. With No camera picked, the preview is a No camera button that
  *              starts the song straight away
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
@@ -105,7 +105,7 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerRe
 
 // The webcam setup card, centred: the mirrored preview with each player's status, the shared
 // hold and the camera picker along the bottom. With the camera off, the preview is a big
-// Start camera button (or with No camera, a Continue button).
+// Start camera button (or with No camera, a button that plays without one).
 function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
   const h = s.hover;
   const { connection, source } = camera.target();
@@ -117,8 +117,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
   drawGlassPanel(g, card, 30);
   // The hold only matters once the camera can see the players.
-  const title = none ? 'Play without a camera' : live ? 'Stand still for 2.5 seconds' : '';
-  if (title) text(g, title, mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
+  if (live) text(g, 'Stand still for 2.5 seconds', mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
 
   drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
   const pairing = camera.pairing();
@@ -187,7 +186,7 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.lineJoin = 'round';
   (none ? ICONS.noCamera : phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
   g.restore();
-  text(g, failed ? 'Try again' : none ? 'Continue' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
+  text(g, failed ? 'Try again' : none ? 'No camera' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
   // The phone and No camera come after the webcams in the camera picker, which is easy to miss.
   else if (!phone && !none) text(g, 'No webcam? Choose Phone camera or No camera with the arrows below.', cx, preview.y + preview.h - 30, { size: 18, align: 'center', color: 'rgba(230, 248, 255, 0.75)' });
