@@ -1,4 +1,4 @@
-# XcodeGen spec for the JavaScriptCore + OpenGL ES Apple TV app; scripts/tvos-jsc.ts generates
+# XcodeGen spec for the JavaScriptCore + OpenGL ES Apple TV app; scripts/tvos.ts generates
 # the project and builds it. The team and bundle ID come from TVOS_TEAM_ID and TVOS_BUNDLE_ID.
 name: AerodanceJSC
 options:
@@ -11,7 +11,7 @@ targets:
     sources:
       - path: src
         excludes: ["generated/*.ts"]
-      # The runtime, the app's script, fonts and assets, copied here by scripts/tvos-jsc.ts.
+      # The runtime, the app's script, fonts and assets, copied here by scripts/tvos.ts.
       - path: www
         type: folder
         buildPhase: resources
@@ -37,7 +37,7 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         # Development builds also get NSLocalNetworkUsageDescription and NSAllowsLocalNetworking,
-        # for the report and log URLs; scripts/tvos-jsc.ts adds them unless built with --release.
+        # for the report and log URLs; scripts/tvos.ts adds them unless built with --release.
     settings:
       PRODUCT_NAME: aerodance
       PRODUCT_BUNDLE_IDENTIFIER: ${TVOS_BUNDLE_ID}

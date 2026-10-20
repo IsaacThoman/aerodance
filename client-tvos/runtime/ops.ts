@@ -1,5 +1,5 @@
 // The command stream's opcodes, shared by the JavaScript encoder (webgl.ts, canvas2d.ts) and the
-// native decoder (src/GLExec.mm, src/Canvas2D.mm). scripts/tvos-jsc.ts writes them to
+// native decoder (src/GLExec.mm, src/Canvas2D.mm). scripts/tvos.ts writes them to
 // src/generated/ops.h as OP_<NAME>. A command is one header word, op | (words << 16) where words
 // counts the header, then its arguments as 32-bit ints or floats; see each op's handler for its
 // layout. Append new ops at the end of a section so recorded streams stay readable.

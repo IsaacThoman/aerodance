@@ -4,9 +4,9 @@ A benchmark that any JavaScript host can run, for comparing ways of running aero
 `aeroBench.ts` builds the game's Aero world (the menu background: plain three.js, 640×480, no
 React) and measures it at high and then low quality.
 
-`node scripts/tvos-jsc.ts build` builds it into `client-tvos/bench/dist/aero-bench.{html,js}`
+`node scripts/tvos.ts build` builds it into `client-tvos/bench/dist/aero-bench.{html,js}`
 and ships it in the Apple TV app as `bench/aero-bench.js` (see
-[`../jsc/README.md`](../jsc/README.md)). In a browser, open `aero-bench.html`; query parameters
+[`../README.md`](../README.md)). In a browser, open `aero-bench.html`; query parameters
 `?scenarios=high,low&warmupS=5&measureS=30&label=…&report=<url>` configure it there.
 
 The default run (high, then low, from 0.08 round the loop) flies over the meadow. For diagnosis
