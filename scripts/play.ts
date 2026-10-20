@@ -51,7 +51,7 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   reload                               reload and wait until ready
   eval <js>                            evaluate an expression in the page
   logs [--clear]                       console messages and page errors so far
-  camera <0|1|2>                       dancers in the fixture camera's shot
+  camera <0-4>                         dancers in the fixture camera's shot
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
@@ -152,8 +152,11 @@ function fakeCamera({ image, mode }: { image: string; mode: Options['camera'] })
       const draw = () => {
         g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
         const offset = Math.sin(count++ / 20) * 2;
-        if (w.playDancers === 1) g.drawImage(photo, 200, 0, 600, 667, 160 + offset, 40, 320, 356);
-        if (w.playDancers === 2) for (const x of [0, 320]) g.drawImage(photo, 200, 0, 600, 667, x + offset, 40, 320, 356);
+        // One dancer in the middle, two side by side; three or four squeezed into narrower lanes
+        // at full height (the photo's arms-out stance is too small for MediaPipe at lane width).
+        // MediaPipe tracks three of these reliably but not four (docs/three-and-four-players.md).
+        const n = w.playDancers, width = n > 2 ? 640 / n : 320;
+        for (let i = 0; i < n; i++) g.drawImage(photo, 200, 0, 600, 667, (n === 1 ? 320 : (i + 0.5) * 640 / n) - width / 2 + offset, 40, width, 356);
       };
       draw(); const stream = canvas.captureStream(20), timer = setInterval(draw, 50);
       for (const track of stream.getTracks()) {

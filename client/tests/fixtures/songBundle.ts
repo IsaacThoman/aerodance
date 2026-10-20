@@ -15,7 +15,7 @@ export interface BundleFixture {
 export function bundleFixture(): BundleFixture {
   const song: Song = {
     schema:'aerodance.song',schemaVersion:1,songId:'fixture',bundleRevision:1,title:'Fixture routine',artist:'Test artist',
-    songwriters:[],choreographers:[],durationMs:1000,playableStartMs:100,playableEndMs:900,supportedPlayerCounts:[1,2],
+    songwriters:[],choreographers:[],durationMs:1000,playableStartMs:100,playableEndMs:900,supportedPlayerCounts:[1,2,3,4],
     audio:{path:'audio.wav',mimeType:'audio/wav'},choreography:{path:'choreography.adpose',schemaVersion:2},
     coachMode:'mirror-player',rigProfile:'frutiger-seven-bone-v1',
     rights:{audio:{license:'test',attribution:''},choreography:{license:'test',attribution:''}},
@@ -31,7 +31,7 @@ export function bundleFixture(): BundleFixture {
   };
   // One second of silent PCM, solely for automated browser tests; never cataloged publicly.
   const audio = silentWav(1000);
-  const entry: CatalogSong = {id:song.songId,title:song.title,artist:song.artist,durationMs:1000,supportedPlayerCounts:[1,2],bundleRevision:1,bundle:'fixture/song.json'};
+  const entry: CatalogSong = {id:song.songId,title:song.title,artist:song.artist,durationMs:1000,supportedPlayerCounts:[1,2,3,4],bundleRevision:1,bundle:'fixture/song.json'};
   return {song,choreography,audio,entry};
 }
 

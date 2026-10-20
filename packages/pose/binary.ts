@@ -1,7 +1,7 @@
 // .adpose, the chunked binary pose container (docs/pose-binary-format.md): one format for song
 // choreography, Studio takes, tracks and raw captures, and game replay recordings.
-import { interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
-import type { FrameSize, LandmarkOrigin, Pose, PoseQuality, PoseSnapshot, TimedPoses, TimeKey, TrackCalibration } from './choreography.ts';
+import { DUET, MAX_PLAYERS, interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
+import type { FrameSize, LandmarkOrigin, PlayerCount, Pose, PoseQuality, PoseSnapshot, TimedPoses, TimeKey, TrackCalibration } from './choreography.ts';
 import type { PoseModelId } from './browser/models.ts';
 import type { ScoreExclusion } from './song.ts';
 
@@ -54,7 +54,8 @@ export type FileCaptureEvent = TimedCaptureEvent & { frameIndex: number };
 /** Everything in a file except its frames. */
 export interface PoseFileHeader {
   kind: PoseFileKind;
-  playerSlots: 1 | 2;
+  /** Up to two, except a game recording's one per player (up to four). */
+  playerSlots: PlayerCount;
   input: FrameSize;
   modelId: PoseModelId | null;
   positionStep: number;
@@ -371,7 +372,7 @@ function readHead(payload: Uint8Array) {
   check(r.u16() === 1, 'unsupported format version');
   const kind = KINDS[r.u8() - 1], clock = CLOCKS[r.u8() - 1], playerSlots = r.u8(), landmarkSet = r.u8(), flags = r.u8(), model = r.u8();
   check(kind && clock === KIND_CLOCK[kind], 'unknown kind or clock');
-  check(playerSlots === 1 || playerSlots === 2, 'player slots must be 1 or 2');
+  check(playerSlots >= 1 && playerSlots <= MAX_PLAYERS, `player slots must be 1 to ${MAX_PLAYERS}`);
   check(landmarkSet === 1, 'unknown landmark set');
   check((flags & ~1) === 0 && model <= MODEL_IDS.length, 'unknown header flags or model');
   const input = { width: r.u16(), height: r.u16() }, positionStep = r.f32();
@@ -383,7 +384,7 @@ function readHead(payload: Uint8Array) {
   const extensionBases = extensionIds.map(() => r.f64());
   check(extensionBases.every(Number.isFinite), 'invalid extension base');
   r.end();
-  return { kind, clock, playerSlots: playerSlots as 1 | 2, input, positionStep, extensionIds, extensionBases,
+  return { kind, clock, playerSlots: playerSlots as PlayerCount, input, positionStep, extensionIds, extensionBases,
     modelId: model ? MODEL_IDS[model - 1] : null, hasFlags: flags === 1 };
 }
 const finiteOrNull = (v: number) => Number.isNaN(v) ? null : v;
@@ -552,6 +553,8 @@ export function decodePoseFile(bytes: Uint8Array, { allowTruncated = false }: De
 }
 function checkKind(h: PoseFileHeader, tracks: TrackHeader[]) {
   if (h.kind === 'choreography' || h.kind === 'take' || h.kind === 'track') check(!h.extensionIds.length, `a ${h.kind} has no extension fields`);
+  // Only a game recording holds three or four players; everything Studio makes is a duet.
+  if (h.kind !== 'recording') check(h.playerSlots <= DUET, `a ${h.kind} holds at most two slots`);
   if (h.kind === 'choreography') {
     check(h.playerSlots === 2 && tracks.length === 2 && tracks.every((t, i) => t.slot === i && t.playerId === i), 'both tracks are required');
     const s = h.song!;

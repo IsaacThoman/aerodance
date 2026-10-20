@@ -168,6 +168,21 @@ test('a replay recording keeps the capture clock beside song time', () => {
   assert.ok(Math.abs(capture[1] - 98798.8) <= .0005);
 });
 
+test('a game recording holds up to four players; every other kind at most two', () => {
+  const header: PoseHeaderInput = { kind: 'recording', playerSlots: 4, input: { width: 640, height: 480 }, modelId: null, extensionIds: [EXTENSION.captureBrowserTimeMs], provenance: { songId: 'demo' } };
+  const four = [0, 1, 2, 3].map(id => pose(id, 0));
+  const bytes = encodePoseFile(buildFrames(header, [{ timeMs: 0, poses: four, extensions: { 6: 1 } }, { timeMs: 10, poses: [four[3]], extensions: { 6: 2 } }]));
+  const decoded = decodePoseFile(bytes);
+  assert.equal(decoded.playerSlots, 4);
+  assertClose(framesToSamples(decoded, 'songTimeMs')[0], { poses: four, quality: qualityFor(four) }, 0);
+  assert.deepEqual(framesToSamples(decoded, 'songTimeMs')[1].poses.map(p => p.playerId), [3]);
+  // Five slots, or a three-slot capture, are refused.
+  const five = bytes.slice(); five[chunkAt(five, 'HEAD') + 4] = 5;
+  assert.throws(() => decodePoseFile(five), /player slots must be 1 to 4/);
+  const capture: PoseHeaderInput = { kind: 'capture', playerSlots: 3, input: { width: 640, height: 480 }, modelId: 'lite', capture: { sourceKind: 'webcam', sessionId: 's', audioPlaybackRate: 1 } };
+  assert.throws(() => decodePoseFile(encodePoseFile(buildFrames(capture, [{ timeMs: 0, poses: four.slice(0, 3) }]))), /at most two slots/);
+});
+
 const valid = () => encodePoseFile(framesFromSamples(choreographyHeader, [0, 1000, 2000].map(songTimeMs => ({ songTimeMs, poses: [pose(0, songTimeMs), pose(1, songTimeMs)] })), 'songTimeMs'));
 /** Byte offset of a chunk's payload. */
 function chunkAt(bytes: Uint8Array, tag: string) {

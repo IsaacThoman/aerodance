@@ -1,5 +1,5 @@
 import { sampleSong } from '../../../packages/pose/song.ts';
-import { isObject } from '../../../packages/pose/choreography.ts';
+import { isObject, isPlayerCount } from '../../../packages/pose/choreography.ts';
 import { EXTENSION, buildFrames, decodePoseFile, encodePoseFile, framesToPoses } from '../../../packages/pose/binary.ts';
 import type { FrameInput } from '../../../packages/pose/binary.ts';
 import type { CaptureInput, Landmark, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
@@ -18,7 +18,7 @@ import type { LivePoseRecord, PoseInputView, PoseSource, SongClock } from './Pos
  *   recording   replays a pose recording (createPoseRecorder) made during a real song, at
  *               the song times the poses were captured.
  *
- * Without a song attached (the menus) both stand still in their camera halves. The game
+ * Without a song attached (the menus) the players stand still in their camera lanes. The game
  * attaches the song while it plays: attachSong({ bundle, songTimeAt(perfMs), perfAtSong(ms),
  * playing() }) and attachSong(null) after.
  */
@@ -140,7 +140,7 @@ export class ReplayPoseSource implements PoseSource {
     this.publish({ status: 'disconnected', snapshot: null, message: '' });
   }
   async setPlayerCount(count: PlayerCount) {
-    if (![1, 2].includes(count)) throw Error('Choose one or two players');
+    if (!isPlayerCount(count)) throw Error('Choose one to four players');
     this.playerCount = count;
     this.last = null;
     this.publish({ snapshot: null });
@@ -161,8 +161,8 @@ export class ReplayPoseSource implements PoseSource {
     return landmarks.map((j) => ({ ...j, x: j.x + gaussian(this.rnd) * this.noise, y: j.y + gaussian(this.rnd) * this.noise }));
   }
   standing(): Pose[] {
-    const xs = this.playerCount === 1 ? [0.5] : [0.7, 0.3];
-    return xs.map((cx, playerId) => ({ playerId, landmarks: this.jitter(standingPose(cx)) }));
+    // One player per lane; the mirrored preview shows P1 on the left, so P1's lane is on the camera's right.
+    return Array.from({ length: this.playerCount }, (_, playerId) => ({ playerId, landmarks: this.jitter(standingPose(1 - (playerId + 0.5) / this.playerCount)) }));
   }
   tick() {
     const now = this.now();
