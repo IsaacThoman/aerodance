@@ -32,7 +32,8 @@ class FakeCamera {
   disconnect(message = 'Camera stopped.') { this.publish({ status: 'disconnected', message }); }
   async configure(options: WebcamConfigureOptions) {
     this.configured.push(options);
-    this.publish({ ...(options.modelId ? { model: options.modelId as WebcamView['model'] } : {}), ...(options.facing ? { facing: options.facing } : {}) });
+    this.publish({ ...(options.modelId ? { model: options.modelId as WebcamView['model'] } : {}), ...(options.facing ? { facing: options.facing } : {}),
+      ...(options.cameraId !== undefined ? { cameraId: options.cameraId } : {}) });
   }
   async setPlayerCount(count: PlayerCount) { this.playerCount = count; }
   emit(record: WebcamRecord) {
@@ -264,6 +265,42 @@ test('the phone names itself and reads its code from the link', () => {
   assert.equal(linkCode(new URL('https://a.test/pair/#123456')), '123456');
   assert.equal(linkCode(new URL('https://a.test/pair/?code=654321')), '654321');
   assert.equal(linkCode(new URL('https://a.test/pair/#12345')), '');
+});
+
+test('the phone lists its cameras by name and switches between them', async (t) => {
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ camera: camera as unknown as WebcamPoseSource });
+  t.after(() => phone.stop());
+  const labels = () => phone.cameras().map((c) => c.label);
+  // Front and back until the browser lists the cameras; the back one to start with.
+  assert.deepEqual(labels(), ['Back camera', 'Front camera']);
+  assert.equal(phone.chosenCamera(), 'facing:environment');
+  await phone.chooseCamera('facing:user');
+  assert.equal(camera.view.facing, 'user');
+  assert.equal(phone.chosenCamera(), 'facing:user');
+
+  // iOS names its cameras itself.
+  camera.publish({ cameras: [{ deviceId: 'front', label: 'Front Camera' }, { deviceId: 'back', label: 'Back Camera' },
+    { deviceId: 'ultra', label: 'Back Ultra Wide Camera' }, { deviceId: 'tele', label: 'Back Telephoto Camera' }] });
+  // The front one is running, but which it is goes unsaid: the side's default stays on the list.
+  assert.deepEqual(labels(), ['Front camera (default)', 'Front camera', 'Back camera', 'Back ultra wide camera', 'Back telephoto camera']);
+  await phone.chooseCamera('device:ultra');
+  assert.equal(camera.view.cameraId, 'ultra');
+  assert.equal(camera.view.facing, 'environment');
+  assert.equal(phone.chosenCamera(), 'device:ultra');
+  await phone.chooseCamera('device:front');
+  assert.equal(camera.view.facing, 'user');
+  // Back to a side: no particular camera, so the side stays on the list.
+  await phone.chooseCamera('facing:environment');
+  assert.equal(camera.view.cameraId, '');
+  assert.equal(phone.chosenCamera(), 'facing:environment');
+  assert.equal(labels()[0], 'Back camera (default)');
+  await phone.chooseCamera('device:back');
+
+  // Android numbers each side's cameras; anything else keeps its own name.
+  camera.publish({ cameras: [{ deviceId: 'a', label: 'camera2 0, facing back' }, { deviceId: 'b', label: 'camera2 1, facing front' },
+    { deviceId: 'c', label: 'camera2 2, facing back' }, { deviceId: 'd', label: 'USB Camera' }] });
+  assert.deepEqual(labels(), ['Back camera', 'Front camera', 'Back camera 2', 'USB Camera']);
 });
 
 test('a phone answers only the newest offer, and the game gives up on a phone that left mid-connection', async (t) => {

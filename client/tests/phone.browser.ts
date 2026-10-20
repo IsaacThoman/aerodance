@@ -152,7 +152,7 @@ try {
   }
   if (process.env.UI_ARTIFACTS) {
     await game.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-game.png` });
-    // The mirror shows each player once they've held still for a moment, as the game does.
+    // Once the game has the player, the phone's preview shows their skeleton.
     await until(game, 'gameCalibrationProgress', /^(0\.[5-9]|1)/);
     await phone.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-setup.png` });
   }

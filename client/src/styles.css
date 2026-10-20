@@ -47,3 +47,14 @@ body,
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* The phone's camera list: invisible over the camera button the canvas draws, so a tap opens
+   the phone's own picker. 16px text keeps iOS from zooming in on it. */
+.phone-camera-list {
+  position: absolute;
+  margin: 0;
+  opacity: 0;
+  font-size: 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
