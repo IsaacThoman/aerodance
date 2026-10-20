@@ -13,7 +13,7 @@ import type { PoseInputView } from '../pose/PoseSource.ts';
  * phone page draws its Lite / Full / Heavy tracking buttons with drawModelPicker().
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
- * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg); onStep: camera.step(wdg, dir, repeat);
+ * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg);
  * draw: drawCameraPicker(g, LAYOUT, connection, hover);
  */
 
@@ -58,11 +58,6 @@ export class CameraSetup {
     if (this.active()) return;
     this.error = '';
     this.target().source.connect()?.catch((err: unknown) => { this.error = message(err); });
-  }
-
-  /** Left/Right on a camera arrow switch camera, once per press (each switch restarts it); false for any other widget. */
-  step(wdg: CameraWidget, dir: -1 | 1, repeat: boolean) {
-    return !!wdg.cameraDelta && (repeat || this.activate({ ...wdg, cameraDelta: dir }));
   }
 
   /** Handles a camera widget's press; false for any other widget. */

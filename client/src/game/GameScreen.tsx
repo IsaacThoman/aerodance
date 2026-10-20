@@ -229,7 +229,6 @@ export default function GameScreen({ visible = false, session, camera: source, o
       else if (calibrating()) camera.activate(wdg);
       s.invalidate();
     },
-    onStep: (wdg, dir, _s, repeat) => camera.step(wdg, dir, repeat),
     onKey: (e, s) => {
       if (!live() || e.repeat) return;
       const session = props.current.session;
