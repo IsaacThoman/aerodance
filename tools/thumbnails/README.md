@@ -53,6 +53,16 @@ Both comparisons use renders without bloom, so a glow doesn't drag the backgroun
 
 Apple's icon sizes (1280×768, 800×480, 400×240) aren't whole multiples of the buffer, so each layer is area-averaged to size with premultiplied alpha.
 
+## Phone app icons
+
+`--app-icons` renders the shots in `APP_ICONS` (in `client/src/shots.ts`), square app icons for the iPhone and iPad, into [`assets/app-icon`](../../assets):
+
+```sh
+node tools/thumbnails/scripts/render.ts --app-icons
+```
+
+A square shot uses the same pixel grid at 360×480. Each icon is `<id>.png`, 1024×1024 and opaque as the App Store wants, area-averaged from the buffer. An icon with `layers` is split like the TV icons and its layers go in `<id>/1024x1024/`, for a layered icon (Icon Composer on iOS); `<id>.png` is them stacked back together.
+
 ## Code
 
 - `client/src/shots.ts`: the shot list, and `TV_ICONS`. Each shot has a stage, how long the stage plays before the capture (`time`), the dance-capture moment the dancers hold (`pose`), a camera, optional dancer placement, and the wordmark's position and size. Add or tweak a shot here and re-render it with `--only`.

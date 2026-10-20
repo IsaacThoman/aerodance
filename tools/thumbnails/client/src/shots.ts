@@ -3,12 +3,14 @@ import type { DancerPlacement, StageId, Vec3 } from '../../../../packages/stages
 
 // The game renders 640x480 and shows it at 16:9 (4:3-wide pixels). Cropped to 3:2 that
 // grid is 540x480; each buffer pixel becomes a 4x3 block in the 2160x1440 PNG. An Apple TV
-// app icon is 5:3: the same grid at 600x480, or 2400x1440.
-export type ShotFormat = 'thumbnail' | 'tv-icon';
+// app icon is 5:3: the same grid at 600x480, or 2400x1440. A phone's app icon is square: the
+// same grid at 360x480, or 1440x1440.
+export type ShotFormat = 'thumbnail' | 'tv-icon' | 'app-icon';
 export interface FrameBuffer { width: number; height: number; aspect: number; }
 const BUFFERS: Record<ShotFormat, FrameBuffer> = {
   thumbnail: { width: 540, height: 480, aspect: 3 / 2 },
   'tv-icon': { width: 600, height: 480, aspect: 5 / 3 },
+  'app-icon': { width: 360, height: 480, aspect: 1 },
 };
 export const bufferFor = (shot: Shot): FrameBuffer => BUFFERS[shot.format ?? 'thumbnail'];
 export const UPSCALE: readonly [x: number, y: number] = [4, 3];
@@ -24,7 +26,7 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *   dancers: overrides for the stage's dancer placement ({ position, rotationY, spacing })
  *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered), stacked?: two lines,
  *     outline?, halo?, light?: see drawTitle } in design units
- *   format: 'thumbnail' (3:2, the default) or 'tv-icon' (5:3)
+ *   format: 'thumbnail' (3:2, the default), 'tv-icon' (5:3) or 'app-icon' (1:1)
  *   layers: split the frame into layers for a parallax icon (ShotLayer)
  */
 export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
@@ -109,7 +111,7 @@ const isLayerStack = (v: unknown) => {
 export function assertShot(shot: unknown): asserts shot is Shot {
   if (!isFields(shot) || typeof shot.id !== 'string' || !isStageId(shot.stage) || !isNumber(shot.time) || !isNumber(shot.pose) ||
       !isCamera(shot.camera) || !(shot.dancers === undefined || isDancers(shot.dancers)) || !(shot.logo === undefined || isLogo(shot.logo)) ||
-      !(shot.format === undefined || shot.format === 'thumbnail' || shot.format === 'tv-icon') ||
+      !(shot.format === undefined || shot.format === 'thumbnail' || shot.format === 'tv-icon' || shot.format === 'app-icon') ||
       !(shot.layers === undefined || isLayerStack(shot.layers))) {
     throw new Error(`Invalid shot: ${JSON.stringify(shot)}`);
   }
@@ -441,4 +443,27 @@ export const TV_ICONS: readonly Shot[] = [
     id: `${icon.id}-glass`,
     layers: icon.layers?.map((layer) => (layer.name === 'dancers' || layer.dancerParts === 'hands' ? { ...layer, seeThrough: true } : layer)),
   })),
+];
+
+/*
+ * Square phone app icons (render.ts --app-icons), into assets/app-icon/. Layered like the TV
+ * icons: the layers can make a layered icon (Icon Composer on iOS), and stacked they're the flat one.
+ */
+export const APP_ICONS: readonly Shot[] = [
+  // The purple dancer's head close up against the Apple TV icon's soft sky, see-through like its
+  // dancers, her floating hands on a layer of their own.
+  {
+    id: 'portrait-purple-sky-glass',
+    format: 'app-icon',
+    stage: 'falls',
+    time: 10,
+    pose: 5,
+    camera: { position: [2, 2.45, 3.2], target: [2, 2.35, 0], fov: 40 },
+    layers: [
+      { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
+      { name: 'scenery', near: 1, hidden: true },
+      { name: 'dancers', near: 1, dancers: true, dancerParts: 'body', seeThrough: true },
+      { name: 'hands', near: 1, dancers: true, dancerParts: 'hands', seeThrough: true },
+    ],
+  },
 ];
