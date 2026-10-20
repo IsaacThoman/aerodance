@@ -2,10 +2,16 @@
 // Renders every shot in client/src/shots.ts to with-logo/<id>.png and no-logo/<id>.png.
 //
 //   node tools/thumbnails/scripts/render.ts [--only id,id] [--spec shots.json --out dir] [--jobs 2]
+//   node tools/thumbnails/scripts/render.ts --tv-icons [--only id,id] [--out dir]
 //
 // Builds the capture page with Vite, opens it in headless Chrome (GPU WebGL), steps each
 // shot's stage to its time and reads back the 540x480 buffer. Each buffer pixel is written
 // as an exact 4x3 block (2160x1440, 3:2) into a lossless PNG: no filtering or resampling.
+//
+// --tv-icons renders TV_ICONS instead, into assets/tv-icon/<id>/: each layer as a transparent
+// PNG at Apple TV's three app icon sizes (<size>/<n>-<layer>.png), and the whole icon
+// flattened (flat.png). Those sizes aren't whole multiples of the 600x480 buffer, so they're
+// area-averaged.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -13,17 +19,20 @@ import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 import { build, preview } from 'vite';
 import { chromium } from 'playwright-core';
-import { SHOTS, UPSCALE, assertShot } from '../client/src/shots.ts';
-import type { Shot, ThumbnailWindow } from '../client/src/shots.ts';
+import { SHOTS, TV_ICONS, UPSCALE, assertShot } from '../client/src/shots.ts';
+import type { Shot, ThumbnailFrame, ThumbnailWindow } from '../client/src/shots.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+// Apple TV app icons: the App Store's, then the home screen's @2x and @1x.
+const TV_ICON_SIZES: readonly (readonly [width: number, height: number])[] = [[1280, 768], [800, 480], [400, 240]];
 
 function option(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? process.argv[i + 1] : undefined;
 }
 
-let shots: readonly Shot[] = SHOTS;
+const tvIcons = process.argv.includes('--tv-icons');
+let shots: readonly Shot[] = tvIcons ? TV_ICONS : SHOTS;
 const spec = option('spec');
 if (spec) {
   const list: unknown = JSON.parse(await readFile(spec, 'utf8'));
@@ -35,7 +44,7 @@ if (onlyIds) {
   const only = new Set(onlyIds.split(','));
   shots = shots.filter((s) => only.has(s.id));
 }
-const outDir = path.resolve(option('out') ?? ROOT);
+const outDir = path.resolve(option('out') ?? (tvIcons ? path.join(ROOT, '../../assets/tv-icon') : ROOT));
 const jobs = Number(option('jobs') ?? 2);
 if (!shots.length) throw new Error('No shots to render');
 
@@ -56,24 +65,24 @@ const paeth = (a: number, b: number, c: number) => {
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
 };
 
-// 8-bit RGB PNG, choosing each row's filter by the usual minimum-sum heuristic.
-function encodePng(width: number, height: number, rgb: Buffer) {
-  const stride = width * 3;
+// 8-bit RGB or RGBA PNG, choosing each row's filter by the usual minimum-sum heuristic.
+function encodePng(width: number, height: number, pixels: Buffer, channels: 3 | 4 = 3) {
+  const stride = width * channels;
   const raw = Buffer.alloc((stride + 1) * height);
   const candidates = Array.from({ length: 5 }, () => Buffer.alloc(stride));
   const zero = Buffer.alloc(stride);
   for (let y = 0; y < height; y++) {
-    const row = rgb.subarray(y * stride, (y + 1) * stride);
-    const up = y ? rgb.subarray((y - 1) * stride, y * stride) : zero;
+    const row = pixels.subarray(y * stride, (y + 1) * stride);
+    const up = y ? pixels.subarray((y - 1) * stride, y * stride) : zero;
     let best = 0;
     let bestSum = Infinity;
     for (let f = 0; f < 5; f++) {
       const out = candidates[f];
       let sum = 0;
       for (let i = 0; i < stride; i++) {
-        const a = i >= 3 ? row[i - 3] : 0;
+        const a = i >= channels ? row[i - channels] : 0;
         const b = up[i];
-        const c = i >= 3 ? up[i - 3] : 0;
+        const c = i >= channels ? up[i - channels] : 0;
         const pred = f === 0 ? 0 : f === 1 ? a : f === 2 ? b : f === 3 ? (a + b) >> 1 : paeth(a, b, c);
         const v = (row[i] - pred) & 0xff;
         out[i] = v;
@@ -91,7 +100,7 @@ function encodePng(width: number, height: number, rgb: Buffer) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit, RGB, deflate, adaptive filtering, no interlace
+  ihdr.set([8, channels === 4 ? 6 : 2, 0, 0, 0], 8); // 8-bit, RGB(A), deflate, adaptive filtering, no interlace
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),
@@ -127,6 +136,61 @@ async function writeImage(file: string, base64: string, width: number, height: n
   await writeFile(file, encodePng(big.width, big.height, big.rgb));
 }
 
+// Box-filters RGBA to any size: each output pixel averages the source area it covers, with
+// alpha premultiplied so transparent pixels don't darken the edges.
+function resample(rgba: Buffer, sw: number, sh: number, dw: number, dh: number) {
+  const src = new Float32Array(sw * sh * 4);
+  for (let i = 0; i < src.length; i += 4) {
+    const a = rgba[i + 3] / 255;
+    src.set([rgba[i] * a, rgba[i + 1] * a, rgba[i + 2] * a, rgba[i + 3]], i);
+  }
+  // One axis at a time: n source cells into m along each of `lines` rows or columns.
+  const pass = (from: Float32Array, n: number, m: number, lines: number, at: (line: number, k: number) => number, outAt: (line: number, k: number) => number, size: number) => {
+    const to = new Float32Array(size);
+    for (let line = 0; line < lines; line++) {
+      for (let d = 0; d < m; d++) {
+        const x0 = (d * n) / m, x1 = ((d + 1) * n) / m;
+        const acc = [0, 0, 0, 0];
+        for (let k = Math.floor(x0); k < Math.ceil(x1); k++) {
+          const w = Math.min(x1, k + 1) - Math.max(x0, k);
+          const i = at(line, k);
+          for (let c = 0; c < 4; c++) acc[c] += from[i + c] * w;
+        }
+        const o = outAt(line, d);
+        for (let c = 0; c < 4; c++) to[o + c] = acc[c] / (x1 - x0);
+      }
+    }
+    return to;
+  };
+  const wide = pass(src, sw, dw, sh, (y, x) => (y * sw + x) * 4, (y, x) => (y * dw + x) * 4, dw * sh * 4);
+  const out = pass(wide, sh, dh, dw, (x, y) => (y * dw + x) * 4, (x, y) => (y * dw + x) * 4, dw * dh * 4);
+  const bytes = Buffer.alloc(dw * dh * 4);
+  for (let i = 0; i < bytes.length; i += 4) {
+    const a = out[i + 3];
+    for (let c = 0; c < 3; c++) bytes[i + c] = a > 0 ? Math.min(255, Math.round((out[i + c] * 255) / a)) : 0;
+    bytes[i + 3] = Math.round(a);
+  }
+  return bytes;
+}
+
+// A layered shot: each layer at every icon size (or the 4x3 upscale for a 3:2 shot), plus the
+// whole frame flattened.
+async function writeLayers(dir: string, shot: Shot, frame: ThumbnailFrame) {
+  const layers = frame.layers ?? [];
+  const flat = frame.logo ?? frame.plain;
+  const sizes = shot.format === 'tv-icon' ? TV_ICON_SIZES : [[frame.width * UPSCALE[0], frame.height * UPSCALE[1]] as const];
+  for (const [width, height] of sizes) {
+    const folder = path.join(dir, `${width}x${height}`);
+    await mkdir(folder, { recursive: true });
+    for (const [i, layer] of layers.entries()) {
+      const rgba = resample(Buffer.from(layer.rgba, 'base64'), frame.width, frame.height, width, height);
+      await writeFile(path.join(folder, `${i + 1}-${layer.name}.png`), encodePng(width, height, rgba, 4));
+    }
+  }
+  const [width, height] = sizes[0];
+  await writeFile(path.join(dir, 'flat.png'), encodePng(width, height, resample(Buffer.from(flat, 'base64'), frame.width, frame.height, width, height), 4));
+}
+
 // --- Capture ------------------------------------------------------------------------
 
 const buildDir = await mkdtemp(path.join(tmpdir(), 'aerodance-thumbnails-'));
@@ -157,7 +221,7 @@ async function worker() {
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
     const started = performance.now();
     try {
-      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `shot=${encodeURIComponent(shot.id)}`;
+      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `${tvIcons ? 'icon' : 'shot'}=${encodeURIComponent(shot.id)}`;
       await page.goto(`${base}?${query}`);
       await page.waitForFunction(() => (window as ThumbnailWindow).__thumb, null, { timeout: 60000 });
       if (!logged) {
@@ -169,8 +233,12 @@ async function worker() {
         if (!thumb) throw new Error('The capture page is not ready');
         return thumb.render();
       });
-      await writeImage(path.join(outDir, 'no-logo', `${shot.id}.png`), frame.plain, frame.width, frame.height);
-      if (frame.logo) await writeImage(path.join(outDir, 'with-logo', `${shot.id}.png`), frame.logo, frame.width, frame.height);
+      if (frame.layers) {
+        await writeLayers(path.join(outDir, shot.id), shot, frame);
+      } else {
+        await writeImage(path.join(outDir, 'no-logo', `${shot.id}.png`), frame.plain, frame.width, frame.height);
+        if (frame.logo) await writeImage(path.join(outDir, 'with-logo', `${shot.id}.png`), frame.logo, frame.width, frame.height);
+      }
       const seconds = ((performance.now() - started) / 1000).toFixed(1);
       console.log(`✓ ${shot.id} (${seconds}s)${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);
     } catch (e) {
