@@ -38,10 +38,11 @@ export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | numb
  * seeThrough: on the layer that adds the dancers, keep their glass partly transparent, so the
  * layers behind show through them as they move, instead of what was behind them in the shot.
  * wordmark: this entry is where the wordmark goes, rendering nothing itself.
+ * hidden: render the layer (so the one above is cut against it) but leave it out of the image.
  * blur: soften the layer like a shallow depth of field: a Gaussian blur, its sigma in pixels of
  * a 1280-wide image (scaled with the size the layer is written at).
  */
-export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; blur?: number; }
+export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; hidden?: boolean; blur?: number; }
 export interface Shot {
   id: string;
   stage: StageId;
@@ -87,7 +88,7 @@ const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && is
 
 const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
-  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark) && optionalNumber(v.blur);
+  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark) && optionalBoolean(v.hidden) && optionalNumber(v.blur);
 // Each rendered layer shows everything the one behind it does (see ShotLayer); one wordmark at most.
 const isLayerStack = (v: unknown) => {
   if (!Array.isArray(v) || !v.every(isLayer) || v.filter((layer) => layer.wordmark).length > 1) return false;
@@ -396,7 +397,8 @@ const ICONS: Shot[] = [
   },
 ];
 
-// The falls close-up with the scenery in front of and behind the dancer out of focus.
+// The falls close-up with the scenery in front of and behind the dancer out of focus, and the
+// same against nothing but the soft sky, the wordmark centered beside her.
 ICONS.push({
   ...ICONS[ICONS.length - 1],
   id: 'falls-closeup-soft',
@@ -405,6 +407,18 @@ ICONS.push({
     if (layer.name === 'foreground') return { ...layer, blur: 5 };
     return layer;
   }),
+});
+ICONS.push({
+  ...ICONS[ICONS.length - 1],
+  id: 'falls-sky-soft',
+  logo: { y: 391, size: 340, x: 'right', stacked: true },
+  layers: [
+    { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
+    { name: 'meadow', near: 2, hidden: true },
+    { name: 'logo', wordmark: true },
+    { name: 'dancers', near: 2, dancers: true },
+    { name: 'foreground', dancers: true, hidden: true },
+  ],
 });
 
 // Each icon twice: as above, and with see-through dancers (<id>-glass), so the layers behind

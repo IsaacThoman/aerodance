@@ -75,7 +75,7 @@ Without `--config` (and when opened from the home screen) the app runs `www/conf
 game after `build --game`, the Aero benchmark otherwise.
 
 The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../../assets/README.md)
-(`ICON` in `scripts/tvos-jsc.ts`, now `falls-closeup-soft-glass`). `build` turns its layers into the App
+(`ICON` in `scripts/tvos-jsc.ts`, now `falls-sky-soft-glass`). `build` turns its layers into the App
 Store and home-screen image stacks in `src/generated/Assets.xcassets`.
 
 `node client-tvos/jsc/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)

@@ -389,11 +389,14 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
         if (shot.layers) {
           const camera = get().camera;
           if (!(camera instanceof THREE.PerspectiveCamera) || !dancers.current) throw new Error('The shot camera or dancers are missing');
-          const parts = renderLayers(gl, scene, camera, dancers.current, shot.layers.filter((layer) => !layer.wordmark), frames * STEP, buffer);
+          const rendered = shot.layers.filter((layer) => !layer.wordmark);
+          // Hidden layers are rendered, so the layer above is cut against them, but left out.
+          const parts = renderLayers(gl, scene, camera, dancers.current, rendered, frames * STEP, buffer).filter((_, i) => !rendered[i].hidden);
           if (wordmark) {
             // On top, unless a wordmark entry puts it lower.
-            const at = shot.layers.findIndex((layer) => layer.wordmark);
-            parts.splice(at < 0 ? parts.length : at, 0, { name: at < 0 ? 'logo' : shot.layers[at].name, rgba: wordmark });
+            const kept = shot.layers.filter((layer) => !layer.hidden);
+            const at = kept.findIndex((layer) => layer.wordmark);
+            parts.splice(at < 0 ? parts.length : at, 0, { name: at < 0 ? 'logo' : kept[at].name, rgba: wordmark });
           }
           layers = parts.map(({ name, rgba }) => ({ name, rgba: base64(rgba) }));
         }
