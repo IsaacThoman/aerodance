@@ -128,17 +128,14 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
   drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
 
-  const status = !live && camera.active() && camera.message();
-  // The hold and status sit on a fade along the bottom, to read over the camera's picture.
-  if (live || status) {
+  if (live) {
+    // The hold sits on a fade along the bottom, to read over the camera's picture.
     const top = preview.y + preview.h - 110;
     const fade = g.createLinearGradient(0, top, 0, preview.y + preview.h);
     fade.addColorStop(0, 'rgba(4, 34, 61, 0)');
     fade.addColorStop(1, 'rgba(4, 34, 61, 0.85)');
     g.fillStyle = fade;
     g.fillRect(preview.x, top, preview.w, 110);
-  }
-  if (live) {
     // Each player's status under their lane label (the setup preview is mirrored: player 1 is
     // on its left-hand side).
     const lane = preview.w / session.playerCount;
@@ -153,14 +150,6 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
       : 'Stand still for 2.5 seconds';
     drawShadowText(g, message, mid, GAME_CALIBRATION_PROGRESS.y - 24, { size: 22, weight: 800, align: 'center' });
     drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
-  } else if (status) {
-    // Starting (or waiting for a dropped phone): what the camera is doing, after its status light.
-    const y = preview.y + preview.h - 30;
-    g.font = `600 20px ${FONT}`;
-    const message = ellipsize(g, status, preview.w - 80);
-    const x = mid - g.measureText(message).width / 2 + 14;
-    drawStatusDot(g, x - 26, y, connection.status, 9);
-    drawShadowText(g, message, x, y, { size: 20, weight: 600, color: '#e6f8ff' });
   }
 }
 
