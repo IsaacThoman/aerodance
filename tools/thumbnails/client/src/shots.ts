@@ -266,7 +266,7 @@ export const SHOTS: readonly Shot[] = [
   {
     id: 'beach-hero',
     stage: 'beach',
-    time: 10,
+    time: 4.25, // When the gulls are clear of the dancers' heads and the wordmark.
     pose: 3.1,
     camera: { position: [0, 0.55, 9.5], target: [0, 1.9, 1], fov: 40 },
     logo: { y: 215, size: 190 },
