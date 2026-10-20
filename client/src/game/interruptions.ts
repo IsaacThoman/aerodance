@@ -3,10 +3,11 @@ import { onHostChange } from '../host.ts';
 /*
  * What takes a song away from the players, besides a hidden tab: the audio stopping (a phone
  * call, Siri or an alarm: WebKit's context goes 'interrupted' or 'suspended', and the iPhone/iPad
- * app says interrupted) and the camera going quiet (WebKit mutes it for a call, and iPadOS
- * whenever aerodance isn't full screen). Each calls pause(cause) as it starts; GameSession.pause()
- * only acts during the countdown or the song, and Resume (a user gesture, which also restarts
- * the audio) carries on. A camera that is still interrupted then doesn't pause it again.
+ * app says interrupted) and the camera going quiet (WebKit mutes it for a call). Each calls
+ * pause(cause) as it starts; GameSession.pause() only acts during the countdown or the song,
+ * and Resume (a user gesture, which also restarts the audio) carries on. A camera that is still
+ * interrupted then doesn't pause it again; audio that is still held does (GameSession's
+ * AUDIO_START_MS).
  * The camera pauses only once it has been quiet for CAMERA_GRACE_MS: Chrome also mutes a camera
  * that merely stalls for a moment, which shouldn't stop the song.
  *
