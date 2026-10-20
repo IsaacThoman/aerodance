@@ -250,7 +250,8 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
 
     const react = reaction.current;
     react.t += dt;
-    // The shocked freeze mid-move; everyone else keeps dancing.
+    // The dance freezes mid-move while the others are shocked (one arriving then, in its bubble
+    // too: they all keep time).
     const frozen = react.kind === 'shock' && react.t < SHOCK_FREEZE;
     if (!still && !frozen) clock.current += dt;
     playback.forEach((p, i) => { p.current = clock.current + LAG[i]; });

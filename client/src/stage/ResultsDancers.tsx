@@ -173,9 +173,9 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
       if (solo) z = 0.6 * k;
       else if (s.winner === seat) { x = start * (1 - k); z = 0.8 * k; }
       else if (!s.leaders.includes(seat)) {
-        // In a crowd, losers also step aside from the winner, so one in the middle isn't left
-        // standing behind them.
-        const aside = count > 2 && s.winner !== null ? Math.sign(start - dancerSpot(s.winner, count, spacing).x) * spacing * 0.35 * k : 0;
+        // In a crowd, losers also step aside, away from the centre the winner walks to (one
+        // starting in the middle, away from the winner's side), so none is left behind them.
+        const aside = count > 2 && s.winner !== null ? Math.sign(start || start - dancerSpot(s.winner, count, spacing).x) * spacing * 0.35 * k : 0;
         x = start * (1 + 0.55 * k) + aside; z = -1.6 * k; sc = 1 - 0.15 * k;
       }
       g.position.set(x, 0, z);
