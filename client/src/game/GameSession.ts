@@ -24,7 +24,11 @@ import type { CalibrationStatus } from './webcamCalibration.ts';
  * Everything runs on the song's audible clock (audio/songPlayer.ts): the countdown is the
  * scheduled start, the reference dancers sample it, and every live pose is placed at the
  * song position audible when the camera captured it, so neither rendering nor network
- * delay decides which reference pose a player is compared against.
+ * delay decides which reference pose a player is compared against. (On a TV, what's drawn
+ * runs ahead of that by the output latency, which the TV adds back: timeMs() is drawn, while
+ * judging and pausing go by songTimeAt(), heardMs() here.)
+ * A countdown whose audio doesn't start (a phone call still holds it when Resume is pressed)
+ * would wait for it forever, so after AUDIO_START_MS it pauses again (waitingForAudio).
  *
  * const session = new GameSession({ bundle, playerCount, source });
  * await session.load(); session.update(performance.now()) every frame;
@@ -39,12 +43,14 @@ export const READY_HOLD_MS = 1000;
 const PRESENT_MS = 400;
 // A live pose this far before the song still feeds the first second's movement.
 const LEAD_MS = 1000;
+// How long a countdown waits for the audio to start before pausing again.
+export const AUDIO_START_MS = 1000;
 
 export type GamePhase = 'loading' | 'calibrating' | 'ready' | 'countdown' | 'playing' | 'paused' | 'finishing' | 'results' | 'error' | 'disposed';
 /** Per player, for the ready check. */
 export type Readiness = 'missing' | 'calibrating' | 'ready';
 /** The part of a song player (audio/songPlayer.ts) the session drives. */
-export type SessionPlayer = Pick<SongPlayer, 'state' | 'ended' | 'timeMs' | 'rawTimeMs' | 'songTimeAt' | 'play' | 'pause' | 'seek' | 'dispose'>;
+export type SessionPlayer = Pick<SongPlayer, 'state' | 'ended' | 'timeMs' | 'rawTimeMs' | 'songTimeAt' | 'audioRunning' | 'play' | 'pause' | 'seek' | 'dispose'>;
 /** A song for the stage's reference dancers to follow (StageView). */
 /** The dancers' routine, plus whether the song is audible (StageView pauses with it). */
 export interface SongRoutine extends DancerRoutine {
@@ -61,7 +67,7 @@ export interface GameSessionOptions {
   /** Start the countdown by itself once everyone is ready. */
   autoStart?: boolean;
 }
-type SessionPatch = Partial<Pick<GameSession, 'error' | 'pausedAtMs' | 'finishAt' | 'results' | 'recordingBytes'>>;
+type SessionPatch = Partial<Pick<GameSession, 'error' | 'pausedAtMs' | 'finishAt' | 'results' | 'recordingBytes' | 'waitingForAudio'>>;
 
 export class GameSession {
   bundle: LoadedSongBundle;
@@ -84,6 +90,10 @@ export class GameSession {
   finishAt: number | null = null;
   pausedAtMs: number | null = null;
   pausedEntranceMs: number | null = null;
+  /** When the current countdown started. */
+  countdownAt = 0;
+  /** Paused because the countdown's audio didn't start. */
+  waitingForAudio = false;
   results: PlayerResult[] | null = null;
   recording: PoseRecorder | null = null;
   recordingBytes: Uint8Array<ArrayBuffer> | null = null;
@@ -107,7 +117,7 @@ export class GameSession {
     this.clock = {
       bundle,
       songTimeAt: (perf) => this.player?.songTimeAt(perf) ?? bundle.song.playableStartMs,
-      perfAtSong: (ms) => this.now() - ((this.player?.rawTimeMs() ?? ms) - ms),
+      perfAtSong: (ms) => { const now = this.now(); return now - ((this.player?.songTimeAt(now) ?? ms) - ms); },
       playing: () => this.player?.state === 'playing',
     };
   }
@@ -192,7 +202,8 @@ export class GameSession {
       this.recording = createPoseRecorder(this.source, { songId: this.bundle.song.songId, songTimeAt: (perf) => player.songTimeAt(perf), playerCount: this.playerCount });
     }
     player.play({ delayMs: COUNTDOWN_MS });
-    this.set('countdown');
+    this.countdownAt = this.now();
+    this.set('countdown', { waitingForAudio: false });
   }
 
   /**
@@ -214,6 +225,10 @@ export class GameSession {
     return Math.max(0, this.resumeFromMs() - this.loaded().rawTimeMs());
   }
   resumeFromMs() { return this.pausedAtMs ?? this.bundle.song.playableStartMs; }
+  /** The song position the players have heard (and, on a TV, seen), from the start of this play. */
+  heardMs(now = this.now()) {
+    return Math.min(this.bundle.song.playableEndMs, Math.max(this.resumeFromMs(), this.loaded().songTimeAt(now)));
+  }
 
   /** Entrance time relative to the first audible beat; held while paused or resuming. */
   entranceTimeMs(): number {
@@ -228,7 +243,7 @@ export class GameSession {
     if (!['countdown', 'playing'].includes(this.phase)) return;
     this.pausedEntranceMs = this.entranceTimeMs();
     const player = this.loaded();
-    const at = this.phase === 'countdown' ? this.resumeFromMs() : player.timeMs();
+    const at = this.phase === 'countdown' ? this.resumeFromMs() : this.heardMs();
     player.pause();
     player.seek(at);
     // Poses from after this point would be compared against a song that stopped.
@@ -240,7 +255,8 @@ export class GameSession {
   resume() {
     if (this.phase !== 'paused') return;
     this.loaded().play({ delayMs: COUNTDOWN_MS });
-    this.set('countdown');
+    this.countdownAt = this.now();
+    this.set('countdown', { waitingForAudio: false });
   }
 
   update(now = this.now()) {
@@ -257,8 +273,12 @@ export class GameSession {
       if (this.autoStart && this.readySince !== null && now - this.readySince >= READY_HOLD_MS) this.start();
     } else if (phase === 'countdown' && player) {
       if (player.rawTimeMs() >= this.resumeFromMs()) this.set('playing');
+      else if (!player.audioRunning() && now - this.countdownAt >= AUDIO_START_MS) {
+        this.waitingForAudio = true;
+        this.pause();
+      }
     } else if (phase === 'playing' && player) {
-      this.scorer.advance(player.timeMs() - LATE_ALLOWANCE_MS);
+      this.scorer.advance(this.heardMs(now) - LATE_ALLOWANCE_MS);
       if (player.ended) this.set('finishing', { finishAt: now + LATE_ALLOWANCE_MS });
     } else if (phase === 'finishing' && this.finishAt !== null && now >= this.finishAt) {
       this.scorer.finish();

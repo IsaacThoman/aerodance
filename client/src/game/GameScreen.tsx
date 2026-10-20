@@ -39,8 +39,8 @@ import {
  *   playing    each player's score, combo and judgements under their live character, the
  *              song's progress, and a pause button (Escape, a hidden tab, or an interruption:
  *              a phone call taking the audio, or iOS taking the camera; interruptions.ts)
- *   paused     Resume (with a fresh countdown), Restart, Song select, and why the camera
- *              isn't tracking while iOS has it
+ *   paused     Resume (with a fresh countdown), Restart, Song select, and why the song can't
+ *              go on yet: the audio didn't start again, or the camera is muted
  *   results    hands the overlay to ResultsScreen
  *
  * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms and -game-scores for tests,
@@ -195,10 +195,9 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
 }
 
-// Under the pause panel while iOS has the camera: why nobody is tracked, after its status light
+// Under the pause panel while the camera is muted: why nobody is tracked, after its status light
 // (as on the calibration screen).
-function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup, status: CameraInput['view']['status']) {
-  const y = GAME_PAUSE_PANEL.y + GAME_PAUSE_PANEL.h + 44;
+function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup, status: CameraInput['view']['status'], y: number) {
   g.font = `700 24px ${FONT}`;
   const message = ellipsize(g, camera.message(), 1100);
   const x = 800 - g.measureText(message).width / 2 + 14;
@@ -399,7 +398,13 @@ export default function GameScreen({ visible = false, session, camera: source, o
         drawPill(g, GAME_RESUME, { label: 'Resume', icon: 'play', hover: h.resume ?? 0, press: press('resume') });
         drawPill(g, GAME_RESTART, { label: 'Restart', icon: 'replay', hover: h.restart ?? 0, press: press('restart') });
         drawPill(g, GAME_QUIT, { label: 'Song select', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
-        if (usesCamera(session) && camera.interrupted()) drawCameraInterrupted(g, camera, p.source.view.status);
+        // Under it, why the song can't go on yet: a call still has the audio, or iOS the camera.
+        let y = GAME_PAUSE_PANEL.y + GAME_PAUSE_PANEL.h + 44;
+        if (session.waitingForAudio && getMixer().ctx.state !== 'running') {
+          drawShadowText(g, 'Waiting for the audio…', 800, y, { size: 24, weight: 700, align: 'center' });
+          y += 44;
+        }
+        if (usesCamera(session) && camera.interrupted()) drawCameraInterrupted(g, camera, p.source.view.status, y);
       }
     },
   });

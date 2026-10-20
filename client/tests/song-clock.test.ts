@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { audibleTime } from '../src/audio/songPlayer.ts';
+import { audibleTime, drawClock } from '../src/audio/songPlayer.ts';
 import type { AudioClock } from '../src/audio/songPlayer.ts';
 
 const close = (actual: number, expected: number, message?: string) => assert.ok(Math.abs(actual - expected) < 1e-9, `${message ?? ''} ${actual} ≠ ${expected}`);
@@ -46,4 +46,40 @@ test('a suspended or interrupted context holds its time instead of running on fr
     close(audibleTime(ctx, 5000, 5000), 10, 'up to the stop it is as before');
     close(audibleTime(ctx, 9000, 9000), 10.01, 'four seconds later it has not moved past what was rendered');
   }
+});
+
+test('on a TV, what is drawn follows the rendered position, since the TV delays the picture with the sound', () => {
+  // WebKit through AirPlay Screen Mirroring: 250 ms of output latency, left out of the timestamp.
+  const ctx: AudioClock = { state: 'running', currentTime: 10.005, baseLatency: 0.01, outputLatency: 0.25,
+    getOutputTimestamp: () => ({ contextTime: 10, performanceTime: 5000 }) };
+  close(audibleTime(ctx, 5000, 5000, false), 10, 'drawn: the timestamp as it is (the TV shows it 250 ms later, with its sound)');
+  close(audibleTime(ctx, 5000, 5000), 10 - 0.245, 'judged: what the player was hearing and seeing then');
+  // The Apple TV app's and Chrome's timestamps already trail, so they are the same either way.
+  const trailing: AudioClock = { ...ctx, currentTime: 10.26, getOutputTimestamp: () => ({ contextTime: 10, performanceTime: 5000 }) };
+  close(audibleTime(trailing, 5000, 5000, false), audibleTime(trailing, 5000, 5000));
+});
+
+test('the drawn clock takes the latency off only off the TV, and never steps back when the TV comes or goes', () => {
+  let tv = false;
+  let perf = 5000;
+  const since = () => (perf - 5000) / 1000;
+  const ctx: AudioClock = { state: 'running', get currentTime() { return 10.005 + since(); }, baseLatency: 0.01, outputLatency: 0.25,
+    getOutputTimestamp: () => ({ contextTime: 10 + since(), performanceTime: perf }) };
+  const clock = drawClock(ctx, () => tv);
+  const at = (ms: number) => { perf = ms; return clock.at(ms, ms); };
+  close(at(5000), 9.755, 'off the TV it is the audible time');
+  // Mirroring starts: the picture jumps ahead by the latency once, to stay with the delayed sound.
+  tv = true;
+  close(at(5100), 10.1);
+  close(at(5200), 10.2);
+  // Mirroring stops: rather than going back 250 ms, it holds until the song catches up.
+  tv = false;
+  const held = [5300, 5400, 5500, 5600].map(at);
+  held.forEach((t, i) => assert.ok(t >= (held[i - 1] ?? 10.2), `${t} never steps back`));
+  close(held[0], 10.2); close(held[1], 10.2);
+  close(held[2], 10.255, 'running again once the audible time passes it');
+  close(held[3], 10.355);
+  // A new play starts from wherever the clock says.
+  clock.reset();
+  close(at(5000), 9.755);
 });

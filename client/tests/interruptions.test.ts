@@ -3,7 +3,7 @@ import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { CAMERA_GRACE_MS, watchInterruptions } from '../src/game/interruptions.ts';
 import type { InterruptionCause } from '../src/game/interruptions.ts';
-import { hostState, onHostChange } from '../src/host.ts';
+import { hostState, inApp, onHostChange } from '../src/host.ts';
 import { CameraSetup } from '../src/connect/cameraSetup.ts';
 import type { CameraInput, CameraInputView } from '../src/pose/CameraInput.ts';
 
@@ -54,9 +54,9 @@ test('the audio stopping (WebKit interrupted or suspended, or the app saying so)
   w.audio.set('running');
   w.audio.set('suspended');
   assert.deepEqual(w.pauses, ['audio', 'audio']);
-  w.host.dispatchEvent(hostEvent({ multitasking: false, interrupted: true }));
-  w.host.dispatchEvent(hostEvent({ multitasking: false, interrupted: false }));
-  w.host.dispatchEvent(hostEvent({ multitasking: true, interrupted: false }));
+  w.host.dispatchEvent(hostEvent({ interrupted: true, tv: false }));
+  w.host.dispatchEvent(hostEvent({ interrupted: false, tv: false }));
+  w.host.dispatchEvent(hostEvent({ interrupted: false, tv: true }));
   assert.deepEqual(w.pauses, ['audio', 'audio', 'audio']);
   w.audio.set('closed');
   assert.equal(w.pauses.length, 3, 'a closed context is the page going, not an interruption');
@@ -85,11 +85,13 @@ test('the camera being taken away pauses once; an already interrupted camera doe
 });
 
 test('the host state reads only booleans, and is all false in a browser', () => {
-  assert.deepEqual(hostState(), { multitasking: false, interrupted: false });
+  assert.deepEqual(hostState(), { interrupted: false, tv: false });
+  assert.equal(inApp(), false);
   const page = globalThis as { __aerodanceHost?: unknown };
-  page.__aerodanceHost = { multitasking: true, interrupted: 'yes' };
+  page.__aerodanceHost = { tv: true, interrupted: 'yes' };
   try {
-    assert.deepEqual(hostState(), { multitasking: true, interrupted: false });
+    assert.deepEqual(hostState(), { interrupted: false, tv: true });
+    assert.equal(inApp(), true);
   } finally { delete page.__aerodanceHost; }
   const target = new EventTarget();
   const seen: unknown[] = [];
@@ -98,19 +100,20 @@ test('the host state reads only booleans, and is all false in a browser', () => 
   target.dispatchEvent(hostEvent({ interrupted: true }));
   off();
   target.dispatchEvent(hostEvent({ interrupted: true }));
-  assert.deepEqual(seen, [{ multitasking: false, interrupted: false }, { multitasking: false, interrupted: true }]);
+  assert.deepEqual(seen, [{ interrupted: false, tv: false }, { interrupted: true, tv: false }]);
 });
 
-test('the calibration and pause screens say why the camera stopped: full screen on iPad multitasking, else interrupted', () => {
+test('the calibration and pause screens say the camera stopped: in the app, that it comes back', () => {
   const connection = { status: 'initializing', message: 'The camera was interrupted.', sourceKind: 'webcam', interrupted: true } as CameraInputView;
   const setup = new CameraSetup(() => ({ source: {} as CameraInput, connection }));
   assert.equal(setup.interrupted(), true);
   assert.equal(setup.active(), true, 'no Start camera button while it is only interrupted');
-  assert.match(setup.message(), /^The camera was interrupted/);
+  // A browser fails a camera muted for long (to Start camera), so it promises nothing.
+  assert.equal(setup.message(), 'The camera stopped sending pictures.');
   const page = globalThis as { __aerodanceHost?: unknown };
-  page.__aerodanceHost = { multitasking: true, interrupted: false };
+  page.__aerodanceHost = { interrupted: true, tv: false };
   try {
-    assert.match(setup.message(), /full screen/);
+    assert.equal(setup.message(), 'The camera was interrupted. It comes back by itself.');
   } finally { delete page.__aerodanceHost; }
   connection.interrupted = false;
   connection.message = 'Lite · CPU · Measuring tracking speed…';
