@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import Scene from './Scene.tsx';
@@ -24,14 +25,18 @@ import type { PlayerCount } from '../../packages/pose/choreography.ts';
 import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
+import { DISPLAY_MODES, RENDER_SIZE, displayModeFor } from './display.ts';
+import type { DisplayMode } from './display.ts';
 
 function FixedRenderResolution() {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
 
   useLayoutEffect(() => {
-    // Fiber tracks the displayed size for pointer events; keep the buffer at 4:3.
-    gl.setSize(640, 480, false);
+    // Fiber tracks the displayed size for projection and pointer events. As on Wii,
+    // both display modes use the same buffer; widescreen is anamorphic.
+    gl.setSize(RENDER_SIZE.w, RENDER_SIZE.h, false);
+    gl.domElement.dataset.displayMode = displayModeFor(size.width, size.height);
   }, [gl, size.width, size.height]);
 
   return null;
@@ -62,6 +67,16 @@ function download(name: string, bytes: Uint8Array<ArrayBuffer>) {
 }
 
 export default function App() {
+  const viewport = useRef<HTMLDivElement>(null);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>(() => displayModeFor(innerWidth, innerHeight));
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    // Observe the safe available area, independently of the letterboxed frame.
+    const observer = new ResizeObserver(([entry]) => setDisplayMode(displayModeFor(entry.contentRect.width, entry.contentRect.height)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select) or 'game' (a song).
   const [screen, setScreen] = useState<AppScreen>('menu');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
@@ -176,55 +191,57 @@ export default function App() {
   } : null), [game, gamePhase]);
 
   return (
-    <div className="canvas-frame display">
-      <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
-        <FixedRenderResolution />
-        <Scene paused={stage.showing} />
-        <StageView
-          active={(songsOpen && !!preview) || screen === 'game'}
-          orbiting={songsOpen && !!preview}
-          stageId={stageId}
-          routine={game ? gameRoutine : preview}
-          live={liveDancers}
-          results={resultsVisible ? resultsShow : null}
-          onState={setStage}
-        />
-        <MenuDancers
-          visible={(menuOpen || songsOpen) && !stage.showing && !diagnostic('nodancers')}
-          raised={songsOpen}
-          solo={songsOpen && playerCount === 1}
-        />
-        <MainMenu
-          visible={menuOpen}
-          initialScreen={menuScreen}
-          onStart={choosePlayers}
-          sound={sound}
-          onSoundChange={setSound}
-        />
-        <SongSelect
-          visible={songsOpen}
-          playerCount={playerCount}
-          connection={selectedConnection}
-          onBack={leaveSongs}
-          stageState={stage}
-          onPreviewChange={setPreview}
-          onDance={startGame}
-        />
-        <GameScreen
-          visible={screen === 'game' && !!game}
-          session={game}
-          camera={source}
-          onQuit={quitGame}
-          onRetry={retryGame}
-        />
-        <ResultsScreen
-          visible={resultsVisible}
-          show={resultsShow}
-          song={game?.bundle.song}
-          onQuit={quitGame}
-          onRetry={retryGame}
-        />
-      </Canvas>
+    <div ref={viewport} className="display-viewport">
+      <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
+        <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
+          <FixedRenderResolution />
+          <Scene paused={stage.showing} />
+          <StageView
+            active={(songsOpen && !!preview) || screen === 'game'}
+            orbiting={songsOpen && !!preview}
+            stageId={stageId}
+            routine={game ? gameRoutine : preview}
+            live={liveDancers}
+            results={resultsVisible ? resultsShow : null}
+            onState={setStage}
+          />
+          <MenuDancers
+            visible={(menuOpen || songsOpen) && !stage.showing && !diagnostic('nodancers')}
+            raised={songsOpen}
+            solo={songsOpen && playerCount === 1}
+          />
+          <MainMenu
+            visible={menuOpen}
+            initialScreen={menuScreen}
+            onStart={choosePlayers}
+            sound={sound}
+            onSoundChange={setSound}
+          />
+          <SongSelect
+            visible={songsOpen}
+            playerCount={playerCount}
+            connection={selectedConnection}
+            onBack={leaveSongs}
+            stageState={stage}
+            onPreviewChange={setPreview}
+            onDance={startGame}
+          />
+          <GameScreen
+            visible={screen === 'game' && !!game}
+            session={game}
+            camera={source}
+            onQuit={quitGame}
+            onRetry={retryGame}
+          />
+          <ResultsScreen
+            visible={resultsVisible}
+            show={resultsShow}
+            song={game?.bundle.song}
+            onQuit={quitGame}
+            onRetry={retryGame}
+          />
+        </Canvas>
+      </div>
     </div>
   );
 }

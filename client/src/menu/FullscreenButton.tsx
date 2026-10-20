@@ -14,7 +14,7 @@ import type { Fullscreen } from './useFullscreen.ts';
  * <FullscreenButton visible={() => isMainScreen} />
  */
 
-const BUTTON = { x: 1516, y: 836, r: 42 };
+const button = (width: number) => ({ x: width - 84, y: 836, r: 42 });
 const SLIDE_SECONDS = 0.3;
 
 const smooth = (k: number) => k * k * (3 - 2 * k);
@@ -35,7 +35,7 @@ export default function FullscreenButton({ visible = () => true }: FullscreenBut
     active: () => props.current.visible() && st.slide === 0,
     // After the main menu's buttons in the keyboard order (it draws above them).
     keyNav: true,
-    widgets: () => (props.current.fullscreen.supported ? [{ id: 'fullscreen', circle: BUTTON }] : []),
+    widgets: (s) => (props.current.fullscreen.supported ? [{ id: 'fullscreen', circle: button(s.w) }] : []),
     onActivate: (_wdg, s) => {
       props.current.fullscreen.toggle();
       s.invalidate();
@@ -50,6 +50,7 @@ export default function FullscreenButton({ visible = () => true }: FullscreenBut
     opacity: () => (st.slide === 1 || !props.current.fullscreen.supported ? 0 : 1),
     draw: (g, s) => {
       const fs = props.current.fullscreen;
+      const BUTTON = button(s.w);
       st.drawn = fs;
       // Keep the bubble opaque while it travels beyond the frame's right edge.
       g.save();

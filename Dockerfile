@@ -11,7 +11,7 @@ RUN npm test
 FROM mcr.microsoft.com/playwright:v1.58.2-noble AS ui-test
 WORKDIR /app
 COPY --from=build /app ./
-CMD ["node", "client/tests/ui-flow.browser.ts"]
+CMD ["sh", "-c", "node client/tests/ui-flow.browser.ts && UI_ASPECT=standard node client/tests/ui-flow.browser.ts"]
 
 FROM ui-test AS webcam-test
 RUN npm run studio:build

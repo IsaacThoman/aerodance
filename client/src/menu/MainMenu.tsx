@@ -6,10 +6,11 @@ import type { Widget } from '../ui/useCanvasUI.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import FullscreenButton from './FullscreenButton.tsx';
-import { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS } from './layout.ts';
+import { menuLayout } from './layout.ts';
+import { displayDesign } from '../display.ts';
 
 /**
- * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in 16:9 design units and
+ * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in the selected display mode and
  * drawn after the world (useFrame priority 2).
  *
  * Screens: main (Start, Settings), players (one / two players, then Song Select:
@@ -40,8 +41,6 @@ type ToggleKey = 'menuMusic' | 'muted';
 interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
 type MenuWidget = Widget & { slider?: SliderKey; toggle?: Toggle };
 
-// Design space is 1600x900 (16:9); the layout is in ./layout.ts.
-const PANEL = { x: 128, y: 540, w: 600, h: 294 };
 const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
   { key: 'music', label: 'Music' },
@@ -53,35 +52,15 @@ const TOGGLES: readonly Toggle[] = [
   { key: 'menuMusic', label: 'Menu music', audio: true, on: (p) => p.sound.menuMusic !== false },
   { key: 'muted', label: 'Mute all', on: (p) => !!p.sound.muted },
 ];
-const ROW_Y = (i: number) => PANEL.y + 46 + i * 50;
-const SWITCH = { w: 84, h: 42, x: PANEL.x + PANEL.w - 40 - 84 };
-const TRACK = { x0: PANEL.x + 190, x1: PANEL.x + PANEL.w - 110 };
-
-const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
-  main: [
-    { id: 'start', rect: START, primary: true },
-    { id: 'settings', rect: SETTINGS },
-  ],
-  players: [
-    { id: 'back', circle: BACK },
-    { id: 'one', rect: ONE_PLAYER },
-    { id: 'two', rect: TWO_PLAYERS },
-  ],
-  settings: [
-    { id: 'back', circle: BACK },
-    ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
-    ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: PANEL.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: PANEL.w - 32, h: 48 } })),
-  ],
-};
 // Where back / Escape leads from each submenu, and the button there that opens it.
 const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
 const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings: 'settings' };
 
-const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
 // Left/Right move a slider a twentieth (5) at a time.
 const SLIDER_STEPS = 20;
 
-function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>) {
+function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>, layout: ReturnType<typeof menuLayout>) {
+  const { PANEL, TRACK, ROW_Y, SWITCH } = layout;
   const { sound } = p;
   const { x, w } = PANEL;
   const base = g.globalAlpha;
@@ -172,6 +151,26 @@ export default function MainMenu({
   visible = true, initialScreen = 'main', onStart, onSettingsOpen, sound, onSoundChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
+  const layout = menuLayout(displayDesign(size.width, size.height).w);
+  const { BACK, ONE_PLAYER, SETTINGS, START, TITLE, TWO_PLAYERS, PANEL, TRACK, ROW_Y } = layout;
+  const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
+  const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
+    main: [
+      { id: 'start', rect: START, primary: true },
+      { id: 'settings', rect: SETTINGS },
+    ],
+    players: [
+      { id: 'back', circle: BACK },
+      { id: 'one', rect: ONE_PLAYER },
+      { id: 'two', rect: TWO_PLAYERS },
+    ],
+    settings: [
+      { id: 'back', circle: BACK },
+      ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
+      ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: PANEL.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: PANEL.w - 32, h: 48 } })),
+    ],
+  };
   const menu = useRef<MenuState>({ spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, players: 'one', refocus: null });
   const props = useRef<MainMenuProps>({ sound });
   props.current = { visible, onStart, onSettingsOpen, sound, onSoundChange };
@@ -277,7 +276,7 @@ export default function MainMenu({
         drawPill(g, TWO_PLAYERS, { label: 'Two Players', icon: 'pair', hover: h.two ?? 0, press: press('two') });
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
-        drawSettingsPanel(g, props.current, h);
+        drawSettingsPanel(g, props.current, h, layout);
       }
       g.restore();
     },

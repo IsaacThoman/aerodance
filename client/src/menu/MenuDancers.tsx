@@ -152,8 +152,10 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
         spot.visible = purpleOpacity.current > 0;
       }
     });
+    const compact = state.size.width / state.size.height < 1.5;
+    rig.current.scale.setScalar(compact ? 0.72 : 1);
     rig.current.position.set(
-      STAGE.x + away * away * SLIDE,
+      (compact ? 3.65 : STAGE.x) + away * away * SLIDE,
       STAGE.y + lift.current + (still ? 0 : Math.sin(t * 1.3) * 0.06),
       STAGE.z,
     );
@@ -162,7 +164,7 @@ export default function MenuDancers({ visible = true, raised = false, solo = fal
 
   useFrame(() => {
     if (!motion || !rig.current || shown.current < 0.005) return;
-    // Match the world camera's aspect so the stretch to 16:9 is shared.
+    // Match the world's selected display aspect, including anamorphic widescreen.
     if ('aspect' in camera && cam.aspect !== camera.aspect) { cam.aspect = camera.aspect; cam.updateProjectionMatrix(); }
     const ac = gl.autoClear;
     const tm = gl.toneMapping;

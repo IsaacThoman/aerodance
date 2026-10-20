@@ -6,8 +6,7 @@ import * as THREE from 'three';
 import type { Vec2, Vec3 } from '../catalog.ts';
 import { damp } from './random.ts';
 
-// The canvas buffer is 640x480 but displayed at 16:9, so cameras project at
-// 16:9 and the stretch restores correct proportions.
+// The default stage shape; the camera follows the displayed canvas in either mode.
 export const ASPECT = 16 / 9;
 
 // Create something disposable (geometry, material, texture, render target) once
@@ -72,6 +71,8 @@ export function StageCamera({
   onFrame,
 }: StageCameraProps): null {
   const set = useThree((s) => s.set);
+  const size = useThree((s) => s.size);
+  const aspect = size.width / Math.max(1, size.height);
   const get = useThree((s) => s.get);
   const camera = useMemo(() => {
     // R3F's `manual` flag keeps it from fitting the projection to the canvas.
@@ -87,16 +88,18 @@ export function StageCamera({
   const spherical = useRef(new THREE.Spherical());
 
   useLayoutEffect(() => {
-    camera.fov = fov;
+    // Preserve the wide composition's horizontal field of view on a 4:3 display,
+    // leaving both dancers and their extended arms inside the frame.
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(fov) / 2) * Math.max(1, ASPECT / aspect)));
     camera.near = near;
     camera.far = far;
-    camera.aspect = ASPECT;
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
     base.current.set(...position);
     look.current.set(...target);
     camera.position.copy(base.current);
     camera.lookAt(look.current);
-  }, [camera, fov, near, far, ...position, ...target]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [camera, fov, near, far, aspect, ...position, ...target]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     const previous = get().camera;

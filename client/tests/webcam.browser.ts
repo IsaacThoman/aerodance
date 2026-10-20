@@ -30,7 +30,7 @@ await Promise.all(servers.map(server => new Promise(resolve => server.once('list
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const errors: string[] = [];
 async function pageFor(port: number) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   page.setDefaultTimeout(60000); page.on('pageerror', error => {
     if (errors.length < 2) console.error('Browser error:', error.stack);
     errors.push(error.message);

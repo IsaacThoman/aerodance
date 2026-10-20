@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Vec3 } from '../catalog.ts';
 import { useDisposable } from '../shared/hooks.ts';
@@ -298,10 +300,9 @@ function makeSeedTexture() {
   return t;
 }
 
-const FOCAL = 480 * 0.5 / Math.tan(THREE.MathUtils.degToRad(25));
-
 /** Dandelion seeds drifting downwind and twinkling pollen motes. */
 export function Floaters({ seeds = 90, motes = 140 }: { seeds?: number; motes?: number }) {
+  const buffer = useMemo(() => new THREE.Vector2(), []);
   const texture = useDisposable(makeSeedTexture);
   const geometry = useDisposable(() => {
     const rand = makeRandom(31);
@@ -327,7 +328,8 @@ export function Floaters({ seeds = 90, motes = 140 }: { seeds?: number; motes?: 
           uMap: { value: texture },
           uBoxMin: { value: new THREE.Vector3(-22, 0.2, -26) },
           uBoxSize: { value: new THREE.Vector3(44, 9, 36) },
-          uScale: { value: FOCAL },
+          uScale: { value: 1 },
+          uPixelAspect: { value: 1 },
         },
         vertexShader: /* glsl */ `
           attribute vec4 aSeed;
@@ -364,14 +366,15 @@ export function Floaters({ seeds = 90, motes = 140 }: { seeds?: number; motes?: 
         fragmentShader: /* glsl */ `
           uniform sampler2D uMap;
           uniform vec3 uSunColor;
+          uniform float uPixelAspect;
           varying float vAlpha;
           varying float vRot;
           varying float vKind;
           varying float vTw;
           void main() {
             vec2 uv = gl_PointCoord - 0.5;
-            // The 640x480 buffer is shown at 16:9, so pre-squeeze sprites horizontally.
-            uv.x *= 1.333;
+            // Pre-squeeze only by the display's anamorphic stretch.
+            uv.x *= uPixelAspect;
             if (vKind > 0.5) {
               float r = length(uv) * 2.0;
               float a = smoothstep(1.0, 0.0, r) * vAlpha * (0.35 + 0.65 * vTw);
@@ -392,5 +395,10 @@ export function Floaters({ seeds = 90, motes = 140 }: { seeds?: number; motes?: 
         `,
       }),
   );
+  useFrame(({ gl, camera, size }) => {
+    gl.getDrawingBufferSize(buffer);
+    material.uniforms.uPixelAspect.value = (size.width / Math.max(1, size.height)) / (buffer.x / buffer.y);
+    material.uniforms.uScale.value = buffer.y * camera.projectionMatrix.elements[5] / 2;
+  });
   return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={6} />;
 }

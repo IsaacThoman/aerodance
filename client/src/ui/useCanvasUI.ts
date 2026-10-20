@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
 import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
 import { MIN_TOUCH_PX, widgetAt } from './hit.ts';
+import { displayDesign } from '../display.ts';
 import type { Circle, Point, Rect } from './draw.ts';
 
 /**
@@ -13,7 +14,7 @@ import type { Circle, Point, Rect } from './draw.ts';
  *
  * const ui = useCanvasUI({
  *   priority: 2,                          // useFrame priority (the world renders at 1)
- *   design: (cssW, cssH) => ({ w, h }),   // design units for the displayed size (default 1600x900)
+ *   design: (cssW, cssH) => ({ w, h }),   // default 1600x900 (16:9) or 1200x900 (4:3)
  *   widgets: (ui) => [{ id, rect | circle, drag?, nav?, primary? }],  // current hit areas, in content units
  *   active: (ui) => bool,                 // input and hover go to widgets only while true
  *   onActivate: (wdg, ui) => {},          // press and release on the same widget
@@ -179,7 +180,7 @@ function onNavKey(e: KeyboardEvent) {
   stops[next].o.ui.focus(stops[next].wdg);
 }
 
-const DEFAULT_DESIGN = (): DesignSize => ({ w: 1600, h: 900 });
+const DEFAULT_DESIGN = displayDesign;
 // Each redraw is uploaded as a full texture, so an overlay animating every frame (the song HUD)
 // redraws at most every 1/40 s: every other frame at 60 fps.
 const MIN_REDRAW_S = 1 / 40;
@@ -234,6 +235,7 @@ function createState<W extends Widget>(): CanvasUI<W> {
 
 export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUIOptions<W>): CanvasUI<W> {
   const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
   const requestFrame = useThree((state) => state.invalidate);
   const opts = useRef(options);
   opts.current = options;
@@ -264,6 +266,10 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
   ui.requestFrame = requestFrame;
   const focusRing = useRef(createFocusRing()).current;
   const drawnAt = useRef(-Infinity);
+
+  // A CSS resize can reach the frame loop before React has supplied the screen's new
+  // layout callbacks. Redraw again after those callbacks commit, including static screens.
+  useLayoutEffect(() => { ui.invalidate(); }, [ui, size.width, size.height]);
 
   useEffect(() => {
     const el = gl.domElement;
@@ -430,6 +436,9 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     if (d.w !== s.w || d.h !== s.h) {
       s.w = d.w;
       s.h = d.h;
+      s.pointer = null;
+      s.drag = null;
+      s.pressed = null;
       s.dirty = true;
     }
 
