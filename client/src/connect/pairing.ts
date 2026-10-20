@@ -1,12 +1,12 @@
 import { encode } from 'uqr';
-import { FONT, paragraph, text } from '../ui/draw.ts';
+import { FONT, ICONS, paragraph, text } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import { spacedCode } from '../../../packages/pairing/signals.ts';
 import type { PhonePairing } from '../pose/PhonePoseSource.ts';
 
 /*
  * Pairing a phone, drawn in-engine on the calibration screen: the QR code that opens the
- * phone page with the code, and beside it the page's address and the code to type in.
+ * phone page with the code, and beside it Pair phone, the page's address and the code to type in.
  *
  * drawPairing(g, rect, { code, url });
  */
@@ -67,7 +67,7 @@ function fit(g: CanvasRenderingContext2D, str: string, w: number, max: number, w
   return size;
 }
 
-/** The QR code, and beside it the address to open and the code to type, centred in `rect`. */
+/** The QR code, and beside it Pair phone, the address to open and the code to type, centred in `rect`. */
 export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: PhonePairing) {
   const k = Math.min(1.25, Math.max(0.8, rect.h / 260));
   const gap = 44 * k;
@@ -86,15 +86,32 @@ export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: Ph
   if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
   const codeW = g.measureText(code).width;
   g.restore();
-  const left = rect.x + (rect.w - side - gap - Math.max(urlW, codeW)) / 2;
+  // Over them, the phone icon and Pair phone side by side.
+  const iconR = 36 * k;
+  const iconW = iconR * 0.6;
+  const labelSize = Math.round(26 * k);
+  g.font = `800 ${labelSize}px ${FONT}`;
+  const headingW = iconW + 14 * k + g.measureText('Pair phone').width;
+  const left = rect.x + (rect.w - side - gap - Math.max(urlW, codeW, headingW)) / 2;
   const qr = drawQr(g, pairing.url, { x: left, y: rect.y + (rect.h - side) / 2, w: side, h: side });
   const x = qr.x + qr.w + gap;
   const mid = qr.y + qr.h / 2;
-  const block = urlSize + 16 * k + codeSize;
-  text(g, address, x, mid - block / 2 + urlSize / 2, { size: urlSize, weight: 800, color: '#bff4ff' });
+  const block = iconR + 22 * k + urlSize + 12 * k + codeSize;
+  let y = mid - block / 2 + iconR / 2;
+  g.save();
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 3 * k;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  ICONS.phone(g, x + iconW / 2, y, iconR);
+  g.restore();
+  text(g, 'Pair phone', x + iconW + 14 * k, y + 1, { size: labelSize, weight: 800 });
+  y += iconR / 2 + 22 * k + urlSize / 2;
+  text(g, address, x, y, { size: urlSize, weight: 800, color: '#bff4ff' });
+  y += urlSize / 2 + 12 * k + codeSize / 2;
   g.save();
   if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
-  text(g, code, x, mid + block / 2 - codeSize / 2, { size: codeSize, weight: 800 });
+  text(g, code, x, y, { size: codeSize, weight: 800 });
   g.restore();
   // The phone can't open this computer's own loopback address.
   if (local(url.hostname)) {
