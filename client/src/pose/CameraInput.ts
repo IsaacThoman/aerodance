@@ -1,4 +1,6 @@
 import { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
+import { WebcamPoseSource } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import { inApp } from '../host.ts';
 import type { CameraInfo, WebcamConfigureOptions, WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { FrameSize, PlayerCount } from '../../../packages/pose/choreography.ts';
 import { PhonePoseSource } from './PhonePoseSource.ts';
@@ -48,7 +50,8 @@ export class CameraInput implements PoseSource {
   listeners = new Set<Listener<CameraInputView>>();
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
-  constructor({ webcam = new PoseSourceController(), phone = new PhonePoseSource(),
+  // In the iPhone/iPad app, a muted camera is iOS holding it for a call: wait for it to come back.
+  constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource({ interruptedTimeoutMs: inApp() ? Infinity : undefined }) }), phone = new PhonePoseSource(),
     webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone;
     const choice = saved();

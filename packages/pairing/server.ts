@@ -41,6 +41,13 @@ import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.
  * or the link sends faster than RELAY_BYTES_PER_S, and a side whose control frames keep going
  * past that rate loses its link, so a room can't be used as a free pipe.
  *
+ * The iPhone/iPad app's game runs at a loopback origin (http://127.0.0.1:8417, other ports in
+ * development builds) and pairs through the deployed site, so its requests are cross-origin:
+ * loopback origins may read the answers (CORS), and nothing else may. A page there runs on the
+ * player's own device; any wider and every website could open rooms through its visitors'
+ * browsers, past the per-client limits. The relay's WebSockets don't check the origin: CORS
+ * doesn't cover them, and they need a room's token, which only a reader of the answers has.
+ *
  * Paths are relative to where the handler is mounted (/pair in the game's dev server and
  * behind nginx). handle() returns false for paths it doesn't serve.
  */
@@ -70,6 +77,10 @@ const LIVE_BACKLOG = 64 * 1024;
 const MAX_BACKLOG = 1024 * 1024;
 const RELAY_BYTES_PER_S: Record<PairingRole, number> = { phone: 512 * 1024, host: 64 * 1024 };
 const SWEEP_MS = 5_000;
+// Origins whose pages may read the answers: the apps' loopback servers, on any port.
+const APP_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/;
+// What those pages send: JSON posts (a preflight), plain GETs and event streams (none).
+const PREFLIGHT = { 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '600' };
 
 interface Side {
   token: string | null; stream: ServerResponse | null; seen: number;
@@ -381,7 +392,19 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     const route = `${req.method} ${parts[0] === 'rooms' ? ['rooms', parts[1] && ':code', parts[2]].filter(Boolean).join('/') : parts.join('/')}`;
     const known = ['POST rooms', 'GET rooms/:code', 'POST rooms/:code/join', 'GET rooms/:code/events', 'POST rooms/:code/messages',
       'POST rooms/:code/release', 'POST rooms/:code/close', 'GET health'];
-    if (!known.includes(route) || parts.length > 3) return false;
+    // A preflight asks about a path served for another method.
+    const served = req.method === 'OPTIONS' ? known.some((k) => k.endsWith(` ${route.slice(route.indexOf(' ') + 1)}`)) : known.includes(route);
+    if (!served || parts.length > 3) return false;
+    const origin = req.headers.origin;
+    const allowed = !!origin && APP_ORIGIN.test(origin);
+    res.setHeader('vary', 'origin');
+    if (allowed) res.setHeader('access-control-allow-origin', origin);
+    if (req.method === 'OPTIONS') {
+      // Without the headers, any other origin's preflight fails.
+      res.writeHead(204, allowed ? PREFLIGHT : {});
+      res.end();
+      return true;
+    }
     try {
       if (route === 'GET health') json(res, 200, { rooms: rooms.size });
       else if (route === 'POST rooms') create(res);

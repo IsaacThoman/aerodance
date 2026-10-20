@@ -1,0 +1,73 @@
+# XcodeGen spec for the iPhone/iPad app; scripts/ios.ts generates the project and builds it.
+# The team and bundle ID come from IOS_TEAM_ID and IOS_BUNDLE_ID.
+name: Aerodance
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  Aerodance:
+    type: application
+    platform: iOS
+    sources:
+      - path: src/main.m
+      - path: src/inject.js
+        buildPhase: resources
+      # The privacy manifest: NSUserDefaults (the saved copy of scores and settings), nothing collected.
+      - path: src/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      # The production web build, copied here by scripts/ios.ts.
+      - path: www
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - sdk: WebKit.framework
+      - sdk: AVKit.framework
+      - sdk: MediaPlayer.framework
+      - sdk: Network.framework
+    # XcodeGen writes Info.plist from these properties.
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: aerodance
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIRequiredDeviceCapabilities: [metal]
+        # The iPhone launches sideways for the 16:9 game. main.m turns it upright while the game
+        # is on a TV and the phone is the remote. The iPad takes every orientation, which
+        # Split View and Stage Manager need (and no UIRequiresFullScreen).
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # The phone's scene, plus the TV's when a display connects (AirPlay or a cable). iOS
+        # only offers the TV scene to apps that declare the role here.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Phone
+                UISceneDelegateClassName: PhoneSceneDelegate
+            UIWindowSceneSessionRoleExternalDisplayNonInteractive:
+              - UISceneConfigurationName: TV
+                UISceneDelegateClassName: TVSceneDelegate
+        NSCameraUsageDescription: aerodance can use this camera to follow your dance moves. The video stays on this device.
+        # Only the system's encryption (HTTPS, and WebRTC's DTLS in WebKit), so no export compliance
+        # documentation.
+        ITSAppUsesNonExemptEncryption: false
+        # Pairing a phone on the same Wi-Fi connects to it directly (WebRTC), which iOS may ask
+        # about. Development builds also get NSAllowsLocalNetworking, for --report.
+        NSLocalNetworkUsageDescription: aerodance connects to your phone on this network when you use it as the camera.
+    settings:
+      PRODUCT_NAME: aerodance
+      PRODUCT_BUNDLE_IDENTIFIER: ${IOS_BUNDLE_ID}
+      DEVELOPMENT_TEAM: ${IOS_TEAM_ID}
+      CODE_SIGN_STYLE: Automatic
+      GENERATE_INFOPLIST_FILE: NO
+      CLANG_ENABLE_OBJC_ARC: YES
+      TARGETED_DEVICE_FAMILY: "1,2"
