@@ -181,7 +181,7 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.lineWidth = 6;
   g.lineCap = 'round';
   g.lineJoin = 'round';
-  (none ? ICONS.play : phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
+  (none ? ICONS.noCamera : phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
   g.restore();
   text(g, failed ? 'Try again' : none ? 'Continue' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
