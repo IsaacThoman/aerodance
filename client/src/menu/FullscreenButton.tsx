@@ -7,7 +7,9 @@ import type { Fullscreen } from './useFullscreen.ts';
 /**
  * The main menu's fullscreen bubble, drawn in-engine in the bottom-right corner (priority
  * 3.5). It slides off to the right outside the main menu and back in on return. Click it on
- * the display itself: browsers only enter fullscreen from the user's own input.
+ * the display itself: browsers only enter fullscreen from the user's own input. It isn't
+ * drawn at all where the page can't go fullscreen (iPhone Safari, the tvOS app, iframes
+ * without allowfullscreen).
  *
  * <FullscreenButton visible={() => isMainScreen} />
  */
@@ -45,14 +47,13 @@ export default function FullscreenButton({ visible = () => true }: FullscreenBut
       if (slide !== st.slide) { st.slide = slide; s.invalidate(); }
       if (props.current.fullscreen !== st.drawn) s.invalidate();
     },
-    opacity: () => (st.slide === 1 ? 0 : 1),
+    opacity: () => (st.slide === 1 || !props.current.fullscreen.supported ? 0 : 1),
     draw: (g, s) => {
       const fs = props.current.fullscreen;
       st.drawn = fs;
       // Keep the bubble opaque while it travels beyond the frame's right edge.
       g.save();
       g.translate(smooth(st.slide) * (s.w - BUTTON.x + BUTTON.r + 24), 0);
-      if (!fs.supported) g.globalAlpha *= 0.5;
       drawGlassCircle(g, BUTTON, s.hover.fullscreen ?? 0);
       g.lineWidth = 4;
       g.lineCap = 'round';
