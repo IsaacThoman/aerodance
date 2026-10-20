@@ -62,6 +62,10 @@ node scripts/tvos-jsc.ts run --sim <udid> --config '{"script":"bench/aero-bench.
 Without `--config` (and when opened from the home screen) the app runs `www/config.json`: the
 game after `build --game`, the Aero benchmark otherwise.
 
+The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../../assets/README.md)
+(`ICON` in `scripts/tvos-jsc.ts`, now `falls-meadow-glass`). `build` turns its layers into the App
+Store and home-screen image stacks in `src/generated/Assets.xcassets`.
+
 `node client-tvos/jsc/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
 pairs a phone page in Chromium, with a synthetic camera and the real MediaPipe model, with the
 app in a tvOS simulator through a local pairing server, and plays the game from it: pairing and
