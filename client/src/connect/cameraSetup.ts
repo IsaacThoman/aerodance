@@ -3,6 +3,7 @@ import type { Rect } from '../ui/draw.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { MODELS } from '../../../packages/pose/browser/models.ts';
 import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import { PHONE_CAMERA } from '../pose/CameraInput.ts';
 import type { CameraInput, CameraInputView } from '../pose/CameraInput.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 
@@ -26,6 +27,7 @@ export interface CameraLayout {
 }
 export type CameraWidget = Widget & { cameraDelta?: number };
 
+const DEFAULT_CAMERA = { deviceId: '', label: 'Default camera' };
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
@@ -64,9 +66,14 @@ export class CameraSetup {
   activate(wdg: CameraWidget) {
     const { source, connection } = this.target();
     if (wdg.cameraDelta) {
-      const cameras = [{ deviceId: '', label: 'Default camera' }, ...(connection.cameras || [])];
-      const index = Math.max(0, cameras.findIndex(camera => camera.deviceId === connection.cameraId));
-      const camera = cameras[(index + wdg.cameraDelta + cameras.length) % cameras.length];
+      // Default camera stands in for this computer's cameras until the browser names them. After
+      // that it is one of them (a running default camera takes on its id), so it would come round twice.
+      const known = connection.cameras || [];
+      const cameras = known.some(camera => camera.deviceId !== PHONE_CAMERA.deviceId) ? known : [DEFAULT_CAMERA, ...known];
+      const index = cameras.findIndex(camera => camera.deviceId === connection.cameraId);
+      // From a camera that isn't listed (the default one, or one unplugged), Right goes to the first, Left to the last.
+      const next = index < 0 ? (wdg.cameraDelta > 0 ? 0 : cameras.length - 1) : index + wdg.cameraDelta;
+      const camera = cameras[(next + cameras.length) % cameras.length];
       this.error = '';
       void source.configure({ cameraId: camera.deviceId }).catch((err: unknown) => { this.error = message(err); });
     } else return false;
@@ -97,7 +104,7 @@ export function drawCameraPicker(g: CanvasRenderingContext2D, layout: CameraLayo
   const camera = connection.cameras?.find(camera => camera.deviceId === connection.cameraId);
   const left = prev.x + prev.w;
   g.font = `700 24px ${FONT}`;
-  text(g, ellipsize(g, camera?.label || 'Default camera', next.x - left - 40), (left + next.x) / 2, prev.y + prev.h / 2, { size: 24, align: 'center' });
+  text(g, ellipsize(g, camera?.label || DEFAULT_CAMERA.label, next.x - left - 40), (left + next.x) / 2, prev.y + prev.h / 2, { size: 24, align: 'center' });
 }
 
 /** A button per tracking model; the chosen one is marked. */
