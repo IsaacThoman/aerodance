@@ -57,7 +57,8 @@ targets:
               - UISceneConfigurationName: TV
                 UISceneDelegateClassName: TVSceneDelegate
         NSCameraUsageDescription: aerodance can use this camera to follow your dance moves. The video stays on this device.
-        # HTTPS only (pairing, through the system), so no export compliance documentation.
+        # Only the system's encryption (HTTPS, and WebRTC's DTLS in WebKit), so no export compliance
+        # documentation.
         ITSAppUsesNonExemptEncryption: false
         # Pairing a phone on the same Wi-Fi connects to it directly (WebRTC), which iOS may ask
         # about. Development builds also get NSAllowsLocalNetworking, for --report.

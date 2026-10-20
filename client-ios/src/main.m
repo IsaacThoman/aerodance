@@ -101,10 +101,10 @@ static NSString *MimeType(NSString *ext) {
 static void Respond(nw_connection_t c, int status, NSString *reason, NSString *headers, NSUInteger length, NSData *body) {
   NSString *head = [NSString stringWithFormat:@"HTTP/1.1 %d %@\r\n%@Content-Length: %lu\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
                     status, reason, headers, (unsigned long)length];
-  NSMutableData *out = [[head dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
-  if (body) [out appendData:body];
-  NSData *keep = out;
-  dispatch_data_t d = dispatch_data_create(keep.bytes, keep.length, nil, ^{ (void)keep; });
+  NSData *prefix = [head dataUsingEncoding:NSUTF8StringEncoding];
+  dispatch_data_t d = dispatch_data_create(prefix.bytes, prefix.length, nil, ^{ (void)prefix; });
+  // The body goes out as it is (files are memory-mapped), without being copied after the headers.
+  if (body.length) d = dispatch_data_create_concat(d, dispatch_data_create(body.bytes, body.length, nil, ^{ (void)body; }));
   nw_connection_send(c, d, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, true, ^(nw_error_t error) { nw_connection_cancel(c); });
 }
 
@@ -430,9 +430,20 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     web.frame = target.bounds;
     [target addSubview:web];
   }
-  self.tv = self.onTV;  // the page draws its clock without the TV's audio delay (songPlayer.ts)
+  [self updateTV];
   [self tellPage];
   [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+}
+
+// tv tells the page (songPlayer.ts) to draw its clock without taking the output latency off: true
+// while the game is on the TV and the sound goes there too, so the picture is as late as the
+// sound. An HDMI picture with the sound on AirPods isn't.
+- (void)updateTV {
+  BOOL soundOnTV = NO;
+  for (AVAudioSessionPortDescription *port in AVAudioSession.sharedInstance.currentRoute.outputs) {
+    if ([port.portType isEqual:AVAudioSessionPortAirPlay] || [port.portType isEqual:AVAudioSessionPortHDMI]) soundOnTV = YES;
+  }
+  self.tv = self.onTV && soundOnTV;
 }
 
 // For inject.js's reports: which screen the game is on, and how hot the device is.
@@ -449,6 +460,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (!(self = [super init])) return nil;
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   [center addObserver:self selector:@selector(audioInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
+  [center addObserverForName:AVAudioSessionRouteChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self updateTV]; }];
   [center addObserver:self selector:@selector(sceneActivated) name:UISceneDidActivateNotification object:nil];
   [center addObserver:self selector:@selector(checkServer) name:UIApplicationWillEnterForegroundNotification object:nil];
   for (NSNotificationName name in @[NSProcessInfoThermalStateDidChangeNotification, NSProcessInfoPowerStateDidChangeNotification]) {
@@ -458,15 +470,17 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 }
 
 // A phone call, Siri or an alarm takes the audio. The game pauses and says so while interrupted;
-// afterwards the session is made active again, but the song waits for the player to tap Resume.
+// afterwards the session is made active again if iOS says to (not if the player started music
+// elsewhere), and the song waits for the player to tap Resume either way.
 // Every interruption counts: iOS 16 and later no longer report one for the app having been
 // suspended (AVAudioSessionInterruptionReasonAppWasSuspended, before that WasSuspendedKey).
 - (void)audioInterrupted:(NSNotification *)note {
   BOOL began = [note.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue] == AVAudioSessionInterruptionTypeBegan;
+  BOOL resume = [note.userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue] & AVAudioSessionInterruptionOptionShouldResume;
   dispatch_async(dispatch_get_main_queue(), ^{
-    NSLog(@"aerodance: audio interruption %@", began ? @"began" : @"ended");
+    NSLog(@"aerodance: audio interruption %@", began ? @"began" : resume ? @"ended" : @"ended (not resuming)");
     if (began) { self.interrupted = YES; return; }
-    [self activateAudio];
+    if (resume) [self activateAudio];
     self.interrupted = NO;
   });
 }
