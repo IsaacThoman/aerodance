@@ -113,9 +113,12 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   const preview = GAME_CALIBRATION_PREVIEW;
   const mid = card.x + card.w / 2;
   const none = camera.none();
+  const live = connection.status === 'connected';
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
   drawGlassPanel(g, card, 30);
-  text(g, none ? 'Play without a camera' : 'Stand still for 2.5 seconds', mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
+  // The hold only matters once the camera can see the players.
+  const title = none ? 'Play without a camera' : live ? 'Stand still for 2.5 seconds' : '';
+  if (title) text(g, title, mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
 
   drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
   const pairing = camera.pairing();
@@ -123,7 +126,6 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
   // Each player's status under their lane label (the setup preview is mirrored: player 1 is
   // on its left-hand side).
-  const live = connection.status === 'connected';
   if (live) {
     const lane = preview.w / session.playerCount;
     calibration.players.forEach((status, id) => {
