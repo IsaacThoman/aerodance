@@ -26,7 +26,8 @@ which drives the pop-ups and the combo.
     from `AudioContext.getOutputTimestamp`, or `currentTime - outputLatency`).
 - **Late arrivals.** Intervals are scored 750 ms behind the song (`LATE_ALLOWANCE_MS`),
   so poses delayed by camera buffering or pose tracking still count. The results wait for the same
-  allowance after the song ends.
+  allowance after the song ends, as heard: the audio renders its end the output latency earlier
+  (up to a second or two with AirPlay), and the song plays on until then.
 
 ## Features
 

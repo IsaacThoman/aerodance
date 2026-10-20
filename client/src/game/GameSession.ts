@@ -26,7 +26,8 @@ import type { CalibrationStatus } from './webcamCalibration.ts';
  * song position audible when the camera captured it, so neither rendering nor network
  * delay decides which reference pose a player is compared against. (On a TV, what's drawn
  * runs ahead of that by the output latency, which the TV adds back: timeMs() is drawn, while
- * judging and pausing go by songTimeAt(), heardMs() here.)
+ * judging and pausing go by songTimeAt(), heardMs() here.) The song is playing until its end
+ * is heard, after the audio has rendered it (songPlayer.ts), and then finishes.
  * A countdown whose audio doesn't start (a phone call still holds it when Resume is pressed)
  * would wait for it forever, so after AUDIO_START_MS it pauses again (waitingForAudio).
  *
@@ -178,7 +179,9 @@ export class GameSession {
     }
     if (!['countdown', 'playing', 'finishing'].includes(this.phase) || !Number.isFinite(captureBrowserTimeMs)) return;
     const player = this.loaded();
-    if (player.state !== 'playing') return;
+    // A paused song's clock holds, but one heard to the end still places the poses that arrive
+    // during the late allowance.
+    if (player.state !== 'playing' && !player.ended) return;
     const songMs = player.songTimeAt(captureBrowserTimeMs);
     if (songMs <= this.acceptFromMs || songMs > this.bundle.song.playableEndMs + LATE_ALLOWANCE_MS) return;
     const aspect = record.input.width / record.input.height;
@@ -243,9 +246,12 @@ export class GameSession {
 
   pause() {
     if (!['countdown', 'playing'].includes(this.phase)) return;
-    this.pausedEntranceMs = this.entranceTimeMs();
     const player = this.loaded();
     const at = this.phase === 'countdown' ? this.resumeFromMs() : this.heardMs();
+    // Heard to the end, the song is over (resuming from the end would start it over): it
+    // finishes instead.
+    if (player.ended || at >= this.bundle.song.playableEndMs) return;
+    this.pausedEntranceMs = this.entranceTimeMs();
     player.pause();
     player.seek(at);
     // Poses from after this point would be compared against a song that stopped.

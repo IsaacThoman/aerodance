@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { audibleTime, drawClock } from '../src/audio/songPlayer.ts';
+import { LONGEST_TAIL_MS, audibleTime, createSongPlayer, drawClock } from '../src/audio/songPlayer.ts';
 import type { AudioClock } from '../src/audio/songPlayer.ts';
+import { installFakeAudio } from './fixtures/fakeAudio.ts';
 
 const close = (actual: number, expected: number, message?: string) => assert.ok(Math.abs(actual - expected) < 1e-9, `${message ?? ''} ${actual} ≠ ${expected}`);
+const near = (actual: number, expected: number, message?: string) => assert.ok(Math.abs(actual - expected) < 1e-6, `${message ?? ''} ${actual} ≠ ${expected}`);
 
 test('a timestamp that already trails rendering by the output latency (Chrome, Firefox) is used as it is', () => {
   // 40 ms rendered but not yet heard; the device reports 30 ms of it as output latency.
@@ -82,4 +84,114 @@ test('the drawn clock takes the latency off only off the TV, and never steps bac
   // A new play starts from wherever the clock says.
   clock.reset();
   close(at(5000), 9.755);
+});
+
+// The songs below run 0-2000 ms, scheduled 30 ms after play(): the source renders its last
+// sample 2030 ms in.
+const SONG = { startMs: 0, endMs: 2000 };
+
+test('a song plays until its end is heard, not just rendered (WebKit, 500 ms of output latency)', async (t) => {
+  const audio = installFakeAudio(t, { latencyMs: 500 });
+  const player = await createSongPlayer(new Blob([]), SONG);
+  const ends: boolean[] = [];
+  player.onChange(() => ends.push(player.ended));
+  player.play();
+  audio.advance(2030);
+  assert.ok(audio.sources[0].done, 'the source has rendered the end');
+  assert.equal(player.state, 'playing', 'the last 500 ms are still to be heard');
+  assert.equal(player.ended, false);
+  near(player.songTimeAt(audio.now), 1500);
+  near(player.timeMs(), 1500, 'the dancers carry on with the music, rather than jumping to the end');
+  const capture = audio.now + 300;
+  audio.advance(300);
+  near(player.songTimeAt(capture), 1800, 'a pose danced to the last of it is placed there');
+  audio.advance(190);
+  assert.equal(player.ended, false);
+  audio.advance(10);
+  assert.equal(player.ended, true, 'ended once the end is heard');
+  assert.equal(player.state, 'paused');
+  assert.equal(player.timeMs(), 2000);
+  assert.deepEqual(ends, [false, true]);
+  near(player.songTimeAt(capture), 1800, 'still placed when it arrives late, after the end');
+  // Playing again starts over.
+  player.play();
+  assert.equal(player.ended, false);
+  assert.equal(audio.sources[1].offset, 0);
+});
+
+test('a timestamp that already trails (Chrome, the Apple TV app) waits only its own latency, once', async (t) => {
+  for (const latencyMs of [20, 210]) {
+    await t.test(`${latencyMs} ms`, async (t) => {
+      const audio = installFakeAudio(t, { latencyMs, trailing: true });
+      const player = await createSongPlayer(new Blob([]), SONG);
+      player.play();
+      audio.advance(2030 + latencyMs - 10);
+      assert.equal(player.ended, false);
+      near(player.songTimeAt(audio.now), 1990);
+      audio.advance(10);
+      assert.equal(player.ended, true);
+    });
+  }
+});
+
+test('audio that stops during the last of a song ends it instead of waiting to be heard', async (t) => {
+  const audio = installFakeAudio(t, { latencyMs: 500 });
+  const player = await createSongPlayer(new Blob([]), SONG);
+  player.play();
+  audio.advance(2130);
+  audio.setState('interrupted');
+  // Its clock holds from here, so the end would never be heard.
+  audio.advance(400);
+  assert.equal(player.ended, true, 'ended when the end was due, not later');
+  assert.equal(player.timeMs(), 2000);
+});
+
+test('the end of a song never waits longer than LONGEST_TAIL_MS', async (t) => {
+  const audio = installFakeAudio(t, { latencyMs: 60_000, bufferMs: 130_000 });
+  const player = await createSongPlayer(new Blob([]), { startMs: 0, endMs: 120_000 });
+  player.play();
+  audio.advance(120_030 + LONGEST_TAIL_MS - 10);
+  assert.equal(player.ended, false);
+  audio.advance(10);
+  assert.equal(player.ended, true);
+});
+
+test('pausing or seeking during the last of a song carries on from there', async (t) => {
+  const audio = installFakeAudio(t, { latencyMs: 500 });
+  const player = await createSongPlayer(new Blob([]), SONG);
+  player.play();
+  audio.advance(2230);
+  player.pause();
+  assert.equal(player.state, 'paused');
+  near(player.timeMs(), 1700, 'paused at what was heard');
+  audio.advance(1000);
+  assert.equal(player.ended, false, 'a paused song does not end');
+  player.play();
+  near(audio.sources[1].offset, 1.7, 'the rest plays');
+  audio.advance(330 + 500);
+  assert.equal(player.ended, true);
+  // Seeking back during the last of it plays from there instead.
+  player.play();
+  audio.advance(2230);
+  player.seek(500);
+  assert.equal(player.state, 'playing');
+  near(audio.sources[3].offset, 0.5);
+  audio.advance(1000);
+  assert.equal(player.ended, false);
+  near(player.songTimeAt(audio.now), 500 + 1000 - 30 - 500);
+});
+
+test('on a TV the drawn song reaches the end as it renders and holds there while the end is heard', async (t) => {
+  const audio = installFakeAudio(t, { latencyMs: 500 });
+  const page = globalThis as { __aerodanceHost?: unknown };
+  page.__aerodanceHost = { tv: true };
+  t.after(() => { delete page.__aerodanceHost; });
+  const player = await createSongPlayer(new Blob([]), SONG);
+  player.play();
+  const drawn: number[] = [];
+  for (let i = 0; i < 300; i++) { audio.advance(10); drawn.push(player.timeMs()); }
+  drawn.forEach((ms, i) => assert.ok(ms >= (drawn[i - 1] ?? 0), `${ms} never steps back`));
+  near(drawn[202], 2000, 'drawn at the end as it renders');
+  assert.equal(player.ended, true);
+  assert.equal(drawn[299], 2000);
 });
