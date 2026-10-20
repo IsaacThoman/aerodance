@@ -181,6 +181,8 @@ test('a game recording holds up to four players; every other kind at most two', 
   assert.throws(() => decodePoseFile(five), /player slots must be 1 to 4/);
   const capture: PoseHeaderInput = { kind: 'capture', playerSlots: 3, input: { width: 640, height: 480 }, modelId: 'lite', capture: { sourceKind: 'webcam', sessionId: 's', audioPlaybackRate: 1 } };
   assert.throws(() => decodePoseFile(encodePoseFile(buildFrames(capture, [{ timeMs: 0, poses: four.slice(0, 3) }]))), /at most two slots/);
+  const take: PoseHeaderInput = { kind: 'take', playerSlots: 3, input: { width: 640, height: 480 }, modelId: null };
+  assert.throws(() => decodePoseFile(encodePoseFile(buildFrames(take, [{ timeMs: 0, poses: four.slice(0, 3) }]))), /at most two slots/);
 });
 
 const valid = () => encodePoseFile(framesFromSamples(choreographyHeader, [0, 1000, 2000].map(songTimeMs => ({ songTimeMs, poses: [pose(0, songTimeMs), pose(1, songTimeMs)] })), 'songTimeMs'));

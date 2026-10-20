@@ -19,6 +19,8 @@ export interface ResultsShow {
   results: SeatResult[];
   /** The winning seat, or null for a tie or a solo round. */
   winner: number | null;
+  /** The seats sharing the top score: the winner, everyone tied for first, or the solo dancer. */
+  leaders: number[];
   best: BestScoreRecord;
 }
 
@@ -28,6 +30,12 @@ export const PLAYERS: readonly PlayerLook[] = [
   { name: 'Player 3', color: PLAYER_COLORS[2], light: '#a3f5c6', dark: '#0e8a48' },
   { name: 'Player 4', color: PLAYER_COLORS[3], light: '#ffbfe0', dark: '#c02a7c' },
 ];
+
+/** The seats with the highest score. */
+export function leadersOf(results: readonly { score: number }[]) {
+  const top = Math.max(...results.map((r) => r.score));
+  return results.flatMap((r, i) => (r.score === top ? [i] : []));
+}
 
 /** Index of the single highest score; null for a tie or a solo round. */
 export function winnerOf(results: readonly { score: number }[]) {

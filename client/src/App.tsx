@@ -12,7 +12,7 @@ import ResultsScreen from './game/ResultsScreen.tsx';
 import { GameSession } from './game/GameSession.ts';
 import type { GamePhase, SongRoutine } from './game/GameSession.ts';
 import { recordResults } from './game/bestScores.ts';
-import { PLAYERS, winnerOf } from './game/results.ts';
+import { PLAYERS, leadersOf, winnerOf } from './game/results.ts';
 import type { ResultsShow } from './game/results.ts';
 import StageView from './stage/StageView.tsx';
 import { diagnostic } from './diagnostics.ts';
@@ -152,7 +152,7 @@ export default function App() {
       if (session.phase !== 'results' || !session.results) return;
       const results = session.results.map((r, i) => ({ ...PLAYERS[i], ...r }));
       const best = recordResults(session.bundle.song.songId, session.playerCount, session.results);
-      resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), best };
+      resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), leaders: leadersOf(results), best };
       if (session.recordingBytes) download(`${session.bundle.song.songId}-poses.adpose`, session.recordingBytes);
     });
   }, [game]);

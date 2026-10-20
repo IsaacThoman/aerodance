@@ -444,7 +444,7 @@ could delta-encode positions per joint and add a compression chunk flag.
 ```ts
 interface PoseFrames {
   kind: PoseFileKind; clock: 'song' | 'take' | 'media';
-  playerSlots: 1 | 2; input: FrameSize; modelId: PoseModelId | null;
+  playerSlots: 1 | 2 | 3 | 4; input: FrameSize; modelId: PoseModelId | null;
   times: Float64Array;          // [frame]
   present: Uint8Array;          // [frame] bitmask
   reviewed: Uint8Array;         // [frame] bitmask

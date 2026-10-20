@@ -21,7 +21,8 @@ export class LiveCalibration {
     this.seq=snapshot.seq;
     let changed=false;
     for(const pose of snapshot.poses) {
-      if(this.frames[pose.playerId].length>=this.sampleLimit ||
+      // Studio captures duets; a third or fourth player has no track here.
+      if(!this.frames[pose.playerId] || this.frames[pose.playerId].length>=this.sampleLimit ||
         snapshot.sourceKind==='webcam' && !reliableBodyPose(pose)) continue;
       this.frames[pose.playerId].push(pose); changed=true;
     }

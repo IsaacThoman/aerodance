@@ -321,12 +321,16 @@ export default function SongSelect({
           drawShadowText(g, ellipsize(g, st.catalog.error, ROWS.w), ROWS.x, ROWS.y + 46, { size: 28, color: '#ffb38a' });
           drawPill(g, RETRY, { label: 'Retry', icon: 'replay', hover: h.retry ?? 0, press: press('retry') });
         } else if (!list.length) {
-          drawShadowText(g, 'The first routine is on its way', ROWS.x, ROWS.y + 40, { size: 38, weight: 800 });
+          // Songs published before three and four players were supported only list one and two.
+          const others = st.catalog.songs.length > 0;
+          drawShadowText(g, others ? `No songs for ${COUNT_NAMES[p.playerCount - 1].toLowerCase()} yet` : 'The first routine is on its way', ROWS.x, ROWS.y + 40, { size: 38, weight: 800 });
           g.save();
           g.shadowColor = 'rgba(0, 34, 84, 0.75)';
           g.shadowBlur = 5;
           g.shadowOffsetY = 2;
-          paragraph(g, 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
+          paragraph(g, others
+            ? 'Re-export these songs from Dance Studio to dance them with three or four players, or pick fewer players.'
+            : 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
           g.restore();
         } else {
           pageSongs().forEach((song, i) => {

@@ -24,7 +24,7 @@ const GOLD: Face = ['#fff6cc', '#ffd34d', '#f0a500'];
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number, song: Song) {
-  const { results, winner } = show;
+  const { results, winner, leaders } = show;
   const { t, count, reveal } = timeline(show, now);
   const solo = results.length === 1;
   let title;
@@ -52,10 +52,11 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     const x = 800 + (i - (results.length - 1) / 2) * column;
     const p = PLAYERS[i % PLAYERS.length];
     const win = !solo && winner === i;
-    const lose = !solo && winner !== null && !win;
+    // With three or four players a tie can leave others behind: they fade like a loser.
+    const lose = !solo && !leaders.includes(i);
     g.save();
     g.globalAlpha *= lose ? 1 - 0.2 * reveal : 1;
-    const status = solo ? 'FINAL SCORE' : winner === null && t >= REVEAL ? 'TIED' : null;
+    const status = solo ? 'FINAL SCORE' : winner === null && leaders.includes(i) && t >= REVEAL ? 'TIED' : null;
     if (status) drawCaps(g, status, x, 590, { size: 20, align: 'center' });
     g.font = `800 22px ${FONT}`;
     drawCaps(g, ellipsize(g, r.name.toUpperCase(), Math.min(350, column - 40)), x, 625, { size: 22, align: 'center' });

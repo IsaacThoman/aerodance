@@ -235,14 +235,15 @@ export default function MainMenu({
   const count = () => props.current.playerCount ?? 1;
 
   const m = menu.current;
-  // A keyboard cursor starts over on the next screen, or going back (also by Escape), on the
-  // button it left by once that screen is in.
+  // A keyboard cursor starts over on the next screen (on the players screen, on Let's dance, so
+  // Left/Right turn the dial at once), or going back (also by Escape), on the button it left by
+  // once that screen is in.
   const go = (screen: MenuScreen | undefined, key = ui.keyboard) => {
     if (!screen) return;
     if (screen === m.next) return;
     if (key) {
       ui.focus(null);
-      m.refocus = OPENER[m.next] ?? null;
+      m.refocus = screen === 'players' ? 'go' : OPENER[m.next] ?? null;
     }
     m.next = screen;
   };

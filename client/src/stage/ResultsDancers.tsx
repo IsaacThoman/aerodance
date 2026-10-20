@@ -14,7 +14,8 @@ import type { ResultsShow } from '../game/results.ts';
  * reference dancers on the song's stage:
  *   - win: the winner steps up to centre stage under a light column, on a glowing halo in
  *     their colour, with confetti; the other dancer steps back and shrinks a little.
- *   - tie: the dancers stay side by side on gold halos.
+ *   - tie: the dancers stay side by side, the tied ones on gold halos (the rest step back as
+ *     in a win).
  *   - solo: the one dancer takes centre stage.
  * Everything animates from the dance-floor positions to the result at the reveal.
  */
@@ -171,10 +172,10 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
       let sc = 1;
       if (solo) z = 0.6 * k;
       else if (s.winner === seat) { x = start * (1 - k); z = 0.8 * k; }
-      else if (s.winner !== null) { x = start * (1 + 0.55 * k); z = -1.6 * k; sc = 1 - 0.15 * k; }
+      else if (!s.leaders.includes(seat)) { x = start * (1 + 0.55 * k); z = -1.6 * k; sc = 1 - 0.15 * k; }
       g.position.set(x, 0, z);
       g.scale.setScalar(sc * spot.scale);
-      const lit = solo || s.winner === null || s.winner === seat;
+      const lit = solo || s.leaders.includes(seat);
       halo[seat].current = lit ? glow : 0;
     });
     column.current = (solo || s.winner !== null ? 1 : 0) * glow;
