@@ -9,8 +9,9 @@ import XCTest
 //   AERODANCE_PORT        its loopback port (--port)
 //   AERODANCE_PATH        the page it opens (--path, /?input=ghost)
 //   AERODANCE_RUNNER      ui.ios.ts's address: the app reports the game's canvas data-* state there
-//                         (--report), GET /state returns the latest (POST /reset forgets it), and
-//                         POST /shot?name= keeps a screenshot
+//                         (--report), GET /state returns the latest (POST /reset forgets it),
+//                         POST /shot?name= keeps a screenshot, POST /tv?on=1|0 turns the simulator's
+//                         TV-out screen on or off, and POST /shot-tv?name= keeps a screenshot of it
 //   AERODANCE_LAYOUT      JSON from the game's layout.ts: the design size and the rects tapped
 //
 // The game draws its UI on a canvas, so there are no elements to find: taps go to design units
@@ -34,6 +35,7 @@ final class AerodanceUITests: XCTestCase {
   }
 
   override func tearDown() {
+    if tvOn { tv(false) }
     app.terminate()
     XCUIDevice.shared.orientation = .portrait
   }
@@ -92,7 +94,49 @@ final class AerodanceUITests: XCTestCase {
     }
   }
 
+  // A TV connects while the phone is held sideways: the game moves to it and the phone shows the
+  // remote, turned upright on an iPhone (its column doesn't fit sideways); an iPad stays as it is
+  // held. Every control is on screen and clear of the others. When the TV goes, the game comes back
+  // in landscape.
+  func test5RemoteOnTheTV() throws {
+    XCUIDevice.shared.orientation = .landscapeLeft
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    tv(true)
+    let ok = app.buttons["OK"]
+    XCTAssertTrue(ok.waitForExistence(timeout: 20), "the remote didn't show")
+    // The phone's window: the TV's is one of the app's windows too.
+    let window = app.windows.containing(NSPredicate(format: "label == 'OK'")).firstMatch
+    if !isPad { XCTAssertTrue(waitUntil { window.frame.height > window.frame.width }, "the remote is \(window.frame.size): not upright") }
+    sleep(1)
+    shot("5-remote")
+    send("shot-tv?name=5-tv")
+    let controls = [app.staticTexts["aerodance"], app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Playing on the TV'")).firstMatch,
+                    app.buttons["ArrowUp"], app.buttons["ArrowLeft"], ok, app.buttons["ArrowRight"], app.buttons["ArrowDown"], app.buttons["Back"]]
+    let screen = window.frame
+    for (i, control) in controls.enumerated() {
+      XCTAssertTrue(control.exists, "control \(i) of the remote is missing")
+      let frame = control.frame
+      XCTAssertTrue(screen.contains(frame) && frame.width > 20 && frame.height > 10, "control \(i) (\(control.label)) is at \(frame) in a \(screen) window")
+      for other in controls[..<i] { XCTAssertFalse(frame.intersects(other.frame), "\(control.label) at \(frame) overlaps \(other.label) at \(other.frame)") }
+    }
+    tv(false)
+    XCTAssertTrue(waitUntil { !ok.exists }, "the remote is still showing")
+    if !isPad { XCTAssertTrue(waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }, "the game came back \(app.windows.firstMatch.frame.size): not landscape") }
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    sleep(1)
+    shot("5-back-on-the-phone")
+  }
+
   // MARK: - Helpers
+
+  var tvOn = false
+
+  /// Turns the simulator's TV-out screen on (1920×1080) or off, through ui.ios.ts.
+  func tv(_ on: Bool) {
+    tvOn = on
+    send("tv?on=\(on ? 1 : 0)")
+  }
 
   func launch() {
     // The last launch's state is out of date.

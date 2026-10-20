@@ -18,6 +18,9 @@
 #import <AVKit/AVKit.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <Network/Network.h>
+#ifdef AERODANCE_DEV
+#import <notify.h>
+#endif
 
 static NSString *const GameHostChanged = @"GameHostChanged";
 
@@ -93,11 +96,13 @@ static NSString *MimeType(NSString *ext) {
   return types[ext.lowercaseString] ?: @"application/octet-stream";
 }
 
-static void Respond(nw_connection_t c, int status, NSString *reason, NSString *headers, NSData *body) {
+// length is the Content-Length; body is what follows the headers, nil for HEAD, whose headers
+// describe the GET response.
+static void Respond(nw_connection_t c, int status, NSString *reason, NSString *headers, NSUInteger length, NSData *body) {
   NSString *head = [NSString stringWithFormat:@"HTTP/1.1 %d %@\r\n%@Content-Length: %lu\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
-                    status, reason, headers, (unsigned long)body.length];
+                    status, reason, headers, (unsigned long)length];
   NSMutableData *out = [[head dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
-  [out appendData:body];
+  if (body) [out appendData:body];
   NSData *keep = out;
   dispatch_data_t d = dispatch_data_create(keep.bytes, keep.length, nil, ^{ (void)keep; });
   nw_connection_send(c, d, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, true, ^(nw_error_t error) { nw_connection_cancel(c); });
@@ -116,15 +121,21 @@ static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
     NSString *head = [[NSString alloc] initWithData:[buffer subdataWithRange:NSMakeRange(0, end.location)] encoding:NSUTF8StringEncoding];
     NSArray<NSString *> *lines = [head componentsSeparatedByString:@"\r\n"];
     NSArray *parts = [lines.firstObject componentsSeparatedByString:@" "];
-    if (parts.count < 2 || !([parts[0] isEqual:@"GET"] || [parts[0] isEqual:@"HEAD"])) {
-      Respond(c, 405, @"Method Not Allowed", @"Content-Type: text/plain\r\n", [NSData data]); return;
+    BOOL isHead = parts.count >= 2 && [parts[0] isEqual:@"HEAD"];
+    void (^reply)(int, NSString *, NSString *, NSData *) = ^(int status, NSString *reason, NSString *headers, NSData *body) {
+      Respond(c, status, reason, headers, body.length, isHead ? nil : body);
+    };
+    if (parts.count < 2 || !([parts[0] isEqual:@"GET"] || isHead)) {
+      reply(405, @"Method Not Allowed", @"Content-Type: text/plain\r\n", [NSData data]); return;
     }
     NSString *path = [[parts[1] componentsSeparatedByString:@"?"].firstObject stringByRemovingPercentEncoding] ?: @"/";
     if ([path hasSuffix:@"/"]) path = [path stringByAppendingString:@"index.html"];
     NSString *file = [[root stringByAppendingPathComponent:path] stringByStandardizingPath];
+    // Inside www/ only: with the "/", a sibling such as www2/ doesn't count.
+    BOOL inside = [file isEqual:root] || [file hasPrefix:[root stringByAppendingString:@"/"]];
     BOOL dir = NO;
-    if (![file hasPrefix:root] || ![NSFileManager.defaultManager fileExistsAtPath:file isDirectory:&dir] || dir) {
-      Respond(c, 404, @"Not Found", @"Content-Type: text/plain\r\n", [@"not found" dataUsingEncoding:NSUTF8StringEncoding]); return;
+    if (!inside || ![NSFileManager.defaultManager fileExistsAtPath:file isDirectory:&dir] || dir) {
+      reply(404, @"Not Found", @"Content-Type: text/plain\r\n", [@"not found" dataUsingEncoding:NSUTF8StringEncoding]); return;
     }
     NSData *body = [NSData dataWithContentsOfFile:file options:NSDataReadingMappedIfSafe error:nil] ?: [NSData data];
     NSString *type = [NSString stringWithFormat:@"Content-Type: %@\r\nAccept-Ranges: bytes\r\n", MimeType(file.pathExtension)];
@@ -136,21 +147,24 @@ static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
       NSUInteger b = ab.count > 1 && ab[1].length ? MIN((NSUInteger)ab[1].longLongValue, len - 1) : len - 1;
       if (!ab[0].length && ab.count > 1) { a = len - MIN((NSUInteger)ab[1].longLongValue, len); b = len - 1; }  // "bytes=-n"
       if (len == 0 || a > b || a >= len) {
-        Respond(c, 416, @"Range Not Satisfiable", [NSString stringWithFormat:@"Content-Range: bytes */%lu\r\n", (unsigned long)len], [NSData data]); return;
+        reply(416, @"Range Not Satisfiable", [NSString stringWithFormat:@"Content-Range: bytes */%lu\r\n", (unsigned long)len], [NSData data]); return;
       }
       NSString *range = [NSString stringWithFormat:@"%@Content-Range: bytes %lu-%lu/%lu\r\n", type, (unsigned long)a, (unsigned long)b, (unsigned long)len];
-      Respond(c, 206, @"Partial Content", range, [parts[0] isEqual:@"HEAD"] ? [NSData data] : [body subdataWithRange:NSMakeRange(a, b - a + 1)]);
+      Respond(c, 206, @"Partial Content", range, b - a + 1, isHead ? nil : [body subdataWithRange:NSMakeRange(a, b - a + 1)]);
       return;
     }
-    Respond(c, 200, @"OK", type, [parts[0] isEqual:@"HEAD"] ? [NSData data] : body);
+    reply(200, @"OK", type, body);
   });
 }
 
-static nw_listener_t StartServer(NSString *root) {
+// Listens on 127.0.0.1 itself, not every address on the loopback interface. Each state change is
+// handed to `changed` on the main queue.
+static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, nw_listener_state_t)) {
   nw_parameters_t params = nw_parameters_create_secure_tcp(NW_PARAMETERS_DISABLE_PROTOCOL, NW_PARAMETERS_DEFAULT_CONFIGURATION);
   nw_parameters_set_required_interface_type(params, nw_interface_type_loopback);
+  nw_parameters_set_local_endpoint(params, nw_endpoint_create_host("127.0.0.1", Port().UTF8String));
   nw_parameters_set_reuse_local_address(params, true);
-  nw_listener_t listener = nw_listener_create_with_port(Port().UTF8String, params);
+  nw_listener_t listener = nw_listener_create(params);
   dispatch_queue_t queue = dispatch_queue_create("aerodance.http", DISPATCH_QUEUE_CONCURRENT);
   nw_listener_set_queue(listener, queue);
   nw_listener_set_new_connection_handler(listener, ^(nw_connection_t c) {
@@ -159,7 +173,8 @@ static nw_listener_t StartServer(NSString *root) {
     Serve(c, root, [NSMutableData data]);
   });
   nw_listener_set_state_changed_handler(listener, ^(nw_listener_state_t state, nw_error_t error) {
-    NSLog(@"aerodance server state %d error %@", state, error);
+    NSLog(@"aerodance: server state %d error %@", state, error);
+    dispatch_async(dispatch_get_main_queue(), ^{ changed(listener, state); });
   });
   nw_listener_start(listener);
   return listener;
@@ -172,6 +187,12 @@ static nw_listener_t StartServer(NSString *root) {
 @property (class, readonly) GameHost *shared;
 @property (nonatomic, strong) WKWebView *web;
 @property (nonatomic, strong) nw_listener_t server;
+@property (nonatomic, copy) NSString *root;              // the bundled www/
+@property (nonatomic) nw_listener_state_t serverState;  // invalid while starting
+@property (nonatomic) NSUInteger serverFailures;        // restarts since the server was last ready, for the backoff
+@property (nonatomic, strong) NSURL *pendingURL;        // a page to load once the server is ready
+@property (nonatomic) NSUInteger loadFailures;          // since a page last loaded, for the backoff
+@property (nonatomic, strong) nw_listener_t loadServer;  // the server when the page started loading
 @property (nonatomic, weak) UIView *phoneView;
 @property (nonatomic, weak) UIView *tvView;
 @property (nonatomic, copy) NSString *tvDescription;  // e.g. "1920×1080 @ 60 Hz", while a TV is connected
@@ -196,8 +217,21 @@ static nw_listener_t StartServer(NSString *root) {
 
 - (WKWebView *)web {
   if (_web) return _web;
-  NSString *root = [[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"www"] stringByStandardizingPath];
-  self.server = StartServer(root);
+  NSString *root = self.root = [[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"www"] stringByStandardizingPath];
+  [self startServer];
+#ifdef AERODANCE_DEV
+  // `xcrun simctl spawn <udid> notifyutil -p aerodance.drop-server` cancels the server, as if iOS
+  // had taken its socket, to check that it comes back. It's down for 4 s (the backoff after four
+  // failures), long enough to see a page load fail meanwhile and come back.
+  int token;
+  notify_register_dispatch("aerodance.drop-server", &token, dispatch_get_main_queue(), ^(int t) {
+    NSLog(@"aerodance: dropping the server for 4 s (test)");
+    self.serverFailures = 4;
+    if (self.server) nw_listener_cancel(self.server);
+  });
+  // And `notifyutil -p aerodance.reload` reloads the page then, as the page itself might.
+  notify_register_dispatch("aerodance.reload", &token, dispatch_get_main_queue(), ^(int t) { [self.web reload]; });
+#endif
 
   WKWebViewConfiguration *config = [WKWebViewConfiguration new];
   config.allowsInlineMediaPlayback = YES;
@@ -240,20 +274,112 @@ static nw_listener_t StartServer(NSString *root) {
   web.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
   _web = web;
 
-  NSString *url = [NSString stringWithFormat:@"http://127.0.0.1:%@%@", Port(), LaunchArg(@"--path", @"/")];
+  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@%@", Port(), LaunchArg(@"--path", @"/")]];
   NSLog(@"aerodance loading %@ (report: %@)", url, report.length ? report : @"off");
-  NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
   // --clear-website-data starts as if WebKit had cleared the page's storage, to test the saved copy.
   if (LaunchFlag(@"--clear-website-data")) {
     [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:WKWebsiteDataStore.allWebsiteDataTypes modifiedSince:NSDate.distantPast completionHandler:^{
       NSLog(@"aerodance: cleared website data");
-      [web loadRequest:request];
+      [self loadWhenServerReady:url];
     }];
   } else {
-    [web loadRequest:request];
+    [self loadWhenServerReady:url];
   }
   return web;
 }
+
+#pragma mark Keeping the local server up
+
+// iOS can take a suspended app's listening socket back (TN2277), and another app can hold the port
+// at launch. So whenever the listener fails or is cancelled a new one starts, after 0.25 s, doubling
+// with each failure up to 8 s, until one is ready.
+- (void)startServer {
+  self.serverState = nw_listener_state_invalid;
+  self.server = StartServer(self.root, ^(nw_listener_t listener, nw_listener_state_t state) { [self server:listener changed:state]; });
+}
+
+- (void)server:(nw_listener_t)listener changed:(nw_listener_state_t)state {
+  if (listener != self.server) return;  // an old one, already replaced
+  self.serverState = state;
+  if (state == nw_listener_state_ready) {
+    self.serverFailures = 0;
+    [self loadPending];
+  } else if (state == nw_listener_state_failed || state == nw_listener_state_waiting) {
+    nw_listener_cancel(listener);
+  } else if (state == nw_listener_state_cancelled) {
+    NSTimeInterval delay = MIN(0.25 * pow(2, self.serverFailures++), 8);
+    NSLog(@"aerodance: restarting the server in %.2f s", delay);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      if (self.server == listener) [self startServer];
+    });
+  }
+}
+
+// Back in the foreground the server should be ready; if not, it starts again now rather than
+// after the rest of its backoff.
+- (void)checkServer {
+  if (!self.server || self.serverState == nw_listener_state_ready || self.serverState == nw_listener_state_invalid) return;
+  NSLog(@"aerodance: the server isn't ready (state %d); restarting it", self.serverState);
+  self.serverFailures = 0;
+  if (self.serverState == nw_listener_state_cancelled) [self startServer];
+  else nw_listener_cancel(self.server);
+}
+
+// Pages load only from a ready server: before that, the port may be someone else's.
+- (void)loadWhenServerReady:(NSURL *)url {
+  self.pendingURL = url;
+  if (self.serverState == nw_listener_state_ready) [self loadPending];
+}
+
+- (void)loadPending {
+  NSURL *url = self.pendingURL;
+  if (!url || !_web) return;
+  self.pendingURL = nil;
+  // WebKit's memory cache keeps the failures of a load while the server was down (the page's
+  // scripts), which would leave the next load black too. Every file is local, so it's cheap to lose.
+  [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeMemoryCache] modifiedSince:NSDate.distantPast completionHandler:^{
+    [self.web loadRequest:[NSURLRequest requestWithURL:url]];
+  }];
+}
+
+- (BOOL)isOurs:(NSURL *)url { return [url.host isEqual:@"127.0.0.1"] && url.port.integerValue == Port().integerValue; }
+
+// A page of the game that couldn't load (the server went while the app was suspended, say) loads
+// again once the server is back, rather than leaving a blank screen. Retries back off from 0.5 s
+// to 10 s.
+- (void)retryPage:(NSURL *)url because:(NSString *)reason {
+  NSTimeInterval delay = MIN(0.5 * pow(2, self.loadFailures++), 10);
+  NSLog(@"aerodance: %@ %@; loading it again in %.1f s", url, reason, delay);
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self loadWhenServerReady:url]; });
+}
+
+- (void)pageFailed:(NSError *)error {
+  NSURL *url = error.userInfo[NSURLErrorFailingURLErrorKey];
+  // Cancelled loads (a newer navigation; a link opened in Safari is WebKit's domain) aren't failures.
+  if (![error.domain isEqual:NSURLErrorDomain] || error.code == NSURLErrorCancelled || ![self isOurs:url]) return;
+  // A listener can look ready with its socket gone, so a ready one is replaced too.
+  if (self.serverState == nw_listener_state_ready) nw_listener_cancel(self.server);
+  [self retryPage:url because:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
+}
+
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self pageFailed:error]; }
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self pageFailed:error]; }
+
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.loadServer = self.server; }
+
+// WebKit can finish a page from its cache while the server is down, without the scripts it needs
+// (a black screen), so a page that finished while the server was down or being replaced loads again.
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+  if ([self isOurs:webView.URL] && (self.serverState != nw_listener_state_ready || self.server != self.loadServer)) {
+    [self retryPage:webView.URL because:@"loaded while the server was down"];
+    return;
+  }
+  self.loadFailures = 0;
+  [self tellPage];
+  [self tellPageHost];  // in case it changed while the page was loading
+}
+
+#pragma mark What the page is told
 
 // The page's start state goes in first, as its own script (host state, the saved copy of its
 // storage, --drive), so a page that loads or reloads later starts from what the app knows now;
@@ -318,16 +444,12 @@ static nw_listener_t StartServer(NSString *root) {
   [_web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceDisplay = %@; window.__aerodanceDevice = %@", JSON(display), JSON(device)] completionHandler:nil];
 }
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-  [self tellPage];
-  [self tellPageHost];  // in case it changed while the page was loading
-}
-
 - (instancetype)init {
   if (!(self = [super init])) return nil;
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   [center addObserver:self selector:@selector(audioInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
   [center addObserver:self selector:@selector(sceneActivated) name:UISceneDidActivateNotification object:nil];
+  [center addObserver:self selector:@selector(checkServer) name:UIApplicationWillEnterForegroundNotification object:nil];
   for (NSNotificationName name in @[NSProcessInfoThermalStateDidChangeNotification, NSProcessInfoPowerStateDidChangeNotification]) {
     [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self tellPage]; }];
   }
@@ -336,6 +458,8 @@ static nw_listener_t StartServer(NSString *root) {
 
 // A phone call, Siri or an alarm takes the audio. The game pauses and says so while interrupted;
 // afterwards the session is made active again, but the song waits for the player to tap Resume.
+// Every interruption counts: iOS 16 and later no longer report one for the app having been
+// suspended (AVAudioSessionInterruptionReasonAppWasSuspended, before that WasSuspendedKey).
 - (void)audioInterrupted:(NSNotification *)note {
   BOOL began = [note.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue] == AVAudioSessionInterruptionTypeBegan;
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -363,7 +487,11 @@ static nw_listener_t StartServer(NSString *root) {
   [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceKey && window.__aerodanceKey('%@')", key] completionHandler:nil];
 }
 
+// Only the game itself (the main frame, from the app's own server) talks to the app, not a frame
+// it embeds.
 - (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+  WKSecurityOrigin *origin = message.frameInfo.securityOrigin;
+  if (!message.frameInfo.isMainFrame || ![origin.protocol isEqual:@"http"] || ![origin.host isEqual:@"127.0.0.1"] || origin.port != Port().integerValue) return;
   NSDictionary *body = message.body;
   if (![body isKindOfClass:NSDictionary.class]) return;
   if ([body[@"page"] isKindOfClass:NSDictionary.class]) self.page = body[@"page"];
@@ -400,11 +528,13 @@ static nw_listener_t StartServer(NSString *root) {
   return nil;
 }
 
-// iOS ends the page's process under memory pressure; start the game again rather than show a blank
-// screen. The start script (installScripts) gives the new page the current host state and storage.
+// iOS ends the page's process under memory pressure; start the game again (once the server is
+// ready) rather than show a blank screen. The start script (installScripts) gives the new page the
+// current host state and storage.
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
   NSLog(@"aerodance: web content process ended; reloading");
-  [webView reload];
+  NSURL *url = webView.URL;
+  [self loadWhenServerReady:[self isOurs:url] ? url : [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/", Port()]]];
 }
 
 @end
@@ -599,6 +729,12 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   if (tv != self.shownOnTV) {
     self.shownOnTV = tv;
     [self setNeedsUpdateOfSupportedInterfaceOrientations];
+    // An iPhone held sideways stays sideways until it's turned unless asked to turn now.
+    UIWindowScene *scene = self.view.window.windowScene;
+    if (scene && UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPad) {
+      UIWindowSceneGeometryPreferencesIOS *turn = [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:self.supportedInterfaceOrientations];
+      [scene requestGeometryUpdateWithPreferences:turn errorHandler:^(NSError *error) { NSLog(@"aerodance: couldn't turn the phone's screen: %@", error); }];
+    }
   }
   self.remote.hidden = !tv;
   self.gameView.hidden = tv;
@@ -619,12 +755,13 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   [self setNeedsUpdateOfHomeIndicatorAutoHidden];
 }
 
-// iPhone: the 16:9 game only fits sideways, but the remote is tall, so portrait too while the game
-// is on the TV. iPad: any way up, in any window size (Split View, Stage Manager); the page
-// letterboxes itself. The app and scene allow the most either needs (AppDelegate, PhoneSceneDelegate).
+// iPhone: the 16:9 game only fits sideways, and the remote's column only fits upright, so it's
+// portrait only while the game is on the TV. iPad: any way up, in any window size (Split View,
+// Stage Manager); the page letterboxes itself and the remote fits either way. The app and scene
+// allow the most either needs (AppDelegate, PhoneSceneDelegate).
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
   if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) return UIInterfaceOrientationMaskAll;
-  return GameHost.shared.onTV ? UIInterfaceOrientationMaskAllButUpsideDown : UIInterfaceOrientationMaskLandscape;
+  return GameHost.shared.onTV ? UIInterfaceOrientationMaskPortrait : UIInterfaceOrientationMaskLandscape;
 }
 
 // iPadOS stops the camera while the app's window doesn't fill the screen (Split View, Slide Over,
