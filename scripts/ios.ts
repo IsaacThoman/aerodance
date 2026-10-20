@@ -43,7 +43,7 @@ Options:
   --drive <json>                   play these steps, as the Apple TV app's launch config takes
                                    them: [["wait", {"menuReady": "true"}], ["key", "Enter"],
                                    ["tap", 800, 450], ["sleep", 500], ...] (taps in the canvas
-                                   UI's 1600×900 design units)
+                                   UI's design units: 1600×900, or 1200×900 in 4:3)
   --clear-website-data             clear the page's storage first, as if WebKit had, to check
                                    the app restores saved scores and settings
   --port <port>                    serve the game on this loopback port instead of 8417, so

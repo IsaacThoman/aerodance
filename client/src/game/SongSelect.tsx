@@ -325,7 +325,11 @@ export default function SongSelect({
         } else if (!list.length) {
           // Songs published before three and four players were supported only list one and two.
           const others = st.catalog.songs.length > 0;
-          drawShadowText(g, others ? `No songs for ${COUNT_NAMES[p.playerCount - 1].toLowerCase()} yet` : 'The first routine is on its way', ROWS.x, ROWS.y + 40, { size: 38, weight: 800 });
+          const heading = others ? `No songs for ${COUNT_NAMES[p.playerCount - 1].toLowerCase()} yet` : 'The first routine is on its way';
+          // Smaller where it would run past the list (the 4:3 list is narrower).
+          g.font = `800 38px ${FONT}`;
+          const size = Math.min(38, Math.floor((38 * ROWS.w) / g.measureText(heading).width));
+          drawShadowText(g, heading, ROWS.x, ROWS.y + 40, { size, weight: 800 });
           g.save();
           g.shadowColor = 'rgba(0, 34, 84, 0.75)';
           g.shadowBlur = 5;

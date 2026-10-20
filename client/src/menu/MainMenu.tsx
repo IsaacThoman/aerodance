@@ -304,7 +304,12 @@ export default function MainMenu({
       // Screen change: fade the current screen out, swap, fade the next one in.
       if (m.next !== m.screen) {
         m.swap = Math.max(0, m.swap - dt * 7);
-        if (m.swap === 0) m.screen = m.next;
+        if (m.swap === 0) {
+          m.screen = m.next;
+          // A mouse left resting where the last screen was pressed hovers nothing on the new one
+          // until it moves (Start sits over the dial's minus), so Enter goes to its primary.
+          if (s.pointerKind !== 'key') s.pointer = null;
+        }
         s.invalidate();
       } else if (m.swap < 1) {
         m.swap = Math.min(1, m.swap + dt * 6);

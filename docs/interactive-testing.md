@@ -109,7 +109,7 @@ Each screen reports what it shows on the canvas's `data-*` attributes, which is 
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen. Both keep the canvas buffer at 640×480.
-- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`
+- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count)
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
