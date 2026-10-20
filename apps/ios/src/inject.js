@@ -142,7 +142,7 @@
 
   const sleep = ms => new Promise(done => setTimeout(done, ms));
 
-  // --drive runs a script in the Apple TV app's launch-config format (client-tvos/runtime/report.ts),
+  // --drive runs a script in the Apple TV app's launch-config format (apps/tvos/runtime/report.ts),
   // waiting on the canvas's data-* state between steps, plus taps for the touch screen:
   //   ["wait", {"menuReady": "true"}, timeoutMs?], ["key", "Enter"], ["tap", x, y], ["sleep", ms], ["report", mark]
   // Taps are in the canvas UI's design units (1600×900 across the 16:9 frame, client/src/ui/useCanvasUI.ts).

@@ -1,4 +1,4 @@
-// Hooks for client-tvos/bench/aeroBench.ts: its config comes from the launch config, and its
+// Hooks for apps/tvos/bench/aeroBench.ts: its config comes from the launch config, and its
 // reports gain the host's own frame timings (JavaScript, submit, executor, GPU) before they are
 // POSTed to the launch config's report URL.
 import { Q, native } from './native.ts';

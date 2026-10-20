@@ -4,7 +4,7 @@ An iPhone and iPad app that runs the production web build in `WKWebView` and sho
 an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
 phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
 
-Unlike the Apple TV app in `client-tvos/`, this uses public APIs only (WebKit, AVKit,
+Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit,
 MediaPlayer, Network), so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
 WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows the video.
 
@@ -118,7 +118,7 @@ npm run ios -- sim --path '/?input=ghost' --report --drive '[["wait", {"menuScre
 
 `--clear-website-data` deletes the page's website data before it loads, to check that saved
 scores and settings come back from the app's copy.
-`/bench/aero-bench.html` is the Aero world benchmark (`client-tvos/bench/`), when it has been built.
+`/bench/aero-bench.html` is the Aero world benchmark (`apps/tvos/bench/`), when it has been built.
 
 ## Playing on an Apple TV
 
@@ -137,7 +137,7 @@ Without Simulator.app, `tools/simscreen.m` does the same through CoreSimulator (
 tool; the app doesn't use it):
 
 ```sh
-clang -fobjc-arc -framework Foundation -framework CoreGraphics client-ios/tools/simscreen.m -o /tmp/simscreen
+clang -fobjc-arc -framework Foundation -framework CoreGraphics apps/ios/tools/simscreen.m -o /tmp/simscreen
 /tmp/simscreen <simulator UDID> on 1920 1080   # list | on <w> <h> | off
 xcrun simctl io <simulator UDID> screenshot --display=external tv.png
 ```
@@ -153,7 +153,7 @@ and the game comes back in landscape when the TV goes.
 
 ```sh
 node scripts/ios.ts sim --device <UDID> --port 8423 --path '/?input=ghost'   # build and install
-node client-ios/tests/ui.ios.ts --device <UDID> --port 8423   # [--out <dir>] [--only test3TapsThroughToSongPreview]
+node apps/ios/tests/ui.ios.ts --device <UDID> --port 8423   # [--out <dir>] [--only test3TapsThroughToSongPreview]
 ```
 
 `ui.ios.ts` generates the test project (`tests/project.yml`) in a temporary directory and runs

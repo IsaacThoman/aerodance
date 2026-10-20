@@ -2,7 +2,7 @@
 // primitives it relies on, drawn on a 1600x900 canvas and shown full screen through WebGL, so a
 // browser and the JavaScriptCore host can be screenshotted side by side.
 import * as THREE from 'three';
-import { drawCaps, drawDisc, drawGlassCircle, drawGlassPanel, drawHeadline, drawPill, drawProgress, drawShadowText, drawStatusDot, drawTitle, paragraph } from '../../client/src/ui/draw.ts';
+import { drawCaps, drawDisc, drawGlassCircle, drawGlassPanel, drawHeadline, drawPill, drawProgress, drawShadowText, drawStatusDot, drawTitle, paragraph } from '../../../client/src/ui/draw.ts';
 
 const W = 1600, H = 900;
 const ui = document.createElement('canvas');

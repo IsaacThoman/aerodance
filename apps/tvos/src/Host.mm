@@ -376,7 +376,7 @@ NATIVE(N_setAtRoot) {
 }
 NATIVE(N_audio) { return AudioNative(ctx, argc, argv); }
 NATIVE(N_net) { return NetNative(ctx, argc, argv); }
-// For the bridge microbenchmark (client-tvos/bench/bridgeBench.ts).
+// For the bridge microbenchmark (apps/tvos/bench/bridgeBench.ts).
 NATIVE(N_noop) { return JSValueMakeUndefined(ctx); }
 NATIVE(N_noop4) {
   double s = 0;

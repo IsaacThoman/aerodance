@@ -3,8 +3,8 @@
 // and the real MediaPipe model) pairs with it through a local pairing server. The app has no
 // WebRTC, so the phone's poses and preview pictures come through the server's relay.
 //
-//   node client-tvos/tests/phone.tvos.ts [--sim <udid>] [--out <dir>]
-//   node client-tvos/tests/phone.tvos.ts --device <udid>
+//   node apps/tvos/tests/phone.tvos.ts [--sim <udid>] [--out <dir>]
+//   node apps/tvos/tests/phone.tvos.ts --device <udid>
 //   ... --site https://<number>.aerodance.party   (pair through a deployed site, a PR preview)
 //
 // Run after npm run build, and node scripts/tvos.ts build --game --sim (or without --sim for
@@ -23,7 +23,7 @@ import path from 'node:path';
 import express from 'express';
 import { chromium } from 'playwright';
 import type { Page } from 'playwright';
-import { createPairingServer } from '../../packages/pairing/server.ts';
+import { createPairingServer } from '../../../packages/pairing/server.ts';
 
 const args = process.argv.slice(2);
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
@@ -118,7 +118,7 @@ const lite = '?aeroHide=sky,ground,city,lake,lamps,trees,traffic,grass,flowers,t
 const config = { script: 'game.js', url: `http://aerodance.local/${device ? '' : lite}`, site: SITE, fit: 'fill', pixelated: true,
   label: 'phone-tvos', report: `${HERE}/__report`, drive: toCalibration };
 const appLog: string[] = [];
-const appPath = `client-tvos/build/Build/Products/Release-${device ? 'appletvos' : 'appletvsimulator'}/aerodance.app`;
+const appPath = `apps/tvos/build/Build/Products/Release-${device ? 'appletvos' : 'appletvsimulator'}/aerodance.app`;
 const launch = device
   ? () => {
     assert.equal(spawnSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', device, '--quiet', appPath], { stdio: 'inherit' }).status, 0, 'install the app (node scripts/tvos.ts build --game first)');

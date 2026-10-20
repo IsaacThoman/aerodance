@@ -6,7 +6,7 @@ WebGL 2 implemented on OpenGL ES 3.0 and the 2D canvas on CoreGraphics. It uses 
 still ships.
 
 It runs the production game unmodified (`client/src/main.tsx`: React DOM, React Three Fiber,
-three.js) and the Aero benchmark (`client-tvos/bench/`), with a paired phone as the camera and
+three.js) and the Aero benchmark (`apps/tvos/bench/`), with a paired phone as the camera and
 the Siri Remote.
 
 ## How it works
@@ -75,11 +75,11 @@ node scripts/tvos.ts run --sim <udid> --config '{"script":"bench/aero-bench.js",
 Without `--config` (and when opened from the home screen) the app runs `www/config.json`: the
 game after `build --game`, the Aero benchmark otherwise.
 
-The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../assets/README.md)
+The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../../assets/README.md)
 (`ICON` in `scripts/tvos.ts`, now `falls-sky-soft-glass`). `build` turns its layers into the App
 Store and home-screen image stacks in `src/generated/Assets.xcassets`.
 
-`node client-tvos/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
+`node apps/tvos/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
 pairs a phone page in Chromium, with a synthetic camera and the real MediaPipe model, with the
 app in a tvOS simulator through a local pairing server, and plays the game from it: pairing and
 the phone's picture on the calibration screen, calibration, a song scored from its poses, and
@@ -113,7 +113,7 @@ On an Apple TV 4K (A15, tvOS 27) the game holds 60 fps on every screen:
 about 6 ms of JavaScript a frame on the main menu (up to ~12 ms while the city is in view), about
 5.5 ms in gameplay, and the Aero benchmark at 59.9 fps. JavaScript runs interpreted (no JIT on
 tvOS), so frame cost tracks the number of objects and draws. The first visit to a stage stalls
-for about 5 s while it builds. [docs/apple-tv.md](../docs/apple-tv.md) has the measurements
+for about 5 s while it builds. [docs/apple-tv.md](../../docs/apple-tv.md) has the measurements
 and how this compares with the other approaches.
 
 ## Release builds

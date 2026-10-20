@@ -3,7 +3,7 @@
 // preview, turns both ways on an iPad, and shows the remote when a TV connects (the simulator's
 // TV-out screen, through ../tools/simscreen.m).
 //
-//   node client-ios/tests/ui.ios.ts --device <simulator UDID> [--port <port>] [--out <dir>] [--only <test>]
+//   node apps/ios/tests/ui.ios.ts --device <simulator UDID> [--port <port>] [--out <dir>] [--only <test>]
 //
 // Install the app first: node scripts/ios.ts sim --device <UDID> --port <port>. This generates
 // the test project outside the repo (XcodeGen), runs it with xcodebuild, and serves the tests on
@@ -16,13 +16,13 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ONE_PLAYER, START } from '../../client/src/menu/layout.ts';
-import { rowRect } from '../../client/src/game/layout.ts';
+import { ONE_PLAYER, START } from '../../../client/src/menu/layout.ts';
+import { rowRect } from '../../../client/src/game/layout.ts';
 
 const args = process.argv.slice(2);
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
 const device = option('--device');
-if (!device) throw Error('Usage: node client-ios/tests/ui.ios.ts --device <simulator UDID> [--port <port>] [--out <dir>] [--only <test>]');
+if (!device) throw Error('Usage: node apps/ios/tests/ui.ios.ts --device <simulator UDID> [--port <port>] [--out <dir>] [--only <test>]');
 const port = option('--port') ?? '8417';
 const out = path.resolve(option('--out') ?? path.join(os.tmpdir(), 'aerodance-ios-ui'));
 mkdirSync(out, { recursive: true });

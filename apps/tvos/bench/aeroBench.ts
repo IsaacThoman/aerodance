@@ -3,7 +3,7 @@
 // Aero world need: a canvas with WebGL2 and 2D contexts, requestAnimationFrame and
 // performance.now. See README.md in this folder for the host contract and the report format.
 import * as THREE from 'three';
-import { createAeroWorld, type AeroPart } from '../../client/src/aero/aeroBackground.ts';
+import { createAeroWorld, type AeroPart } from '../../../client/src/aero/aeroBackground.ts';
 
 // A scenario is 'world', optionally with parts of the world left out, a render scale and a start
 // on the loop: 'world', 'world:clouds+birds' (no clouds or birds), 'world@0.5' (320x240),

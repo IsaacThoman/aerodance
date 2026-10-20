@@ -1,6 +1,6 @@
 // Microbenchmarks of the JavaScriptCore host's bridge costs on the device: a plain JavaScript
 // call, a native (JSC C API) call, and the WebGL shim's encoding of the calls three.js makes
-// most. Reports go out like the Aero benchmark's (client-tvos/bench/README.md), as type "bridge".
+// most. Reports go out like the Aero benchmark's (apps/tvos/bench/README.md), as type "bridge".
 type Host = typeof globalThis & {
   __native: { noop(): void; noop4(a: number, b: number, c: number, d: number): void; mode: number };
   __benchReport?: (json: string) => void;

@@ -1,5 +1,5 @@
 /*
- * What the iPhone/iPad app (client-ios/) tells the page about itself. Browsers don't set it,
+ * What the iPhone/iPad app (apps/ios/) tells the page about itself. Browsers don't set it,
  * so everything reads as false there.
  *
  *   globalThis.__aerodanceHost = { interrupted, tv }

@@ -51,7 +51,7 @@ export type AudioClock = Pick<AudioContext, 'currentTime' | 'baseLatency' | 'out
  * The context time being heard at a performance.now() time (now is performance.now()).
  *
  * The output timestamp is meant to be what the speakers are playing. Chrome, Firefox and the
- * Apple TV app (client-tvos/src/Audio.mm) take the output latency off it, but WebKit's is the
+ * Apple TV app (apps/tvos/src/Audio.mm) take the output latency off it, but WebKit's is the
  * position being rendered: it leaves out outputLatency, which WebKit does report (AirPods: about
  * 150-250 ms). So whatever part of outputLatency the timestamp doesn't already trail currentTime
  * by is taken off here. correct = false leaves it on (what's drawn on a TV; see above).
