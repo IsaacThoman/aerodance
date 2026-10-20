@@ -50,13 +50,14 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   and the page letterboxes itself. The web view is edge to edge (`viewport-fit=cover`), so the
   page gets the notch and home indicator as `env(safe-area-inset-*)`; while the game is on the
   phone, the status bar is hidden and the home indicator hides itself.
-- **Host state.** `globalThis.__aerodanceHost` is `{ multitasking, interrupted }`, set before the
-  game's scripts run, and every change also fires
-  `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { multitasking, interrupted } }))`.
-  `multitasking` is true while the app's window doesn't fill the screen (iPad Split View, Slide
-  Over, Stage Manager), where iPadOS stops the camera. `interrupted` is true from the start to the
-  end of an audio interruption (a call, Siri, an alarm); at the end the app reactivates its audio
-  session but leaves the song paused for the player to resume. A page that loads or reloads later
+- **Host state.** `globalThis.__aerodanceHost` is `{ interrupted, tv }`, set before the game's
+  scripts run, and every change also fires
+  `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { interrupted, tv } }))`.
+  `interrupted` is true from the start to the end of an audio interruption (a call, Siri, an
+  alarm); at the end the app reactivates its audio session but leaves the song paused for the
+  player to resume. `tv` is true while the game is on an external display: mirroring delays the
+  TV's picture as much as its sound, so the game draws without taking the output latency off its
+  clock there, while judging still does (`client/src/audio/songPlayer.ts`). A page that loads or reloads later
   (after `webViewWebContentProcessDidTerminate`) starts with the current state.
 - **Saved data.** Scores and settings live in the page's `localStorage`. The app also keeps a copy
   of every key starting with `aerodance` in `NSUserDefaults` (per port), updated whenever the page
@@ -94,8 +95,9 @@ each its own with `--port <port>` (saved scores and settings belong to the port)
 
 Development builds take the launch options above (`--path`, `--report`, `--flow`, `--drive`,
 `--clear-website-data`, `--port`), are
-inspectable in Safari's Web Inspector, and add `NSLocalNetworkUsageDescription` and
-`NSAllowsLocalNetworking` to `Info.plist` so `--report` can reach the Mac. `build --release`
+inspectable in Safari's Web Inspector, and add `NSAllowsLocalNetworking` to `Info.plist` so
+`--report` can reach the Mac. (Every build has `NSLocalNetworkUsageDescription`: a paired phone on
+the same Wi-Fi connects to the app directly.) `build --release`
 leaves all of that out: it's the configuration an App Store build will use, but not yet an App
 Store build. Archiving and exporting, uploading to TestFlight, an app icon and build numbers
 (`CFBundleVersion` is always 1) come later.
@@ -168,8 +170,11 @@ xcrun simctl spawn <UDID> notifyutil -p aerodance.reload        # meanwhile, rel
 ## What doesn't work yet
 
 - **AirPlay delay.** Screen Mirroring adds video and audio latency (both delayed together, so
-  they stay in sync with each other). The game's song clock follows the audio output timestamp,
-  so judging should allow for it if WebKit reports the AirPlay latency; that is unmeasured.
+  they stay in sync with each other). Judging takes WebKit's reported output latency off the
+  song clock (`tv` above); whether WebKit reports the AirPlay latency there is unmeasured.
+- **Other apps' audio at launch.** The app uses the playback audio category, and the game's audio
+  context starts with the page, so opening aerodance may stop music or a podcast that was playing
+  before any song does. Unchecked on a device.
 - **Camera while on the TV.** Tracking on the phone that also renders and encodes the mirror is
   untested for speed, and the phone must face the player, which makes it a poor remote.
 - **App icon.** None yet.

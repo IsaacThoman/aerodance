@@ -59,8 +59,9 @@ targets:
         NSCameraUsageDescription: aerodance can use this camera to follow your dance moves. The video stays on this device.
         # HTTPS only (pairing, through the system), so no export compliance documentation.
         ITSAppUsesNonExemptEncryption: false
-        # Development builds also get NSLocalNetworkUsageDescription and NSAllowsLocalNetworking,
-        # for --report; scripts/ios.ts adds them unless built with --release.
+        # Pairing a phone on the same Wi-Fi connects to it directly (WebRTC), which iOS may ask
+        # about. Development builds also get NSAllowsLocalNetworking, for --report.
+        NSLocalNetworkUsageDescription: aerodance connects to your phone on this network when you use it as the camera.
     settings:
       PRODUCT_NAME: aerodance
       PRODUCT_BUNDLE_IDENTIFIER: ${IOS_BUNDLE_ID}

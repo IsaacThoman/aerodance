@@ -199,7 +199,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic, copy) NSDictionary *page;        // the canvas's data-* state, from inject.js
 @property (nonatomic) double fps;
 // What the page is told about the app (inject.js __aerodanceHost).
-@property (nonatomic) BOOL multitasking;  // the phone's window doesn't fill its screen (iPad Split View, Slide Over, Stage Manager)
+@property (nonatomic) BOOL tv;            // the game is on an external display (AirPlay mirroring, HDMI); kept in step with onTV
 @property (nonatomic) BOOL interrupted;   // between an audio interruption's start and end (a call, Siri, an alarm)
 @property (nonatomic, strong) WKUserContentController *scripts;
 @property (nonatomic, copy) NSString *injectSource;
@@ -392,11 +392,11 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   [self.scripts addUserScript:[[WKUserScript alloc] initWithSource:self.injectSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
 }
 
-- (NSDictionary *)hostState { return @{ @"multitasking": @(self.multitasking), @"interrupted": @(self.interrupted) }; }
+- (NSDictionary *)hostState { return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv) }; }
 
-- (void)setMultitasking:(BOOL)multitasking {
-  if (_multitasking == multitasking) return;
-  _multitasking = multitasking;
+- (void)setTv:(BOOL)tv {
+  if (_tv == tv) return;
+  _tv = tv;
   [self hostChanged];
 }
 
@@ -430,6 +430,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     web.frame = target.bounds;
     [target addSubview:web];
   }
+  self.tv = self.onTV;  // the page draws its clock without the TV's audio delay (songPlayer.ts)
   [self tellPage];
   [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
@@ -762,17 +763,6 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
   if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) return UIInterfaceOrientationMaskAll;
   return GameHost.shared.onTV ? UIInterfaceOrientationMaskPortrait : UIInterfaceOrientationMaskLandscape;
-}
-
-// iPadOS stops the camera while the app's window doesn't fill the screen (Split View, Slide Over,
-// Stage Manager); the page explains that when told the app is multitasking.
-- (void)viewDidLayoutSubviews {
-  [super viewDidLayoutSubviews];
-  UIWindow *window = self.view.window;
-  if (!window) return;
-  CGSize w = window.bounds.size, s = window.windowScene.screen.bounds.size;
-  BOOL fills = (fabs(w.width - s.width) < 1 && fabs(w.height - s.height) < 1) || (fabs(w.width - s.height) < 1 && fabs(w.height - s.width) < 1);
-  GameHost.shared.multitasking = !fills;
 }
 
 - (BOOL)prefersStatusBarHidden { return !GameHost.shared.onTV; }

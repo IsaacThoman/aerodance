@@ -160,7 +160,6 @@ async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator'
   if (!release) {
     // Development builds report to the Mac over the local network (--report).
     const plist = path.join(appDir, 'Info.plist');
-    run('plutil', ['-insert', 'NSLocalNetworkUsageDescription', '-string', "Sends performance diagnostics to the developer's Mac during testing.", plist]);
     run('plutil', ['-insert', 'NSAppTransportSecurity', '-json', '{"NSAllowsLocalNetworking":true}', plist]);
   }
   run('xcodebuild', [
@@ -185,7 +184,7 @@ type Report = {
   type?: string; step?: string | unknown[]; index?: number; waitedMs?: number; ms?: number; message?: string;
   fps?: number; frameMs?: { p95?: number }; jsMsPerFrame?: number; drawsPerFrame?: number; numericLoopMs?: number; display?: string;
   dataset?: Record<string, string>; thermal?: string; lowPower?: boolean; safeArea?: string; storage?: Record<string, string>;
-  host?: { multitasking: boolean; interrupted: boolean };
+  host?: { interrupted: boolean; tv: boolean };
 };
 
 // Prints what the app's injected script (client-ios/src/inject.js) posts every two seconds.

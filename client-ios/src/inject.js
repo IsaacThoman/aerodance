@@ -13,15 +13,15 @@
   const site = '__SITE__';
   if (site) globalThis.__aerodanceSite = site;
 
-  // What the game should know about the app: multitasking (an iPad window that doesn't fill the
-  // screen, where iPadOS stops the camera) and interrupted (a phone call, Siri or an alarm has the
-  // audio). The page reads globalThis.__aerodanceHost and listens for 'aerodance-host' events; the
-  // app calls __aerodanceSetHost whenever either changes.
-  const hostState = s => ({ multitasking: !!s?.multitasking, interrupted: !!s?.interrupted });
+  // What the game should know about the app: interrupted (a phone call, Siri or an alarm has the
+  // audio) and tv (the game is on an external display, whose picture is as late as its sound). The
+  // page reads globalThis.__aerodanceHost and listens for 'aerodance-host' events; the app calls
+  // __aerodanceSetHost whenever either changes.
+  const hostState = s => ({ interrupted: !!s?.interrupted, tv: !!s?.tv });
   globalThis.__aerodanceHost = hostState(start.host);
   window.__aerodanceSetHost = s => {
     const next = hostState(s), now = globalThis.__aerodanceHost;
-    if (next.multitasking === now.multitasking && next.interrupted === now.interrupted) return;
+    if (next.interrupted === now.interrupted && next.tv === now.tv) return;
     globalThis.__aerodanceHost = next;
     window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { ...next } }));
   };
@@ -40,19 +40,26 @@
     const all = model !== null && model !== 'lite' ? { [MODEL]: null } : {};
     for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (ours(k)) all[k] = localStorage.getItem(k); }
     post({ storage: all, restored });
+    // Changes go to the app in batches: a volume slider being dragged saves on every step, and each
+    // message rewrites the app's copy. Hiding the page (the app going to the background) sends at once.
+    let changed = {}, timer = 0;
+    const flush = () => { clearTimeout(timer); timer = 0; if (Object.keys(changed).length) post({ storage: changed }); changed = {}; };
+    const queue = (k, v) => { changed[k] = v; timer ||= setTimeout(flush, 500); };
+    addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+    addEventListener('pagehide', flush);
     const { setItem, removeItem, clear } = Storage.prototype;
     Storage.prototype.setItem = function (k, v) {
       setItem.call(this, k, v);
-      if (this === localStorage && ours(String(k))) post({ storage: { [k]: String(v) } });
+      if (this === localStorage && ours(String(k))) queue(String(k), String(v));
     };
     Storage.prototype.removeItem = function (k) {
       removeItem.call(this, k);
-      if (this === localStorage && ours(String(k))) post({ storage: { [k]: null } });
+      if (this === localStorage && ours(String(k))) queue(String(k), null);
     };
     Storage.prototype.clear = function () {
       const gone = this === localStorage ? Object.keys(this).filter(ours) : [];
       clear.call(this);
-      if (gone.length) post({ storage: Object.fromEntries(gone.map(k => [k, null])) });
+      for (const k of gone) queue(k, null);
     };
   } catch { /* storage unavailable */ }
 
