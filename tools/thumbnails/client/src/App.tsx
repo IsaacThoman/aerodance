@@ -10,7 +10,7 @@ import type { Stage, StageId } from '../../../../packages/stages/index.ts';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
-import { SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
+import { APP_ICONS, SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
 import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ThumbnailWindow } from './shots.ts';
 
 /*
@@ -26,7 +26,7 @@ import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotL
  * without the wordmark, and the shot's layers if it has any. scripts/render.ts drives it
  * and writes the PNGs.
  *
- * URL: ?shot=<id> (SHOTS), ?icon=<id> (TV_ICONS), or ?spec=<JSON> for a one-off shot.
+ * URL: ?shot=<id> (SHOTS), ?icon=<id> (TV_ICONS, APP_ICONS), or ?spec=<JSON> for a one-off shot.
  */
 
 const STEP = 1 / 60;
@@ -41,7 +41,7 @@ function shotFromUrl(): Shot {
   }
   const icon = params.get('icon');
   if (icon !== null) {
-    const shot = TV_ICONS.find((s) => s.id === icon);
+    const shot = [...TV_ICONS, ...APP_ICONS].find((s) => s.id === icon);
     if (!shot) throw new Error(`Unknown icon "${icon}"`);
     return shot;
   }
@@ -325,7 +325,10 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
       return;
     }
     if (below && behindColor) {
-      const behind = { near: below.near ?? near, far, dancers: !!below.dancers, bloom: false };
+      // Part of the dancers doesn't show the other part, which the layer behind may hold, so it's
+      // cut against the scene without them instead.
+      const behind = pass.parts ? { ...pass, dancers: false, parts: undefined } : { near: below.near ?? near, far, dancers: !!below.dancers, bloom: false };
+      const under = pass.parts ? draw({ ...behind, bloom: true }) : behindColor;
       const sliced = pass.near < behind.near;
       const [a, b] = sliced
         ? [draw({ ...pass, far: behind.near }), draw({ ...pass, far: pass.near * 1.0001 })]
@@ -335,7 +338,7 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
         // Bloom from this layer spilling onto the one behind (the dancers' glints): keep it as
         // the least alpha that composites over the layer behind back to this colour. Only at
         // the same depth, where the renders differ by nothing else.
-        if (!sliced && !rgba[i + 3] && differ(color, behindColor, i)) unblend(rgba, behindColor, i);
+        if (!sliced && !rgba[i + 3] && differ(color, under, i)) unblend(rgba, under, i);
       }
     }
     out.push({ name: layer.name, rgba });
