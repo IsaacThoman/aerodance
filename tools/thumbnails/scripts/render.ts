@@ -15,7 +15,8 @@
 // area-averaged.
 //
 // --app-icons renders APP_ICONS, square phone app icons, into assets/app-icon/: <id>.png at
-// 1024x1024, area-averaged from the 360x480 buffer. A layered one's layers go in <id>/1024x1024/.
+// 1024x1024, area-averaged from the 360x480 buffer. A layered one's layers go in <id>/1024x1024/,
+// and it stays transparent if its back layer isn't opaque.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -255,8 +256,10 @@ async function writeLayers(dir: string, shot: Shot, frame: ThumbnailFrame) {
   }
   const [width, height] = sizes[0];
   if (!flat) return;
-  // An app icon is the stack itself, opaque, beside its layers' folder.
-  if (shot.format === 'app-icon') await writeFile(`${dir}.png`, encodePng(width, height, rgbOf(flat)));
+  // An app icon is the stack itself beside its layers' folder: opaque, as the stores want, unless
+  // nothing opaque is at the back.
+  const opaque = flat.every((v, i) => i % 4 !== 3 || v === 255);
+  if (shot.format === 'app-icon') await writeFile(`${dir}.png`, opaque ? encodePng(width, height, rgbOf(flat)) : encodePng(width, height, flat, 4));
   else await writeFile(path.join(dir, 'flat.png'), encodePng(width, height, flat, 4));
 }
 
