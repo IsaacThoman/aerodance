@@ -40,10 +40,16 @@ export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | numb
  * layers behind show through them as they move, instead of what was behind them in the shot.
  * wordmark: this entry is where the wordmark goes, rendering nothing itself.
  * hidden: render the layer (so the one above is cut against it) but leave it out of the image.
+ * dancerParts: with the dancers, only their bodies (heads, eyes and feet too) or only their
+ * floating hands; the other part draws nothing but still casts its shadow.
  * blur: soften the layer like a shallow depth of field: a Gaussian blur, its sigma in pixels of
  * a 1280-wide image (scaled with the size the layer is written at).
  */
-export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; hidden?: boolean; blur?: number; }
+export type DancerPart = 'body' | 'hands';
+export interface ShotLayer {
+  name: string; near?: number; dancers?: boolean; seeThrough?: boolean; wordmark?: boolean; hidden?: boolean; blur?: number;
+  dancerParts?: DancerPart;
+}
 export interface Shot {
   id: string;
   stage: StageId;
@@ -90,7 +96,8 @@ const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && is
 
 const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
-  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark) && optionalBoolean(v.hidden) && optionalNumber(v.blur);
+  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark) && optionalBoolean(v.hidden) && optionalNumber(v.blur) &&
+  (v.dancerParts === undefined || v.dancerParts === 'body' || v.dancerParts === 'hands');
 // Each rendered layer shows everything the one behind it does (see ShotLayer); one wordmark at most.
 const isLayerStack = (v: unknown) => {
   if (!Array.isArray(v) || !v.every(isLayer) || v.filter((layer) => layer.wordmark).length > 1) return false;
@@ -419,7 +426,8 @@ ICONS.push({
     { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
     { name: 'meadow', near: 2, hidden: true },
     { name: 'logo', wordmark: true },
-    { name: 'dancers', near: 2, dancers: true },
+    { name: 'dancers', near: 2, dancers: true, dancerParts: 'body' },
+    { name: 'hands', near: 2, dancers: true, dancerParts: 'hands' }, // in front, for more depth
     { name: 'foreground', dancers: true, hidden: true },
   ],
 });
@@ -431,6 +439,6 @@ export const TV_ICONS: readonly Shot[] = [
   ...ICONS.map((icon) => ({
     ...icon,
     id: `${icon.id}-glass`,
-    layers: icon.layers?.map((layer) => (layer.name === 'dancers' ? { ...layer, seeThrough: true } : layer)),
+    layers: icon.layers?.map((layer) => (layer.name === 'dancers' || layer.dancerParts === 'hands' ? { ...layer, seeThrough: true } : layer)),
   })),
 ];

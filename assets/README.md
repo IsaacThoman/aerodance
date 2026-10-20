@@ -19,7 +19,7 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 
 ## Apple TV app icons
 
-`tv-icon/` holds layered 5:3 app icons for Apple TV's parallax effect: `falls-meadow/` and `beach-hero/` (the shots above), `falls-closeup/`, `falls-closeup-soft/` (the same with the scenery in front of and behind the dancer out of focus), and `falls-sky-soft/` (the dancer against nothing but the soft sky, the wordmark centered beside her: `1-sky`, `2-logo`, `3-dancers`). Each has its layers, back to front, at the icon's three sizes, and the layers stacked back together for reference (`flat.png`):
+`tv-icon/` holds layered 5:3 app icons for Apple TV's parallax effect: `falls-meadow/` and `beach-hero/` (the shots above), `falls-closeup/`, `falls-closeup-soft/` (the same with the scenery in front of and behind the dancer out of focus), and `falls-sky-soft/` (the dancer against nothing but the soft sky, the wordmark centered beside her: `1-sky`, `2-logo`, `3-dancers`, `4-hands`, her floating hands on their own in front). Each has its layers, back to front, at the icon's three sizes, and the layers stacked back together for reference (`flat.png`):
 
 | Folder | Size | Used for |
 | --- | --- | --- |

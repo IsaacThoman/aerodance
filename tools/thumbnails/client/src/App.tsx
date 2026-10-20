@@ -11,7 +11,7 @@ import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
 import { SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
-import type { FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ThumbnailWindow } from './shots.ts';
+import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ThumbnailWindow } from './shots.ts';
 
 /*
  * Renders one thumbnail in-engine: a dance stage, the two captured dancers holding a pose,
@@ -141,7 +141,12 @@ interface Pass {
   bloom: boolean;
   /** false: the scenery still hides what's behind it, but draws nothing (for see-through dancers). */
   scenery?: boolean;
+  /** Only this part of the dancers draws; the other still casts its shadow. */
+  parts?: DancerPart;
 }
+
+// The rig's floating hands are the Arm.L and Arm.R meshes; the body is everything else.
+const partOf = (mesh: THREE.Mesh): DancerPart => (mesh.name.startsWith('Arm') ? 'hands' : 'body');
 
 // See-through dancers: drawn alone (the scenery still hides them where it's in front, but draws
 // nothing) into a transparent buffer, where the glass leaves its real alpha. The layer then gets
@@ -262,6 +267,21 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   };
   // Hidden dancers still cast their shadows: the shadow pass ignores colorWrite.
   const materials = new Map([...materialsOf(dancers)].map((m) => [m, m.depthWrite] as const));
+  // A part is hidden by giving its meshes a copy of their material that draws nothing (one
+  // material is shared by a dancer's parts); the shadow pass ignores colorWrite.
+  const meshes = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+  dancers.traverse((o) => { if (o instanceof THREE.Mesh) meshes.set(o, o.material); });
+  const invisible = new Map<THREE.Material, THREE.Material>();
+  const hide = (m: THREE.Material) => {
+    let copy = invisible.get(m);
+    if (!copy) {
+      copy = m.clone();
+      copy.colorWrite = false;
+      copy.depthWrite = false;
+      invisible.set(m, copy);
+    }
+    return copy;
+  };
   const scenery = new Map([...materialsOf(scene)].filter((m) => !materials.has(m)).map((m) => [m, m.colorWrite] as const));
   const { near, far } = camera;
   const setUp = (pass: Pass) => {
@@ -273,6 +293,10 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
       m.depthWrite = pass.dancers && depthWrite;
     }
     for (const [m, colorWrite] of scenery) m.colorWrite = pass.scenery !== false && colorWrite;
+    for (const [mesh, material] of meshes) {
+      const shown = !pass.parts || partOf(mesh) === pass.parts;
+      mesh.material = shown ? material : Array.isArray(material) ? material.map(hide) : hide(material);
+    }
   };
   const draw = (pass: Pass) => {
     setUp(pass);
@@ -286,13 +310,14 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   const out: { name: string; rgba: Uint8Array }[] = [];
   let behindColor: Uint8Array | null = null;
   layers.forEach((layer, k) => {
-    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false };
+    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false, parts: layer.dancerParts };
     const rgba = draw({ ...pass, bloom: true });
     const color = rgba.slice();
     const below = layers[k - 1];
     if (layer.seeThrough) {
-      if (!below || (below.near ?? near) !== pass.near || !pass.dancers || below.dancers) {
-        throw new Error(`Layer "${layer.name}": only the layer that adds the dancers can be see-through`);
+      // Over a layer at the same depth without the dancers, or over another see-through part.
+      if (!below || (below.near ?? near) !== pass.near || !pass.dancers || (below.dancers && !below.seeThrough)) {
+        throw new Error(`Layer "${layer.name}": only a layer that adds the dancers can be see-through`);
       }
       setUp({ ...pass, scenery: false });
       out.push({ name: layer.name, rgba: renderSeeThrough(gl, scene, camera, buffer) });
@@ -318,6 +343,7 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   });
   // Leave the scene as it was.
   draw({ near, far, dancers: true, bloom: true });
+  for (const copy of invisible.values()) copy.dispose();
   return out;
 }
 
