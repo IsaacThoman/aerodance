@@ -1,7 +1,6 @@
-import { FONT, ICONS, drawDisc, drawPill, ellipsize, text } from '../ui/draw.ts';
+import { FONT, ICONS, drawDisc, ellipsize, text } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
-import { MODELS } from '../../../packages/pose/browser/models.ts';
 import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import { NO_CAMERA, PHONE_CAMERA } from '../pose/CameraInput.ts';
 import type { CameraInput, CameraInputView } from '../pose/CameraInput.ts';
@@ -10,8 +9,7 @@ import type { PoseInputView } from '../pose/PoseSource.ts';
 /**
  * The calibration screen's camera controls: the camera arrows (this computer's cameras, then
  * the phone and No camera), laid out by CameraLayout. The screen adds cameraWidgets() to its widgets and hands
- * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()). The
- * phone page draws its Lite / Full / Heavy tracking buttons with drawModelPicker().
+ * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()).
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
  * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg);
@@ -22,8 +20,6 @@ export interface CameraLayout {
   /** The camera arrows; the camera's name sits between them. */
   prev: Rect;
   next: Rect;
-  /** One per tracking model, in MODELS order (drawModelPicker). */
-  models?: readonly Rect[];
 }
 export type CameraWidget = Widget & { cameraDelta?: number };
 
@@ -107,12 +103,4 @@ export function drawCameraPicker(g: CanvasRenderingContext2D, layout: CameraLayo
   const left = prev.x + prev.w;
   g.font = `700 24px ${FONT}`;
   text(g, ellipsize(g, camera?.label || DEFAULT_CAMERA.label, next.x - left - 40), (left + next.x) / 2, prev.y + prev.h / 2, { size: 24, align: 'center' });
-}
-
-/** A button per tracking model; the chosen one is marked. */
-export function drawModelPicker(g: CanvasRenderingContext2D, { models }: CameraLayout, connection: PoseInputView, hover: Record<string, number>) {
-  if (!models) return;
-  MODELS.forEach((model, i) => drawPill(g, models[i], {
-    label: `${connection.model === model.id ? '● ' : ''}${model.label}`, icon: 'gear', hover: hover[`model-${model.id}`] ?? 0,
-  }));
 }

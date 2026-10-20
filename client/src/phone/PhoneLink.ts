@@ -1,4 +1,4 @@
-import { CONTROL_CHANNEL, LIVE_CHANNEL, MAX_LIVE_BUFFER, parseGameMessage, poseMessage } from '../../../packages/pairing/link.ts';
+import { CONTROL_CHANNEL, LIVE_CHANNEL, MAX_LIVE_BUFFER, isFacing, parseGameMessage, poseMessage } from '../../../packages/pairing/link.ts';
 import type { Facing, PhoneMessage, PhoneStatus } from '../../../packages/pairing/link.ts';
 import { Peer } from '../../../packages/pairing/browser/peer.ts';
 import type { CreatePeerConnection } from '../../../packages/pairing/browser/peer.ts';
@@ -9,14 +9,15 @@ import type { EventStream } from '../../../packages/pairing/browser/signalChanne
 import { isPairingCode } from '../../../packages/pairing/signals.ts';
 import type { IceCandidate, IceServer, PairingEvent } from '../../../packages/pairing/signals.ts';
 import { WebcamPoseSource } from '../../../packages/pose/browser/WebcamPoseSource.ts';
-import type { WebcamRecordEvent, WebcamView } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { CameraInfo, WebcamRecordEvent, WebcamView } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 
 /*
  * The phone's end of a pairing: it joins the game's room with the code, answers the game's
  * WebRTC offer, tracks the players with its own camera (the same WebcamPoseSource the game
- * uses) and sends their poses back. The game decides the player count and model (the
- * phone can change the model too) and tells the phone when a song is on.
+ * uses) and sends their poses back. The game decides the player count and tells the phone
+ * when a song is on. A phone always tracks with Lite, whatever model the game asks for.
  *
  *   code      no code yet, or the last one didn't work (view.error says why)
  *   joining   asking the pairing server for a place in the room
@@ -81,6 +82,27 @@ const RELAY_OPEN_MS = 5000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const MAX_CAMERA_RETRY_MS = 30_000;
+// A camera to choose from (PhoneLink.cameras()).
+export interface PhoneCamera { id: string; label: string; }
+
+/** Which way a camera faces, going by its name (iOS: "Back Ultra Wide Camera", Android: "camera2 1, facing front"). */
+export function labelFacing(label: string): Facing | undefined {
+  if (/\b(front|user|selfie)\b/i.test(label)) return 'user';
+  if (/\b(back|rear|environment)\b/i.test(label)) return 'environment';
+  return undefined;
+}
+
+/** A camera's name for the list: iOS's as they are ("Back ultra wide camera"), Android's numbered by side. */
+export function cameraName(camera: CameraInfo, before: readonly CameraInfo[]) {
+  if (/^(front|back)( \w+)* camera$/i.test(camera.label)) return camera.label[0] + camera.label.slice(1).toLowerCase();
+  const facing = /^camera2? \d+, facing (front|back)$/i.exec(camera.label)?.[1].toLowerCase();
+  if (!facing) return camera.label;
+  const n = before.filter((other) => new RegExp(`facing ${facing}$`, 'i').test(other.label)).length;
+  return `${facing === 'front' ? 'Front' : 'Back'} camera${n ? ` ${n + 1}` : ''}`;
+}
+
+// The only model a phone tracks with: the fastest, and the one phones keep up with.
+const PHONE_MODEL: PoseModelId = 'lite';
 // The picture the game previews: its long side, frame rate and bitrate at most.
 export const PREVIEW_LONG_SIDE = 320;
 const PREVIEW_FPS = 12;
@@ -174,6 +196,8 @@ export class PhoneLink {
     this.now = now; this.device = device; this.cameraRetryMs = cameraRetryMs;
     // The back camera by default: it's the better one, and the phone faces the players.
     if (!this.camera.view.facing && !this.camera.view.cameraId) this.camera.publish({ facing: 'environment' });
+    // Even on a phone that chose another model before.
+    if (this.camera.view.model !== PHONE_MODEL) void this.camera.configure({ modelId: PHONE_MODEL }).catch(() => {});
     this.camera.subscribe((view) => this.onCamera(view));
     this.camera.subscribeRecords((event) => this.onRecord(event));
   }
@@ -413,8 +437,38 @@ export class PhoneLink {
     void this.keepAwake();
   }
 
-  setFacing(facing: Facing) { return this.camera.configure({ facing, cameraId: '' }); }
-  setModel(modelId: string) { return this.camera.configure({ modelId }); }
+  /**
+   * The cameras to choose from: each one the browser lists (front, back, ultra wide…), or
+   * just front and back until it lists them (it names them once the camera has started).
+   * A side chosen without a particular camera stays on the list too, as the side's default.
+   */
+  cameras(): PhoneCamera[] {
+    const sides = [{ id: 'facing:environment', label: 'Back camera' }, { id: 'facing:user', label: 'Front camera' }];
+    const listed = this.camera.view.cameras;
+    if (!listed.length) return sides;
+    const chosen = this.chosenCamera();
+    return [...sides.filter((side) => side.id === chosen).map((side) => ({ ...side, label: `${side.label} (default)` })),
+      ...listed.map((camera, i) => ({ id: `device:${camera.deviceId}`, label: cameraName(camera, listed.slice(0, i)) }))];
+  }
+
+  /** The chosen camera's id in cameras(): the one running, or the way the phone was asked to face. */
+  chosenCamera() {
+    const { cameraId, cameras, facing } = this.camera.view;
+    const running = this.camera.stream?.getVideoTracks()[0]?.getSettings().deviceId;
+    const deviceId = cameraId || (cameras.some((camera) => camera.deviceId === running) ? running : '');
+    return deviceId ? `device:${deviceId}` : `facing:${facing ?? 'environment'}`;
+  }
+
+  /** Switches to a camera from cameras(). */
+  chooseCamera(id: string) {
+    if (id === this.chosenCamera()) return Promise.resolve();
+    const [kind, value] = [id.slice(0, id.indexOf(':')), id.slice(id.indexOf(':') + 1)];
+    if (kind === 'facing' && isFacing(value)) return this.camera.configure({ facing: value, cameraId: '' });
+    const camera = this.camera.view.cameras.find((camera) => camera.deviceId === value);
+    if (kind !== 'device' || !camera) return Promise.resolve();
+    // Which way it faces, from its name until its track says (onCamera).
+    return this.camera.configure({ cameraId: camera.deviceId, facing: labelFacing(camera.label) });
+  }
 
   send(channel: LinkChannel | null, message: PhoneMessage | string) {
     if (channel?.readyState !== 'open') return false;
@@ -431,7 +485,8 @@ export class PhoneLink {
     else {
       this.publish({ playerCount: message.playerCount });
       void this.camera.setPlayerCount(message.playerCount).catch(() => {});
-      if (message.modelId !== this.camera.view.model) void this.camera.configure({ modelId: message.modelId }).catch(() => {});
+      // Another model stays Lite: the status tells the game which one it got.
+      if (message.modelId !== this.camera.view.model) { this.sentStatus = ''; this.sendStatus(this.camera.view); }
     }
   }
 
@@ -442,6 +497,9 @@ export class PhoneLink {
   }
 
   onCamera(view: WebcamView) {
+    // A camera chosen from the list faces whichever way its track says (the game mirrors a front camera).
+    const facing = view.cameraId ? this.camera.stream?.getVideoTracks()[0]?.getSettings().facingMode : undefined;
+    if (isFacing(facing) && facing !== view.facing) { this.camera.publish({ facing }); return; }
     // A restarted camera is a new track.
     this.updateVideo();
     if (view.status === 'connected') { this.cameraTracked = true; this.cameraRetries = 0; void this.keepAwake(); }
