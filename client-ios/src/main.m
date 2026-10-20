@@ -47,6 +47,36 @@ static NSString *Port(void) {
   return port;
 }
 
+static NSString *JSON(id object) {
+  NSData *data = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingFragmentsAllowed error:nil];
+  return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"null";
+}
+
+#pragma mark - Saved scores and settings
+
+// A copy of the page's aerodance* localStorage keys, in case WebKit clears the page's website
+// data; inject.js puts back keys the page has lost. Per port, like the page's own storage.
+static NSString *SavedStorageKey(void) { return [@"localStorage 127.0.0.1:" stringByAppendingString:Port()]; }
+
+static NSDictionary<NSString *, NSString *> *SavedStorage(void) {
+  NSDictionary *saved = [NSUserDefaults.standardUserDefaults dictionaryForKey:SavedStorageKey()];
+  return saved ?: @{};
+}
+
+// Applies changes from the page: a string sets a key, null removes it. Returns whether anything changed.
+static BOOL SaveStorage(NSDictionary *changes) {
+  NSMutableDictionary *saved = [SavedStorage() mutableCopy];
+  for (NSString *key in changes) {
+    if (![key isKindOfClass:NSString.class] || ![key hasPrefix:@"aerodance"]) continue;
+    id value = changes[key];
+    if ([value isKindOfClass:NSString.class]) saved[key] = value;
+    else if (value == NSNull.null) [saved removeObjectForKey:key];
+  }
+  if ([saved isEqualToDictionary:SavedStorage()]) return NO;
+  [NSUserDefaults.standardUserDefaults setObject:saved forKey:SavedStorageKey()];
+  return YES;
+}
+
 #pragma mark - Local file server
 
 static NSString *MimeType(NSString *ext) {
@@ -147,6 +177,12 @@ static nw_listener_t StartServer(NSString *root) {
 @property (nonatomic, copy) NSString *tvDescription;  // e.g. "1920×1080 @ 60 Hz", while a TV is connected
 @property (nonatomic, copy) NSDictionary *page;        // the canvas's data-* state, from inject.js
 @property (nonatomic) double fps;
+// What the page is told about the app (inject.js __aerodanceHost).
+@property (nonatomic) BOOL multitasking;  // the phone's window doesn't fill its screen (iPad Split View, Slide Over, Stage Manager)
+@property (nonatomic) BOOL interrupted;   // between an audio interruption's start and end (a call, Siri, an alarm)
+@property (nonatomic, strong) WKUserContentController *scripts;
+@property (nonatomic, copy) NSString *injectSource;
+@property (nonatomic, strong) id drive;  // --drive's steps
 @end
 
 @implementation GameHost
@@ -178,8 +214,16 @@ static nw_listener_t StartServer(NSString *root) {
   NSDictionary *app = appJSON ? [NSJSONSerialization JSONObjectWithData:appJSON options:0 error:nil] : nil;
   NSString *site = [app isKindOfClass:NSDictionary.class] && [app[@"site"] isKindOfClass:NSString.class] ? app[@"site"] : @"";
   script = [script stringByReplacingOccurrencesOfString:@"__SITE__" withString:site];
-  [config.userContentController addUserScript:[[WKUserScript alloc] initWithSource:script injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
-  [config.userContentController addScriptMessageHandler:self name:@"aerodance"];
+  self.injectSource = script;
+  // --drive '<json>': steps for inject.js to play, as the Apple TV app's launch config takes them.
+  NSString *drive = LaunchArg(@"--drive", nil);
+  if (drive) {
+    self.drive = [NSJSONSerialization JSONObjectWithData:[drive dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    if (![self.drive isKindOfClass:NSArray.class]) { NSLog(@"aerodance: --drive isn't a JSON array; ignoring it"); self.drive = nil; }
+  }
+  self.scripts = config.userContentController;
+  [self.scripts addScriptMessageHandler:self name:@"aerodance"];
+  [self installScripts];
 
   WKWebView *web = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
 #ifdef AERODANCE_DEV
@@ -198,8 +242,53 @@ static nw_listener_t StartServer(NSString *root) {
 
   NSString *url = [NSString stringWithFormat:@"http://127.0.0.1:%@%@", Port(), LaunchArg(@"--path", @"/")];
   NSLog(@"aerodance loading %@ (report: %@)", url, report.length ? report : @"off");
-  [web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
+  NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+  // --clear-website-data starts as if WebKit had cleared the page's storage, to test the saved copy.
+  if (LaunchFlag(@"--clear-website-data")) {
+    [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:WKWebsiteDataStore.allWebsiteDataTypes modifiedSince:NSDate.distantPast completionHandler:^{
+      NSLog(@"aerodance: cleared website data");
+      [web loadRequest:request];
+    }];
+  } else {
+    [web loadRequest:request];
+  }
   return web;
+}
+
+// The page's start state goes in first, as its own script (host state, the saved copy of its
+// storage, --drive), so a page that loads or reloads later starts from what the app knows now;
+// then inject.js. Rebuilt whenever that state changes.
+- (void)installScripts {
+  NSDictionary *start = @{ @"host": self.hostState, @"saved": SavedStorage(), @"drive": self.drive ?: NSNull.null };
+  NSString *source = [NSString stringWithFormat:@"globalThis.__aerodanceStart = %@;", JSON(start)];
+  [self.scripts removeAllUserScripts];
+  [self.scripts addUserScript:[[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+  [self.scripts addUserScript:[[WKUserScript alloc] initWithSource:self.injectSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+}
+
+- (NSDictionary *)hostState { return @{ @"multitasking": @(self.multitasking), @"interrupted": @(self.interrupted) }; }
+
+- (void)setMultitasking:(BOOL)multitasking {
+  if (_multitasking == multitasking) return;
+  _multitasking = multitasking;
+  [self hostChanged];
+}
+
+- (void)setInterrupted:(BOOL)interrupted {
+  if (_interrupted == interrupted) return;
+  _interrupted = interrupted;
+  [self hostChanged];
+}
+
+- (void)hostChanged {
+  NSLog(@"aerodance: host %@", JSON(self.hostState));
+  if (!_web) return;  // the page starts with it
+  [self installScripts];
+  [self tellPageHost];
+}
+
+- (void)tellPageHost {
+  [_web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceSetHost && window.__aerodanceSetHost(%@)", JSON(self.hostState)] completionHandler:nil];
 }
 
 - (BOOL)onTV { return self.tvView != nil; }
@@ -215,17 +304,60 @@ static nw_listener_t StartServer(NSString *root) {
     web.frame = target.bounds;
     [target addSubview:web];
   }
-  [self tellPageDisplay];
+  [self tellPage];
   [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
 
-// Which screen the game is on, for inject.js's reports.
-- (void)tellPageDisplay {
+// For inject.js's reports: which screen the game is on, and how hot the device is.
+- (void)tellPage {
+  if (!_web) return;
   NSString *display = self.onTV ? [NSString stringWithFormat:@"tv %@", self.tvDescription] : @"phone";
-  [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceDisplay = '%@'", display] completionHandler:nil];
+  NSProcessInfo *info = NSProcessInfo.processInfo;
+  NSArray *thermal = @[@"nominal", @"fair", @"serious", @"critical"];
+  NSDictionary *device = @{ @"thermal": info.thermalState < thermal.count ? thermal[info.thermalState] : @"unknown", @"lowPower": @(info.lowPowerModeEnabled) };
+  [_web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceDisplay = %@; window.__aerodanceDevice = %@", JSON(display), JSON(device)] completionHandler:nil];
 }
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation { [self tellPageDisplay]; }
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+  [self tellPage];
+  [self tellPageHost];  // in case it changed while the page was loading
+}
+
+- (instancetype)init {
+  if (!(self = [super init])) return nil;
+  NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+  [center addObserver:self selector:@selector(audioInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
+  [center addObserver:self selector:@selector(sceneActivated) name:UISceneDidActivateNotification object:nil];
+  for (NSNotificationName name in @[NSProcessInfoThermalStateDidChangeNotification, NSProcessInfoPowerStateDidChangeNotification]) {
+    [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self tellPage]; }];
+  }
+  return self;
+}
+
+// A phone call, Siri or an alarm takes the audio. The game pauses and says so while interrupted;
+// afterwards the session is made active again, but the song waits for the player to tap Resume.
+- (void)audioInterrupted:(NSNotification *)note {
+  BOOL began = [note.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue] == AVAudioSessionInterruptionTypeBegan;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSLog(@"aerodance: audio interruption %@", began ? @"began" : @"ended");
+    if (began) { self.interrupted = YES; return; }
+    [self activateAudio];
+    self.interrupted = NO;
+  });
+}
+
+- (BOOL)activateAudio {
+  NSError *error;
+  if ([AVAudioSession.sharedInstance setActive:YES error:&error]) return YES;
+  NSLog(@"aerodance: couldn't activate the audio session: %@", error);
+  return NO;
+}
+
+// Not every interruption ends with a notification (another app's music can keep the audio), so
+// coming back to the foreground takes the audio back if nothing more important (a call) has it.
+- (void)sceneActivated {
+  if (self.interrupted && [self activateAudio]) self.interrupted = NO;
+}
 
 - (void)sendKey:(NSString *)key {
   [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceKey && window.__aerodanceKey('%@')", key] completionHandler:nil];
@@ -236,7 +368,11 @@ static nw_listener_t StartServer(NSString *root) {
   if (![body isKindOfClass:NSDictionary.class]) return;
   if ([body[@"page"] isKindOfClass:NSDictionary.class]) self.page = body[@"page"];
   if ([body[@"fps"] isKindOfClass:NSNumber.class]) self.fps = [body[@"fps"] doubleValue];
-  [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+  if ([body[@"storage"] isKindOfClass:NSDictionary.class] && SaveStorage(body[@"storage"])) [self installScripts];
+  if ([body[@"restored"] isKindOfClass:NSArray.class] && [body[@"restored"] count]) {
+    NSLog(@"aerodance: restored %@ from the saved copy", [body[@"restored"] componentsJoinedByString:@", "]);
+  }
+  if (body[@"page"] || body[@"fps"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
 
 // The game's own camera tracking (MediaPipe in the page) may use the phone's camera; only the
@@ -264,7 +400,8 @@ static nw_listener_t StartServer(NSString *root) {
   return nil;
 }
 
-// iOS ends the page's process under memory pressure; start the game again rather than show a blank screen.
+// iOS ends the page's process under memory pressure; start the game again rather than show a blank
+// screen. The start script (installScripts) gives the new page the current host state and storage.
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
   NSLog(@"aerodance: web content process ended; reloading");
   [webView reload];
@@ -324,6 +461,7 @@ static nw_listener_t StartServer(NSString *root) {
 @property (nonatomic, strong) NSTimer *repeat;
 @property (nonatomic, strong) UIImpactFeedbackGenerator *haptics;
 @property (nonatomic, strong) UISceneAccessoryRegistration *tvAccessory API_AVAILABLE(ios(27.0));
+@property (nonatomic) BOOL shownOnTV;  // where the game was at the last refresh
 @end
 
 @implementation PhoneViewController
@@ -458,6 +596,10 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
 - (void)refresh {
   GameHost *host = GameHost.shared;
   BOOL tv = host.onTV;
+  if (tv != self.shownOnTV) {
+    self.shownOnTV = tv;
+    [self setNeedsUpdateOfSupportedInterfaceOrientations];
+  }
   self.remote.hidden = !tv;
   self.gameView.hidden = tv;
   // Over the game the AirPlay button only shows on the main menu, where it doesn't cover play.
@@ -475,6 +617,25 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   self.backButton.configuration = c;
   [self setNeedsStatusBarAppearanceUpdate];
   [self setNeedsUpdateOfHomeIndicatorAutoHidden];
+}
+
+// iPhone: the 16:9 game only fits sideways, but the remote is tall, so portrait too while the game
+// is on the TV. iPad: any way up, in any window size (Split View, Stage Manager); the page
+// letterboxes itself. The app and scene allow the most either needs (AppDelegate, PhoneSceneDelegate).
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+  if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) return UIInterfaceOrientationMaskAll;
+  return GameHost.shared.onTV ? UIInterfaceOrientationMaskAllButUpsideDown : UIInterfaceOrientationMaskLandscape;
+}
+
+// iPadOS stops the camera while the app's window doesn't fill the screen (Split View, Slide Over,
+// Stage Manager); the page explains that when told the app is multitasking.
+- (void)viewDidLayoutSubviews {
+  [super viewDidLayoutSubviews];
+  UIWindow *window = self.view.window;
+  if (!window) return;
+  CGSize w = window.bounds.size, s = window.windowScene.screen.bounds.size;
+  BOOL fills = (fabs(w.width - s.width) < 1 && fabs(w.height - s.height) < 1) || (fabs(w.width - s.height) < 1 && fabs(w.height - s.width) < 1);
+  GameHost.shared.multitasking = !fills;
 }
 
 - (BOOL)prefersStatusBarHidden { return !GameHost.shared.onTV; }
@@ -499,6 +660,12 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
 
 #pragma mark - App
 
+// Everything the app may use: Info.plist only lists landscape for the iPhone, so it launches
+// sideways from a portrait home screen, but the remote can be upright.
+static UIInterfaceOrientationMask AllowedOrientations(void) {
+  return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskAllButUpsideDown;
+}
+
 @interface PhoneSceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (nonatomic, strong) UIWindow *window;
 @end
@@ -508,6 +675,11 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
   self.window.rootViewController = [PhoneViewController new];
   [self.window makeKeyAndVisible];
+}
+
+// iOS 27 asks the scene; PhoneViewController narrows it to what the game needs now.
+- (UIInterfaceOrientationMask)supportedInterfaceOrientationsForWindowScene:(UIWindowScene *)windowScene API_AVAILABLE(ios(27.0)) {
+  return AllowedOrientations();
 }
 @end
 
@@ -519,6 +691,11 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   // Playback: the music plays with the ring switch on silent, and follows the AirPlay route.
   [AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryPlayback error:nil];
   return YES;
+}
+
+// iOS 17-26 ask the app (iOS 27 asks PhoneSceneDelegate).
+- (UIInterfaceOrientationMask)application:(UIApplication *)app supportedInterfaceOrientationsForWindow:(UIWindow *)window {
+  return AllowedOrientations();
 }
 
 - (UISceneConfiguration *)application:(UIApplication *)app configurationForConnectingSceneSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
