@@ -227,7 +227,7 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
         // Just over the digits, which sit centred.
         shadowed(g, () => paragraph(g, 'Enter the in-game pairing code', L.digits.x + L.digits.w / 2, L.digits.y - 34, L.digits.w, { size: 26, lineH: 33, color: '#ffffff', align: 'center' }));
         drawDigits(g, L.digits, st.typed);
-        if (view.error) shadowed(g, () => paragraph(g, view.error, L.digits.x, L.digits.y + L.digits.h + 34, L.digits.w, { size: 21, lineH: 27, color: '#ffb38a' }));
+        if (view.error) shadowed(g, () => paragraph(g, view.error, L.digits.x + L.digits.w / 2, L.digits.y + L.digits.h + 34, L.digits.w, { size: 21, lineH: 27, color: '#ffb38a', align: 'center' }));
         L.keys.forEach((rect, i) => {
           const key = KEYS[i];
           const enabled = key === 'join' ? st.typed.length === CODE_DIGITS : key === 'delete' ? st.typed.length > 0 : true;
