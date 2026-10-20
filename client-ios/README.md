@@ -1,0 +1,104 @@
+# aerodance for iPhone and iPad, on the TV (experimental)
+
+An iPhone and iPad app that runs the production web build in `WKWebView` and shows it on a TV:
+an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
+phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
+
+Unlike the Apple TV app in `client-tvos/`, this uses public APIs only (WebKit, AVKit,
+MediaPlayer, Network), so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
+WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows the video.
+
+## How it works
+
+`src/main.m` is the whole app:
+
+- **Local server.** The production build (`dist/`, pose-tracking models included) is bundled as
+  `www/` and served from `http://127.0.0.1:8417`. Loopback makes the page a secure context, which
+  `crypto.subtle` (song bundles) and `getUserMedia` (the camera) need. The port is fixed because
+  saved scores and settings belong to the page's origin. Inter, which the web build loads from
+  Google Fonts, is bundled too (`scripts/apple.ts`), so the game looks the same offline.
+- **Phone camera.** A phone pairs through the deployed site (`--site`, default
+  https://aerodance.party) as with the Apple TV app: the build writes it to `www/app.json` and
+  `src/inject.js` sets `globalThis.__aerodanceSite`.
+- **One web view, two screens.** When a display connects, iOS gives the app a second window scene
+  (role `UIWindowSceneSessionRoleExternalDisplayNonInteractive`, registered with
+  `UIViewController.registerSceneAccessory` on iOS 27, which no longer offers it otherwise).
+  The game's web view moves into that scene's window and keeps running; nothing reloads. The page
+  letterboxes itself to 16:9. When the display goes, the web view moves back to the phone.
+- **Remote.** While the game is on the TV, the phone shows arrows, OK and Back (Pause during a
+  song), which `src/inject.js` turns into the key events the canvas UI understands, like the
+  Apple TV app does with the Siri Remote. Arrows repeat while held. Below them are the system
+  volume (the TV's, while AirPlaying) and an AirPlay button. The status line shows the TV's
+  resolution, the current screen and the frame rate.
+- **Audio** uses the playback category (and `navigator.audioSession.type = 'playback'`), so it
+  plays with the ring switch on silent and follows the AirPlay route to the TV.
+- **Camera.** The game's own pose tracking (MediaPipe in the page) can use the phone's camera:
+  the app has a camera usage description and grants the page's camera requests, video only.
+- The phone doesn't lock while the app is open.
+
+## Requirements
+
+- A Mac with Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+- An iPhone or iPad on iOS 17 or later, paired with the Mac (Xcode's Devices window), with
+  Developer Mode on.
+- A paid Apple Developer team, signed in to Xcode. Builds use `IOS_TEAM_ID` (default
+  `PX72AL9366`) and `IOS_BUNDLE_ID` (default `com.isaacthoman.aerodance`, the Apple TV app's, so
+  the two are one App Store listing with universal purchase).
+
+## Deploy
+
+```sh
+npm run ios -- devices                       # paired iPhones and iPads
+npm run ios -- deploy                        # build the game and the app, install, launch
+npm run ios -- deploy --report               # ...and print frame stats every two seconds
+npm run ios -- launch --path '/?input=ghost' --report --flow   # play a song by itself
+npm run ios -- sim --device <simulator>      # the same in a simulator
+npm run ios -- build --release               # for TestFlight / the App Store
+npm run ios -- sim --site https://24.aerodance.party   # pair phones through a PR preview
+```
+
+Simulators share the Mac's loopback, so two running the app at once would share port 8417; give
+each its own with `--port <port>` (saved scores and settings belong to the port).
+
+## Release builds
+
+Development builds take the launch options above (`--path`, `--report`, `--flow`, `--port`), are
+inspectable in Safari's Web Inspector, and add `NSLocalNetworkUsageDescription` and
+`NSAllowsLocalNetworking` to `Info.plist` so `--report` can reach the Mac. `build --release`
+leaves all of that out, which is what an App Store build should ship.
+
+`--report` sends the frame rate, the 95th-percentile frame time, the JavaScript time per frame and
+the draw calls per frame to this Mac (port 8766); `--report-to <url>` sends them elsewhere.
+`--flow` presses through One Player, the first song and Dance! to the results, for benchmarks.
+`/bench/aero-bench.html` is the Aero world benchmark (`client-tvos/bench/`), when it has been built.
+
+## Playing on an Apple TV
+
+1. Open aerodance on the phone.
+2. Open Control Center, tap Screen Mirroring and choose the Apple TV. The game moves to the TV
+   and the phone shows the remote. (The app's AirPlay button picks where the sound goes; whether
+   it also starts Screen Mirroring hasn't been checked.)
+3. To stop, choose Stop Mirroring in Control Center; the game comes back to the phone.
+
+An HDMI adapter works the same way, without step 2.
+
+## Testing the TV screen in the simulator
+
+The iOS simulator has a TV-out screen that Simulator.app's I/O → External Displays menu turns on.
+Without Simulator.app, `tools/simscreen.m` does the same through CoreSimulator (a Mac-only test
+tool; the app doesn't use it):
+
+```sh
+clang -fobjc-arc -framework Foundation -framework CoreGraphics client-ios/tools/simscreen.m -o /tmp/simscreen
+/tmp/simscreen <simulator UDID> on 1920 1080   # list | on <w> <h> | off
+xcrun simctl io <simulator UDID> screenshot --display=external tv.png
+```
+
+## What doesn't work yet
+
+- **AirPlay delay.** Screen Mirroring adds video and audio latency (both delayed together, so
+  they stay in sync with each other). The game's song clock follows the audio output timestamp,
+  so judging should allow for it if WebKit reports the AirPlay latency; that is unmeasured.
+- **Camera while on the TV.** Tracking on the phone that also renders and encodes the mirror is
+  untested for speed, and the phone must face the player, which makes it a poor remote.
+- **App icon.** None yet.
