@@ -1,25 +1,23 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
-import AeroWorld from '../aero/AeroWorld.tsx';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import PhoneScreen from './PhoneScreen.tsx';
-import type { PreviewMode } from './PhoneScreen.tsx';
-import PhoneReflection from './PhoneReflection.tsx';
 import { PhoneLink, linkCode } from './PhoneLink.ts';
-import { phoneBuffer } from './layout.ts';
+import { phoneBuffer, phoneDesign, phoneLayout } from './layout.ts';
 
 /*
  * A phone as the game's camera: open /pair/#<code> (the game's QR code) or type the code.
  * The phone tracks the players itself and sends the game only their poses (PhoneLink).
  *
- * The whole page is one canvas like the game's: the Aero sky, the players' mirror
- * (PhoneReflection) and the in-engine UI (PhoneScreen). Like the game's fixed 640x480, the
- * buffer is low resolution whatever the screen: at most 640 pixels along its long side, in
- * the screen's own shape, stretched to fill it with chunky pixels. While dimmed, the sky and the mirror stop,
- * leaving the phone's GPU to the tracking. The frame loop itself keeps running: the camera's
- * frames are timed by requestVideoFrameCallback, which a page that stops rendering stops too.
+ * The whole page is one canvas like the game's: a plain background and the in-engine UI
+ * (PhoneScreen). Like the game's fixed 640x480, the buffer is low resolution whatever the
+ * screen: at most 640 pixels along its long side, in the screen's own shape, stretched to fill
+ * it with chunky pixels. The frame loop keeps running while dimmed: the camera's frames are
+ * timed by requestVideoFrameCallback, which a page that stops rendering stops too.
+ *
+ * The one piece of page over the canvas is the camera list: an invisible <select> on the
+ * camera button, so a tap opens the phone's own picker.
  */
 
-const MODE_KEY = 'aerodance-phone-preview';
 function PhoneRenderResolution() {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
@@ -30,14 +28,36 @@ function PhoneRenderResolution() {
   }, [gl, size.width, size.height]);
   return null;
 }
-const savedMode = (): PreviewMode => { try { return localStorage.getItem(MODE_KEY) === 'video' ? 'video' : 'mirror'; } catch { return 'mirror'; } };
+// The page's background, as in styles.css (.canvas-frame.phone). The frame starts here, before
+// the UI (useFrame priority 1, where the game's world renders).
+const BACKGROUND = '#1f6fd6';
+function Background() {
+  const gl = useThree((state) => state.gl);
+  useFrame(() => {
+    gl.setClearColor(BACKGROUND, 1);
+    gl.clear();
+  }, 1);
+  return null;
+}
 
 export default function PhoneApp() {
   const [link] = useState(() => new PhoneLink());
   const [view, setView] = useState(link.view);
   const [camera, setCamera] = useState(link.camera.view);
-  const [mode, setMode] = useState(savedMode);
   const [dim, setDim] = useState(false);
+  const frame = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLSelectElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+
+  useLayoutEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const offView = link.subscribe(setView);
@@ -66,18 +86,37 @@ export default function PhoneApp() {
 
   // A song starting dims the screen; a tap wakes it.
   useEffect(() => { if (view.playing) setDim(true); }, [view.playing]);
-  useEffect(() => { try { localStorage.setItem(MODE_KEY, mode); } catch { /* Private browsing. */ } }, [mode]);
 
   const linked = view.stage === 'linked';
   const dimmed = linked && dim;
+  const openList = () => {
+    const el = list.current;
+    if (!el) return;
+    try { el.showPicker(); } catch { el.focus(); }
+  };
+  // The camera button, from design units to the page's.
+  const design = phoneDesign(size.w || 1, size.h || 1);
+  const button = phoneLayout(design).camera;
+  const scale = size.w / design.w;
   return (
-    <div className="canvas-frame phone">
+    <div className="canvas-frame phone" ref={frame}>
       <Canvas dpr={1} flat camera={{ fov: 66, near: 0.3, far: 6500 }}>
         <PhoneRenderResolution />
-        <AeroWorld speed={0.6} fps={15} paused={dimmed} />
-        <PhoneReflection visible={linked && !dim && mode === 'mirror'} link={link} playerCount={view.playerCount} />
-        <PhoneScreen link={link} view={view} camera={camera} mode={mode} onMode={setMode} dim={dimmed} onDim={setDim} />
+        <Background />
+        <PhoneScreen link={link} view={view} camera={camera} dim={dimmed} onDim={setDim} onCameraList={openList} />
       </Canvas>
+      {linked && !dim && (
+        <select
+          ref={list}
+          className="phone-camera-list"
+          aria-label="Camera"
+          value={link.chosenCamera()}
+          onChange={(event) => { void link.chooseCamera(event.target.value).catch(() => {}); }}
+          style={{ left: button.x * scale, top: button.y * scale, width: button.w * scale, height: button.h * scale }}
+        >
+          {link.cameras().map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+        </select>
+      )}
     </div>
   );
 }

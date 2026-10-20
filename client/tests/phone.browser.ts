@@ -122,9 +122,10 @@ try {
   await click(PLAYERS_GO); await until(game, 'songReady', 'true'); await click(rowRect(0));
   await until(game, 'previewState', 'playing'); await until(game, 'stageReady', 'true');
 
-  // Calibration: the camera picker's last entry (one back from the default) is the phone;
-  // pressing the preview starts pairing.
+  // Calibration: the phone is two back from the default camera (after it, No camera wraps
+  // round); pressing the preview starts pairing.
   await click(DANCE); await until(game, 'gamePhase', 'calibrating'); await until(game, 'gameReady', 'true');
+  await click(GAME_CALIBRATION_CAMERA.prev);
   await click(GAME_CALIBRATION_CAMERA.prev);
   await click(GAME_CALIBRATION_PREVIEW);
   await until(game, 'gamePairing', /^\d{6}$/);
@@ -152,7 +153,7 @@ try {
   }
   if (process.env.UI_ARTIFACTS) {
     await game.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-game.png` });
-    // The mirror shows each player once they've held still for a moment, as the game does.
+    // Once the game has the player, the phone's preview shows their skeleton.
     await until(game, 'gameCalibrationProgress', /^(0\.[5-9]|1)/);
     await phone.screenshot({ path: `${process.env.UI_ARTIFACTS}/phone-setup.png` });
   }

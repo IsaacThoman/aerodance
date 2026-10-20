@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PhonePoseSource } from '../src/pose/PhonePoseSource.ts';
-import { CameraInput, PHONE_CAMERA } from '../src/pose/CameraInput.ts';
+import { CameraInput, NO_CAMERA, PHONE_CAMERA } from '../src/pose/CameraInput.ts';
 import { isPoseRecordEvent } from '../src/pose/PoseSource.ts';
 import type { PoseSourceEvent } from '../src/pose/PoseSource.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
@@ -32,7 +32,8 @@ class FakeCamera {
   disconnect(message = 'Camera stopped.') { this.publish({ status: 'disconnected', message }); }
   async configure(options: WebcamConfigureOptions) {
     this.configured.push(options);
-    this.publish({ ...(options.modelId ? { model: options.modelId as WebcamView['model'] } : {}), ...(options.facing ? { facing: options.facing } : {}) });
+    this.publish({ ...(options.modelId ? { model: options.modelId as WebcamView['model'] } : {}), ...(options.facing ? { facing: options.facing } : {}),
+      ...(options.cameraId !== undefined ? { cameraId: options.cameraId } : {}) });
   }
   async setPlayerCount(count: PlayerCount) { this.playerCount = count; }
   emit(record: WebcamRecord) {
@@ -83,9 +84,10 @@ test('a phone pairs with the game, tracks for it on the game’s clock, reconnec
 
   await host.setPlayerCount(2);
   await until(() => camera.playerCount === 2 && phone.view.playerCount === 2, 'the player count');
+  // The phone only tracks with Lite, and tells the game so.
   await host.configure({ modelId: 'full' });
-  await until(() => camera.configured.some((c) => c.modelId === 'full'), 'the model');
-  await until(() => host.view.model === 'full', 'the phone to report the model');
+  await until(() => host.view.model === 'lite', 'the phone to report its model');
+  assert.ok(!camera.configured.some((c) => c.modelId === 'full'));
 
   // Poses wait for the clocks to line up, then arrive on the game's clock.
   await until(() => host.clock.ready, 'clock sync', 4000);
@@ -224,7 +226,7 @@ test('a game that cannot reach the pairing server says so', async () => {
   assert.match(host.view.message, /pairing server/);
 });
 
-test('the phone is the last camera; choosing it switches the game’s input and only its poses reach the game', async () => {
+test('the phone comes after the webcams; choosing it switches the game’s input and only its poses reach the game', async () => {
   store.clear();
   const phone = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair' });
   const input = new CameraInput({ webcam: new PoseSourceController(), phone, webcamSupported: true });
@@ -233,7 +235,7 @@ test('the phone is the last camera; choosing it switches the game’s input and 
   const heard: PoseSourceEvent[] = [];
   input.subscribeRecords((event) => heard.push(event));
   assert.equal(input.view.sourceKind, 'webcam');
-  assert.deepEqual(input.view.cameras.at(-1), PHONE_CAMERA);
+  assert.deepEqual(input.view.cameras.slice(-2), [PHONE_CAMERA, NO_CAMERA]);
   await input.configure({ cameraId: PHONE_CAMERA.deviceId });
   assert.equal(input.view.sourceKind, 'phone');
   assert.equal(input.view.cameraId, PHONE_CAMERA.deviceId);
@@ -256,6 +258,40 @@ test('the phone is the last camera; choosing it switches the game’s input and 
   assert.equal(store.get('aerodance-camera'), 'webcam');
 });
 
+test('No camera is the last camera: nothing runs, no poses reach the game, and it is remembered', async () => {
+  store.clear();
+  const phone = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair' });
+  const input = new CameraInput({ webcam: new PoseSourceController(), phone, webcamSupported: true });
+  const heard: PoseSourceEvent[] = [];
+  input.subscribeRecords((event) => heard.push(event));
+  assert.deepEqual(input.view.cameras.at(-1), NO_CAMERA);
+  await input.configure({ cameraId: PHONE_CAMERA.deviceId });
+  await input.configure({ cameraId: NO_CAMERA.deviceId });
+  assert.equal(input.mode, 'none');
+  assert.equal(input.view.cameraId, NO_CAMERA.deviceId);
+  assert.equal(input.view.status, 'disconnected');
+  assert.equal(input.video, null);
+  assert.equal(store.get('aerodance-camera'), 'none');
+  // Remembered, even where the phone would otherwise be the camera.
+  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource(), webcamSupported: false }).mode, 'none');
+
+  await input.connect();
+  assert.equal(input.view.status, 'disconnected');
+  assert.equal(phone.view.status, 'disconnected');
+  const record = { ...phoneRecord(0, 1), timingMethod: 'remote-clock-sync' as const };
+  phone.emit({ record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'remote-clock-sync' } });
+  input.webcam.source.emit({ record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'browser-frame-observation' } });
+  assert.deepEqual(heard.filter(isPoseRecordEvent), []);
+  // A model chosen meanwhile is the webcam's.
+  await input.configure({ modelId: 'heavy' });
+  assert.equal(input.webcam.view.model, 'heavy');
+  assert.equal(input.view.model, 'heavy');
+
+  await input.configure({ cameraId: '' });
+  assert.equal(input.mode, 'webcam');
+  assert.equal(store.get('aerodance-camera'), 'webcam');
+});
+
 test('the phone names itself and reads its code from the link', () => {
   assert.equal(deviceName('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'), 'iPhone');
   assert.equal(deviceName('Mozilla/5.0 (Linux; Android 15; Pixel 9) Mobile Safari'), 'Android phone');
@@ -263,6 +299,42 @@ test('the phone names itself and reads its code from the link', () => {
   assert.equal(linkCode(new URL('https://a.test/pair/#123456')), '123456');
   assert.equal(linkCode(new URL('https://a.test/pair/?code=654321')), '654321');
   assert.equal(linkCode(new URL('https://a.test/pair/#12345')), '');
+});
+
+test('the phone lists its cameras by name and switches between them', async (t) => {
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ camera: camera as unknown as WebcamPoseSource });
+  t.after(() => phone.stop());
+  const labels = () => phone.cameras().map((c) => c.label);
+  // Front and back until the browser lists the cameras; the back one to start with.
+  assert.deepEqual(labels(), ['Back camera', 'Front camera']);
+  assert.equal(phone.chosenCamera(), 'facing:environment');
+  await phone.chooseCamera('facing:user');
+  assert.equal(camera.view.facing, 'user');
+  assert.equal(phone.chosenCamera(), 'facing:user');
+
+  // iOS names its cameras itself.
+  camera.publish({ cameras: [{ deviceId: 'front', label: 'Front Camera' }, { deviceId: 'back', label: 'Back Camera' },
+    { deviceId: 'ultra', label: 'Back Ultra Wide Camera' }, { deviceId: 'tele', label: 'Back Telephoto Camera' }] });
+  // The front one is running, but which it is goes unsaid: the side's default stays on the list.
+  assert.deepEqual(labels(), ['Front camera (default)', 'Front camera', 'Back camera', 'Back ultra wide camera', 'Back telephoto camera']);
+  await phone.chooseCamera('device:ultra');
+  assert.equal(camera.view.cameraId, 'ultra');
+  assert.equal(camera.view.facing, 'environment');
+  assert.equal(phone.chosenCamera(), 'device:ultra');
+  await phone.chooseCamera('device:front');
+  assert.equal(camera.view.facing, 'user');
+  // Back to a side: no particular camera, so the side stays on the list.
+  await phone.chooseCamera('facing:environment');
+  assert.equal(camera.view.cameraId, '');
+  assert.equal(phone.chosenCamera(), 'facing:environment');
+  assert.equal(labels()[0], 'Back camera (default)');
+  await phone.chooseCamera('device:back');
+
+  // Android numbers each side's cameras; anything else keeps its own name.
+  camera.publish({ cameras: [{ deviceId: 'a', label: 'camera2 0, facing back' }, { deviceId: 'b', label: 'camera2 1, facing front' },
+    { deviceId: 'c', label: 'camera2 2, facing back' }, { deviceId: 'd', label: 'USB Camera' }] });
+  assert.deepEqual(labels(), ['Back camera', 'Front camera', 'Back camera 2', 'USB Camera']);
 });
 
 test('a phone answers only the newest offer, and the game gives up on a phone that left mid-connection', async (t) => {

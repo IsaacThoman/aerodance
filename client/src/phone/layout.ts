@@ -30,12 +30,10 @@ export interface PhoneLayout {
   leave: Circle;
   /** The status line under the wordmark. */
   status: { x: number; y: number; w: number };
-  /** Setup: the camera preview, or the mirror's 3D view. */
+  /** Setup: the camera preview. */
   preview: Rect;
-  /** Setup: Video / Mirror / Flip. */
-  video: Rect; mirror: Rect; flip: Rect;
-  /** Setup: one per tracking model. */
-  models: Rect[];
+  /** Setup: which camera (PhoneApp lays the page's camera list over it). */
+  camera: Rect;
   /** Setup and the waiting screens: what's happening. */
   message: { x: number; y: number; w: number };
   /** The main button along the bottom (Done, Start camera, Cancel, Enter a code). */
@@ -62,18 +60,21 @@ export function phoneLayout({ w, h }: DesignSize): PhoneLayout {
 
   const primary = { x: right.x, y: h - M - 80, w: right.w, h: 80 };
   const message = { x: right.x, y: primary.y - 64, w: right.w };
-  const models = row(right.x, message.y - 26 - ROW, right.w, 3);
-  const [video, mirror, flip] = row(right.x, models[0].y - GAP - ROW, right.w, 3);
+  const camera = { x: right.x, y: message.y - 26 - ROW, w: right.w, h: ROW };
   const top = landscape ? M : status.y + 30;
-  const preview = { x: left.x, y: top, w: left.w, h: (landscape ? h - M : video.y - 20) - top };
+  const preview = { x: left.x, y: top, w: left.w, h: (landscape ? h - M : camera.y - 20) - top };
 
-  // Code entry.
-  const digits = landscape ? { x: left.x, y: h / 2 - 40, w: left.w, h: 96 } : { x: M, y: 300, w: left.w, h: 96 };
-  // The keypad sits at the bottom, under the thumb.
+  // Code entry. The keypad sits at the bottom, under the thumb, leaving room above it for the
+  // prompt and the six digits (portrait).
   const padBottom = h - M;
-  const keyH = Math.min(120, (padBottom - (landscape ? 170 : digits.y + digits.h + 40) - GAP * 3) / 4);
+  const keyH = Math.min(120, (padBottom - (landscape ? 170 : 436) - GAP * 3) / 4);
   const padTop = padBottom - keyH * 4 - GAP * 3;
   const keys = [0, 1, 2, 3].flatMap((r) => row(right.x, padTop + r * (keyH + GAP), right.w, 3, keyH));
+  // The prompt (PhoneScreen, 34 over the digits) and the digits, centred in the space left: the
+  // left half in landscape, between the wordmark and the keypad in portrait.
+  const DIGITS_H = 96;
+  const centre = landscape ? h / 2 : (title.y + 24 + padTop) / 2;
+  const digits = { x: left.x, y: Math.round(centre - DIGITS_H / 2 + 26), w: left.w, h: DIGITS_H };
 
-  return { w, h, landscape, title, leave, status, preview, video, mirror, flip, models, message, primary, digits, keys };
+  return { w, h, landscape, title, leave, status, preview, camera, message, primary, digits, keys };
 }

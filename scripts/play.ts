@@ -210,10 +210,11 @@ async function daemon(options: Options) {
 
   const ready = async () => {
     if (options.app === 'studio') return page.waitForLoadState('load');
-    // The canvas fades in once the world is built, then the menu reports ready.
+    // The canvas fades in once the world is built, then the menu reports ready. The phone
+    // camera page (/pair/) has no world and is ready once it draws.
     await page.waitForFunction(() => {
       const c = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas');
-      return c?.style.opacity === '1' && c.dataset.menuReady === 'true';
+      return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true';
     }, null, { timeout: 120000 });
   };
   const goto = async (target: string) => { await page.goto(new URL(target, appUrl).href); await ready(); };
