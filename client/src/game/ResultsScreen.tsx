@@ -72,11 +72,15 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     drawShadowText(g, `Grade ${r.grade} · ${pct(r.accuracy)}`, x, crowd ? 738 : 742, { size: crowd ? 22 : 24, weight: 800, align: 'center' });
     const counts = `${j.perfect} Perfect · ${j.good} Good · ${j.ok} OK · ${j.miss + j.lost} Miss`;
     const combo = `combo ${r.maxCombo}`;
-    // Narrow columns put the max combo on a line of its own.
-    const lines = crowd ? [counts, combo] : [`${counts} · ${combo}`];
     const size = crowd ? 17 : 19;
+    const width = Math.min(560, column - 30);
     g.font = `700 ${size}px ${FONT}`;
-    lines.forEach((line, k) => drawShadowText(g, ellipsize(g, line, Math.min(560, column - 30)), x, (crowd ? 762 : 770) + k * 21, { size, weight: 700, align: 'center', color: '#e6f8ff' }));
+    // Narrow columns put the max combo on a line of its own, or after OK and Miss when a long
+    // song's counts don't fit on one.
+    const lines = !crowd ? [`${counts} · ${combo}`]
+      : g.measureText(counts).width <= width ? [counts, combo]
+      : [`${j.perfect} Perfect · ${j.good} Good`, `${j.ok} OK · ${j.miss + j.lost} Miss · ${combo}`];
+    lines.forEach((line, k) => drawShadowText(g, ellipsize(g, line, width), x, (crowd ? 762 : 770) + k * 21, { size, weight: 700, align: 'center', color: '#e6f8ff' }));
     if (r.coverage < 0.8) drawShadowText(g, `Tracked for ${pct(r.coverage)} of the song`, x, 560, { size: 19, weight: 700, align: 'center', color: '#ffe27a' });
     g.restore();
   });

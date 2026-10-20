@@ -136,24 +136,6 @@ export function drawDisc(g: Ctx, cx: number, cy: number, r: number) {
   g.fill();
 }
 
-// White head-and-shoulders figures for the player icons: [x offset, scale] in units of r.
-function figures(g: Ctx, cx: number, cy: number, r: number, list: readonly (readonly [dx: number, k: number])[]) {
-  g.save();
-  g.fillStyle = '#ffffff';
-  for (const [dx, k] of list) {
-    const s = r * 0.5 * k;
-    const hx = cx + dx * r;
-    g.beginPath();
-    g.arc(hx, cy - s * 0.38, s * 0.36, 0, TAU);
-    g.fill();
-    g.beginPath();
-    g.ellipse(hx, cy + s * 0.72, s * 0.6, s * 0.56, 0, Math.PI, TAU);
-    g.closePath();
-    g.fill();
-  }
-  g.restore();
-}
-
 /** Draws an icon centred on (cx, cy), sized for a disc of radius r. */
 type IconDraw = (g: Ctx, cx: number, cy: number, r: number) => void;
 
@@ -212,10 +194,6 @@ export const ICONS = {
     }
     g.stroke();
   },
-  // One figure (one player).
-  solo(g, cx, cy, r) { figures(g, cx, cy, r, [[0, 1.15]]); },
-  // Two figures shoulder to shoulder (two players).
-  pair(g, cx, cy, r) { figures(g, cx, cy, r, [[-0.3, 0.8], [0.3, 0.8]]); },
   // Circular arrow (play again).
   replay(g, cx, cy, r) {
     const a = r * 0.42;
