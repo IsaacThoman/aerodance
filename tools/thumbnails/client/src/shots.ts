@@ -363,86 +363,31 @@ const shotById = (id: string): Shot => {
 };
 
 /*
- * Layered 5:3 Apple TV app icons (render.ts --tv-icons), made from the thumbnails above. Apple
+ * The layered 5:3 Apple TV app icon (render.ts --tv-icons), made from a thumbnail above. Apple
  * allows two to five layers with an opaque one at the back; tvOS shifts and tilts them for the
  * parallax effect, so the layers are split by depth: `near` is a distance from the camera.
  */
-const ICONS: Shot[] = [
-  {
-    ...shotById('falls-meadow'),
-    format: 'tv-icon',
-    layers: [
-      { name: 'sky', near: 40 }, // the valley, mesas, falls and sky beyond the clifftop
-      { name: 'meadow', near: 3 },
-      { name: 'dancers', near: 3, dancers: true },
-      { name: 'foreground', dancers: true }, // the grass just in front of the lens
-    ],
-  },
-  {
-    ...shotById('beach-hero'),
-    format: 'tv-icon',
-    // Bigger than on the thumbnail, just above the dancers' heads and behind them.
-    logo: { y: 262, size: 250 },
-    layers: [
-      { name: 'sky', near: 150 }, // the sun, clouds and horizon
-      { name: 'sea', near: 14 }, // beyond the palm
-      { name: 'beach' },
-      { name: 'logo', wordmark: true },
-      { name: 'dancers', dancers: true },
-    ],
-  },
+export const TV_ICONS: readonly Shot[] = [
   {
     ...shotById('falls-closeup'),
+    id: 'falls-sky-soft-glass',
     format: 'tv-icon',
     // The dancers a little to the left, so the purple one fills the left of the wider frame and
-    // the wordmark, on two lines to be much bigger, has the sky on the right.
+    // the wordmark, on two lines to be much bigger, has the sky on the right. A heavier "dance"
+    // with a navy edge and a darker glow: the thin weight is hard to read on the pale sky.
     dancers: { position: [-0.8, 0, 0] },
-    logo: { y: 318, size: 340, x: 'right', stacked: true },
+    logo: { y: 391, size: 340, x: 'right', stacked: true, light: 400, outline: 0.02, halo: 1.4 },
+    // The dancer against nothing but the soft sky, see-through, so the layers behind show
+    // through her glass as they move.
     layers: [
-      { name: 'sky', near: 40 }, // the valley, mesas, falls and sky beyond the clifftop
-      { name: 'meadow', near: 2 },
+      { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
+      { name: 'meadow', near: 2, hidden: true },
       { name: 'logo', wordmark: true },
-      { name: 'dancers', near: 2, dancers: true },
-      { name: 'foreground', dancers: true }, // the grass and planter just in front of the lens
+      { name: 'dancers', near: 2, dancers: true, dancerParts: 'body', seeThrough: true },
+      { name: 'hands', near: 2, dancers: true, dancerParts: 'hands', seeThrough: true }, // in front, for more depth
+      { name: 'foreground', dancers: true, hidden: true },
     ],
   },
-];
-
-// The falls close-up with the scenery in front of and behind the dancer out of focus, and the
-// same against nothing but the soft sky, the wordmark centered beside her.
-ICONS.push({
-  ...ICONS[ICONS.length - 1],
-  id: 'falls-closeup-soft',
-  layers: ICONS[ICONS.length - 1].layers?.map((layer) => {
-    if (layer.name === 'sky' || layer.name === 'meadow') return { ...layer, blur: 7 };
-    if (layer.name === 'foreground') return { ...layer, blur: 5 };
-    return layer;
-  }),
-});
-ICONS.push({
-  ...ICONS[ICONS.length - 1],
-  id: 'falls-sky-soft',
-  // A heavier "dance" with a navy edge and a darker glow: the thin weight is hard to read on the pale sky.
-  logo: { y: 391, size: 340, x: 'right', stacked: true, light: 400, outline: 0.02, halo: 1.4 },
-  layers: [
-    { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
-    { name: 'meadow', near: 2, hidden: true },
-    { name: 'logo', wordmark: true },
-    { name: 'dancers', near: 2, dancers: true, dancerParts: 'body' },
-    { name: 'hands', near: 2, dancers: true, dancerParts: 'hands' }, // in front, for more depth
-    { name: 'foreground', dancers: true, hidden: true },
-  ],
-});
-
-// Each icon twice: as above, and with see-through dancers (<id>-glass), so the layers behind
-// show through the glass as they move.
-export const TV_ICONS: readonly Shot[] = [
-  ...ICONS,
-  ...ICONS.map((icon) => ({
-    ...icon,
-    id: `${icon.id}-glass`,
-    layers: icon.layers?.map((layer) => (layer.name === 'dancers' || layer.dancerParts === 'hands' ? { ...layer, seeThrough: true } : layer)),
-  })),
 ];
 
 /*
