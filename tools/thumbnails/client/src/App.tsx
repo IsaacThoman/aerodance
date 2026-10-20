@@ -93,9 +93,9 @@ function makeLogo(logo: ShotLogo, buffer: FrameBuffer) {
   const g = canvas.getContext('2d');
   if (!g) throw new Error('2D canvas unavailable');
   g.setTransform(buffer.width / design.width, 0, 0, buffer.height / design.height, 0, 0);
-  const w = titleWidth(g, logo.size);
+  const w = titleWidth(g, logo.size, logo.stacked);
   const x = logo.x === 'left' ? 96 : logo.x === 'right' ? design.width - 96 - w : typeof logo.x === 'number' ? logo.x : (design.width - w) / 2;
-  drawTitle(g, { x, y: logo.y, size: logo.size });
+  drawTitle(g, { x, y: logo.y, size: logo.size, stacked: logo.stacked });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;

@@ -31,7 +31,7 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 | --- | --- |
 | `falls-meadow` | `1-sky` (the valley, falls and sky beyond the clifftop), `2-meadow`, `3-dancers`, `4-foreground` (the grass in front of the lens), `5-logo` |
 | `beach-hero` | `1-sky` (the sun, clouds and horizon), `2-sea`, `3-beach` (the sand and the palm), `4-logo` (bigger, behind the dancers), `5-dancers` |
-| `falls-closeup` | `1-sky`, `2-meadow`, `3-logo` (bigger, behind the dancer), `4-dancers` (the purple one, close up), `5-foreground` (the grass and planter in front of the lens) |
+| `falls-closeup` | `1-sky`, `2-meadow`, `3-logo` (on two lines, much bigger, behind the dancer), `4-dancers` (the purple one, close up), `5-foreground` (the grass and planter in front of the lens) |
 
 Each `-glass/` folder is the same icon with see-through dancers: their layer keeps the glass's real transparency, so the layers behind show through them as the icon tilts, instead of a copy of what was behind them in the shot. The dancers are tone-mapped on their own there, so they come out a little deeper than in the game, and without the bloom of their glints.
 

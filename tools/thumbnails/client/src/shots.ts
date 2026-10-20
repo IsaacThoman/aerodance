@@ -22,12 +22,12 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *   pose: seconds into the dance capture the dancers hold (0-14)
  *   camera: { position, target, fov, near?, far? }
  *   dancers: overrides for the stage's dancer placement ({ position, rotationY, spacing })
- *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered) } in design units
+ *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered), stacked?: two lines } in design units
  *   format: 'thumbnail' (3:2, the default) or 'tv-icon' (5:3)
  *   layers: split the frame into layers for a parallax icon (ShotLayer)
  */
 export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
-export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; }
+export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; stacked?: boolean; }
 /**
  * One layer of a layered (parallax) image, back to front. Each layer is the shot rendered with
  * the camera's near plane at `near`, cutting away nearer scenery, and with the dancers shown or
@@ -81,7 +81,7 @@ const isCamera = (v: unknown): v is ShotCamera => isFields(v) && isVec3(v.positi
 const isDancers = (v: unknown): v is Partial<DancerPlacement> => isFields(v) && (v.position === undefined || isVec3(v.position)) &&
   optionalNumber(v.rotationY) && optionalNumber(v.spacing) && optionalNumber(v.scale);
 const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && isNumber(v.size) &&
-  (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x));
+  (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x)) && (v.stacked === undefined || typeof v.stacked === 'boolean');
 
 const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
@@ -381,9 +381,9 @@ const ICONS: readonly Shot[] = [
     ...shotById('falls-closeup'),
     format: 'tv-icon',
     // The dancers a little to the left, so the purple one fills the left of the wider frame and
-    // the bigger wordmark has the sky on the right.
+    // the wordmark, on two lines to be much bigger, has the sky on the right.
     dancers: { position: [-0.8, 0, 0] },
-    logo: { y: 255, size: 215, x: 'right' },
+    logo: { y: 318, size: 340, x: 'right', stacked: true },
     layers: [
       { name: 'sky', near: 40 }, // the valley, mesas, falls and sky beyond the clifftop
       { name: 'meadow', near: 2 },
