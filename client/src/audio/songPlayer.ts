@@ -4,7 +4,7 @@ import { getMixer } from './mixer.ts';
  * Plays a song bundle's audio on the mixer's music bus (so Master, Music and Mute all apply),
  * kept inside the song's playable range: it pauses at the end, and playing from the end
  * starts over. Song time is the audible position: the audio clock mapped through the output
- * timestamp (or less the output latency where that's missing), so dancers sampled at
+ * timestamp, less any output latency it leaves out (audibleTime), so dancers sampled at
  * timeMs() line up with what is heard, and a pose captured at a performance.now() time maps
  * to the song position the player was hearing then (songTimeAt).
  *
@@ -33,6 +33,28 @@ export interface SongPlayer {
   dispose(): void;
 }
 export type CreateSongPlayer = (blob: Blob, range: SongRange) => Promise<SongPlayer>;
+/** The part of an AudioContext audibleTime reads. */
+export type AudioClock = Pick<AudioContext, 'currentTime' | 'baseLatency' | 'outputLatency' | 'state'> & { getOutputTimestamp?: () => AudioTimestamp };
+
+/**
+ * The context time being heard at a performance.now() time (now is performance.now()).
+ *
+ * The output timestamp is meant to be what the speakers are playing. Chrome and Firefox
+ * take the output latency off it, but WebKit's is the position being rendered: it leaves out
+ * outputLatency, which WebKit does report (AirPods: about 150-250 ms). So whatever part of
+ * outputLatency the timestamp doesn't already trail currentTime by is taken off here.
+ * A context that isn't running (suspended, or interrupted by a phone call) has stopped, so
+ * its time holds instead of running on from the last timestamp.
+ */
+export function audibleTime(ctx: AudioClock, perfMs: number, now: number) {
+  const output = ctx.outputLatency || 0;
+  const latency = output || ctx.baseLatency || 0;
+  const { contextTime = 0, performanceTime = 0 } = ctx.getOutputTimestamp?.() ?? {};
+  const at = contextTime > 0 && performanceTime > 0
+    ? contextTime - Math.max(0, output - (ctx.currentTime - contextTime)) + (perfMs - performanceTime) / 1000
+    : ctx.currentTime - latency + (perfMs - now) / 1000;
+  return ctx.state === 'running' ? at : Math.min(at, ctx.currentTime - latency);
+}
 
 export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange): Promise<SongPlayer> {
   const { ctx, music } = getMixer();
@@ -54,13 +76,7 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
     source.disconnect();
     source = null;
   };
-  const latency = () => ctx.outputLatency || ctx.baseLatency || 0;
-  // The context time being heard at a performance.now() time.
-  const audibleAt = (perfMs: number) => {
-    const { contextTime = 0, performanceTime = 0 } = ctx.getOutputTimestamp?.() ?? {};
-    if (contextTime > 0 && performanceTime > 0) return contextTime + (perfMs - performanceTime) / 1000;
-    return ctx.currentTime - latency() + (perfMs - performance.now()) / 1000;
-  };
+  const audibleAt = (perfMs: number) => audibleTime(ctx, perfMs, performance.now());
 
   const player: SongPlayer = {
     state: 'paused',
