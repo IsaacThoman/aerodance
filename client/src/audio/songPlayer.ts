@@ -12,12 +12,16 @@ import { hostState } from '../host.ts';
  * delayed as much as the sound, so timeMs() is the position being rendered instead, without
  * the output latency taken off; songTimeAt() still takes it off, since what the player saw and
  * heard at a moment is that much behind (drawClock).
+ * The song plays until its end is heard, not just rendered: the source ends that output
+ * latency earlier (AirPods, AirPlay: up to a second or two), and the player stays 'playing'
+ * meanwhile, so the poses danced to the last of it still count (or until the audio stops, or
+ * LONGEST_TAIL_MS). Once played out, songTimeAt() keeps mapping, for poses that arrive late.
  *
  * const player = await createSongPlayer(blob, { startMs, endMs });
  * player.play(); player.play({ delayMs: 3000 }) (scheduled: the countdown); player.pause();
  * player.seek(ms); player.timeMs(); player.rawTimeMs() (unclamped: negative before a
  * scheduled start); player.songTimeAt(perfMs); player.state ('paused' | 'playing');
- * player.ended (true once it plays out to the end); player.audioRunning() (false while a
+ * player.ended (true once it has been heard to the end); player.audioRunning() (false while a
  * phone call holds the audio, when the clock can't move)
  * const off = player.onChange(() => ...); player.dispose();
  */
@@ -79,6 +83,9 @@ export function drawClock(ctx: AudioClock, tv = () => hostState().tv) {
   };
 }
 
+// Longest the end of a song waits to be heard after it is rendered, should the clock stall.
+export const LONGEST_TAIL_MS = 5000;
+
 export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange): Promise<SongPlayer> {
   const { ctx, music } = getMixer();
   const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
@@ -90,10 +97,15 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
   let positionMs = startMs;
   let startedAt = 0; // ctx time at which song time 0 would have been scheduled
   let playFrom = startMs; // where the current play() starts: song time holds here until then
+  let tail: ReturnType<typeof setTimeout> | undefined; // waiting for the rendered end to be heard
+  let tailUntil = 0;
+  let playedOut = false; // heard to the end: songTimeAt still maps through startedAt
   const drawn = drawClock(ctx);
   const clamp = (ms: number) => Math.min(end, Math.max(startMs, ms));
 
   const stop = () => {
+    clearTimeout(tail);
+    tail = undefined;
     if (!source) return;
     source.onended = null;
     try { source.stop(); } catch { /* never started */ }
@@ -101,6 +113,22 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
     source = null;
   };
   const audibleAt = (perfMs: number) => audibleTime(ctx, perfMs, performance.now());
+  // After the source ends, waits for its end to be heard. A context that stops meanwhile won't
+  // play the rest (and its clock holds), so the song ends then.
+  const heard = () => {
+    tail = undefined;
+    const now = performance.now();
+    const left = end - player.songTimeAt(now);
+    if (left >= 1 && ctx.state === 'running' && now < tailUntil) {
+      tail = setTimeout(heard, Math.max(1, Math.round(Math.min(left, tailUntil - now))));
+      return;
+    }
+    positionMs = end;
+    player.state = 'paused';
+    player.ended = true;
+    playedOut = true;
+    emit();
+  };
 
   const player: SongPlayer = {
     state: 'paused',
@@ -119,7 +147,7 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
     },
     /** The song position audible at a performance.now() time (unclamped). */
     songTimeAt(perfMs) {
-      if (player.state !== 'playing') return positionMs;
+      if (player.state !== 'playing' && !playedOut) return positionMs;
       return (audibleAt(perfMs) - startedAt) * 1000;
     },
     audioRunning() { return ctx.state === 'running'; },
@@ -128,6 +156,7 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
       resumeAudio(ctx);
       if (positionMs >= end - 1) positionMs = startMs;
       player.ended = false;
+      playedOut = false;
       playFrom = positionMs;
       drawn.reset();
       source = ctx.createBufferSource();
@@ -140,10 +169,8 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
       source.onended = () => {
         if (source !== mine) return;
         stop();
-        positionMs = end;
-        player.state = 'paused';
-        player.ended = true;
-        emit();
+        tailUntil = performance.now() + LONGEST_TAIL_MS;
+        heard();
       };
       player.state = 'playing';
       emit();
@@ -160,6 +187,7 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
     seek(ms) {
       const playing = player.state === 'playing';
       stop();
+      playedOut = false;
       player.state = 'paused';
       positionMs = clamp(ms);
       if (playing) player.play();

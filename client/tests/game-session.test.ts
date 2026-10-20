@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { sampleSong, validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
@@ -11,6 +12,7 @@ import type { LivePoseRecord, PoseInputView, PoseSource, PoseSourceEvent, SongCl
 import type { LoadedSongBundle } from '../src/songs/loadBundle.ts';
 import { bestScore, recordResults } from '../src/game/bestScores.ts';
 import type { BestScoreStorage, ScoredResult } from '../src/game/bestScores.ts';
+import { installFakeAudio } from './fixtures/fakeAudio.ts';
 
 const dir = new URL('./fixtures/song-70c63c8e/', import.meta.url);
 const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
@@ -33,6 +35,7 @@ function fakePlayer(clock: Clock): FakePlayer {
   let positionMs = song.playableStartMs;
   let playFrom = positionMs;
   let stoppedAt: number | null = null;
+  let playedOut = false;
   const at = (perf: number) => (stoppedAt === null ? perf : Math.min(perf, stoppedAt)) - startPerf;
   const clamp = (ms: number) => Math.min(song.playableEndMs, Math.max(song.playableStartMs, ms));
   const player: FakePlayer = {
@@ -41,18 +44,18 @@ function fakePlayer(clock: Clock): FakePlayer {
     aheadMs: 0,
     rawTimeMs: () => (player.state === 'playing' ? at(clock.now) + player.aheadMs : positionMs),
     timeMs: () => clamp(player.state === 'playing' ? Math.max(player.rawTimeMs(), playFrom) : positionMs),
-    songTimeAt: (perf) => (player.state === 'playing' ? at(perf) : positionMs),
+    songTimeAt: (perf) => (player.state === 'playing' || playedOut ? at(perf) : positionMs),
     audioRunning: () => stoppedAt === null,
     setAudio(running) {
       // The clock carries on from where it stood.
       if (running && stoppedAt !== null) startPerf += clock.now - stoppedAt;
       stoppedAt = running ? null : stoppedAt ?? clock.now;
     },
-    play({ delayMs = 0 } = {}) { playFrom = positionMs; startPerf = (stoppedAt ?? clock.now) + delayMs - positionMs; player.state = 'playing'; player.ended = false; },
+    play({ delayMs = 0 } = {}) { playFrom = positionMs; startPerf = (stoppedAt ?? clock.now) + delayMs - positionMs; player.state = 'playing'; player.ended = playedOut = false; },
     pause() { positionMs = clamp(Math.max(player.songTimeAt(clock.now), playFrom)); player.state = 'paused'; },
-    seek(ms) { positionMs = clamp(ms); },
-    // The song plays out: the audio source ends.
-    tick() { if (player.state === 'playing' && player.rawTimeMs() >= song.playableEndMs) { positionMs = song.playableEndMs; player.state = 'paused'; player.ended = true; } },
+    seek(ms) { positionMs = clamp(ms); playedOut = false; },
+    // The song plays out once its end is heard (and still places late poses after).
+    tick() { if (player.state === 'playing' && player.songTimeAt(clock.now) >= song.playableEndMs) { positionMs = song.playableEndMs; player.state = 'paused'; player.ended = playedOut = true; } },
     dispose() { player.disposed = true; },
   };
   return player;
@@ -357,6 +360,63 @@ test('the song finishes after the late-arrival allowance, with results', async (
   assert.ok(session.results);
   assert.equal(session.results[0].score, 0, 'nobody danced');
   assert.equal(session.results[0].coverage, 0);
+});
+
+test('pausing once the end of the song is heard lets it finish rather than pausing at the end', async () => {
+  const { session, step, player, clock } = await setup(1, { autoStart: false });
+  session.start();
+  step(COUNTDOWN_MS + song.playableEndMs - 50);
+  // The song has just played out; the next frame would move on to finishing.
+  clock.now += 50;
+  player().tick();
+  assert.ok(player().ended);
+  session.pause();
+  assert.equal(session.phase, 'playing', 'resuming from the end would start the song over');
+  step(50 + LATE_ALLOWANCE_MS);
+  assert.equal(session.phase, 'results');
+});
+
+/**
+ * A ghost that copies the routine exactly, on the real song player through a fake WebKit
+ * context: the camera sees it every 100 ms, and each pose arrives 200 ms later. latencyMs is
+ * output latency the timestamp leaves out (AirPods, AirPlay), so the source ends that long
+ * before its end is heard.
+ */
+async function ghostRun(t: TestContext, latencyMs: number) {
+  const audio = installFakeAudio(t, { latencyMs, bufferMs: song.playableEndMs + 1000 });
+  const source = fakeSource();
+  const session = new GameSession({ bundle, playerCount: 1, source, now: () => audio.now, autoStart: false });
+  await session.load();
+  const placed: number[] = [];
+  const addSample = session.scorer.addSample;
+  session.scorer.addSample = (id, ms, ...rest) => { placed.push(ms); addSample(id, ms, ...rest); };
+  session.start();
+  const pending: { at: number; capture: number; poses: Pose[] }[] = [];
+  let danced = -Infinity;
+  while (session.phase !== 'results' && audio.now < 120_000) {
+    audio.advance(50);
+    const now = audio.now;
+    const heard = session.clock.songTimeAt(now);
+    if (now % 100 === 0) pending.push({ at: now + 200, capture: now, poses: reference(heard, 1) });
+    // The last pose danced to the song (the routine's poses end a little before it does).
+    if (now % 100 === 0 && heard < song.playableEndMs && reference(heard, 1).length) danced = heard;
+    for (let p = pending[0]; p && p.at <= now; p = pending[0]) { pending.shift(); source.send(p.poses, p.capture); }
+    session.update(now);
+  }
+  assert.equal(session.phase, 'results');
+  return { score: session.results?.[0].score ?? 0, last: Math.max(...placed), danced };
+}
+
+test('output latency left out of the timestamp still judges the end of the song as it is heard', async (t) => {
+  const runs: Record<number, { score: number; last: number; danced: number }> = {};
+  for (const latencyMs of [0, 500]) await t.test(`${latencyMs} ms`, async (t) => { runs[latencyMs] = await ghostRun(t, latencyMs); });
+  for (const run of Object.values(runs)) {
+    // Poses danced up to the end, arriving after it, are placed where they were danced.
+    assert.ok(run.danced > song.playableEndMs - 200);
+    assert.equal(run.last, run.danced);
+    assert.ok(run.score > 990_000, `score ${run.score}`);
+  }
+  assert.ok(runs[500].score >= runs[0].score, `${runs[500].score} < ${runs[0].score}`);
 });
 
 test('the entrance follows the first beat and holds through pause and resume', async () => {
