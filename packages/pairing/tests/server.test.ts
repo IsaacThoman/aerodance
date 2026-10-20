@@ -322,6 +322,62 @@ test('a release that arrives just after the phone said hello again is ignored', 
   assert.equal((await post(`/rooms/${room.code}/join`)).status, 409);
 });
 
+test('the iPhone app’s game, at a loopback origin on any port, may pair through the site cross-origin', async (t) => {
+  const { base } = await serve(t);
+  for (const origin of ['http://127.0.0.1:8417', 'http://127.0.0.1:8423', 'http://localhost:5173', 'http://[::1]:8417', 'http://127.0.0.1']) {
+    // JSON posts are preflighted.
+    const preflight = await fetch(`${base}/rooms`, { method: 'OPTIONS', headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' } });
+    assert.equal(preflight.status, 204, origin);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+    assert.match(preflight.headers.get('access-control-allow-methods') ?? '', /\bPOST\b/);
+    assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /\bcontent-type\b/);
+    assert.equal(preflight.headers.get('access-control-allow-credentials'), null, 'nothing is credentialed');
+  }
+  const origin = 'http://127.0.0.1:8417';
+  const send = (path: string, body: unknown = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const created = await send('/rooms');
+  assert.equal(created.status, 201);
+  assert.equal(created.headers.get('access-control-allow-origin'), origin);
+  const room = await created.json();
+  for (const path of [`/rooms/${room.code}/messages`, `/rooms/${room.code}/release`, `/rooms/${room.code}/close`, `/rooms/${room.code}`, `/rooms/${room.code}/events`]) {
+    const res = await fetch(`${base}${path}`, { method: 'OPTIONS', headers: { origin, 'access-control-request-method': 'POST' } });
+    assert.equal(res.headers.get('access-control-allow-origin'), origin, path);
+  }
+  // The events stream, the pairing check and errors can be read too.
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const events = await fetch(`${base}/rooms/${room.code}/events?token=${room.token}`, { headers: { origin }, signal: controller.signal });
+  assert.equal(events.status, 200);
+  assert.equal(events.headers.get('access-control-allow-origin'), origin);
+  const check = await fetch(`${base}/rooms/${room.code}?token=${room.token}`, { headers: { origin } });
+  assert.equal(check.status, 204);
+  assert.equal(check.headers.get('access-control-allow-origin'), origin);
+  const wrong = await send(`/rooms/${room.code}/messages`, { token: 'nope', message: { type: 'offer', epoch: 1, sdp: 'x' } });
+  assert.equal(wrong.status, 404);
+  assert.equal(wrong.headers.get('access-control-allow-origin'), origin);
+  assert.equal((await send(`/rooms/${room.code}/messages`, { token: room.token, message: { type: 'offer', epoch: 1, sdp: 'x' } })).status, 204);
+  // Preflights only for paths the server has.
+  assert.equal((await fetch(`${base}/elsewhere`, { method: 'OPTIONS', headers: { origin } })).status, 404);
+  assert.equal((await fetch(`${base}/rooms/${room.code}/join/`, { method: 'OPTIONS', headers: { origin } })).status, 404);
+});
+
+test('no other origin may read the pairing server’s answers', async (t) => {
+  const { base } = await serve(t);
+  for (const origin of ['https://evil.example', 'http://127.0.0.1.evil.example', 'http://localhost.evil.example:8417', 'http://127.0.0.1:8417.evil.example',
+    'https://127.0.0.1:8417', 'http://127.0.0.2:8417', 'null']) {
+    const preflight = await fetch(`${base}/rooms`, { method: 'OPTIONS', headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' } });
+    assert.equal(preflight.status, 204, origin);
+    for (const name of ['access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers']) assert.equal(preflight.headers.get(name), null, `${origin} ${name}`);
+    // A post that needs no preflight still gets an answer, which it can't read.
+    const created = await fetch(`${base}/rooms`, { method: 'POST', headers: { origin }, body: '{}' });
+    assert.equal(created.status, 201);
+    assert.equal(created.headers.get('access-control-allow-origin'), null, origin);
+    assert.equal(created.headers.get('vary'), 'origin');
+  }
+  // The site's own pages send no origin on GETs, and get no CORS headers.
+  assert.equal((await fetch(`${base}/health`)).headers.get('access-control-allow-origin'), null);
+});
+
 /** A relay socket: frames received (text as strings, binary as Buffers), and how it closed. */
 async function relaySocket(t: TestContext, base: string, code: string, token: string, epoch: number | string) {
   const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/rooms/${code}/link?token=${token}&epoch=${epoch}`);
