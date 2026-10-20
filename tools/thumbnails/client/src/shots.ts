@@ -368,7 +368,7 @@ const ICONS: readonly Shot[] = [
     ...shotById('beach-hero'),
     format: 'tv-icon',
     // Bigger than on the thumbnail, just above the dancers' heads and behind them.
-    logo: { y: 262, size: 270 },
+    logo: { y: 262, size: 250 },
     layers: [
       { name: 'sky', near: 150 }, // the sun, clouds and horizon
       { name: 'sea', near: 14 }, // beyond the palm
