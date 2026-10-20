@@ -60,26 +60,26 @@ Requirements:
   bundle ID. The first build registers the Apple TV with the team. tvOS may ask you to turn on
   Developer Mode (Settings → Privacy & Security) and restart.
 
-`npm run tvos -- <command>` is the same as `node scripts/tvos-jsc.ts <command>`.
+`npm run tvos -- <command>` is the same as `node scripts/tvos.ts <command>`.
 
 ```sh
-node scripts/tvos-jsc.ts build --game              # runtime, benchmark and game; app for the Apple TV
-node scripts/tvos-jsc.ts build --game --sim        # ...for the tvOS simulator
-node scripts/tvos-jsc.ts build --game --release    # for TestFlight / the App Store (see below)
-node scripts/tvos-jsc.ts build --game --site https://24.aerodance.party   # pair through a PR preview
-node scripts/tvos-jsc.ts build --game --ghost      # play with the autoplay ghost instead of a phone
-node scripts/tvos-jsc.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?quality=tv","site":"https://aerodance.party","fit":"fill","pixelated":true}'
-node scripts/tvos-jsc.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
+node scripts/tvos.ts build --game              # runtime, benchmark and game; app for the Apple TV
+node scripts/tvos.ts build --game --sim        # ...for the tvOS simulator
+node scripts/tvos.ts build --game --release    # for TestFlight / the App Store (see below)
+node scripts/tvos.ts build --game --site https://24.aerodance.party   # pair through a PR preview
+node scripts/tvos.ts build --game --ghost      # play with the autoplay ghost instead of a phone
+node scripts/tvos.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?quality=tv","site":"https://aerodance.party","fit":"fill","pixelated":true}'
+node scripts/tvos.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
 ```
 
 Without `--config` (and when opened from the home screen) the app runs `www/config.json`: the
 game after `build --game`, the Aero benchmark otherwise.
 
-The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../../assets/README.md)
-(`ICON` in `scripts/tvos-jsc.ts`, now `falls-sky-soft-glass`). `build` turns its layers into the App
+The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../assets/README.md)
+(`ICON` in `scripts/tvos.ts`, now `falls-sky-soft-glass`). `build` turns its layers into the App
 Store and home-screen image stacks in `src/generated/Assets.xcassets`.
 
-`node client-tvos/jsc/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
+`node client-tvos/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
 pairs a phone page in Chromium, with a synthetic camera and the real MediaPipe model, with the
 app in a tvOS simulator through a local pairing server, and plays the game from it: pairing and
 the phone's picture on the calibration screen, calibration, a song scored from its poses, and
@@ -113,7 +113,7 @@ On an Apple TV 4K (A15, tvOS 27) at the `tv` quality tier the game holds 60 fps 
 about 6 ms of JavaScript a frame on the main menu (up to ~12 ms while the city is in view), about
 5.5 ms in gameplay, and the Aero benchmark at 59.9 fps. JavaScript runs interpreted (no JIT on
 tvOS), so frame cost tracks the number of objects and draws. The first visit to a stage stalls
-for about 5 s while it builds. [docs/apple-tv.md](../../docs/apple-tv.md) has the measurements
+for about 5 s while it builds. [docs/apple-tv.md](../docs/apple-tv.md) has the measurements
 and how this compares with the other approaches.
 
 ## Release builds

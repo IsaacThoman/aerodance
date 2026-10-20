@@ -3,11 +3,11 @@
 // and the real MediaPipe model) pairs with it through a local pairing server. The app has no
 // WebRTC, so the phone's poses and preview pictures come through the server's relay.
 //
-//   node client-tvos/jsc/tests/phone.tvos.ts [--sim <udid>] [--out <dir>]
-//   node client-tvos/jsc/tests/phone.tvos.ts --device <udid>
+//   node client-tvos/tests/phone.tvos.ts [--sim <udid>] [--out <dir>]
+//   node client-tvos/tests/phone.tvos.ts --device <udid>
 //   ... --site https://<number>.aerodance.party   (pair through a deployed site, a PR preview)
 //
-// Run after npm run build, and node scripts/tvos-jsc.ts build --game --sim (or without --sim for
+// Run after npm run build, and node scripts/tvos.ts build --game --sim (or without --sim for
 // a device). It plays the whole game from the phone: pairing on the calibration screen, the
 // phone's picture under the skeletons there, calibration, a song scored from its poses, then the
 // phone reloading. The simulator draws OpenGL ES in software, about a frame a second on the
@@ -23,7 +23,7 @@ import path from 'node:path';
 import express from 'express';
 import { chromium } from 'playwright';
 import type { Page } from 'playwright';
-import { createPairingServer } from '../../../packages/pairing/server.ts';
+import { createPairingServer } from '../../packages/pairing/server.ts';
 
 const args = process.argv.slice(2);
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
@@ -118,15 +118,15 @@ const lite = '&aeroHide=sky,ground,city,lake,lamps,trees,traffic,grass,flowers,t
 const config = { script: 'game.js', url: `http://aerodance.local/?quality=tv${device ? '' : lite}`, site: SITE, fit: 'fill', pixelated: true,
   label: 'phone-tvos', report: `${HERE}/__report`, drive: toCalibration };
 const appLog: string[] = [];
-const appPath = `client-tvos/jsc/build/Build/Products/Release-${device ? 'appletvos' : 'appletvsimulator'}/aerodance.app`;
+const appPath = `client-tvos/build/Build/Products/Release-${device ? 'appletvos' : 'appletvsimulator'}/aerodance.app`;
 const launch = device
   ? () => {
-    assert.equal(spawnSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', device, '--quiet', appPath], { stdio: 'inherit' }).status, 0, 'install the app (node scripts/tvos-jsc.ts build --game first)');
+    assert.equal(spawnSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', device, '--quiet', appPath], { stdio: 'inherit' }).status, 0, 'install the app (node scripts/tvos.ts build --game first)');
     return spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', device, '--terminate-existing', '--quiet', BUNDLE_ID, '--config', JSON.stringify(config)], { stdio: 'ignore' });
   }
   : () => {
     spawnSync('xcrun', ['simctl', 'terminate', sim, BUNDLE_ID], { stdio: 'ignore' });
-    assert.equal(spawnSync('xcrun', ['simctl', 'install', sim, appPath], { stdio: 'inherit' }).status, 0, 'install the app (node scripts/tvos-jsc.ts build --game --sim first)');
+    assert.equal(spawnSync('xcrun', ['simctl', 'install', sim, appPath], { stdio: 'inherit' }).status, 0, 'install the app (node scripts/tvos.ts build --game --sim first)');
     const child = spawn('xcrun', ['simctl', 'launch', '--console-pty', sim, BUNDLE_ID, '--config', JSON.stringify(config)], { stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout?.on('data', (d: Buffer) => appLog.push(d.toString()));
     child.stderr?.on('data', (d: Buffer) => appLog.push(d.toString()));

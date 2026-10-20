@@ -6,7 +6,7 @@ in October 2026.
 
 ## What ships
 
-[`client-tvos/jsc/`](../client-tvos/jsc/README.md) runs the production game's own JavaScript in
+[`client-tvos/`](../client-tvos/README.md) runs the production game's own JavaScript in
 the public JavaScriptCore framework, with WebGL 2 implemented on OpenGL ES 3.0 and the 2D canvas
 on CoreGraphics. It uses public APIs only, so it can go through App Review. With the `tv` quality
 tier (`?quality=tv`, which the app opens) it holds 60 fps on every screen:
@@ -23,8 +23,9 @@ Opening a stage for the first time stalls for about 5 s while it builds and comp
 
 An earlier app ran the web build in tvOS's WebKit, which apps can only reach through private API
 (development installs only, never the App Store). It's measured below as "tvOS WebKit (private)"
-and was removed once the JavaScriptCore app overtook it; it's in the git history at `3ac1686`
-(`client-tvos/src/main.m`, `scripts/tvos.ts`).
+and was removed once the JavaScriptCore app overtook it. Its code is in the git history at
+`3ac1686` (`client-tvos/src/main.m` and `scripts/tvos.ts` in that commit; the JavaScriptCore app
+was in `client-tvos/jsc/` then).
 
 ## Why JavaScript is slow there
 
