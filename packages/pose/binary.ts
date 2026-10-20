@@ -274,6 +274,7 @@ function writeEvents(w: ByteWriter, events: readonly TimedCaptureEvent[]) {
   });
 }
 function writeHeader(w: ByteWriter, h: PoseFileHeader, hasFlags: boolean, calibrationFrame?: PoseFrames) {
+  checkSlots(h.kind, h.playerSlots);
   w.bytes(MAGIC);
   w.chunk('HEAD', () => {
     w.u16(1); w.u8(KINDS.indexOf(h.kind) + 1); w.u8(CLOCKS.indexOf(KIND_CLOCK[h.kind]) + 1); w.u8(h.playerSlots); w.u8(1);
@@ -338,6 +339,7 @@ export class PoseFileWriter {
   frameCount: number;
   lastTimeMs: number;
   constructor(header: PoseHeaderInput) {
+    checkSlots(header.kind, header.playerSlots);
     const extensionIds = header.extensionIds ?? [];
     if ((header.extensionBases ?? []).length !== extensionIds.length) throw Error('A streamed file needs a base for each extension field');
     this.header = { ...header, positionStep: header.positionStep ?? DEFAULT_POSITION_STEP, extensionIds, extensionBases: header.extensionBases ?? [] };

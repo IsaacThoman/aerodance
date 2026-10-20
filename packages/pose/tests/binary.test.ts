@@ -182,6 +182,7 @@ test('a game recording holds up to four players; every other kind at most two', 
   assert.throws(() => buildFrames({ ...header, playerSlots: 5 as PlayerCount }, []), /player slots must be 1 to 4/);
   for (const kind of ['capture', 'take', 'track', 'choreography'] as const)
     assert.throws(() => buildFrames({ ...header, kind, playerSlots: 3, extensionIds: [] }, []), /at most two slots/, kind);
+  assert.throws(() => new PoseFileWriter({ kind: 'capture', playerSlots: 3, input: { width: 640, height: 480 }, modelId: 'lite', capture: { sourceKind: 'webcam', sessionId: 's', audioPlaybackRate: 1 } }), /at most two slots/);
   const valid3 = valid(); valid3[chunkAt(valid3, 'HEAD') + 4] = 3;
   assert.throws(() => decodePoseFile(valid3), /a choreography holds at most two slots/);
 });

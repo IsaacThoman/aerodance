@@ -172,7 +172,12 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
       let sc = 1;
       if (solo) z = 0.6 * k;
       else if (s.winner === seat) { x = start * (1 - k); z = 0.8 * k; }
-      else if (!s.leaders.includes(seat)) { x = start * (1 + 0.55 * k); z = -1.6 * k; sc = 1 - 0.15 * k; }
+      else if (!s.leaders.includes(seat)) {
+        // In a crowd, losers also step aside from the winner, so one in the middle isn't left
+        // standing behind them.
+        const aside = count > 2 && s.winner !== null ? Math.sign(start - dancerSpot(s.winner, count, spacing).x) * spacing * 0.35 * k : 0;
+        x = start * (1 + 0.55 * k) + aside; z = -1.6 * k; sc = 1 - 0.15 * k;
+      }
       g.position.set(x, 0, z);
       g.scale.setScalar(sc * spot.scale);
       const lit = solo || s.leaders.includes(seat);

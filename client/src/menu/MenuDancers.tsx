@@ -227,19 +227,21 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
       reaction.current = { kind, t: 0, who: list.map((d) => d.phase === 'in') };
     };
 
-    // A new count: newcomers start in a bubble at their spot, leavers start to pop.
+    // A new count: newcomers start in a bubble at their spot, leavers start to pop. A dancer
+    // whose character hasn't loaded yet just takes its new state: nobody saw it to begin with.
     if (n !== lastCount.current) {
       let popped = false;
       list.forEach((d, i) => {
         const playing = i < n;
+        const spot = spots.current[i];
+        const shown = animate && !!spot;
         if (playing && (d.phase === 'out' || d.phase === 'pop')) {
-          Object.assign(d, { phase: animate ? 'spawn' : 'in', t: 0, burst: false });
-          const spot = spots.current[i];
+          Object.assign(d, { phase: shown ? 'spawn' : 'in', t: 0, burst: false });
           if (spot) spot.position.x = slotX(i, n);
         } else if (!playing && (d.phase === 'in' || d.phase === 'spawn')) {
-          Object.assign(d, { phase: animate ? 'pop' : 'out', t: 0, burst: false });
+          Object.assign(d, { phase: shown ? 'pop' : 'out', t: 0, burst: false });
           fx.bubbles[i].hide();
-          popped ||= animate;
+          popped ||= shown;
         }
       });
       if (popped) startReaction('shock');
