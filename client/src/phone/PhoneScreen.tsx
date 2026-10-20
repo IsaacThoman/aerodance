@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, NAVY, drawCaps, drawGlassCircle, drawGlassPanel, drawPill, drawStatusDot, drawTitle, ellipsize, paragraph, roundRect, text,
+  FONT, ICONS, NAVY, drawGlassCircle, drawGlassPanel, drawPill, drawStatusDot, drawTitle, ellipsize, paragraph, roundRect, text,
 } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
@@ -224,9 +224,8 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
 
       if (view.stage === 'code') {
         drawTitle(g, L.title);
-        drawCaps(g, 'PHONE CAMERA', L.status.x, L.status.y, { size: 20 });
-        const textBox = L.landscape ? { x: L.digits.x, y: 80, w: L.digits.w } : { x: L.status.x, y: 190, w: L.status.w };
-        shadowed(g, () => paragraph(g, 'Type the code from the game’s screen to use this phone as its camera.', textBox.x, textBox.y, textBox.w, { size: 24, lineH: 31, color: '#ffffff' }));
+        // Just over the digits, which sit centred.
+        shadowed(g, () => paragraph(g, 'Enter the in-game pairing code', L.digits.x + L.digits.w / 2, L.digits.y - 34, L.digits.w, { size: 26, lineH: 33, color: '#ffffff', align: 'center' }));
         drawDigits(g, L.digits, st.typed);
         if (view.error) shadowed(g, () => paragraph(g, view.error, L.digits.x, L.digits.y + L.digits.h + 34, L.digits.w, { size: 21, lineH: 27, color: '#ffb38a' }));
         L.keys.forEach((rect, i) => {
