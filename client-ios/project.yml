@@ -12,6 +12,9 @@ targets:
       - path: src/main.m
       - path: src/inject.js
         buildPhase: resources
+      # The privacy manifest: NSUserDefaults (the saved copy of scores and settings), nothing collected.
+      - path: src/PrivacyInfo.xcprivacy
+        buildPhase: resources
       # The production web build, copied here by scripts/ios.ts.
       - path: www
         type: folder
@@ -31,8 +34,8 @@ targets:
         UILaunchScreen: {}
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UIRequiredDeviceCapabilities: [metal]
-        # The iPhone launches sideways for the 16:9 game. main.m also allows portrait while the
-        # game is on a TV and the phone is the remote. The iPad takes every orientation, which
+        # The iPhone launches sideways for the 16:9 game. main.m turns it upright while the game
+        # is on a TV and the phone is the remote. The iPad takes every orientation, which
         # Split View and Stage Manager need (and no UIRequiresFullScreen).
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationLandscapeRight

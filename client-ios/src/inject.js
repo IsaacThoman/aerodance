@@ -33,7 +33,11 @@
   try {
     const saved = start.saved ?? {}, restored = Object.keys(saved).filter(k => ours(k) && localStorage.getItem(k) === null);
     for (const k of restored) localStorage.setItem(k, saved[k]);
-    const all = {};
+    // The app bundles only the Lite pose model (scripts/ios.ts), so a webcam model saved as Full or
+    // Heavy (which only the phone page offers) goes before the game reads it, and Lite is used.
+    const MODEL = 'aerodance-webcam-model', model = localStorage.getItem(MODEL);
+    if (model !== null && model !== 'lite') localStorage.removeItem(MODEL);
+    const all = model !== null && model !== 'lite' ? { [MODEL]: null } : {};
     for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (ours(k)) all[k] = localStorage.getItem(k); }
     post({ storage: all, restored });
     const { setItem, removeItem, clear } = Storage.prototype;

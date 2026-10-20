@@ -1,6 +1,7 @@
 // The iPhone/iPad app's UI tests in a simulator (AerodanceUITests.swift): it launches, reaches
 // the main menu, is landscape on an iPhone, taps through One Player and a song to the song
-// preview, and turns both ways on an iPad.
+// preview, turns both ways on an iPad, and shows the remote when a TV connects (the simulator's
+// TV-out screen, through ../tools/simscreen.m).
 //
 //   node client-ios/tests/ui.ios.ts --device <simulator UDID> [--port <port>] [--out <dir>] [--only <test>]
 //
@@ -32,6 +33,18 @@ if (spawnSync('xcrun', ['simctl', 'get_app_container', device, BUNDLE_ID]).statu
   throw Error(`${BUNDLE_ID} isn't installed in ${device}; run node scripts/ios.ts sim --device ${device} --port ${port} first`);
 }
 
+// The simulator's TV-out screen, through ../tools/simscreen.m (built on first use), at 1920×1080.
+let simscreen: string | undefined;
+const tv = (on: boolean) => {
+  if (!simscreen) {
+    simscreen = path.join(mkdtempSync(path.join(os.tmpdir(), 'aerodance-simscreen-')), 'simscreen');
+    const built = spawnSync('clang', ['-fobjc-arc', '-framework', 'Foundation', '-framework', 'CoreGraphics', path.join(here, '../tools/simscreen.m'), '-o', simscreen], { stdio: 'inherit' });
+    if (built.status !== 0) { simscreen = undefined; return console.error('Couldn\'t build tools/simscreen.m'); }
+  }
+  spawnSync(simscreen, on ? [device, 'on', '1920', '1080'] : [device, 'off'], { stdio: 'ignore' });
+  console.log(`TV ${on ? 'on' : 'off'}`);
+};
+
 // The game's latest state, from the app's reports, and the tests' screenshots.
 let state: Record<string, string> = {};
 const server = http.createServer((req, res) => {
@@ -48,6 +61,12 @@ const server = http.createServer((req, res) => {
       const name = (url.searchParams.get('name') ?? 'shot').replace(/[^\w-]/g, '_');
       writeFileSync(path.join(out, `${name}.png`), body);
       console.log(`screenshot ${name}.png`);
+    } else if (req.method === 'POST' && url.pathname === '/tv') {
+      tv(url.searchParams.get('on') === '1');
+    } else if (req.method === 'POST' && url.pathname === '/shot-tv') {
+      const name = (url.searchParams.get('name') ?? 'tv').replace(/[^\w-]/g, '_');
+      spawnSync('xcrun', ['simctl', 'io', device, 'screenshot', '--display=external', path.join(out, `${name}.png`)], { stdio: 'ignore' });
+      console.log(`screenshot ${name}.png (the TV)`);
     } else if (url.pathname === '/state') {
       res.setHeader('content-type', 'application/json');
       return res.end(JSON.stringify(state));

@@ -12,11 +12,19 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
 
 `src/main.m` is the whole app:
 
-- **Local server.** The production build (`dist/`, pose-tracking models included) is bundled as
-  `www/` and served from `http://127.0.0.1:8417`. Loopback makes the page a secure context, which
-  `crypto.subtle` (song bundles) and `getUserMedia` (the camera) need. The port is fixed because
-  saved scores and settings belong to the page's origin. Inter, which the web build loads from
-  Google Fonts, is bundled too (`scripts/apple.ts`), so the game looks the same offline.
+- **Local server.** The production build (`dist/`) is bundled as `www/` and served from
+  `http://127.0.0.1:8417`. Loopback makes the page a secure context, which `crypto.subtle` (song
+  bundles) and `getUserMedia` (the camera) need. The port is fixed because saved scores and
+  settings belong to the page's origin. Inter, which the web build loads from Google Fonts, is
+  bundled too (`scripts/apple.ts`), so the game looks the same offline. Of the pose-tracking
+  models only Lite comes along: it's the one the game's camera uses (the Full and Heavy choices
+  are on the phone page, which the app doesn't open), and `src/inject.js` drops a saved choice of
+  the others so the camera uses Lite.
+- **Keeping the server up.** iOS can take a suspended app's listening socket back, and another app
+  can hold the port at launch. The server listens on 127.0.0.1 only; whenever it fails or stops it
+  starts again (after 0.25 s, backing off to 8 s), and on returning to the foreground it's
+  restarted at once if it isn't ready. Pages only load from a ready server, and a page that
+  couldn't load, or finished while the server was down, loads again once it's back.
 - **Phone camera.** A phone pairs through the deployed site (`--site`, default
   https://aerodance.party) as with the Apple TV app: the build writes it to `www/app.json` and
   `src/inject.js` sets `globalThis.__aerodanceSite`.
@@ -36,7 +44,8 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   the app has a camera usage description and grants the page's camera requests, video only.
 - The phone doesn't lock while the app is open.
 - **Screen.** On the iPhone the game is landscape only (the app launches sideways even from a
-  portrait home screen); while the game is on a TV, the remote may also be upright. The iPad
+  portrait home screen); while the game is on a TV, the remote is upright only, and the app turns
+  the screen to it however the phone is held (and back to landscape when the TV goes). The iPad
   takes every orientation and window size (Split View, Stage Manager; no `UIRequiresFullScreen`)
   and the page letterboxes itself. The web view is edge to edge (`viewport-fit=cover`), so the
   page gets the notch and home indicator as `env(safe-area-inset-*)`; while the game is on the
@@ -53,6 +62,9 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   of every key starting with `aerodance` in `NSUserDefaults` (per port), updated whenever the page
   changes one, and puts back any key the page has lost before the game starts, in case WebKit
   clears the site's data. A key the page still has is never overwritten.
+- **Privacy manifest.** `src/PrivacyInfo.xcprivacy`: no tracking, no data collected (camera frames
+  are tracked on the device), and `NSUserDefaults` (reason CA92.1, the app's own data) as the one
+  required-reason API.
 
 ## Requirements
 
@@ -71,7 +83,7 @@ npm run ios -- deploy                        # build the game and the app, insta
 npm run ios -- deploy --report               # ...and print frame stats every two seconds
 npm run ios -- launch --path '/?input=ghost' --report --flow   # play a song by itself
 npm run ios -- sim --device <simulator>      # the same in a simulator
-npm run ios -- build --release               # for TestFlight / the App Store
+npm run ios -- build --release               # the release configuration (see Release builds)
 npm run ios -- sim --site https://24.aerodance.party   # pair phones through a PR preview
 ```
 
@@ -84,7 +96,9 @@ Development builds take the launch options above (`--path`, `--report`, `--flow`
 `--clear-website-data`, `--port`), are
 inspectable in Safari's Web Inspector, and add `NSLocalNetworkUsageDescription` and
 `NSAllowsLocalNetworking` to `Info.plist` so `--report` can reach the Mac. `build --release`
-leaves all of that out, which is what an App Store build should ship.
+leaves all of that out: it's the configuration an App Store build will use, but not yet an App
+Store build. Archiving and exporting, uploading to TestFlight, an app icon and build numbers
+(`CFBundleVersion` is always 1) come later.
 
 `--report` sends the frame rate, the 95th-percentile frame time, the JavaScript time per frame,
 the draw calls per frame and the device's thermal state (`ProcessInfo.thermalState`, and Low Power
@@ -128,8 +142,10 @@ xcrun simctl io <simulator UDID> screenshot --display=external tv.png
 
 `tests/` has UI tests (XCTest) that drive the installed app in a simulator by its bundle ID, with
 real touches: it launches and reaches the main menu, an iPhone holds it in landscape even upright,
-One Player and the first song tapped at their `layout.ts` positions open the song preview, and an
-iPad turns portrait, landscape and back.
+One Player and the first song tapped at their `layout.ts` positions open the song preview, an
+iPad turns portrait, landscape and back, and a TV connected (through `tools/simscreen.m`) while
+the device is held sideways shows the remote with every control on screen, upright on an iPhone,
+and the game comes back in landscape when the TV goes.
 
 ```sh
 node scripts/ios.ts sim --device <UDID> --port 8423 --path '/?input=ghost'   # build and install
@@ -141,6 +157,13 @@ node client-ios/tests/ui.ios.ts --device <UDID> --port 8423   # [--out <dir>] [-
 which the app reports (`--report`) to a small server in `ui.ios.ts`, and tap design units mapped
 into the game's 16:9 frame, found in a screenshot. Screenshots go to `--out` (default
 `aerodance-ios-ui` in the system's temporary directory).
+
+Development builds also let you take the local server away, as iOS might, to check it comes back:
+
+```sh
+xcrun simctl spawn <UDID> notifyutil -p aerodance.drop-server   # stops it for 4 s
+xcrun simctl spawn <UDID> notifyutil -p aerodance.reload        # meanwhile, reload the page
+```
 
 ## What doesn't work yet
 

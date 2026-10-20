@@ -25,8 +25,9 @@ const USAGE = `Usage: node scripts/ios.ts <command> [options]
                                    booted one)
 
 Build options:
-  --release                        an App Store build: no Web Inspector, no local network
-                                   permission, and the launch options below are ignored
+  --release                        the configuration an App Store build will use: no Web
+                                   Inspector, no local network permission, and the launch
+                                   options below are ignored (no archive or upload yet)
   --site <origin>                  the deployed game the app pairs phones through (default
                                    ${SITE}; a PR preview is https://<number>.aerodance.party)
 
@@ -131,15 +132,24 @@ async function bundleFonts() {
   }
 }
 
-type BuildOptions = { release: boolean; site: string; skipWebBuild: boolean };
+function dropUnusedPoseModels() {
+  const models = readdirSync(www, { recursive: true, encoding: 'utf8' }).filter((f) => /pose_landmarker_\w+\.task$/.test(f));
+  if (!models.some((f) => f.endsWith('pose_landmarker_lite.task'))) throw Error('The web build has no pose_landmarker_lite.task; update dropUnusedPoseModels()');
+  for (const f of models) if (!f.endsWith('pose_landmarker_lite.task')) rmSync(path.join(www, f));
+}
+
+type BuildOptions ={ release: boolean; site: string; skipWebBuild: boolean };
 
 async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator', { release, site, skipWebBuild }: BuildOptions) {
   checkSite(site);
   if (!skipWebBuild) run('npm', ['run', 'build']);
   if (!existsSync(path.join(root, 'dist/index.html'))) throw Error('No production build in dist/; run without --skip-web-build');
   rmSync(www, { recursive: true, force: true });
-  // Unlike the Apple TV, phones have cameras: the pose-tracking models come along.
+  // Unlike the Apple TV, phones have cameras: pose tracking comes along, with only the Lite model,
+  // the one the game's camera uses (Full and Heavy, 9 and 29 MB, are only offered by the phone page,
+  // which the app doesn't open; inject.js drops a saved choice of them).
   cpSync(path.join(root, 'dist'), www, { recursive: true });
+  dropUnusedPoseModels();
   await bundleFonts();
   writeFileSync(path.join(www, 'app.json'), JSON.stringify({ site }));
   const bench = path.join(root, 'client-tvos/bench/dist');
