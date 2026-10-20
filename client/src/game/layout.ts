@@ -26,13 +26,13 @@ export const livePanelCenterX = (id: number) => (id === 0 ? LIVE_PANEL.inset : 1
 export const GAME_PAUSE = { x: 800, y: 66, r: 30 };
 export const GAME_READY_START = { x: 610, y: 690, w: 380, h: 96 };
 export const GAME_READY_BACK = { x: 166, y: 150, r: 30 };
-// Webcam calibration: one glass card with everything centred: the title, the setup preview
-// (pressed to start the camera, or with No camera to continue without one), the shared hold
-// and the camera picker along the bottom.
-export const GAME_CALIBRATION_CARD = { x: 360, y: 204, w: 880, h: 652 };
+// Webcam calibration: one glass card with the setup preview (pressed to start the camera, or
+// with No camera to continue without one) over the camera picker. The shared hold runs along
+// the bottom of the preview.
 export const GAME_CALIBRATION_PREVIEW = { x: 448, y: 284, w: 704, h: 396 };
-export const GAME_CALIBRATION_PROGRESS = { x: 448, y: 702, w: 704, h: 14 };
-const CALIBRATION_PICKER = { x: 500, y: 774, w: 600, h: 58 };
+export const GAME_CALIBRATION_CARD = { x: 404, y: 240, w: 792, h: 574 };
+export const GAME_CALIBRATION_PROGRESS = { x: 488, y: 646, w: 624, h: 12 };
+const CALIBRATION_PICKER = { x: 500, y: 720, w: 600, h: 58 };
 export const GAME_CALIBRATION_CAMERA = {
   prev: { x: CALIBRATION_PICKER.x, y: CALIBRATION_PICKER.y, w: 80, h: CALIBRATION_PICKER.h },
   next: { x: CALIBRATION_PICKER.x + CALIBRATION_PICKER.w - 80, y: CALIBRATION_PICKER.y, w: 80, h: CALIBRATION_PICKER.h },
