@@ -9,18 +9,24 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { bundleFixture, choreographyBytes, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
-import { BACK as MENU_BACK, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } from '../src/menu/layout.ts';
-import {
-  BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect,
-} from '../src/game/layout.ts';
+import { menuLayout } from '../src/menu/layout.ts';
+import { gameLayout } from '../src/game/layout.ts';
+import { DISPLAY_MODES } from '../src/display.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { resolveStage } from '../../packages/stages/catalog.ts';
 import { validateCatalog, validateSong, validateSongChoreography } from '../../packages/pose/song.ts';
 
+// Run the same real input/session flow in each fixed display configuration.
+const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
+const design = DISPLAY_MODES[mode];
+const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
+const { BACK: MENU_BACK, ONE_PLAYER, SETTINGS, START, TWO_PLAYERS } = menuLayout(design.w);
+const { BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, rowRect } = gameLayout(design.w);
+
 /** A layout rect or circle, or a widget with a rect, in design units. */
 type Shape = Rect | Circle | { rect: Rect };
 /** What the page script adds to window. */
-type TestWindow = typeof window & { webcamRequests: number };
+type TestWindow = typeof window & { webcamRequests: number; danceLabelX: number };
 /** A reported value to wait for: exactly this string, or matching this pattern. */
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
@@ -43,12 +49,20 @@ const center = (shape: Shape) => {
 };
 let testPage;
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, hasTouch: true });
+  const page = await browser.newPage({ viewport, hasTouch: true });
   testPage = page;
   page.setDefaultTimeout(90000);
   await page.addInitScript(() => {
     const w = window as TestWindow;
     w.webcamRequests = 0;
+    // Observe the actual overlay draw, so resizing a static preview must repaint its
+    // button in the new layout rather than leaving a cached texture at old coordinates.
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (value, x, y, maxWidth) {
+      if (value === 'Dance!') w.danceLabelX = this.getTransform().transformPoint({ x, y }).x;
+      if (maxWidth === undefined) fillText.call(this, value, x, y);
+      else fillText.call(this, value, x, y, maxWidth);
+    };
     navigator.mediaDevices.getUserMedia = async () => {
       w.webcamRequests++;
       throw new DOMException('Fixture permission denied', 'NotAllowedError');
@@ -78,11 +92,11 @@ try {
     return box;
   };
   let frame = await frameBox();
-  assert.equal(frame.height, 720);
-  assert.equal(frame.y, 40);
+  assert.equal(frame.height, mode === 'standard' ? 768 : 720);
+  assert.equal(frame.y, mode === 'standard' ? 0 : 40);
   const click = async (shape: Shape) => {
     const p = center(shape);
-    await page.mouse.click(frame.x + (p.x / 1600) * frame.width, frame.y + (p.y / 900) * frame.height);
+    await page.mouse.click(frame.x + (p.x / design.w) * frame.width, frame.y + (p.y / design.h) * frame.height);
   };
   const data = () => page.locator('canvas').evaluate((c) => ({ ...c.dataset }));
   // Waits until the canvas's reported state matches (values or regexps).
@@ -98,6 +112,7 @@ try {
 
   await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });
   await menuOn('main');
+  assert.deepEqual(await page.locator('canvas').evaluate((c) => [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height]), [640, 480]);
 
   // Settings holds the sound controls; nothing before the calibration screen asks for the camera.
   await click(SETTINGS);
@@ -130,11 +145,13 @@ try {
 
   // The letterboxed frame on a phone.
   await page.setViewportSize({ width: 390, height: 844 });
+  await until({ displayMode: 'standard' });
   const mobile = await frameBox();
   assert.equal(mobile.width, 390);
-  assert.ok(Math.abs(mobile.height - (390 * 9) / 16) < 1);
+  assert.ok(Math.abs(mobile.height - (390 * 3) / 4) < 1);
   await shot('song-select-mobile');
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize(viewport);
+  await until({ displayMode: mode });
   await page.waitForTimeout(300);
   frame = await frameBox();
 
@@ -184,6 +201,20 @@ try {
     await page.waitForFunction(() => Number(document.querySelector('canvas')?.dataset.previewTimeMs) > 700);
     await page.waitForFunction(() => Number(document.querySelector('canvas')?.dataset.previewTimeMs) < 500);
     await until({ previewState: 'playing' });
+    if (count === 1) {
+      const other = mode === 'standard' ? 'widescreen' : 'standard';
+      const otherDesign = DISPLAY_MODES[other];
+      const otherDance = gameLayout(otherDesign.w).DANCE;
+      await page.setViewportSize(other === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 });
+      await until({ displayMode: other, songScreen: 'preview', stageReady: 'true' });
+      await page.waitForFunction((x) => Math.abs((window as TestWindow).danceLabelX - x) < 1,
+        (otherDance.x + otherDance.h + 14) * 640 / otherDesign.w);
+      await page.setViewportSize(viewport);
+      await until({ displayMode: mode, songScreen: 'preview' });
+      await page.waitForFunction((x) => Math.abs((window as TestWindow).danceLabelX - x) < 1,
+        (DANCE.x + DANCE.h + 14) * 640 / design.w);
+      frame = await frameBox();
+    }
     await click(BACK);
     await until({ songScreen: 'list', songReady: 'true', stage: '' });
   }
@@ -259,6 +290,12 @@ try {
   await click(GAME_PAUSE);
   await until({ gamePhase: 'paused' }, 5000);
   const pausedAt = Number((await data()).gameTimeMs);
+  await page.setViewportSize(mode === 'standard' ? { width: 1280, height: 800 } : { width: 1024, height: 768 });
+  await until({ displayMode: mode === 'standard' ? 'widescreen' : 'standard', gamePhase: 'paused' });
+  assert.deepEqual(await page.locator('canvas').evaluate((c) => [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height]), [640, 480]);
+  await page.setViewportSize(viewport);
+  await until({ displayMode: mode, gamePhase: 'paused' });
+  frame = await frameBox();
   await page.waitForTimeout(1000);
   assert.equal(Number((await data()).gameTimeMs), pausedAt, 'the song holds while paused');
   await click(GAME_RESUME);

@@ -7,7 +7,8 @@ import type { Face, IconName, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import { PLAYERS, REVEAL, backOut, clamp01, timeline } from './results.ts';
 import type { ResultsShow } from './results.ts';
-import { RESULTS_RETRY, RESULTS_SONGS } from './layout.ts';
+import { gameLayout } from './layout.ts';
+import { displayDesign } from '../display.ts';
 import type { RefObject } from 'react';
 import type { Song } from '../../../packages/pose/song.ts';
 
@@ -23,7 +24,7 @@ export interface ResultsScreenProps {
 const GOLD: Face = ['#fff6cc', '#ffd34d', '#f0a500'];
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
-function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number, song: Song) {
+function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number, song: Song, width: number) {
   const { results, winner } = show;
   const { t, count, reveal } = timeline(show, now);
   const solo = results.length === 1;
@@ -38,16 +39,17 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     else { const p = PLAYERS[winner % PLAYERS.length]; title = `${results[winner].name.toUpperCase()} WINS!`; face = ['#ffffff', p.light, p.color]; }
   }
   g.save();
-  g.translate(800, 116);
+  g.translate(width / 2, 116);
   g.scale(pop, pop);
-  headline(g, title, 0, 0, t < REVEAL && !solo ? 70 : 96, face, 1200);
+  headline(g, title, 0, 0, t < REVEAL && !solo ? 70 : 96, face, width - 120);
   g.restore();
   g.font = `600 24px ${FONT}`;
-  drawShadowText(g, ellipsize(g, [song.title, song.artist].filter(Boolean).join(' · '), 1100), 800, 172, { size: 24, weight: 600, align: 'center' });
+  drawShadowText(g, ellipsize(g, [song.title, song.artist].filter(Boolean).join(' · '), width - 160), width / 2, 172, { size: 24, weight: 600, align: 'center' });
 
   results.forEach((r, i) => {
     // One score centred, or two side by side.
-    const x = solo ? 800 : 500 + i * 600;
+    const spacing = width === 1200 ? 500 : 600;
+    const x = width / 2 + (solo ? 0 : (i - 0.5) * spacing);
     const p = PLAYERS[i % PLAYERS.length];
     const win = !solo && winner === i;
     const lose = !solo && winner !== null && !win;
@@ -61,7 +63,7 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     g.save();
     g.translate(x, 700);
     g.scale(1 + grow, 1 + grow);
-    headline(g, Math.round(r.score * count).toLocaleString('en-US'), 0, 0, 78, win && reveal > 0 ? GOLD : ['#ffffff', p.light, p.color], 520);
+    headline(g, Math.round(r.score * count).toLocaleString('en-US'), 0, 0, 78, win && reveal > 0 ? GOLD : ['#ffffff', p.light, p.color], width === 1200 ? 430 : 520);
     g.restore();
     // Grade, accuracy and judgements once the count finishes.
     g.globalAlpha *= clamp01((t - REVEAL + 0.2) / 0.4);
@@ -69,23 +71,25 @@ function drawResults(g: CanvasRenderingContext2D, show: ResultsShow, now: number
     drawShadowText(g, `Grade ${r.grade} · ${pct(r.accuracy)}`, x, 742, { size: 24, weight: 800, align: 'center' });
     const line = `${j.perfect} Perfect · ${j.good} Good · ${j.ok} OK · ${j.miss + j.lost} Miss · combo ${r.maxCombo}`;
     g.font = `700 19px ${FONT}`;
-    drawShadowText(g, ellipsize(g, line, 560), x, 770, { size: 19, weight: 700, align: 'center', color: '#e6f8ff' });
+    drawShadowText(g, ellipsize(g, line, width === 1200 ? 470 : 560), x, 770, { size: 19, weight: 700, align: 'center', color: '#e6f8ff' });
     if (r.coverage < 0.8) drawShadowText(g, `Tracked for ${pct(r.coverage)} of the song`, x, 560, { size: 19, weight: 700, align: 'center', color: '#ffe27a' });
     g.restore();
   });
   if (show.best?.isNewBest) {
     g.save();
     g.globalAlpha *= clamp01((t - REVEAL - 0.3) / 0.4);
-    headline(g, 'NEW BEST!', 800, 232, 40, GOLD, 600);
+    headline(g, 'NEW BEST!', width / 2, 232, 40, GOLD, 600);
     g.restore();
   } else if (show.best?.best) {
-    drawShadowText(g, `Best ${show.best.best.score.toLocaleString('en-US')} (${show.best.best.grade})`, 800, 222, { size: 22, weight: 700, align: 'center', color: '#bff4ff' });
+    drawShadowText(g, `Best ${show.best.best.score.toLocaleString('en-US')} (${show.best.best.grade})`, width / 2, 222, { size: 22, weight: 700, align: 'center', color: '#bff4ff' });
   }
 }
 
 /** The song's stage celebration: the winner (or the solo score), grades and a new best. */
 export default function ResultsScreen({ visible = false, show, song, onRetry, onQuit }: ResultsScreenProps) {
   const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
+  const { RESULTS_RETRY, RESULTS_SONGS } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, show, song, onRetry, onQuit });
   props.current = { visible, show, song, onRetry, onQuit };
   const st = useRef({ alpha: 0 }).current;
@@ -128,7 +132,7 @@ export default function ResultsScreen({ visible = false, show, song, onRetry, on
     draw: (g, s) => {
       const p = props.current;
       if (!p.show.current || !p.song) return;
-      drawResults(g, p.show.current, performance.now() / 1000, p.song);
+      drawResults(g, p.show.current, performance.now() / 1000, p.song, s.w);
       const button = (id: string, rect: Rect, label: string, icon: IconName) => drawPill(g, rect, {
         label, icon, hover: s.hover[id] ?? 0, press: s.press * (s.hover[id] ?? 0),
       });

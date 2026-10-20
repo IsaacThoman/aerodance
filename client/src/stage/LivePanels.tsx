@@ -5,6 +5,7 @@ import type * as THREE from 'three';
 import Character from '../../../packages/character/Character.tsx';
 import type { PlayerCount, Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
 import { DANCER_LOOKS } from '../../../packages/stages/shared/Dancers.tsx';
+import { displayDesign } from '../display.ts';
 import { LIVE_PANEL, livePanelCenterX } from '../game/layout.ts';
 
 /*
@@ -53,7 +54,7 @@ function LivePlayer({ id, live, anchor }: LivePlayerProps) {
 export default function LivePanels({ live }: { live: LiveDancers }) {
   const root = useRef<THREE.Group>(null);
   const anchors = useMemo((): RefObject<THREE.Group | null>[] => [{ current: null }, { current: null }], []);
-  useFrame(({ camera }) => {
+  useFrame(({ camera, size }) => {
     const g = root.current;
     if (!g || !('isPerspectiveCamera' in camera)) return;
     // Close to the camera, so they shouldn't throw shadows across the stage.
@@ -66,7 +67,7 @@ export default function LivePanels({ live }: { live: LiveDancers }) {
     for (let id = 0; id < live.playerCount; id++) {
       const a = anchors[id].current;
       if (!a) continue;
-      a.position.set((livePanelCenterX(id) - 0.5) * viewW, (0.5 - LIVE_PANEL.top - LIVE_PANEL.height) * viewH, -DISTANCE);
+      a.position.set((livePanelCenterX(id, displayDesign(size.width, size.height).w) - 0.5) * viewW, (0.5 - LIVE_PANEL.top - LIVE_PANEL.height) * viewH, -DISTANCE);
       a.scale.setScalar(scale);
     }
   }, 0.5);

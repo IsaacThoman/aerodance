@@ -1,4 +1,4 @@
-// Song Select layout in 1600x900 design units, shared with the browser flow test.
+// Song Select and game layouts in 1600x900 (16:9) or 1200x900 (4:3) design units.
 import type { Rect } from '../ui/draw.ts';
 
 // Both phases: back button + heading, top left (under the server HUD).
@@ -20,7 +20,10 @@ export const PREVIEW_NOTE = { x: 128, y: 830 };
 // player 2 top right; each character stands in a box `height` tall whose top is at `top`
 // and whose centre is `inset` in from its side.
 export const LIVE_PANEL = { inset: 0.1, top: 0.17, height: 0.27 };
-export const livePanelCenterX = (id: number) => (id === 0 ? LIVE_PANEL.inset : 1 - LIVE_PANEL.inset);
+export const livePanelCenterX = (id: number, width = 1600) => {
+  const inset = LIVE_PANEL.inset * 1600 / width;
+  return id === 0 ? inset : 1 - inset;
+};
 
 // Gameplay overlay (GameScreen.jsx).
 export const GAME_PAUSE = { x: 800, y: 66, r: 30 };
@@ -46,3 +49,34 @@ export const RESULTS_RETRY = { x: 470, y: 806, w: 320, h: 80 };
 export const RESULTS_SONGS = { x: 810, y: 806, w: 320, h: 80 };
 // Song Select preview: Dance! starts the song for real, bottom right.
 export const DANCE = { x: 1172, y: 770, w: 300, h: 96 };
+
+export function gameLayout(width = 1600) {
+  const dx = (width - 1600) / 2;
+  const compact = width === 1200;
+  const centered = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x + dx });
+  const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 480 : ROWS.w };
+  return {
+    BACK: { ...BACK, x: compact ? 110 : BACK.x },
+    ROWS: rows,
+    rowRect: (i: number): Rect => ({ x: rows.x, y: rows.y + i * (rows.h + rows.gap), w: rows.w, h: rows.h }),
+    PAGE_UP: { ...PAGE_UP, x: rows.x + rows.w + 42 },
+    PAGE_DOWN: { ...PAGE_DOWN, x: rows.x + rows.w + 42 },
+    RETRY: { ...RETRY, x: rows.x },
+    PREVIEW_NOTE: { ...PREVIEW_NOTE, x: rows.x },
+    DANCE: { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w },
+    GAME_PAUSE: centered(GAME_PAUSE),
+    GAME_READY_START: centered(GAME_READY_START),
+    GAME_READY_BACK: { ...GAME_READY_BACK, x: compact ? 110 : GAME_READY_BACK.x },
+    GAME_CALIBRATION_PREVIEW: centered(GAME_CALIBRATION_PREVIEW),
+    GAME_CALIBRATION_CARD: centered(GAME_CALIBRATION_CARD),
+    GAME_CALIBRATION_PROGRESS: centered(GAME_CALIBRATION_PROGRESS),
+    GAME_CALIBRATION_CAMERA: { prev: centered(GAME_CALIBRATION_CAMERA.prev), next: centered(GAME_CALIBRATION_CAMERA.next) },
+    GAME_PAUSE_PANEL: centered(GAME_PAUSE_PANEL),
+    GAME_RESUME: centered(GAME_RESUME),
+    GAME_RESTART: centered(GAME_RESTART),
+    GAME_QUIT: centered(GAME_QUIT),
+    GAME_PROGRESS: centered(GAME_PROGRESS),
+    RESULTS_RETRY: centered(RESULTS_RETRY),
+    RESULTS_SONGS: centered(RESULTS_SONGS),
+  };
+}

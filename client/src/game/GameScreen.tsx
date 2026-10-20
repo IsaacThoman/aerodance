@@ -20,10 +20,8 @@ import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
 import { getMixer } from '../audio/mixer.ts';
-import {
-  GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
-  LIVE_PANEL, livePanelCenterX,
-} from './layout.ts';
+import { gameLayout, LIVE_PANEL, livePanelCenterX } from './layout.ts';
+import { displayDesign } from '../display.ts';
 
 /**
  * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers
@@ -85,8 +83,8 @@ const fmt = (ms: number) => {
 };
 
 // Without a camera (tracking false) there is nothing to say about tracking.
-function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean) {
-  const cx = livePanelCenterX(id) * 1600;
+function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean, width: number) {
+  const cx = livePanelCenterX(id, width) * width;
   const top = (LIVE_PANEL.top + LIVE_PANEL.height) * 900 + 14;
   const p = PLAYERS[id];
   drawCaps(g, `PLAYER ${id + 1}`, cx, top + 19, { size: 18, align: 'center' });
@@ -115,6 +113,7 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerRe
 // camera off, the preview is a big Start camera button (or with No camera, a button that plays
 // without one).
 function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
+  const { GAME_READY_BACK, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PROGRESS } = gameLayout(s.w);
   const h = s.hover;
   const { connection, source } = camera.target();
   const preview = GAME_CALIBRATION_PREVIEW;
@@ -169,6 +168,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
 // it, and shows why the last start failed), or a note while it starts. With No camera, the
 // button continues without one.
 function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: CanvasUI) {
+  const { GAME_CALIBRATION_PREVIEW } = gameLayout(s.w);
   const preview = GAME_CALIBRATION_PREVIEW;
   const cx = preview.x + preview.w / 2;
   const cy = preview.y + preview.h / 2;
@@ -197,16 +197,18 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
 
 // Under the pause panel while the camera is muted: why nobody is tracked, after its status light
 // (as on the calibration screen).
-function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup, status: CameraInput['view']['status'], y: number) {
+function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup, status: CameraInput['view']['status'], y: number, width: number) {
   g.font = `700 24px ${FONT}`;
-  const message = ellipsize(g, camera.message(), 1100);
-  const x = 800 - g.measureText(message).width / 2 + 14;
+  const message = ellipsize(g, camera.message(), width - 140);
+  const x = width / 2 - g.measureText(message).width / 2 + 14;
   drawStatusDot(g, x - 26, y, status, 9);
   drawShadowText(g, message, x, y, { size: 24, weight: 700 });
 }
 
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
+  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, session, source, onQuit, onRetry });
   props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
@@ -328,11 +330,11 @@ export default function GameScreen({ visible = false, session, camera: source, o
       if (ph === 'loading' || ph === 'error' || ph === 'ready') {
         drawHeader(g, GAME_READY_BACK, 'GET READY', h.quit ?? 0);
         g.font = `800 64px ${FONT}`;
-        drawShadowText(g, ellipsize(g, song.title, 1000), 128, 270, { size: 64, weight: 800 });
+        drawShadowText(g, ellipsize(g, song.title, s.w - 200), GAME_READY_BACK.x - 38, 270, { size: 64, weight: 800 });
         g.font = `700 30px ${FONT}`;
-        drawShadowText(g, ellipsize(g, song.artist, 1000), 130, 322, { size: 30, color: '#d8f6ff' });
-        if (ph === 'loading') drawShadowText(g, `Loading song${'.'.repeat(1 + (Math.floor(now * 3) % 3))}`, 800, 520, { size: 34, align: 'center' });
-        if (ph === 'error') drawShadowText(g, session.error, 800, 520, { size: 30, align: 'center', color: '#ffb38a' });
+        drawShadowText(g, ellipsize(g, song.artist, s.w - 200), GAME_READY_BACK.x - 36, 322, { size: 30, color: '#d8f6ff' });
+        if (ph === 'loading') drawShadowText(g, `Loading song${'.'.repeat(1 + (Math.floor(now * 3) % 3))}`, s.w / 2, 520, { size: 34, align: 'center' });
+        if (ph === 'error') drawShadowText(g, ellipsize(g, session.error, s.w - 160), s.w / 2, 520, { size: 30, align: 'center', color: '#ffb38a' });
         if (ph === 'ready') {
           const readiness = session.readiness();
           const hold = session.readySince === null ? 0 : clamp01((performance.now() - session.readySince) / READY_HOLD_MS);
@@ -353,7 +355,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
       const readiness = session.readiness();
       // Nothing to say about tracking while iOS has the camera either (the pause screen says why).
       const tracking = (!session.withoutCamera || p.source.view.status === 'connected') && !(usesCamera(session) && camera.interrupted());
-      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, scores[id], readiness[id], st.popups, now, tracking);
+      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, scores[id], readiness[id], st.popups, now, tracking, s.w);
       if (ph !== 'paused') {
         drawGlassCircle(g, GAME_PAUSE, h.pause ?? 0);
         g.save();
@@ -376,7 +378,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
         if (n > 0 && n <= COUNTDOWN_MS / 1000) {
           const into = 1 - (left / 1000 - (n - 1));
           g.save();
-          g.translate(800, 470);
+          g.translate(s.w / 2, 470);
           const k = backOut(clamp01(into / 0.3));
           g.scale(k, k);
           g.globalAlpha *= 1 - clamp01((into - 0.75) / 0.25);
@@ -384,27 +386,27 @@ export default function GameScreen({ visible = false, session, camera: source, o
           g.restore();
         }
         if (session.pausedAtMs !== null) {
-          drawShadowText(g, 'Get ready to pick up where you left off', 800, 620, { size: 26, weight: 700, align: 'center' });
+          drawShadowText(g, 'Get ready to pick up where you left off', s.w / 2, 620, { size: 26, weight: 700, align: 'center' });
         }
       } else if (ph === 'finishing') {
-        drawShadowText(g, 'Tallying the bubbles…', 800, 470, { size: 40, weight: 800, align: 'center' });
+        drawShadowText(g, 'Tallying the bubbles…', s.w / 2, 470, { size: 40, weight: 800, align: 'center' });
       } else if (ph === 'paused') {
         g.save();
         g.fillStyle = 'rgba(0, 24, 60, 0.35)';
-        g.fillRect(0, 0, 1600, 900);
+        g.fillRect(0, 0, s.w, s.h);
         g.restore();
         drawGlassPanel(g, GAME_PAUSE_PANEL, 34);
-        drawCaps(g, 'PAUSED', 800, GAME_PAUSE_PANEL.y + 46, { size: 30, align: 'center' });
+        drawCaps(g, 'PAUSED', s.w / 2, GAME_PAUSE_PANEL.y + 46, { size: 30, align: 'center' });
         drawPill(g, GAME_RESUME, { label: 'Resume', icon: 'play', hover: h.resume ?? 0, press: press('resume') });
         drawPill(g, GAME_RESTART, { label: 'Restart', icon: 'replay', hover: h.restart ?? 0, press: press('restart') });
         drawPill(g, GAME_QUIT, { label: 'Song select', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
         // Under it, why the song can't go on yet: a call still has the audio, or iOS the camera.
         let y = GAME_PAUSE_PANEL.y + GAME_PAUSE_PANEL.h + 44;
         if (session.waitingForAudio && getMixer().ctx.state !== 'running') {
-          drawShadowText(g, 'Waiting for the audio…', 800, y, { size: 24, weight: 700, align: 'center' });
+          drawShadowText(g, 'Waiting for the audio…', s.w / 2, y, { size: 24, weight: 700, align: 'center' });
           y += 44;
         }
-        if (usesCamera(session) && camera.interrupted()) drawCameraInterrupted(g, camera, p.source.view.status, y);
+        if (usesCamera(session) && camera.interrupted()) drawCameraInterrupted(g, camera, p.source.view.status, y, s.w);
       }
     },
   });
