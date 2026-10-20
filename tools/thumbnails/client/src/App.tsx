@@ -7,6 +7,7 @@ import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import { STAGES } from '../../../../packages/stages/index.ts';
 import type { Stage, StageId } from '../../../../packages/stages/index.ts';
+import type { Vec3 } from '../../../../packages/stages/catalog.ts';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
@@ -108,6 +109,19 @@ function makeLogo(logo: ShotLogo, buffer: FrameBuffer) {
   const scene = new THREE.Scene();
   scene.add(quad);
   return { scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1), context: g };
+}
+
+// Captures the scene around `at` (without the dancers) as the reflections it gives, in place of
+// the stage's environment map, at `brightness`.
+function reflectScene(gl: THREE.WebGLRenderer, scene: THREE.Scene, dancers: THREE.Object3D, at: Vec3, brightness: number) {
+  const pmrem = new THREE.PMREMGenerator(gl);
+  dancers.visible = false;
+  // Far enough for the sky dome; the same blur as the stages' own environment maps.
+  const target = pmrem.fromScene(scene, 0.04, 0.1, 10000, { position: new THREE.Vector3(...at) });
+  dancers.visible = true;
+  pmrem.dispose();
+  scene.environment = target.texture;
+  scene.environmentIntensity = brightness;
 }
 
 // Reads the drawing buffer top-down as RGBA.
@@ -404,6 +418,11 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
         for (let i = 1; i <= frames; i++) {
           advance(i * STEP);
           if (i % 20 === 0) await nextTask();
+        }
+        if (shot.reflections !== undefined) {
+          if (!dancers.current) throw new Error('The dancers are missing');
+          reflectScene(gl, scene, dancers.current, shot.camera.target, shot.reflections);
+          advance(frames * STEP); // the same frame again, with them
         }
         const plain = readFrame(gl, buffer);
         let logo: string | null = null;

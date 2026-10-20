@@ -28,6 +28,9 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *     outline?, halo?, light?: see drawTitle } in design units
  *   format: 'thumbnail' (3:2, the default), 'tv-icon' (5:3) or 'app-icon' (1:1)
  *   layers: split the frame into layers for a parallax icon (ShotLayer)
+ *   reflections: the dancers reflect the scene around them, captured in-engine at the camera's
+ *     target with them hidden, at this brightness (1 as lit), instead of the stage's environment
+ *     map: e.g. as dark as a back layer's exposure
  */
 export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
 export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; stacked?: boolean; outline?: number; halo?: number; light?: 200 | 300 | 400; }
@@ -65,6 +68,7 @@ export interface Shot {
   logo?: ShotLogo;
   format?: ShotFormat;
   layers?: readonly ShotLayer[];
+  reflections?: number;
 }
 
 /** One capture read back from the page: base64 RGBA, top row first. */
@@ -115,7 +119,7 @@ export function assertShot(shot: unknown): asserts shot is Shot {
   if (!isFields(shot) || typeof shot.id !== 'string' || !isStageId(shot.stage) || !isNumber(shot.time) || !isNumber(shot.pose) ||
       !isCamera(shot.camera) || !(shot.dancers === undefined || isDancers(shot.dancers)) || !(shot.logo === undefined || isLogo(shot.logo)) ||
       !(shot.format === undefined || shot.format === 'thumbnail' || shot.format === 'tv-icon' || shot.format === 'app-icon') ||
-      !(shot.layers === undefined || isLayerStack(shot.layers))) {
+      !(shot.layers === undefined || isLayerStack(shot.layers)) || !optionalNumber(shot.reflections)) {
     throw new Error(`Invalid shot: ${JSON.stringify(shot)}`);
   }
 }
@@ -411,11 +415,14 @@ const GLASS_PORTRAIT: Omit<Shot, 'id'> = {
     { name: 'hands', near: 1, dancers: true, dancerParts: 'hands', seeThrough: true },
   ],
 };
+const DARK = 0.02;
 export const APP_ICONS: readonly Shot[] = [
   // Against the Apple TV icon's soft sky.
   { ...GLASS_PORTRAIT, id: 'portrait-purple-sky-glass', layers: [{ name: 'sky', near: 800, blur: 7 }, ...GLASS_PORTRAIT.layers ?? []] },
-  // The same sky rendered with a fiftieth of the light: near black, for a dark icon.
-  { ...GLASS_PORTRAIT, id: 'portrait-dark-sky-glass', layers: [{ name: 'sky', near: 800, blur: 7, exposure: 0.02 }, ...GLASS_PORTRAIT.layers ?? []] },
+  // The same sky rendered with a fiftieth of the light: near black, for a dark icon. She reflects
+  // the scene just as dark, so her glass doesn't keep the bright daytime rim.
+  { ...GLASS_PORTRAIT, id: 'portrait-dark-sky-glass', reflections: DARK,
+    layers: [{ name: 'sky', near: 800, blur: 7, exposure: DARK }, ...GLASS_PORTRAIT.layers ?? []] },
   // Against nothing: transparent, for putting on a background of your own.
   { ...GLASS_PORTRAIT, id: 'portrait-transparent-bg' },
 ];
