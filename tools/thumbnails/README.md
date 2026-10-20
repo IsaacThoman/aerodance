@@ -47,6 +47,8 @@ A 5:3 shot uses the same pixel grid at 600×480. Its `layers` list the layers ba
 - A layer that reaches nearer than the one behind keeps the pixels where anything lies between the two near planes. That depth range is rendered on its own and compared with an empty render at the same near plane, so depth precision matches and nothing flickers between the two.
 - A layer at the same depth (the dancers appearing) keeps the pixels that differ from the layer behind. Its bloom spilling onto the layer behind, like the glints on the dancers' heads, is kept as partial alpha.
 
+- A `seeThrough` layer (the dancers in the `-glass` icons) is drawn on its own instead: the dancers alone into a transparent half-float buffer, the scenery still hiding them where it's in front but drawing nothing, so the glass leaves its real alpha. That layer then gets the pipeline's grade and ACES by itself. It isn't blended with the scene before tone mapping as in the game, so the dancers come out a little deeper, and it has no bloom.
+
 Both comparisons use renders without bloom, so a glow doesn't drag the background into the layer. The colours come from the normal render. The wordmark is the top layer. Stacked back together, the layers match the flat render to within one level in about 99% of pixels; the rest is bloom at the depth cuts and the wordmark's edges.
 
 Apple's icon sizes (1280×768, 800×480, 400×240) aren't whole multiples of the buffer, so each layer is area-averaged to size with premultiplied alpha.

@@ -34,8 +34,10 @@ export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | numb
  * hidden (their shadows stay). It keeps the pixels that differ from the layer behind it, so each
  * layer must show everything the one behind it does: `near` never grows, and once the dancers
  * are shown they stay. The wordmark, if any, is one more layer on top.
+ * seeThrough: on the layer that adds the dancers, keep their glass partly transparent, so the
+ * layers behind show through them as they move, instead of what was behind them in the shot.
  */
-export interface ShotLayer { name: string; near?: number; dancers?: boolean; }
+export interface ShotLayer { name: string; near?: number; dancers?: boolean; seeThrough?: boolean; }
 export interface Shot {
   id: string;
   stage: StageId;
@@ -79,8 +81,9 @@ const isDancers = (v: unknown): v is Partial<DancerPlacement> => isFields(v) && 
 const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && isNumber(v.size) &&
   (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x));
 
+const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
-  (v.dancers === undefined || typeof v.dancers === 'boolean');
+  optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough);
 // Each layer shows everything the one behind it does (see ShotLayer).
 const isLayerStack = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every(isLayer) &&
   v.every((layer, i) => i === 0 || ((layer.near ?? 0) <= (v[i - 1].near ?? 0) && (layer.dancers || !v[i - 1].dancers)));
@@ -344,7 +347,7 @@ const shotById = (id: string): Shot => {
  * allows two to five layers with an opaque one at the back; tvOS shifts and tilts them for the
  * parallax effect, so the layers are split by depth: `near` is a distance from the camera.
  */
-export const TV_ICONS: readonly Shot[] = [
+const ICONS: readonly Shot[] = [
   {
     ...shotById('falls-meadow'),
     format: 'tv-icon',
@@ -365,4 +368,15 @@ export const TV_ICONS: readonly Shot[] = [
       { name: 'dancers', dancers: true },
     ],
   },
+];
+
+// Each icon twice: as above, and with see-through dancers (<id>-glass), so the layers behind
+// show through the glass as they move.
+export const TV_ICONS: readonly Shot[] = [
+  ...ICONS,
+  ...ICONS.map((icon) => ({
+    ...icon,
+    id: `${icon.id}-glass`,
+    layers: icon.layers?.map((layer) => (layer.name === 'dancers' ? { ...layer, seeThrough: true } : layer)),
+  })),
 ];
