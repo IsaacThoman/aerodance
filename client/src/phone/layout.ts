@@ -34,8 +34,6 @@ export interface PhoneLayout {
   preview: Rect;
   /** Setup: Video / Mirror / Flip. */
   video: Rect; mirror: Rect; flip: Rect;
-  /** Setup: one per tracking model. */
-  models: Rect[];
   /** Setup and the waiting screens: what's happening. */
   message: { x: number; y: number; w: number };
   /** The main button along the bottom (Done, Start camera, Cancel, Enter a code). */
@@ -62,8 +60,7 @@ export function phoneLayout({ w, h }: DesignSize): PhoneLayout {
 
   const primary = { x: right.x, y: h - M - 80, w: right.w, h: 80 };
   const message = { x: right.x, y: primary.y - 64, w: right.w };
-  const models = row(right.x, message.y - 26 - ROW, right.w, 3);
-  const [video, mirror, flip] = row(right.x, models[0].y - GAP - ROW, right.w, 3);
+  const [video, mirror, flip] = row(right.x, message.y - 26 - ROW, right.w, 3);
   const top = landscape ? M : status.y + 30;
   const preview = { x: left.x, y: top, w: left.w, h: (landscape ? h - M : video.y - 20) - top };
 
@@ -75,5 +72,5 @@ export function phoneLayout({ w, h }: DesignSize): PhoneLayout {
   const padTop = padBottom - keyH * 4 - GAP * 3;
   const keys = [0, 1, 2, 3].flatMap((r) => row(right.x, padTop + r * (keyH + GAP), right.w, 3, keyH));
 
-  return { w, h, landscape, title, leave, status, preview, video, mirror, flip, models, message, primary, digits, keys };
+  return { w, h, landscape, title, leave, status, preview, video, mirror, flip, message, primary, digits, keys };
 }

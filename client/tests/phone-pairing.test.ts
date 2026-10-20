@@ -83,9 +83,10 @@ test('a phone pairs with the game, tracks for it on the game’s clock, reconnec
 
   await host.setPlayerCount(2);
   await until(() => camera.playerCount === 2 && phone.view.playerCount === 2, 'the player count');
+  // The phone only tracks with Lite, and tells the game so.
   await host.configure({ modelId: 'full' });
-  await until(() => camera.configured.some((c) => c.modelId === 'full'), 'the model');
-  await until(() => host.view.model === 'full', 'the phone to report the model');
+  await until(() => host.view.model === 'lite', 'the phone to report its model');
+  assert.ok(!camera.configured.some((c) => c.modelId === 'full'));
 
   // Poses wait for the clocks to line up, then arrive on the game's clock.
   await until(() => host.clock.ready, 'clock sync', 4000);

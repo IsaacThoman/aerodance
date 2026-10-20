@@ -37,6 +37,8 @@ body,
   width: 100vw;
   height: 100dvh;
   aspect-ratio: auto;
+  /* A plain background, as the canvas clears to (phone/PhoneApp.tsx). */
+  background: #1f6fd6;
 }
 
 .canvas-frame.phone canvas {

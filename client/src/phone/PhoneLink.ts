@@ -10,13 +10,14 @@ import { isPairingCode } from '../../../packages/pairing/signals.ts';
 import type { IceCandidate, IceServer, PairingEvent } from '../../../packages/pairing/signals.ts';
 import { WebcamPoseSource } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { WebcamRecordEvent, WebcamView } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 
 /*
  * The phone's end of a pairing: it joins the game's room with the code, answers the game's
  * WebRTC offer, tracks the players with its own camera (the same WebcamPoseSource the game
- * uses) and sends their poses back. The game decides the player count and model (the
- * phone can change the model too) and tells the phone when a song is on.
+ * uses) and sends their poses back. The game decides the player count and tells the phone
+ * when a song is on. A phone always tracks with Lite, whatever model the game asks for.
  *
  *   code      no code yet, or the last one didn't work (view.error says why)
  *   joining   asking the pairing server for a place in the room
@@ -81,6 +82,8 @@ const RELAY_OPEN_MS = 5000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const MAX_CAMERA_RETRY_MS = 30_000;
+// The only model a phone tracks with: the fastest, and the one phones keep up with.
+const PHONE_MODEL: PoseModelId = 'lite';
 // The picture the game previews: its long side, frame rate and bitrate at most.
 export const PREVIEW_LONG_SIDE = 320;
 const PREVIEW_FPS = 12;
@@ -174,6 +177,8 @@ export class PhoneLink {
     this.now = now; this.device = device; this.cameraRetryMs = cameraRetryMs;
     // The back camera by default: it's the better one, and the phone faces the players.
     if (!this.camera.view.facing && !this.camera.view.cameraId) this.camera.publish({ facing: 'environment' });
+    // Even on a phone that chose another model before.
+    if (this.camera.view.model !== PHONE_MODEL) void this.camera.configure({ modelId: PHONE_MODEL }).catch(() => {});
     this.camera.subscribe((view) => this.onCamera(view));
     this.camera.subscribeRecords((event) => this.onRecord(event));
   }
@@ -414,7 +419,6 @@ export class PhoneLink {
   }
 
   setFacing(facing: Facing) { return this.camera.configure({ facing, cameraId: '' }); }
-  setModel(modelId: string) { return this.camera.configure({ modelId }); }
 
   send(channel: LinkChannel | null, message: PhoneMessage | string) {
     if (channel?.readyState !== 'open') return false;
@@ -431,7 +435,8 @@ export class PhoneLink {
     else {
       this.publish({ playerCount: message.playerCount });
       void this.camera.setPlayerCount(message.playerCount).catch(() => {});
-      if (message.modelId !== this.camera.view.model) void this.camera.configure({ modelId: message.modelId }).catch(() => {});
+      // Another model stays Lite: the status tells the game which one it got.
+      if (message.modelId !== this.camera.view.model) { this.sentStatus = ''; this.sendStatus(this.camera.view); }
     }
   }
 

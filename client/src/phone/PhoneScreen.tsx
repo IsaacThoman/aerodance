@@ -6,13 +6,10 @@ import {
 import type { Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
-import { drawModelPicker } from '../connect/cameraSetup.ts';
 import { phoneDesign, phoneLayout } from './layout.ts';
 import type { PhoneLayout } from './layout.ts';
 import type { PhoneLink, PhoneLinkView } from './PhoneLink.ts';
 import { CODE_DIGITS, codeDigits } from '../../../packages/pairing/signals.ts';
-import { MODELS } from '../../../packages/pose/browser/models.ts';
-import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
 import type { WebcamStatus, WebcamView } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 
@@ -23,8 +20,8 @@ import type { WebcamStatus, WebcamView } from '../../../packages/pose/browser/We
  *   joining / linking   what's happening, and Cancel
  *   linked    setup: the preview (the camera's picture with the tracked skeletons, or the
  *             players' glass characters as a mirror, drawn by PhoneReflection under this
- *             overlay), Video / Mirror / Flip camera, the tracking model, and Ready, which
- *             dims the screen to save battery while the phone tracks (tap to wake)
+ *             overlay), Video / Mirror / Flip camera, and Ready, which dims the screen to
+ *             save battery while the phone tracks (tap to wake)
  *   ended     why, and a way to enter another code
  *
  * The canvas reports data-phone-stage / -ready / -camera-status / -dim / -mode / -video (sending
@@ -44,7 +41,7 @@ export interface PhoneScreenProps {
   dim: boolean;
   onDim: (dim: boolean) => void;
 }
-type PhoneWidget = Widget & { key?: string; modelId?: PoseModelId };
+type PhoneWidget = Widget & { key?: string };
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'delete', '0', 'join'];
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
@@ -84,7 +81,7 @@ function drawDigits(g: CanvasRenderingContext2D, rect: Rect, code: string) {
   }
 }
 
-// Text straight over the bright sky: the navy drop shadow the game's own titles use.
+// Text straight over the background: the navy drop shadow the game's own titles use.
 function shadowed(g: CanvasRenderingContext2D, draw: () => void) {
   g.save();
   g.shadowColor = 'rgba(0, 34, 84, 0.8)';
@@ -134,7 +131,6 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
           if (p.dim) return [{ id: 'wake', rect: { x: 0, y: 0, w: L.w, h: L.h } }];
           return [
             { id: 'video', rect: L.video }, { id: 'mirror', rect: L.mirror }, { id: 'flip', rect: L.flip },
-            ...MODELS.map((model, i) => ({ id: `model-${model.id}`, rect: L.models[i], modelId: model.id })),
             { id: 'primary', rect: L.primary },
             { id: 'leave', circle: L.leave },
           ];
@@ -147,7 +143,6 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
       else if (wdg.id === 'wake') p.onDim(false);
       else if (wdg.id === 'video' || wdg.id === 'mirror') p.onMode(wdg.id);
       else if (wdg.id === 'flip') void p.link.setFacing(p.camera.facing === 'user' ? 'environment' : 'user').catch(() => {});
-      else if (wdg.modelId) void p.link.setModel(wdg.modelId).catch(() => {});
       else if (wdg.id === 'leave') { st.typed = ''; p.link.leave(); }
       else if (wdg.id === 'primary') {
         if (stage === 'linked') {
@@ -170,7 +165,7 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
       const p = props.current;
       const { view, camera } = p;
       if (view.stage !== 'code') st.typed = '';
-      const key = `${view.stage}|${view.message}|${view.error}|${view.playerCount}|${view.playing}|${camera.status}|${camera.message}|${camera.model}|${camera.facing}|${p.mode}|${p.dim}|${st.typed}`;
+      const key = `${view.stage}|${view.message}|${view.error}|${view.playerCount}|${view.playing}|${camera.status}|${camera.message}|${camera.facing}|${p.mode}|${p.dim}|${st.typed}`;
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
       // The camera's picture and skeletons, a few times a second.
       if (view.stage === 'linked' && !p.dim && p.mode === 'video' && p.link.camera.video && s.time - st.lastPreview > 1 / 15) {
@@ -265,7 +260,6 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
       drawPill(g, L.video, { label: marked(p.mode === 'video', 'Video'), icon: 'camera', hover: h.video ?? 0, press: press('video') });
       drawPill(g, L.mirror, { label: marked(p.mode === 'mirror', 'Mirror'), icon: 'solo', hover: h.mirror ?? 0, press: press('mirror') });
       drawPill(g, L.flip, { label: 'Flip', icon: 'replay', hover: h.flip ?? 0, press: press('flip') });
-      drawModelPicker(g, { prev: L.video, next: L.flip, models: L.models }, camera, h);
       g.font = `600 20px ${FONT}`;
       shadowed(g, () => paragraph(g, camera.message, L.message.x + 4, L.message.y, L.message.w - 8, { size: 20, lineH: 25, color: camera.status === 'error' ? '#ffb38a' : '#ffffff' }));
       const running = ACTIVE.includes(camera.status);
