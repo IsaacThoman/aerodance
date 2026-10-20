@@ -57,7 +57,7 @@ export class CameraSetup {
     const { connection } = this.target();
     // In the app, iOS gives the camera back after a call; a browser's muted camera fails to Start
     // camera after a while (WebcamPoseSource's interruptedTimeoutMs).
-    if (connection.interrupted) return inApp() ? 'The camera was interrupted. It comes back by itself.' : 'The camera stopped sending pictures.';
+    if (connection.interrupted) return inApp() ? 'The camera was interrupted. It comes back once aerodance has the screen to itself.' : 'The camera stopped sending pictures.';
     return this.error || connection.message || '';
   }
   failed() { return !!this.error || this.target().connection.status === 'error'; }

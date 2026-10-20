@@ -54,8 +54,8 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   scripts run, and every change also fires
   `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { interrupted, tv } }))`.
   `interrupted` is true from the start to the end of an audio interruption (a call, Siri, an
-  alarm); at the end the app reactivates its audio session but leaves the song paused for the
-  player to resume. `tv` is true while the game is on an external display and its sound goes
+  alarm); at the end the app reactivates its audio session if iOS says to resume, and the game
+  waits for the player's next tap either way. `tv` is true while the game is on an external display and its sound goes
   there too (an AirPlay or HDMI audio route): mirroring delays the TV's picture as much as its
   sound, so the game draws without taking the output latency off its clock there, while judging
   still does (`client/src/audio/songPlayer.ts`). An HDMI picture with the sound on AirPods isn't

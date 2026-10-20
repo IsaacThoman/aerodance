@@ -1,6 +1,5 @@
 import { loadSound } from '../menu/soundSettings.ts';
 import type { SoundSettings } from '../menu/soundSettings.ts';
-import { onHostChange } from '../host.ts';
 
 /*
  * One AudioContext for the page, wired like a little mixing desk:
@@ -70,8 +69,9 @@ export function getMixer(): Mixer {
   page[KEY] = mixer;
 
   const unlock = () => resumeAudio(ctx);
+  // After an interruption (a call), the audio waits for the player's next tap too: iOS may have
+  // handed it to another app's music, which starting on our own would stop.
   for (const type of ['pointerdown', 'pointerup', 'keydown', 'touchend']) window.addEventListener(type, unlock, true);
-  onHostChange((host) => { if (!host.interrupted) unlock(); });
 
   applySound(loadSound());
   return mixer;

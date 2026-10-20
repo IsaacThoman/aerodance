@@ -113,7 +113,7 @@ test('the calibration and pause screens say the camera stopped: in the app, that
   const page = globalThis as { __aerodanceHost?: unknown };
   page.__aerodanceHost = { interrupted: true, tv: false };
   try {
-    assert.equal(setup.message(), 'The camera was interrupted. It comes back by itself.');
+    assert.equal(setup.message(), 'The camera was interrupted. It comes back once aerodance has the screen to itself.');
   } finally { delete page.__aerodanceHost; }
   connection.interrupted = false;
   connection.message = 'Lite · CPU · Measuring tracking speed…';

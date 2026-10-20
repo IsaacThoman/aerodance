@@ -294,6 +294,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 // at launch. So whenever the listener fails or is cancelled a new one starts, after 0.25 s, doubling
 // with each failure up to 8 s, until one is ready.
 - (void)startServer {
+  // While the server was gone another app could have taken the port and answered the loaded
+  // page's later requests (lazy scripts) as this origin, which may use the camera. Load the page
+  // afresh from our own server once it's back.
+  if (_web && [self isOurs:_web.URL] && !self.pendingURL) self.pendingURL = _web.URL;
   self.serverState = nw_listener_state_invalid;
   self.server = StartServer(self.root, ^(nw_listener_t listener, nw_listener_state_t state) { [self server:listener changed:state]; });
 }
@@ -725,7 +729,6 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
 
 - (void)viewDidAppear:(BOOL)animated {
   [super viewDidAppear:animated];
-  UIApplication.sharedApplication.idleTimerDisabled = YES;  // the phone mustn't lock mid-song
   // iOS 27 only shows an app on an external display when a view controller registers the
   // display's scene as an accessory; iOS 16-26 offer it to every app that declares the role.
   if (@available(iOS 27.0, *)) {
@@ -756,6 +759,9 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   // Over the game the AirPlay button only shows on the main menu, where it doesn't cover play.
   NSDictionary *page = host.page ?: @{};
   BOOL inSong = page[@"gamePhase"] != nil;
+  // The phone mustn't lock from calibration to the results (nobody touches it while dancing), nor
+  // while it's the TV's remote; on the menus it may.
+  UIApplication.sharedApplication.idleTimerDisabled = tv || inSong;
   self.floatingPicker.hidden = tv || inSong || ![page[@"menuScreen"] isEqual:@"main"];
   NSString *screen = page[@"resultsScreen"] ? @"Results"
     : inSong ? [NSString stringWithFormat:@"Song: %@", page[@"gamePhase"]]

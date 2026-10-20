@@ -26,8 +26,9 @@ const USAGE = `Usage: node scripts/ios.ts <command> [options]
 
 Build options:
   --release                        the configuration an App Store build will use: no Web
-                                   Inspector, no local network permission, and the launch
-                                   options below are ignored (no archive or upload yet)
+                                   Inspector, no local network exception (NSAllowsLocalNetworking),
+                                   and the launch options below are ignored (no archive or
+                                   upload yet)
   --site <origin>                  the deployed game the app pairs phones through (default
                                    ${SITE}; a PR preview is https://<number>.aerodance.party)
 

@@ -45,7 +45,7 @@ const PRESENT_MS = 400;
 // A live pose this far before the song still feeds the first second's movement.
 const LEAD_MS = 1000;
 // How long a countdown waits for the audio to start before pausing again.
-export const AUDIO_START_MS = 1000;
+export const AUDIO_START_MS = 2000;
 
 export type GamePhase = 'loading' | 'calibrating' | 'ready' | 'countdown' | 'playing' | 'paused' | 'finishing' | 'results' | 'error' | 'disposed';
 /** Per player, for the ready check. */
