@@ -94,6 +94,24 @@ clang -fobjc-arc -framework Foundation -framework CoreGraphics client-ios/tools/
 xcrun simctl io <simulator UDID> screenshot --display=external tv.png
 ```
 
+## Testing
+
+`tests/` has UI tests (XCTest) that drive the installed app in a simulator by its bundle ID, with
+real touches: it launches and reaches the main menu, an iPhone holds it in landscape even upright,
+One Player and the first song tapped at their `layout.ts` positions open the song preview, and an
+iPad turns portrait, landscape and back.
+
+```sh
+node scripts/ios.ts sim --device <UDID> --port 8423 --path '/?input=ghost'   # build and install
+node client-ios/tests/ui.ios.ts --device <UDID> --port 8423   # [--out <dir>] [--only test3TapsThroughToSongPreview]
+```
+
+`ui.ios.ts` generates the test project (`tests/project.yml`) in a temporary directory and runs
+`xcodebuild test`. The game draws its UI on a canvas, so the tests wait on its `data-*` state,
+which the app reports (`--report`) to a small server in `ui.ios.ts`, and tap design units mapped
+into the game's 16:9 frame, found in a screenshot. Screenshots go to `--out` (default
+`aerodance-ios-ui` in the system's temporary directory).
+
 ## What doesn't work yet
 
 - **AirPlay delay.** Screen Mirroring adds video and audio latency (both delayed together, so
