@@ -43,6 +43,10 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
 - **Camera.** The game's own pose tracking (MediaPipe in the page) can use the phone's camera:
   the app has a camera usage description and grants the page's camera requests, video only.
 - The phone doesn't lock while the app is open.
+- **App icon.** [`assets/app-icon/aerodance.icon`](../assets/README.md#phone-app-icons), an Icon
+  Composer document, is the app icon (`ASSETCATALOG_COMPILER_APPICON_NAME`). Xcode compiles its
+  layers into the Liquid Glass icon, with its dark, tinted and clear looks, and renders flat
+  PNGs from it for iOS before 26. Edit it in Icon Composer (in Xcode's Open Developer Tool menu).
 - **Screen.** On the iPhone the game is landscape only (the app launches sideways even from a
   portrait home screen); while the game is on a TV, the remote is upright only, and the app turns
   the screen to it however the phone is held (and back to landscape when the TV goes). The iPad
@@ -101,7 +105,7 @@ inspectable in Safari's Web Inspector, and add `NSAllowsLocalNetworking` to `Inf
 `--report` can reach the Mac. (Every build has `NSLocalNetworkUsageDescription`: a paired phone on
 the same Wi-Fi connects to the app directly.) `build --release`
 leaves all of that out: it's the configuration an App Store build will use, but not yet an App
-Store build. Archiving and exporting, uploading to TestFlight, an app icon and build numbers
+Store build. Archiving and exporting, uploading to TestFlight and build numbers
 (`CFBundleVersion` is always 1) come later.
 
 `--report` sends the frame rate, the 95th-percentile frame time, the JavaScript time per frame,
@@ -180,4 +184,3 @@ xcrun simctl spawn <UDID> notifyutil -p aerodance.reload        # meanwhile, rel
   before any song does. Unchecked on a device.
 - **Camera while on the TV.** Tracking on the phone that also renders and encodes the mirror is
   untested for speed, and the phone must face the player, which makes it a poor remote.
-- **App icon.** None yet.
