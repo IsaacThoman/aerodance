@@ -143,6 +143,8 @@ interface Pass {
   scenery?: boolean;
   /** Only this part of the dancers draws; the other still casts its shadow. */
   parts?: DancerPart;
+  /** Scales the camera's exposure. */
+  exposure?: number;
 }
 
 // The rig's floating hands are the Arm.L and Arm.R meshes; the body is everything else.
@@ -300,17 +302,18 @@ function renderLayers(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE
   };
   const draw = (pass: Pass) => {
     setUp(pass);
-    const threshold = post.bloomThreshold;
+    const { bloomThreshold, exposure } = post;
     if (!pass.bloom) post.bloomThreshold = NO_BLOOM;
+    post.exposure *= pass.exposure ?? 1;
     advance(time);
-    post.bloomThreshold = threshold;
+    Object.assign(post, { bloomThreshold, exposure });
     return readPixels(gl, buffer);
   };
   const differ = (a: Uint8Array, b: Uint8Array, i: number) => a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2];
   const out: { name: string; rgba: Uint8Array }[] = [];
   let behindColor: Uint8Array | null = null;
   layers.forEach((layer, k) => {
-    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false, parts: layer.dancerParts };
+    const pass = { near: layer.near ?? near, far, dancers: !!layer.dancers, bloom: false, parts: layer.dancerParts, exposure: layer.exposure };
     const rgba = draw({ ...pass, bloom: true });
     const color = rgba.slice();
     const below = layers[k - 1];
