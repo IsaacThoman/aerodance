@@ -42,3 +42,11 @@ To render them again:
 ```sh
 node tools/thumbnails/scripts/render.ts --tv-icons
 ```
+
+## Phone app icons
+
+`app-icon/` holds the iPhone and iPad app icon, rendered in-engine like the Apple TV ones: `portrait-purple-sky-glass.png` (1024×1024, opaque), the purple dancer's head close up against the Apple TV icon's soft sky, with her see-through glass. Its layers, back to front, are in `portrait-purple-sky-glass/1024x1024/`: `1-sky` (opaque), `2-dancers` (her head, body and feet) and `3-hands` (her floating hands on their own), for a layered icon in Icon Composer. To render it again:
+
+```sh
+node tools/thumbnails/scripts/render.ts --app-icons
+```
