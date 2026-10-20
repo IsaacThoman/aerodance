@@ -273,6 +273,27 @@ export const ICONS = {
     g.arc(cx, top + h, h * 0.55, 0, TAU);
     g.stroke();
   },
+  // The camera struck through, with a gap cut either side of the line (play without a camera).
+  noCamera(g, cx, cy, r) {
+    const a = r * 0.5;
+    const gap = g.lineWidth * 1.5;
+    const [ux, uy] = [Math.SQRT1_2 * gap, -Math.SQRT1_2 * gap];
+    g.save();
+    g.beginPath();
+    g.rect(cx - r, cy - r, r * 2, r * 2);
+    g.moveTo(cx - r + ux, cy - r + uy);
+    g.lineTo(cx + r + ux, cy + r + uy);
+    g.lineTo(cx + r - ux, cy + r - uy);
+    g.lineTo(cx - r - ux, cy - r - uy);
+    g.closePath();
+    g.clip('evenodd');
+    ICONS.camera(g, cx, cy, r);
+    g.restore();
+    g.beginPath();
+    g.moveTo(cx - a, cy - a);
+    g.lineTo(cx + a, cy + a);
+    g.stroke();
+  },
   // A phone standing upright, with its speaker slot (pair a phone as the camera).
   phone(g, cx, cy, r) {
     const w = r * 0.3;

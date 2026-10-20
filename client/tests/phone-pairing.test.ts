@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PhonePoseSource } from '../src/pose/PhonePoseSource.ts';
-import { CameraInput, PHONE_CAMERA } from '../src/pose/CameraInput.ts';
+import { CameraInput, NO_CAMERA, PHONE_CAMERA } from '../src/pose/CameraInput.ts';
 import { isPoseRecordEvent } from '../src/pose/PoseSource.ts';
 import type { PoseSourceEvent } from '../src/pose/PoseSource.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
@@ -226,7 +226,7 @@ test('a game that cannot reach the pairing server says so', async () => {
   assert.match(host.view.message, /pairing server/);
 });
 
-test('the phone is the last camera; choosing it switches the game’s input and only its poses reach the game', async () => {
+test('the phone comes after the webcams; choosing it switches the game’s input and only its poses reach the game', async () => {
   store.clear();
   const phone = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair' });
   const input = new CameraInput({ webcam: new PoseSourceController(), phone, webcamSupported: true });
@@ -235,7 +235,7 @@ test('the phone is the last camera; choosing it switches the game’s input and 
   const heard: PoseSourceEvent[] = [];
   input.subscribeRecords((event) => heard.push(event));
   assert.equal(input.view.sourceKind, 'webcam');
-  assert.deepEqual(input.view.cameras.at(-1), PHONE_CAMERA);
+  assert.deepEqual(input.view.cameras.slice(-2), [PHONE_CAMERA, NO_CAMERA]);
   await input.configure({ cameraId: PHONE_CAMERA.deviceId });
   assert.equal(input.view.sourceKind, 'phone');
   assert.equal(input.view.cameraId, PHONE_CAMERA.deviceId);
@@ -255,6 +255,40 @@ test('the phone is the last camera; choosing it switches the game’s input and 
 
   await input.configure({ cameraId: '' });
   assert.equal(input.view.sourceKind, 'webcam');
+  assert.equal(store.get('aerodance-camera'), 'webcam');
+});
+
+test('No camera is the last camera: nothing runs, no poses reach the game, and it is remembered', async () => {
+  store.clear();
+  const phone = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair' });
+  const input = new CameraInput({ webcam: new PoseSourceController(), phone, webcamSupported: true });
+  const heard: PoseSourceEvent[] = [];
+  input.subscribeRecords((event) => heard.push(event));
+  assert.deepEqual(input.view.cameras.at(-1), NO_CAMERA);
+  await input.configure({ cameraId: PHONE_CAMERA.deviceId });
+  await input.configure({ cameraId: NO_CAMERA.deviceId });
+  assert.equal(input.mode, 'none');
+  assert.equal(input.view.cameraId, NO_CAMERA.deviceId);
+  assert.equal(input.view.status, 'disconnected');
+  assert.equal(input.video, null);
+  assert.equal(store.get('aerodance-camera'), 'none');
+  // Remembered, even where the phone would otherwise be the camera.
+  assert.equal(new CameraInput({ webcam: new PoseSourceController(), phone: new PhonePoseSource(), webcamSupported: false }).mode, 'none');
+
+  await input.connect();
+  assert.equal(input.view.status, 'disconnected');
+  assert.equal(phone.view.status, 'disconnected');
+  const record = { ...phoneRecord(0, 1), timingMethod: 'remote-clock-sync' as const };
+  phone.emit({ record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'remote-clock-sync' } });
+  input.webcam.source.emit({ record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'browser-frame-observation' } });
+  assert.deepEqual(heard.filter(isPoseRecordEvent), []);
+  // A model chosen meanwhile is the webcam's.
+  await input.configure({ modelId: 'heavy' });
+  assert.equal(input.webcam.view.model, 'heavy');
+  assert.equal(input.view.model, 'heavy');
+
+  await input.configure({ cameraId: '' });
+  assert.equal(input.mode, 'webcam');
   assert.equal(store.get('aerodance-camera'), 'webcam');
 });
 

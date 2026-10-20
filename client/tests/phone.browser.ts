@@ -122,9 +122,10 @@ try {
   await click(ONE_PLAYER); await until(game, 'songReady', 'true'); await click(rowRect(0));
   await until(game, 'previewState', 'playing'); await until(game, 'stageReady', 'true');
 
-  // Calibration: the camera picker's last entry (one back from the default) is the phone;
-  // pressing the preview starts pairing.
+  // Calibration: the phone is two back from the default camera (after it, No camera wraps
+  // round); pressing the preview starts pairing.
   await click(DANCE); await until(game, 'gamePhase', 'calibrating'); await until(game, 'gameReady', 'true');
+  await click(GAME_CALIBRATION_CAMERA.prev);
   await click(GAME_CALIBRATION_CAMERA.prev);
   await click(GAME_CALIBRATION_PREVIEW);
   await until(game, 'gamePairing', /^\d{6}$/);

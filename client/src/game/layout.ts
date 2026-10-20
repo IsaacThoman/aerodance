@@ -27,7 +27,8 @@ export const GAME_PAUSE = { x: 800, y: 66, r: 30 };
 export const GAME_READY_START = { x: 610, y: 690, w: 380, h: 96 };
 export const GAME_READY_BACK = { x: 166, y: 150, r: 30 };
 // Webcam calibration: one glass card with everything centred: the title, the setup preview
-// (pressed to start the camera), the shared hold and the camera picker along the bottom.
+// (pressed to start the camera, or with No camera to continue without one), the shared hold
+// and the camera picker along the bottom.
 export const GAME_CALIBRATION_CARD = { x: 360, y: 204, w: 880, h: 652 };
 export const GAME_CALIBRATION_PREVIEW = { x: 448, y: 284, w: 704, h: 396 };
 export const GAME_CALIBRATION_PROGRESS = { x: 448, y: 702, w: 704, h: 14 };
@@ -36,8 +37,6 @@ export const GAME_CALIBRATION_CAMERA = {
   prev: { x: CALIBRATION_PICKER.x, y: CALIBRATION_PICKER.y, w: 80, h: CALIBRATION_PICKER.h },
   next: { x: CALIBRATION_PICKER.x + CALIBRATION_PICKER.w - 80, y: CALIBRATION_PICKER.y, w: 80, h: CALIBRATION_PICKER.h },
 };
-// Beside the header, top right: plays the song without the camera.
-export const GAME_CALIBRATION_SKIP = { x: 1172, y: 116, w: 300, h: 68 };
 export const GAME_PAUSE_PANEL ={ x: 560, y: 250, w: 480, h: 420 };
 export const GAME_RESUME = { x: 610, y: 340, w: 380, h: 84 };
 export const GAME_RESTART = { x: 610, y: 444, w: 380, h: 84 };
