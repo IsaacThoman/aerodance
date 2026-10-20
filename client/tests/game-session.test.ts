@@ -41,6 +41,7 @@ function fakePlayer(clock: Clock): FakePlayer {
   const player: FakePlayer = {
     state: 'paused',
     ended: false,
+    endMs: song.playableEndMs,
     aheadMs: 0,
     rawTimeMs: () => (player.state === 'playing' ? at(clock.now) + player.aheadMs : positionMs),
     timeMs: () => clamp(player.state === 'playing' ? Math.max(player.rawTimeMs(), playFrom) : positionMs),
@@ -374,6 +375,22 @@ test('pausing once the end of the song is heard lets it finish rather than pausi
   assert.equal(session.phase, 'playing', 'resuming from the end would start the song over');
   step(50 + LATE_ALLOWANCE_MS);
   assert.equal(session.phase, 'results');
+});
+
+test('pausing past the player\'s end (audio a little shorter than the song) finishes rather than starting over', async () => {
+  const clock = { now: 1000 };
+  const player = fakePlayer(clock);
+  // The decoded audio ends 20 ms before the song says it does; the player ends with the audio.
+  player.endMs = song.playableEndMs - 20;
+  const session = new GameSession({ bundle, playerCount: 1, source: fakeSource(), now: () => clock.now, createPlayer: async () => player, autoStart: false });
+  await session.load();
+  session.start();
+  for (let t = 0; t < COUNTDOWN_MS + song.playableEndMs - 10; t += 10) { clock.now += 10; session.update(clock.now); }
+  // Heard past the audio's end, before the player has noticed.
+  assert.equal(player.ended, false);
+  session.pause();
+  assert.equal(session.phase, 'playing', 'resuming would have started the song over from 0');
+  session.dispose();
 });
 
 /**

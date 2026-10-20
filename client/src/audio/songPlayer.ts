@@ -86,7 +86,9 @@ export function drawClock(ctx: AudioClock, tv = () => hostState().tv) {
 // Longest the end of a song waits to be heard after it is rendered, should the clock stall.
 export const LONGEST_TAIL_MS = 5000;
 
-export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange): Promise<SongPlayer> {
+/** untilHeard: false ends as soon as the end is rendered, for a looping preview that nobody is
+ * judged on: waiting for the end to be heard would put the output latency between its loops. */
+export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange, { untilHeard = true } = {}): Promise<SongPlayer> {
   const { ctx, music } = getMixer();
   const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
   const end = Math.min(endMs, buffer.duration * 1000);
@@ -169,7 +171,7 @@ export async function createSongPlayer(blob: Blob, { startMs, endMs }: SongRange
       source.onended = () => {
         if (source !== mine) return;
         stop();
-        tailUntil = performance.now() + LONGEST_TAIL_MS;
+        tailUntil = performance.now() + (untilHeard ? LONGEST_TAIL_MS : 0);
         heard();
       };
       player.state = 'playing';

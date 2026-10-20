@@ -169,7 +169,7 @@ export default function SongSelect({
     props.current.onPreviewChange?.(routine);
     duckMenuMusic(true);
     go('preview');
-    createSongPlayer(bundle.audio, { startMs: song.playableStartMs, endMs: song.playableEndMs })
+    createSongPlayer(bundle.audio, { startMs: song.playableStartMs, endMs: song.playableEndMs }, { untilHeard: false })
       .then((player) => {
         if (st.bundle !== bundle) { player.dispose(); return; }
         st.player = player;

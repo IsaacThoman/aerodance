@@ -119,6 +119,17 @@ test('a song plays until its end is heard, not just rendered (WebKit, 500 ms of 
   assert.equal(audio.sources[1].offset, 0);
 });
 
+test('a looping preview (untilHeard: false) ends when the end is rendered, so no latency goes between its loops', async (t) => {
+  const audio = installFakeAudio(t, { latencyMs: 500 });
+  const player = await createSongPlayer(new Blob([]), SONG, { untilHeard: false });
+  player.play();
+  audio.advance(2030);
+  assert.ok(audio.sources[0].done);
+  assert.equal(player.ended, true, 'ended with the source, not 500 ms later');
+  player.play();
+  assert.equal(audio.sources[1].offset, 0, 'and starts over straight away');
+});
+
 test('a timestamp that already trails (Chrome, the Apple TV app) waits only its own latency, once', async (t) => {
   for (const latencyMs of [20, 210]) {
     await t.test(`${latencyMs} ms`, async (t) => {

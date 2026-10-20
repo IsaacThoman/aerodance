@@ -192,6 +192,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic) NSUInteger serverFailures;        // restarts since the server was last ready, for the backoff
 @property (nonatomic, strong) NSURL *pendingURL;        // a page to load once the server is ready
 @property (nonatomic) NSUInteger loadFailures;          // since a page last loaded, for the backoff
+@property (nonatomic) BOOL retrying;                     // a retryPage load is scheduled
+@property (nonatomic) BOOL reloadWanted;                 // the page was loaded before the server restarted
 @property (nonatomic, strong) nw_listener_t loadServer;  // the server when the page started loading
 @property (nonatomic, weak) UIView *phoneView;
 @property (nonatomic, weak) UIView *tvView;
@@ -296,8 +298,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (void)startServer {
   // While the server was gone another app could have taken the port and answered the loaded
   // page's later requests (lazy scripts) as this origin, which may use the camera. Load the page
-  // afresh from our own server once it's back.
-  if (_web && [self isOurs:_web.URL] && !self.pendingURL) self.pendingURL = _web.URL;
+  // afresh from our own server once it's back (reloadIfWanted), unless a load is on its way.
+  if (_web && [self isOurs:_web.URL] && !self.pendingURL && !self.retrying) self.reloadWanted = YES;
   self.serverState = nw_listener_state_invalid;
   self.server = StartServer(self.root, ^(nw_listener_t listener, nw_listener_state_t state) { [self server:listener changed:state]; });
 }
@@ -308,6 +310,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (state == nw_listener_state_ready) {
     self.serverFailures = 0;
     [self loadPending];
+    [self reloadIfWanted];
   } else if (state == nw_listener_state_failed || state == nw_listener_state_waiting) {
     nw_listener_cancel(listener);
   } else if (state == nw_listener_state_cancelled) {
@@ -346,6 +349,17 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   }];
 }
 
+// The reload after a server restart waits until the player isn't in a song (loading, calibrating,
+// the countdown, playing or paused), which it would throw away.
+- (void)reloadIfWanted {
+  if (!self.reloadWanted || !_web || self.serverState != nw_listener_state_ready) return;
+  NSString *phase = self.page[@"gamePhase"];
+  if (phase && ![@[@"results", @"error"] containsObject:phase]) return;
+  self.reloadWanted = NO;
+  NSLog(@"aerodance: reloading the page from the restarted server");
+  [self loadWhenServerReady:_web.URL];
+}
+
 - (BOOL)isOurs:(NSURL *)url { return [url.host isEqual:@"127.0.0.1"] && url.port.integerValue == Port().integerValue; }
 
 // A page of the game that couldn't load (the server went while the app was suspended, say) loads
@@ -354,7 +368,11 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (void)retryPage:(NSURL *)url because:(NSString *)reason {
   NSTimeInterval delay = MIN(0.5 * pow(2, self.loadFailures++), 10);
   NSLog(@"aerodance: %@ %@; loading it again in %.1f s", url, reason, delay);
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self loadWhenServerReady:url]; });
+  self.retrying = YES;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    self.retrying = NO;
+    [self loadWhenServerReady:url];
+  });
 }
 
 - (void)pageFailed:(NSError *)error {
@@ -379,6 +397,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     return;
   }
   self.loadFailures = 0;
+  self.reloadWanted = NO;  // fresh from our own server
   [self tellPage];
   [self tellPageHost];  // in case it changed while the page was loading
 }
@@ -497,9 +516,11 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 }
 
 // Not every interruption ends with a notification (another app's music can keep the audio), so
-// coming back to the foreground takes the audio back if nothing more important (a call) has it.
+// coming back to the foreground ends it: the audio is taken back if nothing more important (a
+// call) has it, except from music the player started meanwhile, which the next tap stops instead.
 - (void)sceneActivated {
-  if (self.interrupted && [self activateAudio]) self.interrupted = NO;
+  if (!self.interrupted) return;
+  if (AVAudioSession.sharedInstance.otherAudioPlaying || [self activateAudio]) self.interrupted = NO;
 }
 
 - (void)sendKey:(NSString *)key {
@@ -513,7 +534,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (!message.frameInfo.isMainFrame || ![origin.protocol isEqual:@"http"] || ![origin.host isEqual:@"127.0.0.1"] || origin.port != Port().integerValue) return;
   NSDictionary *body = message.body;
   if (![body isKindOfClass:NSDictionary.class]) return;
-  if ([body[@"page"] isKindOfClass:NSDictionary.class]) self.page = body[@"page"];
+  if ([body[@"page"] isKindOfClass:NSDictionary.class]) { self.page = body[@"page"]; [self reloadIfWanted]; }
   if ([body[@"fps"] isKindOfClass:NSNumber.class]) self.fps = [body[@"fps"] doubleValue];
   if ([body[@"storage"] isKindOfClass:NSDictionary.class] && SaveStorage(body[@"storage"])) [self installScripts];
   if ([body[@"restored"] isKindOfClass:NSArray.class] && [body[@"restored"] count]) {
@@ -759,9 +780,10 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   // Over the game the AirPlay button only shows on the main menu, where it doesn't cover play.
   NSDictionary *page = host.page ?: @{};
   BOOL inSong = page[@"gamePhase"] != nil;
-  // The phone mustn't lock from calibration to the results (nobody touches it while dancing), nor
-  // while it's the TV's remote; on the menus it may.
-  UIApplication.sharedApplication.idleTimerDisabled = tv || inSong;
+  // The phone mustn't lock while players get ready and dance (nobody touches it), nor while it's
+  // the TV's remote; paused, on the results and on the menus it may.
+  NSArray *awake = @[@"loading", @"calibrating", @"ready", @"countdown", @"playing", @"finishing"];
+  UIApplication.sharedApplication.idleTimerDisabled = tv || (inSong && [awake containsObject:page[@"gamePhase"]]);
   self.floatingPicker.hidden = tv || inSong || ![page[@"menuScreen"] isEqual:@"main"];
   NSString *screen = page[@"resultsScreen"] ? @"Results"
     : inSong ? [NSString stringWithFormat:@"Song: %@", page[@"gamePhase"]]

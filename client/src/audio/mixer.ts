@@ -22,7 +22,7 @@ import type { SoundSettings } from '../menu/soundSettings.ts';
  * resumes on that gesture. The same goes after an interruption: a phone call, Siri or an
  * alarm stops WebKit's context ('interrupted', a WebKit-only state, or 'suspended'), and
  * WebKit doesn't always start it again afterwards, so the next gesture does (resumeAudio).
- * In the iPhone/iPad app, the end of the interruption (host.ts) tries straight away too.
+ * Not the end of the interruption by itself: iOS may have given the audio to another app's music.
  */
 
 export interface Mixer {

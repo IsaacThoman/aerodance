@@ -141,7 +141,7 @@ test('webcam capture times drive scored gameplay and recordings through the cont
   const bundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null };
   let songStart = 0;
   // Only play and songTimeAt matter here: the test never updates the session.
-  const player: SessionPlayer = { state: 'paused', ended: false, play() { this.state = 'playing'; songStart = f.now; },
+  const player: SessionPlayer = { state: 'paused', ended: false, endMs: bundle.song.playableEndMs, play() { this.state = 'playing'; songStart = f.now; },
     songTimeAt: perf => perf - songStart + bundle.song.playableStartMs, timeMs: () => 0, rawTimeMs: () => 0,
     audioRunning: () => true, pause() {}, seek() {}, dispose() {} };
   const session = new GameSession({ bundle, playerCount: 1, source,

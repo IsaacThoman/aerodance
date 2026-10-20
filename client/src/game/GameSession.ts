@@ -51,7 +51,7 @@ export type GamePhase = 'loading' | 'calibrating' | 'ready' | 'countdown' | 'pla
 /** Per player, for the ready check. */
 export type Readiness = 'missing' | 'calibrating' | 'ready';
 /** The part of a song player (audio/songPlayer.ts) the session drives. */
-export type SessionPlayer = Pick<SongPlayer, 'state' | 'ended' | 'timeMs' | 'rawTimeMs' | 'songTimeAt' | 'audioRunning' | 'play' | 'pause' | 'seek' | 'dispose'>;
+export type SessionPlayer = Pick<SongPlayer, 'state' | 'ended' | 'endMs' | 'timeMs' | 'rawTimeMs' | 'songTimeAt' | 'audioRunning' | 'play' | 'pause' | 'seek' | 'dispose'>;
 /** A song for the stage's reference dancers to follow (StageView). */
 /** The dancers' routine, plus whether the song is audible (StageView pauses with it). */
 export interface SongRoutine extends DancerRoutine {
@@ -250,7 +250,8 @@ export class GameSession {
     const at = this.phase === 'countdown' ? this.resumeFromMs() : this.heardMs();
     // Heard to the end, the song is over (resuming from the end would start it over): it
     // finishes instead.
-    if (player.ended || at >= this.bundle.song.playableEndMs) return;
+    // The player's end, which is earlier than the song's when its audio is a little short.
+    if (player.ended || at >= player.endMs - 1) return;
     this.pausedEntranceMs = this.entranceTimeMs();
     player.pause();
     player.seek(at);
