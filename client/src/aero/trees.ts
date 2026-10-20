@@ -80,50 +80,38 @@ function outlineBlob(blobs: Blob[]) {
   const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()), r = Math.max(size.x, size.z) / 2;
   return blob(c.x, c.y, c.z, r, size.y / 2 / r, blobs[0][5], 0);
 }
-/**
- * A canopy of blobs at each detail level: icosphere detail `top`, then one and none (never finer
- * than top). Lean (the TV tier): one, none, then a single blob for the whole canopy.
- */
-function blobCanopy(blobs: Blob[], top: number, lean: boolean) {
-  const byDetail = new Map<number, THREE.BufferGeometry>();
-  return LEVELS.map((level) => {
-    if (lean && level === 2) return outlineBlob(blobs);
-    const det = Math.min(top, lean ? 1 - level : 2 - level);
-    let g = byDetail.get(det);
-    if (!g) byDetail.set(det, g = canopyMerge(blobs.map((b) => blob(...b, det))));
-    return g;
-  });
+/** A canopy of blobs at each detail level: icosphere detail one, then none, then a single blob for the whole canopy. */
+function blobCanopy(blobs: Blob[]) {
+  return LEVELS.map((level) => level === 2 ? outlineBlob(blobs) : canopyMerge(blobs.map((b) => blob(...b, 1 - level))));
 }
 const trunkLevels = (h: number, r0: number, r1: number, branches: [number, number, number, number][] = []) => LEVELS.map((level) => trunkGeo(h, r0, r1, branches, level));
 
 function makeRound(ctx: AeroContext, seed: number): TreeVariant {
   const { R, RI } = ctx.random;
-  const small = ctx.quality.small, detail = small ? 1 : 2;
   const blobs: Blob[] = [], br: [number, number, number, number][] = [];
-  blobs.push([0, 3.0, 0, 1.25, 0.88, seed]); skipLeafRandom(ctx, (small ? 10 : 18) * 6);
+  blobs.push([0, 3.0, 0, 1.25, 0.88, seed]); skipLeafRandom(ctx, 18 * 6);
   const n = RI(6, 8);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + R(-0.3, 0.3), rr = R(0.75, 0.95), y = R(2.45, 3.7), r = R(0.62, 0.92);
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-    blobs.push([x, y, z, r, 0.85, seed + i * 7.1]); skipLeafRandom(ctx, (small ? 5 : 9) * 6);
+    blobs.push([x, y, z, r, 0.85, seed + i * 7.1]); skipLeafRandom(ctx, 9 * 6);
     if (i % 2 === 0) br.push([x * 0.6, y - 0.5, z * 0.6, 1.5]);
   }
-  return { trunk: trunkLevels(2.2, 0.2, 0.12, br), canopy: blobCanopy(blobs, detail, ctx.quality.leanTrees), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.32, 0.45)) };
+  return { trunk: trunkLevels(2.2, 0.2, 0.12, br), canopy: blobCanopy(blobs), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.32, 0.45)) };
 }
 function makePoplar(ctx: AeroContext, seed: number): TreeVariant {
   const { R } = ctx.random;
-  const small = ctx.quality.small, detail = small ? 1 : 2;
   const blobs: Blob[] = [];
   [[2.0, 0.7], [2.9, 0.78], [3.8, 0.68], [4.6, 0.5], [5.2, 0.3]].forEach(([y, r], i) => {
     blobs.push([R(-0.1, 0.1), y, R(-0.1, 0.1), r, 1.35, seed + i * 3.3]);
-    skipLeafRandom(ctx, (small ? 5 : 9) * 6);
+    skipLeafRandom(ctx, 9 * 6);
   });
-  return { trunk: trunkLevels(1.6, 0.16, 0.1), canopy: blobCanopy(blobs, detail, ctx.quality.leanTrees), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.36, 0.48)) };
+  return { trunk: trunkLevels(1.6, 0.16, 0.1), canopy: blobCanopy(blobs), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.36, 0.48)) };
 }
-/** Five tiers of cones; lean (the TV tier) shifts the levels one coarser and ends with three plain tiers. */
-function coniferCanopy(seed: number, level: Level, lean = false) {
+/** Five tiers of cones, from the second coarsest at the nearest level; the furthest is three plain tiers. */
+function coniferCanopy(seed: number, level: Level) {
   const tiers: THREE.BufferGeometry[] = [];
-  const at = Math.min(2, level + (lean ? 1 : 0)), single = lean && level === 2;
+  const at = Math.min(2, level + 1), single = level === 2;
   for (let i = 0; i < 5; i += single ? 2 : 1) {
     let g: THREE.BufferGeometry = new THREE.ConeGeometry((1.55 - i * 0.28) * (single ? 1.05 : 1), single ? 2.4 : 2.0, single ? 4 : [11, 7, 5][at], [3, 2, 1][at], false);
     g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g);
@@ -141,7 +129,7 @@ function coniferCanopy(seed: number, level: Level, lean = false) {
 }
 function makeConifer(ctx: AeroContext, seed: number): TreeVariant {
   const { R } = ctx.random;
-  return { trunk: trunkLevels(1.4, 0.2, 0.12), canopy: LEVELS.map((level) => coniferCanopy(seed, level, ctx.quality.leanTrees)), tint: () => hsl(R(0.36, 0.42), R(0.45, 0.6), R(0.22, 0.32)) };
+  return { trunk: trunkLevels(1.4, 0.2, 0.12), canopy: LEVELS.map((level) => coniferCanopy(seed, level)), tint: () => hsl(R(0.36, 0.42), R(0.45, 0.6), R(0.22, 0.32)) };
 }
 // Lighter variants for trees only seen from a distance: coarse canopies.
 function makeRoundFar(ctx: AeroContext, seed: number): TreeVariant {
@@ -151,12 +139,12 @@ function makeRoundFar(ctx: AeroContext, seed: number): TreeVariant {
     const a = (i / 4) * TAU + R(-0.3, 0.3);
     blobs.push([Math.cos(a) * 0.8, R(2.5, 3.4), Math.sin(a) * 0.8, R(0.75, 0.95), 0.85, seed + i * 7.1]);
   }
-  return { trunk: trunkLevels(2.2, 0.2, 0.12), canopy: blobCanopy(blobs, 1, ctx.quality.leanTrees), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.3, 0.43)) };
+  return { trunk: trunkLevels(2.2, 0.2, 0.12), canopy: blobCanopy(blobs), tint: () => hsl(R(0.23, 0.32), R(0.55, 0.75), R(0.3, 0.43)) };
 }
 function makePoplarFar(ctx: AeroContext, seed: number): TreeVariant {
   const { R } = ctx.random;
   const blobs = [[2.2, 0.75], [3.4, 0.72], [4.5, 0.5]].map(([y, r], i): Blob => [0, y, 0, r, 1.4, seed + i * 3.3]);
-  return { trunk: trunkLevels(1.6, 0.16, 0.1), canopy: blobCanopy(blobs, 1, ctx.quality.leanTrees), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.34, 0.46)) };
+  return { trunk: trunkLevels(1.6, 0.16, 0.1), canopy: blobCanopy(blobs), tint: () => hsl(R(0.22, 0.28), R(0.6, 0.8), R(0.34, 0.46)) };
 }
 
 export interface TreeLists {
@@ -278,7 +266,7 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
     }
     // Woods where a low-frequency noise field is high, copses on their fringes, lone trees elsewhere.
     const clump = (x: number, z: number) => noise3(x * 0.0045, 0, z * 0.0045) * 0.7 + noise3(x * 0.017 + 40, 0, z * 0.017) * 0.3;
-    const target = Math.round(5200 * ctx.quality.Q);
+    const target = 5200;
     for (let i = 0; i < 60000 && FTREES.length < target; i++) {
       const x = R(-2400, 2400), z = 150 + R(-2400, 2400), c = clump(x, z);
       if (c > 0.64) add(x, z, R(3, 5.5), woodKind(x, z));
@@ -291,7 +279,7 @@ export function buildTrees(ctx: AeroContext, path: FlightPath, { city: TREES, di
   // The culled, simplified copy. Close up, trunk and canopy as modelled; further away, one
   // coarser mesh with both (the trunk untinted); furthest, one mesh per kind of tree, since
   // the variants can't be told apart there.
-  const field = new TreeField(160, ctx.quality.treeLod);
+  const field = new TreeField(160, { near: 50, far: 200 });
   const coarseMat = canopyMat.clone();
   coarseMat.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader

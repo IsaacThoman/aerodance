@@ -74,7 +74,7 @@ export default function PhoneApp() {
     <div className="canvas-frame phone">
       <Canvas dpr={1} flat camera={{ fov: 66, near: 0.3, far: 6500 }}>
         <PhoneRenderResolution />
-        <AeroWorld speed={0.6} quality="low" fps={15} paused={dimmed} />
+        <AeroWorld speed={0.6} fps={15} paused={dimmed} />
         <PhoneReflection visible={linked && !dim && mode === 'mirror'} link={link} playerCount={view.playerCount} />
         <PhoneScreen link={link} view={view} camera={camera} mode={mode} onMode={setMode} dim={dimmed} onDim={setDim} />
       </Canvas>

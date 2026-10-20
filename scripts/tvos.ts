@@ -139,7 +139,7 @@ async function build(sim: boolean, game: boolean, release: boolean, site = SITE,
   }
   await copyFonts();
   writeFileSync(path.join(www, 'config.json'), JSON.stringify(game
-    ? { script: 'game.js', url: `http://aerodance.local/?${ghost ? 'input=ghost&' : ''}quality=tv`, site, fit: 'fill', pixelated: true }
+    ? { script: 'game.js', url: `http://aerodance.local/${ghost ? '?input=ghost' : ''}`, site, fit: 'fill', pixelated: true }
     : { script: 'bench/aero-bench.js', url: 'http://aerodance.local/bench/aero-bench.html', fit: 'contain' }));
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
   const env = { ...process.env, TVOS_TEAM_ID: TEAM_ID, TVOS_BUNDLE_ID: BUNDLE_ID };

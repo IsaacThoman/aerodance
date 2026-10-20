@@ -9,7 +9,8 @@ in October 2026.
 [`client-tvos/`](../client-tvos/README.md) runs the production game's own JavaScript in
 the public JavaScriptCore framework, with WebGL 2 implemented on OpenGL ES 3.0 and the 2D canvas
 on CoreGraphics. It uses public APIs only, so it can go through App Review. With the `tv` quality
-tier (`?quality=tv`, which the app opens) it holds 60 fps on every screen:
+tier, which has since become the game's only graphics setting everywhere, it holds 60 fps on
+every screen:
 
 | Screen | fps | p95 frame | JavaScript per frame | Draws |
 | --- | --- | --- | --- | --- |

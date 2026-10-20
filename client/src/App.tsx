@@ -15,7 +15,7 @@ import { recordResults } from './game/bestScores.ts';
 import { PLAYERS, winnerOf } from './game/results.ts';
 import type { ResultsShow } from './game/results.ts';
 import StageView from './stage/StageView.tsx';
-import { diagnostic, tv } from './quality.ts';
+import { diagnostic } from './diagnostics.ts';
 import type { StageState } from './stage/StageView.tsx';
 import type { LiveDancers } from './stage/LivePanels.tsx';
 import type { LoadedSongBundle } from './songs/loadBundle.ts';
@@ -177,7 +177,7 @@ export default function App() {
 
   return (
     <div className="canvas-frame display">
-      <Canvas dpr={1} flat gl={{ antialias: !tv }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
+      <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
         <FixedRenderResolution />
         <Scene paused={stage.showing} />
         <StageView

@@ -1,42 +1,6 @@
 import * as THREE from 'three';
 import { createWorldRandom, type WorldRandom } from './random.ts';
-import type { TreeLod } from './treeField.ts';
-import type { AeroPart, AeroQuality } from './types.ts';
 import { col } from './util.ts';
-
-export interface QualitySettings {
-  /** Low quality: phones/coarse pointers or quality 'low'. */
-  small: boolean;
-  /** Scale for instance counts. */
-  Q: number;
-  /** Halved with prefers-reduced-motion. */
-  motionMul: number;
-  /** Where the trees get coarser (treeField.ts). */
-  treeLod: TreeLod;
-  /** Coarser tree models at every distance (the TV tier). */
-  leanTrees: boolean;
-  /** The lake's reflection: texture size, refreshes a second, and parts of the world it leaves out. */
-  reflection: { size: number; fps: number; skip: readonly AeroPart[] };
-}
-
-export function resolveQuality(quality: AeroQuality): QualitySettings {
-  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  const small = quality === 'low' || (quality === 'auto' && coarse);
-  const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const motionMul = reduceMotion ? 0.5 : 1;
-  // TV: high's world, with coarser distant trees and a cheaper reflection.
-  if (quality === 'tv') {
-    return {
-      small: false, Q: 1, motionMul, treeLod: { near: 50, far: 200 }, leanTrees: true,
-      reflection: { size: 256, fps: 20, skip: ['lamps', 'traffic', 'bubbles', 'birds', 'butterflies', 'sparkles', 'grass', 'flowers', 'tulips', 'windmills'] },
-    };
-  }
-  return {
-    small, Q: small ? 0.55 : 1, motionMul,
-    treeLod: small ? { near: 100, far: 320 } : { near: 140, far: 450 }, leanTrees: false,
-    reflection: { size: small ? 256 : 512, fps: 30, skip: [] },
-  };
-}
 
 export const FOG_BASE = col('#cfeaff'), FOG_WHITE = col('#f4f9ff'), FOG_DENSITY = 0.00032;
 
@@ -51,7 +15,6 @@ export interface AeroContext {
   readonly root: THREE.Group;
   readonly fog: THREE.FogExp2;
   readonly random: WorldRandom;
-  readonly quality: QualitySettings;
   readonly sun: THREE.Vector3;
   /** Shared shader clock (seconds). */
   readonly time: THREE.IUniform<number>;
@@ -78,7 +41,6 @@ export interface ContextOptions {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  quality: QualitySettings;
 }
 
 type Drawable = THREE.Mesh | THREE.Points | THREE.Line | THREE.Sprite;
@@ -86,7 +48,7 @@ const isDrawable = (o: THREE.Object3D): o is Drawable =>
   o instanceof THREE.Mesh || o instanceof THREE.Points || o instanceof THREE.Line || o instanceof THREE.Sprite;
 
 /** Takes over the renderer, scene and camera settings the world needs. */
-export function createAeroContext({ renderer, scene, camera, quality }: ContextOptions): AeroContext {
+export function createAeroContext({ renderer, scene, camera }: ContextOptions): AeroContext {
   const prev = {
     autoClear: renderer.autoClear, toneMapping: renderer.toneMapping,
     shadow: renderer.shadowMap.enabled, shadowType: renderer.shadowMap.type, shadowAuto: renderer.shadowMap.autoUpdate,
@@ -160,7 +122,7 @@ export function createAeroContext({ renderer, scene, camera, quality }: ContextO
   }
 
   return {
-    renderer, scene, camera, root, fog, quality, tex, texArray, disposables, dispose, moving: [],
+    renderer, scene, camera, root, fog, tex, texArray, disposables, dispose, moving: [],
     // The main random stream is fixed so the scene looks the same every load.
     random: createWorldRandom(20261010),
     sun: new THREE.Vector3(0.45, 0.5, -0.74).normalize(),

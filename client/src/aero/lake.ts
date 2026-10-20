@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Water } from 'three/addons/objects/Water.js';
 import type { CityBuilder } from './cityBuilder.ts';
 import type { AeroContext } from './context.ts';
+import type { AeroPart } from './types.ts';
 import { createLakeNormalPixels, type LakeWave } from './lakeNormals.ts';
 import { ReflectionRefresh } from './reflectionRefresh.ts';
 import { TAU, canvas2d, col } from './util.ts';
@@ -139,12 +140,16 @@ export interface Lake {
   unreflected: THREE.Object3D[];
 }
 
+/** Parts of the world left out of the lake's reflection: small things the rippled water blurs away anyway. */
+export const UNREFLECTED: readonly AeroPart[] = ['lamps', 'traffic', 'bubbles', 'birds', 'butterflies', 'sparkles', 'grass', 'flowers', 'tulips', 'windmills'];
+/** The reflection's texture size, and how many times a second it refreshes. */
+const REFLECTION_SIZE = 256, REFLECTION_FPS = 20;
+
 /** The reflective lake and its boats. */
 export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THREE.Material): Lake {
-  const { size, fps } = ctx.quality.reflection;
   const lakeGeo = new THREE.PlaneGeometry(2400, 220);
   const water = new Water(lakeGeo, {
-    textureWidth: size, textureHeight: size,
+    textureWidth: REFLECTION_SIZE, textureHeight: REFLECTION_SIZE,
     waterNormals: lakeNormals(ctx), sunDirection: ctx.sun.clone(), sunColor: 0xffffff,
     waterColor: 0x0a5aa8, distortionScale: 1.4, fog: true,
   });
@@ -154,7 +159,7 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   ctx.root.add(water);
   // Skip the reflection pass while the drone is down in the meadow, where the lake is hidden.
   const reflect = water.onBeforeRender;
-  const refresh = new ReflectionRefresh(fps);
+  const refresh = new ReflectionRefresh(REFLECTION_FPS);
   let elapsed = 0;
   water.onBeforeRender = (r, sc, cam, geo, mat, group) => {
     if (lake.reflect && (cam.position.z < 280 || cam.position.y > 60) && refresh.shouldRefresh(elapsed, cam)) {
