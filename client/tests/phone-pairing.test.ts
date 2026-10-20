@@ -70,7 +70,7 @@ test('a phone pairs with the game, tracks for it on the game’s clock, reconnec
   await host.connect();
   const pairing = await until(() => host.view.pairing, 'a pairing code');
   assert.equal(host.view.status, 'connecting');
-  assert.equal(pairing.url, `https://game.test/phone/#${pairing.code}`);
+  assert.equal(pairing.url, `https://game.test/pair/#${pairing.code}`);
   assert.equal(linkCode(new URL(pairing.url)), pairing.code);
 
   await phone.join(pairing.code);
@@ -260,9 +260,9 @@ test('the phone names itself and reads its code from the link', () => {
   assert.equal(deviceName('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'), 'iPhone');
   assert.equal(deviceName('Mozilla/5.0 (Linux; Android 15; Pixel 9) Mobile Safari'), 'Android phone');
   assert.equal(deviceName('Mozilla/5.0 (X11; Linux x86_64)'), 'Phone');
-  assert.equal(linkCode(new URL('https://a.test/phone/#123456')), '123456');
-  assert.equal(linkCode(new URL('https://a.test/phone/?code=654321')), '654321');
-  assert.equal(linkCode(new URL('https://a.test/phone/#12345')), '');
+  assert.equal(linkCode(new URL('https://a.test/pair/#123456')), '123456');
+  assert.equal(linkCode(new URL('https://a.test/pair/?code=654321')), '654321');
+  assert.equal(linkCode(new URL('https://a.test/pair/#12345')), '');
 });
 
 test('a phone answers only the newest offer, and the game gives up on a phone that left mid-connection', async (t) => {

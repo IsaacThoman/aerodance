@@ -13,6 +13,10 @@ export type FallSheet = Omit<FallSite, 'foot'>;
 /** A free-floating mist puff: centre, [size, rise, phase, rate] and width/height ratio. */
 export interface MistWisp { c: Vec3; p: [size: number, rise: number, phase: number, rate: number]; aspect?: number }
 
+// All of this water is far behind the stage, so it draws before the glass dancers
+// (renderOrder 0). They don't write depth, so anything drawn after them paints over them.
+const ORDER = { lake: -5, river: -4, falls: -3, mist: -2, rainbow: -1 };
+
 // Lake depth-texture footprint: [minX, minZ, sizeX, sizeZ].
 type Box = [x: number, z: number, w: number, d: number];
 
@@ -130,7 +134,7 @@ export function Lake() {
       `,
     });
   }, [depth, sites, box]);
-  return <mesh geometry={geometry} material={material} renderOrder={-2} />;
+  return <mesh geometry={geometry} material={material} renderOrder={ORDER.lake} />;
 }
 
 // ----------------------------------------------------------------- river
@@ -208,7 +212,7 @@ export function River() {
         `,
       }),
   );
-  return <mesh geometry={geometry} material={material} renderOrder={-1} />;
+  return <mesh geometry={geometry} material={material} renderOrder={ORDER.river} />;
 }
 
 // ------------------------------------------------------------- waterfalls
@@ -332,7 +336,7 @@ export function Waterfalls({ sites }: { sites: FallSheet[] }) {
         premultipliedAlpha: true,
       }),
   );
-  return <mesh geometry={geometry} material={material} renderOrder={2} frustumCulled={false} />;
+  return <mesh geometry={geometry} material={material} renderOrder={ORDER.falls} frustumCulled={false} />;
 }
 
 // ------------------------------------------------------------------ mist
@@ -433,7 +437,7 @@ export function Mist({ sites, extra = NO_WISPS }: MistProps) {
         `,
       }),
   );
-  return <mesh geometry={geometry} material={material} renderOrder={3} frustumCulled={false} />;
+  return <mesh geometry={geometry} material={material} renderOrder={ORDER.mist} frustumCulled={false} />;
 }
 
 // --------------------------------------------------------------- rainbow
@@ -503,5 +507,5 @@ export function Rainbow({ center = [-6, -56, -176], radius = 76, start = 98, end
     [start, end],
   );
   // An upright plane facing +z, toward the camera.
-  return <mesh geometry={geometry} material={material} position={center} renderOrder={4} frustumCulled={false} />;
+  return <mesh geometry={geometry} material={material} position={center} renderOrder={ORDER.rainbow} frustumCulled={false} />;
 }

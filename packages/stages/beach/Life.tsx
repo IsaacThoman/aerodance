@@ -32,6 +32,11 @@ interface CrossingGull {
 
 type Gull = CirclingGull | CrossingGull;
 
+// The dolphins' spray and the glints on the sun's path are far out on the water, so they
+// draw before the glass dancers (renderOrder 0). They don't write depth, so anything drawn
+// after them paints over them.
+const ORDER = { drops: -2, sparkles: -1 };
+
 // Gulls: circling over the shallows, gliding high, and crossing near the lens.
 const GULLS = (() => {
   const rand = makeRandom(91);
@@ -207,7 +212,7 @@ function Dolphins() {
   return (
     <>
       <instancedMesh ref={mesh} args={[geometry, material, DOLPHINS.length]} frustumCulled={false} />
-      <points ref={drops} geometry={dropGeo} material={dropMat} frustumCulled={false} renderOrder={8} />
+      <points ref={drops} geometry={dropGeo} material={dropMat} frustumCulled={false} renderOrder={ORDER.drops} />
     </>
   );
 }
@@ -338,7 +343,7 @@ function Sparkles({ count = 80 }: CountProps) {
   useFrame(() => {
     material.uniforms.uPulse.value = beat.pulse;
   });
-  return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={9} />;
+  return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={ORDER.sparkles} />;
 }
 
 export function Life() {
