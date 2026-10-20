@@ -12,7 +12,7 @@ import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
 import { APP_ICONS, SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
-import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ThumbnailWindow } from './shots.ts';
+import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ShotPanel, ThumbnailWindow } from './shots.ts';
 
 /*
  * Renders one thumbnail in-engine: a dance stage, the two captured dancers holding a pose,
@@ -112,13 +112,30 @@ function makeLogo(logo: ShotLogo, buffer: FrameBuffer) {
 }
 
 // Captures the scene around `at` (without the dancers) as the reflections it gives, in place of
-// the stage's environment map, at `brightness`.
-function reflectScene(gl: THREE.WebGLRenderer, scene: THREE.Scene, dancers: THREE.Object3D, at: Vec3, brightness: number) {
+// the stage's environment map, at `brightness`, with soft light panels added to it alone.
+function reflectScene(gl: THREE.WebGLRenderer, scene: THREE.Scene, dancers: THREE.Object3D, at: Vec3, brightness: number,
+  panels: readonly ShotPanel[] = []) {
   const pmrem = new THREE.PMREMGenerator(gl);
+  const plane = new THREE.PlaneGeometry(1, 1);
+  const softboxes = panels.map(({ from, size, color = '#ffffff', intensity }) => {
+    // Brighter by 1 / brightness, which the environment's intensity takes back off.
+    const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity / brightness), side: THREE.DoubleSide, fog: false });
+    const mesh = new THREE.Mesh(plane, material);
+    mesh.position.set(at[0] + from[0], at[1] + from[1], at[2] + from[2]);
+    mesh.scale.set(size[0], size[1], 1);
+    mesh.lookAt(...at);
+    scene.add(mesh);
+    return mesh;
+  });
   dancers.visible = false;
   // Far enough for the sky dome; the same blur as the stages' own environment maps.
   const target = pmrem.fromScene(scene, 0.04, 0.1, 10000, { position: new THREE.Vector3(...at) });
   dancers.visible = true;
+  for (const mesh of softboxes) {
+    scene.remove(mesh);
+    (mesh.material as THREE.Material).dispose();
+  }
+  plane.dispose();
   pmrem.dispose();
   scene.environment = target.texture;
   scene.environmentIntensity = brightness;
@@ -421,7 +438,7 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
         }
         if (shot.reflections !== undefined) {
           if (!dancers.current) throw new Error('The dancers are missing');
-          reflectScene(gl, scene, dancers.current, shot.camera.target, shot.reflections);
+          reflectScene(gl, scene, dancers.current, shot.camera.target, shot.reflections, shot.panels);
           advance(frames * STEP); // the same frame again, with them
         }
         const plain = readFrame(gl, buffer);

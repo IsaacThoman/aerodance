@@ -31,6 +31,9 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *   reflections: the dancers reflect the scene around them, captured in-engine at the camera's
  *     target with them hidden, at this brightness (1 as lit), instead of the stage's environment
  *     map: e.g. as dark as a back layer's exposure
+ *   panels: with reflections, soft light panels the dancers reflect too, like a studio's softboxes:
+ *     each at `from` (relative to the camera's target) facing it, `size` [w, h], and `intensity`
+ *     its brightness in the reflections, whatever their brightness: { from, size, color?, intensity }
  */
 export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
 export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; stacked?: boolean; outline?: number; halo?: number; light?: 200 | 300 | 400; }
@@ -69,7 +72,9 @@ export interface Shot {
   format?: ShotFormat;
   layers?: readonly ShotLayer[];
   reflections?: number;
+  panels?: readonly ShotPanel[];
 }
+export interface ShotPanel { from: Vec3; size: readonly [w: number, h: number]; color?: string; intensity: number; }
 
 /** One capture read back from the page: base64 RGBA, top row first. */
 export interface ThumbnailFrame {
@@ -107,6 +112,8 @@ const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
   optionalBoolean(v.dancers) && optionalBoolean(v.seeThrough) && optionalBoolean(v.wordmark) && optionalBoolean(v.hidden) && optionalNumber(v.blur) && optionalNumber(v.exposure) &&
   (v.dancerParts === undefined || v.dancerParts === 'body' || v.dancerParts === 'hands');
+const isPanel = (v: unknown): v is ShotPanel => isFields(v) && isVec3(v.from) && isNumber(v.intensity) &&
+  Array.isArray(v.size) && v.size.length === 2 && v.size.every(isNumber) && (v.color === undefined || typeof v.color === 'string');
 // Each rendered layer shows everything the one behind it does (see ShotLayer); one wordmark at most.
 const isLayerStack = (v: unknown) => {
   if (!Array.isArray(v) || !v.every(isLayer) || v.filter((layer) => layer.wordmark).length > 1) return false;
@@ -119,7 +126,8 @@ export function assertShot(shot: unknown): asserts shot is Shot {
   if (!isFields(shot) || typeof shot.id !== 'string' || !isStageId(shot.stage) || !isNumber(shot.time) || !isNumber(shot.pose) ||
       !isCamera(shot.camera) || !(shot.dancers === undefined || isDancers(shot.dancers)) || !(shot.logo === undefined || isLogo(shot.logo)) ||
       !(shot.format === undefined || shot.format === 'thumbnail' || shot.format === 'tv-icon' || shot.format === 'app-icon') ||
-      !(shot.layers === undefined || isLayerStack(shot.layers)) || !optionalNumber(shot.reflections)) {
+      !(shot.layers === undefined || isLayerStack(shot.layers)) || !optionalNumber(shot.reflections) ||
+      !(shot.panels === undefined || (shot.reflections !== undefined && Array.isArray(shot.panels) && shot.panels.every(isPanel)))) {
     throw new Error(`Invalid shot: ${JSON.stringify(shot)}`);
   }
 }
@@ -415,14 +423,25 @@ const GLASS_PORTRAIT: Omit<Shot, 'id'> = {
     { name: 'hands', near: 1, dancers: true, dancerParts: 'hands', seeThrough: true },
   ],
 };
-const DARK = 0.02;
 export const APP_ICONS: readonly Shot[] = [
   // Against the Apple TV icon's soft sky.
   { ...GLASS_PORTRAIT, id: 'portrait-purple-sky-glass', layers: [{ name: 'sky', near: 800, blur: 7 }, ...GLASS_PORTRAIT.layers ?? []] },
   // The same sky rendered with a fiftieth of the light: near black, for a dark icon. She reflects
-  // the scene just as dark, so her glass doesn't keep the bright daytime rim.
-  { ...GLASS_PORTRAIT, id: 'portrait-dark-sky-glass', reflections: DARK,
-    layers: [{ name: 'sky', near: 800, blur: 7, exposure: DARK }, ...GLASS_PORTRAIT.layers ?? []] },
+  // the scene just as dark (twice as bright, so she isn't lost in it) instead of the bright daytime
+  // around her, and a studio's softboxes light her: a strip above and behind for a rim, a broad one
+  // overhead, a key light up front to her left, and a faint fill below. Her glow stays the brightest.
+  {
+    ...GLASS_PORTRAIT,
+    id: 'portrait-dark-sky-glass',
+    reflections: 0.04,
+    panels: [
+      { from: [0, 3, -3], size: [6, 2.5], intensity: 1.4 },
+      { from: [0, 4, 0], size: [9, 7], intensity: 1.4 },
+      { from: [1.5, 2.5, 3], size: [5, 5], intensity: 1.2 },
+      { from: [0, -0.5, 4], size: [8, 2.5], intensity: 0.4 },
+    ],
+    layers: [{ name: 'sky', near: 800, blur: 7, exposure: 0.02 }, ...GLASS_PORTRAIT.layers ?? []],
+  },
   // Against nothing: transparent, for putting on a background of your own.
   { ...GLASS_PORTRAIT, id: 'portrait-transparent-bg' },
 ];
