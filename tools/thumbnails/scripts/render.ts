@@ -136,7 +136,14 @@ const server = await preview({ configFile: config, logLevel: 'warn', build: { ou
 const base = server.resolvedUrls?.local[0];
 if (!base) throw new Error('The preview server has no local URL');
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--ignore-gpu-blocklist', '--enable-gpu'] });
+// CHROMIUM_PATH picks another Chromium build when Google Chrome isn't installed; on a Mac it
+// needs ANGLE's Metal backend, or headless Chromium falls back to SwiftShader.
+const executablePath = process.env.CHROMIUM_PATH;
+const browser = await chromium.launch({
+  ...(executablePath ? { executablePath } : { channel: 'chrome' }),
+  headless: true,
+  args: ['--ignore-gpu-blocklist', '--enable-gpu', ...(executablePath && process.platform === 'darwin' ? ['--use-angle=metal'] : [])],
+});
 const context = await browser.newContext({ viewport: { width: 1080, height: 720 }, deviceScaleFactor: 1, reducedMotion: 'no-preference' });
 
 let failed = 0;
