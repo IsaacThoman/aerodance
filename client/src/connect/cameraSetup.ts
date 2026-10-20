@@ -1,18 +1,16 @@
-import { FONT, ICONS, drawDisc, drawPill, ellipsize, text } from '../ui/draw.ts';
+import { FONT, ICONS, drawDisc, ellipsize, text } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
-import { MODELS } from '../../../packages/pose/browser/models.ts';
 import type { WebcamStatus } from '../../../packages/pose/browser/WebcamPoseSource.ts';
-import { PHONE_CAMERA } from '../pose/CameraInput.ts';
+import { NO_CAMERA, PHONE_CAMERA } from '../pose/CameraInput.ts';
 import { hostState } from '../host.ts';
 import type { CameraInput, CameraInputView } from '../pose/CameraInput.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 
 /**
  * The calibration screen's camera controls: the camera arrows (this computer's cameras, then
- * the phone), laid out by CameraLayout. The screen adds cameraWidgets() to its widgets and hands
- * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()). The
- * phone page draws its Lite / Full / Heavy tracking buttons with drawModelPicker().
+ * the phone and No camera), laid out by CameraLayout. The screen adds cameraWidgets() to its widgets and hands
+ * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()).
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
  * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg);
@@ -23,8 +21,6 @@ export interface CameraLayout {
   /** The camera arrows; the camera's name sits between them. */
   prev: Rect;
   next: Rect;
-  /** One per tracking model, in MODELS order (drawModelPicker). */
-  models?: readonly Rect[];
 }
 export type CameraWidget = Widget & { cameraDelta?: number };
 
@@ -47,6 +43,8 @@ export class CameraSetup {
   active() { return ACTIVE.includes(this.target().connection.status); }
   /** The phone is the chosen camera. */
   phone() { return this.target().connection.sourceKind === 'phone'; }
+  /** No camera is chosen: the song plays without one. */
+  none() { return this.target().connection.cameraId === NO_CAMERA.deviceId; }
   /** The code and link to show while waiting for a phone to pair. */
   pairing() {
     const { connection } = this.target();
@@ -77,7 +75,7 @@ export class CameraSetup {
       // Default camera stands in for this computer's cameras until the browser names them. After
       // that it is one of them (a running default camera takes on its id), so it would come round twice.
       const known = connection.cameras || [];
-      const cameras = known.some(camera => camera.deviceId !== PHONE_CAMERA.deviceId) ? known : [DEFAULT_CAMERA, ...known];
+      const cameras = known.some(camera => ![PHONE_CAMERA.deviceId, NO_CAMERA.deviceId].includes(camera.deviceId)) ? known : [DEFAULT_CAMERA, ...known];
       const index = cameras.findIndex(camera => camera.deviceId === connection.cameraId);
       // From a camera that isn't listed (the default one, or one unplugged), Right goes to the first, Left to the last.
       const next = index < 0 ? (wdg.cameraDelta > 0 ? 0 : cameras.length - 1) : index + wdg.cameraDelta;
@@ -113,12 +111,4 @@ export function drawCameraPicker(g: CanvasRenderingContext2D, layout: CameraLayo
   const left = prev.x + prev.w;
   g.font = `700 24px ${FONT}`;
   text(g, ellipsize(g, camera?.label || DEFAULT_CAMERA.label, next.x - left - 40), (left + next.x) / 2, prev.y + prev.h / 2, { size: 24, align: 'center' });
-}
-
-/** A button per tracking model; the chosen one is marked. */
-export function drawModelPicker(g: CanvasRenderingContext2D, { models }: CameraLayout, connection: PoseInputView, hover: Record<string, number>) {
-  if (!models) return;
-  MODELS.forEach((model, i) => drawPill(g, models[i], {
-    label: `${connection.model === model.id ? '● ' : ''}${model.label}`, icon: 'gear', hover: hover[`model-${model.id}`] ?? 0,
-  }));
 }

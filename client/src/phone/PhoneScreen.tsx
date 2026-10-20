@@ -1,18 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, drawCaps, drawGlassCircle, drawGlassPanel, drawPill, drawStatusDot, drawTitle, ellipsize, paragraph, roundRect, text,
+  FONT, ICONS, NAVY, drawGlassCircle, drawGlassPanel, drawPill, drawStatusDot, drawTitle, ellipsize, paragraph, roundRect, text,
 } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
-import { drawModelPicker } from '../connect/cameraSetup.ts';
 import { phoneDesign, phoneLayout } from './layout.ts';
 import type { PhoneLayout } from './layout.ts';
 import type { PhoneLink, PhoneLinkView } from './PhoneLink.ts';
 import { CODE_DIGITS, codeDigits } from '../../../packages/pairing/signals.ts';
-import { MODELS } from '../../../packages/pose/browser/models.ts';
-import type { PoseModelId } from '../../../packages/pose/browser/models.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
 import type { WebcamStatus, WebcamView } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 
@@ -21,30 +18,29 @@ import type { WebcamStatus, WebcamView } from '../../../packages/pose/browser/We
  *
  *   code      a keypad for the code on the game's screen (a QR code's link skips it)
  *   joining / linking   what's happening, and Cancel
- *   linked    setup: the preview (the camera's picture with the tracked skeletons, or the
- *             players' glass characters as a mirror, drawn by PhoneReflection under this
- *             overlay), Video / Mirror / Flip camera, the tracking model, and Ready, which
- *             dims the screen to save battery while the phone tracks (tap to wake)
+ *   linked    setup: the preview (the camera's picture with the tracked skeletons), which
+ *             camera (front, back, ultra wide…: PhoneApp lays the page's own list over the
+ *             button), and Ready, which dims the screen to save battery while the phone
+ *             tracks (tap to wake)
  *   ended     why, and a way to enter another code
  *
- * The canvas reports data-phone-stage / -ready / -camera-status / -dim / -mode / -video (sending
- * the game its picture) for tests.
+ * The canvas reports data-phone-stage / -ready / -camera-status / -camera (the chosen camera's
+ * name) / -dim / -video (sending the game its picture) for tests.
  *
- * <PhoneScreen link view camera mode onMode dim onDim />
+ * <PhoneScreen link view camera dim onDim onCameraList />
  */
 
-export type PreviewMode = 'video' | 'mirror';
 export interface PhoneScreenProps {
   link: PhoneLink;
   view: PhoneLinkView;
   camera: WebcamView;
-  mode: PreviewMode;
-  onMode: (mode: PreviewMode) => void;
   /** The screen is dimmed while the phone tracks. */
   dim: boolean;
   onDim: (dim: boolean) => void;
+  /** Opens the camera list (the keyboard's way in; a tap lands on the list itself). */
+  onCameraList: () => void;
 }
-type PhoneWidget = Widget & { key?: string; modelId?: PoseModelId };
+type PhoneWidget = Widget & { key?: string };
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'delete', '0', 'join'];
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
@@ -84,7 +80,27 @@ function drawDigits(g: CanvasRenderingContext2D, rect: Rect, code: string) {
   }
 }
 
-// Text straight over the bright sky: the navy drop shadow the game's own titles use.
+// The chosen camera's name in the camera list.
+const cameraLabel = (link: PhoneLink) => {
+  const chosen = link.chosenCamera();
+  return link.cameras().find((camera) => camera.id === chosen)?.label ?? 'Camera';
+};
+
+// The camera button: the chosen camera, and a chevron saying it opens a list.
+function drawCameraButton(g: CanvasRenderingContext2D, rect: Rect, label: string, hover: number, press: number) {
+  g.save();
+  g.font = `700 ${Math.round(rect.h * 0.4)}px ${FONT}`;
+  drawPill(g, rect, { label: ellipsize(g, label, rect.w - rect.h - 14 - 64), icon: 'camera', hover, press });
+  g.restore();
+  g.save();
+  g.lineWidth = 5;
+  g.lineCap = g.lineJoin = 'round';
+  g.strokeStyle = NAVY;
+  ICONS.down(g, rect.x + rect.w - 36, rect.y + rect.h / 2 - (hover * 3 - press * 3), 44);
+  g.restore();
+}
+
+// Text straight over the background: the navy drop shadow the game's own titles use.
 function shadowed(g: CanvasRenderingContext2D, draw: () => void) {
   g.save();
   g.shadowColor = 'rgba(0, 34, 84, 0.8)';
@@ -103,10 +119,10 @@ function drawHeader(g: CanvasRenderingContext2D, L: PhoneLayout, line: string, s
   shadowed(g, () => text(g, ellipsize(g, line, w - (tx - x) - (L.landscape ? 0 : 70)), tx, y, { size: 22, weight: 700, color: '#e6f8ff' }));
 }
 
-export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onDim }: PhoneScreenProps) {
+export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraList }: PhoneScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ link, view, camera, mode, onMode, dim, onDim });
-  props.current = { link, view, camera, mode, onMode, dim, onDim };
+  const props = useRef({ link, view, camera, dim, onDim, onCameraList });
+  props.current = { link, view, camera, dim, onDim, onCameraList };
   const st = useRef({ typed: '', drawn: '', lastPreview: 0, reported: '' }).current;
   const layout = (s: { w: number; h: number }) => phoneLayout(s);
 
@@ -133,8 +149,7 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
         case 'linked':
           if (p.dim) return [{ id: 'wake', rect: { x: 0, y: 0, w: L.w, h: L.h } }];
           return [
-            { id: 'video', rect: L.video }, { id: 'mirror', rect: L.mirror }, { id: 'flip', rect: L.flip },
-            ...MODELS.map((model, i) => ({ id: `model-${model.id}`, rect: L.models[i], modelId: model.id })),
+            { id: 'camera', rect: L.camera },
             { id: 'primary', rect: L.primary },
             { id: 'leave', circle: L.leave },
           ];
@@ -145,9 +160,7 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
       const { stage } = p.view;
       if (wdg.key) typeKey(wdg.key);
       else if (wdg.id === 'wake') p.onDim(false);
-      else if (wdg.id === 'video' || wdg.id === 'mirror') p.onMode(wdg.id);
-      else if (wdg.id === 'flip') void p.link.setFacing(p.camera.facing === 'user' ? 'environment' : 'user').catch(() => {});
-      else if (wdg.modelId) void p.link.setModel(wdg.modelId).catch(() => {});
+      else if (wdg.id === 'camera') p.onCameraList();
       else if (wdg.id === 'leave') { st.typed = ''; p.link.leave(); }
       else if (wdg.id === 'primary') {
         if (stage === 'linked') {
@@ -170,18 +183,19 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
       const p = props.current;
       const { view, camera } = p;
       if (view.stage !== 'code') st.typed = '';
-      const key = `${view.stage}|${view.message}|${view.error}|${view.playerCount}|${view.playing}|${camera.status}|${camera.message}|${camera.model}|${camera.facing}|${p.mode}|${p.dim}|${st.typed}`;
+      const key = `${view.stage}|${view.message}|${view.error}|${view.playerCount}|${view.playing}|${camera.status}|${camera.message}|${camera.facing}|${camera.cameras.length}|${p.link.chosenCamera()}|${p.dim}|${st.typed}`;
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
       // The camera's picture and skeletons, a few times a second.
-      if (view.stage === 'linked' && !p.dim && p.mode === 'video' && p.link.camera.video && s.time - st.lastPreview > 1 / 15) {
+      if (view.stage === 'linked' && !p.dim && p.link.camera.video && s.time - st.lastPreview > 1 / 15) {
         st.lastPreview = s.time;
         s.invalidate();
       }
       const sending = p.link.sendingVideo;
-      const report = JSON.stringify([view.stage, camera.status, p.dim, p.mode, sending]);
+      const chosen = cameraLabel(p.link);
+      const report = JSON.stringify([view.stage, camera.status, chosen, p.dim, sending]);
       if (report !== st.reported) {
         st.reported = report;
-        Object.assign(gl.domElement.dataset, { phoneStage: view.stage, phoneReady: 'true', phoneCameraStatus: camera.status, phoneDim: String(p.dim), phoneMode: p.mode,
+        Object.assign(gl.domElement.dataset, { phoneStage: view.stage, phoneReady: 'true', phoneCameraStatus: camera.status, phoneCamera: chosen, phoneDim: String(p.dim),
           phoneVideo: String(sending) });
       }
     },
@@ -210,11 +224,10 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
 
       if (view.stage === 'code') {
         drawTitle(g, L.title);
-        drawCaps(g, 'PHONE CAMERA', L.status.x, L.status.y, { size: 20 });
-        const textBox = L.landscape ? { x: L.digits.x, y: 80, w: L.digits.w } : { x: L.status.x, y: 190, w: L.status.w };
-        shadowed(g, () => paragraph(g, 'Type the code from the game’s screen to use this phone as its camera.', textBox.x, textBox.y, textBox.w, { size: 24, lineH: 31, color: '#ffffff' }));
+        // Just over the digits, which sit centred.
+        shadowed(g, () => paragraph(g, 'Enter the in-game pairing code', L.digits.x + L.digits.w / 2, L.digits.y - 34, L.digits.w, { size: 26, lineH: 33, color: '#ffffff', align: 'center' }));
         drawDigits(g, L.digits, st.typed);
-        if (view.error) shadowed(g, () => paragraph(g, view.error, L.digits.x, L.digits.y + L.digits.h + 34, L.digits.w, { size: 21, lineH: 27, color: '#ffb38a' }));
+        if (view.error) shadowed(g, () => paragraph(g, view.error, L.digits.x + L.digits.w / 2, L.digits.y + L.digits.h + 34, L.digits.w, { size: 21, lineH: 27, color: '#ffb38a', align: 'center' }));
         L.keys.forEach((rect, i) => {
           const key = KEYS[i];
           const enabled = key === 'join' ? st.typed.length === CODE_DIGITS : key === 'delete' ? st.typed.length > 0 : true;
@@ -250,22 +263,13 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
       g.restore();
 
       const r = L.preview;
-      if (p.mode === 'video') {
-        drawWebcamPreview(g, p.link.camera.video, camera.snapshot, r, view.playerCount, 'Starting camera…', { mirror: camera.facing === 'user' });
-      } else if (!camera.snapshot?.poses.length) {
-        // The mirror (PhoneReflection) shows nobody yet.
-        shadowed(g, () => text(g, camera.status === 'connected' ? 'Step into view' : ACTIVE.includes(camera.status) ? 'Starting camera…' : 'Camera off', r.x + r.w / 2, r.y + r.h / 2, { size: 30, weight: 800, align: 'center' }));
-      }
+      drawWebcamPreview(g, p.link.camera.video, camera.snapshot, r, view.playerCount, ACTIVE.includes(camera.status) ? 'Starting camera…' : 'Camera off', { mirror: camera.facing === 'user' });
       roundRect(g, r.x, r.y, r.w, r.h, 18);
       g.lineWidth = 3;
       g.strokeStyle = 'rgba(255, 255, 255, 0.75)';
       g.stroke();
 
-      const marked = (on: boolean, label: string) => `${on ? '● ' : ''}${label}`;
-      drawPill(g, L.video, { label: marked(p.mode === 'video', 'Video'), icon: 'camera', hover: h.video ?? 0, press: press('video') });
-      drawPill(g, L.mirror, { label: marked(p.mode === 'mirror', 'Mirror'), icon: 'solo', hover: h.mirror ?? 0, press: press('mirror') });
-      drawPill(g, L.flip, { label: 'Flip', icon: 'replay', hover: h.flip ?? 0, press: press('flip') });
-      drawModelPicker(g, { prev: L.video, next: L.flip, models: L.models }, camera, h);
+      drawCameraButton(g, L.camera, cameraLabel(p.link), h.camera ?? 0, press('camera'));
       g.font = `600 20px ${FONT}`;
       shadowed(g, () => paragraph(g, camera.message, L.message.x + 4, L.message.y, L.message.w - 8, { size: 20, lineH: 25, color: camera.status === 'error' ? '#ffb38a' : '#ffffff' }));
       const running = ACTIVE.includes(camera.status);
@@ -276,7 +280,7 @@ export default function PhoneScreen({ link, view, camera, mode, onMode, dim, onD
   });
 
   // The page's state changes between frames too (a song starting, the camera stopping).
-  useEffect(() => { ui.invalidate(); }, [ui, view, camera, mode, dim]);
+  useEffect(() => { ui.invalidate(); }, [ui, view, camera, dim]);
 
   return null;
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { MIN_TOUCH_PX, hit, widgetAt } from '../src/ui/hit.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { BACK as MENU_BACK, ONE_PLAYER, TWO_PLAYERS } from '../src/menu/layout.ts';
-import { BACK, DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_SKIP, GAME_PAUSE, GAME_READY_BACK, PAGE_DOWN, PAGE_UP,
+import { BACK, DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_READY_BACK, PAGE_DOWN, PAGE_UP,
   RESULTS_RETRY, RESULTS_SONGS, rowRect } from '../src/game/layout.ts';
 
 // The 1600x900 design on the smallest iPhone the app supports (iPhone SE, 667x375 points), in
@@ -79,9 +79,9 @@ test('on an iPhone SE, the game’s small targets answer 44 points across, or up
   assert.ok(points(span(players, 'one', 'y', SE)) >= 44 - 0.5);
   assert.ok(points(span(players, 'back', 'x', SE)) >= 44 - 0.5);
 
-  const calibration: Shape[] = [{ id: 'quit', circle: GAME_READY_BACK }, asRect('skip', GAME_CALIBRATION_SKIP), asRect('start-camera', GAME_CALIBRATION_PREVIEW),
+  const calibration: Shape[] = [{ id: 'quit', circle: GAME_READY_BACK }, asRect('start-camera', GAME_CALIBRATION_PREVIEW),
     asRect('camera-prev', GAME_CALIBRATION_CAMERA.prev), asRect('camera-next', GAME_CALIBRATION_CAMERA.next)];
-  for (const id of ['quit', 'skip', 'camera-prev', 'camera-next']) {
+  for (const id of ['quit', 'camera-prev', 'camera-next']) {
     for (const axis of ['x', 'y'] as const) assert.ok(points(span(calibration, id, axis, SE)) >= 44 - 0.5, `${id} ${axis}`);
   }
   assert.ok(points(span([{ id: 'pause', circle: GAME_PAUSE }], 'pause', 'y', SE)) >= 44 - 0.5);

@@ -91,6 +91,10 @@ function cameraMessage(error: unknown) {
   return CAMERA_ERRORS[name] || message || 'Could not start webcam tracking';
 }
 
+// iOS also lists its multi-lens cameras ("Back Dual Wide Camera", "Back Triple Camera"), which switch lenses as the
+// subject moves; only the real lenses are offered. Other languages' names aren't matched, so those phones list them all.
+const VIRTUAL_CAMERA = /^back (dual|dual wide|triple) camera$/i;
+
 export class WebcamPoseSource {
   mediaDevices: Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'> | undefined;
   createWorker: () => PoseWorker;
@@ -154,7 +158,7 @@ export class WebcamPoseSource {
   async refreshCameras() {
     if (!this.mediaDevices?.enumerateDevices) return;
     // Until camera permission is granted, browsers list a camera without an id, which can't be picked.
-    const cameras = (await this.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput' && device.deviceId)
+    const cameras = (await this.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput' && device.deviceId && !VIRTUAL_CAMERA.test(device.label))
       .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `Camera ${i + 1}` }));
     this.publish({ cameras });
   }
