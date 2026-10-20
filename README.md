@@ -19,10 +19,10 @@ migration from older disk-based deployments.
 
 The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display is one letterboxed 16:9 frame rendered at a fixed 640x480 buffer and scaled up with `image-rendering: pixelated`; the HUD sits inside the frame.
 
-- `client/src/aero/aeroBackground.ts` builds the world. `createAeroWorld({ renderer, scene, camera, speed, quality })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
-- `client/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} quality="auto" />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
+- `client/src/aero/aeroBackground.ts` builds the world. `createAeroWorld({ renderer, scene, camera, speed })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
+- `client/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
 - The loop starts low over the meadow facing the skyline (`start` 0.08). Downtown, the east/west districts and the north district across the lake all sit on one 70 m street grid; the lake uses a reflective water surface with boats and quays.
-- `quality="low"` thins out grass, flowers and leaf detail for weaker GPUs; `auto` picks it on touch devices.
+- There is one graphics setting everywhere, tuned to hold 60 fps on an Apple TV: coarse distant trees, a small lake reflection that leaves the small things out, and no MSAA.
 
 ### Sound
 
@@ -82,7 +82,7 @@ A phone can be the camera instead of a webcam: pick **Phone camera** with the ca
 
 ## Apple TV (experimental)
 
-[`client-tvos/`](client-tvos/README.md) is a tvOS app that runs the production game's own JavaScript in the system JavaScriptCore, with WebGL 2 on OpenGL ES and the 2D canvas on CoreGraphics. It uses public APIs only, so it can go to the App Store, and with the `tv` quality tier it holds 60 fps on an Apple TV 4K, with a paired phone as the camera (through the pairing server's relay, since there's no WebRTC there) and the Siri Remote (`npm run tvos -- build --game`, then `run`). [docs/apple-tv.md](docs/apple-tv.md) compares everything that was tried, with device measurements.
+[`client-tvos/`](client-tvos/README.md) is a tvOS app that runs the production game's own JavaScript in the system JavaScriptCore, with WebGL 2 on OpenGL ES and the 2D canvas on CoreGraphics. It uses public APIs only, so it can go to the App Store, and it holds 60 fps on an Apple TV 4K, with a paired phone as the camera (through the pairing server's relay, since there's no WebRTC there) and the Siri Remote (`npm run tvos -- build --game`, then `run`). [docs/apple-tv.md](docs/apple-tv.md) compares everything that was tried, with device measurements.
 
 ## Shared packages
 

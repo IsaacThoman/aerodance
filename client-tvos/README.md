@@ -68,7 +68,7 @@ node scripts/tvos.ts build --game --sim        # ...for the tvOS simulator
 node scripts/tvos.ts build --game --release    # for TestFlight / the App Store (see below)
 node scripts/tvos.ts build --game --site https://24.aerodance.party   # pair through a PR preview
 node scripts/tvos.ts build --game --ghost      # play with the autoplay ghost instead of a phone
-node scripts/tvos.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/?quality=tv","site":"https://aerodance.party","fit":"fill","pixelated":true}'
+node scripts/tvos.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/","site":"https://aerodance.party","fit":"fill","pixelated":true}'
 node scripts/tvos.ts run --sim <udid> --config '{"script":"bench/aero-bench.js","fit":"contain","bench":{}}'
 ```
 
@@ -109,7 +109,7 @@ slower; measure without it and read the console through `logUrl`.
 
 ## Performance
 
-On an Apple TV 4K (A15, tvOS 27) at the `tv` quality tier the game holds 60 fps on every screen:
+On an Apple TV 4K (A15, tvOS 27) the game holds 60 fps on every screen:
 about 6 ms of JavaScript a frame on the main menu (up to ~12 ms while the city is in view), about
 5.5 ms in gameplay, and the Aero benchmark at 59.9 fps. JavaScript runs interpreted (no JIT on
 tvOS), so frame cost tracks the number of objects and draws. The first visit to a stage stalls
@@ -121,8 +121,8 @@ and how this compares with the other approaches.
 Development builds add `NSLocalNetworkUsageDescription` and `NSAppTransportSecurity`
 `NSAllowsLocalNetworking` to `Info.plist`, so the `report` and `logUrl` options can reach a Mac on
 the local network. `build --release` leaves both out, which is what an App Store build should ship;
-the report and log options then have nowhere to send to and stay off. The shipped game opens with
-`?quality=tv` (the Apple TV quality tier) and pairs phones through `site` over HTTPS.
+the report and log options then have nowhere to send to and stay off. The shipped game pairs phones
+through `site` over HTTPS.
 
 ## Known gaps
 

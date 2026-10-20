@@ -83,8 +83,7 @@ function carMesh(geo: THREE.BufferGeometry, mat: THREE.Material, list: Car[], co
 export function buildTraffic(ctx: AeroContext) {
   const { root } = ctx;
   const { R, RI, rnd, pick } = ctx.random;
-  const Q = ctx.quality.Q;
-  const CARN = Math.round(170 * Q);
+  const CARN = 170;
   const carGeo = (() => {
     const paint = (g: THREE.BufferGeometry, hex: string) => { g.deleteAttribute('uv'); return paintGeo(g.toNonIndexed(), (x, y, z, c) => c.copy(col(hex))); };
     const a = new THREE.BoxGeometry(1.9, 0.75, 4.4); a.translate(0, 0.62, 0);
@@ -105,7 +104,7 @@ export function buildTraffic(ctx: AeroContext) {
   root.add(carMesh(carGeo, carMat, CARS, colors));
   // traffic on the district streets
   const DCARS: Car[] = [], dcolors: THREE.Color[] = [];
-  const dcarN = Math.round(260 * Q);
+  const dcarN = 260;
   ctx.random.withRng(616161, () => {
     for (let i = 0; i < dcarN; i++) {
       const dir = rnd() < 0.5 ? 1 : -1, east = rnd() < 0.55;

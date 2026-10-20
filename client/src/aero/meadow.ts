@@ -43,7 +43,7 @@ const bladeColor = `
 export function buildMeadowGrass(ctx: AeroContext, path: FlightPath) {
   const { R, rnd } = ctx.random;
   const a = col('#2c7a1a'), b = col('#5ec12d'), c = col('#c8f06a');
-  const N = Math.round(120000 * ctx.quality.Q), rows = Math.ceil(N / BLADES_PER_ROW);
+  const N = 120000, rows = Math.ceil(N / BLADES_PER_ROW);
   const data = new Float32Array(BLADES_PER_ROW * 4 * rows * 4);
   const d = new THREE.Object3D(), cc = new THREE.Color(), cells = new Map<string, number[]>();
   for (let i = 0; i < N; i++) {
@@ -116,8 +116,8 @@ export function buildFlowers(ctx: AeroContext, path: FlightPath) {
   const STEMS: number[] = [], geo = new THREE.PlaneGeometry(1, 1), d = new THREE.Object3D();
   const kinds: [kind: FlowerKind, size: number, count: number][] = [['daisy', 0.6, 3000], ['cosmos', 0.8, 2200], ['yellow', 0.75, 2200]];
   for (const [kind, size, n] of kinds) {
-    const N = Math.round(n * ctx.quality.Q), im = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ map: flowerTex(ctx, kind), alphaTest: 0.5, side: THREE.DoubleSide, color: col('#f4f4f4') }), N);
-    for (let i = 0; i < N; i++) {
+    const im = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ map: flowerTex(ctx, kind), alphaTest: 0.5, side: THREE.DoubleSide, color: col('#f4f4f4') }), n);
+    for (let i = 0; i < n; i++) {
       let x: number, z: number;
       if (rnd() < 0.8) { let p: THREE.Vector3; [x, z, p] = path.nearMeadow(20); const dx = x - p.x, dz = z - p.z; if (dx * dx + dz * dz < 2.5) x += dx < 0 ? -1.6 : 1.6; } else { x = R(-250, 300); z = R(280, 1000); }
       const h = R(0.55, 1.45), s = size * R(0.75, 1.25);
@@ -139,7 +139,7 @@ export function buildTulips(ctx: AeroContext) {
   const stem = new THREE.CylinderGeometry(0.03, 0.035, 1, 3); stem.translate(0, 0.5, 0);
   const pts: [x: number, z: number, band: number][] = [], cols = ['#ff2a2a', '#ffd21a', '#ff5fa2', '#ff8a1a', '#ffffff'].map((h) => col(h));
   for (let x = -142, row = 0; x < -46; x += 2.0, row++) { const band = Math.floor(row / 6) % cols.length; for (let z = 520; z < 770; z += 1.6) pts.push([x + R(-0.4, 0.4), z + R(-0.5, 0.5), band]); }
-  const N = Math.round(pts.length * (ctx.quality.small ? 0.6 : 1));
+  const N = pts.length;
   const cm = new THREE.InstancedMesh(cup, new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }), N);
   const st = new THREE.InstancedMesh(stem, new THREE.MeshBasicMaterial({ color: col('#3c8f24') }), N);
   const d = new THREE.Object3D(), c = new THREE.Color();
@@ -239,7 +239,7 @@ export function buildButterflies(ctx: AeroContext, path: FlightPath) {
   });
   const body = new THREE.CylinderGeometry(0.035, 0.025, 0.5, 5); body.rotateX(Math.PI / 2);
   const bm = flying(ctx, new THREE.MeshBasicMaterial({ color: col('#1a120a') }), false);
-  for (let i = 0; i < Math.round(80 * ctx.quality.Q + 20); i++) {
+  for (let i = 0; i < 100; i++) {
     const [x, z, p] = path.nearMeadow(14), { kind } = pick(mats);
     const s = R(0.45, 0.75);
     let ax = x; const az = z, dx = x - p.x, dz = z - p.z; if (dx * dx + dz * dz < 9) ax += dx < 0 ? -3 : 3;
@@ -282,7 +282,7 @@ export function buildSparkles(ctx: AeroContext, path: FlightPath) {
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64); g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(31, 4, 2, 56); g.fillRect(4, 31, 56, 2);
   const t = ctx.tex(c);
   for (let k = 0; k < 2; k++) {
-    const n = Math.round(500 * ctx.quality.Q), a: number[] = [];
+    const n = 500, a: number[] = [];
     for (let i = 0; i < n; i++) { const [x, z] = path.nearMeadow(16); a.push(x, R(0.3, 5), z); }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
     const m = new THREE.PointsMaterial({ map: t, size: 0.55, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: col(k ? '#d8ffe9' : '#fff7cf') });

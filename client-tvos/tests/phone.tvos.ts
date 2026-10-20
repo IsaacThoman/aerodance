@@ -114,8 +114,8 @@ const toCalibration = [
 ];
 // The simulator leaves the menu's 3D world and the stage's extras out, to keep its software
 // renderer's frames short.
-const lite = '&aeroHide=sky,ground,city,lake,lamps,trees,traffic,grass,flowers,tulips,windmills,butterflies,birds,balloons,clouds,bubbles,sparkles,jet,flare,shadows,reflection&diag=nodancers,nobloom,nostageshadows';
-const config = { script: 'game.js', url: `http://aerodance.local/?quality=tv${device ? '' : lite}`, site: SITE, fit: 'fill', pixelated: true,
+const lite = '?aeroHide=sky,ground,city,lake,lamps,trees,traffic,grass,flowers,tulips,windmills,butterflies,birds,balloons,clouds,bubbles,sparkles,jet,flare,shadows,reflection&diag=nodancers,nobloom,nostageshadows';
+const config = { script: 'game.js', url: `http://aerodance.local/${device ? '' : lite}`, site: SITE, fit: 'fill', pixelated: true,
   label: 'phone-tvos', report: `${HERE}/__report`, drive: toCalibration };
 const appLog: string[] = [];
 const appPath = `client-tvos/build/Build/Products/Release-${device ? 'appletvos' : 'appletvsimulator'}/aerodance.app`;

@@ -2,21 +2,21 @@
 
 A benchmark that any JavaScript host can run, for comparing ways of running aerodance on Apple TV.
 `aeroBench.ts` builds the game's Aero world (the menu background: plain three.js, 640×480, no
-React) and measures it at high and then low quality.
+React) and measures it.
 
 `node scripts/tvos.ts build` builds it into `client-tvos/bench/dist/aero-bench.{html,js}`
 and ships it in the Apple TV app as `bench/aero-bench.js` (see
 [`../README.md`](../README.md)). In a browser, open `aero-bench.html`; query parameters
-`?scenarios=high,low&warmupS=5&measureS=30&label=…&report=<url>` configure it there.
+`?scenarios=world&warmupS=5&measureS=30&label=…&report=<url>` configure it there.
 
-The default run (high, then low, from 0.08 round the loop) flies over the meadow. For diagnosis
-a scenario can also be `tv` (the Apple TV tier), leave parts of the world out (`high:trees+grass`,
-see `AeroPart` in `client/src/aero/types.ts`), render smaller (`high@0.5` is 320×240) or start
-elsewhere on the loop (`high#0.2` is downtown with the lake reflection; escape `#` as `%23` in a
+The default run (`world`, from 0.08 round the loop) flies over the meadow. For diagnosis a
+scenario can leave parts of the world out (`world:trees+grass`, see `AeroPart` in
+`client/src/aero/types.ts`), render smaller (`world@0.5` is 320×240) or start elsewhere on the
+loop (`world#0.2` is downtown with the lake reflection; escape `#` as `%23` in a
 URL). `sync=1` waits for the GPU after every frame (a 1-pixel `readPixels`) and reports how long
 that took as `syncMs`, which roughly separates the GPU's (and WebKit's GPU process's) time from
-JavaScript's; it lowers the frame rate, so measure frame rates without it. `antialias=0` turns
-the renderer's MSAA off.
+JavaScript's; it lowers the frame rate, so measure frame rates without it. `antialias=1` turns
+the renderer's MSAA on (the game has it off).
 
 ## Host contract
 
@@ -39,7 +39,7 @@ One JSON object per message:
 - `{"type":"start", label, loopMs, config, userAgent}`. `loopMs` times a tight numeric loop:
   about 285 ms with a JIT and 565 ms without on an M5 Pro. Only compare it between hosts on the
   same device.
-- `{"type":"scenario", label, gpu, scenario: "aero-high" | "aero-low" | …, fps, frameMs: {p50, p95,
+- `{"type":"scenario", label, gpu, scenario: "aero-world" | …, fps, frameMs: {p50, p95,
   p99, max}, cpuMs: {mean, p95}, drawsPerFrame, trianglesPerFrame, buildMs, firstFrameMs, fpsSeries}`
   (`fpsSeries`: the frame rate in each 2 s of the measurement).
   `cpuMs` is the time spent in the world's update and render calls. It counts JavaScript and

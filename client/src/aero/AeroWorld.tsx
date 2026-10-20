@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createAeroWorld, type AeroPart, type AeroQuality, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
+import { createAeroWorld, type AeroPart, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
 
 export interface AeroWorldProps {
   speed?: number;
-  quality?: AeroQuality;
   /** Caps how often the world renders; omit to render every frame. */
   fps?: number;
   paused?: boolean;
@@ -25,9 +24,9 @@ export interface AeroWorldProps {
  *
  * paused stops it updating and rendering (a dance stage has the screen; stage/StageView.tsx).
  *
- * <AeroWorld speed={1} quality="auto" fps={15} paused={false} onTelemetry={(t) => ...} />
+ * <AeroWorld speed={1} fps={15} paused={false} onTelemetry={(t) => ...} />
  */
-export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = false, onTelemetry, hide }: AeroWorldProps) {
+export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry, hide }: AeroWorldProps) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
@@ -50,7 +49,7 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
     let world: AeroWorldHandle | null = null;
     // Deferred one tick so StrictMode's mount/unmount/mount only builds the scene once.
     const timer = setTimeout(() => {
-      world = createAeroWorld({ renderer: gl, scene, camera, speed, quality, hide, onTelemetry: (t) => teleRef.current?.(t) });
+      world = createAeroWorld({ renderer: gl, scene, camera, speed, hide, onTelemetry: (t) => teleRef.current?.(t) });
       worldRef.current = world;
     }, 0);
     return () => {
@@ -60,7 +59,7 @@ export default function AeroWorld({ speed = 1, quality = 'auto', fps, paused = f
     };
     // Rebuilding is expensive; speed changes go through setSpeed below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gl, scene, camera, quality]);
+  }, [gl, scene, camera]);
 
   useEffect(() => { worldRef.current?.setSpeed(speed); }, [speed]);
 

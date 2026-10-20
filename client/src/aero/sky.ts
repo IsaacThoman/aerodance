@@ -81,8 +81,7 @@ export function buildLights(ctx: AeroContext) {
   const sunL = new THREE.DirectionalLight(col('#fff6e5'), 3.6);
   sunL.position.copy(ctx.sun).multiplyScalar(700);
   sunL.castShadow = true;
-  const shadowSize = ctx.quality.small ? 1024 : 2048;
-  sunL.shadow.mapSize.set(shadowSize, shadowSize);
+  sunL.shadow.mapSize.set(2048, 2048);
   Object.assign(sunL.shadow.camera, { left: -340, right: 340, top: 340, bottom: -340, near: 1, far: 1700 });
   sunL.shadow.bias = -0.0004; sunL.shadow.normalBias = 0.6;
   root.add(sunL, sunL.target);
@@ -141,7 +140,6 @@ export interface Clouds {
 export function buildClouds(ctx: AeroContext, path: FlightPath): Clouds {
   const { root, fog } = ctx;
   const { R, pick } = ctx.random;
-  const Q = ctx.quality.Q;
   const layers = [0, 1, 2, 3];
   const map = ctx.texArray([11, 23, 37, 59].map(cloudCanvas));
   const A: number[] = [], B: number[] = [];
@@ -157,8 +155,8 @@ export function buildClouds(ctx: AeroContext, path: FlightPath): Clouds {
   }
   const hp = path.curve.getSpacedPoints(70).filter((p) => p.y > 165 && p.y < 300);
   for (const p of hp) cluster(p.x + R(-60, 60), clamp(p.y + R(-25, 10), 190, 262), p.z + R(-60, 60), 45, 14, 45, 5, 75, 55);
-  for (let i = 0; i < Math.round(26 * Q + 8); i++) cluster(R(-450, 800), R(200, 250), R(-1000, 350), 150, 22, 150, 6, 120, 0);
-  for (let i = 0; i < Math.round(36 * Q + 10); i++) { const a = R(0, TAU), r = R(900, 2400); cluster(Math.cos(a) * r, R(150, 380), Math.sin(a) * r, 160, 40, 160, 5, R(160, 300), 0); }
+  for (let i = 0; i < 34; i++) cluster(R(-450, 800), R(200, 250), R(-1000, 350), 150, 22, 150, 6, 120, 0);
+  for (let i = 0; i < 46; i++) { const a = R(0, TAU), r = R(900, 2400); cluster(Math.cos(a) * r, R(150, 380), Math.sin(a) * r, 160, 40, 160, 5, R(160, 300), 0); }
   for (let i = 0; i < 10; i++) cluster(R(-200, 250), R(110, 150), R(380, 950), 80, 15, 80, 4, 110, 0);
 
   // The sprite quad: centred, 1 x 1.
