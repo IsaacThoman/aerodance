@@ -1,19 +1,15 @@
 // Builds the JavaScriptCore + OpenGL ES Apple TV app (client-tvos/) and runs it on a paired
 // Apple TV or a tvOS simulator. See client-tvos/README.md.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { CANVAS_OPS, GL_OPS, OP } from '../client-tvos/runtime/ops.ts';
+import { checkSite, copyInter, DEFAULT_BUNDLE_ID, DEFAULT_TEAM_ID, root, SITE } from './apple.ts';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
 const appDir = path.join(root, 'client-tvos');
 const www = path.join(appDir, 'www');
-const TEAM_ID = process.env.TVOS_TEAM_ID || 'PX72AL9366';
-const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || 'com.isaacthoman.aerodance';
-
-// Where the app pairs a phone: the deployed game, whose pairing server relays the phone's poses.
-const SITE = 'https://aerodance.party';
+const TEAM_ID = process.env.TVOS_TEAM_ID || DEFAULT_TEAM_ID;
+const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || DEFAULT_BUNDLE_ID;
 
 const USAGE = `Usage: node scripts/tvos.ts <command> [options]
 
@@ -89,26 +85,11 @@ function writeIcon() {
   contents(brand, { assets: ICON_STACKS.map((stack) => ({ filename: `${stack.name}.imagestack`, idiom: 'tv', role: 'primary-app-icon', size: stack.size })) });
 }
 
-// Fonts the canvas UI uses: Inter as the web build loads it from Google Fonts (weights 200 and
-// 800), and Nunito from @fontsource. Bundled as <Family>__<weight>.<ext> (src/Fonts.mm).
-const INTER = {
-  200: 'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuDyfMZg.ttf',
-  800: 'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuDyYMZg.ttf',
-};
+// Fonts the canvas UI uses: Inter (scripts/apple.ts) and Nunito from @fontsource. Bundled as
+// <Family>__<weight>.<ext> (src/Fonts.mm).
 async function copyFonts() {
   const out = path.join(www, 'fonts');
-  mkdirSync(out, { recursive: true });
-  const cache = path.join(root, '.cache/fonts');
-  mkdirSync(cache, { recursive: true });
-  for (const [weight, url] of Object.entries(INTER)) {
-    const file = path.join(cache, `Inter__${weight}.ttf`);
-    if (!existsSync(file)) {
-      const res = await fetch(url);
-      if (!res.ok) throw Error(`Inter ${weight}: ${res.status}`);
-      writeFileSync(file, Buffer.from(await res.arrayBuffer()));
-    }
-    cpSync(file, path.join(out, `Inter__${weight}.ttf`));
-  }
+  await copyInter(out);
   for (const weight of [700, 900]) {
     cpSync(path.join(root, `node_modules/@fontsource/nunito/files/nunito-latin-${weight}-normal.woff`), path.join(out, `Nunito__${weight}.woff`));
   }
@@ -123,7 +104,7 @@ function buildBench() {
 }
 
 async function build(sim: boolean, game: boolean, release: boolean, site = SITE, ghost = false) {
-  if (!/^https?:\/\/[^/]+$/.test(site)) throw Error(`--site takes an origin like ${SITE}, not ${site}`);
+  checkSite(site);
   writeOpsHeader();
   writeIcon();
   rmSync(www, { recursive: true, force: true });

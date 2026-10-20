@@ -18,6 +18,8 @@ import type { JudgementEvent, PlayerResult, WindowJudgement } from '../../../pac
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
 import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
+import { watchInterruptions } from './interruptions.ts';
+import { getMixer } from '../audio/mixer.ts';
 import {
   GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_PROGRESS, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME,
   LIVE_PANEL, livePanelCenterX,
@@ -35,12 +37,14 @@ import {
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
  *   playing    each player's score, combo and judgements under their live character, the
- *              song's progress, and a pause button (Escape or a hidden tab)
- *   paused     Resume (with a fresh countdown), Restart, Song select
+ *              song's progress, and a pause button (Escape, a hidden tab, or an interruption:
+ *              a phone call taking the audio, or iOS taking the camera; interruptions.ts)
+ *   paused     Resume (with a fresh countdown), Restart, Song select, and why the song can't
+ *              go on yet: the audio didn't start again, or the camera is muted
  *   results    hands the overlay to ResultsScreen
  *
  * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms and -game-scores for tests,
- * the camera's -game-camera-status / -model / -message, and while calibrating -game-calibration-* and -game-pairing.
+ * the camera's -game-camera-status / -model / -message / -interrupted, and while calibrating -game-calibration-* and -game-pairing.
  *
  * <GameScreen visible session={GameSession} camera={source} onQuit onRetry />
  */
@@ -71,6 +75,9 @@ const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color:
   holding: ['Hold still…', '#bff4ff'],
   ready: ['Calibrated!', '#9effdf'],
 };
+
+// The song plays with the live camera (not a replay, and not with No camera).
+const usesCamera = (session: GameSession) => !!session.source && session.source.view.sourceKind !== 'replay' && !session.withoutCamera;
 
 const fmt = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -188,6 +195,16 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
 }
 
+// Under the pause panel while the camera is muted: why nobody is tracked, after its status light
+// (as on the calibration screen).
+function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup, status: CameraInput['view']['status'], y: number) {
+  g.font = `700 24px ${FONT}`;
+  const message = ellipsize(g, camera.message(), 1100);
+  const x = 800 - g.measureText(message).width / 2 + 14;
+  drawStatusDot(g, x - 26, y, status, 9);
+  drawShadowText(g, message, x, y, { size: 24, weight: 700 });
+}
+
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
   const props = useRef({ visible, session, source, onQuit, onRetry });
@@ -284,6 +301,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
         gameCameraStatus: view.status,
         gameCameraModel: view.model || '',
         gameCameraMessage: camera.message(),
+        gameCameraInterrupted: String(camera.interrupted()),
         gamePairing: calibration ? camera.pairing()?.code ?? '' : '',
       };
       const json = JSON.stringify(report);
@@ -333,7 +351,8 @@ export default function GameScreen({ visible = false, session, camera: source, o
       // During the song: the players' scores, judgements and the song's progress.
       const scores = session.scorer.results();
       const readiness = session.readiness();
-      const tracking = !session.withoutCamera || p.source.view.status === 'connected';
+      // Nothing to say about tracking while iOS has the camera either (the pause screen says why).
+      const tracking = (!session.withoutCamera || p.source.view.status === 'connected') && !(usesCamera(session) && camera.interrupted());
       for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, scores[id], readiness[id], st.popups, now, tracking);
       if (ph !== 'paused') {
         drawGlassCircle(g, GAME_PAUSE, h.pause ?? 0);
@@ -379,6 +398,13 @@ export default function GameScreen({ visible = false, session, camera: source, o
         drawPill(g, GAME_RESUME, { label: 'Resume', icon: 'play', hover: h.resume ?? 0, press: press('resume') });
         drawPill(g, GAME_RESTART, { label: 'Restart', icon: 'replay', hover: h.restart ?? 0, press: press('restart') });
         drawPill(g, GAME_QUIT, { label: 'Song select', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
+        // Under it, why the song can't go on yet: a call still has the audio, or iOS the camera.
+        let y = GAME_PAUSE_PANEL.y + GAME_PAUSE_PANEL.h + 44;
+        if (session.waitingForAudio && getMixer().ctx.state !== 'running') {
+          drawShadowText(g, 'Waiting for the audio…', 800, y, { size: 24, weight: 700, align: 'center' });
+          y += 44;
+        }
+        if (usesCamera(session) && camera.interrupted()) drawCameraInterrupted(g, camera, p.source.view.status, y);
       }
     },
   });
@@ -397,9 +423,17 @@ export default function GameScreen({ visible = false, session, camera: source, o
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
+  // So does an interruption: the audio stopping, or iOS taking the camera of a song that
+  // uses it. Resume is a gesture, which starts the audio again (mixer.ts).
+  useEffect(() => watchInterruptions((cause) => {
+    const session = props.current.session;
+    if (session && (cause === 'audio' || usesCamera(session))) session.pause();
+    ui.invalidate();
+  }, { audio: getMixer().ctx, camera: source }), [source, ui]);
+
   useEffect(() => {
     if (!visible) {
-      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCalibrationVideo', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage', 'gamePairing']) delete gl.domElement.dataset[key];
+      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCalibrationVideo', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage', 'gameCameraInterrupted', 'gamePairing']) delete gl.domElement.dataset[key];
       st.reported = '';
     }
     ui.invalidate();

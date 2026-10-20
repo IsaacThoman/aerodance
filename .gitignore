@@ -16,3 +16,7 @@ client-tvos/dist/
 client-tvos/Info.plist
 client-tvos/*.xcodeproj/
 client-tvos/src/generated/
+client-ios/www/
+client-ios/build/
+client-ios/Info.plist
+client-ios/*.xcodeproj/

@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
 import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
+import { MIN_TOUCH_PX, widgetAt } from './hit.ts';
 import type { Circle, Point, Rect } from './draw.ts';
 
 /**
@@ -108,11 +109,9 @@ export interface CanvasUIOptions<W extends Widget = Widget> {
   opacity?: (ui: CanvasUI<W>) => number;
 }
 
-// Hit areas are padded a little so a bubble's rim and edge count as part of it.
-const PAD = 8;
-export const inRect = (p: Point | null, r: Rect) => !!p && p.x >= r.x - PAD && p.x <= r.x + r.w + PAD && p.y >= r.y - PAD && p.y <= r.y + r.h + PAD;
-export const inCircle = (p: Point | null, c: Circle) => !!p && Math.hypot(p.x - c.x, p.y - c.y) <= c.r + 6;
-export const hit = (p: Point | null, wdg: Widget) => (wdg.rect ? inRect(p, wdg.rect) : inCircle(p, wdg.circle));
+// Touches reach at least MIN_TOUCH_PX across (hit.ts): that many CSS pixels, in design units at
+// the canvas's displayed size.
+const reach = (s: CanvasUI<Widget>, el: HTMLElement) => (s.pointerKind === 'touch' ? (MIN_TOUCH_PX * s.w) / (el.clientWidth || s.w) : 0);
 
 // Overlays share the canvas element, so the cursor is a pointer while any of them wants one.
 const cursorWants = new WeakMap<HTMLElement, Set<object>>();
@@ -135,6 +134,8 @@ interface NavOverlay {
   /** Left/Right on a widget; true when the overlay used it (stepped a slider). */
   step(wdg: Widget, dir: -1 | 1, repeat: boolean): boolean;
   activate(wdg: Widget): void;
+  /** The widget under the mouse or finger. */
+  hovered(): Widget | undefined;
 }
 const navOverlays = new Set<NavOverlay>();
 // The keyboard cursor: one for every overlay, on a widget (by id) of one of them.
@@ -155,7 +156,7 @@ function onNavKey(e: KeyboardEvent) {
   if (!stops.length) return;
   const at = stops.findIndex(({ o, wdg }) => o.ui === keyCursor?.ui && wdg.id === keyCursor.id);
   const primary = stops.findIndex(({ wdg }) => wdg.primary);
-  const hovered = stops.findIndex(({ o, wdg }) => o.ui.pointerKind !== 'key' && hit(o.ui.pointer, wdg));
+  const hovered = stops.findIndex(({ o, wdg }) => o.ui.pointerKind !== 'key' && o.hovered()?.id === wdg.id);
   if (press) {
     // (A cursor on an overlay that is fading or on hold counts as none.)
     const target = at >= 0 ? stops[at] : hovered < 0 || hovered === primary ? stops[primary] : undefined;
@@ -273,7 +274,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       return { x: ((e.clientX - rect.left) / rect.width) * s.w, y: ((e.clientY - rect.top) / rect.height) * s.h + s.scroll };
     };
     const active = () => opts.current.active?.(s) ?? true;
-    const widgetAt = (p: Point | null) => (active() ? opts.current.widgets?.(s).find((wdg) => hit(p, wdg)) : undefined);
+    const widgetUnder = (p: Point | null) => (active() ? widgetAt(opts.current.widgets?.(s) ?? [], p, reach(s, el)) : undefined);
     let down: { y: number; scroll: number } | null = null; // for drag-to-scroll
 
     const onMove = (e: PointerEvent) => {
@@ -290,7 +291,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
           s.dirty = true;
         }
       }
-      wantCursor(el, key, !!(s.drag || widgetAt(s.pointer)));
+      wantCursor(el, key, !!(s.drag || widgetUnder(s.pointer)));
     };
     const onLeave = () => { s.pointer = null; wantCursor(el, key, false); };
     // Buttons fire on release when the press started on the same button, so a
@@ -298,7 +299,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     // Returns the widget pressed.
     const pressAt = (p: Point) => {
       s.pointer = p;
-      const wdg = widgetAt(p);
+      const wdg = widgetUnder(p);
       if (!wdg) return undefined;
       if (wdg.drag) {
         s.drag = wdg;
@@ -317,7 +318,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       const id = s.pressed;
       s.pressed = null;
       if (!id) return;
-      const wdg = widgetAt(p);
+      const wdg = widgetUnder(p);
       if (wdg?.id === id) activate(wdg);
     };
     const onDown = (e: PointerEvent) => {
@@ -325,7 +326,8 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       // A tap takes over from the keyboard cursor too (it may come without a move).
       if (s.keyFocus) s.focus(null);
       const p = toDesign(e);
-      if (!widgetAt(p) && !(s.maxScroll > 0 && active())) return;
+      s.pointerKind = e.pointerType;
+      if (!widgetUnder(p) && !(s.maxScroll > 0 && active())) return;
       el.setPointerCapture(e.pointerId);
       const wdg = pressAt(p);
       down = wdg?.drag ? null : { y: p.y - s.scroll, scroll: s.scroll };
@@ -366,6 +368,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
         activate(wdg as W);
         s.invalidate();
       },
+      hovered: () => widgetUnder(s.pointer),
     };
     // One listener handles the navigation keys for every overlay.
     navOverlays.add(nav);
@@ -440,7 +443,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       const c = center(focused);
       if (c.x !== s.pointer?.x || c.y !== s.pointer.y) { s.pointer = c; s.dirty = true; }
     }
-    const hovered = live && (s.drag?.id ?? widgets.find((wdg) => hit(s.pointer, wdg))?.id);
+    const hovered = live && (s.drag?.id ?? widgetAt(widgets, s.pointer, reach(s, gl.domElement))?.id);
     for (const id of new Set([...Object.keys(s.hover), ...widgets.map((wdg) => wdg.id)])) {
       s.hover[id] = s.ease(s.hover[id] ?? 0, id === hovered ? 1 : 0, 12);
     }
