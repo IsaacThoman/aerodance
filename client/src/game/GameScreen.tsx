@@ -29,7 +29,7 @@ import {
  *
  *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
  *              pressed, over the camera picker; every player holds still together for
- *              2.5 seconds. With No camera picked, the preview is a Continue button that
+ *              2.5 seconds. With No camera picked, the preview is a No camera button that
  *              starts the song straight away
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
@@ -103,62 +103,59 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, result: PlayerRe
   }
 }
 
-// The webcam setup card, centred: the mirrored preview with each player's status, the shared
-// hold and the camera picker along the bottom. With the camera off, the preview is a big
-// Start camera button (or with No camera, a Continue button).
+// The webcam setup card, centred: the mirrored preview, then the camera picker. Over the
+// preview, each player's status along the top and the shared hold along the bottom. With the
+// camera off, the preview is a big Start camera button (or with No camera, a button that plays
+// without one).
 function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
   const h = s.hover;
   const { connection, source } = camera.target();
-  const card = GAME_CALIBRATION_CARD;
   const preview = GAME_CALIBRATION_PREVIEW;
-  const mid = card.x + card.w / 2;
-  const none = camera.none();
+  const mid = preview.x + preview.w / 2;
   const live = connection.status === 'connected';
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
-  drawGlassPanel(g, card, 30);
-  // The hold only matters once the camera can see the players.
-  const title = none ? 'Play without a camera' : live ? 'Stand still for 2.5 seconds' : '';
-  if (title) text(g, title, mid, card.y + 44, { size: 32, weight: 800, align: 'center' });
+  drawGlassPanel(g, GAME_CALIBRATION_CARD, 30);
 
   drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
   const pairing = camera.pairing();
   if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
-  // Each player's status under their lane label (the setup preview is mirrored: player 1 is
-  // on its left-hand side).
+  drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
+
+  const status = !live && camera.active() && camera.message();
+  // The hold and status sit on a fade along the bottom, to read over the camera's picture.
+  if (live || status) {
+    const top = preview.y + preview.h - 110;
+    const fade = g.createLinearGradient(0, top, 0, preview.y + preview.h);
+    fade.addColorStop(0, 'rgba(4, 34, 61, 0)');
+    fade.addColorStop(1, 'rgba(4, 34, 61, 0.85)');
+    g.fillStyle = fade;
+    g.fillRect(preview.x, top, preview.w, 110);
+  }
   if (live) {
+    // Each player's status under their lane label (the setup preview is mirrored: player 1 is
+    // on its left-hand side).
     const lane = preview.w / session.playerCount;
     calibration.players.forEach((status, id) => {
       const [label, color] = CALIBRATION_STATUS[status];
       g.font = `800 20px ${FONT}`;
       drawShadowText(g, ellipsize(g, label, lane - 32), preview.x + lane * (id + 0.5), preview.y + 50, { size: 20, weight: 800, align: 'center', color });
     });
-  }
-
-  drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
-  const y = GAME_CALIBRATION_PROGRESS.y + 42;
-  if (none) {
-    text(g, 'Dance along: without a camera, nothing is tracked or scored.', mid, y, { size: 21, align: 'center', color: '#e6f8ff' });
-    return;
-  }
-  // While pairing, the code is all there is (and why the phone dropped, if it did).
-  if (!pairing) drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
-  if (!live && camera.active()) {
-    if (!camera.message()) return;
-    // Starting: what the camera is doing, after its status light.
-    g.font = `600 21px ${FONT}`;
-    const message = ellipsize(g, camera.message(), preview.w - 40);
+    const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
+    const message = calibration.complete ? 'Calibrated! Starting…'
+      : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
+      : 'Stand still for 2.5 seconds';
+    drawShadowText(g, message, mid, GAME_CALIBRATION_PROGRESS.y - 24, { size: 22, weight: 800, align: 'center' });
+    drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
+  } else if (status) {
+    // Starting (or waiting for a dropped phone): what the camera is doing, after its status light.
+    const y = preview.y + preview.h - 30;
+    g.font = `600 20px ${FONT}`;
+    const message = ellipsize(g, status, preview.w - 80);
     const x = mid - g.measureText(message).width / 2 + 14;
     drawStatusDot(g, x - 26, y, connection.status, 9);
-    text(g, message, x, y, { size: 21, color: '#e6f8ff' });
-    return;
+    drawShadowText(g, message, x, y, { size: 20, weight: 600, color: '#e6f8ff' });
   }
-  const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
-  const message = !live ? (camera.phone() ? 'Pair your phone and prop it up, then step back until it can see your feet.' : 'Start the camera, then step back until it can see your feet.')
-    : calibration.complete ? 'Calibrated! Starting…'
-    : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
-    : 'The countdown starts automatically once everyone is calibrated.';
-  text(g, message, mid, y, { size: 21, align: 'center', color: '#e6f8ff' });
 }
 
 // Over the empty preview: a camera button while the camera is off (the whole preview presses
@@ -187,10 +184,8 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.lineJoin = 'round';
   (none ? ICONS.noCamera : phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
   g.restore();
-  text(g, failed ? 'Try again' : none ? 'Continue' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
+  text(g, failed ? 'Try again' : none ? 'No camera' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
-  // The phone and No camera come after the webcams in the camera picker, which is easy to miss.
-  else if (!phone && !none) text(g, 'No webcam? Choose Phone camera or No camera with the arrows below.', cx, preview.y + preview.h - 30, { size: 18, align: 'center', color: 'rgba(230, 248, 255, 0.75)' });
 }
 
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
