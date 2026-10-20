@@ -1,12 +1,12 @@
 import { encode } from 'uqr';
-import { FONT, drawCaps, ellipsize, paragraph, text } from '../ui/draw.ts';
+import { FONT, paragraph, text } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import { spacedCode } from '../../../packages/pairing/signals.ts';
 import type { PhonePairing } from '../pose/PhonePoseSource.ts';
 
 /*
- * Pairing a phone, drawn in-engine on the calibration screen: the QR code
- * that opens the phone page with the code, and the code itself to type in.
+ * Pairing a phone, drawn in-engine on the calibration screen: the QR code that opens the
+ * phone page with the code, and beside it the page's address and the code to type in.
  *
  * drawPairing(g, rect, { code, url });
  */
@@ -56,29 +56,48 @@ export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect): Re
 
 const local = (host: string) => /^(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(host);
 
-/** The QR code on the left of `rect`, and how to pair without it on the right. */
-export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: PhonePairing) {
-  const side = Math.min(rect.h, rect.w * 0.42);
-  const qr = drawQr(g, pairing.url, { x: rect.x, y: rect.y + (rect.h - side) / 2, w: side, h: side });
-  const x = qr.x + qr.w + 28;
-  const w = rect.x + rect.w - x;
-  const k = Math.min(1.25, Math.max(0.8, rect.h / 260));
-  const url = new URL(pairing.url);
-  let y = rect.y + (rect.h - 230 * k) / 2 + 12 * k;
-  drawCaps(g, 'PAIR A PHONE', x, y, { size: Math.round(20 * k) });
-  y += 38 * k;
-  y += paragraph(g, 'Scan the code with your phone’s camera, or open', x, y, w, { size: Math.round(19 * k), lineH: 24 * k });
-  g.font = `800 ${Math.round(23 * k)}px ${FONT}`;
-  text(g, ellipsize(g, `${url.host}/pair`, w), x, y + 4 * k, { size: Math.round(23 * k), weight: 800, color: '#bff4ff' });
-  y += 34 * k;
-  text(g, 'and type:', x, y, { size: Math.round(19 * k), color: 'rgba(255,255,255,0.88)' });
-  y += 44 * k;
+// The largest size up to `max` at which `str` fits in `w`, with `spacing` (a fraction of the
+// size) between letters.
+function fit(g: CanvasRenderingContext2D, str: string, w: number, max: number, weight: number, spacing = 0) {
   g.save();
-  if ('letterSpacing' in g) g.letterSpacing = `${Math.round(4 * k)}px`;
-  text(g, spacedCode(pairing.code), x, y, { size: Math.round(48 * k), weight: 800 });
+  g.font = `${weight} ${max}px ${FONT}`;
+  if ('letterSpacing' in g) g.letterSpacing = `${max * spacing}px`;
+  const size = Math.min(max, Math.floor(max * w / g.measureText(str).width));
   g.restore();
-  y += 44 * k;
+  return size;
+}
+
+/** The QR code, and beside it the address to open and the code to type, centred in `rect`. */
+export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: PhonePairing) {
+  const k = Math.min(1.25, Math.max(0.8, rect.h / 260));
+  const gap = 44 * k;
+  const side = Math.min(rect.h, rect.w * 0.46);
+  const url = new URL(pairing.url);
+  const address = `${url.host}/pair`;
+  const code = spacedCode(pairing.code);
+  // The address and code share a column as wide as the wider of them, up to what's left.
+  const room = rect.w - side - gap;
+  const urlSize = fit(g, address, room, Math.round(26 * k), 800);
+  const codeSize = fit(g, code, room, Math.round(72 * k), 800, 0.08);
+  g.font = `800 ${urlSize}px ${FONT}`;
+  const urlW = g.measureText(address).width;
+  g.save();
+  g.font = `800 ${codeSize}px ${FONT}`;
+  if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
+  const codeW = g.measureText(code).width;
+  g.restore();
+  const left = rect.x + (rect.w - side - gap - Math.max(urlW, codeW)) / 2;
+  const qr = drawQr(g, pairing.url, { x: left, y: rect.y + (rect.h - side) / 2, w: side, h: side });
+  const x = qr.x + qr.w + gap;
+  const mid = qr.y + qr.h / 2;
+  const block = urlSize + 16 * k + codeSize;
+  text(g, address, x, mid - block / 2 + urlSize / 2, { size: urlSize, weight: 800, color: '#bff4ff' });
+  g.save();
+  if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
+  text(g, code, x, mid + block / 2 - codeSize / 2, { size: codeSize, weight: 800 });
+  g.restore();
   // The phone can't open this computer's own loopback address.
-  if (local(url.hostname)) paragraph(g, 'Open aerodance here by its network address (not localhost) so your phone can reach it.', x, y, w, { size: Math.round(16 * k), lineH: 20 * k, color: '#ffe27a' });
-  else paragraph(g, 'Same Wi-Fi as this computer works best.', x, y, w, { size: Math.round(16 * k), lineH: 20 * k, color: 'rgba(255,255,255,0.7)' });
+  if (local(url.hostname)) {
+    paragraph(g, 'Open aerodance by its network address (not localhost) so your phone can reach it.', x, mid + block / 2 + 22 * k, rect.x + rect.w - x, { size: Math.round(15 * k), lineH: 19 * k, color: '#ffe27a' });
+  }
 }

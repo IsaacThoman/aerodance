@@ -141,8 +141,10 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     text(g, 'Dance along: without a camera, nothing is tracked or scored.', mid, y, { size: 21, align: 'center', color: '#e6f8ff' });
     return;
   }
-  drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
+  // While pairing, the code is all there is (and why the phone dropped, if it did).
+  if (!pairing) drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
   if (!live && camera.active()) {
+    if (!camera.message()) return;
     // Starting: what the camera is doing, after its status light.
     g.font = `600 21px ${FONT}`;
     const message = ellipsize(g, camera.message(), preview.w - 40);
