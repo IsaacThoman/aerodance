@@ -61,7 +61,7 @@ Apple's icon sizes (1280×768, 800×480, 400×240) aren't whole multiples of the
 node tools/thumbnails/scripts/render.ts --app-icons
 ```
 
-A square shot uses the same pixel grid at 360×480. Each icon is `<id>.png`, 1024×1024 and opaque as the App Store wants, area-averaged from the buffer. An icon with `layers` is split like the TV icons and its layers go in `<id>/1024x1024/`, for a layered icon (Icon Composer on iOS); `<id>.png` is them stacked back together.
+A square shot uses the same pixel grid at 360×480. Each icon is `<id>.png`, 1024×1024, area-averaged from the buffer. An icon with `layers` is split like the TV icons and its layers go in `<id>/1024x1024/`, for a layered icon (Icon Composer on iOS); `<id>.png` is them stacked back together. It's opaque as the App Store wants when its back layer is, and transparent otherwise: `portrait-transparent-bg` leaves out the background, rendering the scenery only as a `hidden` layer for the see-through dancer to be cut against.
 
 ## Code
 
