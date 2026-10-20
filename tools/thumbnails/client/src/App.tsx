@@ -93,9 +93,9 @@ function makeLogo(logo: ShotLogo, buffer: FrameBuffer) {
   const g = canvas.getContext('2d');
   if (!g) throw new Error('2D canvas unavailable');
   g.setTransform(buffer.width / design.width, 0, 0, buffer.height / design.height, 0, 0);
-  const w = titleWidth(g, logo.size, logo.stacked);
+  const w = titleWidth(g, logo.size, logo.stacked, logo.light);
   const x = logo.x === 'left' ? 96 : logo.x === 'right' ? design.width - 96 - w : typeof logo.x === 'number' ? logo.x : (design.width - w) / 2;
-  drawTitle(g, { x, y: logo.y, size: logo.size, stacked: logo.stacked });
+  drawTitle(g, { x, y: logo.y, size: logo.size, stacked: logo.stacked, outline: logo.outline, halo: logo.halo, light: logo.light });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -363,7 +363,7 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
         await until(() => scene.getObjectsByProperty('name', 'Root').filter((o) => 'isBone' in o).length >= 2, 'the dancers');
         // The wordmark's two Inter weights (index.html); never fall back to another font.
         if (shot.logo) {
-          const faces = await Promise.all(['800', '200'].map((wt) => document.fonts.load(`${wt} 64px Inter`, 'aerodance')));
+          const faces = await Promise.all(['800', String(shot.logo.light ?? 200)].map((wt) => document.fonts.load(`${wt} 64px Inter`, 'aerodance')));
           if (faces.some((f) => !f.length)) throw new Error('Inter did not load, so the wordmark cannot be drawn');
         }
         await nextTask();

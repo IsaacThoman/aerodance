@@ -22,12 +22,13 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *   pose: seconds into the dance capture the dancers hold (0-14)
  *   camera: { position, target, fov, near?, far? }
  *   dancers: overrides for the stage's dancer placement ({ position, rotationY, spacing })
- *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered), stacked?: two lines } in design units
+ *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered), stacked?: two lines,
+ *     outline?, halo?, light?: see drawTitle } in design units
  *   format: 'thumbnail' (3:2, the default) or 'tv-icon' (5:3)
  *   layers: split the frame into layers for a parallax icon (ShotLayer)
  */
 export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
-export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; stacked?: boolean; }
+export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; stacked?: boolean; outline?: number; halo?: number; light?: 200 | 300 | 400; }
 /**
  * One layer of a layered (parallax) image, back to front. Each layer is the shot rendered with
  * the camera's near plane at `near`, cutting away nearer scenery, and with the dancers shown or
@@ -84,7 +85,8 @@ const isCamera = (v: unknown): v is ShotCamera => isFields(v) && isVec3(v.positi
 const isDancers = (v: unknown): v is Partial<DancerPlacement> => isFields(v) && (v.position === undefined || isVec3(v.position)) &&
   optionalNumber(v.rotationY) && optionalNumber(v.spacing) && optionalNumber(v.scale);
 const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && isNumber(v.size) &&
-  (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x)) && (v.stacked === undefined || typeof v.stacked === 'boolean');
+  (v.x === undefined || v.x === 'left' || v.x === 'right' || isNumber(v.x)) && (v.stacked === undefined || typeof v.stacked === 'boolean') &&
+  optionalNumber(v.outline) && optionalNumber(v.halo) && (v.light === undefined || v.light === 200 || v.light === 300 || v.light === 400);
 
 const optionalBoolean = (v: unknown) => v === undefined || typeof v === 'boolean';
 const isLayer = (v: unknown): v is ShotLayer => isFields(v) && typeof v.name === 'string' && optionalNumber(v.near) &&
@@ -411,7 +413,8 @@ ICONS.push({
 ICONS.push({
   ...ICONS[ICONS.length - 1],
   id: 'falls-sky-soft',
-  logo: { y: 391, size: 340, x: 'right', stacked: true },
+  // A heavier "dance" with a navy edge and a darker glow: the thin weight is hard to read on the pale sky.
+  logo: { y: 391, size: 340, x: 'right', stacked: true, light: 400, outline: 0.02, halo: 1.4 },
   layers: [
     { name: 'sky', near: 800, blur: 7 }, // only the sky, far clouds and haze
     { name: 'meadow', near: 2, hidden: true },
