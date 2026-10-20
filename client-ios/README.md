@@ -32,7 +32,7 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   (role `UIWindowSceneSessionRoleExternalDisplayNonInteractive`, registered with
   `UIViewController.registerSceneAccessory` on iOS 27, which no longer offers it otherwise).
   The game's web view moves into that scene's window and keeps running; nothing reloads. The page
-  letterboxes itself to 16:9. When the display goes, the web view moves back to the phone.
+  chooses 4:3 or 16:9 letterboxing for the available screen. When the display goes, the web view moves back to the phone.
 - **Remote.** While the game is on the TV, the phone shows arrows, OK and Back (Pause during a
   song), which `src/inject.js` turns into the key events the canvas UI understands, like the
   Apple TV app does with the Siri Remote. Arrows repeat while held. Below them are the system
@@ -110,7 +110,8 @@ Mode) to this Mac (port 8766); `--report-to <url>` sends them elsewhere. It also
 safe area insets, the host state and the saved keys.
 `--flow` presses through One Player, the first song and Dance! to the results, for benchmarks.
 `--drive '<json>'` plays steps in the Apple TV app's format, waiting on the canvas's `data-*`
-state between them, plus taps in the canvas UI's 1600×900 design units. Each step is reported:
+state between them, plus taps in the current canvas layout's design units: 1200×900 for Standard (4:3),
+1600×900 for Widescreen (16:9), reported as `dataset.displayMode`. Each step is reported:
 
 ```sh
 npm run ios -- sim --path '/?input=ghost' --report --drive '[["wait", {"menuScreen": "main", "menuReady": "true"}], ["tap", 348, 534], ["wait", {"menuScreen": "players"}, 5000], ["key", "Enter"], ["sleep", 500], ["report", "mark"]]'

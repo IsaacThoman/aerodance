@@ -14,7 +14,7 @@ import type { Circle, Point, Rect } from './draw.ts';
  *
  * const ui = useCanvasUI({
  *   priority: 2,                          // useFrame priority (the world renders at 1)
- *   design: (cssW, cssH) => ({ w, h }),   // design units for the displayed size (default 1600x900)
+ *   design: (cssW, cssH) => ({ w, h }),   // default 1600x900 (16:9) or 1200x900 (4:3)
  *   widgets: (ui) => [{ id, rect | circle, drag?, nav?, primary? }],  // current hit areas, in content units
  *   active: (ui) => bool,                 // input and hover go to widgets only while true
  *   onActivate: (wdg, ui) => {},          // press and release on the same widget
