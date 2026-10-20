@@ -135,11 +135,9 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   }
 
   drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
+  // No camera: the button in the preview is all there is.
+  if (none) return;
   const y = GAME_CALIBRATION_PROGRESS.y + 42;
-  if (none) {
-    text(g, 'Dance along: without a camera, nothing is tracked or scored.', mid, y, { size: 21, align: 'center', color: '#e6f8ff' });
-    return;
-  }
   // While pairing, the code is all there is (and why the phone dropped, if it did).
   if (!pairing) drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
   if (!live && camera.active()) {
