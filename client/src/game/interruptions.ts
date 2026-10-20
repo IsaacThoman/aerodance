@@ -7,6 +7,8 @@ import { onHostChange } from '../host.ts';
  * whenever aerodance isn't full screen). Each calls pause(cause) as it starts; GameSession.pause()
  * only acts during the countdown or the song, and Resume (a user gesture, which also restarts
  * the audio) carries on. A camera that is still interrupted then doesn't pause it again.
+ * The camera pauses only once it has been quiet for CAMERA_GRACE_MS: Chrome also mutes a camera
+ * that merely stalls for a moment, which shouldn't stop the song.
  *
  * const off = watchInterruptions((cause) => session.pause(), { audio: ctx, camera });
  */
@@ -22,18 +24,23 @@ export interface InterruptionSources {
 
 export type InterruptionCause = 'audio' | 'camera';
 
+export const CAMERA_GRACE_MS = 1500;
+
 export function watchInterruptions(pause: (cause: InterruptionCause) => void, { audio, camera, host }: InterruptionSources) {
   const onAudio = () => { if (audio && audio.state !== 'running' && audio.state !== 'closed') pause('audio'); };
   audio?.addEventListener('statechange', onAudio);
   const offHost = onHostChange((state) => { if (state.interrupted) pause('audio'); }, host);
   let muted: boolean | null = null;
+  let grace: ReturnType<typeof setTimeout> | undefined;
   const offCamera = camera?.subscribe((view) => {
     const now = !!view.interrupted;
     // Subscribing reports the current view: only a change pauses.
-    if (now && muted === false) pause('camera');
+    if (now && muted === false) grace = setTimeout(() => pause('camera'), CAMERA_GRACE_MS);
+    if (!now) clearTimeout(grace);
     muted = now;
   });
   return () => {
+    clearTimeout(grace);
     audio?.removeEventListener('statechange', onAudio);
     offHost();
     offCamera?.();

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { watchInterruptions } from '../src/game/interruptions.ts';
+import { CAMERA_GRACE_MS, watchInterruptions } from '../src/game/interruptions.ts';
 import type { InterruptionCause } from '../src/game/interruptions.ts';
 import { hostState, onHostChange } from '../src/host.ts';
 import { CameraSetup } from '../src/connect/cameraSetup.ts';
@@ -34,6 +34,20 @@ function watch(t: TestContext) {
   return { audio, camera, host, pauses, off };
 }
 
+test('a camera that stalls for less than the grace period (Chrome mutes a stall too) does not pause', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const w = watch(t);
+  w.camera.set(true);
+  t.mock.timers.tick(CAMERA_GRACE_MS - 1);
+  w.camera.set(false);
+  t.mock.timers.tick(CAMERA_GRACE_MS);
+  assert.deepEqual(w.pauses, []);
+  w.camera.set(true);
+  w.off();
+  t.mock.timers.tick(CAMERA_GRACE_MS);
+  assert.deepEqual(w.pauses, [], 'nor once the screen has gone');
+});
+
 test('the audio stopping (WebKit interrupted or suspended, or the app saying so) pauses, and coming back does not', (t) => {
   const w = watch(t);
   w.audio.set('interrupted');
@@ -49,15 +63,19 @@ test('the audio stopping (WebKit interrupted or suspended, or the app saying so)
 });
 
 test('the camera being taken away pauses once; an already interrupted camera does not pause again', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const w = watch(t);
   assert.deepEqual(w.pauses, [], 'subscribing is not an interruption');
   w.camera.set(true);
+  t.mock.timers.tick(CAMERA_GRACE_MS);
   assert.deepEqual(w.pauses, ['camera']);
   // Resumed while iOS still has it: the song plays on.
   w.camera.set(true);
+  t.mock.timers.tick(CAMERA_GRACE_MS);
   w.camera.set(false);
   assert.deepEqual(w.pauses, ['camera']);
   w.camera.set(true);
+  t.mock.timers.tick(CAMERA_GRACE_MS);
   assert.deepEqual(w.pauses, ['camera', 'camera']);
   w.off();
   assert.equal(w.camera.listeners, 0);
