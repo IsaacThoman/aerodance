@@ -146,7 +146,8 @@ export class WebcamPoseSource {
   emit(event: WebcamRecordEvent) { for (const listener of this.recordListeners) listener(event); }
   async refreshCameras() {
     if (!this.mediaDevices?.enumerateDevices) return;
-    const cameras = (await this.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput')
+    // Until camera permission is granted, browsers list a camera without an id, which can't be picked.
+    const cameras = (await this.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput' && device.deviceId)
       .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `Camera ${i + 1}` }));
     this.publish({ cameras });
   }

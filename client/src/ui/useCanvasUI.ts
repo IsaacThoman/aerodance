@@ -34,7 +34,7 @@ import { tv } from '../quality.ts';
  * on the screen's primary widget, which Enter/Space also press
  * while there is no cursor and the mouse isn't over another; it follows its widget by id and
  * lets go once the widget is gone, the overlay hides or the mouse moves.
- * Left/Right go to onStep first (a slider steps, a camera arrow switches camera) and
+ * Left/Right go to onStep first (a slider steps) and
  * otherwise move the cursor like Up/Down.
  * Content taller than the design height scrolls by drag or wheel: draw sets ui.contentHeight.
  * Works with <Canvas frameloop="demand">: input, ui.invalidate() and running animations
