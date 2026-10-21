@@ -23,7 +23,8 @@ import { displayDesign } from '../display.ts';
  * while the players screen is up.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
- * Left/Right step the volume sliders and turn the players dial).
+ * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
+ * the count changes by pressing minus or plus.
  * The dial is controlled (playerCount / onPlayerCountChange), and onScreenChange reports the
  * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players
  * for tests.
@@ -233,9 +234,8 @@ export default function MainMenu({
   const count = () => props.current.playerCount ?? 1;
 
   const m = menu.current;
-  // A keyboard cursor starts over on the next screen (on the players screen, on Let's dance, so
-  // Left/Right turn the dial at once), or going back (also by Escape), on the button it left by
-  // once that screen is in.
+  // A keyboard cursor starts over on the next screen (on the players screen, on Let's dance), or
+  // going back (also by Escape), on the button it left by once that screen is in.
   const go = (screen: MenuScreen | undefined, key = ui.keyboard) => {
     if (!screen) return;
     if (screen === m.next) return;
@@ -268,8 +268,6 @@ export default function MainMenu({
       setSound(patch);
     },
     onStep: (wdg, dir) => {
-      // Left / Right turn the players dial, wherever the keyboard cursor is on that screen.
-      if (m.screen === 'players') { setCount(count() + dir); return true; }
       if (!wdg.slider) return false;
       const patch: Partial<SoundSettings> = {};
       const step = Math.round(props.current.sound[wdg.slider] * SLIDER_STEPS) + dir;
