@@ -19,7 +19,9 @@ import { DISPLAY_MODES } from '../src/display.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { validateSong } from '../../../packages/pose/song.ts';
 
-const design = DISPLAY_MODES.widescreen;
+// UI_ASPECT=standard runs it in a 4:3 window.
+const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
+const design = DISPLAY_MODES[mode];
 const { PLAYERS_GO, START } = menuLayout(design.w);
 const { BACK, DANCE, RESULTS_SONGS, SONG_IMPORT, SONG_REMOVE, rowRect } = gameLayout(design.w);
 type Expected = Record<string, string | RegExp>;
@@ -82,7 +84,7 @@ const browser = await engine.launch(engine === webkit ? {} : {
 });
 let testPage;
 try {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const context = await browser.newContext({ viewport: mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 } });
   const page = await context.newPage();
   testPage = page;
   page.setDefaultTimeout(90000);
@@ -122,7 +124,7 @@ try {
     const box = await page.locator('.canvas-frame').boundingBox();
     assert.ok(box);
     frame = box;
-    await until({ menuScreen: 'main', menuReady: 'true' });
+    await until({ menuScreen: 'main', menuReady: 'true', displayMode: mode });
     await click(START);
     await until({ menuScreen: 'players', menuReady: 'true' });
     await click(PLAYERS_GO);
