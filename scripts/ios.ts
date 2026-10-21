@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, wri
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { checkSite, copyInter, DEFAULT_BUNDLE_ID, DEFAULT_TEAM_ID, INTER_WEIGHTS, root, SITE } from './apple.ts';
+import { archive, ARCHIVE_USAGE, archiveOptions, checkSite, copyInter, DEFAULT_BUNDLE_ID, DEFAULT_TEAM_ID, INTER_WEIGHTS, root, SITE } from './apple.ts';
 
 const appDir = path.join(root, 'apps/ios');
 const www = path.join(appDir, 'www');
@@ -23,12 +23,15 @@ const USAGE = `Usage: node scripts/ios.ts <command> [options]
   launch [options]                 relaunch the installed app
   sim [options] [--skip-web-build] the same in a simulator (--device <name or UDID>, else the
                                    booted one)
+  archive --version <x.y.z> [--build-number <n>] [--upload] [--site <origin>] [--skip-web-build]
+                                   build the release configuration and archive it for the
+                                   App Store (see Archive options)
 
 Build options:
-  --release                        the configuration an App Store build will use: no Web
-                                   Inspector, no local network exception (NSAllowsLocalNetworking),
-                                   and the launch options below are ignored (no archive or
-                                   upload yet)
+  --release                        the configuration an App Store build uses (archive's): no
+                                   Web Inspector, no local network exception
+                                   (NSAllowsLocalNetworking), and the launch options below are
+                                   ignored
   --site <origin>                  the deployed game the app pairs phones through (default
                                    ${SITE}; a PR preview is https://<number>.aerodance.party)
 
@@ -49,6 +52,8 @@ Options:
   --port <port>                    serve the game on this loopback port instead of 8417, so
                                    simulators can run side by side (saved scores and settings
                                    belong to the port)
+
+${ARCHIVE_USAGE}
 
 Signing uses IOS_TEAM_ID (default ${TEAM_ID}) and IOS_BUNDLE_ID (default ${BUNDLE_ID}).`;
 
@@ -141,7 +146,8 @@ function dropUnusedPoseModels() {
 
 type BuildOptions ={ release: boolean; site: string; skipWebBuild: boolean };
 
-async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator', { release, site, skipWebBuild }: BuildOptions) {
+/** Builds the game into www/ and generates the Xcode project; returns xcodebuild's environment. */
+async function prepareApp({ release, site, skipWebBuild }: BuildOptions) {
   checkSite(site);
   if (!skipWebBuild) run('npm', ['run', 'build']);
   if (!existsSync(path.join(root, 'dist/index.html'))) throw Error('No production build in dist/; run without --skip-web-build');
@@ -163,6 +169,12 @@ async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator'
     const plist = path.join(appDir, 'Info.plist');
     run('plutil', ['-insert', 'NSAppTransportSecurity', '-json', '{"NSAllowsLocalNetworking":true}', plist]);
   }
+  return env;
+}
+
+async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator', options: BuildOptions) {
+  const env = await prepareApp(options);
+  const { release } = options;
   run('xcodebuild', [
     '-project', 'Aerodance.xcodeproj', '-scheme', 'Aerodance', '-configuration', 'Release', '-sdk', sdk,
     '-destination', destination, '-derivedDataPath', 'build',
@@ -230,6 +242,13 @@ async function main() {
   }
   const release = has('--release');
   const site = flag('--site') || SITE;
+  if (cmd === 'archive') {
+    const options = archiveOptions(flag('--version'), flag('--build-number'), has('--upload'));
+    const skipWebBuild = has('--skip-web-build');
+    if (args.length) throw Error(`Unknown option ${args[0]}\n\n${USAGE}`);
+    const env = await prepareApp({ release: true, site, skipWebBuild });
+    return archive({ appDir, project: 'Aerodance.xcodeproj', scheme: 'Aerodance', platform: 'iOS', teamId: TEAM_ID, env }, options);
+  }
   if (cmd === 'build') {
     const sim = has('--sim');
     const skipWebBuild = has('--skip-web-build');
