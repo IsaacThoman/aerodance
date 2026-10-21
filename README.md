@@ -144,6 +144,12 @@ Bee Coolify deploys `dev`, the primary branch, at https://aerodance.party. Its G
 
 The preview URL template is `{{pr_id}}.aerodance.party`, so PR #3 is available at https://3.aerodance.party. Wildcard DNS for `*.aerodance.party` routes these hosts to Bee through Cloudflare. Set service `app` domains to internal port `3000` in Coolify; previews inherit that port from the production domain configuration.
 
+## Releases
+
+Merging `dev` into `main` releases the Apple apps. Once CI passes on `main`, [semantic-release](https://semantic-release.org) (`release.config.mjs`) works out the version from the conventional commits since the last `v*` tag (a `fix` is a patch, a `feat` a minor version), tags it and creates a GitHub Release. Then `.github/workflows/testflight.yml` archives the iPhone/iPad and Apple TV apps at that version (`scripts/ios.ts` and `scripts/tvos.ts` `archive --upload`, with the Unix time as the build number) on GitHub's Xcode 27 runner and uploads them to App Store Connect, where they appear in TestFlight. A push to `main` with nothing to release (only `docs`, `chore`, `test` and so on) uploads nothing.
+
+The `testflight` environment, open to `main` and `v*` tags only, holds the App Store Connect API key (`APP_STORE_CONNECT_API_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_PRIVATE_KEY`: an Admin key, for the team's cloud-managed distribution certificate) and an Apple Development certificate that signs the archives (`IOS_DEVELOPMENT_CERTIFICATE_P12_BASE64`, `IOS_DEVELOPMENT_CERTIFICATE_PASSWORD`). Running the TestFlight workflow by hand rebuilds a release from its tag, or with upload off only archives and signs both apps.
+
 ## Local development
 
 ```sh
