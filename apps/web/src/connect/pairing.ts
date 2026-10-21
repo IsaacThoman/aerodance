@@ -1,5 +1,5 @@
 import { encode } from 'uqr';
-import { FONT, ICONS, paragraph, text } from '../ui/draw.ts';
+import { FONT, ICONS, text } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import { spacedCode } from '../../../../packages/pairing/signals.ts';
 import type { PhonePairing } from '../pose/PhonePoseSource.ts';
@@ -53,8 +53,6 @@ export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect): Re
   g.restore();
   return { x: (bx - t.e) / sx, y: (by - t.f) / sy, w: W / sx, h: H / sy };
 }
-
-const local = (host: string) => /^(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(host);
 
 // The largest size up to `max` at which `str` fits in `w`, with `spacing` (a fraction of the
 // size) between letters.
@@ -113,8 +111,4 @@ export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: Ph
   if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
   text(g, code, x, y, { size: codeSize, weight: 800 });
   g.restore();
-  // The phone can't open this computer's own loopback address.
-  if (local(url.hostname)) {
-    paragraph(g, 'Open aerodance by its network address (not localhost) so your phone can reach it.', x, mid + block / 2 + 22 * k, rect.x + rect.w - x, { size: Math.round(15 * k), lineH: 19 * k, color: '#ffe27a' });
-  }
 }
