@@ -225,7 +225,9 @@ export function indexedDBStore(): CustomSongStore {
     return connection;
   };
   const open = () => opening ??= connect();
-  const unavailable = (error: unknown) => Error(`Saved songs aren't available in this browser (${errorText(error)}).`, { cause: error });
+  // Our own messages (already about saved songs) stand as they are.
+  const unavailable = (error: unknown) => errorText(error).startsWith('Saved songs') ? error
+    : Error(`Saved songs aren't available in this browser (${errorText(error)}).`, { cause: error });
   const transaction = async (mode: IDBTransactionMode) => {
     const current = open();
     try { return (await current).transaction([SONGS, FILES], mode); }

@@ -323,18 +323,21 @@ export default function SongSelect({
   };
   const removeSong = (entry: ListedSong) => {
     removeCustomSong(entry)
-      .then((removed) => {
+      // Not removed: another tab already did, or put another copy in its place (which stays).
+      .then(async (removed) => removed || !await savedCustomSong(entry.id))
+      .then((gone) => {
         st.loadError = '';
-        st.notice = removed ? { text: `Removed “${entry.title}”.`, error: false }
+        st.notice = gone ? { text: `Removed “${entry.title}”.`, error: false }
           : { text: `“${entry.title}” has changed since the list loaded, so it wasn't removed.`, error: false };
         if (st.previewing === entry) {
-          // The keyboard cursor comes back on Import song: the song it opened is gone.
+          // The keyboard cursor comes back on Import song (or on the copy that replaced the song,
+          // once the list has it).
           const key = ui.keyboard;
           closePreview();
           go('list', false);
           if (key) ui.focus({ id: 'import', rect: SONG_IMPORT });
         }
-        if (props.current.visible) fetchCatalog();
+        if (props.current.visible) fetchCatalog(gone ? undefined : entry.key);
       })
       .catch((error: unknown) => {
         const text = message(error) || "That song couldn't be removed.";
