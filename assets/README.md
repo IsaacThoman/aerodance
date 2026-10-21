@@ -25,6 +25,22 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 node tools/thumbnails/scripts/render.ts --splashes
 ```
 
+## Top Shelf banners
+
+`top-shelf/` contains two selected in-engine banners with the "aerodance." wordmark:
+
+| Image | Composition |
+| --- | --- |
+| `meadow-duet.png` | The selected waterfall meadow duet, unchanged. |
+| `horizon-party.png` | The sunset beach duet, with blue holding one hand near his face and the other lower in front of his body. Purple keeps the original pose. |
+
+| Folder | 1× (`<name>.png`) | 2× (`<name>@2x.png`) |
+| --- | --- | --- |
+| `top-shelf/standard/` | 1920×720 (8:3) | 3840×1440 |
+| `top-shelf/wide/` | 2320×720 (29:9) | 4640×1440 |
+
+Both shapes are separate camera renders with a 480-pixel internal height. The 2× PNGs preserve exact 4×3 pixel blocks; the 1× PNGs use nearest sampling. Meadow holds the dance capture at 3.1 seconds. Horizon Party holds blue at 9 seconds and purple at 5 seconds, with the beach scenery at 4.25 seconds. These were captured with temporary wide-format and per-dancer playback controls; those controls are not part of the checked-in renderer.
+
 ## Apple TV app icon
 
 `tv-icon/falls-sky-soft-glass/` is the Apple TV app's layered 5:3 icon for the parallax effect: the purple dancer, close up, against nothing but the soft falls sky, with the wordmark centered beside her. Its layers, back to front, are at the icon's three sizes, with the layers stacked back together for reference (`flat.png`):
