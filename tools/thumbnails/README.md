@@ -6,7 +6,7 @@
 
 The game draws a 640×480 buffer and shows it at 16:9, so each of its pixels is 4:3 wide. These thumbnails use that same pixel grid cropped to 3:2: a 540×480 buffer with the same pixel size and shape, the same bloom, grade and ACES tone mapping, and the same 4× MSAA. Each buffer pixel is written as an exact 4×3 block of the PNG, with no filtering, resampling or compression loss. You can check it: downsampling any image to 540×480 and back with nearest-neighbour gives the identical file.
 
-The wordmark is the title screen's own (`drawTitle` in `client/src/ui/draw.ts`, Inter 800/200), drawn at the title menu's scale into a buffer-sized canvas and composited with nearest filtering, exactly as the game's canvas UI draws it. Each `with-logo` image is the matching `no-logo` frame with the wordmark added on top.
+The wordmark is the title screen's own (`drawTitle` in `apps/web/src/ui/draw.ts`, Inter 800/200), drawn at the title menu's scale into a buffer-sized canvas and composited with nearest filtering, exactly as the game's canvas UI draws it. Each `with-logo` image is the matching `no-logo` frame with the wordmark added on top.
 
 ## Shots
 
@@ -63,9 +63,19 @@ node tools/thumbnails/scripts/render.ts --app-icons
 
 A square shot uses the same pixel grid at 360×480. Each icon is `<id>.png`, 1024×1024, area-averaged from the buffer. An icon with `layers` is split like the TV icons and its layers go in `<id>/1024x1024/`, for a layered icon (Icon Composer on iOS); `<id>.png` is them stacked back together. It's opaque as the App Store wants when its back layer is, and transparent otherwise: `portrait-transparent-bg` leaves out the background, rendering the scenery only as a `hidden` layer for the see-through dancer to be cut against.
 
+## Splash screens
+
+`--splashes` renders the shots in `SPLASHES` (in `client/src/shots.ts`), 16:9 splash screens, into [`assets`](../../assets):
+
+```sh
+node tools/thumbnails/scripts/render.ts --splashes
+```
+
+A splash is the game's whole frame: the 640×480 buffer shown at 16:9, written as 2560×1440 in the same 4×3 blocks. Each is `<id>.png`, with the wordmark if the shot has one. They can stage a scene the game doesn't have. A shot's `figures` hand-pose the dancers instead of the capture (or leave one out), `room` builds a dingy back room's corner with a checkered floor and hanging cables, `hideStage` leaves the stage's own scenery out, and `lights`, `fog`, `background`, `environment` and `post` light and grade it. `overlay` lays a security camera's grain and scanlines over the finished frame, and the camera's `shift` slides the picture sideways without turning the camera, to leave room for the wordmark.
+
 ## Code
 
-- `client/src/shots.ts`: the shot list, `TV_ICONS` and `APP_ICONS`. Each shot has a stage, how long the stage plays before the capture (`time`), the dance-capture moment the dancers hold (`pose`), a camera, optional dancer placement, and the wordmark's position and size. Add or tweak a shot here and re-render it with `--only`.
+- `client/src/shots.ts`: the shot list, `TV_ICONS`, `APP_ICONS` and `SPLASHES`. Each shot has a stage, how long the stage plays before the capture (`time`), the dance-capture moment the dancers hold (`pose`), a camera, optional dancer placement, and the wordmark's position and size. Add or tweak a shot here and re-render it with `--only`.
 - `client/src/App.tsx`: the capture page. It mounts one stage with the dancers, swaps in the shot's 3:2 camera for the stage's orbiting 16:9 one, steps the clock by hand at 60 fps to the shot's time (`frameloop="never"`), and reads back the frame with and without the wordmark. `?shot=<id>` opens a shot in the browser (`npx vite --config tools/thumbnails/vite.config.ts`, port 5179).
 - `scripts/render.ts`: builds the page, drives Chrome, upscales each frame into exact 4×3 blocks and writes the PNGs with its own encoder.
 

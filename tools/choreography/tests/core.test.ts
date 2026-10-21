@@ -590,7 +590,7 @@ test("the library imports .adpose takes and song choreography", () => {
   assert.equal(imported.name, "take.adpose");
   assert.equal(imported.source, "imported");
   assertSamplesClose(imported.samples, take.samples);
-  const song = validateTake(importedPoseFile(readFileSync("client/tests/fixtures/song-70c63c8e/choreography.adpose"), "song.adpose"));
+  const song = validateTake(importedPoseFile(readFileSync("apps/web/tests/fixtures/song-70c63c8e/choreography.adpose"), "song.adpose"));
   assert.equal(song.source, "choreography");
   assert.equal(song.provenance?.songId, "song-70c63c8e");
   assert.ok(song.samples.some((s) => s.poses.length === 2));

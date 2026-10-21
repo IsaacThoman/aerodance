@@ -33,7 +33,7 @@ const phonePage: Connect.NextHandleFunction = (req, res, next) => {
 };
 
 export default defineConfig({
-  root: 'client',
+  root: 'apps/web',
   plugins: [react(), poseAssetsPlugin(), {
     name: 'phone-pairing',
     configureServer(server) { server.middlewares.use('/pair', pairingMiddleware); server.middlewares.use(phonePage); pairingUpgrade(server.httpServer); },
@@ -41,10 +41,10 @@ export default defineConfig({
   }, {
     name: 'song-discovery',
     configureServer(server) {
-      server.middlewares.use('/songs/manifest.json', songCatalogMiddleware(fileURLToPath(new URL('./client/public/songs/', import.meta.url))));
+      server.middlewares.use('/songs/manifest.json', songCatalogMiddleware(fileURLToPath(new URL('./apps/web/public/songs/', import.meta.url))));
     },
     async writeBundle(options) {
-      const catalog = await discoverSongs(fileURLToPath(new URL('./client/public/songs/', import.meta.url)));
+      const catalog = await discoverSongs(fileURLToPath(new URL('./apps/web/public/songs/', import.meta.url)));
       await mkdir(`${options.dir}/songs`, { recursive: true });
       await writeFile(`${options.dir}/songs/manifest.json`, JSON.stringify(catalog, null, 2) + '\n');
     },
@@ -55,13 +55,13 @@ export default defineConfig({
   // without this the dev server reloads the page the first time a camera starts.
   optimizeDeps: { include: ['@mediapipe/tasks-vision'] },
   build: {
-    outDir: '../dist',
+    outDir: '../../dist',
     emptyOutDir: true,
-    // The game, and the page a phone opens to be its camera (client/src/phone/).
+    // The game, and the page a phone opens to be its camera (apps/web/src/phone/).
     rolldownOptions: {
       input: {
-        main: fileURLToPath(new URL('./client/index.html', import.meta.url)),
-        pair: fileURLToPath(new URL('./client/pair/index.html', import.meta.url)),
+        main: fileURLToPath(new URL('./apps/web/index.html', import.meta.url)),
+        pair: fileURLToPath(new URL('./apps/web/pair/index.html', import.meta.url)),
       },
     },
   },

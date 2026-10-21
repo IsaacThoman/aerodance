@@ -3,14 +3,14 @@
 `scripts/play.ts` runs the game (or Dance Studio) in a GPU-rendered Chromium that stays
 open in the background, so you, a script or a coding agent can drive it a step at a time:
 click a menu button, wait for a screen, take a screenshot, look, decide, carry on. It
-complements the browser tests (`client/tests/*.browser.ts`), which run a fixed flow and exit.
+complements the browser tests (`apps/web/tests/*.browser.ts`), which run a fixed flow and exit.
 
 ```sh
 npm install
 node scripts/play.ts start                       # Vite dev server + headless Chromium on the GPU
 node scripts/play.ts click START
 node scripts/play.ts wait menuScreen=players menuReady=true
-node scripts/play.ts click ONE_PLAYER
+node scripts/play.ts click PLAYERS_GO              # Let's dance, with the dial on 1
 node scripts/play.ts wait songScreen=list songReady=true catalog=ready
 node scripts/play.ts click rowRect.0             # the first song
 node scripts/play.ts wait previewState=playing stageReady=true
@@ -86,7 +86,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 | `reload` | Reloads and waits until ready |
 | `eval <js>` | Evaluates an expression in the page and prints the result |
 | `logs [--clear]` | Console messages, page errors, failed requests and page loads so far |
-| `camera <0\|1\|2>` | How many dancers the fixture camera shows |
+| `camera <0-4>` | How many dancers the fixture camera shows |
 | `resize <w>x<h>` | Changes the viewport, e.g. `resize 390x844` for a phone |
 | `targets` | Lists every layout target |
 | `stop` | Closes the browser and the server |
@@ -94,7 +94,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 ### Clicking the canvas
 
 Every game screen is drawn on the canvas in 1600×900 (16:9) or 1200×900 (4:3) design units, and the layout
-modules (`client/src/menu/layout.ts`, `client/src/game/layout.ts`) export the position
+modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`) export the position
 of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
@@ -109,7 +109,7 @@ Each screen reports what it shows on the canvas's `data-*` attributes, which is 
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen. Both keep the canvas buffer at 640×480.
-- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`
+- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count)
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
@@ -121,9 +121,9 @@ once the screen's entrance animation has finished and it accepts clicks.
 
 Headless Chromium has no webcam, so by default (`--camera fixture`) the page gets a
 synthetic one, as in the webcam browser tests: the MediaPipe fixture photo
-(`client/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
-it, so calibration and scoring run for real. `camera 0|1|2` changes how many dancers are
-in shot; start with two for a two-player song, or one for a solo.
+(`apps/web/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
+it, so calibration and scoring run for real. `camera 0`–`4` changes how many dancers are
+in shot, one per lane; start with as many as the song has players.
 `--camera deny` makes every camera request fail with a permission error, and
 `--camera none` leaves the browser alone (headless has no camera, so requests fail).
 
@@ -138,7 +138,8 @@ A whole two-player song with the ghost:
 node scripts/play.ts goto '/?input=ghost'
 node scripts/play.ts click START
 node scripts/play.ts wait menuScreen=players menuReady=true
-node scripts/play.ts click TWO_PLAYERS
+node scripts/play.ts wait menuPlayers=2           # Start turns the dial to 2 (PLUS / MINUS turn it)
+node scripts/play.ts click PLAYERS_GO
 node scripts/play.ts wait songReady=true 'playerSlots=Detected|Detected'
 node scripts/play.ts click rowRect.0
 node scripts/play.ts wait songScreen=preview songReady=true

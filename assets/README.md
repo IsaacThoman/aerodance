@@ -8,6 +8,8 @@ Promotional images for Aerodance.
 | `falls-meadow-no-logo.png` | The same frame without the wordmark. |
 | `beach-hero.png` | The `beach` stage at sunset, with the wordmark. 2160×1440 (3:2). |
 | `beach-hero-no-logo.png` | The same frame without the wordmark. |
+| `splash1.png` | A golden glass dancer in a top hat, slumped against the wall of a dark back room, seen from a grainy security camera. 2560×1440 (16:9), no wordmark. |
+| `splash1-logo.png` | The same view slid left, with the wordmark in the dark at the top right. 2560×1440 (16:9). |
 
 Each pair is the shot of the same name from the [thumbnail renderer](../tools/thumbnails), rendered in-engine. To render one again:
 
@@ -15,6 +17,12 @@ Each pair is the shot of the same name from the [thumbnail renderer](../tools/th
 node tools/thumbnails/scripts/render.ts --only falls-meadow --out /tmp/thumbs
 cp /tmp/thumbs/with-logo/falls-meadow.png assets/falls-meadow.png
 cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
+```
+
+`splash1.png` and `splash1-logo.png` are the renderer's `SPLASHES`, rendered in-engine too. To render them again, straight into this folder:
+
+```sh
+node tools/thumbnails/scripts/render.ts --splashes
 ```
 
 ## Apple TV app icon
@@ -42,7 +50,7 @@ node tools/thumbnails/scripts/render.ts --tv-icons
 
 ## Phone app icons
 
-`app-icon/aerodance.icon` is the iPhone and iPad app's icon, an Icon Composer document that `client-ios/project.yml` builds into the app. Open it in Icon Composer to change it. It's made of the renders below: the light look is `portrait-purple-sky-glass`'s layers (its dancer layers carry `portrait-transparent-bg`'s names, as they're the same images), with `portrait-dark-sky-glass`'s behind them. The dark look hides the purple-sky layers to show the dark ones, and the tinted look hides only the purple sky. `1-sky.png`, `2-dancers.png` and `3-hands.png` beside it are copies of the dark layers.
+`app-icon/aerodance.icon` is the iPhone and iPad app's icon, an Icon Composer document that `apps/ios/project.yml` builds into the app. Open it in Icon Composer to change it. It's made of the renders below: the light look is `portrait-purple-sky-glass`'s layers (its dancer layers carry `portrait-transparent-bg`'s names, as they're the same images), with `portrait-dark-sky-glass`'s behind them. The dark look hides the purple-sky layers to show the dark ones, and the tinted look hides only the purple sky. `1-sky.png`, `2-dancers.png` and `3-hands.png` beside it are copies of the dark layers.
 
 `app-icon/` also holds those renders, made in-engine like the Apple TV icon: `portrait-purple-sky-glass.png` (1024×1024, opaque), the purple dancer's head close up against the Apple TV icon's soft sky, with her see-through glass. Its layers, back to front, are in `portrait-purple-sky-glass/1024x1024/`: `1-sky` (opaque), `2-dancers` (her head, body and feet) and `3-hands` (her floating hands on their own), for a layered icon in Icon Composer.
 

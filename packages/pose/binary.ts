@@ -1,7 +1,7 @@
 // .adpose, the chunked binary pose container (docs/pose-binary-format.md): one format for song
 // choreography, Studio takes, tracks and raw captures, and game replay recordings.
-import { interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
-import type { FrameSize, LandmarkOrigin, Pose, PoseQuality, PoseSnapshot, TimedPoses, TimeKey, TrackCalibration } from './choreography.ts';
+import { DUET, MAX_PLAYERS, interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
+import type { FrameSize, LandmarkOrigin, PlayerCount, Pose, PoseQuality, PoseSnapshot, TimedPoses, TimeKey, TrackCalibration } from './choreography.ts';
 import type { PoseModelId } from './browser/models.ts';
 import type { ScoreExclusion } from './song.ts';
 
@@ -54,7 +54,8 @@ export type FileCaptureEvent = TimedCaptureEvent & { frameIndex: number };
 /** Everything in a file except its frames. */
 export interface PoseFileHeader {
   kind: PoseFileKind;
-  playerSlots: 1 | 2;
+  /** Up to two, except a game recording's one per player (up to four). */
+  playerSlots: PlayerCount;
   input: FrameSize;
   modelId: PoseModelId | null;
   positionStep: number;
@@ -98,6 +99,11 @@ export type PoseHeaderInput = Omit<PoseFileHeader, 'positionStep' | 'extensionId
 
 function fail(message: string): never { throw Error(`Invalid pose file: ${message}`); }
 function check(condition: unknown, message: string): asserts condition { if (!condition) fail(message); }
+// Only a game recording holds three or four players; everything Studio makes is a duet.
+function checkSlots(kind: PoseFileKind, playerSlots: number) {
+  check(Number.isInteger(playerSlots) && playerSlots >= 1 && playerSlots <= MAX_PLAYERS, `player slots must be 1 to ${MAX_PLAYERS}`);
+  if (kind !== 'recording') check(playerSlots <= DUET, `a ${kind} holds at most two slots`);
+}
 const encoder = new TextEncoder();
 const pad8 = (n: number) => (8 - n % 8) % 8;
 export const confidenceValue = (byte: number) => byte === NULL_CONFIDENCE ? null : byte / 254;
@@ -179,6 +185,7 @@ export function buildFrames(header: PoseHeaderInput, inputs: readonly FrameInput
   const positionStep = header.positionStep ?? DEFAULT_POSITION_STEP;
   const extensionIds = header.extensionIds ?? [];
   const extensionBases = header.extensionBases ?? extensionIds.map(id => inputs[0]?.extensions?.[id] ?? 0);
+  checkSlots(header.kind, header.playerSlots);
   const full: PoseFileHeader = { ...header, positionStep, extensionIds, extensionBases };
   const P = header.playerSlots, n = inputs.length, threshold = thresholdOf(header);
   const frames: PoseFrames = {
@@ -267,6 +274,7 @@ function writeEvents(w: ByteWriter, events: readonly TimedCaptureEvent[]) {
   });
 }
 function writeHeader(w: ByteWriter, h: PoseFileHeader, hasFlags: boolean, calibrationFrame?: PoseFrames) {
+  checkSlots(h.kind, h.playerSlots);
   w.bytes(MAGIC);
   w.chunk('HEAD', () => {
     w.u16(1); w.u8(KINDS.indexOf(h.kind) + 1); w.u8(CLOCKS.indexOf(KIND_CLOCK[h.kind]) + 1); w.u8(h.playerSlots); w.u8(1);
@@ -331,6 +339,7 @@ export class PoseFileWriter {
   frameCount: number;
   lastTimeMs: number;
   constructor(header: PoseHeaderInput) {
+    checkSlots(header.kind, header.playerSlots);
     const extensionIds = header.extensionIds ?? [];
     if ((header.extensionBases ?? []).length !== extensionIds.length) throw Error('A streamed file needs a base for each extension field');
     this.header = { ...header, positionStep: header.positionStep ?? DEFAULT_POSITION_STEP, extensionIds, extensionBases: header.extensionBases ?? [] };
@@ -371,7 +380,7 @@ function readHead(payload: Uint8Array) {
   check(r.u16() === 1, 'unsupported format version');
   const kind = KINDS[r.u8() - 1], clock = CLOCKS[r.u8() - 1], playerSlots = r.u8(), landmarkSet = r.u8(), flags = r.u8(), model = r.u8();
   check(kind && clock === KIND_CLOCK[kind], 'unknown kind or clock');
-  check(playerSlots === 1 || playerSlots === 2, 'player slots must be 1 or 2');
+  checkSlots(kind, playerSlots);
   check(landmarkSet === 1, 'unknown landmark set');
   check((flags & ~1) === 0 && model <= MODEL_IDS.length, 'unknown header flags or model');
   const input = { width: r.u16(), height: r.u16() }, positionStep = r.f32();
@@ -383,7 +392,7 @@ function readHead(payload: Uint8Array) {
   const extensionBases = extensionIds.map(() => r.f64());
   check(extensionBases.every(Number.isFinite), 'invalid extension base');
   r.end();
-  return { kind, clock, playerSlots: playerSlots as 1 | 2, input, positionStep, extensionIds, extensionBases,
+  return { kind, clock, playerSlots: playerSlots as PlayerCount, input, positionStep, extensionIds, extensionBases,
     modelId: model ? MODEL_IDS[model - 1] : null, hasFlags: flags === 1 };
 }
 const finiteOrNull = (v: number) => Number.isNaN(v) ? null : v;

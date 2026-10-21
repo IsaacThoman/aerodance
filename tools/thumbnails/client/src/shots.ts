@@ -1,16 +1,19 @@
 import { isStageId } from '../../../../packages/stages/catalog.ts';
 import type { DancerPlacement, StageId, Vec3 } from '../../../../packages/stages/catalog.ts';
+import type { PostOverrides } from '../../../../packages/stages/shared/post.tsx';
 
 // The game renders 640x480 and shows it at 16:9 (4:3-wide pixels). Cropped to 3:2 that
 // grid is 540x480; each buffer pixel becomes a 4x3 block in the 2160x1440 PNG. An Apple TV
 // app icon is 5:3: the same grid at 600x480, or 2400x1440. A phone's app icon is square: the
-// same grid at 360x480, or 1440x1440.
-export type ShotFormat = 'thumbnail' | 'tv-icon' | 'app-icon';
+// same grid at 360x480, or 1440x1440. A splash screen is the game's whole 16:9 frame: 640x480,
+// or 2560x1440.
+export type ShotFormat = 'thumbnail' | 'tv-icon' | 'app-icon' | 'widescreen';
 export interface FrameBuffer { width: number; height: number; aspect: number; }
 const BUFFERS: Record<ShotFormat, FrameBuffer> = {
   thumbnail: { width: 540, height: 480, aspect: 3 / 2 },
   'tv-icon': { width: 600, height: 480, aspect: 5 / 3 },
   'app-icon': { width: 360, height: 480, aspect: 1 },
+  widescreen: { width: 640, height: 480, aspect: 16 / 9 },
 };
 export const bufferFor = (shot: Shot): FrameBuffer => BUFFERS[shot.format ?? 'thumbnail'];
 export const UPSCALE: readonly [x: number, y: number] = [4, 3];
@@ -22,11 +25,12 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *   stage: stage id (packages/stages)
  *   time: seconds the stage plays before the capture (lights, water, creatures, beat)
  *   pose: seconds into the dance capture the dancers hold (0-14)
- *   camera: { position, target, fov, near?, far? }
+ *   camera: { position, target, fov, near?, far?, shift? }: shift [x, y] slides the picture
+ *     without turning the camera, in frame widths and heights: [0.2, 0] moves it a fifth left
  *   dancers: overrides for the stage's dancer placement ({ position, rotationY, spacing })
  *   logo: { y: baseline, size, x?: 'left' | 'right' | number (default centered), stacked?: two lines,
  *     outline?, halo?, light?: see drawTitle } in design units
- *   format: 'thumbnail' (3:2, the default), 'tv-icon' (5:3) or 'app-icon' (1:1)
+ *   format: 'thumbnail' (3:2, the default), 'tv-icon' (5:3), 'app-icon' (1:1) or 'widescreen' (16:9)
  *   layers: split the frame into layers for a parallax icon (ShotLayer)
  *   reflections: the dancers reflect the scene around them, captured in-engine at the camera's
  *     target with them hidden, at this brightness (1 as lit), instead of the stage's environment
@@ -35,7 +39,7 @@ export const designFor = (buffer: FrameBuffer) => ({ width: 900 * buffer.aspect,
  *     each at `from` (relative to the camera's target) facing it, `size` [w, h], and `intensity`
  *     its brightness in the reflections, whatever their brightness: { from, size, color?, intensity }
  */
-export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; }
+export interface ShotCamera { position: Vec3; target: Vec3; fov?: number; near?: number; far?: number; shift?: readonly [x: number, y: number]; }
 export interface ShotLogo { y: number; size: number; x?: 'left' | 'right' | number; stacked?: boolean; outline?: number; halo?: number; light?: 200 | 300 | 400; }
 /**
  * One layer of a layered (parallax) image, back to front. Each layer is the shot rendered with
@@ -73,6 +77,63 @@ export interface Shot {
   layers?: readonly ShotLayer[];
   reflections?: number;
   panels?: readonly ShotPanel[];
+  /** Per dancer (0 blue, 1 purple): a hand-set pose, null to leave them out, or unset for the capture. */
+  figures?: readonly (FigurePose | null | undefined)[];
+  /** Changes to the stage's post-processing, held every frame (exposure, saturation, tint, vignette, bloom). */
+  post?: Omit<PostOverrides, 'toneMapping'>;
+  /** Scales the stage's environment map (the glass's reflections). */
+  environment?: number;
+  /** Scene fog colour and density override (exp2), for dark rooms. */
+  fog?: { color: string; density: number };
+  /** Background colour instead of the stage's sky. */
+  background?: string;
+  lights?: readonly ShotLight[];
+  /** Leave the stage's own scenery and lights out (its environment map stays), e.g. for a room alone. */
+  hideStage?: boolean;
+  room?: ShotRoom;
+  /** A security camera's film over the finished frame: grain and scanline strength (0-1). */
+  overlay?: { grain?: number; scanlines?: number };
+}
+/**
+ * A dingy back room's corner built into the shot, in world space:
+ *   position: the corner on the floor, where the back wall meets the side wall; rotationY turns
+ *     the room about it. The back wall runs `size[0]` to the left (-x) of the corner, facing +z;
+ *     the side wall runs `side[1]` forward (+z) from it, `side[0]` thick (thick and short for a pillar).
+ *   size: [width, depth, height] (default [8, 6, 4.5]); the floor reaches `width` past the corner too
+ *   tile: the floor's checker size (default 0.34, rounded to fit 2 units evenly)
+ *   colors: floor [light, dark], walls, trim tiles [a, b]; gloss: the floor's clearcoat (0-1);
+ *     wear: how grimy the floor and walls are (default 1, 0 for clean)
+ *   trim: [bottom, height] of the tiled band along the walls (default [1.7, 0.36])
+ *   cables: [left, out] where each cable hangs from above: `left` of the corner along the back
+ *     wall, `out` from it
+ */
+export interface ShotRoom {
+  position: Vec3; rotationY?: number; size?: Vec3; side?: readonly [thickness: number, length: number];
+  tile?: number; gloss?: number; wear?: number; trim?: readonly [bottom: number, height: number];
+  cables?: readonly (readonly [left: number, out: number])[];
+  colors?: { floor?: readonly [string, string]; wall?: string; trim?: readonly [string, string] };
+}
+/**
+ * A hand-set pose for one dancer instead of the capture, in the dancer's own space before the
+ * stage mirrors it (feet on the floor at y 0, facing +z, ~2.6 tall standing):
+ *   root: [x, y, z] of the rig's root (y -0.55 sits the body's flat bottom on the floor)
+ *   body: [pitch, yaw, roll] of the body about its pivot (1.1 above the root); +pitch leans forward
+ *   head: [pitch, yaw, roll] of the head about its neck (1 above the body pivot)
+ *   hands: [right-of-screen, left-of-screen] hand centres (each a 0.33 sphere)
+ *   feet: the two foot centres (0.43 x 0.275 x 0.40 ovals); footTurn: [pitch, yaw, roll] of each
+ *     (-1.5 pitch stands them on their heels, soles to the front)
+ *   look: the dancer's colour, gloss (0-100), opacity and accessory; hat: a black top hat tipped
+ *     by [pitch, roll]
+ */
+export interface FigurePose {
+  root?: Vec3; body?: Vec3; head?: Vec3;
+  hands?: readonly [Vec3, Vec3]; feet?: readonly [Vec3, Vec3]; footTurn?: readonly [Vec3, Vec3];
+  look?: { color?: string; gloss?: number; opacity?: number; accessory?: string };
+  hat?: readonly [pitch: number, roll: number];
+}
+/** An extra spotlight for the shot, like a flashlight: angle (radians) and penumbra as three.js's. */
+export interface ShotLight {
+  position: Vec3; target: Vec3; color?: string; intensity: number; angle?: number; penumbra?: number; shadow?: boolean;
 }
 export interface ShotPanel { from: Vec3; size: readonly [w: number, h: number]; color?: string; intensity: number; }
 
@@ -101,7 +162,8 @@ const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.is
 const optionalNumber = (v: unknown) => v === undefined || isNumber(v);
 const isVec3 = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every(isNumber);
 const isCamera = (v: unknown): v is ShotCamera => isFields(v) && isVec3(v.position) && isVec3(v.target) &&
-  optionalNumber(v.fov) && optionalNumber(v.near) && optionalNumber(v.far);
+  optionalNumber(v.fov) && optionalNumber(v.near) && optionalNumber(v.far) &&
+  (v.shift === undefined || (Array.isArray(v.shift) && v.shift.length === 2 && v.shift.every(isNumber)));
 const isDancers = (v: unknown): v is Partial<DancerPlacement> => isFields(v) && (v.position === undefined || isVec3(v.position)) &&
   optionalNumber(v.rotationY) && optionalNumber(v.spacing) && optionalNumber(v.scale);
 const isLogo = (v: unknown): v is ShotLogo => isFields(v) && isNumber(v.y) && isNumber(v.size) &&
@@ -121,13 +183,37 @@ const isLayerStack = (v: unknown) => {
   return rendered.length > 0 && rendered.every((layer, i) => i === 0 || (layer.exposure === undefined &&
     (layer.near ?? 0) <= (rendered[i - 1].near ?? 0) && (layer.dancers || !rendered[i - 1].dancers)));
 };
+const optionalString = (v: unknown) => v === undefined || typeof v === 'string';
+const isPair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(isNumber);
+const optional = (v: unknown, is: (v: unknown) => boolean) => v === undefined || is(v);
+const isVec3Pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(isVec3);
+const isFigure = (v: unknown) => v === null || v === undefined || (isFields(v) &&
+  optional(v.root, isVec3) && optional(v.body, isVec3) && optional(v.head, isVec3) && optional(v.hands, isVec3Pair) &&
+  optional(v.feet, isVec3Pair) && optional(v.footTurn, isVec3Pair) && optional(v.hat, isPair) &&
+  optional(v.look, (l) => isFields(l) && optionalString(l.color) && optionalNumber(l.gloss) && optionalNumber(l.opacity) && optionalString(l.accessory)));
+const isPost = (v: unknown) => isFields(v) && optionalNumber(v.exposure) && optionalNumber(v.saturation) && optionalNumber(v.vignette) &&
+  optional(v.tint, isVec3) && optionalNumber(v.bloomStrength) && optionalNumber(v.bloomThreshold) && optionalNumber(v.bloomRadius);
+const isLight = (v: unknown) => isFields(v) && isVec3(v.position) && isVec3(v.target) && optionalString(v.color) && isNumber(v.intensity) &&
+  optionalNumber(v.angle) && optionalNumber(v.penumbra) && optionalBoolean(v.shadow);
+const isStringPair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every((c) => typeof c === 'string');
+const isRoom = (v: unknown) => isFields(v) && isVec3(v.position) && optionalNumber(v.rotationY) && optional(v.size, isVec3) &&
+  optional(v.side, isPair) && optionalNumber(v.tile) && optionalNumber(v.gloss) && optionalNumber(v.wear) && optional(v.trim, isPair) &&
+  optional(v.cables, (c) => Array.isArray(c) && c.every(isPair)) &&
+  optional(v.colors, (c) => isFields(c) && optional(c.floor, isStringPair) && optionalString(c.wall) && optional(c.trim, isStringPair));
+// A shot's own scene, from its figures to its overlay: see Shot.
+const isShotLook = (shot: Fields) => optional(shot.figures, (f) => Array.isArray(f) && f.every(isFigure)) && optional(shot.post, isPost) &&
+  optionalNumber(shot.environment) && optional(shot.fog, (f) => isFields(f) && typeof f.color === 'string' && isNumber(f.density)) &&
+  optionalString(shot.background) && optional(shot.lights, (l) => Array.isArray(l) && l.every(isLight)) &&
+  optionalBoolean(shot.hideStage) && optional(shot.room, isRoom) &&
+  optional(shot.overlay, (o) => isFields(o) && optionalNumber(o.grain) && optionalNumber(o.scanlines));
 
 export function assertShot(shot: unknown): asserts shot is Shot {
   if (!isFields(shot) || typeof shot.id !== 'string' || !isStageId(shot.stage) || !isNumber(shot.time) || !isNumber(shot.pose) ||
       !isCamera(shot.camera) || !(shot.dancers === undefined || isDancers(shot.dancers)) || !(shot.logo === undefined || isLogo(shot.logo)) ||
-      !(shot.format === undefined || shot.format === 'thumbnail' || shot.format === 'tv-icon' || shot.format === 'app-icon') ||
+      !(shot.format === undefined || shot.format === 'thumbnail' || shot.format === 'tv-icon' || shot.format === 'app-icon' || shot.format === 'widescreen') ||
       !(shot.layers === undefined || isLayerStack(shot.layers)) || !optionalNumber(shot.reflections) ||
-      !(shot.panels === undefined || (shot.reflections !== undefined && Array.isArray(shot.panels) && shot.panels.every(isPanel)))) {
+      !(shot.panels === undefined || (shot.reflections !== undefined && Array.isArray(shot.panels) && shot.panels.every(isPanel))) ||
+      !isShotLook(shot)) {
     throw new Error(`Invalid shot: ${JSON.stringify(shot)}`);
   }
 }
@@ -444,4 +530,34 @@ export const APP_ICONS: readonly Shot[] = [
   },
   // Against nothing: transparent, for putting on a background of your own.
   { ...GLASS_PORTRAIT, id: 'portrait-transparent-bg' },
+];
+
+/*
+ * Splash screens, 16:9, into assets/ as <id>.png (with the wordmark if the shot has one).
+ * splash1: the gold dancer slumped in a dark back room's corner, in a top hat, seen from a
+ * grainy security camera with a flashlight on her. The club stage only lends its
+ * environment map: its scenery is hidden and the room stands in for it.
+ */
+const SLUMPED: FigurePose = {
+  root: [0, -0.6, -0.1], body: [-0.18, 0.15, 0.14], head: [0.4, 0.3, 0.3],
+  hands: [[-1.25, 0.33, 0.55], [1.35, 0.33, 0.35]],
+  feet: [[-0.62, 0.4, 1.15], [0.58, 0.4, 1.25]], footTurn: [[-1.45, -0.4, 0.1], [-1.45, 0.4, -0.1]],
+  hat: [0.05, 0.12], look: { color: '#f0b400', opacity: 0.95, gloss: 60 },
+};
+const SPLASH1: Shot = {
+  id: 'splash1', stage: 'club', time: 10, pose: 5, format: 'widescreen', hideStage: true,
+  camera: { position: [-4, 6.8, 6.4], target: [-1.3, 0.8, -0.3], fov: 40 },
+  post: { exposure: 0.45, saturation: 0.6, vignette: 0.9, bloomStrength: 0.25, bloomThreshold: 1.6 },
+  environment: 0.05, background: '#000000', fog: { color: '#000000', density: 0.02 },
+  // A flashlight from the camera.
+  lights: [{ position: [-4, 6.8, 6.4], target: [-1.4, 0.3, 0.6], intensity: 800, angle: 0.45, penumbra: 0.6, shadow: true }],
+  room: { position: [-0.6, 0, -1.25], side: [1, 1.4], tile: 0.3, cables: [[3.3, 0.25], [2.9, 0.5], [1.7, 0.12], [0.25, 0.2], [0.4, 0.75]] },
+  overlay: { grain: 0.12, scanlines: 0.15 },
+  // The purple dancer is left out.
+  figures: [SLUMPED, null],
+};
+export const SPLASHES: readonly Shot[] = [
+  SPLASH1,
+  // The same view slid left, with the wordmark in the dark at the top right.
+  { ...SPLASH1, id: 'splash1-logo', camera: { ...SPLASH1.camera, shift: [0.2, 0] }, logo: { y: 190, size: 150, x: 'right' } },
 ];
