@@ -24,16 +24,17 @@ export interface IceCandidate { candidate: string; sdpMid?: string | null; sdpML
  * Relayed between the two sides. epoch numbers the game's connection attempts, so a late
  * answer or candidate from an abandoned attempt is ignored.
  *
- *   hello    phone → game: here I am, (re)connect me
- *   offer    game → phone
+ *   hello    phone → game: here I am, (re)connect me (probes: it can take a probe, below)
+ *   offer    game → phone (probe: alongside the relayed link, which stays the phone's link
+ *            until it closes; the game closes it once the probe has proved itself)
  *   answer   phone → game
  *   ice      either way
  *   relay    game → phone: no WebRTC here (an Apple TV), so connect through the pairing
  *            server's relay instead (relay.ts), for this attempt
  */
 export type Signal =
-  | { type: 'hello'; device: string }
-  | { type: 'offer'; epoch: number; sdp: string }
+  | { type: 'hello'; device: string; probes?: true }
+  | { type: 'offer'; epoch: number; sdp: string; probe?: true }
   | { type: 'answer'; epoch: number; sdp: string }
   | { type: 'ice'; epoch: number; candidate: IceCandidate }
   | { type: 'relay'; epoch: number };
@@ -58,8 +59,8 @@ function isCandidate(value: unknown): value is IceCandidate {
 export function parsePairingEvent(value: unknown): PairingEvent | null {
   if (!isObject(value)) return null;
   switch (value.type) {
-    case 'hello': return typeof value.device === 'string' ? { type: 'hello', device: value.device.slice(0, 80) } : null;
-    case 'offer':
+    case 'hello': return typeof value.device === 'string' ? { type: 'hello', device: value.device.slice(0, 80), ...(value.probes === true ? { probes: true } : {}) } : null;
+    case 'offer': return epochOf(value.epoch) && typeof value.sdp === 'string' ? { type: 'offer', epoch: value.epoch as number, sdp: value.sdp, ...(value.probe === true ? { probe: true } : {}) } : null;
     case 'answer': return epochOf(value.epoch) && typeof value.sdp === 'string' ? { type: value.type, epoch: value.epoch as number, sdp: value.sdp } : null;
     case 'ice': return epochOf(value.epoch) && isCandidate(value.candidate) ? { type: 'ice', epoch: value.epoch as number, candidate: value.candidate } : null;
     case 'relay': return epochOf(value.epoch) ? { type: 'relay', epoch: value.epoch as number } : null;
