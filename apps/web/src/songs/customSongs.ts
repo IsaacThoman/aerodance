@@ -1,0 +1,238 @@
+import { catalogEntry, validateBundlePath } from '../../../../packages/pose/song.ts';
+import type { CatalogSong, SongFolder } from '../../../../packages/pose/song.ts';
+import { isArray, isObject } from '../../../../packages/pose/choreography.ts';
+import { readZip } from '../../../../packages/pose/zip.ts';
+import { inApp } from '../host.ts';
+import { MAX_BUNDLE_BYTES, loadSongBundle } from './loadBundle.ts';
+import type { Fetcher } from './loadBundle.ts';
+
+/*
+ * Songs imported into this browser: the ZIPs Dance Studio exports (<songId>-r<n>.aerodance-song.zip,
+ * one <songId>/ folder of song.json, checksums.json, choreography, audio and cover), kept in
+ * IndexedDB and listed in Song Select after the published songs.
+ *
+ *   importSongZip(file, { confirmReplace })   checks it fully (catalogEntry, then loadSongBundle),
+ *                                             then saves it in one transaction
+ *   listCustomSongs()                         the saved songs' catalog entries, checked again
+ *   loadCustomSong(entry, { signal })         loadSongBundle over the saved files
+ *   removeCustomSong(id)
+ *
+ * They're kept apart from published songs: an imported song can share a published song's ID,
+ * and its best scores are kept under custom:<id> (customScoreId). Only the files checksums.json
+ * lists are kept, as bytes rather than Blobs (WebKit won't store Blobs in a private window), one
+ * record each so the list doesn't read every song's audio. The Apple TV app (no IndexedDB or
+ * file picker) and the iPhone/iPad app (WebKit may clear its storage) don't offer importing
+ * (customSongsSupported).
+ */
+
+/** A saved song: its catalog entry and its files' sizes by bundle-relative path. */
+export interface CustomSongRecord { id: string; entry: CatalogSong; sizes: Map<string, number>; importedAt: string; }
+/** Where saved songs live; IndexedDB in the browser (indexedDBStore), Maps in tests. */
+export interface CustomSongStore {
+  all(): Promise<CustomSongRecord[]>;
+  get(id: string): Promise<CustomSongRecord | undefined>;
+  file(id: string, path: string): Promise<Uint8Array<ArrayBuffer> | undefined>;
+  /** Saves a song and its files, in place of any saved before under its ID, all or nothing. */
+  put(record: CustomSongRecord, files: ReadonlyMap<string, Uint8Array<ArrayBuffer>>): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+export interface ImportResult {
+  /** imported: new; replaced: over a saved copy; kept: the saved copy stayed (confirmReplace said no). */
+  status: 'imported' | 'replaced' | 'kept';
+  entry: CatalogSong;
+  /** The saved copy's revision, when there was one. */
+  previousRevision?: number;
+}
+export interface ImportOptions {
+  store?: CustomSongStore;
+  /** Asked before an import replaces a saved copy of the same or a later revision. */
+  confirmReplace?: (saved: CatalogSong, incoming: CatalogSong) => boolean | Promise<boolean>;
+}
+
+/** Saved songs load through this made-up origin (folderFetcher answers it). */
+export const CUSTOM_CATALOG_URL = 'https://custom-songs.invalid/songs/manifest.json';
+export const customScoreId = (songId: string) => `custom:${songId}`;
+
+/** Importing needs IndexedDB and a file picker, in a browser rather than one of the apps. */
+export const customSongsSupported = () =>
+  typeof indexedDB !== 'undefined' && typeof HTMLInputElement !== 'undefined' && !inApp();
+
+const ZIP_NOISE = (path: string) => path.startsWith('__MACOSX/') || /(^|\/)(\.DS_Store|\._[^/]*)$/.test(path);
+const decodeJson = (bytes: Uint8Array): unknown => JSON.parse(new TextDecoder().decode(bytes));
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+// A song folder over a file lookup by bundle-relative path (and optionally known sizes).
+function folderOf(file: (path: string) => Promise<Uint8Array<ArrayBuffer> | undefined>, sizes?: ReadonlyMap<string, number>): SongFolder {
+  const read = async (path: string) => {
+    const bytes = await file(validateBundlePath(path));
+    if (!bytes) throw Error(`Missing file: ${path}`);
+    return bytes;
+  };
+  return {
+    size: async (path) => {
+      const size = sizes?.get(validateBundlePath(path));
+      if (sizes && size === undefined) throw Error(`Missing file: ${path}`);
+      return size ?? (await read(path)).byteLength;
+    },
+    read,
+  };
+}
+
+// A fetch over one song's files, served under CUSTOM_CATALOG_URL's songs/<id>/.
+function folderFetcher(id: string, file: (path: string) => Promise<Uint8Array<ArrayBuffer> | undefined>): Fetcher {
+  const root = new URL(`${id}/`, CUSTOM_CATALOG_URL);
+  return async (url, { signal }) => {
+    signal?.throwIfAborted();
+    const path = url.origin === root.origin && url.pathname.startsWith(root.pathname) ? decodeURIComponent(url.pathname.slice(root.pathname.length)) : '';
+    const body = path ? await file(path) : undefined;
+    signal?.throwIfAborted();
+    return body ? new Response(body) : new Response(null, { status: 404 });
+  };
+}
+
+/**
+ * An exported song's files from a ZIP: the one folder (or the archive's top level) holding
+ * song.json, without the Finder's __MACOSX/ and .DS_Store extras.
+ */
+export async function readSongZip(file: Blob): Promise<{ name: string; files: Map<string, Uint8Array<ArrayBuffer>> }> {
+  if (file.size > MAX_BUNDLE_BYTES) throw Error('That file is too big to be a song.');
+  let entries: Map<string, Uint8Array>;
+  try { entries = await readZip(new Uint8Array(await file.arrayBuffer()), MAX_BUNDLE_BYTES); }
+  catch (error) { throw Error(`That isn't a readable song ZIP (${errorText(error)}).`, { cause: error }); }
+  const paths = [...entries.keys()].filter((path) => !ZIP_NOISE(path));
+  if (paths.includes('project.json')) throw Error('That is a Dance Studio project backup. Export the song from Dance Studio and import that ZIP.');
+  const songs = paths.filter((path) => /^([^/]+\/)?song\.json$/.test(path));
+  if (!songs.length) throw Error('That ZIP has no song.json. Export the song from Dance Studio and import that ZIP.');
+  if (songs.length > 1) throw Error('That ZIP holds more than one song. Import them one at a time.');
+  const prefix = songs[0].slice(0, -'song.json'.length);
+  const files = new Map<string, Uint8Array<ArrayBuffer>>();
+  for (const path of paths) if (path.startsWith(prefix)) files.set(path.slice(prefix.length), new Uint8Array(entries.get(path) ?? []));
+  // A top-level song.json names its own folder.
+  let name = prefix.slice(0, -1);
+  if (!name) {
+    const song = decodeJson(files.get('song.json') ?? new Uint8Array());
+    name = isObject(song) && typeof song.songId === 'string' ? song.songId : '';
+  }
+  return { name, files };
+}
+
+/** Checks a Dance Studio export (ZIP) as fully as playing it would, then saves it. */
+export async function importSongZip(file: Blob, { store = indexedDBStore(), confirmReplace = () => false }: ImportOptions = {}): Promise<ImportResult> {
+  const { name, files } = await readSongZip(file);
+  const lookup = async (path: string) => files.get(path);
+  let entry: CatalogSong;
+  try {
+    entry = await catalogEntry(name, folderOf(lookup));
+    await loadSongBundle(entry, CUSTOM_CATALOG_URL, { fetcher: folderFetcher(entry.id, lookup) });
+  } catch (error) { throw Error(`That song can't be played: ${errorText(error)}`, { cause: error }); }
+  // Keep what checksums.json lists (everything the bundle plays, checked above), and itself.
+  const checksums = decodeJson(files.get('checksums.json') ?? new Uint8Array());
+  const listed = isObject(checksums) && isArray(checksums.files) ? checksums.files.flatMap((f) => (isObject(f) && typeof f.path === 'string' ? [f.path] : [])) : [];
+  const kept = new Map<string, Uint8Array<ArrayBuffer>>();
+  for (const path of ['checksums.json', ...listed]) {
+    const bytes = files.get(path);
+    if (bytes) kept.set(path, bytes);
+  }
+  const saved = await store.get(entry.id);
+  const previousRevision = saved?.entry.bundleRevision;
+  if (saved && saved.entry.bundleRevision >= entry.bundleRevision && !await confirmReplace(saved.entry, entry)) {
+    return { status: 'kept', entry: saved.entry, previousRevision };
+  }
+  const sizes = new Map([...kept].map(([path, bytes]) => [path, bytes.byteLength]));
+  await store.put({ id: entry.id, entry, sizes, importedAt: new Date().toISOString() }, kept);
+  // Ask the browser not to clear saved songs to make room (it may say no).
+  void globalThis.navigator?.storage?.persist?.().catch(() => false);
+  return { status: saved ? 'replaced' : 'imported', entry, ...(saved ? { previousRevision } : {}) };
+}
+
+/** The saved songs' catalog entries by title, checked again (a damaged one is left out). */
+export async function listCustomSongs(store: CustomSongStore = indexedDBStore(), warn: (message: string) => void = console.warn): Promise<CatalogSong[]> {
+  const songs: CatalogSong[] = [];
+  for (const record of await store.all()) {
+    try { songs.push(await catalogEntry(record.id, folderOf((path) => store.file(record.id, path), record.sizes))); }
+    catch (error) { warn(`Skipping imported song ${record.id}: ${errorText(error)}`); }
+  }
+  return songs.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+}
+
+/** A saved song, verified like a published one (loadSongBundle). */
+export function loadCustomSong(entry: CatalogSong, { signal, store = indexedDBStore() }: { signal?: AbortSignal; store?: CustomSongStore } = {}) {
+  const fetcher = folderFetcher(entry.id, (path) => store.file(entry.id, path));
+  return loadSongBundle(entry, CUSTOM_CATALOG_URL, { signal, fetcher, scoreId: customScoreId(entry.id) });
+}
+
+export const removeCustomSong = (id: string, store: CustomSongStore = indexedDBStore()) => store.delete(id);
+
+// When the browser hasn't room to save a song.
+const quotaMessage = "There isn't enough storage space in this browser for that song.";
+
+const DB_NAME = 'aerodance-custom-songs', SONGS = 'songs', FILES = 'files';
+// Every file of a song: [id, path] keys, where any path sorts below an array.
+const songFiles = (id: string) => IDBKeyRange.bound([id], [id, []]);
+let shared: CustomSongStore | null = null;
+/** Saved songs in IndexedDB: a record per song (songs) and per file (files, keyed [id, path]). */
+export function indexedDBStore(): CustomSongStore {
+  if (shared) return shared;
+  let opening: Promise<IDBDatabase> | null = null;
+  const open = () => opening ??= new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(SONGS, { keyPath: 'id' });
+      request.result.createObjectStore(FILES, { keyPath: ['id', 'path'] });
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      // Another tab upgrading later closes this one, and the next use opens it again.
+      db.onversionchange = () => { db.close(); opening = null; };
+      resolve(db);
+    };
+    request.onerror = () => { opening = null; reject(request.error ?? Error('Saved songs could not open.')); };
+    request.onblocked = () => { opening = null; reject(Error('Saved songs are open in another tab; close it and try again.')); };
+  });
+  // Runs fn in one transaction over both stores; resolves with its result once it commits.
+  const run = async <T>(mode: IDBTransactionMode, fn: (songs: IDBObjectStore, files: IDBObjectStore) => () => T) => {
+    const db = await open();
+    return new Promise<T>((resolve, reject) => {
+      const tx = db.transaction([SONGS, FILES], mode);
+      const result = fn(tx.objectStore(SONGS), tx.objectStore(FILES));
+      const fail = () => {
+        const error = tx.error;
+        reject(error?.name === 'QuotaExceededError' ? Error(quotaMessage) : error ?? Error('Saved songs could not be read.'));
+      };
+      tx.oncomplete = () => resolve(result());
+      tx.onerror = fail;
+      tx.onabort = fail;
+    });
+  };
+  const record = (value: unknown): CustomSongRecord | undefined =>
+    isObject(value) && typeof value.id === 'string' && isObject(value.entry) && value.sizes instanceof Map ? value as unknown as CustomSongRecord : undefined;
+  shared = {
+    all: () => run('readonly', (songs) => {
+      const request = songs.getAll();
+      return () => request.result.flatMap((value: unknown) => record(value) ?? []);
+    }),
+    get: (id) => run('readonly', (songs) => {
+      const request = songs.get(id);
+      return () => record(request.result);
+    }),
+    file: (id, path) => run('readonly', (_, files) => {
+      const request = files.get([id, path]);
+      return () => {
+        const value: unknown = request.result;
+        return isObject(value) && value.bytes instanceof Uint8Array ? value.bytes as Uint8Array<ArrayBuffer> : undefined;
+      };
+    }),
+    put: (song, contents) => run('readwrite', (songs, files) => {
+      files.delete(songFiles(song.id));
+      for (const [path, bytes] of contents) files.put({ id: song.id, path, bytes });
+      songs.put(song);
+      return () => undefined;
+    }),
+    delete: (id) => run('readwrite', (songs, files) => {
+      files.delete(songFiles(id));
+      songs.delete(id);
+      return () => undefined;
+    }),
+  };
+  return shared;
+}

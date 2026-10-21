@@ -291,6 +291,32 @@ export const ICONS = {
     g.lineTo(cx - a, cy + a);
     g.stroke();
   },
+  // Plus (import a song).
+  add(g, cx, cy, r) {
+    const a = r * 0.4;
+    g.beginPath();
+    g.moveTo(cx - a, cy);
+    g.lineTo(cx + a, cy);
+    g.moveTo(cx, cy - a);
+    g.lineTo(cx, cy + a);
+    g.stroke();
+  },
+  // Bin (remove a song).
+  trash(g, cx, cy, r) {
+    const a = r * 0.4;
+    g.beginPath();
+    g.moveTo(cx - a, cy - a * 0.6);
+    g.lineTo(cx + a, cy - a * 0.6);
+    g.moveTo(cx - a * 0.3, cy - a * 0.6);
+    g.lineTo(cx - a * 0.3, cy - a);
+    g.lineTo(cx + a * 0.3, cy - a);
+    g.lineTo(cx + a * 0.3, cy - a * 0.6);
+    g.moveTo(cx - a * 0.7, cy - a * 0.6);
+    g.lineTo(cx - a * 0.55, cy + a);
+    g.lineTo(cx + a * 0.55, cy + a);
+    g.lineTo(cx + a * 0.7, cy - a * 0.6);
+    g.stroke();
+  },
   pause(g, cx, cy, r) {
     const a = r * 0.4;
     g.beginPath();

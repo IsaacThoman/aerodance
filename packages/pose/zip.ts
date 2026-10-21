@@ -1,4 +1,5 @@
-// Portable ZIPs: deterministic stored exports and bounded stored/deflated imports.
+// Portable ZIPs: deterministic stored exports and bounded stored/deflated imports. Dance Studio
+// writes and reads them; the game reads exported songs with them (apps/web/src/songs/customSongs.ts).
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 const table = Array.from({ length: 256 }, (_, i) => {
   let n = i;
@@ -79,6 +80,8 @@ export async function readZip(bytes: Uint8Array, maxBytes = 256 * 1024 * 1024): 
       extra = v.getUint16(cursor + 30, true), comment = v.getUint16(cursor + 32, true), offset = v.getUint32(cursor + 42, true);
     if (cursor + 46 + len + extra + comment > end) throw Error("Truncated ZIP directory");
     const name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + len));
+    // Folder entries (archives zipped by the Finder or Explorer have them) hold no data.
+    if (name.endsWith("/") && safePath(name.slice(0, -1)) && !size && !compressed) { cursor += 46 + len + extra + comment; continue; }
     if (!safePath(name) || files.has(name) || ((v.getUint32(cursor + 38, true) >>> 16) & 0xf000) === 0xa000)
       throw Error("Unsafe/duplicate ZIP entry");
     if (v.getUint16(cursor + 8, true) & 1) throw Error("Encrypted ZIP unsupported");

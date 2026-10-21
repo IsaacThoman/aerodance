@@ -30,6 +30,27 @@ projects. The repo ships one song, **Demo Track 1** (`apps/web/public/songs/demo
 a 30-second duet we recorded ourselves on the `club` stage, set to generated
 brown noise so the bundle carries no licensed music.
 
+## Import a song in the browser
+
+Players can add a song without rebuilding the game: **Import song**, under the Song
+Select list, takes the ZIP Dance Studio's **Export song** downloads
+(`<songId>-r<revision>.aerodance-song.zip`). A ZIP of the exported folder made by the
+Finder or Explorer works too. The game checks it as fully as playing it would, then saves
+it in the browser's IndexedDB, so it's still there next visit. Imported songs list after
+the published ones, marked **Custom**; an imported song's preview has **Remove**.
+
+- Importing the same or an older revision of a song already imported asks before replacing it.
+- An imported song can share a published song's ID: both are listed, and the imported one's
+  best scores are kept under `custom:<songId>`.
+- Only the files `checksums.json` lists are kept. A saved song that no longer checks out is
+  left out of the list, with a console warning.
+- The Apple TV app (no IndexedDB or file picker) and the iPhone/iPad app (WebKit may clear
+  its storage) don't offer importing. Browsers that clear site data clear imported songs.
+
+Code: `apps/web/src/songs/customSongs.ts` (import, storage, loading),
+`packages/pose/song.ts` `catalogEntry` (the folder checks shared with
+`scripts/songCatalog.ts`) and `packages/pose/zip.ts` (shared with Dance Studio).
+
 Catalog paths resolve relative to the catalog; media paths resolve relative to
 `song.json`. Only safe relative file paths are accepted. The loader checks
 schema/profile support, catalog identity and revision, song/choreography time
@@ -99,6 +120,7 @@ Runtime preview still loops, while game bundle sampling is finite.
 npm test
 npm run build
 node apps/web/tests/ui-flow.browser.ts # requires Playwright and Chromium
+node apps/web/tests/custom-songs.browser.ts # CUSTOM_SONGS_BROWSER=webkit for WebKit
 ```
 
 Tests cover migration, wire-payload compatibility, integrity failures, revision
