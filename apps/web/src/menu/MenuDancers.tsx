@@ -24,7 +24,7 @@ import { Burst, SpawnBubble, bubbleMaterial, clamp01, easeOutBack, easeOutCubic,
  * and the others start back in shock (they freeze, hop, and a "!" pops up) before dancing on.
  * The rest regroup around the middle. Two stand side by side; three make a triangle with
  * player 3 at the front, and four a diamond with player 4 at the back, so the puck keeps
- * its size.
+ * its size. Three or four slowly circle the puck's middle, still facing the camera.
  *
  * On Song Select the stage rises to the middle of the screen (`raised`, nothing sits above
  * it there).
@@ -71,7 +71,15 @@ const SLOTS: readonly (readonly [number, number])[][] = [
   [[-WIDE_RING * Math.cos(Math.PI / 6), -WIDE_RING / 2], [WIDE_RING * Math.cos(Math.PI / 6), -WIDE_RING / 2], [0, WIDE_RING]],
   [[-WIDE_RING, 0], [WIDE_RING, 0], [0, WIDE_RING], [0, -WIDE_RING]],
 ];
-const slot = (i: number, n: number) => SLOTS[n - 1][i];
+/** Dancer `i`'s spot for `n` dancers, with the formation turned `turn` radians about the middle. */
+const slot = (i: number, n: number, turn: number) => {
+  const [x, z] = SLOTS[n - 1][i];
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  return [x * c + z * s, z * c - x * s] as const;
+};
+// How fast three or four dancers circle the middle (radians per second; about 25 s a lap).
+const SPIN = 0.25;
 const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, Math.round(n)));
 
 type Phase = 'in' | 'out' | 'spawn' | 'pop';
@@ -163,6 +171,8 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
   const clock = useRef(0);
   const shown = useRef(0);
   const lift = useRef(0);
+  // How far the formation has turned; back to 0 below three, so player 3 always arrives at the front.
+  const spin = useRef(0);
   const n = clampCount(count);
   const spots = useRef<(THREE.Group | null)[]>([]);
   const placed = useRef<boolean[]>([]);
@@ -236,7 +246,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
         const shown = animate && !!spot;
         if (playing && (d.phase === 'out' || d.phase === 'pop')) {
           Object.assign(d, { phase: shown ? 'spawn' : 'in', t: 0, burst: false });
-          if (spot) [spot.position.x, spot.position.z] = slot(i, n);
+          if (spot) [spot.position.x, spot.position.z] = slot(i, n, spin.current);
         } else if (!playing && (d.phase === 'in' || d.phase === 'spawn')) {
           Object.assign(d, { phase: shown ? 'pop' : 'out', t: 0, burst: false });
           fx.bubbles[i].hide();
@@ -254,6 +264,9 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
     const frozen = react.kind === 'shock' && react.t < SHOCK_FREEZE;
     if (!still && !frozen) clock.current += dt;
     playback.forEach((p, i) => { p.current = clock.current + LAG[i]; });
+    // Three or four circle the middle, pausing with the dance.
+    if (n < 3) spin.current = 0;
+    else if (!still && !frozen) spin.current += dt * SPIN;
 
     // Rise and regrouping ease in, unless the stage is off screen.
     lift.current += ((raised ? RAISE : 0) - lift.current) * k;
@@ -264,7 +277,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
       if (!spot) return;
       const o = opacity[i];
       const bubble = fx.bubbles[i];
-      const [tx, tz] = slot(Math.min(i, n - 1), n);
+      const [tx, tz] = slot(Math.min(i, n - 1), n, spin.current);
       d.t += dt;
       let size = 1;
       let stretch = 1;
@@ -378,7 +391,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
                   // Placed once; after that the frame loop moves it, so a new count never snaps it.
                   if (g && !placed.current[i]) {
                     placed.current[i] = true;
-                    [g.position.x, g.position.z] = slot(Math.min(i, n - 1), n);
+                    [g.position.x, g.position.z] = slot(Math.min(i, n - 1), n, spin.current);
                     g.scale.set(-1, 1, 1);
                     g.visible = i < n;
                   }
