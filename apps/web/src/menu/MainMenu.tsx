@@ -24,7 +24,8 @@ import { displayDesign } from '../display.ts';
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders and turn the players dial).
- * The dial is controlled (playerCount / onPlayerCountChange), and onScreenChange reports the
+ * The dial is controlled (playerCount / onPlayerCountChange); Start always turns it back to 2
+ * (Back from Song Select keeps the count picked last). onScreenChange reports the
  * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players
  * for tests.
  *
@@ -69,6 +70,8 @@ const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings
 // Left/Right move a slider a twentieth (5) at a time.
 const SLIDER_STEPS = 20;
 const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, n)) as PlayerCount;
+// The dial's count each time Start opens the players screen.
+export const DEFAULT_PLAYERS: PlayerCount = 2;
 
 // The dial's count: heavy white type with the title's embossed shadow and cool glossy face.
 function drawCount(g: CanvasRenderingContext2D, n: number, x: number, cy: number, size = 150) {
@@ -286,7 +289,7 @@ export default function MainMenu({
         return;
       }
       switch (wdg.id) {
-        case 'start': go('players'); break;
+        case 'start': setCount(DEFAULT_PLAYERS); go('players'); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
         case 'minus': setCount(count() - 1); break;
