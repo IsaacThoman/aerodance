@@ -43,7 +43,7 @@ node tools/thumbnails/scripts/render.ts --tv-icons
 
 ## Phone app icons
 
-`app-icon/aerodance.icon` is the iPhone and iPad app's icon, an Icon Composer document that `client-ios/project.yml` builds into the app. Open it in Icon Composer to change it. It's made of the renders below: the light look is `portrait-purple-sky-glass`'s layers (its dancer layers carry `portrait-transparent-bg`'s names, as they're the same images), with `portrait-dark-sky-glass`'s behind them. The dark look hides the purple-sky layers to show the dark ones, and the tinted look hides only the purple sky. `1-sky.png`, `2-dancers.png` and `3-hands.png` beside it are copies of the dark layers.
+`app-icon/aerodance.icon` is the iPhone and iPad app's icon, an Icon Composer document that `apps/ios/project.yml` builds into the app. Open it in Icon Composer to change it. It's made of the renders below: the light look is `portrait-purple-sky-glass`'s layers (its dancer layers carry `portrait-transparent-bg`'s names, as they're the same images), with `portrait-dark-sky-glass`'s behind them. The dark look hides the purple-sky layers to show the dark ones, and the tinted look hides only the purple sky. `1-sky.png`, `2-dancers.png` and `3-hands.png` beside it are copies of the dark layers.
 
 `app-icon/` also holds those renders, made in-engine like the Apple TV icon: `portrait-purple-sky-glass.png` (1024×1024, opaque), the purple dancer's head close up against the Apple TV icon's soft sky, with her see-through glass. Its layers, back to front, are in `portrait-purple-sky-glass/1024x1024/`: `1-sky` (opaque), `2-dancers` (her head, body and feet) and `3-hands` (her floating hands on their own), for a layered icon in Icon Composer.
 

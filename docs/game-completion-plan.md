@@ -36,11 +36,11 @@ gameplay in the middle had not been built.
 | --- | --- |
 | Menus, Settings, player count, Song Select, song preview on six stages | Done, drawn in-engine, mouse/touch/keyboard/phone-remote input. |
 | Android pose capture (two players, protocol v2, bounded reconnects) | Done. About 9 poses/s with gaps up to 505 ms in two-player mode. GPU startup takes 13–35 s. |
-| Browser pose transport (`client/src/pose/`) | Done. Live poses only decide whether a Song Select slot reads "Detected". |
+| Browser pose transport (`apps/web/src/pose/`) | Done. Live poses only decide whether a Song Select slot reads "Detected". |
 | Dance Studio (record, edit, compile, export bundles) | Done, except video upload and calibrated timing. |
 | Song bundles and verified loading | Done. **One song** ships, titled as a test, 28 s long, with uncalibrated timing. |
-| Audio-clock song playback (`client/src/audio/songPlayer.ts`) | Done for preview. No scheduled start and no game-level pause. |
-| Battles, phones, Solana receipts, NFTs, iMessage agent | Done, but scores come from `client/src/battle/fakeDance.js` (a 5 s timer reporting random scores). |
+| Audio-clock song playback (`apps/web/src/audio/songPlayer.ts`) | Done for preview. No scheduled start and no game-level pause. |
+| Battles, phones, Solana receipts, NFTs, iMessage agent | Done, but scores come from `apps/web/src/battle/fakeDance.js` (a 5 s timer reporting random scores). |
 | Countdown, gameplay screen, pause, results | **Missing.** The results screens exist only as a mock in `temp/win-screens/`. |
 | Live player characters | **Missing.** `createPoseApplier` already accepts any pose; there is no live calibration and no live panels. |
 | Clock sync (`GET /v1/time`) | **Missing** on Android and in the browser. |
@@ -90,12 +90,12 @@ critical path; 5–8 can overlap once milestone 2 lands.
 
 - **CI.** Add a GitHub Actions workflow running `npm test`,
   `npm run studio:test`, the root build, and the Docker `test` stage on every PR.
-  Add Playwright as a devDependency and run `client/tests/ui-flow.browser.ts`
+  Add Playwright as a devDependency and run `apps/web/tests/ui-flow.browser.ts`
   in CI. Run the Android host tests (`./gradlew :shared:testAndroidHostTest`)
   when `client-android/` changes.
 - **PoseSource interface.** Extract the shape `AndroidPoseSource` already
   exposes (status, snapshot, `subscribeRecords`, player count, dispose) into a
-  documented interface in `client/src/pose/`. Gameplay and scoring may only
+  documented interface in `apps/web/src/pose/`. Gameplay and scoring may only
   depend on this interface.
 - **Recording and replay adapter.** Save a live Android stream (records with
   their original timestamps) to NDJSON, and add a `ReplayPoseSource` that plays
@@ -103,13 +103,13 @@ critical path; 5–8 can overlap once milestone 2 lands.
   attempt, a bad one, an off-beat one, a held pose, and a two-player run. This
   becomes the test fixture set for retargeting, timing and scoring.
 - **Stop importing from `temp/`.** Move the menu dancers' `dance.json` and the
-  Flock camera model into `packages/` or `client/` so `temp/` can be deleted later.
+  Flock camera model into `packages/` or `apps/web/` so `temp/` can be deleted later.
 
 Done when CI is green on a PR and the game can run on recorded input with no board.
 
 ### M1 — Gameplay loop on replayed input
 
-A new game screen in `client/src/game/` driven by a small state machine:
+A new game screen in `apps/web/src/game/` driven by a small state machine:
 `loading → ready check → countdown → playing ⇄ paused → finishing → results`.
 
 - **Loading:** reuse `loadBundle`. Decode audio and prepare characters before
@@ -127,7 +127,7 @@ A new game screen in `client/src/game/` driven by a small state machine:
   preserved position, discarding pose samples received while paused.
 - **Finishing:** at the authored end, wait for the late-arrival allowance, then
   finalise.
-- **Results:** promote `temp/win-screens/` into `client/src/game/Results.jsx`,
+- **Results:** promote `temp/win-screens/` into `apps/web/src/game/Results.jsx`,
   reusing `WinHud`, `WinStage` and `winnerOf`. Add Retry and Song Select.
   Until M4 lands, show the placeholder score with a visible "unscored" label.
 - Turn the song preview's Play into "Dance", which enters this flow.

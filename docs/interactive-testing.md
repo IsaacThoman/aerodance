@@ -3,7 +3,7 @@
 `scripts/play.ts` runs the game (or Dance Studio) in a GPU-rendered Chromium that stays
 open in the background, so you, a script or a coding agent can drive it a step at a time:
 click a menu button, wait for a screen, take a screenshot, look, decide, carry on. It
-complements the browser tests (`client/tests/*.browser.ts`), which run a fixed flow and exit.
+complements the browser tests (`apps/web/tests/*.browser.ts`), which run a fixed flow and exit.
 
 ```sh
 npm install
@@ -94,7 +94,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 ### Clicking the canvas
 
 Every game screen is drawn on the canvas in 1600×900 (16:9) or 1200×900 (4:3) design units, and the layout
-modules (`client/src/menu/layout.ts`, `client/src/game/layout.ts`) export the position
+modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`) export the position
 of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
@@ -121,7 +121,7 @@ once the screen's entrance animation has finished and it accepts clicks.
 
 Headless Chromium has no webcam, so by default (`--camera fixture`) the page gets a
 synthetic one, as in the webcam browser tests: the MediaPipe fixture photo
-(`client/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
+(`apps/web/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
 it, so calibration and scoring run for real. `camera 0`–`4` changes how many dancers are
 in shot, one per lane; start with as many as the song has players.
 `--camera deny` makes every camera request fail with a permission error, and

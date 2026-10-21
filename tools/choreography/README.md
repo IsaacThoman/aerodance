@@ -244,8 +244,8 @@ the whole character. Recalibrate after choosing your dancing position.
 
 ## Install a song in the game
 
-Extract the song ZIP **into** `client/public/songs/`. The archive already contains
-`<songId>/`, so the result should be `client/public/songs/<songId>/song.json`, with
+Extract the song ZIP **into** `apps/web/public/songs/`. The archive already contains
+`<songId>/`, so the result should be `apps/web/public/songs/<songId>/song.json`, with
 choreography, audio, and checksums beside it. The folder name must match the
 exported `songId`, which is a hash of the song's audio and motion: changing the
 dance gives it a new ID, while metadata edits keep it. No manual manifest entry is needed.
@@ -257,7 +257,7 @@ bundles are skipped with a server/build warning; the game still verifies all
 runtime file checksums when loading a selected song.
 
 `npm run build` generates `dist/songs/manifest.json` for static hosting and copies
-the song folders. Rebuild/redeploy after changing `client/public/songs/` for a
+the song folders. Rebuild/redeploy after changing `apps/web/public/songs/` for a
 deployed game. On a running Express deployment, complete folders added directly
 to `dist/songs/` are detected without a rebuild or server restart. Container
 installations need those files inside the container, through a rebuilt image or

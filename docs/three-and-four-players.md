@@ -36,7 +36,7 @@ two, but that is not proven yet. Both are enabled.
 
 There is no recording of four real people, so the tests draw copies of one MediaPipe
 sample photo (a wide, arms-out warrior stance) side by side into a synthetic 640x480
-camera, and real MediaPipe Lite tracks it (`client/tests/webcam.browser.ts`, and
+camera, and real MediaPipe Lite tracks it (`apps/web/tests/webcam.browser.ts`, and
 `node scripts/play.ts camera 3` to try it by hand):
 
 | Shot | Result |
