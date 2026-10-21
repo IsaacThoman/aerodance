@@ -39,7 +39,10 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
  * A game without WebRTC (the Apple TV app) answers hello with a relay signal instead of an
  * offer: the phone then connects through the pairing server's relay
  * (packages/pairing/relay.ts), with the same messages, and sends the preview as small JPEGs
- * (RELAY_PREVIEW_LONG_SIDE, RELAY_PREVIEW_FPS) since there's no video track.
+ * (RELAY_PREVIEW_LONG_SIDE, RELAY_PREVIEW_FPS) since there's no video track. A game that has
+ * WebRTC too relays when WebRTC fails, and between songs offers a probe: a WebRTC connection
+ * beside the relayed link, which only answers pings until the relayed link closes (the game
+ * closes it once the probe has proved itself), then becomes the link.
  *
  * const link = new PhoneLink(); link.subscribe(render); link.join('123456');
  */
@@ -162,6 +165,8 @@ export class PhoneLink {
   link: RelayLink | null = null;
   live: LinkChannel | null = null;
   control: LinkChannel | null = null;
+  /** A WebRTC connection the game is trying beside the relayed link, and its channels and video sender once there. */
+  probe: { peer: Peer; live: RTCDataChannel | null; control: RTCDataChannel | null; sender: RTCRtpSender | null } | null = null;
   helloTimer: ReturnType<typeof setInterval> | undefined;
   /** When the game's latest offer arrived, and its attempt number. */
   offeredAt = -Infinity;
@@ -261,13 +266,15 @@ export class PhoneLink {
     this.releaseWakeLock();
   }
 
-  hello() { this.channel?.send({ type: 'hello', device: this.device }).catch(() => {}); }
+  hello() { this.channel?.send({ type: 'hello', device: this.device, probes: true }).catch(() => {}); }
 
   onSignal(event: PairingEvent) {
-    if (event.type === 'offer') this.answer(event.epoch, event.sdp);
+    if (event.type === 'offer' && event.probe) this.answerProbe(event.epoch, event.sdp);
+    else if (event.type === 'offer') this.answer(event.epoch, event.sdp);
     else if (event.type === 'relay') this.relayTo(event.epoch);
     else if (event.type === 'ice') {
       if (event.epoch === this.peer?.epoch) void this.peer.addIce(event.candidate);
+      else if (event.epoch === this.probe?.peer.epoch) void this.probe.peer.addIce(event.candidate);
       // Newer than any offer so far: keep it for that offer (older attempts' are dropped).
       else if (event.epoch > Math.max(this.epoch, this.early?.epoch ?? -1)) this.early = { epoch: event.epoch, candidates: [event.candidate] };
       else if (event.epoch === this.early?.epoch) this.early.candidates.push(event.candidate);
@@ -342,7 +349,83 @@ export class PhoneLink {
     this.control = link.control;
     link.live.onmessage = link.control.onmessage = ({ data }) => { if (mine()) this.onMessage(data); };
     link.control.onopen = () => { if (mine()) this.linked(); };
-    link.control.onclose = () => { if (mine()) this.unlinked(); };
+    link.control.onclose = () => {
+      if (!mine()) return;
+      // The game closed it for a probe that's open (or it went while one was): the probe takes over.
+      if (this.probe?.control?.readyState === 'open' && this.probe.live?.readyState === 'open') this.promote();
+      else this.unlinked();
+    };
+  }
+
+  /** The game's probe (see the top): answered beside the relayed link, which it leaves alone. */
+  answerProbe(epoch: number, sdp: string) {
+    const channel = this.channel;
+    // Only a relayed link is probed; otherwise the game gives up on it.
+    if (!channel || !this.link || this.view.stage !== 'linked' || epoch <= this.epoch || epoch <= (this.probe?.peer.epoch ?? -1)) {
+      if (this.early?.epoch === epoch) this.early = null;
+      return;
+    }
+    this.closeProbe();
+    let peer: Peer;
+    try {
+      peer = new Peer({ epoch, iceServers: this.iceServers, createConnection: this.createConnection, send: (signal) => { channel.send(signal).catch(() => {}); } });
+    } catch { return; }
+    const probe: NonNullable<PhoneLink['probe']> = this.probe = { peer, live: null, control: null, sender: null };
+    if (this.early?.epoch === epoch) peer.pending.push(...this.early.candidates);
+    this.early = null;
+    const mine = () => probe === this.probe;
+    peer.pc.ondatachannel = ({ channel: data }) => {
+      if (!mine()) { data.close(); return; }
+      if (data.label === LIVE_CHANNEL) probe.live = data;
+      else if (data.label === CONTROL_CHANNEL) probe.control = data;
+      // Until it takes over, the game only pings on it, and the pongs go back the same way.
+      data.onmessage = ({ data: message }) => { if (mine()) this.onMessage(message, probe.live); };
+    };
+    peer.pc.onconnectionstatechange = () => { if (mine() && ['failed', 'closed'].includes(peer.pc.connectionState)) this.closeProbe(); };
+    const prepare = () => {
+      const video = peer.pc.getTransceivers?.().find((t) => t.receiver.track.kind === 'video');
+      if (!video) return;
+      video.direction = 'sendonly';
+      probe.sender = video.sender;
+    };
+    peer.answer(sdp, prepare).catch(() => { if (mine()) this.closeProbe(); });
+  }
+
+  /** The relayed link closed with the probe open: the probe is the link now. */
+  promote() {
+    const probe = this.probe;
+    if (!probe?.live || !probe.control) return;
+    this.probe = null;
+    clearInterval(this.frameTimer);
+    this.frameTimer = undefined;
+    for (const channel of [this.live, this.control]) if (channel) channel.onmessage = channel.onopen = channel.onclose = null;
+    this.link?.close();
+    this.link = null;
+    const { peer, live, control } = probe;
+    // The epoch stays the relayed link's: if the game is still on it (this end's socket died
+    // without the server noticing), its relay signal for that attempt brings the phone back.
+    this.peer = peer; this.live = live; this.control = control;
+    this.videoSender = probe.sender; this.sentTrack = null;
+    this.offeredAt = this.now();
+    const mine = () => peer === this.peer;
+    live.onmessage = control.onmessage = ({ data }) => { if (mine()) this.onMessage(data); };
+    control.onclose = () => { if (mine()) this.unlinked(); };
+    peer.pc.onconnectionstatechange = () => { if (mine() && ['failed', 'closed'].includes(peer.pc.connectionState)) this.unlinked(); };
+    this.sentStatus = '';
+    this.sendStatus(this.camera.view);
+    this.updateVideo();
+  }
+
+  closeProbe() {
+    const probe = this.probe;
+    if (!probe) return;
+    this.probe = null;
+    for (const channel of [probe.live, probe.control]) {
+      if (!channel) continue;
+      channel.onmessage = channel.onopen = channel.onclose = null;
+      channel.close();
+    }
+    probe.peer.close();
   }
 
   linked() {
@@ -412,6 +495,7 @@ export class PhoneLink {
   }
 
   closePeer() {
+    this.closeProbe();
     clearInterval(this.frameTimer);
     this.frameTimer = undefined;
     for (const channel of [this.live, this.control]) {
@@ -476,10 +560,11 @@ export class PhoneLink {
     return true;
   }
 
-  onMessage(data: unknown) {
+  /** A message from the game; a ping is answered on `replyTo`. */
+  onMessage(data: unknown, replyTo = this.live) {
     const message = parseGameMessage(data);
     if (!message) return;
-    if (message.type === 'ping') this.send(this.live, { type: 'pong', id: message.id, t0: message.t0, t1: this.now() });
+    if (message.type === 'ping') this.send(replyTo, { type: 'pong', id: message.id, t0: message.t0, t1: this.now() });
     else if (message.type === 'game') this.publish({ playing: message.playing });
     else if (message.type === 'preview') { this.previewWanted = message.on; this.updateVideo(); }
     else {

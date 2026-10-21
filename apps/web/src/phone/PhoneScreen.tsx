@@ -192,11 +192,13 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
       }
       const sending = p.link.sendingVideo;
       const chosen = cameraLabel(p.link);
-      const report = JSON.stringify([view.stage, camera.status, chosen, p.dim, sending]);
+      // How the phone is linked: through the relay or over WebRTC.
+      const transport = p.link.link ? 'relay' : p.link.peer ? 'webrtc' : '';
+      const report = JSON.stringify([view.stage, camera.status, chosen, p.dim, sending, transport]);
       if (report !== st.reported) {
         st.reported = report;
         Object.assign(gl.domElement.dataset, { phoneStage: view.stage, phoneReady: 'true', phoneCameraStatus: camera.status, phoneCamera: chosen, phoneDim: String(p.dim),
-          phoneVideo: String(sending) });
+          phoneVideo: String(sending), phoneTransport: transport });
       }
     },
     draw: (g, s) => {

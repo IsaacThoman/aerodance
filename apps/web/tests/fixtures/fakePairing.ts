@@ -73,11 +73,14 @@ class FakeChannel {
   onclose: Handler<Event> = null;
   other: FakeChannel | null = null;
   sent: unknown[] = [];
+  /** Messages go nowhere (the network went quiet, and the connection hasn't noticed). */
+  silent = false;
   constructor(label: string) { this.label = label; }
   send(data: string) {
     if (this.readyState !== 'open') throw Error('InvalidStateError');
     this.sent.push(data);
     const other = this.other;
+    if (this.silent) return;
     setTimeout(() => { if (other?.readyState === 'open') other.onmessage?.(new MessageEvent('message', { data })); }, 1);
   }
   open() { this.readyState = 'open'; this.onopen?.(new Event('open')); }
@@ -94,9 +97,14 @@ class FakeChannel {
 const offers = new Map<string, FakeConnection>();
 let ids = 0;
 
-/** A loopback RTCPeerConnection: the offer names the offering connection, and the answer joins their data channels. */
+/**
+ * A loopback RTCPeerConnection: the offer names the offering connection, and the answer joins
+ * their data channels. An offering connection whose network is 'hang' never connects, and one
+ * whose network is 'fail' fails once it has the answer (ICE found no way through).
+ */
 export class FakeConnection {
   id = ++ids;
+  network: 'ok' | 'hang' | 'fail' = 'ok';
   channels: FakeChannel[] = [];
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
@@ -122,6 +130,8 @@ export class FakeConnection {
     if (description.type === 'offer') { this.remote = offers.get(description.sdp ?? '') ?? null; return; }
     // The answer: join the offerer's channels to new ones on the answering side, then open them.
     this.signalingState = 'stable';
+    if (this.network === 'hang') return;
+    if (this.network === 'fail') { setTimeout(() => this.state('failed'), 1); return; }
     const answerer = FakeConnection.all.find((c) => c.localDescription?.sdp === description.sdp);
     if (!answerer) return;
     this.remote = answerer;
@@ -142,6 +152,10 @@ export class FakeConnection {
     this.connectionState = state;
     this.onconnectionstatechange?.(new Event('connectionstatechange'));
   }
+  /** The network went quiet: messages go nowhere either way, and neither end hears so. */
+  silence() {
+    for (const c of [this, this.remote]) for (const channel of c?.channels ?? []) channel.silent = true;
+  }
   /** The network went: both ends see the connection fail. */
   fail() {
     for (const c of [this, this.remote]) {
@@ -155,6 +169,12 @@ export class FakeConnection {
   }
 }
 export const createFakeConnection = () => new FakeConnection() as unknown as RTCPeerConnection;
+/** Connections on whatever network network() says when each is made. */
+export const fakeConnectionOn = (network: () => FakeConnection['network']) => () => {
+  const connection = new FakeConnection();
+  connection.network = network();
+  return connection as unknown as RTCPeerConnection;
+};
 
 /** Polls until check() is truthy. */
 export async function until<T>(check: () => T, what: string, timeoutMs = 5000): Promise<NonNullable<T>> {

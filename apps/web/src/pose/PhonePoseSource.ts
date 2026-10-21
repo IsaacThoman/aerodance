@@ -36,6 +36,16 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
  * Without WebRTC (the Apple TV app), or with ?transport=relay, the two talk through the pairing
  * server's relay instead (packages/pairing/relay.ts): the same messages on stand-ins for the
  * data channels, and the preview as small JPEGs. That link does need the server throughout.
+ *
+ * With both (transport 'auto'), WebRTC comes first and the relay is the fallback: an attempt
+ * that fails or hasn't opened in WEBRTC_OPEN_MS, or an open connection that fails or stops
+ * answering pings for PONG_TIMEOUT_MS (a browser can take half a minute to say it failed), is
+ * followed at once by a relayed one. Once relayed, the link stays relayed during songs. After
+ * each song, a phone that can take one gets a probe: a WebRTC connection made alongside the
+ * relayed link, which takes over once it has answered PROBE_PONGS pings (the game closes the
+ * relayed link, and the phone moves to the probe as it sees it close). A probe that doesn't
+ * get there in PROBE_MS, or a song starting, ends it, and the relay carries on as if nothing
+ * happened; after MAX_PROBE_FAILURES in a row, that phone stays relayed.
  * An app that bundles the game sets globalThis.__aerodanceSite to the deployed site's origin,
  * where it pairs and where the QR code sends the phone.
  *
@@ -78,6 +88,17 @@ export interface PhonePoseSourceOptions {
   decodeFrame?: (jpeg: ArrayBuffer) => Promise<PreviewFrame>;
 }
 export type Transport = 'auto' | 'webrtc' | 'relay';
+/** A WebRTC connection made beside a relayed link, to take over from it (see the top). */
+interface Probe {
+  peer: Peer;
+  live: LinkChannel;
+  control: LinkChannel;
+  startedAt: number;
+  pongs: number;
+  /** The phone's video track, shown once the probe takes over. */
+  track: MediaStreamTrack | null;
+  pingTimer: ReturnType<typeof setInterval> | undefined;
+}
 type Listener<T> = (value: T) => void;
 
 // An app that bundles the game (the Apple TV app) names the deployed site it pairs through.
@@ -100,6 +121,15 @@ const QUIET_MS = 3000;
 const ATTEMPT_MS = 20_000;
 // A relay socket of this end's that hasn't connected in this long doesn't hold off a new attempt.
 const RELAY_CONNECT_MS = 4000;
+// Falling back to the relay: a WebRTC attempt that hasn't opened in this long, or an open
+// connection that answers no pings for this long.
+const WEBRTC_OPEN_MS = 8000;
+const PONG_TIMEOUT_MS = 3000;
+// Probing WebRTC from a relayed link between songs: pongs before it takes over, how long it
+// may take to get there, and failed probes in a row before that phone isn't probed again.
+const PROBE_PONGS = 6;
+const PROBE_MS = 10_000;
+const MAX_PROBE_FAILURES = 3;
 // The phone's picture counts as showing while a frame arrived this recently.
 const VIDEO_FRESH_MS = 1000;
 const MODEL_KEY = 'aerodance-phone-model';
@@ -120,6 +150,15 @@ export class PhonePoseSource implements PoseSource {
   createVideo: () => HTMLVideoElement;
   /** Connecting through the pairing server's relay rather than WebRTC. */
   relayed: boolean;
+  /** ...from the start (no WebRTC here, or ?transport=relay). */
+  startRelayed: boolean;
+  /** Both are here (transport 'auto'): WebRTC that fails falls back to the relay, and the relay probes for WebRTC between songs. */
+  fallback: boolean;
+  /** The phone takes probes (its hello says so); probes that failed in a row; a song ended since the last probe. */
+  phoneProbes = false;
+  probeFailures = 0;
+  probeDue = false;
+  probe: Probe | null = null;
   createSocket: CreateRelaySocket | undefined;
   decodeFrame: (jpeg: ArrayBuffer) => Promise<PreviewFrame>;
   /** The phone's picture, while it sends one, and when its last frame arrived. */
@@ -137,6 +176,8 @@ export class PhonePoseSource implements PoseSource {
   peer: Peer | null = null;
   link: RelayLink | null = null;
   epoch = 0;
+  /** The relayed link's attempt (a probe since has a later one). */
+  relayEpoch = 0;
   live: LinkChannel | null = null;
   control: LinkChannel | null = null;
   clock = new ClockSync();
@@ -147,6 +188,8 @@ export class PhonePoseSource implements PoseSource {
   lastSession = '';
   lastSeq = -1;
   lastPose = -Infinity;
+  lastPong = -Infinity;
+  checkedAt = -Infinity;
   arrivals: number[] = [];
   offeredAt = -Infinity;
   constructor({ base = site() ? `${site()}/pair` : PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
@@ -154,7 +197,9 @@ export class PhonePoseSource implements PoseSource {
     decodeFrame = decodeJpeg }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
     this.now = now; this.origin = origin; this.createVideo = createVideo; this.createSocket = createSocket; this.decodeFrame = decodeFrame;
-    this.relayed = transport === 'relay' || (transport === 'auto' && !createConnection && typeof RTCPeerConnection === 'undefined');
+    const webrtc = !!createConnection || typeof RTCPeerConnection !== 'undefined';
+    this.relayed = this.startRelayed = transport === 'relay' || (transport === 'auto' && !webrtc);
+    this.fallback = transport === 'auto' && webrtc;
     const model = saved(MODEL_KEY);
     this.view = { status: 'disconnected', sourceKind: 'phone', message: 'Pair your phone to use it as the camera.', snapshot: null,
       configuring: false, model: isPoseModelId(model) ? model : 'lite', pairing: null, device: '', frame: null, stats: null,
@@ -172,6 +217,7 @@ export class PhonePoseSource implements PoseSource {
   /** Starts pairing: a new code for a phone to scan. */
   async connect() {
     this.disconnect();
+    this.forgetPhone();
     const generation = this.generation;
     const current = () => generation === this.generation;
     this.publish({ status: 'connecting', message: 'Getting a pairing code…' });
@@ -203,6 +249,14 @@ export class PhonePoseSource implements PoseSource {
     this.room = null;
     this.emit({ event: { type: 'source-stopped', reason: message }, receivedBrowserTimeMs: this.now() });
     this.publish({ status: 'disconnected', snapshot: null, pairing: null, device: '', frame: null, stats: null, message, timing: { method: 'remote-clock-sync', uncertaintyMs: null } });
+  }
+
+  /** A new phone may be on another network: WebRTC first again, and probed again. */
+  forgetPhone() {
+    this.relayed = this.startRelayed;
+    this.phoneProbes = false;
+    this.probeFailures = 0;
+    this.probeDue = false;
   }
 
   fail(error: unknown) {
@@ -237,14 +291,23 @@ export class PhonePoseSource implements PoseSource {
   setPlaying(playing: boolean) {
     if (playing === this.playing) return;
     this.playing = playing;
+    // A relayed link probes for WebRTC between songs, never during one.
+    this.probeDue = !playing && !!this.link;
+    if (playing) this.endProbe(false);
     this.send({ type: 'game', playing });
   }
 
   onSignal(event: PairingEvent) {
     const { peer } = this;
-    if (event.type === 'hello') this.hello(event.device || 'Phone');
+    if (event.type === 'peer' && event.left) this.forgetPhone();
+    if (event.type === 'hello') { this.phoneProbes = !!event.probes; this.hello(event.device || 'Phone'); }
     else if (event.type === 'answer' && peer?.epoch === event.epoch) peer.accept(event.sdp).catch(() => { if (peer === this.peer) this.lost(); });
     else if (event.type === 'ice' && peer?.epoch === event.epoch) void peer.addIce(event.candidate);
+    else if ((event.type === 'answer' || event.type === 'ice') && this.probe?.peer.epoch === event.epoch) {
+      const probe = this.probe;
+      if (event.type === 'ice') void probe.peer.addIce(event.candidate);
+      else probe.peer.accept(event.sdp).catch(() => { if (this.probe === probe) this.endProbe(true); });
+    }
     // The phone left before the connection opened: show the code again.
     else if (event.type === 'peer' && event.left && (peer || this.link) && this.control?.readyState !== 'open') this.lost();
     else if (event.type === 'closed') {
@@ -266,7 +329,7 @@ export class PhonePoseSource implements PoseSource {
   hello(device: string) {
     const { link, channel } = this;
     if (link && channel && (this.control?.readyState === 'open' || this.now() - this.offeredAt < ATTEMPT_MS)) {
-      if (link.socket.readyState === 1) { channel.send({ type: 'relay', epoch: this.epoch }).catch(() => {}); return; }
+      if (link.socket.readyState === 1) { channel.send({ type: 'relay', epoch: this.relayEpoch }).catch(() => {}); return; }
       // This end's socket is still connecting (it tells the phone once it's there), unless it's stuck.
       if (this.now() - this.offeredAt < RELAY_CONNECT_MS) return;
     }
@@ -281,6 +344,7 @@ export class PhonePoseSource implements PoseSource {
     const epoch = ++this.epoch;
     let live: LinkChannel, control: LinkChannel, peer: Peer | null = null;
     if (this.relayed) {
+      this.relayEpoch = epoch;
       // The link opens once the phone has connected too; it's told to once this end's socket is there.
       const link = this.link = new RelayLink({ url: relayUrl(this.base, room.code, room.token, epoch), createSocket: this.createSocket });
       link.onsocketopen = () => { if (link === this.link) channel.send({ type: 'relay', epoch }).catch(() => {}); };
@@ -304,14 +368,11 @@ export class PhonePoseSource implements PoseSource {
         this.fail(Error(`Couldn't start a connection to the phone: ${reason(error)}`));
         return;
       }
+      ({ live, control } = this.openChannels(peer));
       const { pc } = peer;
-      live = pc.createDataChannel(LIVE_CHANNEL, { ordered: false, maxRetransmits: 0 });
-      // The phone's preview picture: offered from the start, so turning it on needs no renegotiation.
-      pc.addTransceiver?.('video', { direction: 'recvonly' });
       pc.ontrack = ({ track }) => { if (mine() && track.kind === 'video') this.showVideo(track); };
-      control = pc.createDataChannel(CONTROL_CHANNEL);
       pc.onconnectionstatechange = () => {
-        if (mine() && ['failed', 'closed'].includes(pc.connectionState)) this.lost();
+        if (mine() && ['failed', 'closed'].includes(pc.connectionState)) this.dropped(device);
       };
     }
     this.live = live; this.control = control;
@@ -322,6 +383,7 @@ export class PhonePoseSource implements PoseSource {
     control.onopen = () => {
       if (!mine()) return;
       opened = true;
+      this.lastPong = this.now();
       this.sendConfig();
       this.send({ type: 'game', playing: this.playing });
       this.send({ type: 'preview', on: this.preview });
@@ -330,7 +392,11 @@ export class PhonePoseSource implements PoseSource {
     };
     control.onclose = () => {
       if (!mine()) return;
-      const reattempt = !!this.link && opened;
+      if (!this.link) { this.dropped(device); return; }
+      // A probe that has opened takes over from the relayed link it was made beside (the phone's
+      // end does the same), whether or not it had proved itself yet.
+      if (this.probe?.control.readyState === 'open') { this.promote(); return; }
+      const reattempt = opened;
       this.lost();
       // Relayed, a link that was open and dropped on this end alone (the phone may not know yet)
       // gets a new attempt at once: the server takes it as replacing the old link on both ends.
@@ -339,6 +405,105 @@ export class PhonePoseSource implements PoseSource {
     this.offeredAt = this.now();
     this.publish({ status: 'initializing', device, snapshot: null, message: `Connecting to ${device}…` });
     peer?.offer().catch(() => { if (mine()) this.lost(); });
+  }
+
+  /** A WebRTC connection's data channels, and its video for the phone's preview picture. */
+  openChannels(peer: Peer) {
+    const { pc } = peer;
+    const live = pc.createDataChannel(LIVE_CHANNEL, { ordered: false, maxRetransmits: 0 });
+    // The phone's preview picture: offered from the start, so turning it on needs no renegotiation.
+    pc.addTransceiver?.('video', { direction: 'recvonly' });
+    const control = pc.createDataChannel(CONTROL_CHANNEL);
+    return { live, control };
+  }
+
+  /** A WebRTC attempt failed, never opened or stopped answering: the relay next, where there's one to fall back to. */
+  dropped(device: string) {
+    if (!this.fallback || !this.channel) { this.lost(); return; }
+    this.relayed = true;
+    this.offer(device);
+  }
+
+  /** Between songs, a relayed link tries WebRTC beside it (see the top). */
+  startProbe() {
+    const { room, channel } = this;
+    this.probeDue = false;
+    if (!room || !channel) return;
+    const epoch = ++this.epoch;
+    let peer: Peer;
+    try {
+      peer = new Peer({ epoch, iceServers: room.iceServers, createConnection: this.createConnection, probe: true,
+        send: (signal) => { channel.send(signal).catch(() => {}); } });
+    } catch { this.probeFailures = MAX_PROBE_FAILURES; return; }
+    const { live, control } = this.openChannels(peer);
+    const probe: Probe = this.probe = { peer, live, control, startedAt: this.now(), pongs: 0, track: null, pingTimer: undefined };
+    const { pc } = peer;
+    // The phone's video track arrives with its answer, and shows once the probe has taken over.
+    pc.ontrack = ({ track }) => {
+      if (track.kind !== 'video') return;
+      if (this.probe === probe) probe.track = track;
+      else if (this.peer === peer) this.showVideo(track);
+    };
+    pc.onconnectionstatechange = () => {
+      if (this.probe === probe && ['failed', 'closed'].includes(pc.connectionState)) this.endProbe(true);
+    };
+    // Until it takes over, the probe only carries pings.
+    control.onopen = () => {
+      if (this.probe !== probe) return;
+      probe.pingTimer = setInterval(() => {
+        if (live.readyState === 'open') live.send(JSON.stringify({ type: 'ping', id: ++this.pings, t0: this.now() } satisfies GameMessage));
+      }, PING_MS);
+    };
+    live.onmessage = ({ data }) => {
+      const message = parsePhoneMessage(data);
+      if (this.probe !== probe || message?.type !== 'pong') return;
+      this.clock.add(message.t0, message.t1, this.now());
+      if (++probe.pongs >= PROBE_PONGS && !this.playing) this.promote();
+    };
+    control.onclose = () => { if (this.probe === probe) this.endProbe(true); };
+    peer.offer().catch(() => { if (this.probe === probe) this.endProbe(true); });
+  }
+
+  /** Ends the probe, if there is one (failed: it counts towards giving up on probing this phone). */
+  endProbe(failed: boolean) {
+    const probe = this.probe;
+    if (!probe) return;
+    this.probe = null;
+    if (failed) this.probeFailures++;
+    clearInterval(probe.pingTimer);
+    for (const channel of [probe.live, probe.control]) { channel.onmessage = channel.onopen = channel.onclose = null; channel.close(); }
+    probe.peer.close();
+  }
+
+  /** The probe has proved itself (or the relayed link went while it was open): it becomes the link. */
+  promote() {
+    const probe = this.probe;
+    if (!probe) return;
+    this.probe = null;
+    clearInterval(probe.pingTimer);
+    // Closing the relayed link tells the phone to move over.
+    for (const channel of [this.live, this.control]) if (channel) channel.onmessage = channel.onopen = channel.onclose = null;
+    this.link?.close();
+    this.link = null;
+    this.remoteFrame?.close?.();
+    this.remoteFrame = null;
+    this.videoAt = -Infinity;
+    this.relayed = false;
+    this.probeFailures = 0;
+    const { peer, live, control } = probe;
+    this.peer = peer; this.live = live; this.control = control;
+    const device = this.view.device || 'Phone';
+    const mine = () => this.peer === peer;
+    live.onmessage = control.onmessage = ({ data }) => { if (mine()) this.onMessage(data); };
+    control.onclose = () => { if (mine()) this.dropped(device); };
+    peer.pc.onconnectionstatechange = () => {
+      if (mine() && ['failed', 'closed'].includes(peer.pc.connectionState)) this.dropped(device);
+    };
+    if (probe.track) this.showVideo(probe.track);
+    this.lastPong = this.now();
+    this.sendConfig();
+    this.send({ type: 'game', playing: this.playing });
+    this.send({ type: 'preview', on: this.preview });
   }
 
   /** The connection dropped: wait for the phone to come back (or another to pair). */
@@ -352,6 +517,7 @@ export class PhonePoseSource implements PoseSource {
   }
 
   closePeer() {
+    this.endProbe(false);
     clearInterval(this.pingTimer);
     for (const channel of [this.live, this.control]) {
       if (!channel) continue;
@@ -417,7 +583,7 @@ export class PhonePoseSource implements PoseSource {
   onMessage(data: unknown) {
     const message = parsePhoneMessage(data);
     if (!message) return;
-    if (message.type === 'pong') this.clock.add(message.t0, message.t1, this.now());
+    if (message.type === 'pong') { this.lastPong = this.now(); this.clock.add(message.t0, message.t1, this.now()); }
     else if (message.type === 'status') {
       this.phone = message;
       // The phone's own choice of model sticks here too.
@@ -458,6 +624,15 @@ export class PhonePoseSource implements PoseSource {
     const now = this.now();
     if (this.view.snapshot && now - this.view.snapshot.frameBrowserTimeMs >= STALE_MS) this.publish({ snapshot: null });
     if (this.view.status === 'connected' && now - this.lastPose > QUIET_MS) this.publish({ status: 'initializing', stats: null, message: this.describe() });
-    if ((this.peer || this.link) && this.control?.readyState !== 'open' && now - this.offeredAt > ATTEMPT_MS) this.lost();
+    const device = this.view.device || 'Phone';
+    // A check that comes late (this page was busy) can't tell a quiet connection from pongs still waiting to be read.
+    const late = now - this.checkedAt > 1000;
+    this.checkedAt = now;
+    if (this.peer && this.control?.readyState === 'open' && !late && now - this.lastPong > PONG_TIMEOUT_MS) this.dropped(device);
+    else if (this.peer && this.fallback && this.control?.readyState !== 'open' && now - this.offeredAt > WEBRTC_OPEN_MS) this.dropped(device);
+    else if ((this.peer || this.link) && this.control?.readyState !== 'open' && now - this.offeredAt > ATTEMPT_MS) this.lost();
+    if (this.probe && now - this.probe.startedAt > PROBE_MS) this.endProbe(true);
+    if (this.probeDue && !this.probe && !this.playing && this.fallback && this.phoneProbes && this.probeFailures < MAX_PROBE_FAILURES &&
+        this.link && this.control?.readyState === 'open') this.startProbe();
   }
 }
