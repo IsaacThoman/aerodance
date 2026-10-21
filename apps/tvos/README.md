@@ -79,6 +79,10 @@ The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../../as
 (`ICON` in `scripts/tvos.ts`, now `falls-sky-soft-glass`). `build` turns its layers into the App
 Store and home-screen image stacks in `src/generated/Assets.xcassets`.
 
+The static Top Shelf banner is Meadow duet from [`assets/top-shelf`](../../assets/README.md#top-shelf-banners)
+(`TOP_SHELF` in `scripts/tvos.ts`). `build` copies the standard and wide renders at 1× and 2×
+into the same brand asset, so tvOS displays the meadow when the app is selected in the top row.
+
 The launch screen is [`assets/splash1-logo.png`](../../assets/README.md) (`SPLASH` in
 `scripts/tvos.ts`). The app keeps it up until the game's menu has faded in (`ready` in
 `runtime/native.ts`), so it covers the first seconds of loading, then fades it out.

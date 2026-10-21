@@ -29,6 +29,8 @@ node tools/thumbnails/scripts/render.ts --splashes
 
 `top-shelf/` contains two selected in-engine banners with the "aerodance." wordmark:
 
+The Apple TV build uses Meadow duet for its standard and wide Top Shelf image slots at both scales.
+
 | Image | Composition |
 | --- | --- |
 | `meadow-duet.png` | The selected waterfall meadow duet, unchanged. |
