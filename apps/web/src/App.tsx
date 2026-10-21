@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import Scene from './Scene.tsx';
-import MainMenu from './menu/MainMenu.tsx';
+import MainMenu, { DEFAULT_PLAYERS } from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
 import MenuDancers from './menu/MenuDancers.tsx';
 import { loadSound, saveSound } from './menu/soundSettings.ts';
@@ -82,9 +82,9 @@ export default function App() {
   const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
   // The menu screen actually showing.
   const [menuShown, setMenuShown] = useState<MenuScreen>('main');
-  const [playerCount, setPlayerCount] = useState<PlayerCount>(1);
+  const [playerCount, setPlayerCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
   // The players screen's dial; it only becomes playerCount once Let's dance is pressed.
-  const [dialCount, setDialCount] = useState<PlayerCount>(1);
+  const [dialCount, setDialCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
   // The live camera (this computer's webcam or a paired phone), with optional URL replay.
   const [source] = useState(() => new CameraInput());
   const [replay] = useState(replaySource);

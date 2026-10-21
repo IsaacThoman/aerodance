@@ -21,7 +21,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { BACK: MENU_BACK, MINUS, PLAYERS_GO, PLUS, SETTINGS, START } = menuLayout(design.w);
+const { BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START } = menuLayout(design.w);
 const { BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
@@ -139,7 +139,8 @@ try {
   await click(START);
   await menuOn('players');
   await shot('player-select');
-  assert.equal((await data()).menuPlayers, '1');
+  assert.equal((await data()).menuPlayers, '2', 'Start opens the dial on 2');
+  await dialTo(1);
   await click(MINUS);
   await page.waitForTimeout(200);
   assert.equal((await data()).menuPlayers, '1');
@@ -159,6 +160,12 @@ try {
   await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Camera off|Camera off|Camera off' });
   await click(BACK);
   await menuOn('players');
+  // ...but Start always opens it on 2 again.
+  await click(PLAYERS_BACK);
+  await menuOn('main');
+  await click(START);
+  await menuOn('players');
+  assert.equal((await data()).menuPlayers, '2', 'Start turns the dial back to 2');
 
   // One player -> Song Select (empty catalog) -> Back keeps the player screen.
   await pickPlayers(1);
