@@ -9,8 +9,9 @@ Promotional images for Aerodance.
 | `beach-hero.png` | The `beach` stage at sunset, with the wordmark. 2160×1440 (3:2). |
 | `beach-hero-no-logo.png` | The same frame without the wordmark. |
 | `splash1.png` | A golden glass dancer in a top hat, slumped against the wall of a dark back room, seen from a grainy security camera. 2560×1440 (16:9), no wordmark. |
+| `splash1-logo.png` | The same view slid left, with the wordmark in the dark at the top right. 2560×1440 (16:9). |
 
-`splash1.png` was rendered in-engine with renderer features that aren't in the repo yet, so it can't be rendered again from here. Each pair above it is the shot of the same name from the [thumbnail renderer](../tools/thumbnails), rendered in-engine. To render one again:
+`splash1.png` and `splash1-logo.png` were rendered in-engine with renderer features that aren't in the repo yet, so they can't be rendered again from here. The pairs above them are each the shot of the same name from the [thumbnail renderer](../tools/thumbnails), rendered in-engine. To render one again:
 
 ```sh
 node tools/thumbnails/scripts/render.ts --only falls-meadow --out /tmp/thumbs
