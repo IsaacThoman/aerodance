@@ -23,8 +23,10 @@ import { displayDesign } from '../display.ts';
  * while the players screen is up.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
- * Left/Right step the volume sliders and turn the players dial).
- * The dial is controlled (playerCount / onPlayerCountChange), and onScreenChange reports the
+ * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
+ * the count changes by pressing minus or plus.
+ * The dial is controlled (playerCount / onPlayerCountChange); Start always turns it back to 2
+ * (Back from Song Select keeps the count picked last). onScreenChange reports the
  * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players
  * for tests.
  *
@@ -69,6 +71,8 @@ const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings
 // Left/Right move a slider a twentieth (5) at a time.
 const SLIDER_STEPS = 20;
 const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, n)) as PlayerCount;
+// The dial's count each time Start opens the players screen.
+export const DEFAULT_PLAYERS: PlayerCount = 2;
 
 // The dial's count: heavy white type with the title's embossed shadow and cool glossy face.
 function drawCount(g: CanvasRenderingContext2D, n: number, x: number, cy: number, size = 150) {
@@ -233,9 +237,8 @@ export default function MainMenu({
   const count = () => props.current.playerCount ?? 1;
 
   const m = menu.current;
-  // A keyboard cursor starts over on the next screen (on the players screen, on Let's dance, so
-  // Left/Right turn the dial at once), or going back (also by Escape), on the button it left by
-  // once that screen is in.
+  // A keyboard cursor starts over on the next screen (on the players screen, on Let's dance), or
+  // going back (also by Escape), on the button it left by once that screen is in.
   const go = (screen: MenuScreen | undefined, key = ui.keyboard) => {
     if (!screen) return;
     if (screen === m.next) return;
@@ -268,8 +271,6 @@ export default function MainMenu({
       setSound(patch);
     },
     onStep: (wdg, dir) => {
-      // Left / Right turn the players dial, wherever the keyboard cursor is on that screen.
-      if (m.screen === 'players') { setCount(count() + dir); return true; }
       if (!wdg.slider) return false;
       const patch: Partial<SoundSettings> = {};
       const step = Math.round(props.current.sound[wdg.slider] * SLIDER_STEPS) + dir;
@@ -286,7 +287,7 @@ export default function MainMenu({
         return;
       }
       switch (wdg.id) {
-        case 'start': go('players'); break;
+        case 'start': setCount(DEFAULT_PLAYERS); go('players'); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
         case 'minus': setCount(count() - 1); break;

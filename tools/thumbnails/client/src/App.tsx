@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { advance, Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { PCFShadowMap } from 'three';
@@ -8,11 +9,11 @@ import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import { STAGES } from '../../../../packages/stages/index.ts';
 import type { Stage, StageId } from '../../../../packages/stages/index.ts';
 import type { Vec3 } from '../../../../packages/stages/catalog.ts';
-import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
+import Dancers, { DANCER_LOOKS } from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import { drawTitle, titleWidth } from '../../../../apps/web/src/ui/draw.ts';
-import { APP_ICONS, SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
-import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ShotPanel, ThumbnailWindow } from './shots.ts';
+import { APP_ICONS, SHOTS, SPLASHES, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
+import type { DancerPart, FigurePose, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ShotPanel, ThumbnailWindow } from './shots.ts';
 
 /*
  * Renders one thumbnail in-engine: a dance stage, the two captured dancers holding a pose,
@@ -27,7 +28,8 @@ import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotL
  * without the wordmark, and the shot's layers if it has any. scripts/render.ts drives it
  * and writes the PNGs.
  *
- * URL: ?shot=<id> (SHOTS), ?icon=<id> (TV_ICONS, APP_ICONS), or ?spec=<JSON> for a one-off shot.
+ * URL: ?shot=<id> (SHOTS), ?icon=<id> (TV_ICONS, APP_ICONS), ?splash=<id> (SPLASHES), or ?spec=<JSON>
+ * for a one-off shot.
  */
 
 const STEP = 1 / 60;
@@ -46,6 +48,12 @@ function shotFromUrl(): Shot {
     if (!shot) throw new Error(`Unknown icon "${icon}"`);
     return shot;
   }
+  const splash = params.get('splash');
+  if (splash !== null) {
+    const shot = SPLASHES.find((s) => s.id === splash);
+    if (!shot) throw new Error(`Unknown splash "${splash}"`);
+    return shot;
+  }
   return SHOTS.find((s) => s.id === params.get('shot')) ?? SHOTS[0];
 }
 
@@ -55,15 +63,17 @@ function stageFor(id: StageId): Stage {
   return stage;
 }
 
-// The shot's camera, at 3:2 or 5:3, stands in for the stage's own (orbiting, 16:9) camera:
+// The shot's camera, at 3:2, 5:3, 1:1 or 16:9, stands in for the stage's own (orbiting, 16:9) camera:
 // it takes over as the default camera whenever the stage sets its own.
-function ShotCamera({ position, target, fov = 40, near, far, aspect }: ShotCameraSpec & { aspect: number }) {
+function ShotCamera({ position, target, fov = 40, near, far, shift, aspect }: ShotCameraSpec & { aspect: number }) {
   const camera = useMemo(() => {
     // manual: fiber leaves its aspect alone on resize.
     const cam: THREE.PerspectiveCamera & { manual?: boolean } = new THREE.PerspectiveCamera(fov, aspect, near ?? 0.1, far ?? 2000);
     cam.manual = true;
     cam.position.set(...position);
     cam.lookAt(...target);
+    // A lens shift: slides the frame without changing the view's angle.
+    if (shift) cam.setViewOffset(aspect, 1, shift[0] * aspect, -shift[1], aspect, 1);
     cam.updateMatrixWorld();
     return cam;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -76,6 +86,296 @@ function ShotCamera({ position, target, fov = 40, near, far, aspect }: ShotCamer
     camera.updateProjectionMatrix();
     state.set({ camera });
   }, -1);
+  return null;
+}
+
+// A rig's bones by name, and the cloned model they pose (the Root bone's top ancestor below the mirror).
+function rigsIn(dancers: THREE.Object3D) {
+  const roots: THREE.Bone[] = [];
+  dancers.traverse((o) => { if (o instanceof THREE.Bone && o.name === 'Root') roots.push(o); });
+  return roots.map((root) => {
+    let model: THREE.Object3D = root;
+    while (model.parent && !(model.parent.scale.x < 0)) model = model.parent;
+    const bones = new Map<string, THREE.Bone>();
+    model.traverse((o) => { if (o instanceof THREE.Bone) bones.set(o.name, o); });
+    return { model, bones };
+  });
+}
+
+// Hand-set poses (FigurePose) held after the capture is applied each frame, before the frame renders.
+// A hat rides on the head bone.
+function Figures({ dancers, figures }: { dancers: RefObject<THREE.Group | null>; figures: readonly (FigurePose | null | undefined)[] }) {
+  const attached = useRef(new Set<THREE.Object3D>());
+  const target = useMemo(() => new THREE.Vector3(), []);
+  const offset = useMemo(() => new THREE.Vector3(), []);
+  const inverse = useMemo(() => new THREE.Matrix4(), []);
+  useFrame(() => {
+    if (!dancers.current) return;
+    rigsIn(dancers.current).forEach(({ model, bones }, person) => {
+      const figure = figures[person];
+      if (figure === undefined) return;
+      if (figure === null) { model.visible = false; return; }
+      const bone = (name: string) => bones.get(name)!;
+      const [Root, Body, Head] = ['Root', 'Body', 'Head'].map(bone);
+      Root.position.set(...(figure.root ?? [0, 0, 0]));
+      Root.rotation.set(0, 0, 0);
+      Body.rotation.set(...(figure.body ?? [0, 0, 0]));
+      Head.rotation.set(...(figure.head ?? [0, 0, 0]));
+      model.updateWorldMatrix(true, true);
+      const place = (b: THREE.Bone, at: readonly number[], o: readonly number[]) => {
+        target.set(at[0], at[1], at[2]).applyMatrix4(model.matrixWorld).applyMatrix4(inverse.copy(b.parent!.matrixWorld).invert());
+        offset.set(o[0], o[1], o[2]).applyQuaternion(b.quaternion);
+        b.position.copy(target.sub(offset));
+        b.updateMatrixWorld(true);
+      };
+      // The meshes' centres sit these offsets from their bones (retarget.ts).
+      ([['ArmL', -1, 0], ['ArmR', 1, 1]] as const).forEach(([name, sign, i]) => {
+        const arm = bone(name);
+        arm.rotation.set(0, 0, 0);
+        arm.updateMatrixWorld(true);
+        if (figure.hands) place(arm, figure.hands[i], [sign * 0.26, -0.86, 0]);
+      });
+      (['FootL', 'FootR'] as const).forEach((name, i) => {
+        const foot = bone(name);
+        foot.rotation.set(...(figure.footTurn?.[i] ?? [0, 0, 0]));
+        foot.updateMatrixWorld(true);
+        if (figure.feet) place(foot, figure.feet[i], [0, 0, 0.13]);
+      });
+      if (figure.hat && !attached.current.has(Head)) {
+        attached.current.add(Head);
+        Head.add(topHat(figure.hat));
+      }
+    });
+  }, 0.5);
+  return null;
+}
+
+// Head-bone space: the head's centre is 0.615 above the neck, its top 1.26.
+function topHat([pitch, roll]: readonly [number, number]) {
+  const felt = new THREE.MeshPhysicalMaterial({ color: '#050507', roughness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.3, sheen: 0.4, sheenColor: new THREE.Color('#3a3a44') });
+  const band = new THREE.MeshPhysicalMaterial({ color: '#16161c', roughness: 0.3, clearcoat: 1 });
+  const hat = new THREE.Group();
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.045, 48), felt);
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.31, 0.62, 48), felt);
+  crown.position.y = 0.33;
+  const ribbon = new THREE.Mesh(new THREE.CylinderGeometry(0.315, 0.315, 0.1, 48), band);
+  ribbon.position.y = 0.08;
+  hat.add(brim, crown, ribbon);
+  hat.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // Pivot at the head's centre, then out to its crown.
+  const pivot = new THREE.Group();
+  pivot.position.y = 0.615;
+  pivot.rotation.set(pitch, 0, roll);
+  hat.position.y = 0.5;
+  pivot.add(hat);
+  return pivot;
+}
+
+
+// Shot-wide changes held every frame, over whatever the stage sets: post settings, the
+// environment's strength, fog and background, plus any extra spotlights.
+function ShotLook({ shot }: { shot: Shot }) {
+  const scene = useThree((s) => s.scene);
+  const fog = useMemo(() => shot.fog && new THREE.FogExp2(shot.fog.color, shot.fog.density), [shot]);
+  const background = useMemo(() => shot.background !== undefined ? new THREE.Color(shot.background) : undefined, [shot]);
+  const lights = useMemo(() => (shot.lights ?? []).map((l) => {
+    const light = new THREE.SpotLight(l.color ?? '#ffffff', l.intensity, 0, l.angle ?? 0.5, l.penumbra ?? 0.4);
+    light.position.set(...l.position);
+    light.target.position.set(...l.target);
+    if (l.shadow) {
+      light.castShadow = true;
+      light.shadow.mapSize.set(2048, 2048);
+      light.shadow.bias = -0.0004;
+      light.shadow.camera.near = 0.5;
+      light.shadow.camera.far = 200;
+    }
+    return light;
+  }), [shot]);
+  useEffect(() => {
+    for (const light of lights) scene.add(light, light.target);
+    return () => { for (const light of lights) scene.remove(light, light.target); };
+  }, [scene, lights]);
+  useFrame(() => {
+    if (shot.post) Object.assign(post, shot.post);
+    if (shot.environment !== undefined) scene.environmentIntensity = shot.environment;
+    if (fog) scene.fog = fog;
+    if (background) scene.background = background;
+  }, 0.6);
+  return null;
+}
+
+// Seeded so renders stay deterministic.
+function random(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function canvasTexture(width: number, height: number, draw: (g: CanvasRenderingContext2D, rand: () => number) => void, seed: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  draw(canvas.getContext('2d')!, random(seed));
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+// Dark specks and smears, drawn wrapped so the texture still tiles.
+function grime(g: CanvasRenderingContext2D, rand: () => number, count: number, size: number, alpha: number) {
+  const { width, height } = g.canvas;
+  for (let i = 0; i < count; i++) {
+    const x = rand() * width, y = rand() * height, r = size * (0.2 + rand() ** 3);
+    g.fillStyle = `rgba(0, 0, 0, ${alpha * (0.3 + rand() * 0.7)})`;
+    for (const dx of [-width, 0, width]) for (const dy of [-height, 0, height]) {
+      g.beginPath();
+      g.ellipse(x + dx, y + dy, r, r * (0.5 + rand()), rand() * Math.PI, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+}
+
+// Two units of floor, an even number of checkers a side so it tiles.
+const floorTexture = (tiles: number, [light, dark]: readonly [string, string], wear: number) => canvasTexture(1024, 1024, (g, rand) => {
+  const s = 1024 / tiles;
+  // Soft-edged tiles, so the low-res frame doesn't alias them into plaid.
+  g.filter = 'blur(4px)';
+  g.fillStyle = dark;
+  g.fillRect(0, 0, 1024, 1024);
+  for (let i = -1; i <= tiles; i++) for (let j = -1; j <= tiles; j++) {
+    g.fillStyle = (i + j + 2) % 2 ? dark : light;
+    g.fillRect(i * s, j * s, s, s);
+  }
+  g.filter = 'none';
+  g.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  for (let i = 0; i <= tiles; i++) { g.fillRect(i * s - 1, 0, 2, 1024); g.fillRect(0, i * s - 1, 1024, 2); }
+  grime(g, rand, Math.round(900 * wear), 5, 0.85);
+  grime(g, rand, Math.round(40 * wear), 30, 0.12);
+}, 7);
+
+// Two units of wall, `height` tall: grimy plaster with drips, and a band of small tiles.
+const wallTexture = (height: number, wall: string, [a, b]: readonly [string, string], [bottom, band]: readonly [number, number], wear: number) =>
+  canvasTexture(256, Math.round(128 * height), (g, rand) => {
+    const px = 128, h = g.canvas.height;
+    g.fillStyle = wall;
+    g.fillRect(0, 0, 256, h);
+    grime(g, rand, Math.round(220 * wear), 26, 0.1);
+    for (let i = 0; i < 260 * wear; i++) {
+      g.fillStyle = `rgba(255, 255, 255, ${0.03 + rand() * 0.06})`;
+      g.fillRect(rand() * 256, rand() * h, 2 + rand() * 18, 2 + rand() * 10);
+    }
+    // Drips run down from the band.
+    for (let i = 0; i < 40 * wear; i++) {
+      g.fillStyle = `rgba(0, 0, 0, ${0.08 + rand() * 0.2})`;
+      g.fillRect(rand() * 256, h - bottom * px, 1 + rand() * 3, rand() * bottom * px * 0.9);
+    }
+    const top = h - (bottom + band) * px, rows = 2, s = (band * px) / rows;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < Math.ceil(256 / s); c++) {
+      g.fillStyle = (r + c) % 2 ? b : a;
+      g.fillRect(c * s, top + r * s, s - 1, s - 1);
+    }
+    g.fillStyle = '#0c0c0c';
+    g.fillRect(0, top - 5, 256, 5);
+    g.fillRect(0, top + band * px, 256, 5);
+    grime(g, rand, Math.round(60 * wear), 8, 0.25);
+  }, 11);
+
+// A rectangle from `at` along u then v (u x v is its front), its uvs `at`'s own coordinates
+// along each, divided by `unit`, so neighbouring faces line up.
+function face(at: Vec3, u: Vec3, v: Vec3, uv: readonly [number, number], unit: readonly [number, number]) {
+  const p = new THREE.Vector3(...at), du = new THREE.Vector3(...u), dv = new THREE.Vector3(...v);
+  const corners = [p.clone(), p.clone().add(du), p.clone().add(du).add(dv), p.clone().add(dv)];
+  const [u0, v0] = [uv[0] / unit[0], uv[1] / unit[1]], [u1, v1] = [u0 + du.length() / unit[0], v0 + dv.length() / unit[1]];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(corners.flatMap((c) => c.toArray()), 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([u0, v0, u1, v0, u1, v1, u0, v1], 2));
+  geometry.setIndex([0, 1, 2, 0, 2, 3]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// The back room (ShotRoom): floor, back wall, side wall or pillar, cables.
+function Room({ room }: { room: NonNullable<Shot['room']> }) {
+  const group = useMemo(() => {
+    const [width, depth, height] = room.size ?? [8, 6, 4.5];
+    const [thick, length] = room.side ?? [0.25, depth];
+    const tile = room.tile ?? 0.34;
+    const colors = room.colors ?? {};
+    const trim = room.trim ?? [1.7, 0.36];
+    const wear = room.wear ?? 1;
+    const floor = new THREE.MeshPhysicalMaterial({
+      map: floorTexture(2 * Math.round(1 / tile), colors.floor ?? ['#d8d8d4', '#111112'], wear),
+      roughness: 0.55, clearcoat: room.gloss ?? 0.8, clearcoatRoughness: 0.12,
+    });
+    const wallMap = wallTexture(height, colors.wall ?? '#77736e', colors.trim ?? ['#2f4a40', '#121614'], trim, wear);
+    const wall = new THREE.MeshStandardMaterial({ map: wallMap, roughness: 0.9 });
+    const g = new THREE.Group();
+    const add = (geometry: THREE.BufferGeometry, material: THREE.Material) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.receiveShadow = mesh.castShadow = true;
+      g.add(mesh);
+    };
+    const ground = 0.003, F = [2, 2] as const, W = [2, height] as const;
+    // Floor in front of the back wall, and behind the corner past the side wall.
+    add(face([-width, ground, depth * 1.5], [2 * width, 0, 0], [0, 0, -depth * 1.5], [-width, -depth * 1.5], F), floor);
+    add(face([thick, ground, 0], [width - thick, 0, 0], [0, 0, -depth], [thick, 0], F), floor);
+    // The back wall.
+    add(face([-width, 0, 0], [width, 0, 0], [0, height, 0], [-width, 0], W), wall);
+    // The side wall: its inner face, front edge and outer face.
+    add(face([0, 0, 0], [0, 0, length], [0, height, 0], [0, 0], W), wall);
+    add(face([0, 0, length], [thick, 0, 0], [0, height, 0], [length, 0], W), wall);
+    add(face([thick, 0, length], [0, 0, -length - depth], [0, height, 0], [length + thick, 0], W), wall);
+    // Cables hang from above and trail along the floor by the wall; every other one striped.
+    const rand = random(3);
+    const rubber = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.45 });
+    const dashes = (repeat: number) => {
+      const map = canvasTexture(64, 16, (c) => {
+        c.fillStyle = '#141414'; c.fillRect(0, 0, 64, 16);
+        c.fillStyle = '#e8e8e8'; c.fillRect(8, 5, 26, 6);
+      }, 1);
+      map.repeat.set(repeat, 1);
+      return new THREE.MeshStandardMaterial({ roughness: 0.4, map });
+    };
+    (room.cables ?? []).forEach(([left, out], i) => {
+      const x = -left, z = out, sway = () => (rand() - 0.5) * 0.6, trail = rand() < 0.5 ? -1 : 1;
+      const curve = new THREE.CatmullRomCurve3([
+        [x, height + 1, z], [x + sway(), height * 0.62, z + rand() * 0.2], [x + sway(), height * 0.25, z + rand() * 0.3],
+        [x + sway(), 0.06, z + 0.3 + rand() * 0.2], [x + trail * (0.8 + rand()), 0.06, z + 0.4 + rand() * 0.3],
+      ].map((p) => new THREE.Vector3(...p)));
+      const geometry = new THREE.TubeGeometry(curve, 160, 0.035 + rand() * 0.035, 10);
+      add(geometry, i % 2 ? dashes(Math.round(curve.getLength() * 4)) : rubber);
+    });
+    g.position.set(...room.position);
+    g.rotation.y = room.rotationY ?? 0;
+    return g;
+  }, [room]);
+  return <primitive object={group} />;
+}
+
+// Film grain and scanlines drawn over the finished frame (in the HUD, after post-processing).
+function Overlay({ hud, buffer, grain = 0, scanlines = 0 }: { hud: THREE.Scene; buffer: FrameBuffer; grain?: number; scanlines?: number }) {
+  useEffect(() => {
+    const texture = canvasTexture(buffer.width, buffer.height, (g, rand) => {
+      const image = g.createImageData(buffer.width, buffer.height);
+      for (let y = 0; y < buffer.height; y++) for (let x = 0; x < buffer.width; x++) {
+        // Each pixel is the stronger of its grain (light or dark) and its row's scanline (dark).
+        const i = (y * buffer.width + x) * 4, n = rand(), speck = grain * Math.abs(n - 0.5), line = y % 2 ? scanlines * 0.35 : 0;
+        image.data[i] = image.data[i + 1] = image.data[i + 2] = n >= 0.5 && speck > line ? 255 : 0;
+        image.data[i + 3] = 255 * Math.min(1, Math.max(speck, line));
+      }
+      g.putImageData(image, 0, 0);
+    }, 5);
+    texture.magFilter = texture.minFilter = THREE.NearestFilter;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, toneMapped: false }));
+    mesh.position.z = -0.5;
+    hud.add(mesh);
+    return () => { hud.remove(mesh); };
+  }, [hud, buffer, grain, scanlines]);
   return null;
 }
 
@@ -395,6 +695,7 @@ async function until(test: () => boolean, what: string, timeout = 60000) {
 }
 
 function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
+  const looks = useMemo(() => shot.figures && DANCER_LOOKS.map((look, i) => ({ ...look, ...shot.figures?.[i]?.look })), [shot]);
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   const size = useThree((s) => s.size);
@@ -478,12 +779,16 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
       <RenderPipeline hudScene={hud.scene} hudCamera={hud.camera} width={buffer.width} height={buffer.height} aspect={buffer.aspect} />
       <ShotCamera {...shot.camera} aspect={buffer.aspect} />
       <Suspense fallback={null}>
-        <Stage />
+        {shot.hideStage ? <group visible={false}><Stage /></group> : <Stage />}
         <Ready onReady={onReady} />
       </Suspense>
       <group ref={dancers}>
-        <Dancers motion={motion} playback={playback} {...meta.dancers} {...shot.dancers} />
+        <Dancers motion={motion} playback={playback} {...meta.dancers} {...shot.dancers} looks={looks} />
       </group>
+      {shot.figures && <Figures dancers={dancers} figures={shot.figures} />}
+      <ShotLook shot={shot} />
+      {shot.room && <Room room={shot.room} />}
+      {shot.overlay && <Overlay hud={hud.scene} buffer={buffer} {...shot.overlay} />}
     </>
   );
 }

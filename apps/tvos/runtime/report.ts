@@ -1,6 +1,6 @@
-// The game's host hooks: tells the app when the main menu is showing (the Menu button then
-// leaves the app), and, with a report URL in the launch config, posts frame stats every two
-// seconds. A launch config can also
+// The game's host hooks: tells the app when the game has loaded (the splash covers it until
+// then) and when the main menu is showing (the Menu button then leaves the app), and, with a
+// report URL in the launch config, posts frame stats every two seconds. A launch config can also
 // drive the game with remote key presses, waiting on the canvas's data-* state between them
 // (the same state scripts/play.ts and the browser tests read), for unattended runs:
 //   "drive": [["wait", {"menuScreen": "main", "menuReady": "true"}], ["key", "Enter"], ...]
@@ -10,7 +10,7 @@ import { commands, counters } from './webgl.ts';
 import { setIntervalShim } from './web.ts';
 
 type Step = ['wait', Record<string, string>, number?] | ['key', string] | ['sleep', number] | ['report', string];
-type Config = { report?: string; label?: string; bench?: unknown; drive?: Step[]; profile?: boolean };
+type Config = { script?: string; report?: string; label?: string; bench?: unknown; drive?: Step[]; profile?: boolean };
 type Host = { key(type: string, key: string, code: string, repeat: boolean): void };
 
 const dataset = () => (screenCanvas.current?.dataset ?? {}) as Record<string, string>;
@@ -58,8 +58,12 @@ function takeProfile(frames: number) {
 export function installGameHooks(config: Config, host: Host) {
   if (config.profile) installProfiler();
   let atRoot: boolean | null = null;
+  // The game is ready once its menu (or a stage) has faded in; other scripts at once.
+  let ready = config.script !== 'game.js';
+  if (ready) native.ready();
   setIntervalShim(() => {
     const d = dataset();
+    if (!ready && (d.menuReady === 'true' || d.stageReady === 'true')) { ready = true; native.ready(); }
     const now = d.menuScreen === 'main' && d.connectOpen !== 'true';
     if (now !== atRoot) { atRoot = now; native.setAtRoot(now); }
   }, 250);

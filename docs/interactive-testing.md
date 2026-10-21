@@ -138,8 +138,7 @@ A whole two-player song with the ghost:
 node scripts/play.ts goto '/?input=ghost'
 node scripts/play.ts click START
 node scripts/play.ts wait menuScreen=players menuReady=true
-node scripts/play.ts click PLUS                    # the dial to 2 (MINUS turns it down)
-node scripts/play.ts wait menuPlayers=2
+node scripts/play.ts wait menuPlayers=2           # Start turns the dial to 2 (PLUS / MINUS turn it)
 node scripts/play.ts click PLAYERS_GO
 node scripts/play.ts wait songReady=true 'playerSlots=Detected|Detected'
 node scripts/play.ts click rowRect.0

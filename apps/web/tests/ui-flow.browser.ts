@@ -21,7 +21,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { BACK: MENU_BACK, MINUS, PLAYERS_GO, PLUS, SETTINGS, START } = menuLayout(design.w);
+const { BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START } = menuLayout(design.w);
 const { BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
@@ -139,7 +139,8 @@ try {
   await click(START);
   await menuOn('players');
   await shot('player-select');
-  assert.equal((await data()).menuPlayers, '1');
+  assert.equal((await data()).menuPlayers, '2', 'Start opens the dial on 2');
+  await dialTo(1);
   await click(MINUS);
   await page.waitForTimeout(200);
   assert.equal((await data()).menuPlayers, '1');
@@ -159,6 +160,12 @@ try {
   await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Camera off|Camera off|Camera off' });
   await click(BACK);
   await menuOn('players');
+  // ...but Start always opens it on 2 again.
+  await click(PLAYERS_BACK);
+  await menuOn('main');
+  await click(START);
+  await menuOn('players');
+  assert.equal((await data()).menuPlayers, '2', 'Start turns the dial back to 2');
 
   // One player -> Song Select (empty catalog) -> Back keeps the player screen.
   await pickPlayers(1);
@@ -169,16 +176,24 @@ try {
   await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', playerSlots: 'Camera off|Camera off' });
   await shot('song-select');
 
-  // Keyboard: Escape leaves Song Select; the first arrow puts the cursor on Let's dance, then
-  // Left / Right turn the dial and Enter presses Let's dance.
+  // Keyboard: Escape leaves Song Select with the cursor on Let's dance. Left / Right only move
+  // the cursor (Let's dance -> plus -> minus), never the count; Enter or Space on minus / plus
+  // changes it, and Enter on Let's dance goes on.
   await page.mouse.move(frame.x + 10, frame.y + 10);
   await page.keyboard.press('Escape');
   await menuOn('players');
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
+  await page.waitForTimeout(300);
+  assert.equal((await data()).menuPlayers, '2');
+  await page.keyboard.press('Enter');
   await until({ menuPlayers: '1' });
   await page.keyboard.press('ArrowRight');
+  await page.keyboard.press(' ');
   await until({ menuPlayers: '2' });
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(300);
+  assert.equal((await data()).menuPlayers, '2');
   await page.keyboard.press('Enter');
   await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Camera off|Camera off' });
 
