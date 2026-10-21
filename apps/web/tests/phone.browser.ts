@@ -17,7 +17,7 @@ import express from 'express';
 import { chromium, webkit } from 'playwright';
 import type { Browser, Page } from 'playwright';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
-import { START, PLAYERS_GO } from '../src/menu/layout.ts';
+import { MINUS, START, PLAYERS_GO } from '../src/menu/layout.ts';
 import { DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { createPairingServer } from '../../../packages/pairing/server.ts';
@@ -132,6 +132,8 @@ try {
   await game.goto(relayed ? `${ORIGIN}/?transport=relay` : ORIGIN);
   await until(game, 'menuReady', 'true');
   await click(START); await until(game, 'menuScreen', 'players'); await until(game, 'menuReady', 'true');
+  // Start opens the dial on 2; one phone dances one player.
+  await click(MINUS); await until(game, 'menuPlayers', '1');
   await click(PLAYERS_GO); await until(game, 'songReady', 'true'); await click(rowRect(0));
   await until(game, 'previewState', 'playing'); await until(game, 'stageReady', 'true');
 
