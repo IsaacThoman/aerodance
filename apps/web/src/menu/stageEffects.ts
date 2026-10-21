@@ -37,10 +37,10 @@ export class SpawnBubble {
     this.mesh.visible = false;
   }
   /** `size` is the radius; `squash` > 1 stretches it upwards. */
-  set(x: number, y: number, size: number, squash: number, fade: number) {
+  set(x: number, y: number, z: number, size: number, squash: number, fade: number) {
     const m = this.mesh;
     m.visible = size > 0.001 && fade > 0.001;
-    m.position.set(x, y, 0);
+    m.position.set(x, y, z);
     m.scale.set(size / Math.sqrt(squash), size * squash, size / Math.sqrt(squash));
     m.material.uniforms.uFade.value = fade;
   }
@@ -67,12 +67,12 @@ export class Burst {
       this.drops.push({ m, v: new THREE.Vector3(), r: 1 });
     }
   }
-  /** Sprays from (x, y) inside a sphere of `radius`, flying out at about `speed`. */
-  fire(x: number, y: number, radius: number, speed: number) {
+  /** Sprays from (x, y, z) inside a sphere of `radius`, flying out at about `speed`. */
+  fire(x: number, y: number, z: number, radius: number, speed: number) {
     this.t = 0;
     for (const d of this.drops) {
       const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 - 0.2, Math.random() - 0.5).normalize();
-      d.m.position.set(x, y, 0).addScaledVector(dir, radius * (0.6 + Math.random() * 0.4));
+      d.m.position.set(x, y, z).addScaledVector(dir, radius * (0.6 + Math.random() * 0.4));
       d.v.copy(dir).multiplyScalar(speed * (0.6 + Math.random() * 0.7));
       d.v.y += speed * 0.5;
       d.r = this.size * (0.6 + Math.random() * 0.8);
