@@ -1,0 +1,95 @@
+[
+  {
+    "id": "city-skygarden-panorama",
+    "stage": "sanctuary",
+    "time": 8.4,
+    "pose": 12.9,
+    "camera": {
+      "position": [0, 4.5, 15],
+      "target": [0, 1.5, -3],
+      "fov": 43
+    },
+    "dancers": {
+      "spacing": 4.8,
+      "scale": 1.15
+    },
+    "logo": {
+      "y": 235,
+      "size": 225,
+      "light": 300,
+      "outline": 0.012
+    }
+  },
+  {
+    "id": "city-rooftop-duet",
+    "stage": "sanctuary",
+    "time": 11.5,
+    "pose": 3.1,
+    "camera": {
+      "position": [-0.5, 1.4, 9.4],
+      "target": [-0.5, 1.5, 0],
+      "fov": 40
+    },
+    "dancers": {
+      "position": [3.5, 0, 0],
+      "spacing": 3.2,
+      "rotationY": -0.08
+    },
+    "logo": {
+      "x": "left",
+      "y": 490,
+      "size": 230,
+      "light": 300,
+      "outline": 0.014,
+      "halo": 1.1
+    }
+  },
+  {
+    "id": "club-midnight-duet",
+    "stage": "club",
+    "time": 3.35,
+    "pose": 9,
+    "camera": {
+      "position": [-0.8, 1.6, 10],
+      "target": [-0.8, 1.8, -0.5],
+      "fov": 40
+    },
+    "dancers": {
+      "position": [2.9, 0, 0],
+      "spacing": 3.3,
+      "rotationY": -0.1
+    },
+    "logo": {
+      "x": "left",
+      "y": 480,
+      "size": 225,
+      "light": 300,
+      "outline": 0.014,
+      "halo": 1.15
+    }
+  },
+  {
+    "id": "club-laser-panorama",
+    "stage": "club",
+    "time": 13.3,
+    "pose": 5,
+    "camera": {
+      "position": [-3.5, 4.3, 12],
+      "target": [0, 2, -1.7],
+      "fov": 48
+    },
+    "dancers": {
+      "position": [0, 0, 0.7],
+      "spacing": 4.8,
+      "rotationY": -0.2,
+      "scale": 1.05
+    },
+    "logo": {
+      "y": 235,
+      "size": 225,
+      "light": 300,
+      "outline": 0.012,
+      "halo": 1.1
+    }
+  }
+]

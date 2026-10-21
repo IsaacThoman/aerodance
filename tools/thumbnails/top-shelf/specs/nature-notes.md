@@ -1,0 +1,10 @@
+# Nature banner concepts
+
+All four are fresh in-engine camera compositions. Each uses the existing stage, glass duet, real capture poses, post-processing and title wordmark. Specs omit `format` so the renderer can apply both Top Shelf shapes without cropping.
+
+- **`meadow-duet` — Meadow Duet.** A bright, welcoming front view. The dancers stand 6.8 units apart, within the 5.2-unit platform radius, making a readable pair across the panoramic meadow. The centered title has clear blue sky above their heads; waterfalls and floating islands fill the newly revealed sides.
+- **`cloudside-groove` — Cloudside Groove.** A strongly asymmetric layout: a compact duet to the right and a large title halfway down the quiet left sky. The camera shifts sideways without moving the actual stage or dancers. The reaching pose and meadow foreground give this a different rhythm from the frontal hero.
+- **`beach-horizon` — Horizon Party.** A broad, low sunset view, with widely separated dancers framing the sun and its reflected path. The high centered wordmark sits in the purple sky. The 4.25-second stage moment avoids the worst gull/title intersections in the existing hero, while the hands-up pose changes the silhouette.
+- **`sunset-side-story` — Sunset Side Story.** A close duet on the left balances a title on the right against the sunset sky. The lateral camera shift and compact placement keep both figures within the standard banner, while the wide banner reveals more tropical shoreline. Blue's wide-arms capture provides a more expansive silhouette than the other beach concept.
+
+Camera targets place the feet above the lower edge, leaving a horizontal band of real platform or sand as a soft visual base. The side-title shots use their title baseline near the dancer head/shoulder line to use the banner's width instead of stacking everything at its center. Final framing should be inspected after the first engine render, particularly gulls in `sunset-side-story` and the side-title clearance at standard width.

@@ -4,6 +4,7 @@
 //   node tools/thumbnails/scripts/render.ts [--only id,id] [--spec shots.json --out dir] [--jobs 2]
 //   node tools/thumbnails/scripts/render.ts --tv-icons [--only id,id] [--out dir]
 //   node tools/thumbnails/scripts/render.ts --app-icons [--only id,id] [--out dir]
+//   node tools/thumbnails/scripts/render.ts --top-shelf [--only id,id] [--out dir]
 //
 // Builds the capture page with Vite, opens it in headless Chrome (GPU WebGL), steps each
 // shot's stage to its time and reads back the 540x480 buffer. Each buffer pixel is written
@@ -17,7 +18,7 @@
 // --app-icons renders APP_ICONS, square phone app icons, into assets/app-icon/: <id>.png at
 // 1024x1024, area-averaged from the 360x480 buffer. A layered one's layers go in <id>/1024x1024/,
 // and it stays transparent if its back layer isn't opaque.
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,19 +41,31 @@ function option(name: string): string | undefined {
 
 const tvIcons = process.argv.includes('--tv-icons');
 const appIcons = process.argv.includes('--app-icons');
+const topShelf = process.argv.includes('--top-shelf');
 let shots: readonly Shot[] = tvIcons ? TV_ICONS : appIcons ? APP_ICONS : SHOTS;
 const spec = option('spec');
-if (spec) {
-  const list: unknown = JSON.parse(await readFile(spec, 'utf8'));
-  if (!Array.isArray(list)) throw new Error(`${spec} must hold an array of shots`);
-  shots = list.map((shot: unknown) => { assertShot(shot); return shot; });
+async function readShots(file: string): Promise<Shot[]> {
+  const list: unknown = JSON.parse(await readFile(file, 'utf8'));
+  if (!Array.isArray(list)) throw new Error(`${file} must hold an array of shots`);
+  return list.map((shot: unknown) => { assertShot(shot); return shot; });
+}
+if (topShelf) {
+  const dir = path.join(ROOT, 'top-shelf/specs');
+  const files = spec ? [path.resolve(spec)] : (await readdir(dir)).filter((f) => f.endsWith('.json')).sort().map((f) => path.join(dir, f));
+  const concepts = (await Promise.all(files.map(readShots))).flat();
+  shots = concepts.flatMap((shot): Shot[] => [
+    { ...shot, format: 'top-shelf' },
+    { ...shot, format: 'top-shelf-wide' },
+  ]);
+} else if (spec) {
+  shots = await readShots(spec);
 }
 const onlyIds = option('only');
 if (onlyIds) {
   const only = new Set(onlyIds.split(','));
   shots = shots.filter((s) => only.has(s.id));
 }
-const outDir = path.resolve(option('out') ?? (tvIcons ? path.join(ROOT, '../../assets/tv-icon') : appIcons ? path.join(ROOT, '../../assets/app-icon') : ROOT));
+const outDir = path.resolve(option('out') ?? (topShelf ? path.join(ROOT, 'top-shelf/renders') : tvIcons ? path.join(ROOT, '../../assets/tv-icon') : appIcons ? path.join(ROOT, '../../assets/app-icon') : ROOT));
 const jobs = Number(option('jobs') ?? 2);
 if (!shots.length) throw new Error('No shots to render');
 
@@ -142,6 +155,31 @@ async function writeImage(file: string, base64: string, width: number, height: n
   const big = upscale(Buffer.from(base64, 'base64'), width, height, UPSCALE);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, encodePng(big.width, big.height, big.rgb));
+}
+
+// The @2x master preserves the game's exact 4x3 pixel blocks. The @1x companion takes
+// every second output pixel, keeping edges sharp rather than blurring the pixel art.
+async function writeTopShelf(shot: Shot, frame: ThumbnailFrame) {
+  const format = shot.format === 'top-shelf-wide' ? 'wide' : 'standard';
+  for (const [variant, base64] of [['no-logo', frame.plain], ['with-logo', frame.logo]] as const) {
+    if (!base64) continue;
+    const big = upscale(Buffer.from(base64, 'base64'), frame.width, frame.height, UPSCALE);
+    const width = big.width / 2, height = big.height / 2;
+    const small = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const from = ((y * 2) * big.width + x * 2) * 3;
+        const to = (y * width + x) * 3;
+        small[to] = big.rgb[from];
+        small[to + 1] = big.rgb[from + 1];
+        small[to + 2] = big.rgb[from + 2];
+      }
+    }
+    const folder = path.join(outDir, format, variant);
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, `${shot.id}@2x.png`), encodePng(big.width, big.height, big.rgb));
+    await writeFile(path.join(folder, `${shot.id}.png`), encodePng(width, height, small));
+  }
 }
 
 // Box-filters RGBA to any size: each output pixel averages the source area it covers, with
@@ -293,7 +331,7 @@ async function worker() {
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
     const started = performance.now();
     try {
-      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `${tvIcons || appIcons ? 'icon' : 'shot'}=${encodeURIComponent(shot.id)}`;
+      const query = spec || topShelf ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `${tvIcons || appIcons ? 'icon' : 'shot'}=${encodeURIComponent(shot.id)}`;
       await page.goto(`${base}?${query}`);
       await page.waitForFunction(() => (window as ThumbnailWindow).__thumb, null, { timeout: 60000 });
       if (!logged) {
@@ -305,7 +343,9 @@ async function worker() {
         if (!thumb) throw new Error('The capture page is not ready');
         return thumb.render();
       });
-      if (frame.layers) {
+      if (shot.format === 'top-shelf' || shot.format === 'top-shelf-wide') {
+        await writeTopShelf(shot, frame);
+      } else if (frame.layers) {
         await writeLayers(path.join(outDir, shot.id), shot, frame);
       } else if (shot.format === 'app-icon') {
         // Opaque, as the stores require; with the wordmark if the icon has one.
@@ -317,7 +357,7 @@ async function worker() {
         if (frame.logo) await writeImage(path.join(outDir, 'with-logo', `${shot.id}.png`), frame.logo, frame.width, frame.height);
       }
       const seconds = ((performance.now() - started) / 1000).toFixed(1);
-      console.log(`✓ ${shot.id} (${seconds}s)${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);
+      console.log(`✓ ${shot.id}${topShelf ? ` [${shot.format}]` : ''} (${seconds}s)${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);
     } catch (e) {
       failed++;
       console.error(`✗ ${shot.id}: ${e instanceof Error ? e.message : e}${errors.length ? `\n  ${errors.join('\n  ')}` : ''}`);

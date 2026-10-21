@@ -16,7 +16,7 @@ import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotL
 
 /*
  * Renders one thumbnail in-engine: a dance stage, the two captured dancers holding a pose,
- * a hand-placed 3:2 camera, and optionally the title screen's "aerodance." wordmark.
+ * a hand-placed camera, and optionally the title screen's "aerodance." wordmark.
  *
  * The buffer is the game's own pixel grid cropped to 3:2: the game draws 640x480 and shows
  * it at 16:9, so its pixels are 4:3 wide. 540x480 shown at 3:2 has exactly the same pixel
@@ -55,7 +55,7 @@ function stageFor(id: StageId): Stage {
   return stage;
 }
 
-// The shot's camera, at 3:2 or 5:3, stands in for the stage's own (orbiting, 16:9) camera:
+// The shot's camera stands in for the stage's own (orbiting, 16:9) camera:
 // it takes over as the default camera whenever the stage sets its own.
 function ShotCamera({ position, target, fov = 40, near, far, aspect }: ShotCameraSpec & { aspect: number }) {
   const camera = useMemo(() => {
@@ -490,6 +490,7 @@ function Thumbnail({ shot, motion }: { shot: Shot; motion: MotionTake }) {
 
 export default function App() {
   const shot = useMemo(shotFromUrl, []);
+  const { aspect } = bufferFor(shot);
   const [motion, setMotion] = useState<MotionTake | null>(null);
   useEffect(() => {
     fetch(motionUrl)
@@ -497,7 +498,7 @@ export default function App() {
       .then((bytes) => setMotion(loadMotion(bytes)));
   }, []);
   return (
-    <div className="frame">
+    <div className="frame" style={{ width: `min(100vw, calc(100dvh * ${aspect}))`, aspectRatio: aspect }}>
       {motion && (
         <Canvas
           frameloop="never"

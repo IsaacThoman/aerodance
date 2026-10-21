@@ -34,6 +34,17 @@ node tools/thumbnails/scripts/render.ts --spec my-shots.tson --out /tmp/thumbs  
 
 It needs Google Chrome (driven headless by `playwright-core`, with GPU WebGL) and network access for the Inter font. Without Chrome, set `CHROMIUM_PATH` to another Chromium build, such as Playwright's `Google Chrome for Testing`. A full run takes under 2 minutes on an M3 Pro. Renders are deterministic: re-rendering on the same machine gives byte-identical files. A different GPU or driver may differ slightly.
 
+## Top Shelf banners
+
+Twelve panoramic concepts, each with and without the wordmark, at both Apple TV Top Shelf shapes and both resolutions:
+
+```sh
+node tools/thumbnails/scripts/render.ts --top-shelf
+node tools/thumbnails/scripts/gallery.ts
+```
+
+See the [interactive gallery](top-shelf/index.html) and [render notes](top-shelf/README.md). Standard banners are 1920×720 / 3840×1440; wide banners are 2320×720 / 4640×1440. Their cameras render the extra horizontal scenery directly in-engine, preserving the game's pixel shape.
+
 ## Apple TV icon
 
 `--tv-icons` renders `TV_ICONS` (in `client/src/shots.ts`), the Apple TV app's layered 5:3 icon, into [`assets/tv-icon`](../../assets):

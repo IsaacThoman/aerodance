@@ -1,0 +1,54 @@
+[
+  {
+    "id": "meadow-duet",
+    "stage": "falls",
+    "time": 10,
+    "pose": 3.1,
+    "camera": {
+      "position": [0, 1.25, 9.2],
+      "target": [0, 1.95, 0],
+      "fov": 42
+    },
+    "dancers": { "spacing": 6.8 },
+    "logo": { "y": 245, "size": 235, "light": 300, "halo": 1.05 }
+  },
+  {
+    "id": "cloudside-groove",
+    "stage": "falls",
+    "time": 14,
+    "pose": 9,
+    "camera": {
+      "position": [-3.5, 1.35, 8.8],
+      "target": [-3.5, 1.8, 0],
+      "fov": 41
+    },
+    "dancers": { "spacing": 3.6 },
+    "logo": { "x": "left", "y": 425, "size": 205, "light": 300, "halo": 1.1 }
+  },
+  {
+    "id": "beach-horizon",
+    "stage": "beach",
+    "time": 4.25,
+    "pose": 5,
+    "camera": {
+      "position": [0, 0.65, 10.1],
+      "target": [0, 1.7, 1],
+      "fov": 42
+    },
+    "dancers": { "spacing": 7.2 },
+    "logo": { "y": 245, "size": 235, "light": 300, "halo": 1.05 }
+  },
+  {
+    "id": "sunset-side-story",
+    "stage": "beach",
+    "time": 12,
+    "pose": 12.9,
+    "camera": {
+      "position": [4, 1.2, 10],
+      "target": [4, 1.35, 1],
+      "fov": 43
+    },
+    "dancers": { "spacing": 3.4 },
+    "logo": { "x": "right", "y": 420, "size": 205, "light": 300, "halo": 1.1 }
+  }
+]
