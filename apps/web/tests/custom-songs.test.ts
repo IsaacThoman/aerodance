@@ -33,7 +33,13 @@ function memoryStore(): CustomSongStore & { records: Map<string, CustomSongRecor
     get: async (id) => records.get(id),
     file: async (id, path) => files.get(id)?.get(path),
     put: async (record, contents) => { records.set(record.id, record); files.set(record.id, new Map(contents)); },
-    delete: async (id) => { records.delete(id); files.delete(id); },
+    delete: async (id, only) => {
+      const saved = records.get(id);
+      if (!saved || (only && (saved.entry.bundleRevision !== only.bundleRevision || saved.entry.sha256 !== only.sha256))) return false;
+      records.delete(id);
+      files.delete(id);
+      return true;
+    },
   };
 }
 const revised = (revision: number) => {
@@ -60,8 +66,11 @@ test('imports a Dance Studio export, lists it and loads it with its own best-sco
   assert.equal(bundle.scoreId, customScoreId('fixture'));
   assert.equal(bundle.scoreId, 'custom:fixture');
   assert.equal(bundle.audio.size, bundleFixture().audio.length);
-  await removeCustomSong('fixture', store);
+  // Removing only removes the copy listed: not one another tab put in its place.
+  assert.equal(await removeCustomSong({ ...entry, bundleRevision: entry.bundleRevision + 1 }, store), false);
+  assert.equal(await removeCustomSong(entry, store), true);
   assert.deepEqual(await listCustomSongs(store), []);
+  assert.equal(await removeCustomSong(entry, store), false);
 });
 
 test('replacing asks first unless the import is a later revision', async () => {
@@ -86,8 +95,14 @@ test('replacing asks first unless the import is a later revision', async () => {
   const later = await importSongZip(exportZip(revised(3)), { store, confirmReplace: confirm(false) });
   assert.equal(later.status, 'replaced');
   assert.deepEqual(asked, []);
-  // By default an import never replaces the same revision.
+  // By default an import never replaces the same revision...
   assert.equal((await importSongZip(exportZip(revised(3)), { store })).status, 'kept');
+  // ...unless the saved copy no longer checks out (so isn't listed): then it's replaced unasked.
+  store.records.get('fixture')!.sizes.delete('checksums.json');
+  asked.length = 0;
+  assert.equal((await importSongZip(exportZip(revised(3)), { store, confirmReplace: confirm(false) })).status, 'replaced');
+  assert.deepEqual(asked, []);
+  assert.equal((await listCustomSongs(store)).length, 1);
 });
 
 test('accepts a song at the top level, in a folder of any name, and the folder entries a Finder ZIP has', async () => {

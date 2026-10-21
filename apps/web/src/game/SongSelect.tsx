@@ -322,10 +322,11 @@ export default function SongSelect({
     if (entry?.custom && window.confirm(`Remove “${entry.title}” from this browser?`)) removeSong(entry);
   };
   const removeSong = (entry: ListedSong) => {
-    removeCustomSong(entry.id)
-      .then(() => {
+    removeCustomSong(entry)
+      .then((removed) => {
         st.loadError = '';
-        st.notice = { text: `Removed “${entry.title}”.`, error: false };
+        st.notice = removed ? { text: `Removed “${entry.title}”.`, error: false }
+          : { text: `“${entry.title}” has changed since the list loaded, so it wasn't removed.`, error: false };
         if (st.previewing === entry) {
           // The keyboard cursor comes back on Import song: the song it opened is gone.
           const key = ui.keyboard;

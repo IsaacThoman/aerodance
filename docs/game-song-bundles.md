@@ -46,8 +46,9 @@ that can't be opened offers to remove itself.
   best scores are kept under `custom:<songId>`.
 - Only the files `checksums.json` lists are kept. The folder's name doesn't matter;
   `song.json` names the song. A saved song whose `song.json` or `checksums.json` no longer
-  checks out is left out of the list, with a console warning; damaged music or choreography
-  is reported when the song is opened, as for a published song.
+  checks out is left out of the list, with a console warning (importing it again replaces it
+  without asking); damaged music or choreography is reported when the song is opened, as for
+  a published song.
 - Importing is checked on the page itself: a ZIP takes several times its size in memory
   while it's checked.
 - The Apple TV app (no IndexedDB or file picker) and the iPhone/iPad app (WebKit may clear

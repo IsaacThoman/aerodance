@@ -15,7 +15,7 @@ import type { Fetcher } from './loadBundle.ts';
  *                                             then saves it in one transaction
  *   listCustomSongs()                         the saved songs' catalog entries, checked again
  *   loadCustomSong(entry, { signal })         loadSongBundle over the saved files
- *   removeCustomSong(id)
+ *   removeCustomSong(entry)                   unless another tab has replaced it since
  *
  * They're kept apart from published songs: an imported song can share a published song's ID,
  * and its best scores are kept under custom:<id> (customScoreId). Only the files checksums.json
@@ -25,6 +25,8 @@ import type { Fetcher } from './loadBundle.ts';
  * (customSongsSupported).
  */
 
+/** Which copy of a song: its revision and song.json hash. */
+export type SavedVersion = Pick<CatalogSong, 'bundleRevision' | 'sha256'>;
 /** A saved song: its catalog entry and its files' sizes by bundle-relative path. */
 export interface CustomSongRecord { id: string; entry: CatalogSong; sizes: Map<string, number>; importedAt: string; }
 /** Where saved songs live; IndexedDB in the browser (indexedDBStore), Maps in tests. */
@@ -34,7 +36,8 @@ export interface CustomSongStore {
   file(id: string, path: string): Promise<Uint8Array<ArrayBuffer> | undefined>;
   /** Saves a song and its files, in place of any saved before under its ID, all or nothing. */
   put(record: CustomSongRecord, files: ReadonlyMap<string, Uint8Array<ArrayBuffer>>): Promise<void>;
-  delete(id: string): Promise<void>;
+  /** Deletes a song and its files (with only: if it's still that revision); true if it did. */
+  delete(id: string, only?: SavedVersion): Promise<boolean>;
 }
 export interface ImportResult {
   /** imported: new; replaced: over a saved copy; kept: the saved copy stayed (confirmReplace said no). */
@@ -137,7 +140,9 @@ export async function importSongZip(file: Blob, { store = indexedDBStore(), conf
   }
   const saved = await store.get(entry.id);
   const previousRevision = saved?.entry.bundleRevision;
-  if (saved && saved.entry.bundleRevision >= entry.bundleRevision && !await confirmReplace(saved.entry, entry)) {
+  // A saved copy that no longer checks out isn't listed, so it's replaced without asking.
+  const intact = saved ? await catalogEntry(saved.id, savedFolder(store, saved)).then(() => true, () => false) : false;
+  if (saved && intact && saved.entry.bundleRevision >= entry.bundleRevision && !await confirmReplace(saved.entry, entry)) {
     return { status: 'kept', entry: saved.entry, previousRevision };
   }
   const sizes = new Map([...kept].map(([path, bytes]) => [path, bytes.byteLength]));
@@ -154,11 +159,13 @@ async function keepStorage() {
   catch { /* not offered */ }
 }
 
+const savedFolder = (store: CustomSongStore, record: CustomSongRecord) => folderOf((path) => store.file(record.id, path), record.sizes);
+
 /** The saved songs' catalog entries by title, checked again (a damaged one is left out). */
 export async function listCustomSongs(store: CustomSongStore = indexedDBStore(), warn: (message: string) => void = console.warn): Promise<CatalogSong[]> {
   const songs: CatalogSong[] = [];
   for (const record of await store.all()) {
-    try { songs.push(await catalogEntry(record.id, folderOf((path) => store.file(record.id, path), record.sizes))); }
+    try { songs.push(await catalogEntry(record.id, savedFolder(store, record))); }
     catch (error) { warn(`Skipping imported song ${record.id}: ${errorText(error)}`); }
   }
   return songs.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
@@ -170,7 +177,9 @@ export function loadCustomSong(entry: CatalogSong, { signal, store = indexedDBSt
   return loadSongBundle(entry, CUSTOM_CATALOG_URL, { signal, fetcher, scoreId: customScoreId(entry.id) });
 }
 
-export const removeCustomSong = (id: string, store: CustomSongStore = indexedDBStore()) => store.delete(id);
+/** Deletes a saved song if it's still the copy given (another tab may have replaced it); true if it did. */
+export const removeCustomSong = (song: SavedVersion & { id: string }, store: CustomSongStore = indexedDBStore()) =>
+  store.delete(song.id, { bundleRevision: song.bundleRevision, sha256: song.sha256 });
 
 /** The saved copy's catalog entry as imported (it may have changed since it was listed). */
 export const savedCustomSong = async (id: string, store: CustomSongStore = indexedDBStore()) => (await store.get(id))?.entry;
@@ -216,15 +225,17 @@ export function indexedDBStore(): CustomSongStore {
     return connection;
   };
   const open = () => opening ??= connect();
+  const unavailable = (error: unknown) => Error(`Saved songs aren't available in this browser (${errorText(error)}).`, { cause: error });
   const transaction = async (mode: IDBTransactionMode) => {
     const current = open();
     try { return (await current).transaction([SONGS, FILES], mode); }
     catch (error) {
       // A connection that closed before onclose arrived: open it again, once (callers finding
       // the same closed connection share the new one).
-      if (!(error instanceof DOMException && error.name === 'InvalidStateError')) throw error;
+      if (!(error instanceof DOMException && error.name === 'InvalidStateError')) throw unavailable(error);
       if (opening === current) opening = null;
-      return (await open()).transaction([SONGS, FILES], mode);
+      try { return (await open()).transaction([SONGS, FILES], mode); }
+      catch (retry) { throw unavailable(retry); }
     }
   };
   // Runs fn in one transaction over both stores; resolves with its result once it commits.
@@ -270,10 +281,17 @@ export function indexedDBStore(): CustomSongStore {
       songs.put(song);
       return () => undefined;
     }),
-    delete: (id) => run('readwrite', (songs, files) => {
-      files.delete(songFiles(id));
-      songs.delete(id);
-      return () => undefined;
+    delete: (id, only) => run('readwrite', (songs, files) => {
+      let deleted = false;
+      const request = songs.get(id);
+      request.onsuccess = () => {
+        const saved = record(request.result);
+        if (!saved || (only && (saved.entry.bundleRevision !== only.bundleRevision || saved.entry.sha256 !== only.sha256))) return;
+        files.delete(songFiles(id));
+        songs.delete(id);
+        deleted = true;
+      };
+      return () => deleted;
     }),
   };
   return shared;
