@@ -7,8 +7,9 @@ import { clamp, mulberry32 } from './random.ts';
 import { shaderMaterial } from './glsl.ts';
 
 // The floor wakes up on the last count; the dancer settles exactly at the first beat.
-const LEAD_SECONDS = 0.72;
-const DURATION = 2.1;
+export const LEAD_SECONDS = 0.72;
+// When the bubbles have all faded, in seconds from the start of the entrance.
+export const DURATION = 2.1;
 const BUBBLES = 42;
 
 const bubbleVertex = /* glsl */ `
@@ -74,10 +75,12 @@ export interface DancerEntranceProps {
   timeMs?: () => number;
   color: THREE.ColorRepresentation;
   seed: number;
+  /** The ripple on the floor under the dancer (default on). */
+  ripple?: boolean;
 }
 
 /** A short, song-clock-driven entrance in the dancer's local floor coordinates. */
-export default function DancerEntrance({ children, timeMs, color, seed }: DancerEntranceProps) {
+export default function DancerEntrance({ children, timeMs, color, seed, ripple = true }: DancerEntranceProps) {
   const dancer = useRef<THREE.Group>(null);
   const effects = useRef<THREE.Group>(null);
   const resources = useDisposable(() => {
@@ -123,9 +126,11 @@ export default function DancerEntrance({ children, timeMs, color, seed }: Dancer
     <group name="dancer-entrance">
       <group name="entrance-character" ref={dancer} visible={!timeMs}>{children}</group>
       <group name="entrance-bubbles" ref={effects} visible={false}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} material={resources.ripple}>
-          <planeGeometry args={[4.2, 4.2]} />
-        </mesh>
+        {ripple && (
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} material={resources.ripple}>
+            <planeGeometry args={[4.2, 4.2]} />
+          </mesh>
+        )}
         {/* One draw call for the whole burst; no lights, textures or per-frame allocations. */}
         <instancedMesh args={[resources.geometry, resources.bubble, BUBBLES]} frustumCulled={false} />
       </group>
