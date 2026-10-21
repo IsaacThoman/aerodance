@@ -176,16 +176,24 @@ try {
   await until({ songScreen: 'list', songReady: 'true', catalog: 'empty', playerSlots: 'Camera off|Camera off' });
   await shot('song-select');
 
-  // Keyboard: Escape leaves Song Select; the first arrow puts the cursor on Let's dance, then
-  // Left / Right turn the dial and Enter presses Let's dance.
+  // Keyboard: Escape leaves Song Select with the cursor on Let's dance. Left / Right only move
+  // the cursor (Let's dance -> plus -> minus), never the count; Enter or Space on minus / plus
+  // changes it, and Enter on Let's dance goes on.
   await page.mouse.move(frame.x + 10, frame.y + 10);
   await page.keyboard.press('Escape');
   await menuOn('players');
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
+  await page.waitForTimeout(300);
+  assert.equal((await data()).menuPlayers, '2');
+  await page.keyboard.press('Enter');
   await until({ menuPlayers: '1' });
   await page.keyboard.press('ArrowRight');
+  await page.keyboard.press(' ');
   await until({ menuPlayers: '2' });
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(300);
+  assert.equal((await data()).menuPlayers, '2');
   await page.keyboard.press('Enter');
   await until({ songScreen: 'list', songReady: 'true', playerSlots: 'Camera off|Camera off' });
 

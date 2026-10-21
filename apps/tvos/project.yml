@@ -33,7 +33,9 @@ targets:
       properties:
         CFBundleDisplayName: aerodance
         CFBundleShortVersionString: "0.1"
-        UILaunchScreen: {}
+        # The launch image, generated into src/generated/Assets.xcassets by scripts/tvos.ts.
+        UILaunchScreen:
+          UIImageName: Launch Image
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         # Development builds also get NSLocalNetworkUsageDescription and NSAllowsLocalNetworking,

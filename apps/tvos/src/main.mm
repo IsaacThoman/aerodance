@@ -39,8 +39,26 @@ static NSDictionary *LaunchConfig() {
   self.display.fill = [config[@"fit"] isEqual:@"fill"];
   self.display.pixelated = [config[@"pixelated"] boolValue];
   [self.display layoutForCanvasWidth:640 height:480];
+
+  // The launch image (UILaunchScreen) stays up while the game loads, then fades out.
+  UIImageView *splash = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"Launch Image"]];
+  splash.frame = self.view.bounds;
+  splash.contentMode = UIViewContentModeScaleAspectFill;
+  [self.view addSubview:splash];
+  void (^hideSplash)(void) = ^{
+    [UIView animateWithDuration:0.4 animations:^{ splash.alpha = 0; } completion:^(BOOL) { [splash removeFromSuperview]; }];
+  };
+
   self.host = [[JSHost alloc] initWithConfig:config display:self.display];
+  self.host.onReady = hideSplash;
   [self.host start];
+  // A page that never says it's ready (a script error while loading) isn't hidden for good.
+  __weak JSHost *host = self.host;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    void (^onReady)(void) = host.onReady;
+    host.onReady = nil;
+    if (onReady) onReady();
+  });
 
   // Swipes on the remote's touch surface move the menu focus like the arrow keys do.
   for (NSNumber *dir in @[ @(UISwipeGestureRecognizerDirectionUp), @(UISwipeGestureRecognizerDirectionDown),

@@ -79,6 +79,10 @@ The home-screen icon is a layered parallax icon from [`assets/tv-icon`](../../as
 (`ICON` in `scripts/tvos.ts`, now `falls-sky-soft-glass`). `build` turns its layers into the App
 Store and home-screen image stacks in `src/generated/Assets.xcassets`.
 
+The launch screen is [`assets/splash1-logo.png`](../../assets/README.md) (`SPLASH` in
+`scripts/tvos.ts`). The app keeps it up until the game's menu has faded in (`ready` in
+`runtime/native.ts`), so it covers the first seconds of loading, then fades it out.
+
 `node apps/tvos/tests/phone.tvos.ts` (after `npm run build` and `build --game --sim`)
 pairs a phone page in Chromium, with a synthetic camera and the real MediaPipe model, with the
 app in a tvOS simulator through a local pairing server, and plays the game from it: pairing and
