@@ -37,8 +37,9 @@ const PUCK = { r: 3.1, h: 0.26 };
 // Stage placement in front of the fixed camera (looking down -Z), then turned to face it.
 const STAGE = { x: 4.3, y: -2.6, z: -19, tilt: 0.2, turn: -0.22 };
 // How far the outer dancers stand from the puck's middle: two side by side keep their
-// original spots, and three and four stand on the same circle.
+// original spots, and three and four spread out a little further.
 const RING = 1.45;
+const WIDE_RING = 1.9;
 // How far the stage rises when it's raised.
 const RAISE = 1.5;
 const SLIDE = 12;
@@ -67,8 +68,8 @@ const CHEER_END = CHEER_HOP * 3;
 const SLOTS: readonly (readonly [number, number])[][] = [
   [[0, 0]],
   [[-RING, 0], [RING, 0]],
-  [[-RING * Math.cos(Math.PI / 6), -RING / 2], [RING * Math.cos(Math.PI / 6), -RING / 2], [0, RING]],
-  [[-RING, 0], [RING, 0], [0, RING], [0, -RING]],
+  [[-WIDE_RING * Math.cos(Math.PI / 6), -WIDE_RING / 2], [WIDE_RING * Math.cos(Math.PI / 6), -WIDE_RING / 2], [0, WIDE_RING]],
+  [[-WIDE_RING, 0], [WIDE_RING, 0], [0, WIDE_RING], [0, -WIDE_RING]],
 ];
 const slot = (i: number, n: number) => SLOTS[n - 1][i];
 const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, Math.round(n)));
