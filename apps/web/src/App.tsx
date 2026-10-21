@@ -6,6 +6,7 @@ import MainMenu, { DEFAULT_PLAYERS } from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
 import MenuDancers from './menu/MenuDancers.tsx';
 import { loadSound, saveSound } from './menu/soundSettings.ts';
+import { loadGraphics, saveGraphics } from './menu/graphicsSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import SongSelect from './game/SongSelect.tsx';
 import GameScreen from './game/GameScreen.tsx';
@@ -68,12 +69,15 @@ function download(name: string, bytes: Uint8Array<ArrayBuffer>) {
 
 export default function App() {
   const viewport = useRef<HTMLDivElement>(null);
-  const [displayMode, setDisplayMode] = useState<DisplayMode>(() => displayModeFor(innerWidth, innerHeight));
+  // Settings → Graphics picks 4:3 or 16:9, or Auto: the one that fills more of the screen.
+  const [graphics, setGraphics] = useState(loadGraphics);
+  const [fittedMode, setFittedMode] = useState<DisplayMode>(() => displayModeFor(innerWidth, innerHeight));
+  const displayMode = graphics.aspect === 'auto' ? fittedMode : graphics.aspect;
   useLayoutEffect(() => {
     const el = viewport.current;
     if (!el) return;
     // Observe the safe available area, independently of the letterboxed frame.
-    const observer = new ResizeObserver(([entry]) => setDisplayMode(displayModeFor(entry.contentRect.width, entry.contentRect.height)));
+    const observer = new ResizeObserver(([entry]) => setFittedMode(displayModeFor(entry.contentRect.width, entry.contentRect.height)));
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -173,6 +177,7 @@ export default function App() {
   }, [game]);
 
   useEffect(() => { saveSound(sound); applySound(sound); }, [sound]);
+  useEffect(() => { saveGraphics(graphics); }, [graphics]);
   // A paired phone dims its screen while a song is on.
   useEffect(() => {
     source.setPlaying(!!gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase));
@@ -225,6 +230,8 @@ export default function App() {
             onScreenChange={setMenuShown}
             sound={sound}
             onSoundChange={setSound}
+            graphics={graphics}
+            onGraphicsChange={setGraphics}
           />
           <SongSelect
             visible={songsOpen}

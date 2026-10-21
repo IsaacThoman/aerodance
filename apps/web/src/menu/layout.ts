@@ -7,8 +7,9 @@ export const PLAYERS_TITLE_Y = 210;
 export const START = { x: 128, y: 482, w: 440, h: 104 };
 export const SETTINGS = { x: 128, y: 602, w: 440, h: 104 };
 
-// Submenus share a header row: back button + small caps heading.
-export const BACK = { x: 166, y: 500, r: 30 };
+// Settings: back button + small caps heading top left, where Song Select has its own
+// (game/layout.ts); the title fades out to make room for the Sound and Graphics panels.
+export const BACK = { x: 166, y: 150, r: 30 };
 
 // Players screen: the header sits under the raised title, Let's dance sits bottom left, and
 // a big-number dial (minus, count, plus) is centered vertically between them. The dancers on
@@ -23,13 +24,24 @@ export const PLUS = { x: COUNT_X + 112, y: DIAL_Y, r: 40 };
 // The menu dancers' blue and purple, then green and pink for players three and four.
 export const PLAYER_COLORS = ['#078fff', '#b86bff', '#1fcf72', '#ff5fb4'] as const;
 
+// Settings rows: the first row's centre below its panel's top, and the spacing.
+const ROWS_TOP = 98;
+const ROW_H = 50;
+
 /** Compact menus leave a separate area for the dancers on the right. */
 export function menuLayout(width = 1600) {
   const compact = width === 1200;
   const x = compact ? 72 : 128;
   // Shapes from the left edge of the 16:9 layout, moved to this one's.
   const left = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x - 128 + x });
-  const PANEL = { x, y: 540, w: compact ? 540 : 600, h: 294 };
+  // Each settings panel has its heading, then rows ROW_H apart.
+  const w = compact ? 540 : 600;
+  const rowsHeight = (rows: number) => ROWS_TOP + (rows - 1) * ROW_H + 48;
+  const SOUND = { x, y: 222, w, h: rowsHeight(5) };
+  const GRAPHICS = { x, y: SOUND.y + SOUND.h + 24, w, h: rowsHeight(1) };
+  // Aspect ratio: Auto / 4:3 / 16:9 side by side, right of the row's label.
+  const options = { x0: x + 240, x1: x + w - 32, gap: 6 };
+  const optionW = (options.x1 - options.x0 - 2 * options.gap) / 3;
   return {
     TITLE: { ...TITLE, x: x - 4, size: compact ? 122 : TITLE.size },
     START: { ...START, x, w: compact ? 400 : START.w },
@@ -40,9 +52,12 @@ export function menuLayout(width = 1600) {
     COUNT_X: COUNT_X - 128 + x,
     MINUS: left(MINUS),
     PLUS: left(PLUS),
-    PANEL,
-    TRACK: { x0: x + 190, x1: x + PANEL.w - 110 },
-    SWITCH: { w: 84, h: 42, x: x + PANEL.w - 124 },
-    ROW_Y: (i: number) => PANEL.y + 46 + i * 50,
+    SOUND,
+    GRAPHICS,
+    TRACK: { x0: x + 190, x1: x + w - 110 },
+    SWITCH: { w: 84, h: 42, x: x + w - 124 },
+    ROW_Y: (i: number) => SOUND.y + ROWS_TOP + i * ROW_H,
+    ASPECT_ROW_Y: GRAPHICS.y + ROWS_TOP,
+    ASPECT: (i: number) => ({ x: options.x0 + i * (optionW + options.gap), y: GRAPHICS.y + ROWS_TOP - 21, w: optionW, h: 42 }),
   };
 }
