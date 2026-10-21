@@ -4,6 +4,7 @@
 //   node tools/thumbnails/scripts/render.ts [--only id,id] [--spec shots.json --out dir] [--jobs 2]
 //   node tools/thumbnails/scripts/render.ts --tv-icons [--only id,id] [--out dir]
 //   node tools/thumbnails/scripts/render.ts --app-icons [--only id,id] [--out dir]
+//   node tools/thumbnails/scripts/render.ts --splashes [--only id,id] [--out dir]
 //
 // Builds the capture page with Vite, opens it in headless Chrome (GPU WebGL), steps each
 // shot's stage to its time and reads back the 540x480 buffer. Each buffer pixel is written
@@ -17,6 +18,9 @@
 // --app-icons renders APP_ICONS, square phone app icons, into assets/app-icon/: <id>.png at
 // 1024x1024, area-averaged from the 360x480 buffer. A layered one's layers go in <id>/1024x1024/,
 // and it stays transparent if its back layer isn't opaque.
+//
+// --splashes renders SPLASHES, 16:9 splash screens, into assets/: <id>.png at 2560x1440, with
+// the wordmark if the shot has one.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -24,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 import { build, preview } from 'vite';
 import { chromium } from 'playwright-core';
-import { APP_ICONS, SHOTS, TV_ICONS, UPSCALE, assertShot } from '../client/src/shots.ts';
+import { APP_ICONS, SHOTS, SPLASHES, TV_ICONS, UPSCALE, assertShot } from '../client/src/shots.ts';
 import type { Shot, ThumbnailFrame, ThumbnailWindow } from '../client/src/shots.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -40,7 +44,8 @@ function option(name: string): string | undefined {
 
 const tvIcons = process.argv.includes('--tv-icons');
 const appIcons = process.argv.includes('--app-icons');
-let shots: readonly Shot[] = tvIcons ? TV_ICONS : appIcons ? APP_ICONS : SHOTS;
+const splashes = process.argv.includes('--splashes');
+let shots: readonly Shot[] = tvIcons ? TV_ICONS : appIcons ? APP_ICONS : splashes ? SPLASHES : SHOTS;
 const spec = option('spec');
 if (spec) {
   const list: unknown = JSON.parse(await readFile(spec, 'utf8'));
@@ -52,7 +57,8 @@ if (onlyIds) {
   const only = new Set(onlyIds.split(','));
   shots = shots.filter((s) => only.has(s.id));
 }
-const outDir = path.resolve(option('out') ?? (tvIcons ? path.join(ROOT, '../../assets/tv-icon') : appIcons ? path.join(ROOT, '../../assets/app-icon') : ROOT));
+const outDir = path.resolve(option('out') ?? (tvIcons ? path.join(ROOT, '../../assets/tv-icon') : appIcons ? path.join(ROOT, '../../assets/app-icon') :
+  splashes ? path.join(ROOT, '../../assets') : ROOT));
 const jobs = Number(option('jobs') ?? 2);
 if (!shots.length) throw new Error('No shots to render');
 
@@ -293,7 +299,7 @@ async function worker() {
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
     const started = performance.now();
     try {
-      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `${tvIcons || appIcons ? 'icon' : 'shot'}=${encodeURIComponent(shot.id)}`;
+      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `${tvIcons || appIcons ? 'icon' : splashes ? 'splash' : 'shot'}=${encodeURIComponent(shot.id)}`;
       await page.goto(`${base}?${query}`);
       await page.waitForFunction(() => (window as ThumbnailWindow).__thumb, null, { timeout: 60000 });
       if (!logged) {
@@ -312,6 +318,8 @@ async function worker() {
         const rgba = resample(Buffer.from(frame.logo ?? frame.plain, 'base64'), frame.width, frame.height, APP_ICON_SIZE, APP_ICON_SIZE);
         await mkdir(outDir, { recursive: true });
         await writeFile(path.join(outDir, `${shot.id}.png`), encodePng(APP_ICON_SIZE, APP_ICON_SIZE, rgbOf(rgba)));
+      } else if (splashes) {
+        await writeImage(path.join(outDir, `${shot.id}.png`), frame.logo ?? frame.plain, frame.width, frame.height);
       } else {
         await writeImage(path.join(outDir, 'no-logo', `${shot.id}.png`), frame.plain, frame.width, frame.height);
         if (frame.logo) await writeImage(path.join(outDir, 'with-logo', `${shot.id}.png`), frame.logo, frame.width, frame.height);
