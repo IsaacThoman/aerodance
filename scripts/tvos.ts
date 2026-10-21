@@ -85,6 +85,24 @@ function writeIcon() {
   contents(brand, { assets: ICON_STACKS.map((stack) => ({ filename: `${stack.name}.imagestack`, idiom: 'tv', role: 'primary-app-icon', size: stack.size })) });
 }
 
+// The launch screen: SPLASH from assets/, shown at its natural size, so scaled to fill the
+// 1920x1080-point screen at 1x (1080p) and 2x (4K). The image set project.yml's UILaunchScreen names,
+// which main.mm keeps up until the game has loaded.
+const SPLASH = 'splash1-logo.png';
+const SPLASH_SET = 'Launch Image';
+
+/** The launch image set in src/generated/Assets.xcassets (after writeIcon, which clears the catalog). */
+function writeSplash() {
+  const set = path.join(appDir, 'src/generated/Assets.xcassets', `${SPLASH_SET}.imageset`);
+  mkdirSync(set, { recursive: true });
+  const images = [{ scale: '1x', width: 1920, height: 1080 }, { scale: '2x', width: 3840, height: 2160 }].map(({ scale, width, height }) => {
+    const filename = `splash@${scale}.png`;
+    run('sips', ['--resampleHeightWidth', String(height), String(width), path.join(root, 'assets', SPLASH), '--out', path.join(set, filename)], root);
+    return { idiom: 'tv', filename, scale };
+  });
+  writeFileSync(path.join(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'xcode', version: 1 } }, null, 2));
+}
+
 // Fonts the canvas UI uses: Inter (scripts/apple.ts) and Nunito from @fontsource. Bundled as
 // <Family>__<weight>.<ext> (src/Fonts.mm).
 async function copyFonts() {
@@ -107,6 +125,7 @@ async function build(sim: boolean, game: boolean, release: boolean, site = SITE,
   checkSite(site);
   writeOpsHeader();
   writeIcon();
+  writeSplash();
   rmSync(www, { recursive: true, force: true });
   mkdirSync(www, { recursive: true });
   run('npx', ['rolldown', './apps/tvos/runtime/index.ts', '--format', 'iife', '--minify', '--file', 'apps/tvos/www/runtime.js']);
