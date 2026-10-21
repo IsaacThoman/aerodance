@@ -7,8 +7,9 @@ import { clamp, mulberry32 } from './random.ts';
 import { shaderMaterial } from './glsl.ts';
 
 // The floor wakes up on the last count; the dancer settles exactly at the first beat.
-const LEAD_SECONDS = 0.72;
-const DURATION = 2.1;
+export const LEAD_SECONDS = 0.72;
+// When the bubbles have all faded, in seconds from the start of the entrance.
+export const DURATION = 2.1;
 const BUBBLES = 42;
 
 const bubbleVertex = /* glsl */ `
