@@ -100,9 +100,9 @@ export async function readSongZip(file: Blob): Promise<{ name: string; files: Ma
   try { entries = await readZip(new Uint8Array(await file.arrayBuffer()), MAX_BUNDLE_BYTES); }
   catch (error) { throw Error(`That isn't a readable song ZIP (${errorText(error)}).`, { cause: error }); }
   const paths = [...entries.keys()].filter((path) => !ZIP_NOISE(path));
-  if (paths.some((path) => /^([^/]+\/)?project\.json$/.test(path))) throw Error('That is a Dance Studio project backup. Export the song from Dance Studio and import that ZIP.');
+  if (paths.some((path) => /^([^/]+\/)?project\.json$/.test(path))) throw Error("That's a Dance Studio project backup. Import the ZIP that Export song makes.");
   const songs = paths.filter((path) => /^([^/]+\/)?song\.json$/.test(path));
-  if (!songs.length) throw Error('That ZIP has no song.json. Export the song from Dance Studio and import that ZIP.');
+  if (!songs.length) throw Error("That ZIP has no song.json. Import the ZIP that Dance Studio's Export song makes.");
   if (songs.length > 1) throw Error('That ZIP holds more than one song. Import them one at a time.');
   const prefix = songs[0].slice(0, -'song.json'.length);
   const files = new Map<string, Uint8Array<ArrayBuffer>>();
@@ -142,9 +142,16 @@ export async function importSongZip(file: Blob, { store = indexedDBStore(), conf
   }
   const sizes = new Map([...kept].map(([path, bytes]) => [path, bytes.byteLength]));
   await store.put({ id: entry.id, entry, sizes, importedAt: new Date().toISOString() }, kept);
-  // Ask the browser not to clear saved songs to make room (it may say no).
-  void globalThis.navigator?.storage?.persist?.().catch(() => false);
+  void keepStorage();
   return { status: saved ? 'replaced' : 'imported', entry, ...(saved ? { previousRevision } : {}) };
+}
+
+// Asks the browser not to clear saved songs to make room, unless it already won't. It may say no;
+// Firefox asks the player.
+async function keepStorage() {
+  const storage = globalThis.navigator?.storage;
+  try { if (storage?.persist && !await storage.persisted?.()) await storage.persist(); }
+  catch { /* not offered */ }
 }
 
 /** The saved songs' catalog entries by title, checked again (a damaged one is left out). */
@@ -176,30 +183,43 @@ let shared: CustomSongStore | null = null;
 export function indexedDBStore(): CustomSongStore {
   if (shared) return shared;
   let opening: Promise<IDBDatabase> | null = null;
-  const open = () => opening ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(SONGS, { keyPath: 'id' });
-      request.result.createObjectStore(FILES, { keyPath: ['id', 'path'] });
-    };
-    request.onsuccess = () => {
-      const db = request.result;
-      // Another tab upgrading later, or the browser (clearing site data, or WebKit's storage
-      // restarting), closes the connection; the next use opens it again.
-      db.onversionchange = () => { db.close(); opening = null; };
-      db.onclose = () => { opening = null; };
-      resolve(db);
-    };
-    request.onerror = () => { opening = null; reject(request.error ?? Error('Saved songs could not open.')); };
-    request.onblocked = () => { opening = null; reject(Error('Saved songs are open in another tab; close it and try again.')); };
-  });
+  const connect = () => {
+    // Each connection forgets only itself, so a late event from an old one leaves a new one be.
+    const forget = () => { if (opening === connection) opening = null; };
+    let blocked = false;
+    const connection = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(SONGS, { keyPath: 'id' });
+        request.result.createObjectStore(FILES, { keyPath: ['id', 'path'] });
+      };
+      request.onsuccess = () => {
+        const db = request.result;
+        // Opened after giving up on it (blocked): nothing will use it.
+        if (blocked) { db.close(); return; }
+        // Another tab upgrading later, or the browser (clearing site data, or WebKit's storage
+        // restarting), closes the connection; the next use opens it again.
+        db.onversionchange = () => { db.close(); forget(); };
+        db.onclose = forget;
+        resolve(db);
+      };
+      request.onerror = () => { forget(); reject(request.error ?? Error('Saved songs could not open.')); };
+      request.onblocked = () => {
+        blocked = true;
+        forget();
+        reject(Error('Saved songs are open in another tab; close it and try again.'));
+      };
+    });
+    return connection;
+  };
+  const open = () => opening ??= connect();
   const transaction = async (mode: IDBTransactionMode) => {
     try { return (await open()).transaction([SONGS, FILES], mode); }
     catch (error) {
       // A connection that closed before onclose arrived: open it again, once.
       if (!(error instanceof DOMException && error.name === 'InvalidStateError')) throw error;
-      opening = null;
-      return (await open()).transaction([SONGS, FILES], mode);
+      opening = connect();
+      return (await opening).transaction([SONGS, FILES], mode);
     }
   };
   // Runs fn in one transaction over both stores; resolves with its result once it commits.

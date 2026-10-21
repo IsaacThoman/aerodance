@@ -200,11 +200,27 @@ try {
   if (engine === chromium) {
     const cdp = await context.newCDPSession(page);
     await cdp.send('Storage.clearDataForOrigin', { origin: 'http://127.0.0.1:4174', storageTypes: 'indexeddb' });
-    await importZip();
-    await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, customSongCount: '1' });
   }
+  await importZip();
+  await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, customSongCount: '1' });
+
+  // A saved song that can't be opened (its audio is gone) offers to remove itself.
+  await page.evaluate((id) => new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open('aerodance-custom-songs');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const tx = request.result.transaction('files', 'readwrite');
+      tx.objectStore('files').delete([id, 'audio.wav']);
+      tx.oncomplete = () => { request.result.close(); resolve(); };
+      tx.onabort = () => reject(tx.error);
+    };
+  }), song.songId);
+  const broken = answerDialog(true);
+  await click(rowRect(1));
+  assert.match(await broken, /can't be opened \(Song asset could not load \(404\)\.\)\. Remove it from this browser\?$/);
+  await until({ songScreen: 'list', catalog: 'ready', customSongCount: '0', songNotice: /^Removed/ });
   assert.deepEqual(errors, []);
-  console.log(`Custom songs passed in ${engine.name()}: import through the file picker, listing beside a published song, persistence across a reload, asking before replacing, preview, a scored song with its own best score, and Remove.`);
+  console.log(`Custom songs passed in ${engine.name()}: import through the file picker, listing beside a published song, persistence across a reload, asking before replacing, preview, a scored song with its own best score, Remove, and removing a song that can't be opened.`);
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));
