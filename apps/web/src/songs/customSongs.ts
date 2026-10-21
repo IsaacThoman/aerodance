@@ -92,7 +92,7 @@ function folderFetcher(id: string, file: (path: string) => Promise<Uint8Array<Ar
 
 /**
  * An exported song's files from a ZIP: the one folder (or the archive's top level) holding
- * song.json, without the Finder's __MACOSX/ and .DS_Store extras.
+ * song.json, without the Finder's __MACOSX/ and .DS_Store extras, and its songId.
  */
 export async function readSongZip(file: Blob): Promise<{ name: string; files: Map<string, Uint8Array<ArrayBuffer>> }> {
   if (file.size > MAX_BUNDLE_BYTES) throw Error('That file is too big to be a song.');
@@ -100,20 +100,22 @@ export async function readSongZip(file: Blob): Promise<{ name: string; files: Ma
   try { entries = await readZip(new Uint8Array(await file.arrayBuffer()), MAX_BUNDLE_BYTES); }
   catch (error) { throw Error(`That isn't a readable song ZIP (${errorText(error)}).`, { cause: error }); }
   const paths = [...entries.keys()].filter((path) => !ZIP_NOISE(path));
-  if (paths.includes('project.json')) throw Error('That is a Dance Studio project backup. Export the song from Dance Studio and import that ZIP.');
+  if (paths.some((path) => /^([^/]+\/)?project\.json$/.test(path))) throw Error('That is a Dance Studio project backup. Export the song from Dance Studio and import that ZIP.');
   const songs = paths.filter((path) => /^([^/]+\/)?song\.json$/.test(path));
   if (!songs.length) throw Error('That ZIP has no song.json. Export the song from Dance Studio and import that ZIP.');
   if (songs.length > 1) throw Error('That ZIP holds more than one song. Import them one at a time.');
   const prefix = songs[0].slice(0, -'song.json'.length);
   const files = new Map<string, Uint8Array<ArrayBuffer>>();
-  for (const path of paths) if (path.startsWith(prefix)) files.set(path.slice(prefix.length), new Uint8Array(entries.get(path) ?? []));
-  // A top-level song.json names its own folder.
-  let name = prefix.slice(0, -1);
-  if (!name) {
-    const song = decodeJson(files.get('song.json') ?? new Uint8Array());
-    name = isObject(song) && typeof song.songId === 'string' ? song.songId : '';
+  for (const path of paths) {
+    const bytes = entries.get(path);
+    // Stored entries are views of the whole archive: copy them, so saving one doesn't save it all.
+    if (path.startsWith(prefix) && bytes) files.set(path.slice(prefix.length), bytes.byteLength === bytes.buffer.byteLength ? bytes as Uint8Array<ArrayBuffer> : new Uint8Array(bytes));
   }
-  return { name, files };
+  // The folder's name means nothing here (the Finder may have made it "<songId> 2"): song.json names it.
+  let song: unknown;
+  try { song = decodeJson(files.get('song.json') ?? new Uint8Array()); }
+  catch (error) { throw Error("That song's song.json can't be read.", { cause: error }); }
+  return { name: isObject(song) && typeof song.songId === 'string' ? song.songId : '', files };
 }
 
 /** Checks a Dance Studio export (ZIP) as fully as playing it would, then saves it. */
@@ -182,26 +184,41 @@ export function indexedDBStore(): CustomSongStore {
     };
     request.onsuccess = () => {
       const db = request.result;
-      // Another tab upgrading later closes this one, and the next use opens it again.
+      // Another tab upgrading later, or the browser (clearing site data, or WebKit's storage
+      // restarting), closes the connection; the next use opens it again.
       db.onversionchange = () => { db.close(); opening = null; };
+      db.onclose = () => { opening = null; };
       resolve(db);
     };
     request.onerror = () => { opening = null; reject(request.error ?? Error('Saved songs could not open.')); };
     request.onblocked = () => { opening = null; reject(Error('Saved songs are open in another tab; close it and try again.')); };
   });
+  const transaction = async (mode: IDBTransactionMode) => {
+    try { return (await open()).transaction([SONGS, FILES], mode); }
+    catch (error) {
+      // A connection that closed before onclose arrived: open it again, once.
+      if (!(error instanceof DOMException && error.name === 'InvalidStateError')) throw error;
+      opening = null;
+      return (await open()).transaction([SONGS, FILES], mode);
+    }
+  };
   // Runs fn in one transaction over both stores; resolves with its result once it commits.
   const run = async <T>(mode: IDBTransactionMode, fn: (songs: IDBObjectStore, files: IDBObjectStore) => () => T) => {
-    const db = await open();
+    const tx = await transaction(mode);
     return new Promise<T>((resolve, reject) => {
-      const tx = db.transaction([SONGS, FILES], mode);
-      const result = fn(tx.objectStore(SONGS), tx.objectStore(FILES));
-      const fail = () => {
-        const error = tx.error;
-        reject(error?.name === 'QuotaExceededError' ? Error(quotaMessage) : error ?? Error('Saved songs could not be read.'));
-      };
+      const failed = (error: DOMException | null) => error?.name === 'QuotaExceededError' ? Error(quotaMessage)
+        : Error(`Saved songs could not be ${mode === 'readonly' ? 'read' : 'saved'}${error?.message ? ` (${error.message})` : ''}.`, { cause: error });
+      let result: () => T;
+      // A value the browser won't store (Chromium's limit is about 127 MiB) throws here.
+      try { result = fn(tx.objectStore(SONGS), tx.objectStore(FILES)); }
+      catch (error) {
+        try { tx.abort(); } catch { /* already finished */ }
+        reject(failed(error instanceof DOMException ? error : null));
+        return;
+      }
       tx.oncomplete = () => resolve(result());
-      tx.onerror = fail;
-      tx.onabort = fail;
+      // A failed request aborts the transaction, which then has the error.
+      tx.onabort = () => reject(failed(tx.error));
     });
   };
   const record = (value: unknown): CustomSongRecord | undefined =>

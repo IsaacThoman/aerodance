@@ -12,6 +12,7 @@ import path from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 import express from 'express';
 import { chromium, webkit } from 'playwright';
+import type { Dialog } from 'playwright';
 import { silentWav } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
 import { gameLayout } from '../src/game/layout.ts';
@@ -175,10 +176,15 @@ try {
   // The published song has no Remove; the custom one does, and asks first.
   await click(rowRect(0));
   await until({ songScreen: 'preview', songReady: 'true' });
+  let dialogs = 0;
+  const count = (dialog: Dialog) => { dialogs++; void dialog.dismiss(); };
+  page.on('dialog', count);
   await page.waitForTimeout(300);
   await click(SONG_REMOVE);
-  await page.waitForTimeout(300);
-  assert.equal(await page.locator('canvas').evaluate((c) => c.dataset.songScreen), 'preview', 'Remove is only for imported songs');
+  await page.waitForTimeout(500);
+  page.off('dialog', count);
+  assert.equal(dialogs, 0, 'Remove is only for imported songs');
+  assert.equal(await page.locator('canvas').evaluate((c) => c.dataset.songScreen), 'preview');
   await click(BACK);
   await until({ songScreen: 'list', songReady: 'true' });
   await click(rowRect(1));
@@ -189,6 +195,14 @@ try {
   await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', songCount: '1', customSongCount: '0', songNotice: /^Removed/ });
   await toSongSelect();
   await until({ songCount: '1', customSongCount: '0' });
+
+  // Clearing site data closes the page's database connection; the next import opens it again.
+  if (engine === chromium) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Storage.clearDataForOrigin', { origin: 'http://127.0.0.1:4174', storageTypes: 'indexeddb' });
+    await importZip();
+    await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, customSongCount: '1' });
+  }
   assert.deepEqual(errors, []);
   console.log(`Custom songs passed in ${engine.name()}: import through the file picker, listing beside a published song, persistence across a reload, asking before replacing, preview, a scored song with its own best score, and Remove.`);
 } catch (error) {

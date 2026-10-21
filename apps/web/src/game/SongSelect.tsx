@@ -152,7 +152,8 @@ export default function SongSelect({
         return response.json();
       })
       .then((data: unknown) => validateCatalog(data).songs);
-    // Saved songs that can't be read are left out rather than hiding the published ones.
+    // Saved songs that can't be read leave the published songs listed (if those don't load,
+    // the list shows the error and Retry).
     const imported = CAN_IMPORT ? listCustomSongs().catch((error: unknown) => { console.warn('Imported songs could not load:', error); return []; }) : [];
     Promise.all([published, imported])
       .then(([shipped, custom]) => {
@@ -170,13 +171,13 @@ export default function SongSelect({
   };
 
   // Import song: a Dance Studio export ZIP, checked and saved (songs/customSongs.ts). Saving
-  // over a copy of the same or a later revision asks first.
+  // over a copy of the same or a later revision asks first, or keeps it once Song Select has closed.
   const importFile = (file: File) => {
     st.importing = true;
     st.notice = { text: `Importing ${file.name}…`, error: false };
     ui.invalidate();
     importSongZip(file, {
-      confirmReplace: (saved, incoming) => window.confirm(saved.bundleRevision === incoming.bundleRevision
+      confirmReplace: (saved, incoming) => props.current.visible && window.confirm(saved.bundleRevision === incoming.bundleRevision
         ? `“${saved.title}” revision ${saved.bundleRevision} is already imported. Replace it?`
         : `A later revision of “${saved.title}” (${saved.bundleRevision}) is already imported. Replace it with revision ${incoming.bundleRevision}?`),
     })
@@ -295,7 +296,13 @@ export default function SongSelect({
     removeCustomSong(entry.id)
       .then(() => {
         st.notice = { text: `Removed “${entry.title}”.`, error: false };
-        if (st.previewing === entry) { closePreview(); go('list'); }
+        if (st.previewing === entry) {
+          // The keyboard cursor comes back on Import song: the song it opened is gone.
+          const key = ui.keyboard;
+          closePreview();
+          go('list', false);
+          if (key) ui.focus({ id: 'import', rect: SONG_IMPORT });
+        }
         if (props.current.visible) fetchCatalog();
       })
       .catch((error: unknown) => { st.previewError = message(error) || "That song couldn't be removed."; })
@@ -323,7 +330,8 @@ export default function SongSelect({
       }
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
-        if (!st.loading) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
+        // An import may yet ask about replacing a song, so none opens until it's done.
+        if (!st.loading && !st.importing) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
         if (st.page > 0) list.push({ id: 'page-up', circle: PAGE_UP });
         if (st.page < pages() - 1) list.push({ id: 'page-down', circle: PAGE_DOWN });
       }
@@ -445,7 +453,7 @@ export default function SongSelect({
             g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
             drawPill(g, rect, {
               label, sub: ellipsize(g, sub, rect.w - rect.h - 44), icon: 'note',
-              hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
+              hover: h[id] ?? 0, press: press(id), disabled: (!!st.loading && !loadingThis) || st.importing,
             });
           });
           if (pages() > 1) {

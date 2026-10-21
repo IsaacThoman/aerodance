@@ -90,9 +90,12 @@ test('replacing asks first unless the import is a later revision', async () => {
   assert.equal((await importSongZip(exportZip(revised(3)), { store })).status, 'kept');
 });
 
-test('accepts a song at the top level and the folder entries a Finder ZIP has', async () => {
+test('accepts a song at the top level, in a folder of any name, and the folder entries a Finder ZIP has', async () => {
   const store = memoryStore();
   assert.equal((await importSongZip(exportZip(bundleFiles(), { folder: '' }), { store })).entry.id, 'fixture');
+  // The Finder names a second copy "fixture 2"; song.json still names the song.
+  assert.equal((await importSongZip(exportZip(bundleFiles(), { folder: 'fixture 2' }), { store, confirmReplace: () => true })).entry.id, 'fixture');
+  assert.equal(store.records.size, 1);
   // makeZip refuses folder entries, so rename a same-length placeholder to "fixture/".
   const zip = makeZip(new Map([['fixture_', new Uint8Array()], ...[...bundleFiles()].map(([path, bytes]): [string, Uint8Array] => [`fixture/${path}`, bytes])]));
   const placeholder = new TextEncoder().encode('fixture_');
@@ -109,9 +112,13 @@ test('refuses anything that is not one playable exported song, saving nothing', 
   const refuse = (zip: Blob, pattern: RegExp) => assert.rejects(importSongZip(zip, { store }), pattern);
   await refuse(new Blob(['not a zip']), /readable song ZIP/);
   await refuse(new Blob([makeZip(new Map([['project.json', encode({})]]))]), /project backup/);
+  await refuse(new Blob([makeZip(new Map([['dance/project.json', encode({})]]))]), /project backup/);
+  await refuse(new Blob([makeZip(new Map([['fixture/song.json', new TextEncoder().encode('nope')]]))]), /song\.json can't be read/);
   await refuse(new Blob([makeZip(new Map([['fixture/readme.txt', new Uint8Array([1])]]))]), /no song\.json/);
   await refuse(exportZip(bundleFiles(), { extra: { 'other/song.json': encode({}) } }), /more than one song/);
-  await refuse(exportZip(bundleFiles(), { folder: 'wrong-id' }), /can't be played: Folder name must match songId/);
+  const renamed = bundleFixture();
+  renamed.song.songId = 'renamed';
+  await refuse(exportZip(bundleFiles(renamed)), /can't be played: Song\/choreography songId mismatch/);
   const missing = bundleFiles();
   missing.delete('audio.wav');
   await refuse(exportZip(missing), /can't be played: Missing/);
