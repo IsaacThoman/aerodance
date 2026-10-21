@@ -10,6 +10,8 @@ class Renderer;
 @property(nonatomic, readonly) Renderer *renderer;
 /** The page is on its top-level menu (the Menu button then leaves the app). Main thread. */
 @property(atomic) BOOL atRoot;
+/** Called once on the main thread when the page is showing its first screen. */
+@property(nonatomic, copy) void (^onReady)(void);
 - (instancetype)initWithConfig:(NSDictionary *)config display:(DisplayTarget *)display;
 - (void)start;
 /** Runs a block on the JavaScript thread. Any thread. */

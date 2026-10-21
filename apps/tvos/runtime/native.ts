@@ -47,6 +47,8 @@ export interface Native {
   randomBytes(out: ArrayBufferView): void;
   /** Tells the host the page is on its top-level menu (the Menu button then leaves the app). */
   setAtRoot(atRoot: boolean): void;
+  /** Tells the host the page is showing its first screen (the splash then fades out). */
+  ready(): void;
   /** Launch configuration as JSON. */
   readonly config: string;
   /** Web Audio (src/Audio.mm). */
