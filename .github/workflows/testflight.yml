@@ -1,0 +1,140 @@
+name: TestFlight
+
+# Archives the iPhone/iPad and Apple TV apps at a version and uploads them to App Store Connect,
+# where they appear in TestFlight. CI calls this for each release; run it by hand to rebuild a
+# release (from its tag) or, with upload off, to check that both apps archive and sign.
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      upload:
+        default: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: App version (for example, 1.2.3)
+        required: true
+        type: string
+      upload:
+        description: Upload to TestFlight (from main, or the tag v<version>)
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    name: Archive / ${{ matrix.platform }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    # The testflight environment holds the App Store Connect API key and the signing certificate,
+    # for main and v* tags only.
+    environment: testflight
+    concurrency:
+      group: testflight-${{ matrix.platform }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, tvos]
+    env:
+      UPLOAD: ${{ inputs.upload }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # A release builds its tag; a manual run builds the branch or tag it runs on.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || format('v{0}', inputs.version) }}
+
+      - name: Check the version
+        run: |
+          set -euo pipefail
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'The version must be major.minor.patch.' >&2
+            exit 1
+          fi
+          if [[ "${UPLOAD}" == true && "${GITHUB_REF}" != refs/heads/main && "${GITHUB_REF}" != "refs/tags/v${VERSION}" ]]; then
+            echo "Uploads build main or the tag v${VERSION}; leave upload off to only archive." >&2
+            exit 1
+          fi
+          # Unix time, as scripts/apple.ts does: it keeps increasing, including on reruns.
+          echo "BUILD_NUMBER=$(date -u +%s)" >> "${GITHUB_ENV}"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: brew install xcodegen
+      # The same Xcode as the apps' READMEs ask for (tvOS 27 SDK).
+      - run: sudo xcode-select -s /Applications/Xcode_27.1.app
+
+      # The credentials reach the runner only after npm ci, so no install script sees them.
+      - name: Install the signing credentials
+        env:
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+          IOS_DEVELOPMENT_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_P12_BASE64 }}
+          IOS_DEVELOPMENT_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for variable in \
+            APP_STORE_CONNECT_API_ISSUER_ID \
+            APP_STORE_CONNECT_API_KEY_ID \
+            APP_STORE_CONNECT_API_PRIVATE_KEY \
+            IOS_DEVELOPMENT_CERTIFICATE_P12_BASE64 \
+            IOS_DEVELOPMENT_CERTIFICATE_PASSWORD; do
+            if [[ -z "${!variable}" ]]; then
+              echo "The ${variable} secret of the testflight environment is not set." >&2
+              exit 1
+            fi
+          done
+
+          key_path="${RUNNER_TEMP}/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          certificate_path="${RUNNER_TEMP}/signing.p12"
+          keychain_path="${RUNNER_TEMP}/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "${APP_STORE_CONNECT_API_PRIVATE_KEY}" > "${key_path}"
+          chmod 600 "${key_path}"
+          printf '%s' "${IOS_DEVELOPMENT_CERTIFICATE_P12_BASE64}" | base64 --decode > "${certificate_path}"
+          chmod 600 "${certificate_path}"
+
+          # The Apple Development identity signs the archive; Xcode signs the upload with the
+          # team's cloud-managed distribution certificate, through the API key.
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" -k "${keychain_path}" -P "${IOS_DEVELOPMENT_CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12
+          rm -f "${certificate_path}"
+          if ! security find-identity -v -p codesigning "${keychain_path}" | grep -q 'Apple Development'; then
+            echo 'IOS_DEVELOPMENT_CERTIFICATE_P12_BASE64 has no valid Apple Development identity and private key.' >&2
+            exit 1
+          fi
+          security set-key-partition-list -S apple-tool:,apple: -k "${keychain_password}" "${keychain_path}" > /dev/null
+          security list-keychains -d user -s "${keychain_path}"
+          security default-keychain -d user -s "${keychain_path}"
+
+          {
+            echo "KEYCHAIN_PATH=${keychain_path}"
+            echo "APP_STORE_CONNECT_API_KEY_PATH=${key_path}"
+            echo "APP_STORE_CONNECT_API_KEY_ID=${APP_STORE_CONNECT_API_KEY_ID}"
+            echo "APP_STORE_CONNECT_API_ISSUER_ID=${APP_STORE_CONNECT_API_ISSUER_ID}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Archive
+        run: |
+          set -euo pipefail
+          args=(--version "${VERSION}" --build-number "${BUILD_NUMBER}")
+          if [[ "${UPLOAD}" == true ]]; then args+=(--upload); fi
+          node scripts/${{ matrix.platform }}.ts archive "${args[@]}"
+
+      - name: Remove the signing credentials
+        if: always()
+        run: |
+          if [[ -n "${KEYCHAIN_PATH:-}" ]]; then security delete-keychain "${KEYCHAIN_PATH}" || true; fi
+          rm -f "${APP_STORE_CONNECT_API_KEY_PATH:-}" "${RUNNER_TEMP}/signing.p12"

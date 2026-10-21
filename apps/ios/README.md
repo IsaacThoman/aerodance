@@ -91,6 +91,7 @@ npm run ios -- deploy --report               # ...and print frame stats every tw
 npm run ios -- launch --path '/?input=ghost' --report --flow   # play a song by itself
 npm run ios -- sim --device <simulator>      # the same in a simulator
 npm run ios -- build --release               # the release configuration (see Release builds)
+npm run ios -- archive --version 0.2.0 --upload   # archive it and upload it to TestFlight
 npm run ios -- sim --site https://24.aerodance.party   # pair phones through a PR preview
 ```
 
@@ -104,9 +105,17 @@ Development builds take the launch options above (`--path`, `--report`, `--flow`
 inspectable in Safari's Web Inspector, and add `NSAllowsLocalNetworking` to `Info.plist` so
 `--report` can reach the Mac. (Every build has `NSLocalNetworkUsageDescription`: a paired phone on
 the same Wi-Fi connects to the app directly.) `build --release`
-leaves all of that out: it's the configuration an App Store build will use, but not yet an App
-Store build. Archiving and exporting, uploading to TestFlight and build numbers
-(`CFBundleVersion` is always 1) come later.
+leaves all of that out: it's the configuration an App Store build uses.
+
+`archive --version <x.y.z>` builds that configuration and archives it with that version
+(`CFBundleShortVersionString`) and a build number (`CFBundleVersion`: `--build-number`, else the
+Unix time, which keeps increasing). It then exports the archive for App Store Connect, signed
+by Xcode with the team's cloud-managed distribution certificate: into `build/export/`, or with
+`--upload` to App Store Connect, where it appears in TestFlight once processed. Xcode signs in
+with the account signed in to Xcode, or with an App Store Connect API key (an Admin key, for the
+distribution certificate) when `APP_STORE_CONNECT_API_KEY_PATH` (the `.p8` file),
+`APP_STORE_CONNECT_API_KEY_ID` and `APP_STORE_CONNECT_API_ISSUER_ID` are set. Other builds are
+`0.1 (1)`.
 
 `--report` sends the frame rate, the 95th-percentile frame time, the JavaScript time per frame,
 the draw calls per frame and the device's thermal state (`ProcessInfo.thermalState`, and Low Power
