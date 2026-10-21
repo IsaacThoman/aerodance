@@ -33,8 +33,9 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: aerodance
-        CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "1"
+        # From the build settings below, which scripts/ios.ts archive sets for App Store Connect.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UIRequiredDeviceCapabilities: [metal]
@@ -71,6 +72,8 @@ targets:
       PRODUCT_NAME: aerodance
       PRODUCT_BUNDLE_IDENTIFIER: ${IOS_BUNDLE_ID}
       DEVELOPMENT_TEAM: ${IOS_TEAM_ID}
+      MARKETING_VERSION: "0.1"
+      CURRENT_PROJECT_VERSION: "1"
       CODE_SIGN_STYLE: Automatic
       GENERATE_INFOPLIST_FILE: NO
       CLANG_ENABLE_OBJC_ARC: YES
