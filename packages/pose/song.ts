@@ -1,4 +1,4 @@
-import { assertChoreography, finite, isArray, isObject, isPlayerCount } from './choreography.ts';
+import { MAX_PLAYERS, assertChoreography, copy, finite, isArray, isObject, isPlayerCount, partOf } from './choreography.ts';
 import type { Choreography, ChoreographyCoordinates, ChoreographyTrack, PlayerCount, PoseSnapshot, TrackCalibration } from './choreography.ts';
 import { decodePoseFile, framesFromSamples, quantizeConfidence, sampleFrames, sparseSamples } from './binary.ts';
 import type { PoseFrames, PoseMarker, SongHeader, TrackHeader } from './binary.ts';
@@ -11,7 +11,7 @@ export interface Song {
   songId: string; bundleRevision: number;
   title: string; artist: string; songwriters: string[]; choreographers: string[];
   durationMs: number; playableStartMs: number; playableEndMs: number;
-  /** Always both modes, [1, 2]. */
+  /** Every count from 1 up: [1, 2], [1, 2, 3] or [1, 2, 3, 4] (players 3 and 4 dance the duet's parts again). */
   supportedPlayerCounts: PlayerCount[];
   /** A dance stage id (packages/stages); players get openreef for a missing or unknown one. */
   stage?: string;
@@ -58,7 +58,7 @@ export interface SongBundle { song: Song; choreography: SongChoreography; }
 function require(condition: unknown, message: string): asserts condition { if (!condition) throw Error(message); }
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const strings = (v: unknown) => isArray(v) && v.every(text);
-const counts = (v: unknown) => isArray(v) && v.length === 2 && v[0] === 1 && v[1] === 2;
+const counts = (v: unknown) => isArray(v) && v.length >= 2 && v.length <= MAX_PLAYERS && v.every((n, i) => n === i + 1);
 const revision = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 const SONG_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 // A dance stage id (packages/stages). Players get openreef for a missing or unknown one.
@@ -95,7 +95,7 @@ export function assertSong(song: unknown): asserts song is Song {
   const { durationMs, playableStartMs, playableEndMs } = song;
   require(finite(durationMs) && durationMs > 0 && finite(playableStartMs) && finite(playableEndMs) &&
     0 <= playableStartMs && playableStartMs < playableEndMs && playableEndMs <= durationMs, 'Invalid playable interval');
-  require(counts(song.supportedPlayerCounts), 'Song must support both player modes');
+  require(counts(song.supportedPlayerCounts), 'Song must support one and two players, and may add three and four');
   require(stageId(song.stage), 'Invalid song stage');
   require(song.coachMode === 'mirror-player' && song.rigProfile === 'frutiger-seven-bone-v1', 'Unsupported coach or rig profile');
   const { audio, choreography, cover } = song;
@@ -178,11 +178,18 @@ export function sampleSong(bundle: SongBundle, songTimeMs: number, playerCount: 
   require(isPlayerCount(playerCount), 'Invalid player count');
   const { song, choreography } = bundle;
   if (!finite(songTimeMs) || songTimeMs < song.playableStartMs || songTimeMs >= song.playableEndMs) return { poses:[], quality:[] };
-  const snapshot = sampleFrames(choreography, songTimeMs, choreography.song.maxInterpolationGapMs);
-  snapshot.poses = snapshot.poses.filter(p => p.playerId < playerCount);
-  snapshot.quality = snapshot.quality.filter(q => q.playerId < playerCount);
-  for (const q of snapshot.quality) {
-    if (choreography.tracks[q.playerId].exclusions.some(i => songTimeMs >= i.startMs && songTimeMs < i.endMs)) q.scoreEligible.fill(false);
+  const { poses, quality } = sampleFrames(choreography, songTimeMs, choreography.song.maxInterpolationGapMs);
+  // Each player gets their part's pose; with three or four players a part is danced twice.
+  const snapshot: PoseSnapshot = { poses: [], quality: [] };
+  for (let playerId = 0; playerId < playerCount; playerId++) {
+    const part = partOf(playerId, choreography.tracks.length);
+    const pose = poses.find(p => p.playerId === part), q = quality.find(p => p.playerId === part);
+    if (!pose || !q) continue;
+    const own = playerId === part;
+    snapshot.poses.push(own ? pose : { playerId, landmarks: copy(pose.landmarks) });
+    const mask = own ? q : { ...copy(q), playerId };
+    if (choreography.tracks[part].exclusions.some(i => songTimeMs >= i.startMs && songTimeMs < i.endMs)) mask.scoreEligible.fill(false);
+    snapshot.quality.push(mask);
   }
   return snapshot;
 }

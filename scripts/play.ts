@@ -11,15 +11,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import type { Browser, ConsoleMessage, Page } from 'playwright';
-import * as menuLayout from '../client/src/menu/layout.ts';
-import * as gameLayout from '../client/src/game/layout.ts';
+import * as menuLayout from '../apps/web/src/menu/layout.ts';
+import * as gameLayout from '../apps/web/src/game/layout.ts';
+import { displayDesign } from '../apps/web/src/display.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dir = path.join(root, '.cache/play');
 const sessionFile = path.join(dir, 'session.json');
 const logFile = path.join(dir, 'daemon.log');
-// The canvas UI's design space (client/src/ui/useCanvasUI.ts).
-const DESIGN = { w: 1600, h: 900 };
 
 type Options = {
   app: 'game' | 'studio';
@@ -51,11 +50,11 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   reload                               reload and wait until ready
   eval <js>                            evaluate an expression in the page
   logs [--clear]                       console messages and page errors so far
-  camera <0|1|2>                       dancers in the fixture camera's shot
+  camera <0-4>                         dancers in the fixture camera's shot
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in client/src/{menu,game}/layout.ts, e.g. START,
+Targets name layout exports in apps/web/src/{menu,game}/layout.ts, e.g. START,
 menu.BACK, game.BACK, rowRect.0 or GAME_CALIBRATION_CAMERA.next.`;
 
 // ---- Layout targets ----
@@ -67,7 +66,11 @@ const isShape = (v: unknown): v is Shape =>
 const centre = (s: Shape) => ({ x: s.x + (s.w ?? 0) / 2, y: s.y + (s.h ?? 0) / 2 });
 
 /** The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the key as an argument). */
-function resolveTarget(target: string) {
+function resolveTarget(target: string, width = 1600) {
+  const layouts: Record<string, Record<string, unknown>> = {
+    menu: { ...menuLayout, ...menuLayout.menuLayout(width) },
+    game: { ...gameLayout, ...gameLayout.gameLayout(width) },
+  };
   const point = /^(-?[\d.]+),(-?[\d.]+)$/.exec(target);
   if (point) return { x: Number(point[1]), y: Number(point[2]) };
   let parts = target.split('.');
@@ -152,8 +155,11 @@ function fakeCamera({ image, mode }: { image: string; mode: Options['camera'] })
       const draw = () => {
         g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
         const offset = Math.sin(count++ / 20) * 2;
-        if (w.playDancers === 1) g.drawImage(photo, 200, 0, 600, 667, 160 + offset, 40, 320, 356);
-        if (w.playDancers === 2) for (const x of [0, 320]) g.drawImage(photo, 200, 0, 600, 667, x + offset, 40, 320, 356);
+        // One dancer in the middle, two side by side; three or four squeezed into narrower lanes
+        // at full height (the photo's arms-out stance is too small for MediaPipe at lane width).
+        // MediaPipe tracks three of these reliably but not four (docs/three-and-four-players.md).
+        const n = w.playDancers, width = n > 2 ? 640 / n : 320;
+        for (let i = 0; i < n; i++) g.drawImage(photo, 200, 0, 600, 667, (n === 1 ? 320 : (i + 0.5) * 640 / n) - width / 2 + offset, 40, width, 356);
       };
       draw(); const stream = canvas.captureStream(20), timer = setInterval(draw, 50);
       for (const track of stream.getTracks()) {
@@ -201,7 +207,7 @@ async function daemon(options: Options) {
   // A reload (Vite's included) puts the game back on the main menu, so say when one happens.
   page.on('framenavigated', (frame) => { if (frame === page.mainFrame()) log(`[navigated] ${frame.url()}`); });
   if (options.camera !== 'none') {
-    const image = `data:image/jpeg;base64,${(await readFile(path.join(root, 'client/tests/fixtures/mediapipe-pose.jpg'))).toString('base64')}`;
+    const image = `data:image/jpeg;base64,${(await readFile(path.join(root, 'apps/web/tests/fixtures/mediapipe-pose.jpg'))).toString('base64')}`;
     await page.addInitScript(fakeCamera, { image, mode: options.camera });
   }
 
@@ -223,10 +229,12 @@ async function daemon(options: Options) {
   });
 
   // Page position of a design-unit point in the letterboxed game frame.
-  const toPage = async (x: number, y: number) => {
+  const toPage = async (target: string) => {
     const frame = await page.locator('.canvas-frame').boundingBox();
     if (!frame) throw Error('No .canvas-frame on this page; use --locator');
-    return { x: frame.x + (x / DESIGN.w) * frame.width, y: frame.y + (y / DESIGN.h) * frame.height };
+    const design = displayDesign(frame.width, frame.height);
+    const { x, y } = resolveTarget(target, design.w);
+    return { x: frame.x + (x / design.w) * frame.width, y: frame.y + (y / design.h) * frame.height };
   };
   const shutdown = async () => {
     await browser.close().catch(() => {});
@@ -250,10 +258,10 @@ async function daemon(options: Options) {
     }),
     click: async (c) => {
       if (typeof c.locator === 'string') return page.locator(c.locator).click();
-      const p = await toPage(Number(c.x), Number(c.y));
+      const p = await toPage(String(c.target));
       await page.mouse.click(p.x, p.y);
     },
-    hover: async (c) => { const p = await toPage(Number(c.x), Number(c.y)); await page.mouse.move(p.x, p.y); },
+    hover: async (c) => { const p = await toPage(String(c.target)); await page.mouse.move(p.x, p.y); },
     key: async (c) => { for (const k of c.keys as string[]) await page.keyboard.press(k); },
     type: (c) => page.keyboard.type(String(c.text)),
     wait: async (c) => {
@@ -407,11 +415,11 @@ async function main() {
       const locator = flag('--locator');
       if (locator !== undefined) return print(await send(session, { cmd, locator }));
       if (!args[0]) throw Error('click needs a target');
-      return print(await send(session, { cmd, ...resolveTarget(args[0]) }));
+      return print(await send(session, { cmd, target: args[0] }));
     }
     case 'hover':
       if (!args[0]) throw Error('hover needs a target');
-      return print(await send(session, { cmd, ...resolveTarget(args[0]) }));
+      return print(await send(session, { cmd, target: args[0] }));
     case 'key': return print(await send(session, { cmd, keys: args }));
     case 'type': return print(await send(session, { cmd, text: args.join(' ') }));
     case 'wait': {
@@ -430,7 +438,11 @@ async function main() {
     case 'goto': return print(await send(session, { cmd, target: args[0] ?? '/' }));
     case 'eval': return print(await send(session, { cmd, js: args.join(' ') }));
     case 'logs': return print(await send(session, { cmd, clear: args.includes('--clear') }));
-    case 'camera': return print(await send(session, { cmd, dancers: Number(args[0]) }));
+    case 'camera': {
+      const dancers = Number(args[0]);
+      if (!Number.isInteger(dancers) || dancers < 0 || dancers > 4) throw Error('camera takes 0 to 4 dancers');
+      return print(await send(session, { cmd, dancers }));
+    }
     case 'resize': {
       const [width, height] = (args[0] ?? '').split('x').map(Number);
       if (!width || !height) throw Error('resize needs <width>x<height>');

@@ -11,7 +11,7 @@ playable endpoint. It does not use the silent demo's loop or seam blend.
 
 ## Install an exported bundle
 
-Unpack the runtime ZIP into `client/public/songs/`, retaining its `<songId>/`
+Unpack the runtime ZIP into `apps/web/public/songs/`, retaining its `<songId>/`
 folder with `song.json`, `choreography.adpose`, audio, optional cover, and
 `checksums.json`. The folder name must match `songId`. No manual catalog update
 is needed: the Vite development server generates `songs/manifest.json` from
@@ -26,7 +26,7 @@ difficulty, stage, optional cover, and a SHA-256 pin for `song.json`. The previe
 opens on the song's stage, or `openreef` when it has none. Re-exported songs
 are discovered with their updated revision. Install the complete directory before
 opening Song Select. The game does not extract ZIP files or publish editor
-projects. The repo ships one song, **Demo Track 1** (`client/public/songs/demo-track-1/`):
+projects. The repo ships one song, **Demo Track 1** (`apps/web/public/songs/demo-track-1/`):
 a 30-second duet we recorded ourselves on the `club` stage, set to generated
 brown noise so the bundle carries no licensed music.
 
@@ -47,7 +47,7 @@ from 12.4 MB of JSON. For one release the loader also accepts schema 1,
 `choreography.json`. Convert an older bundle in place with:
 
 ```sh
-node tools/pose/migrate-legacy.ts client/public/songs/<songId>
+node tools/pose/migrate-legacy.ts apps/web/public/songs/<songId>
 ```
 
 This writes `choreography.adpose`, bumps `bundleRevision`, rewrites
@@ -57,7 +57,8 @@ downloads `<songId>-poses.adpose`, which `?input=recording&recording=<url>`
 replays.
 
 One-player preview selects player ID 0 from the same choreography. Two-player
-preview selects IDs 0 and 1. The shared finite sampler preserves absence and
+preview selects IDs 0 and 1, and three or four players dance those two parts again
+(players 3 and 4 copy IDs 0 and 1, `partOf`). The shared finite sampler preserves absence and
 refuses interpolation over gaps longer than the authored limit (at most 200 ms).
 Authored exclusions clear score eligibility without changing the visual pose.
 Coach reflection is visual only; stored anatomy and player IDs remain unchanged.
@@ -66,10 +67,10 @@ Audio is decoded from the verified in-memory Blob and released when preview clos
 Code:
 
 - `packages/pose/song.ts`: catalog/song validation, bundle cross-checks, finite sampling.
-- `client/src/songs/loadBundle.ts`: bounded HTTP loading and file integrity.
-- `client/src/game/SongSelect.tsx`: the in-engine list and preview.
-- `client/src/audio/songPlayer.ts`: finite music on the mixer, clamped to the playable range.
-- `client/src/stage/StageView.tsx` and `packages/stages/shared/Dancers.tsx`: the stage and its independent Frutiger dancers.
+- `apps/web/src/songs/loadBundle.ts`: bounded HTTP loading and file integrity.
+- `apps/web/src/game/SongSelect.tsx`: the in-engine list and preview.
+- `apps/web/src/audio/songPlayer.ts`: finite music on the mixer, clamped to the playable range.
+- `apps/web/src/stage/StageView.tsx` and `packages/stages/shared/Dancers.tsx`: the stage and its independent Frutiger dancers.
 
 ## Migrated silent capture
 
@@ -97,7 +98,7 @@ Runtime preview still loops, while game bundle sampling is finite.
 ```sh
 npm test
 npm run build
-node client/tests/ui-flow.browser.ts # requires Playwright and Chromium
+node apps/web/tests/ui-flow.browser.ts # requires Playwright and Chromium
 ```
 
 Tests cover migration, wire-payload compatibility, integrity failures, revision

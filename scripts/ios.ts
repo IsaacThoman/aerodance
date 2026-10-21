@@ -1,5 +1,5 @@
-// Builds the production game into the iPhone/iPad app in client-ios/ and installs it on a paired
-// iPhone or iPad, or on a simulator. See client-ios/README.md.
+// Builds the production game into the iPhone/iPad app in apps/ios/ and installs it on a paired
+// iPhone or iPad, or on a simulator. See apps/ios/README.md.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { checkSite, copyInter, DEFAULT_BUNDLE_ID, DEFAULT_TEAM_ID, INTER_WEIGHTS, root, SITE } from './apple.ts';
 
-const appDir = path.join(root, 'client-ios');
+const appDir = path.join(root, 'apps/ios');
 const www = path.join(appDir, 'www');
 const TEAM_ID = process.env.IOS_TEAM_ID || DEFAULT_TEAM_ID;
 const BUNDLE_ID = process.env.IOS_BUNDLE_ID || DEFAULT_BUNDLE_ID;
@@ -38,12 +38,12 @@ Options:
   --report                         print the app's frame rate, JavaScript time per frame and
                                    draw calls every two seconds, until Ctrl-C
   --report-to <url>                send those reports to another address instead
-  --flow                           play One Player → first song → Dance! → results with the
+  --flow                           play one player → first song → Dance! → results with the
                                    remote's keys (use with --path '/?input=ghost')
   --drive <json>                   play these steps, as the Apple TV app's launch config takes
                                    them: [["wait", {"menuReady": "true"}], ["key", "Enter"],
                                    ["tap", 800, 450], ["sleep", 500], ...] (taps in the canvas
-                                   UI's 1600×900 design units)
+                                   UI's design units: 1600×900, or 1200×900 in 4:3)
   --clear-website-data             clear the page's storage first, as if WebKit had, to check
                                    the app restores saved scores and settings
   --port <port>                    serve the game on this loopback port instead of 8417, so
@@ -153,7 +153,7 @@ async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator'
   dropUnusedPoseModels();
   await bundleFonts();
   writeFileSync(path.join(www, 'app.json'), JSON.stringify({ site }));
-  const bench = path.join(root, 'client-tvos/bench/dist');
+  const bench = path.join(root, 'apps/tvos/bench/dist');
   if (!release && existsSync(bench)) cpSync(bench, path.join(www, 'bench'), { recursive: true });
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
   const env = { ...process.env, IOS_TEAM_ID: TEAM_ID, IOS_BUNDLE_ID: BUNDLE_ID };
@@ -188,7 +188,7 @@ type Report = {
   host?: { interrupted: boolean; tv: boolean };
 };
 
-// Prints what the app's injected script (client-ios/src/inject.js) posts every two seconds.
+// Prints what the app's injected script (apps/ios/src/inject.js) posts every two seconds.
 function receiveReports() {
   let first = true, safeArea: string | undefined, host = '';
   http.createServer((req, res) => {

@@ -3,6 +3,8 @@
 //
 //   node tools/thumbnails/scripts/render.ts [--only id,id] [--spec shots.json --out dir] [--jobs 2]
 //   node tools/thumbnails/scripts/render.ts --tv-icons [--only id,id] [--out dir]
+//   node tools/thumbnails/scripts/render.ts --app-icons [--only id,id] [--out dir]
+//   node tools/thumbnails/scripts/render.ts --splashes [--only id,id] [--out dir]
 //
 // Builds the capture page with Vite, opens it in headless Chrome (GPU WebGL), steps each
 // shot's stage to its time and reads back the 540x480 buffer. Each buffer pixel is written
@@ -12,6 +14,13 @@
 // PNG at Apple TV's three app icon sizes (<size>/<n>-<layer>.png), and the layers stacked back
 // together (flat.png). Those sizes aren't whole multiples of the 600x480 buffer, so they're
 // area-averaged.
+//
+// --app-icons renders APP_ICONS, square phone app icons, into assets/app-icon/: <id>.png at
+// 1024x1024, area-averaged from the 360x480 buffer. A layered one's layers go in <id>/1024x1024/,
+// and it stays transparent if its back layer isn't opaque.
+//
+// --splashes renders SPLASHES, 16:9 splash screens, into assets/: <id>.png at 2560x1440, with
+// the wordmark if the shot has one.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -19,12 +28,14 @@ import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 import { build, preview } from 'vite';
 import { chromium } from 'playwright-core';
-import { SHOTS, TV_ICONS, UPSCALE, assertShot } from '../client/src/shots.ts';
+import { APP_ICONS, SHOTS, SPLASHES, TV_ICONS, UPSCALE, assertShot } from '../client/src/shots.ts';
 import type { Shot, ThumbnailFrame, ThumbnailWindow } from '../client/src/shots.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 // Apple TV app icons: the App Store's, then the home screen's @2x and @1x.
 const TV_ICON_SIZES: readonly (readonly [width: number, height: number])[] = [[1280, 768], [800, 480], [400, 240]];
+// A phone's app icon: the one 1024x1024 image that iOS and the stores scale down.
+const APP_ICON_SIZE = 1024;
 
 function option(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -32,7 +43,9 @@ function option(name: string): string | undefined {
 }
 
 const tvIcons = process.argv.includes('--tv-icons');
-let shots: readonly Shot[] = tvIcons ? TV_ICONS : SHOTS;
+const appIcons = process.argv.includes('--app-icons');
+const splashes = process.argv.includes('--splashes');
+let shots: readonly Shot[] = tvIcons ? TV_ICONS : appIcons ? APP_ICONS : splashes ? SPLASHES : SHOTS;
 const spec = option('spec');
 if (spec) {
   const list: unknown = JSON.parse(await readFile(spec, 'utf8'));
@@ -44,7 +57,8 @@ if (onlyIds) {
   const only = new Set(onlyIds.split(','));
   shots = shots.filter((s) => only.has(s.id));
 }
-const outDir = path.resolve(option('out') ?? (tvIcons ? path.join(ROOT, '../../assets/tv-icon') : ROOT));
+const outDir = path.resolve(option('out') ?? (tvIcons ? path.join(ROOT, '../../assets/tv-icon') : appIcons ? path.join(ROOT, '../../assets/app-icon') :
+  splashes ? path.join(ROOT, '../../assets') : ROOT));
 const jobs = Number(option('jobs') ?? 2);
 if (!shots.length) throw new Error('No shots to render');
 
@@ -211,6 +225,12 @@ function blur(rgba: Buffer, width: number, height: number, sigma: number) {
   return bytes;
 }
 
+const rgbOf = (rgba: Buffer) => {
+  const rgb = Buffer.alloc((rgba.length / 4) * 3);
+  for (let i = 0, o = 0; i < rgba.length; i += 4, o += 3) rgba.copy(rgb, o, i, i + 3);
+  return rgb;
+};
+
 // Draws straight-alpha RGBA `top` over `under`, in place.
 function over(under: Buffer, top: Buffer) {
   for (let i = 0; i < under.length; i += 4) {
@@ -225,7 +245,8 @@ function over(under: Buffer, top: Buffer) {
 // layers stacked back together at the first size, as the icon looks at rest.
 async function writeLayers(dir: string, shot: Shot, frame: ThumbnailFrame) {
   const layers = frame.layers ?? [];
-  const sizes = shot.format === 'tv-icon' ? TV_ICON_SIZES : [[frame.width * UPSCALE[0], frame.height * UPSCALE[1]] as const];
+  const sizes = shot.format === 'tv-icon' ? TV_ICON_SIZES : shot.format === 'app-icon' ? [[APP_ICON_SIZE, APP_ICON_SIZE] as const]
+    : [[frame.width * UPSCALE[0], frame.height * UPSCALE[1]] as const];
   let flat: Buffer | null = null;
   for (const [width, height] of sizes) {
     const folder = path.join(dir, `${width}x${height}`);
@@ -240,7 +261,12 @@ async function writeLayers(dir: string, shot: Shot, frame: ThumbnailFrame) {
     }
   }
   const [width, height] = sizes[0];
-  if (flat) await writeFile(path.join(dir, 'flat.png'), encodePng(width, height, flat, 4));
+  if (!flat) return;
+  // An app icon is the stack itself beside its layers' folder: opaque, as the stores want, unless
+  // nothing opaque is at the back.
+  const opaque = flat.every((v, i) => i % 4 !== 3 || v === 255);
+  if (shot.format === 'app-icon') await writeFile(`${dir}.png`, opaque ? encodePng(width, height, rgbOf(flat)) : encodePng(width, height, flat, 4));
+  else await writeFile(path.join(dir, 'flat.png'), encodePng(width, height, flat, 4));
 }
 
 // --- Capture ------------------------------------------------------------------------
@@ -273,7 +299,7 @@ async function worker() {
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
     const started = performance.now();
     try {
-      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `${tvIcons ? 'icon' : 'shot'}=${encodeURIComponent(shot.id)}`;
+      const query = spec ? `spec=${encodeURIComponent(JSON.stringify(shot))}` : `${tvIcons || appIcons ? 'icon' : splashes ? 'splash' : 'shot'}=${encodeURIComponent(shot.id)}`;
       await page.goto(`${base}?${query}`);
       await page.waitForFunction(() => (window as ThumbnailWindow).__thumb, null, { timeout: 60000 });
       if (!logged) {
@@ -287,6 +313,13 @@ async function worker() {
       });
       if (frame.layers) {
         await writeLayers(path.join(outDir, shot.id), shot, frame);
+      } else if (shot.format === 'app-icon') {
+        // Opaque, as the stores require; with the wordmark if the icon has one.
+        const rgba = resample(Buffer.from(frame.logo ?? frame.plain, 'base64'), frame.width, frame.height, APP_ICON_SIZE, APP_ICON_SIZE);
+        await mkdir(outDir, { recursive: true });
+        await writeFile(path.join(outDir, `${shot.id}.png`), encodePng(APP_ICON_SIZE, APP_ICON_SIZE, rgbOf(rgba)));
+      } else if (splashes) {
+        await writeImage(path.join(outDir, `${shot.id}.png`), frame.logo ?? frame.plain, frame.width, frame.height);
       } else {
         await writeImage(path.join(outDir, 'no-logo', `${shot.id}.png`), frame.plain, frame.width, frame.height);
         if (frame.logo) await writeImage(path.join(outDir, 'with-logo', `${shot.id}.png`), frame.logo, frame.width, frame.height);

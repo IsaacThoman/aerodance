@@ -6,7 +6,7 @@
     "dev": "vite",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p .",
-    "test": "node --test client/tests/*.test.ts packages/*/tests/*.test.ts",
+    "test": "node --test apps/web/tests/*.test.ts packages/*/tests/*.test.ts",
     "build": "vite build",
     "preview": "vite preview",
     "play": "node scripts/play.ts",
