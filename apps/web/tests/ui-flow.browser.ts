@@ -21,7 +21,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START } = menuLayout(design.w);
+const { ASPECT, BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START } = menuLayout(design.w);
 const { BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
@@ -131,6 +131,18 @@ try {
   await menuOn('settings');
   await shot('settings');
   assert.equal(await page.evaluate(() => (window as TestWindow).webcamRequests), 0);
+  // Graphics → Aspect ratio holds the other shape whatever the window; Auto fits it again.
+  const other = mode === 'standard' ? 'widescreen' : 'standard';
+  await click(ASPECT(other === 'standard' ? 1 : 2));
+  await until({ displayMode: other, menuReady: 'true' });
+  await shot('settings-other-aspect');
+  const otherFrame = await frameBox();
+  const otherDesign = DISPLAY_MODES[other];
+  const auto = center(menuLayout(otherDesign.w).ASPECT(0));
+  await page.mouse.click(otherFrame.x + (auto.x / otherDesign.w) * otherFrame.width, otherFrame.y + (auto.y / otherDesign.h) * otherFrame.height);
+  await until({ displayMode: mode, menuReady: 'true' });
+  assert.deepEqual(await page.evaluate(() => localStorage.getItem('aerodance.graphics')), JSON.stringify({ aspect: 'auto' }));
+  frame = await frameBox();
   await click(MENU_BACK);
   await menuOn('main');
   await shot('main-menu');
