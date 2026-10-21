@@ -1,5 +1,0 @@
-{
-  // Type checks the JavaScriptCore host's runtime: npx tsc -p client-tvos
-  "extends": "../tsconfig.json",
-  "include": ["runtime", "bench", "tests", "vite.config.ts"]
-}

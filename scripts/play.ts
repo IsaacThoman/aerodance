@@ -11,9 +11,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import type { Browser, ConsoleMessage, Page } from 'playwright';
-import * as menuLayout from '../client/src/menu/layout.ts';
-import * as gameLayout from '../client/src/game/layout.ts';
-import { displayDesign } from '../client/src/display.ts';
+import * as menuLayout from '../apps/web/src/menu/layout.ts';
+import * as gameLayout from '../apps/web/src/game/layout.ts';
+import { displayDesign } from '../apps/web/src/display.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dir = path.join(root, '.cache/play');
@@ -54,7 +54,7 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in client/src/{menu,game}/layout.ts, e.g. START,
+Targets name layout exports in apps/web/src/{menu,game}/layout.ts, e.g. START,
 menu.BACK, game.BACK, rowRect.0 or GAME_CALIBRATION_CAMERA.next.`;
 
 // ---- Layout targets ----
@@ -207,7 +207,7 @@ async function daemon(options: Options) {
   // A reload (Vite's included) puts the game back on the main menu, so say when one happens.
   page.on('framenavigated', (frame) => { if (frame === page.mainFrame()) log(`[navigated] ${frame.url()}`); });
   if (options.camera !== 'none') {
-    const image = `data:image/jpeg;base64,${(await readFile(path.join(root, 'client/tests/fixtures/mediapipe-pose.jpg'))).toString('base64')}`;
+    const image = `data:image/jpeg;base64,${(await readFile(path.join(root, 'apps/web/tests/fixtures/mediapipe-pose.jpg'))).toString('base64')}`;
     await page.addInitScript(fakeCamera, { image, mode: options.camera });
   }
 

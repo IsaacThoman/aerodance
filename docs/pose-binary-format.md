@@ -7,7 +7,7 @@
 
 ## Why
 
-`client/public/songs/demo-track-1/choreography.json` is 12.4 MB for 30 s of
+`apps/web/public/songs/demo-track-1/choreography.json` is 12.4 MB for 30 s of
 dance, 34× its audio. Most of that size comes from four things:
 
 - **Keyed JSON objects.** Each landmark is spelled out as

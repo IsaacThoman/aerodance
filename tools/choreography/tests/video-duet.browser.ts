@@ -24,7 +24,7 @@ const app = express();
 const vite = await createServer({ root: path.resolve('.'), configFile: false, appType: 'custom', logLevel: 'warn',
   server: { middlewareMode: true, ws: false }, optimizeDeps: { noDiscovery: true } });
 app.get('/probe', (_req, res) => res.type('html').send('<html></html>'));
-app.get('/frame', (_req, res) => res.sendFile(path.resolve(process.argv[2] || 'client/tests/fixtures/mediapipe-pose.jpg'), { dotfiles: 'allow' }));
+app.get('/frame', (_req, res) => res.sendFile(path.resolve(process.argv[2] || 'apps/web/tests/fixtures/mediapipe-pose.jpg'), { dotfiles: 'allow' }));
 // The built worker and model assets come first; the build has no /tools or /packages paths for them to shadow.
 app.use(express.static('tools/choreography/dist'));
 app.use(vite.middlewares);

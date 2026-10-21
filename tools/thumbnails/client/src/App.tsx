@@ -10,7 +10,7 @@ import type { Stage, StageId } from '../../../../packages/stages/index.ts';
 import type { Vec3 } from '../../../../packages/stages/catalog.ts';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
 import { post, RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
-import { drawTitle, titleWidth } from '../../../../client/src/ui/draw.ts';
+import { drawTitle, titleWidth } from '../../../../apps/web/src/ui/draw.ts';
 import { APP_ICONS, SHOTS, TV_ICONS, assertShot, bufferFor, designFor } from './shots.ts';
 import type { DancerPart, FrameBuffer, Shot, ShotCamera as ShotCameraSpec, ShotLayer, ShotLogo, ShotPanel, ThumbnailWindow } from './shots.ts';
 

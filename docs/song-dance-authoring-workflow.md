@@ -60,7 +60,7 @@ assets.
   HTTP port 1337, status/config endpoints, one NDJSON streaming connection,
   complete snapshots, explicit IDs, and 33 MediaPipe image landmarks.
 - `AndroidPoseSource` and
-  [protocol decoder](../client/src/pose/protocol.ts): connection lifecycle,
+  [protocol decoder](../apps/web/src/pose/protocol.ts): connection lifecycle,
   bounded decoding, validation, and player-mode boundaries.
 - [Character package guide](../packages/character/README.md),
   [motion code](../packages/character/motion.ts), and
@@ -106,7 +106,7 @@ Record heartbeats and empty pose records as well as detected people.
    choreography. Review repaired joints and unscorable spans. Fix publication
    blockers and audition the resulting bundle using the same loader as the game.
 8. **Export and install.** Download the runtime `.aerodance-song.zip` or unpacked
-   directory. Copy its directory into `client/public/songs/<songId>/`, then reopen
+   directory. Copy its directory into `apps/web/public/songs/<songId>/`, then reopen
    Song Select; the catalog is discovered automatically. Export an authoring
    backup separately if desired.
 

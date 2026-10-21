@@ -9,7 +9,7 @@ import { MAX_SCORE, SCORER_VERSION, createScorer, gradeFor, judge } from '../sco
 import type { JudgementEvent } from '../scorer.ts';
 
 // A real recorded routine is the fixture: both tracks, real tracking noise and real gaps.
-const dir = new URL('../../../client/tests/fixtures/song-70c63c8e/', import.meta.url);
+const dir = new URL('../../../apps/web/tests/fixtures/song-70c63c8e/', import.meta.url);
 const song = validateSong(JSON.parse(readFileSync(new URL('song.json', dir), 'utf8')));
 const bundle: SongBundle = {
   song,
