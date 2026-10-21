@@ -3,11 +3,12 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [dev]
+    branches: [dev, main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to main waits for the release in progress instead of cancelling it.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -53,3 +54,35 @@ jobs:
           node tools/choreography/tests/video-import.browser.ts &&
           node tools/choreography/tests/solo-workflow.browser.ts &&
           node tools/choreography/tests/video-duet.browser.ts"
+
+  release:
+    # A push to main that changes the version (release.config.mjs) tags it and creates a GitHub
+    # Release, once the checks pass. A run whose commit main has moved past releases nothing;
+    # the run for the newer commit does.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [web, browser, studio-browser]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: release
+        run: npm run release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  testflight:
+    needs: release
+    if: needs.release.outputs.version != ''
+    uses: ./.github/workflows/testflight.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
