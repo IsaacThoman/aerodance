@@ -21,8 +21,8 @@ import { Burst, clamp01, easeOutBack, exclaimSprite } from './stageEffects.ts';
  * (useFrame priority 1.5); they slide off to the right while the menu is hidden.
  *
  * When the count goes up, the new dancer makes the same entrance as at the start of a song
- * (stages/shared/DancerEntrance.tsx): a ripple on the puck, bubbles rising around it, and a
- * squash-and-stretch pop. When it goes down, the leaving dancer swells and pops into droplets,
+ * (stages/shared/DancerEntrance.tsx), without the floor ripple: bubbles rising around it and
+ * a squash-and-stretch pop. When it goes down, the leaving dancer swells and pops into droplets,
  * and the others start back in shock (they freeze, hop, and a "!" pops up) before dancing on.
  * The rest regroup around the middle. Two stand side by side; three make a triangle with
  * player 3 at the front, and four a diamond with player 4 at the back, so the puck keeps
@@ -366,7 +366,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
                   spots.current[i] = g;
                 }}
               >
-                <DancerEntrance timeMs={entrances[i].timeMs} color={appearance.color} seed={i + 1}>
+                <DancerEntrance timeMs={entrances[i].timeMs} color={appearance.color} seed={i + 1} ripple={false}>
                   {/* Mirrored inside the entrance, as on the stages: a mirrored entrance would turn its bubbles' backs to the camera. */}
                   <group scale={[-1, 1, 1]}>
                     <Character

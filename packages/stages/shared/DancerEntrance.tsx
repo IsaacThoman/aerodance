@@ -75,10 +75,12 @@ export interface DancerEntranceProps {
   timeMs?: () => number;
   color: THREE.ColorRepresentation;
   seed: number;
+  /** The ripple on the floor under the dancer (default on). */
+  ripple?: boolean;
 }
 
 /** A short, song-clock-driven entrance in the dancer's local floor coordinates. */
-export default function DancerEntrance({ children, timeMs, color, seed }: DancerEntranceProps) {
+export default function DancerEntrance({ children, timeMs, color, seed, ripple = true }: DancerEntranceProps) {
   const dancer = useRef<THREE.Group>(null);
   const effects = useRef<THREE.Group>(null);
   const resources = useDisposable(() => {
@@ -124,9 +126,11 @@ export default function DancerEntrance({ children, timeMs, color, seed }: Dancer
     <group name="dancer-entrance">
       <group name="entrance-character" ref={dancer} visible={!timeMs}>{children}</group>
       <group name="entrance-bubbles" ref={effects} visible={false}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} material={resources.ripple}>
-          <planeGeometry args={[4.2, 4.2]} />
-        </mesh>
+        {ripple && (
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} material={resources.ripple}>
+            <planeGeometry args={[4.2, 4.2]} />
+          </mesh>
+        )}
         {/* One draw call for the whole burst; no lights, textures or per-frame allocations. */}
         <instancedMesh args={[resources.geometry, resources.bubble, BUBBLES]} frustumCulled={false} />
       </group>
