@@ -86,3 +86,5 @@ jobs:
     uses: ./.github/workflows/testflight.yml
     with:
       version: ${{ needs.release.outputs.version }}
+    # A called workflow sees no secrets, its environment's included, unless the caller passes them.
+    secrets: inherit
