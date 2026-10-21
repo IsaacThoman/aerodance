@@ -172,6 +172,9 @@ export function loadCustomSong(entry: CatalogSong, { signal, store = indexedDBSt
 
 export const removeCustomSong = (id: string, store: CustomSongStore = indexedDBStore()) => store.delete(id);
 
+/** The saved copy's catalog entry as imported (it may have changed since it was listed). */
+export const savedCustomSong = async (id: string, store: CustomSongStore = indexedDBStore()) => (await store.get(id))?.entry;
+
 // When the browser hasn't room to save a song.
 const quotaMessage = "There isn't enough storage space in this browser for that song.";
 
@@ -214,12 +217,14 @@ export function indexedDBStore(): CustomSongStore {
   };
   const open = () => opening ??= connect();
   const transaction = async (mode: IDBTransactionMode) => {
-    try { return (await open()).transaction([SONGS, FILES], mode); }
+    const current = open();
+    try { return (await current).transaction([SONGS, FILES], mode); }
     catch (error) {
-      // A connection that closed before onclose arrived: open it again, once.
+      // A connection that closed before onclose arrived: open it again, once (callers finding
+      // the same closed connection share the new one).
       if (!(error instanceof DOMException && error.name === 'InvalidStateError')) throw error;
-      opening = connect();
-      return (await opening).transaction([SONGS, FILES], mode);
+      if (opening === current) opening = null;
+      return (await open()).transaction([SONGS, FILES], mode);
     }
   };
   // Runs fn in one transaction over both stores; resolves with its result once it commits.

@@ -11,7 +11,7 @@ import { createSongPlayer } from '../audio/songPlayer.ts';
 import type { SongPlayer } from '../audio/songPlayer.ts';
 import { loadSongBundle } from '../songs/loadBundle.ts';
 import type { LoadedSongBundle } from '../songs/loadBundle.ts';
-import { customScoreId, customSongsSupported, importSongZip, listCustomSongs, loadCustomSong, removeCustomSong } from '../songs/customSongs.ts';
+import { customScoreId, customSongsSupported, importSongZip, listCustomSongs, loadCustomSong, removeCustomSong, savedCustomSong } from '../songs/customSongs.ts';
 import { validateCatalog } from '../../../../packages/pose/song.ts';
 import type { CatalogSong } from '../../../../packages/pose/song.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
@@ -284,8 +284,7 @@ export default function SongSelect({
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         st.loadError = message(error);
-        // An imported song that won't open can't reach its preview's Remove: offer it here.
-        if (entry.custom && props.current.visible && window.confirm(`“${entry.title}” can't be opened (${st.loadError}). Remove it from this browser?`)) removeSong(entry);
+        if (entry.custom) offerRemoval(entry, st.loadError);
       })
       .finally(() => {
         if (controller.signal.aborted) return;
@@ -301,6 +300,21 @@ export default function SongSelect({
     st.loading?.controller.abort();
     st.loading = null;
     props.current.onBack?.();
+  };
+  // An imported song that won't open can't reach its preview's Remove: it's offered here, once
+  // the saved copy is the one listed (another tab may have replaced it: then the list updates).
+  const offerRemoval = (entry: ListedSong, reason: string) => {
+    savedCustomSong(entry.id)
+      .then((saved) => {
+        if (!props.current.visible || st.next !== 'list') return;
+        if (saved?.sha256 !== entry.sha256 || saved?.bundleRevision !== entry.bundleRevision) {
+          st.loadError = '';
+          st.notice = { text: `“${entry.title}” has changed since the list loaded.`, error: false };
+          fetchCatalog(saved ? entry.key : undefined);
+        } else if (window.confirm(`“${entry.title}” can't be opened (${reason}). Remove it from this browser?`)) removeSong(entry);
+      })
+      .catch(() => { /* The saved copy can't be read either: the load error stands. */ })
+      .finally(() => ui.invalidate());
   };
   // Remove (an imported song's preview) deletes it from this browser; its best scores stay.
   const remove = () => {
@@ -324,7 +338,10 @@ export default function SongSelect({
       .catch((error: unknown) => {
         const text = message(error) || "That song couldn't be removed.";
         if (st.previewing === entry) st.previewError = text;
-        else st.notice = { text, error: true };
+        else {
+          st.loadError = '';
+          st.notice = { text, error: true };
+        }
       })
       .finally(() => ui.invalidate());
   };

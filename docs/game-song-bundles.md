@@ -35,11 +35,13 @@ brown noise so the bundle carries no licensed music.
 Players can add a song without rebuilding the game: **Import song**, under the Song
 Select list, takes the ZIP Dance Studio's **Export song** downloads
 (`<songId>-r<revision>.aerodance-song.zip`). A ZIP of the exported folder made by the
-Finder or Explorer works too. The game checks it as fully as playing it would, then saves
-it in the browser's IndexedDB, so it's still there next visit. Imported songs list after
-the published ones, marked **Custom**; an imported song's preview has **Remove**.
+Finder or Explorer works too. The game checks its files as it does before playing any song
+(the music is decoded when it's previewed), then saves it in the browser's IndexedDB, so it's still there next visit. Imported songs list after
+the published ones, marked **Custom**; an imported song's preview has **Remove**, and one
+that can't be opened offers to remove itself.
 
-- Importing the same or an older revision of a song already imported asks before replacing it.
+- Importing the same or an older revision of a song already imported asks before replacing it
+  (or keeps the saved copy, if Song Select was closed while it was checked).
 - An imported song can share a published song's ID: both are listed, and the imported one's
   best scores are kept under `custom:<songId>`.
 - Only the files `checksums.json` lists are kept. The folder's name doesn't matter;

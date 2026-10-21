@@ -12,7 +12,7 @@ import path from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 import express from 'express';
 import { chromium, webkit } from 'playwright';
-import type { Dialog } from 'playwright';
+import type { Dialog, FileChooser } from 'playwright';
 import { silentWav } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
 import { gameLayout } from '../src/game/layout.ts';
@@ -100,6 +100,11 @@ try {
   });
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  // Listening from the start turns file chooser interception on before any click: a listener
+  // added just before the click can lose that race on a slow machine, and the page opens a
+  // native picker no one sees.
+  let chosen: ((chooser: FileChooser) => void) | null = null;
+  page.on('filechooser', (chooser) => chosen?.(chooser));
   await page.route('**/songs/**', async (route) => {
     const name = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
     const body = name === 'manifest.json' ? Buffer.from(JSON.stringify({ version: 1, songs: [published] })) : files.get(name);
@@ -133,8 +138,10 @@ try {
   };
   const shot = async (name: string) => { if (process.env.UI_ARTIFACTS) await page.screenshot({ path: `${process.env.UI_ARTIFACTS}/${name}.png` }); };
   const importZip = async () => {
-    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), click(SONG_IMPORT)]);
-    await chooser.setFiles(zipPath);
+    const chooser = new Promise<FileChooser>((resolve) => { chosen = resolve; });
+    await click(SONG_IMPORT);
+    await (await chooser).setFiles(zipPath);
+    chosen = null;
   };
   // Answers the next confirm() and gives its message. It's answered in the handler: a click that
   // opens one doesn't finish until it's answered.
@@ -204,6 +211,40 @@ try {
   await importZip();
   await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, customSongCount: '1' });
 
+  // Another tab replacing the song (its next revision, saved as an import saves it) leaves this
+  // list stale: opening it says so and lists the new one, rather than offering to remove it.
+  const next = { ...song, bundleRevision: song.bundleRevision + 1 };
+  const nextSong = Buffer.from(JSON.stringify(next));
+  const nextFiles = new Map(files);
+  nextFiles.set('song.json', nextSong);
+  nextFiles.delete('checksums.json');
+  const nextChecksums = Buffer.from(JSON.stringify({ schema: 'aerodance.checksums', schemaVersion: 1, files: [...nextFiles].map(([name, body]) => ({ path: name, bytes: body.length, sha256: sha(body) })) }));
+  const nextEntry = { ...published, bundleRevision: next.bundleRevision, sha256: sha(nextSong), ...(next.difficulty ? { difficulty: next.difficulty } : {}), ...(next.stage ? { stage: next.stage } : {}) };
+  await page.evaluate(({ id, entry, songJson, checksums, sizes }) => new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open('aerodance-custom-songs');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const tx = request.result.transaction(['songs', 'files'], 'readwrite');
+      tx.objectStore('songs').put({ id, entry, sizes: new Map(sizes), importedAt: new Date().toISOString() });
+      tx.objectStore('files').put({ id, path: 'song.json', bytes: new Uint8Array(songJson) });
+      tx.objectStore('files').put({ id, path: 'checksums.json', bytes: new Uint8Array(checksums) });
+      tx.oncomplete = () => { request.result.close(); resolve(); };
+      tx.onabort = () => reject(tx.error);
+    };
+  }), { id: song.songId, entry: nextEntry, songJson: [...nextSong], checksums: [...nextChecksums],
+    sizes: [...nextFiles, ['checksums.json', nextChecksums] as const].map(([name, body]): [string, number] => [name, body.length]) });
+  let staleDialogs = 0;
+  const stale = (dialog: Dialog) => { staleDialogs++; void dialog.dismiss(); };
+  page.on('dialog', stale);
+  await click(rowRect(1));
+  await until({ songScreen: 'list', catalog: 'ready', customSongCount: '1', songNotice: /has changed since the list loaded/ });
+  page.off('dialog', stale);
+  assert.equal(staleDialogs, 0, 'a replaced song is not offered for removal');
+  await click(rowRect(1));
+  await until({ songScreen: 'preview', songReady: 'true' });
+  await click(BACK);
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'ready' });
+
   // A saved song that can't be opened (its audio is gone) offers to remove itself.
   await page.evaluate((id) => new Promise<void>((resolve, reject) => {
     const request = indexedDB.open('aerodance-custom-songs');
@@ -220,7 +261,7 @@ try {
   assert.match(await broken, /can't be opened \(Song asset could not load \(404\)\.\)\. Remove it from this browser\?$/);
   await until({ songScreen: 'list', catalog: 'ready', customSongCount: '0', songNotice: /^Removed/ });
   assert.deepEqual(errors, []);
-  console.log(`Custom songs passed in ${engine.name()}: import through the file picker, listing beside a published song, persistence across a reload, asking before replacing, preview, a scored song with its own best score, Remove, and removing a song that can't be opened.`);
+  console.log(`Custom songs passed in ${engine.name()}: import through the file picker, listing beside a published song, persistence across a reload, asking before replacing, preview, a scored song with its own best score, Remove, a song replaced in another tab, and removing a song that can't be opened.`);
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));
