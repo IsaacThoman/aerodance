@@ -15,8 +15,6 @@ export type PoseWorkerRequest =
    */
   | { type: 'initialize'; sessionId: string; playerCount: number; modelUrl: string; modelHash: string; wasmUrl: string; runningMode?: PoseRunningMode; looks?: boolean; tiles?: Tile[] }
   | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number }
-  /** Moves the strips (as many as there were). */
-  | { type: 'tiles'; tiles: Tile[] }
   | { type: 'close' };
 export type PoseWorkerResponse =
   | { type: 'ready'; sessionId: string; delegate: PoseDelegate; fallback: string; tiled?: boolean }
@@ -68,8 +66,8 @@ scope.onmessage = async ({ data }) => {
       // forgets the loader once it has made a landmarker, and a module worker's import() of the
       // same URL doesn't run it again.
       let made = 0;
-      const create = (delegate: PoseDelegate, numPoses = data.playerCount) => PoseLandmarker.createFromOptions(
-        made++ ? { ...files, wasmLoaderPath: `${files.wasmLoaderPath}?landmarker=${made}` } : files, {
+      const create = (delegate: PoseDelegate, numPoses = data.playerCount, from = files) => PoseLandmarker.createFromOptions(
+        made++ ? { ...from, wasmLoaderPath: `${from.wasmLoaderPath}?landmarker=${made - 1}` } : from, {
         baseOptions: { modelAssetBuffer: new Uint8Array(buffer), delegate },
         canvas: new OffscreenCanvas(1, 1), runningMode, numPoses,
         minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
@@ -78,10 +76,14 @@ scope.onmessage = async ({ data }) => {
       // Strips need the GPU (on a CPU, each costs a whole frame's search) and VIDEO mode's following.
       if (data.tiles?.length && delegate === 'GPU' && runningMode === 'VIDEO') {
         const landmarkers: PoseLandmarker[] = [];
+        // The WASM binary (13 MB) is fetched once for all of them.
+        let wasm = '';
         try {
-          for (let i = 0; i < data.tiles.length; i++) landmarkers.push(await create(delegate, 1));
+          wasm = URL.createObjectURL(new Blob([await (await fetch(files.wasmBinaryPath)).arrayBuffer()], { type: 'application/wasm' }));
+          for (let i = 0; i < data.tiles.length; i++) landmarkers.push(await create(delegate, 1, { ...files, wasmBinaryPath: wasm }));
           tiled = { landmarkers, tiles: data.tiles };
         } catch { for (const l of landmarkers) l.close(); }
+        finally { if (wasm) URL.revokeObjectURL(wasm); }
       }
       if (!tiled) {
         try { landmarker = await create(delegate); }
@@ -91,8 +93,6 @@ scope.onmessage = async ({ data }) => {
         }
       }
       scope.postMessage({ type: 'ready', sessionId, delegate, fallback, tiled: !!tiled });
-    } else if (data.type === 'tiles') {
-      if (tiled && data.tiles.length === tiled.tiles.length) tiled.tiles = data.tiles;
     } else if (data.type === 'frame') {
       try {
         if (!landmarker && !tiled) throw Error('Pose model is not initialized');

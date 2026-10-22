@@ -64,7 +64,7 @@ however many were in view, and the Full and Heavy models found no more than Lite
 its person detector; only the landmark model differs) while Heavy took twice as long. So with
 three or four players, each player was missed in a good share of frames. So three or four
 players are now each looked for in their own strip of the picture, which found nearly everyone
-(3.9 of 4 people per frame on the same footage) for about a third more inference
+(3.9 of 4 people per frame on the same footage) for about a quarter more inference
 ([player tracking](player-tracking.md)).
 
 Speed wasn't measured meaningfully: the headless GPU session's pose rate swung between

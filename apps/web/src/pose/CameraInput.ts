@@ -51,7 +51,9 @@ export class CameraInput implements PoseSource {
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
   // In the iPhone/iPad app, a muted camera is iOS holding it for a call: wait for it to come back.
-  constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource({ interruptedTimeoutMs: inApp() ? Infinity : undefined }) }), phone = new PhonePoseSource(),
+  // The app also looks for three or four players in the whole picture: strips (tiles.ts) cost a
+  // landmarker each, about 100 MB in Chromium, with the game in the same WebKit process there.
+  constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource({ interruptedTimeoutMs: inApp() ? Infinity : undefined, tiles: !inApp() }) }), phone = new PhonePoseSource(),
     webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone;
     const choice = saved();

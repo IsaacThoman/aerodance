@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evenTiles, fromTile, mergeTiles, tilesAround, tilesDiffer } from '../browser/tiles.ts';
+import { evenTiles, fromTile, mergeTiles } from '../browser/tiles.ts';
 
 // Somebody standing with their torso centred at x (a fraction of the strip or picture), arms
 // reaching `reach` to each side.
@@ -19,16 +19,6 @@ test('three or four players get a strip each, spread across the picture; fewer g
   assert.ok(four.every(t => near(t.width, 0.35) && t.x >= 0 && t.x + t.width <= 1));
   assert.ok(near(four[0].x, 0) && near(four[3].x, 0.65), 'the outer strips stay inside the picture');
   assert.equal(evenTiles(3)!.length, 3);
-});
-
-test('strips centre on where the players stand, as wide as their spacing allows', () => {
-  const tiles = tilesAround([0.7, 0.3, 0.5]);
-  assert.deepEqual(tiles.map(t => +(t.x + t.width / 2).toFixed(3)), [0.3, 0.5, 0.7]);
-  assert.ok(near(tiles[0].width, 0.3), 'one and a half times the gap, at least 0.3');
-  assert.ok(near(tilesAround([0.2, 0.8, 0.5])[0].width, 0.45));
-  assert.ok(near(tilesAround([0.1, 0.9])[0].width, 0.5), 'at most half the picture');
-  assert.ok(!tilesDiffer(tiles, tilesAround([0.71, 0.3, 0.5]), 0.05));
-  assert.ok(tilesDiffer(tiles, tilesAround([0.8, 0.3, 0.5]), 0.05));
 });
 
 test('a strip\'s result is put back into the picture, with joints beyond its cut edges unsure', () => {
@@ -56,4 +46,9 @@ test('somebody two strips both see counts once, from the strip they are farther 
   // Two people side by side in different strips are both kept.
   const a = fromTile(person(0.5), { x: 0, width: 0.5 }), b = fromTile(person(0.5), { x: 0.5, width: 0.5 });
   assert.equal(mergeTiles([{ points: a, tile: { x: 0, width: 0.5 } }, { points: b, tile: { x: 0.5, width: 0.5 } }], 4 / 3).length, 2);
+  // Nor two people, one partly behind (so higher in the picture) the other, whose torsos are
+  // close but whose joints aren't.
+  const front = fromTile(person(0.55 / 0.6, { reach: 0.05 }), left);
+  const behind = fromTile(person((0.57 - 0.4) / 0.6, { reach: 0.4 }).map(p => ({ ...p, y: p.y - 0.1 })), right);
+  assert.equal(mergeTiles([{ points: front, tile: left }, { points: behind, tile: right }], 4 / 3).length, 2);
 });

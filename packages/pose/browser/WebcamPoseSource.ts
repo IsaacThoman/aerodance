@@ -1,7 +1,7 @@
 import { MEDIAPIPE_VERSION, ASSET_PATH, isPoseModelId, poseModel } from './models.ts';
 import type { PoseModelId } from './models.ts';
 import { PlayerTracker } from './tracker.ts';
-import { evenTiles, tilesAround, tilesDiffer } from './tiles.ts';
+import { evenTiles } from './tiles.ts';
 import type { Tile } from './tiles.ts';
 import { validateWebcamRecord } from '../webcamRecord.ts';
 import type { WebcamRecord } from '../webcamRecord.ts';
@@ -72,6 +72,8 @@ export interface WebcamPoseSourceOptions {
    * watchdog's). Infinity waits for it: in the iPhone/iPad app, iOS gives it back after a call.
    */
   interruptedTimeoutMs?: number;
+  /** Looks for each of three or four players in a strip of the picture (tiles.ts; default true). */
+  tiles?: boolean;
 }
 export interface WebcamConfigureOptions { modelId?: string; cameraId?: string; facing?: CameraFacing; }
 interface PendingFrame { seq: number; mediaTimeMs: number; frameBrowserTimeMs: number; }
@@ -90,8 +92,6 @@ function aborted<T>(promise: Promise<T>, signal: AbortSignal) {
 const INTERRUPTED = 'The camera was interrupted. Tracking carries on when it comes back.';
 const STALLED = 'The camera stopped sending pictures. Start camera to retry.';
 const STALL_MS = 10000;
-/** Strips (tiles.ts) follow the players' places when one would move this far (a fraction of the width), at most this often. */
-const TILE_MOVE = 0.08, TILE_MOVE_MS = 2000;
 const CAMERA_ERRORS: Partial<Record<string, string>> = { NotAllowedError: 'Camera permission was denied. Allow camera access for this site, then start again.',
   NotFoundError: 'No camera was found. Connect a camera, then start again.',
   NotReadableError: 'The camera is busy or unavailable. Close other camera applications, then start again.',
@@ -117,6 +117,7 @@ export class WebcamPoseSource {
   settingsKey: string;
   adaptToResize: boolean;
   interruptedTimeoutMs: number;
+  tiling: boolean;
   listeners = new Set<Listener<WebcamView>>();
   recordListeners = new Set<Listener<WebcamRecordEvent>>();
   generation = 0;
@@ -134,8 +135,8 @@ export class WebcamPoseSource {
   pagehide: (() => void) | null = null;
   pending: PendingFrame | null = null;
   busy = false;
-  /** The newest frame that came while one was in flight: sent as soon as its result is in. */
-  waiting: { mediaTimeMs: number; frameBrowserTimeMs: number } | null = null;
+  /** The newest frame that came while one was in flight (and its picture, taken then): sent as soon as its result is in. */
+  waiting: { mediaTimeMs: number; frameBrowserTimeMs: number; bitmap: Promise<ImageBitmap> } | null = null;
   // Per-session state, reset by connect().
   input: CaptureInput | null = null;
   sessionId = '';
@@ -144,9 +145,8 @@ export class WebcamPoseSource {
   /** When the camera last delivered a new frame (tracked or not). */
   lastFrame = 0;
   tracker = new PlayerTracker(1);
-  /** The strips of the picture the worker looks for a player in each of (three or four players), and when they last moved. */
+  /** The strips of the picture the worker looks for a player in each of (three or four players). */
   tiles: Tile[] | null = null;
-  tilesMovedAt = 0;
   resultTimes: number[] = [];
   startedAt = 0;
   completed = 0;
@@ -159,11 +159,11 @@ export class WebcamPoseSource {
     createVideo = () => document.createElement('video'),
     bitmap = video => createImageBitmap(video), now = () => performance.now(),
     assetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href,
-    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS,
+    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS, tiles = true,
   }: WebcamPoseSourceOptions = {}) {
     this.mediaDevices = mediaDevices; this.createWorker = createWorker; this.createVideo = createVideo;
     this.bitmap = bitmap; this.now = now; this.assetUrl = assetUrl; this.settingsKey = settingsKey; this.adaptToResize = adaptToResize;
-    this.interruptedTimeoutMs = interruptedTimeoutMs;
+    this.interruptedTimeoutMs = interruptedTimeoutMs; this.tiling = tiles;
     const savedModel = saved(`${settingsKey}-model`, 'lite');
     const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
     const facing = saved(`${settingsKey}-facing`, '');
@@ -219,7 +219,7 @@ export class WebcamPoseSource {
     }
     if (this.hidden) globalThis.document?.removeEventListener('visibilitychange', this.hidden);
     if (this.pagehide) globalThis.window?.removeEventListener('pagehide', this.pagehide);
-    this.pending = null; this.busy = false; this.waiting = null;
+    this.pending = null; this.busy = false; this.dropWaiting();
     this.emit({ event: { type: 'source-stopped', reason: message }, receivedBrowserTimeMs: this.now() });
     this.publish({ status: 'disconnected', snapshot: null, configuring: false, stats: null, interrupted: false, message });
   }
@@ -298,7 +298,7 @@ export class WebcamPoseSource {
       const model = poseModel(this.view.model);
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
       this.tracker = new PlayerTracker(this.playerCount); this.resultTimes = [];
-      this.tiles = evenTiles(this.playerCount); this.tilesMovedAt = 0;
+      this.tiles = this.tiling ? evenTiles(this.playerCount) : null;
       this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.lastFrame = this.startedAt;
       const worker = this.worker = this.createWorker();
       worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
@@ -372,7 +372,6 @@ export class WebcamPoseSource {
         sessionId: this.sessionId, seq: pending.seq, playerCount: this.playerCount, input: this.input,
         modelId: this.view.model, mediaTimeMs: pending.mediaTimeMs, frameBrowserTimeMs: pending.frameBrowserTimeMs, resultBrowserTimeMs: receivedBrowserTimeMs,
         timingMethod: 'browser-frame-observation', poses: this.input ? this.tracker.update(data.landmarks, this.input, pending.frameBrowserTimeMs, data.looks) : [] });
-      this.moveTiles(receivedBrowserTimeMs);
       clearTimeout(this.startupTimeout);
       this.completed++;
       this.emit({ record, receivedBrowserTimeMs, captureBrowserTimeMs: record.frameBrowserTimeMs,
@@ -385,23 +384,19 @@ export class WebcamPoseSource {
         message: `${poseModel(this.view.model).label} · ${this.view.delegate} · ${this.resultTimes.length > 1 ? `${poseHz.toFixed(1)} poses/s` : 'Measuring tracking speed…'}${poseHz < 15 && this.completed > 30 ? this.view.model === 'lite' ? ' · Slow tracking; close other apps.' : ' · Slow tracking; try Lite.' : ' · Step into view.'}` });
     } catch (error) { this.fail(error); }
   }
-  /** Centres the strips on the players' places once they're numbered (rarely: a strip that moves may lose its person). */
-  moveTiles(now: number) {
-    if (!this.tiles || !this.input || !this.tracker.lined || now - this.tilesMovedAt < TILE_MOVE_MS) return;
-    const aspect = this.input.width / this.input.height;
-    const tiles = tilesAround(this.tracker.players.map(p => p.place / aspect));
-    if (!tilesDiffer(tiles, this.tiles, TILE_MOVE)) return;
-    this.tiles = tiles; this.tilesMovedAt = now;
-    this.worker?.postMessage({ type: 'tiles', tiles });
-  }
-  /** Sends the frame that waited for the last result, if any (the video still shows it, or a newer one). */
+  /** Sends the frame that waited for the last result, if any. */
   sendWaiting() {
     const waiting = this.waiting;
     if (!waiting || this.busy || !this.video) return;
     this.waiting = null;
-    this.sendFrame(waiting.mediaTimeMs, waiting.frameBrowserTimeMs);
+    this.sendFrame(waiting.mediaTimeMs, waiting.frameBrowserTimeMs, waiting.bitmap);
   }
-  sendFrame(mediaTimeMs: number, frameBrowserTimeMs: number) {
+  /** Forgets the waiting frame (closing its picture). */
+  dropWaiting() {
+    void this.waiting?.bitmap.then(bitmap => bitmap.close(), () => {});
+    this.waiting = null;
+  }
+  sendFrame(mediaTimeMs: number, frameBrowserTimeMs: number, picture?: Promise<ImageBitmap>) {
     const video = this.video;
     const generation = this.generation;
     if (!video) return;
@@ -411,10 +406,13 @@ export class WebcamPoseSource {
       // the two sizes. Calibration and the live characters start afresh when a record's input size changes.
       this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
       this.tracker = new PlayerTracker(this.playerCount);
+      // A picture taken before the resize is the old size.
+      void picture?.then(bitmap => bitmap.close(), () => {});
+      picture = undefined;
     }
     this.busy = true;
     const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs };
-    void this.bitmap(video).then(bitmap => {
+    void (picture ?? this.bitmap(video)).then(bitmap => {
       const worker = this.worker;
       if (generation !== this.generation || !worker) { bitmap.close(); return; }
       worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs }, [bitmap]);
@@ -435,7 +433,13 @@ export class WebcamPoseSource {
       this.lastMediaTime = mediaTimeMs;
       this.lastFrame = this.now();
       // One frame in flight; the newest one that comes meanwhile waits for it (and replaces an older one).
-      if (this.busy) { if (this.waiting) this.dropped++; this.waiting = { mediaTimeMs, frameBrowserTimeMs: this.now() }; return; }
+      if (this.busy) {
+        if (this.waiting) { this.dropped++; this.dropWaiting(); }
+        const bitmap = this.bitmap(video);
+        bitmap.catch(() => {});
+        this.waiting = { mediaTimeMs, frameBrowserTimeMs: this.now(), bitmap };
+        return;
+      }
       this.sendFrame(mediaTimeMs, this.now());
     };
     if (video.requestVideoFrameCallback) this.frameCallback = video.requestVideoFrameCallback(callback);

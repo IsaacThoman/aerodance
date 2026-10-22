@@ -13,7 +13,8 @@ interface Point { x: number; y: number; visibility?: number | null; presence?: n
 /** The width of the picture copy looks are sampled from. */
 export const LOOKS_WIDTH = 128;
 const RELIABLE = 0.5;
-const reliable = (p: Point) => (p.visibility ?? 0) >= RELIABLE && (p.presence ?? 1) >= RELIABLE;
+/** Whether the model is sure of a landmark (visible, and in the picture). */
+export const reliable = (p: Point) => (p.visibility ?? 0) >= RELIABLE && (p.presence ?? 1) >= RELIABLE;
 const lerp = (a: Point, b: Point, t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 
 /** The mean colour around some points (picture fractions), or null when none fall inside. */

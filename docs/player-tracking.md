@@ -17,11 +17,14 @@ How the webcam (or a paired phone's camera) turns people into players.
      square, and while it follows fewer people than asked for it searches every frame, and its
      searches knock out people it was following. In a strip it follows exactly one person and
      only searches when it loses them, which found nearly everyone (3.9 of 4 per frame on the
-     same footage) for about a third more inference. The strips start evenly spread and, once
-     the players are numbered, centre on where they stand (rarely moved: a strip that moves may
-     lose its person). Somebody two strips both see counts once; joints beyond a strip's cut
-     edges are marked unsure. Without a GPU, or if the strips can't be set up, the whole picture
-     is used.
+     same footage) for about a quarter more inference. The strips are evenly spread and cover
+     the whole width, and stay put: moving them onto where the players stood lost a player for
+     a minute in testing, since a strip that follows one person never searches the rest of the
+     picture. Somebody two strips both see counts once (unless their joints differ: one may
+     stand partly behind the other); joints beyond a strip's cut edges are marked unsure.
+     Without a GPU, if the strips can't be set up, or in the iPhone/iPad app (where each
+     strip's extra landmarker, about 100 MB, would share a process with the game), the whole
+     picture is used.
 
    With two or more players it also samples each person's **looks** (`appearance.ts`): the
    colours of their clothes on the chest, the waist and the thighs, from a 128-pixel-wide copy
@@ -67,8 +70,10 @@ the tracker replaced them.
   only very slowly from a person who doesn't look like them (who may be somebody else), not at
   all while somebody new has their number, and afresh once the players are first numbered. One
   player doesn't use looks at all (nobody to tell them from, and they may come back changed).
-- **Extra people.** Nobody can push a player out of the model's results while there's room
-  for one more person, and extra people are ignored while every player is found. Somebody seen
+- **Extra people.** On the whole picture, nobody can push a player out of the model's results
+  while there's room for one more person; in strips, a strip whose player is out of sight may
+  follow somebody else, who is then just another person for the tracker. Extra people are
+  ignored while every player is found. Somebody seen
   in ten results beside every player just seen (not overlapping one, and nowhere near a missing
   player's place) is a bystander: they can't take a player's number until that player has been
   gone five seconds. When there are more new people than free numbers, the bigger ones (nearer
@@ -116,8 +121,12 @@ strips make it moot.
   their head, so they can step out.
 - With players dressed alike, somebody who walks to a player's old place and lingers there,
   while that player is back somewhere else and missed by the model, can be given their number.
-- Four players still depend on MediaPipe finding four people in one frame
-  ([three and four players](three-and-four-players.md)).
+- With three or four players, somebody standing where two strips overlap with a neighbour can
+  be missed when both strips follow others, and a strip whose player is out of sight may latch
+  onto somebody else (a bystander, or something person-shaped in the background) until they
+  come back; arms reaching past a strip's edge (about 1 joint in 100 with four players side by
+  side) are the model's guesses, often with full confidence, so they're marked unsure and count
+  as untracked ([three and four players](three-and-four-players.md)).
 
 ## Tests
 

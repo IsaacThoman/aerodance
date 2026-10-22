@@ -146,35 +146,22 @@ test('a permission grant after cancellation releases its camera without starting
   assert.equal(f.stopped, 1); assert.equal(f.messages.length, 0);
   assert.equal(f.source.view.status, 'disconnected');
 });
-test('three or four players are each looked for in a strip of the picture, which follow them once numbered', async t => {
+test('three or four players are each looked for in a strip of the picture', async t => {
   const f = fixture(t);
   await f.source.setPlayerCount(3); await f.source.connect();
   const init = f.messages.find(m => m.type === 'initialize');
   assert.ok(init?.type === 'initialize');
-  assert.equal(init.tiles?.length, 3);
+  assert.deepEqual(init.tiles?.map(tile => +(tile.x + tile.width / 2).toFixed(3)), [0.225, 0.5, 0.775], 'evenly spread, covering the picture');
   assert.equal(init.playerCount, 4, 'a whole-picture fallback looks for one more person than there are players');
-  f.deliver({ type: 'ready', delegate: 'GPU', fallback: '', tiled: true });
-  // Three players standing left of centre (camera coordinates).
-  for (let i = 0; i < 80; i++) {
-    await f.frame(1 + i * 0.05);
-    f.deliver({ type: 'result', seq: i + 1, landmarks: [0.25, 0.4, 0.55].map(x => detected(standingPose(x))), inferenceMs: 20 });
-  }
-  const moved = f.messages.filter(m => m.type === 'tiles').at(-1);
-  assert.ok(moved?.type === 'tiles');
-  assert.deepEqual(moved.tiles.map(tile => +(tile.x + tile.width / 2).toFixed(2)), [0.25, 0.4, 0.55]);
-  // Two players use the whole picture; and a worker that couldn't set up strips isn't sent any.
+  // Two players use the whole picture, and so do sources asked not to use strips.
   const two = fixture(t);
   await two.source.setPlayerCount(2); await two.source.connect();
   const twoInit = two.messages.find(m => m.type === 'initialize');
   assert.ok(twoInit?.type === 'initialize' && !twoInit.tiles);
-  const untiled = fixture(t);
-  await untiled.source.setPlayerCount(4); await untiled.source.connect();
-  untiled.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
-  for (let i = 0; i < 80; i++) {
-    await untiled.frame(1 + i * 0.05);
-    untiled.deliver({ type: 'result', seq: i + 1, landmarks: [0.2, 0.35, 0.5, 0.65].map(x => detected(standingPose(x))), inferenceMs: 20 });
-  }
-  assert.ok(!untiled.messages.some(m => m.type === 'tiles'));
+  const whole = fixture(t, { tiles: false });
+  await whole.source.setPlayerCount(4); await whole.source.connect();
+  const wholeInit = whole.messages.find(m => m.type === 'initialize');
+  assert.ok(wholeInit?.type === 'initialize' && !wholeInit.tiles);
 });
 test('changing a running model resets the session and records the explicit selection', async t => {
   const f = fixture(t);
