@@ -40,12 +40,14 @@ void main() {
   float orb = smoothstep(1.15, 1.05, r);
   vec3 orbCol = mix(vec3(0.1, 0.55, 1.0), vec3(0.75, 1.0, 1.0), smoothstep(-1.4, 1.2, q.y));
   float shine = smoothstep(0.7, 0.15, length((q - vec2(-0.27, 0.5)) * vec2(1.0, 1.7)));
+  // In the game (preview, song and results) the orb throws no rings.
+  float strobe = 1.0 - uSteady;
   col = mix(col, orbCol * (0.45 + 0.35 * uPulse) + shine * 0.7, orb);
   col += vec3(0.4, 0.9, 1.0) * exp(-pow((r - 1.12) * 9.0, 2.0)) * 1.2;
   for (int i = 0; i < 3; i++) {
     float rr = 1.2 + fract(ph + float(i) / 3.0) * 6.0;
     float fade = 1.0 - fract(ph + float(i) / 3.0);
-    col += clubHue(floor(b) * 0.2 + float(i) * 0.15) * exp(-pow((r - rr) * 5.0, 2.0)) * fade * fade * 0.9;
+    col += clubHue(floor(b) * 0.2 + float(i) * 0.15) * exp(-pow((r - rr) * 5.0, 2.0)) * fade * fade * 0.9 * strobe;
   }
 
   // Glossy swooshes.
@@ -65,7 +67,7 @@ void main() {
   float xm = abs(bi + 0.5 - bars * 0.5) / (bars * 0.5);
   float lvl = 0.25 + 0.35 * uPulse * exp(-xm * 2.0)
     + 0.25 * (0.5 + 0.5 * sin(uTime * (2.0 + hash11(floor(xm * 28.0)) * 5.0) + xm * 9.0))
-    + 0.18 * exp(-fract(b * 2.0) * 4.0) * xm;
+    + 0.18 * exp(-fract(b * 2.0) * 4.0) * xm * strobe;
   float depth = (uSize.y - p.y) / 1.7;
   float seg = fract(depth * 9.0);
   float lit = step(depth, lvl) * smoothstep(0.08, 0.2, bf) * smoothstep(0.92, 0.8, bf) * smoothstep(0.1, 0.25, seg);

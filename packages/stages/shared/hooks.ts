@@ -30,6 +30,10 @@ export function disposeDeep(value: unknown): void {
 // turns it to circle the dancers in Song Select's preview and back to 0 for the song.
 export const stageOrbit: { yaw: number } = { yaw: 0 };
 
+// What the game is showing on the stage, so stages can tone down their busiest effects:
+// `dancing` during Song Select's preview and the song, `celebrating` on the song's results.
+export const stagePlay: { dancing: boolean; celebrating: boolean } = { dancing: false, celebrating: false };
+
 export interface StageCameraProps {
   position?: Vec3;
   target?: Vec3;
