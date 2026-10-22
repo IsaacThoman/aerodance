@@ -6,6 +6,7 @@ The glass dancer shared by the game, Dance Studio and the thumbnail renderer.
 - `retarget.ts`: `createPoseApplier`, one pose applier for recorded, edited and live poses.
 - `calibration.ts`, `liveCalibration.ts`: per-player body calibration for recorded and live (webcam) sessions.
 - `livePoseFilter.ts`: display-only smoothing of live poses.
+- `balloonPop.ts`: the character popping like a balloon, its skin tearing open, drawn in its own shaders (`Character`'s `popRef`). The menu dancers pop this way when a player leaves.
 - `motion.ts`: playback of the silent menu capture (`assets/dance.adpose`), including the loop seam.
 - `assets/aero-character.glb`: the model, with seven bones and four stock clips (Dance, Idle, Walk, Wave). `Character` plays a clip (`Idle` by default) only when it has no pose to apply.
 - `assets/dance.adpose`: the two-dancer capture behind the menu dancers, results screen and thumbnails.

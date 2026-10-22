@@ -12,6 +12,7 @@ import type { BufferGeometry, ColorRepresentation, Mesh, Object3D } from "three"
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createRetargeter } from "./motion.ts";
 import { createPoseApplier } from "./retarget.ts";
+import { BalloonPop } from "./balloonPop.ts";
 import { LivePoseFilter } from './livePoseFilter.ts';
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import modelUrl from "./assets/aero-character.glb?url";
@@ -42,6 +43,8 @@ export interface CharacterProps {
   calibration?: TrackCalibration | null;
   /** Live webcam input: smooth the displayed pose and keep rendering while it settles. */
   live?: boolean;
+  /** Seconds since the character popped like a balloon (balloonPop.ts); negative while whole. */
+  popRef?: RefObject<number>;
   url?: string;
 }
 const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
@@ -56,6 +59,7 @@ export default function Character({
   poseRef,
   calibration,
   live = false,
+  popRef,
   url = modelUrl,
 }: CharacterProps) {
   const gltf = useLoader(GLTFLoader, url);
@@ -70,9 +74,14 @@ export default function Character({
   const poseFilter=useMemo(()=>new LivePoseFilter(),[model,calibration,live]);
   const invalidate=useThree(state=>state.invalidate);
   const mixer = useMemo(() => new AnimationMixer(model), [model]);
-  const ink = useMemo(() => new MeshBasicMaterial({
-    color: "#020611", transparent: !!opacityRef, depthWrite: !opacityRef,
-  }), [opacityRef]);
+  const pop = useMemo(() => popRef ? new BalloonPop() : null, [popRef]);
+  const ink = useMemo(() => {
+    const material = new MeshBasicMaterial({
+      color: "#020611", transparent: !!opacityRef, depthWrite: !opacityRef,
+    });
+    pop?.extend(material, false);
+    return material;
+  }, [opacityRef, pop]);
   const gel = useMemo(() => {
     const material = new MeshPhysicalMaterial({
       name: "AquaGel",
@@ -102,8 +111,9 @@ export default function Character({
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * exp(-pow((vGelHeight - 0.19) / 0.16, 2.0)) * pow(max(dot(normal, normalize(vViewPosition)), 0.0), 5.0) * 4.5;",
       );
     };
+    pop?.extend(material, true);
     return material;
-  }, []);
+  }, [pop]);
   useEffect(() => {
     const ownedGeometries: BufferGeometry[] = [];
     model.traverse((obj) => {
@@ -167,6 +177,7 @@ export default function Character({
     };
   }, [animation, gltf, mixer, retarget, applyPose]);
   useFrame((_, delta) => {
+    if (pop && popRef) pop.update(popRef.current);
     if (opacityRef) {
       gel.opacity = (appearance.opacity ?? 0.72) * opacityRef.current;
       ink.opacity = opacityRef.current;
