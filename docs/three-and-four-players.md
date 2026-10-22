@@ -62,8 +62,9 @@ Later measurements on real footage of three and four dancers (portrait phone vid
 same cropped to the dancers) agree: MediaPipe found about two people per frame on average,
 however many were in view, and the Full and Heavy models found no more than Lite (they share
 its person detector; only the landmark model differs) while Heavy took twice as long. So with
-three or four players, each player is missed in a good share of frames, and the tracker's job
-is mostly to keep each number on its person through those gaps
+three or four players, each player was missed in a good share of frames. So three or four
+players are now each looked for in their own strip of the picture, which found nearly everyone
+(3.9 of 4 people per frame on the same footage) for about a third more inference
 ([player tracking](player-tracking.md)).
 
 Speed wasn't measured meaningfully: the headless GPU session's pose rate swung between
@@ -97,10 +98,10 @@ with four.
 - `PlayerCount` is `1 | 2 | 3 | 4`; webcam records (including a paired phone's, sent
   through the pairing relay) carry up to four poses. Choreographies, takes, tracks and Studio
   captures stay duets.
-- Webcam tracking asks MediaPipe for one more pose than there are players and follows each
-  player ([player tracking](player-tracking.md)); the setup preview draws each player's
-  skeleton in their colour with their number over their head. A paired phone's own preview
-  labels them too.
+- Webcam tracking looks for each of three or four players in their own strip of the picture
+  and follows each player ([player tracking](player-tracking.md)); the setup preview draws each
+  player's skeleton in their colour with their number over their head. A paired phone's own
+  preview labels them too.
 - `?record` recordings (`.adpose` kind `recording`) have one slot per player, up to four;
   every other `.adpose` kind still has at most two ([pose binary format](pose-binary-format.md)).
 - Calibration has every player hold still together, as before, with shorter status labels

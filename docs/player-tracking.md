@@ -4,12 +4,28 @@ How the webcam (or a paired phone's camera) turns people into players.
 
 ## The pipeline
 
-1. `WebcamPoseSource` (`packages/pose/browser/WebcamPoseSource.ts`) sends each new camera
-   frame (640x480 asked for) to the pose worker, one frame at a time.
-2. The worker (`pose.worker.ts`) runs MediaPipe's PoseLandmarker in VIDEO mode and asks it for
-   `numPoses` people: **one** for one player, and **one more than there are players** for two to
-   four. It also samples each person's **looks** (`appearance.ts`): the colours of their clothes
-   on the chest, the waist and the thighs, from a 128-pixel-wide copy of the frame.
+1. `WebcamPoseSource` (`packages/pose/browser/WebcamPoseSource.ts`) sends camera frames
+   (640x480 at 30 fps asked for) to the pose worker, one at a time. A frame that comes while one
+   is in flight waits, replacing an older one, and goes as soon as the result is in, so tracking
+   keeps up with the camera whenever a frame takes less than a frame's time.
+2. The worker (`pose.worker.ts`) runs MediaPipe's PoseLandmarker in VIDEO mode:
+   - **One or two players:** on the whole picture, asking for one person with one player and
+     one more than there are players with two.
+   - **Three or four players:** on a full-height strip of the picture per player, asking each
+     for one person (`tiles.ts`). On the whole picture, MediaPipe found about two people per
+     frame with three or four in view: its person detector sees the picture shrunk to a small
+     square, and while it follows fewer people than asked for it searches every frame, and its
+     searches knock out people it was following. In a strip it follows exactly one person and
+     only searches when it loses them, which found nearly everyone (3.9 of 4 per frame on the
+     same footage) for about a third more inference. The strips start evenly spread and, once
+     the players are numbered, centre on where they stand (rarely moved: a strip that moves may
+     lose its person). Somebody two strips both see counts once; joints beyond a strip's cut
+     edges are marked unsure. Without a GPU, or if the strips can't be set up, the whole picture
+     is used.
+
+   With two or more players it also samples each person's **looks** (`appearance.ts`): the
+   colours of their clothes on the chest, the waist and the thighs, from a 128-pixel-wide copy
+   of the frame.
 3. `PlayerTracker` (`tracker.ts`) decides which person is which player and gives the record
    one pose per player found. Everything after it (calibration, the live characters, the scorer,
    recordings) sees players, not detections.
@@ -70,14 +86,26 @@ the tracker replaced them.
 
 | | 1 player | 2 players | 3 players | 4 players |
 |---|---|---|---|---|
-| People asked for | 1 | 3 | 4 | 5 |
+| People asked for | 1 | 3 | 1 in each of 3 strips | 1 in each of 4 strips |
 | A new person counts after | 1 result | 2 results | 2 results | 2 results |
 | Numbered | at once | left to right, once all are in view | left to right, once all are in view | left to right, once all are in view |
 
 With one player, MediaPipe keeps following one person by itself, and looking for a second
 would make it search the whole picture every frame, about three times the work. The tracker
-still holds the player through moments where the model loses them. With more players,
-looking for one more person costs about 10–20% more inference.
+still holds the player through moments where the model loses them. With two players, looking
+for one more person costs about 10% more inference; two strips would cost no more, but both
+can latch onto the same person when the players stand in the middle.
+
+## Camera settings
+
+Measured on the same footage: a higher resolution than 640x480 finds nobody more (the person
+detector shrinks the picture anyway) and costs a few milliseconds a frame; 60 fps tracks no
+better than 30 (but tracking at 15 is worse, hence sending waiting frames at once); and a 4:3
+picture, which a 16:9 camera crops to when asked for 640x480, makes people bigger for the
+detector, which tracked two players clearly better than the full 16:9 picture. Of MediaPipe's
+thresholds, only the tracking one changes anything: raising it to 0.6 separates more
+side-by-side people on the whole picture, but tracked no better overall and costs more, and
+strips make it moot.
 
 ## What it can't do
 

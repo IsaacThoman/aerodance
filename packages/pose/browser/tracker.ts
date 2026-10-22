@@ -332,8 +332,9 @@ export class PlayerTracker {
       if (all.every((a, i) => all.every((b, j) => i === j || Math.abs(a.x - b.x) > CLOSE * Math.max(a.scale, b.scale)))) {
         this.lined = true;
         const players = [...found.keys()].sort((a, b) => found.get(b)!.x - found.get(a)!.x).map(id => ({ ...this.players[id], body: found.get(id)! }));
-        // Looks learnt while the numbers were provisional may be anybody's: they're learnt afresh.
-        players.forEach(({ body, ...p }, id) => { this.players[id] = { ...p, looks: null, samples: 0, doubt: [], claims: new Map(), former: null, anew: -Infinity }; found.set(id, body); });
+        // Each stands where they are now. Looks learnt while the numbers were provisional may be
+        // anybody's: they're learnt afresh.
+        players.forEach(({ body, ...p }, id) => { this.players[id] = { ...p, place: body.x, looks: null, samples: 0, doubt: [], claims: new Map(), former: null, anew: -Infinity }; found.set(id, body); });
         this.tangled.clear();
       }
     }
