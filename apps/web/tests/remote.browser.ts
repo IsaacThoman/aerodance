@@ -1,0 +1,146 @@
+// Run after npm run build. The TV remote the iPhone/iPad app shows (/remote/), in a phone-sized
+// touch screen with a stand-in for the app's message handler: every button sends its key where it
+// is drawn, held arrows repeat until let go, Back follows the song, and the app is told where its
+// AirPlay picker goes. Then the game's own AirPlay bubble: on the main menu in the app, it says
+// where it is, and takes the picker away when the menu moves on or the game goes to the TV.
+//
+// REMOTE_BROWSER=webkit runs it in WebKit (the app's engine) instead of Chromium.
+import assert from 'node:assert/strict';
+import express from 'express';
+import { chromium, webkit } from 'playwright';
+import type { Page } from 'playwright';
+import { menuLayout } from '../src/menu/layout.ts';
+import { DISPLAY_MODES } from '../src/display.ts';
+import { MIN_TOUCH_PX } from '../src/ui/hit.ts';
+
+type Sent = { key?: string; repeat?: boolean; airplay?: { x: number; y: number; w: number; h: number } | null; ready?: boolean };
+type TestWindow = typeof window & { sent: Sent[]; __aerodanceRemote?: (state: unknown) => void };
+
+const app = express();
+app.use(express.static('dist'));
+const server = app.listen(4184, '127.0.0.1');
+await new Promise((resolve) => server.once('listening', resolve));
+const engine = process.env.REMOTE_BROWSER === 'webkit' ? webkit : chromium;
+const browser = await engine.launch(engine === chromium ? {
+  executablePath: process.env.CHROMIUM_PATH || undefined,
+  args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+} : {});
+
+const sent = (page: Page) => page.evaluate(() => (window as TestWindow).sent);
+const keys = async (page: Page) => (await sent(page)).filter((m) => m.key);
+const dataset = (page: Page) => page.evaluate(() => ({ ...document.querySelector('canvas')?.dataset }));
+const centre = async (page: Page, label: string) => {
+  const box = await page.getByRole('button', { name: label, exact: true }).boundingBox();
+  assert.ok(box, `no ${label} button`);
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+};
+
+try {
+  // An iPhone held upright, inside its safe area.
+  const page = await browser.newPage({ viewport: { width: 402, height: 791 }, hasTouch: true, isMobile: engine === chromium });
+  page.setDefaultTimeout(30000);
+  await page.addInitScript(() => {
+    const w = window as TestWindow & { webkit?: unknown };
+    w.sent = [];
+    w.webkit = { messageHandlers: { aerodanceRemote: { postMessage: (message: Sent) => w.sent.push(JSON.parse(JSON.stringify(message))) } } };
+  });
+  await page.goto('http://127.0.0.1:4184/remote/');
+  await page.waitForFunction(() => document.querySelector('canvas')?.dataset.remoteReady === 'true');
+  assert.deepEqual((await sent(page))[0], { ready: true }, 'the page asks the app for its state first');
+  await page.evaluate(() => (window as TestWindow).__aerodanceRemote?.({ page: { menuScreen: 'main', menuReady: 'true' } }));
+  await page.waitForFunction(() => document.querySelector('canvas')?.dataset.remoteScreen === 'On the TV · Main menu');
+  assert.equal(await page.getByRole('status').textContent(), 'On the TV · Main menu');
+
+  // The AirPlay picker goes over the drawn button, top right, at least a fingertip across.
+  const picker = (await sent(page)).findLast((m) => 'airplay' in m)?.airplay;
+  assert.ok(picker && picker.w >= MIN_TOUCH_PX && picker.h >= MIN_TOUCH_PX, `the AirPlay picker is ${JSON.stringify(picker)}`);
+  assert.ok(picker.x > 402 / 2 && picker.y < 120, `the AirPlay picker is at ${JSON.stringify(picker)}, not top right`);
+
+  // Each button, tapped where its label says it is, sends its key once.
+  const buttons = { Up: 'ArrowUp', Down: 'ArrowDown', Left: 'ArrowLeft', Right: 'ArrowRight', OK: 'Enter', Back: 'Escape' };
+  for (const [label, key] of Object.entries(buttons)) {
+    const before = (await keys(page)).length;
+    const at = await centre(page, label);
+    await page.touchscreen.tap(at.x, at.y);
+    await page.waitForFunction((n) => (window as TestWindow).sent.filter((m) => m.key).length > n, before);
+    await page.waitForTimeout(150);
+    assert.deepEqual((await keys(page)).slice(before), [{ key, repeat: false }], `${label} sent the wrong keys`);
+  }
+
+  // A held arrow: once at once, then repeating until it's let go. OK doesn't repeat.
+  const down = await centre(page, 'Down');
+  let before = (await keys(page)).length;
+  await page.mouse.move(down.x, down.y);
+  await page.mouse.down();
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: '/tmp/aerodance-remote-held.png' });
+  await page.waitForTimeout(1050);
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  const held = (await keys(page)).slice(before);
+  assert.deepEqual(held[0], { key: 'ArrowDown', repeat: false });
+  assert.ok(held.length >= 5 && held.slice(1).every((m) => m.key === 'ArrowDown' && m.repeat), `holding Down for 1.2 s sent ${JSON.stringify(held)}`);
+  const afterRelease = (await keys(page)).length;
+  await page.waitForTimeout(500);
+  assert.equal((await keys(page)).length, afterRelease, 'Down kept repeating after it was let go');
+  const ok = await centre(page, 'OK');
+  before = (await keys(page)).length;
+  await page.mouse.move(ok.x, ok.y);
+  await page.mouse.down();
+  await page.waitForTimeout(900);
+  await page.mouse.up();
+  assert.deepEqual((await keys(page)).slice(before), [{ key: 'Enter', repeat: false }], 'a held OK repeated');
+
+  // Back pauses a song that's on, and resumes a paused one.
+  await page.evaluate(() => (window as TestWindow).__aerodanceRemote?.({ page: { gamePhase: 'playing' } }));
+  await page.getByRole('button', { name: 'Pause', exact: true }).waitFor({ state: 'attached' });
+  await page.waitForFunction(() => document.querySelector('canvas')?.dataset.remoteScreen === 'On the TV · Dancing');
+  await page.evaluate(() => (window as TestWindow).__aerodanceRemote?.({ page: { gamePhase: 'paused' } }));
+  await page.getByRole('button', { name: 'Resume', exact: true }).waitFor({ state: 'attached' });
+  await page.waitForFunction(() => document.querySelector('canvas')?.dataset.remoteBack === 'resume');
+  await page.screenshot({ path: '/tmp/aerodance-remote.png' });
+  await page.close();
+
+  // Outside the app the page says what it's for.
+  const outside = await browser.newPage({ viewport: { width: 402, height: 791 } });
+  await outside.goto('http://127.0.0.1:4184/remote/');
+  await outside.waitForFunction(() => document.querySelector('canvas')?.dataset.remoteReady === 'true');
+  assert.equal((await dataset(outside)).remoteScreen, 'The remote for the aerodance app on a TV');
+  await outside.close();
+
+  // The game's AirPlay bubble, in the app (on the phone), on an iPhone's main menu.
+  const game = await browser.newPage({ viewport: { width: 852, height: 393 }, hasTouch: true, isMobile: engine === chromium });
+  game.setDefaultTimeout(90000);
+  await game.addInitScript(() => {
+    const w = window as typeof window & { placed: unknown[]; __aerodanceHost?: unknown; __aerodanceAirPlayAt?: unknown };
+    w.placed = [];
+    w.__aerodanceHost = { interrupted: false, tv: false, screen: 'phone' };
+    w.__aerodanceAirPlayAt = (rect: unknown) => w.placed.push(rect);
+  });
+  await game.goto('http://127.0.0.1:4184/?input=ghost');
+  await game.waitForFunction(() => document.querySelector('canvas')?.dataset.menuReady === 'true' && document.querySelector('canvas')?.dataset.menuScreen === 'main');
+  await game.waitForFunction(() => !!(window as typeof window & { placed: unknown[] }).placed.at(-1));
+  const placed = () => game.evaluate(() => (window as typeof window & { placed: ({ x: number; y: number; w: number; h: number } | null)[] }).placed.at(-1));
+  const bubble = await placed();
+  const frame = await game.locator('canvas').boundingBox();
+  assert.ok(bubble && frame, 'the bubble said nothing');
+  assert.ok(bubble.w >= MIN_TOUCH_PX && bubble.x + bubble.w <= frame.x + frame.width + 0.5 && bubble.y + bubble.h <= frame.y + frame.height + 0.5
+    && bubble.x > frame.x + frame.width / 2 && bubble.y > frame.y + frame.height / 2, `the bubble is at ${JSON.stringify(bubble)} in a frame at ${JSON.stringify(frame)}`);
+  await game.screenshot({ path: '/tmp/aerodance-airplay-bubble.png' });
+  // Start: the menu moves on, and the picker goes at once.
+  const design = DISPLAY_MODES[(await dataset(game)).displayMode === 'standard' ? 'standard' : 'widescreen'];
+  const { START } = menuLayout(design.w);
+  await game.touchscreen.tap(frame.x + (START.x + START.w / 2) / design.w * frame.width, frame.y + (START.y + START.h / 2) / design.h * frame.height);
+  await game.waitForFunction(() => document.querySelector('canvas')?.dataset.menuScreen === 'players');
+  assert.equal(await placed(), null, 'the AirPlay picker stayed after Start');
+  // Back on the main menu it comes back; on the TV it goes.
+  await game.keyboard.press('Escape');
+  await game.waitForFunction(() => !!(window as typeof window & { placed: unknown[] }).placed.at(-1));
+  await game.evaluate(() => { (window as typeof window & { __aerodanceHost?: unknown }).__aerodanceHost = { interrupted: false, tv: true, screen: 'tv' }; });
+  await game.waitForFunction(() => (window as typeof window & { placed: unknown[] }).placed.at(-1) === null);
+  await game.close();
+  console.log(`remote browser test passed (${engine.name()})`);
+} finally {
+  await browser.close();
+  server.close();
+}

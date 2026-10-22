@@ -1,7 +1,7 @@
 // aerodance for iPhone and iPad: the production web build in WKWebView, shown on a TV through
 // AirPlay or an HDMI adapter while the phone becomes the remote. See ../README.md.
 //
-// Public API only (WebKit, AVKit, MediaPlayer, Network), so this can go to the App Store.
+// Public API only (WebKit, AVKit, Network), so this can go to the App Store.
 // The built game is bundled under www/ and served from 127.0.0.1 so the page is a secure context
 // (song bundles are verified with crypto.subtle, and getUserMedia needs one). The port is fixed
 // so saved scores and settings, which belong to the page's origin, survive relaunches.
@@ -11,12 +11,12 @@
 //
 // One WKWebView runs the game. With no TV it fills the phone's screen and is played by touch.
 // When a display connects, iOS gives the app an external-display scene; the web view moves into
-// that scene's window (the page keeps running, nothing reloads) and the phone shows a remote.
+// that scene's window (the page keeps running, nothing reloads) and the phone shows the remote,
+// a second page of the game's own (/remote/), drawn in-engine like the game.
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
-#import <MediaPlayer/MediaPlayer.h>
 #import <Network/Network.h>
 #ifdef AERODANCE_DEV
 #import <notify.h>
@@ -200,6 +200,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic, copy) NSString *tvDescription;  // e.g. "1920×1080 @ 60 Hz", while a TV is connected
 @property (nonatomic, copy) NSDictionary *page;        // the canvas's data-* state, from inject.js
 @property (nonatomic) double fps;
+@property (nonatomic) BOOL shownOnTV;                  // where the page was last told the game is (hostState's screen)
+@property (nonatomic) CGRect airplayRect;              // the game's AirPlay bubble in the web view's points; null while it's away
 // What the page is told about the app (inject.js __aerodanceHost).
 @property (nonatomic) BOOL tv;            // the game is on an external display (AirPlay mirroring, HDMI); kept in step with onTV
 @property (nonatomic) BOOL interrupted;   // between an audio interruption's start and end (a call, Siri, an alarm)
@@ -311,6 +313,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     self.serverFailures = 0;
     [self loadPending];
     [self reloadIfWanted];
+    [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];  // the remote waits for it too
   } else if (state == nw_listener_state_failed || state == nw_listener_state_waiting) {
     nw_listener_cancel(listener);
   } else if (state == nw_listener_state_cancelled) {
@@ -387,7 +390,12 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self pageFailed:error]; }
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self pageFailed:error]; }
 
-- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.loadServer = self.server; }
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+  self.loadServer = self.server;
+  // The new page says where its AirPlay bubble is once it shows it.
+  self.airplayRect = CGRectNull;
+  [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+}
 
 // WebKit can finish a page from its cache while the server is down, without the scripts it needs
 // (a black screen), so a page that finished while the server was down or being replaced loads again.
@@ -415,7 +423,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   [self.scripts addUserScript:[[WKUserScript alloc] initWithSource:self.injectSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
 }
 
-- (NSDictionary *)hostState { return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv) }; }
+- (NSDictionary *)hostState { return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv), @"screen": self.onTV ? @"tv" : @"phone" }; }
 
 - (void)setTv:(BOOL)tv {
   if (_tv == tv) return;
@@ -454,6 +462,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     [target addSubview:web];
   }
   [self updateTV];
+  if (self.onTV != self.shownOnTV) {
+    self.shownOnTV = self.onTV;
+    [self hostChanged];
+  }
   [self tellPage];
   [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
@@ -481,6 +493,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 - (instancetype)init {
   if (!(self = [super init])) return nil;
+  _airplayRect = CGRectNull;
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   [center addObserver:self selector:@selector(audioInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
   [center addObserverForName:AVAudioSessionRouteChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self updateTV]; }];
@@ -523,24 +536,42 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (AVAudioSession.sharedInstance.otherAudioPlaying || [self activateAudio]) self.interrupted = NO;
 }
 
+- (BOOL)serverReady { return self.serverState == nw_listener_state_ready; }
+
+// The keys the remote sends (the arrows, OK and Back), as the canvas UI knows them.
 - (void)sendKey:(NSString *)key {
+  if (![@[@"ArrowUp", @"ArrowDown", @"ArrowLeft", @"ArrowRight", @"Enter", @"Escape"] containsObject:key]) return;
   [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceKey && window.__aerodanceKey('%@')", key] completionHandler:nil];
 }
 
-// Only the game itself (the main frame, from the app's own server) talks to the app, not a frame
-// it embeds.
-- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+// Only the game's own pages (the main frame, from the app's own server) talk to the app, not a
+// frame one embeds.
+static BOOL FromOurPage(WKScriptMessage *message) {
   WKSecurityOrigin *origin = message.frameInfo.securityOrigin;
-  if (!message.frameInfo.isMainFrame || ![origin.protocol isEqual:@"http"] || ![origin.host isEqual:@"127.0.0.1"] || origin.port != Port().integerValue) return;
+  return message.frameInfo.isMainFrame && [origin.protocol isEqual:@"http"] && [origin.host isEqual:@"127.0.0.1"] && origin.port == Port().integerValue;
+}
+
+// A rect from a page ({ x, y, w, h } in CSS pixels, which are the web view's points), or CGRectNull.
+static CGRect PageRect(id value) {
+  if (![value isKindOfClass:NSDictionary.class]) return CGRectNull;
+  NSNumber *x = value[@"x"], *y = value[@"y"], *w = value[@"w"], *h = value[@"h"];
+  for (NSNumber *n in @[x ?: NSNull.null, y ?: NSNull.null, w ?: NSNull.null, h ?: NSNull.null]) if (![n isKindOfClass:NSNumber.class]) return CGRectNull;
+  return CGRectMake(x.doubleValue, y.doubleValue, w.doubleValue, h.doubleValue);
+}
+
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+  if (!FromOurPage(message)) return;
   NSDictionary *body = message.body;
   if (![body isKindOfClass:NSDictionary.class]) return;
   if ([body[@"page"] isKindOfClass:NSDictionary.class]) { self.page = body[@"page"]; [self reloadIfWanted]; }
   if ([body[@"fps"] isKindOfClass:NSNumber.class]) self.fps = [body[@"fps"] doubleValue];
+  // The game's AirPlay bubble moved, came or went (menu/AirPlayButton.tsx).
+  if (body[@"airplay"]) self.airplayRect = PageRect(body[@"airplay"]);
   if ([body[@"storage"] isKindOfClass:NSDictionary.class] && SaveStorage(body[@"storage"])) [self installScripts];
   if ([body[@"restored"] isKindOfClass:NSArray.class] && [body[@"restored"] count]) {
     NSLog(@"aerodance: restored %@ from the saved copy", [body[@"restored"] componentsJoinedByString:@", "]);
   }
-  if (body[@"page"] || body[@"fps"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+  if (body[@"page"] || body[@"fps"] || body[@"airplay"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
 
 // The game's own camera tracking (MediaPipe in the page) may use the phone's camera; only the
@@ -620,43 +651,47 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 }
 @end
 
-#pragma mark - Phone screen: the game, or a remote while the game is on the TV
+#pragma mark - Phone screen: the game, or the remote while the game is on the TV
 
-@interface PhoneViewController : UIViewController
+// The remote page's messages, passed on without the web view's configuration keeping the view
+// controller alive.
+@interface RemoteMessages : NSObject <WKScriptMessageHandler>
+@property (nonatomic, weak) id<WKScriptMessageHandler> target;
+@end
+
+@implementation RemoteMessages
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+  [self.target userContentController:controller didReceiveScriptMessage:message];
+}
+@end
+
+// An AirPlay picker with nothing to see: the page draws the button, and this takes its taps.
+static AVRoutePickerView *InvisiblePicker(void) {
+  AVRoutePickerView *picker = [AVRoutePickerView new];
+  picker.prioritizesVideoDevices = YES;
+  picker.tintColor = UIColor.clearColor;
+  picker.activeTintColor = UIColor.clearColor;
+  picker.hidden = YES;
+  return picker;
+}
+
+// The remote page's background (apps/web/src/phone/pageCanvas.tsx), around it too.
+static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255.0 green:0x6f / 255.0 blue:0xd6 / 255.0 alpha:1]; }
+
+@interface PhoneViewController : UIViewController <WKScriptMessageHandler, WKNavigationDelegate>
 @property (nonatomic, strong) UIView *gameView;
+@property (nonatomic, strong) AVRoutePickerView *gamePicker;    // over the game's AirPlay bubble (main menu)
 @property (nonatomic, strong) UIView *remote;
-@property (nonatomic, strong) UILabel *status;
-@property (nonatomic, strong) UIButton *backButton;
-@property (nonatomic, strong) AVRoutePickerView *floatingPicker;
-@property (nonatomic, strong) NSTimer *repeat;
+@property (nonatomic, strong) WKWebView *remoteWeb;              // /remote/, made the first time the game goes to a TV
+@property (nonatomic, strong) AVRoutePickerView *remotePicker;  // over the remote's AirPlay button
+@property (nonatomic) BOOL remoteLoading;                       // asked for /remote/ (a failed load clears it)
+@property (nonatomic, copy) NSString *remoteSent;               // the last state the remote page was given
 @property (nonatomic, strong) UIImpactFeedbackGenerator *haptics;
 @property (nonatomic, strong) UISceneAccessoryRegistration *tvAccessory API_AVAILABLE(ios(27.0));
 @property (nonatomic) BOOL shownOnTV;  // where the game was at the last refresh
 @end
 
 @implementation PhoneViewController
-
-static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
-  return @{ @1: @"ArrowUp", @2: @"ArrowDown", @3: @"ArrowLeft", @4: @"ArrowRight", @5: @"Enter", @6: @"Escape" };
-}
-
-- (UIButton *)button:(NSString *)symbol title:(NSString *)title tag:(NSInteger)tag size:(CGSize)size {
-  UIButtonConfiguration *c = tag == 5 ? [UIButtonConfiguration filledButtonConfiguration] : [UIButtonConfiguration grayButtonConfiguration];
-  c.cornerStyle = tag == 5 ? UIButtonConfigurationCornerStyleCapsule : UIButtonConfigurationCornerStyleLarge;
-  if (symbol) c.image = [UIImage systemImageNamed:symbol withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:size.height * 0.32 weight:UIImageSymbolWeightBold]];
-  if (title) c.attributedTitle = [[NSAttributedString alloc] initWithString:title attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:tag == 5 ? 26 : 20 weight:UIFontWeightBold] }];
-  c.imagePadding = 6;
-  c.baseBackgroundColor = tag == 5 ? [UIColor colorWithRed:0.37 green:0.78 blue:0.95 alpha:1] : nil;
-  c.baseForegroundColor = tag == 5 ? UIColor.blackColor : UIColor.whiteColor;
-  UIButton *b = [UIButton buttonWithConfiguration:c primaryAction:nil];
-  b.tag = tag;
-  b.accessibilityLabel = title ?: ButtonKeys()[@(tag)];
-  [b addTarget:self action:@selector(pressDown:) forControlEvents:UIControlEventTouchDown];
-  [b addTarget:self action:@selector(pressUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-  b.translatesAutoresizingMaskIntoConstraints = NO;
-  [NSLayoutConstraint activateConstraints:@[[b.widthAnchor constraintEqualToConstant:size.width], [b.heightAnchor constraintEqualToConstant:size.height]]];
-  return b;
-}
 
 - (void)viewDidLoad {
   [super viewDidLoad];
@@ -668,79 +703,14 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   self.gameView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
   self.gameView.backgroundColor = UIColor.blackColor;
   [self.view addSubview:self.gameView];
+  [self.view addSubview:self.gamePicker = InvisiblePicker()];
 
-  // While the game is on the phone: a small AirPlay button in the corner.
-  self.floatingPicker = [AVRoutePickerView new];
-  self.floatingPicker.prioritizesVideoDevices = YES;
-  self.floatingPicker.tintColor = [UIColor colorWithWhite:1 alpha:0.6];
-  self.floatingPicker.translatesAutoresizingMaskIntoConstraints = NO;
-  [self.view addSubview:self.floatingPicker];
-
-  // While the game is on the TV: the remote.
-  UIView *remote = self.remote = [UIView new];
-  remote.translatesAutoresizingMaskIntoConstraints = NO;
-  remote.backgroundColor = [UIColor colorWithRed:0.05 green:0.07 blue:0.1 alpha:1];
-  [self.view addSubview:remote];
-
-  UILabel *title = [UILabel new];
-  title.text = @"aerodance";
-  title.font = [UIFont systemFontOfSize:28 weight:UIFontWeightHeavy];
-  title.textColor = UIColor.whiteColor;
-  UILabel *status = self.status = [UILabel new];
-  status.numberOfLines = 0;
-  status.textAlignment = NSTextAlignmentCenter;
-  status.font = [UIFont monospacedDigitSystemFontOfSize:14 weight:UIFontWeightRegular];
-  status.textColor = [UIColor colorWithWhite:1 alpha:0.7];
-
-  CGFloat s = 92;
-  CGSize key = CGSizeMake(s, s);
-  UIButton *up = [self button:@"chevron.up" title:nil tag:1 size:key], *down = [self button:@"chevron.down" title:nil tag:2 size:key];
-  UIButton *left = [self button:@"chevron.left" title:nil tag:3 size:key], *right = [self button:@"chevron.right" title:nil tag:4 size:key];
-  UIButton *ok = [self button:nil title:@"OK" tag:5 size:key];
-  UIStackView *middle = [[UIStackView alloc] initWithArrangedSubviews:@[left, ok, right]];
-  middle.spacing = 10;
-  UIStackView *pad = [[UIStackView alloc] initWithArrangedSubviews:@[up, middle, down]];
-  pad.axis = UILayoutConstraintAxisVertical;
-  pad.alignment = UIStackViewAlignmentCenter;
-  pad.spacing = 10;
-
-  UIButton *back = self.backButton = [self button:@"arrow.uturn.backward" title:@"Back" tag:6 size:CGSizeMake(3 * s + 20, 56)];
-
-  // The system volume, which is the TV's while AirPlaying, and the AirPlay picker.
-  MPVolumeView *volume = [MPVolumeView new];
-  volume.translatesAutoresizingMaskIntoConstraints = NO;
-  [volume.heightAnchor constraintEqualToConstant:34].active = YES;
-  AVRoutePickerView *picker = [AVRoutePickerView new];
-  picker.prioritizesVideoDevices = YES;
-  picker.tintColor = UIColor.whiteColor;
-  picker.translatesAutoresizingMaskIntoConstraints = NO;
-  [NSLayoutConstraint activateConstraints:@[[picker.widthAnchor constraintEqualToConstant:44], [picker.heightAnchor constraintEqualToConstant:44]]];
-  UIStackView *audio = [[UIStackView alloc] initWithArrangedSubviews:@[[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"speaker.wave.2.fill"]], volume, picker]];
-  audio.spacing = 12;
-  audio.alignment = UIStackViewAlignmentCenter;
-  audio.tintColor = [UIColor colorWithWhite:1 alpha:0.7];
-  [audio.widthAnchor constraintEqualToConstant:3 * s + 20].active = YES;
-
-  UIStackView *column = [[UIStackView alloc] initWithArrangedSubviews:@[title, status, pad, back, audio]];
-  column.axis = UILayoutConstraintAxisVertical;
-  column.alignment = UIStackViewAlignmentCenter;
-  column.spacing = 24;
-  [column setCustomSpacing:8 afterView:title];
-  [column setCustomSpacing:36 afterView:status];
-  column.translatesAutoresizingMaskIntoConstraints = NO;
-  [remote addSubview:column];
-
-  UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
-  [NSLayoutConstraint activateConstraints:@[
-    [remote.topAnchor constraintEqualToAnchor:self.view.topAnchor], [remote.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-    [remote.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor], [remote.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-    [column.centerXAnchor constraintEqualToAnchor:safe.centerXAnchor], [column.centerYAnchor constraintEqualToAnchor:safe.centerYAnchor],
-    [column.topAnchor constraintGreaterThanOrEqualToAnchor:safe.topAnchor constant:8],
-    [status.widthAnchor constraintLessThanOrEqualToAnchor:safe.widthAnchor constant:-32],
-    [self.floatingPicker.topAnchor constraintEqualToAnchor:safe.topAnchor constant:4],
-    [self.floatingPicker.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-4],
-    [self.floatingPicker.widthAnchor constraintEqualToConstant:36], [self.floatingPicker.heightAnchor constraintEqualToConstant:36],
-  ]];
+  // While the game is on the TV: the remote page, inside the safe area, on its own background.
+  self.remote = [[UIView alloc] initWithFrame:self.view.bounds];
+  self.remote.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  self.remote.backgroundColor = RemoteBackground();
+  self.remote.hidden = YES;
+  [self.view addSubview:self.remote];
 
   GameHost *host = GameHost.shared;
   host.phoneView = self.gameView;
@@ -762,6 +732,12 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   }
 }
 
+// The game's bubble moves with the page (a turn of the iPad), which says so; the picker follows.
+- (void)viewDidLayoutSubviews {
+  [super viewDidLayoutSubviews];
+  [self placeGamePicker];
+}
+
 - (void)refresh {
   GameHost *host = GameHost.shared;
   BOOL tv = host.onTV;
@@ -775,27 +751,120 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
       [scene requestGeometryUpdateWithPreferences:turn errorHandler:^(NSError *error) { NSLog(@"aerodance: couldn't turn the phone's screen: %@", error); }];
     }
   }
+  if (tv) [self makeRemote];
   self.remote.hidden = !tv;
   self.gameView.hidden = tv;
-  // Over the game the AirPlay button only shows on the main menu, where it doesn't cover play.
+  [self loadRemote];
+  [self tellRemote:NO];
+  [self placeGamePicker];
   NSDictionary *page = host.page ?: @{};
   BOOL inSong = page[@"gamePhase"] != nil;
   // The phone mustn't lock while players get ready and dance (nobody touches it), nor while it's
   // the TV's remote; paused, on the results and on the menus it may.
   NSArray *awake = @[@"loading", @"calibrating", @"ready", @"countdown", @"playing", @"finishing"];
   UIApplication.sharedApplication.idleTimerDisabled = tv || (inSong && [awake containsObject:page[@"gamePhase"]]);
-  self.floatingPicker.hidden = tv || inSong || ![page[@"menuScreen"] isEqual:@"main"];
-  NSString *screen = page[@"resultsScreen"] ? @"Results"
-    : inSong ? [NSString stringWithFormat:@"Song: %@", page[@"gamePhase"]]
-    : [page[@"songReady"] isEqual:@"true"] ? [NSString stringWithFormat:@"Songs: %@", page[@"songScreen"]]
-    : [NSString stringWithFormat:@"Menu: %@", page[@"menuScreen"] ?: @"loading"];
-  self.status.text = tv ? [NSString stringWithFormat:@"Playing on the TV (%@)\n%@ · %.0f fps", host.tvDescription, screen, host.fps] : @"";
-  UIButtonConfiguration *c = self.backButton.configuration;
-  c.attributedTitle = [[NSAttributedString alloc] initWithString:[page[@"gamePhase"] isEqual:@"playing"] ? @"Pause" : @"Back"
-    attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:20 weight:UIFontWeightBold] }];
-  self.backButton.configuration = c;
   [self setNeedsStatusBarAppearanceUpdate];
   [self setNeedsUpdateOfHomeIndicatorAutoHidden];
+}
+
+// The game's AirPlay bubble shows on its main menu while the game is on the phone; the page says
+// where (GameHost airplayRect), in the web view's points.
+- (void)placeGamePicker {
+  GameHost *host = GameHost.shared;
+  WKWebView *web = host.web;
+  BOOL shown = !host.onTV && !CGRectIsNull(host.airplayRect) && web.superview == self.gameView;
+  self.gamePicker.hidden = !shown;
+  if (shown) self.gamePicker.frame = [web convertRect:host.airplayRect toView:self.view];
+}
+
+#pragma mark The remote
+
+- (void)makeRemote {
+  if (self.remoteWeb) return;
+  WKWebViewConfiguration *config = [WKWebViewConfiguration new];
+  RemoteMessages *messages = [RemoteMessages new];
+  messages.target = self;
+  [config.userContentController addScriptMessageHandler:messages name:@"aerodanceRemote"];
+  WKWebView *web = self.remoteWeb = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
+#ifdef AERODANCE_DEV
+  web.inspectable = YES;
+#endif
+  web.navigationDelegate = self;
+  web.opaque = NO;
+  web.backgroundColor = RemoteBackground();
+  web.scrollView.backgroundColor = RemoteBackground();
+  web.scrollView.scrollEnabled = NO;
+  web.scrollView.bounces = NO;
+  web.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+  web.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.remote addSubview:web];
+  UILayoutGuide *safe = self.remote.safeAreaLayoutGuide;
+  [NSLayoutConstraint activateConstraints:@[
+    [web.topAnchor constraintEqualToAnchor:safe.topAnchor], [web.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+    [web.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor], [web.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+  ]];
+  [self.remote addSubview:self.remotePicker = InvisiblePicker()];
+}
+
+// The remote loads from the game's own server once it's ready, and again if it couldn't.
+- (void)loadRemote {
+  if (!self.remoteWeb || self.remoteLoading || !GameHost.shared.serverReady) return;
+  self.remoteLoading = YES;
+  self.remoteSent = nil;
+  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/remote/", Port()]];
+  [self.remoteWeb loadRequest:[NSURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:10]];
+}
+
+- (void)remoteFailed:(NSError *)error {
+  if ([error.domain isEqual:NSURLErrorDomain] && error.code == NSURLErrorCancelled) return;
+  NSLog(@"aerodance: the remote couldn't load (%@); trying again", error.localizedDescription);
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    self.remoteLoading = NO;
+    [self loadRemote];
+  });
+}
+
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+  NSLog(@"aerodance: the remote's web content process ended; reloading");
+  self.remoteLoading = NO;
+  self.remotePicker.hidden = YES;
+  [self loadRemote];
+}
+
+// The remote stays on its own page.
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+  decisionHandler([action.request.URL.host isEqual:@"127.0.0.1"] ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+}
+
+// The remote shows what the game is showing (the game's reported state), whenever it changes.
+- (void)tellRemote:(BOOL)always {
+  if (!self.remoteWeb) return;
+  NSString *state = JSON(@{ @"page": GameHost.shared.page ?: @{} });
+  if (!always && [state isEqual:self.remoteSent]) return;
+  self.remoteSent = state;
+  [self.remoteWeb evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceRemote && window.__aerodanceRemote(%@)", state] completionHandler:nil];
+}
+
+// The remote's buttons (bridge.ts): a key for the game, where the AirPlay picker goes, and ready.
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+  if (!FromOurPage(message)) return;
+  NSDictionary *body = message.body;
+  if (![body isKindOfClass:NSDictionary.class]) return;
+  // (Only while the game is on the TV: a held arrow can outlast it.)
+  if ([body[@"key"] isKindOfClass:NSString.class] && GameHost.shared.onTV) {
+    // A tap on the glass, not each repeat of a held arrow.
+    if (![body[@"repeat"] boolValue]) [self.haptics impactOccurred];
+    [GameHost.shared sendKey:body[@"key"]];
+  }
+  if (body[@"airplay"]) {
+    CGRect rect = PageRect(body[@"airplay"]);
+    self.remotePicker.hidden = CGRectIsNull(rect);
+    if (!CGRectIsNull(rect)) self.remotePicker.frame = [self.remoteWeb convertRect:rect toView:self.remote];
+  }
+  if ([body[@"ready"] boolValue]) [self tellRemote:YES];
 }
 
 // iPhone: the 16:9 game only fits sideways, and the remote's column only fits upright, so it's
@@ -810,20 +879,6 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
 - (BOOL)prefersStatusBarHidden { return !GameHost.shared.onTV; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return !GameHost.shared.onTV; }
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return GameHost.shared.onTV ? UIRectEdgeNone : UIRectEdgeAll; }
-
-// Arrows repeat while held, like a keyboard.
-- (void)pressDown:(UIButton *)b {
-  [self.haptics impactOccurred];
-  NSString *key = ButtonKeys()[@(b.tag)];
-  [GameHost.shared sendKey:key];
-  [self.repeat invalidate];
-  if (b.tag > 4) return;
-  self.repeat = [NSTimer scheduledTimerWithTimeInterval:0.4 repeats:NO block:^(NSTimer *t) {
-    self.repeat = [NSTimer scheduledTimerWithTimeInterval:0.12 repeats:YES block:^(NSTimer *t) { [GameHost.shared sendKey:key]; }];
-  }];
-}
-
-- (void)pressUp:(UIButton *)b { [self.repeat invalidate]; self.repeat = nil; }
 
 @end
 

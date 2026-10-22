@@ -8,6 +8,7 @@ import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import type { AspectSetting, GraphicsSettings } from './graphicsSettings.ts';
+import AirPlayButton from './AirPlayButton.tsx';
 import FullscreenButton from './FullscreenButton.tsx';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
@@ -21,8 +22,9 @@ import { displayDesign } from '../display.ts';
  * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
  * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, which App.tsx
- * applies). The main screen also shows the fullscreen bubble in the corner. The title rises
- * while the players screen is up and fades out while settings is.
+ * applies). The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in
+ * the iPhone/iPad app). The title rises while the players screen is up and fades out while
+ * settings is.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
@@ -434,5 +436,11 @@ export default function MainMenu({
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 
-  return <FullscreenButton visible={() => !!props.current.visible && m.screen === 'main' && m.next === 'main'} />;
+  const onMain = () => !!props.current.visible && m.screen === 'main' && m.next === 'main';
+  return (
+    <>
+      <FullscreenButton visible={onMain} />
+      <AirPlayButton visible={onMain} />
+    </>
+  );
 }

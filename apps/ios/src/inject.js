@@ -14,14 +14,14 @@
   if (site) globalThis.__aerodanceSite = site;
 
   // What the game should know about the app: interrupted (a phone call, Siri or an alarm has the
-  // audio) and tv (the game is on an external display, whose picture is as late as its sound). The
-  // page reads globalThis.__aerodanceHost and listens for 'aerodance-host' events; the app calls
-  // __aerodanceSetHost whenever either changes.
-  const hostState = s => ({ interrupted: !!s?.interrupted, tv: !!s?.tv });
+  // audio), tv (the game is on an external display, whose picture is as late as its sound) and
+  // screen (where the picture is: 'phone' or 'tv'). The page reads globalThis.__aerodanceHost and
+  // listens for 'aerodance-host' events; the app calls __aerodanceSetHost whenever one changes.
+  const hostState = s => ({ interrupted: !!s?.interrupted, tv: !!s?.tv, screen: s?.screen === 'tv' ? 'tv' : 'phone' });
   globalThis.__aerodanceHost = hostState(start.host);
   window.__aerodanceSetHost = s => {
     const next = hostState(s), now = globalThis.__aerodanceHost;
-    if (next.interrupted === now.interrupted && next.tv === now.tv) return;
+    if (next.interrupted === now.interrupted && next.tv === now.tv && next.screen === now.screen) return;
     globalThis.__aerodanceHost = next;
     window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { ...next } }));
   };
@@ -62,6 +62,13 @@
       for (const k of gone) queue(k, null);
     };
   } catch { /* storage unavailable */ }
+
+  // The game's AirPlay bubble (menu/AirPlayButton.tsx) says where it is, in the page's CSS pixels
+  // ({ x, y, w, h }, or null while it's away), and the app lays an invisible AirPlay picker over it.
+  window.__aerodanceAirPlayAt = rect => {
+    const r = rect && ['x', 'y', 'w', 'h'].every(k => Number.isFinite(rect[k])) ? { x: rect.x, y: rect.y, w: rect.w, h: rect.h } : null;
+    post({ airplay: r });
+  };
 
   // The phone's remote buttons arrive as the key events the canvas UI already understands.
   window.__aerodanceKey = key => {
