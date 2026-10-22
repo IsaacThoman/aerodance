@@ -51,7 +51,8 @@ const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
 
 /**
  * `inflate`: 0 is the character's own shape, 1 about twice as round in the middle.
- * `tear`: 0 is whole; above that a hole rips open from the chest and runs over the whole skin by 1.
+ * `tear`: seconds since the skin tore, or 0 while it's whole. It rips open from the chest and
+ * the shreds fly off, tumbling, and shrink away.
  */
 export interface Balloon { inflate: number; tear: number }
 
@@ -61,44 +62,66 @@ export interface Balloon { inflate: number; tear: number }
 // face instead of sinking into it.
 const INFLATE_MIDDLE = new Vector3(0, 0.85, 0);
 const INFLATE_REACH = "1.7";
-// The tear starts just off the front of the chest, on the camera's side, and its edge runs this
-// far out by the time it's done, past the feet of the most inflated body. It runs out fastest
-// along a few cracks and is jagged all along, like torn rubber: tearEdge is how far a point is
-// inside the hole.
-const TEAR_FROM = new Vector3(0.35, 0.95, 0.9);
-const TEAR_EDGE = `
-uniform float tear; uniform vec3 tearFrom;
-float tearEdge(vec3 p) {
-  vec3 away = p - tearFrom;
-  vec3 way = normalize(away);
-  float crack = sin(way.x * 9.0 + 1.3) * sin(way.y * 7.0 + 0.4) * sin(way.z * 11.0 + 2.1) + 0.15 * sin(dot(p, vec3(31.0, 23.0, 27.0)));
-  return tear * 3.4 - length(away) * (1.0 + 0.5 * crack);
+// Tearing cuts the skin into ragged shreds, a cell of the rest pose each, and each comes away
+// as the tear reaches it. The tear starts just off the front of the chest, on the camera's
+// side, and runs out fastest along a few cracks. A shred flies away from the body's middle,
+// tumbling and falling, flashes as it comes away, and is gone after SHRED_LIFE seconds.
+const SHRED_SIZE = "0.45";
+const SHRED_LIFE = 0.45;
+const SHREDS = `
+uniform float tear;
+varying vec3 vRest; varying vec3 vShred; varying float vShredAge;
+float shredHash(vec3 cell, float salt) { return fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719)) + salt) * 43758.5453); }
+vec3 shredCell(vec3 rest) { return floor((rest + 0.12 * sin(rest.yzx * 7.0)) / ${SHRED_SIZE}); }
+`;
+const SHRED_FLIGHT = `
+vRest = position;
+vec3 shredAt = shredCell(position);
+vShred = shredAt;
+vShredAge = 0.0;
+if (tear > 0.0) {
+  vec3 shredMiddle = (shredAt + 0.5) * ${SHRED_SIZE};
+  vec3 fromTear = shredMiddle - vec3(0.35, 2.05, 0.9);
+  vec3 way = normalize(fromTear);
+  float crack = sin(way.x * 9.0 + 1.3) * sin(way.y * 7.0 + 0.4) * sin(way.z * 11.0 + 2.1);
+  float age = tear - length(fromTear) * (1.0 + 0.5 * crack) / 34.0;
+  if (age > 0.0) {
+    vShredAge = age;
+    vec3 r = vec3(shredHash(shredAt, 1.0), shredHash(shredAt, 2.0), shredHash(shredAt, 3.0));
+    vec3 pivot = transformed - (position - shredMiddle);
+    vec3 spinAxis = normalize(r - 0.5 + 0.001);
+    float spin = age * (12.0 + 20.0 * r.y);
+    vec3 v = transformed - pivot;
+    v = v * cos(spin) + cross(spinAxis, v) * sin(spin) + spinAxis * dot(spinAxis, v) * (1.0 - cos(spin));
+    // Snaps back a little at once, as stretched rubber does, then shrinks away.
+    v *= (1.0 - 0.3 * min(age / 0.08, 1.0)) * max(0.0, 1.0 - age / ${SHRED_LIFE.toFixed(2)});
+    vec3 flight = normalize(shredMiddle - vec3(0.0, 1.95, 0.0)) * (5.0 + 6.0 * r.x) + (r - 0.5) * 4.0 + vec3(0.0, 2.5, 0.0);
+    transformed = pivot + v + flight * age - vec3(0.0, 9.0 * age * age, 0.0);
+  }
 }
 `;
-interface BalloonUniforms { inflate: { value: number }; inflateMiddle: { value: Vector3 }; tear: { value: number }; tearFrom: { value: Vector3 } }
+interface BalloonUniforms { inflate: { value: number }; inflateMiddle: { value: Vector3 }; tear: { value: number } }
 function balloon(material: Material, uniforms: BalloonUniforms, compile?: (shader: WebGLProgramParametersWithUniforms) => void) {
   material.onBeforeCompile = (shader) => {
     compile?.(shader);
     Object.assign(shader.uniforms, uniforms);
-    // The skin by the hole peels back away from it.
-    shader.vertexShader = `uniform float inflate; uniform vec3 inflateMiddle; varying vec3 vBalloon;\n${TEAR_EDGE}` + shader.vertexShader.replace(
+    shader.vertexShader = `uniform float inflate; uniform vec3 inflateMiddle;\n${SHREDS}` + shader.vertexShader.replace(
       "#include <skinning_vertex>",
       `#include <skinning_vertex>
       vec3 inflateOut = transformed - inflateMiddle;
       transformed += inflateOut * inflate * exp(-dot(inflateOut, inflateOut) / (${INFLATE_REACH} * ${INFLATE_REACH}));
-      vBalloon = transformed;
-      if (tear > 0.0) transformed += normalize(transformed - tearFrom) * 0.3 * smoothstep(-0.6, 0.0, tearEdge(transformed));`,
+      ${SHRED_FLIGHT}`,
     );
-    // Through the hole there's nothing, and its freshly stretched edge shines.
-    shader.fragmentShader = `varying vec3 vBalloon;\n${TEAR_EDGE}` + shader.fragmentShader.replace(
+    // A triangle across two shreds, one of them flying, would stretch between them: it's torn.
+    shader.fragmentShader = SHREDS + shader.fragmentShader.replace(
       "#include <clipping_planes_fragment>",
       `#include <clipping_planes_fragment>
-      float torn = tearEdge(vBalloon);
-      if (tear > 0.0 && torn > 0.0) discard;`,
+      vec3 shredOff = abs(vShred - shredCell(vRest));
+      if (vShredAge > 0.0 && max(shredOff.x, max(shredOff.y, shredOff.z)) > 0.001) discard;`,
     ).replace(
       "#include <emissivemap_fragment>",
       `#include <emissivemap_fragment>
-      if (tear > 0.0) totalEmissiveRadiance += diffuseColor.rgb * 2.5 * smoothstep(-0.3, 0.0, torn);`,
+      if (vShredAge > 0.0) totalEmissiveRadiance += diffuseColor.rgb * 2.5 * (1.0 - smoothstep(0.0, 0.12, vShredAge));`,
     );
   };
   // Tells three the shader differs from a plain material's with the same hook.
@@ -131,7 +154,7 @@ export default function Character({
   const invalidate=useThree(state=>state.invalidate);
   const mixer = useMemo(() => new AnimationMixer(model), [model]);
   const balloonUniforms = useMemo<BalloonUniforms>(() => ({
-    inflate: { value: 0 }, inflateMiddle: { value: new Vector3() }, tear: { value: 0 }, tearFrom: { value: new Vector3() },
+    inflate: { value: 0 }, inflateMiddle: { value: new Vector3() }, tear: { value: 0 },
   }), []);
   const isBalloon = !!balloonRef;
   const ink = useMemo(() => {
@@ -253,11 +276,10 @@ export default function Character({
     else if (retarget) retarget(playback?.current ?? 0);
     else mixer.update(Math.min(delta, 0.05));
     // The skinned meshes sit untransformed in the model, so its space is theirs.
-    const body = balloonRef && (balloonRef.current.inflate > 0 || balloonRef.current.tear > 0) ? model.getObjectByName("Body") : undefined;
+    const body = balloonRef && balloonRef.current.inflate > 0 ? model.getObjectByName("Body") : undefined;
     if (body) {
       body.updateWorldMatrix(true, false);
       model.worldToLocal(body.localToWorld(balloonUniforms.inflateMiddle.value.copy(INFLATE_MIDDLE)));
-      model.worldToLocal(body.localToWorld(balloonUniforms.tearFrom.value.copy(TEAR_FROM)));
     }
   }, opacityRef || balloonRef ? 1 : 0);
   return <primitive object={model} dispose={null} />;

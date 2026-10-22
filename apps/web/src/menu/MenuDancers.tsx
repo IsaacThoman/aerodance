@@ -22,7 +22,8 @@ import { PLAYER_COLORS } from './layout.ts';
  * When the count goes up, the new dancer makes the same entrance as at the start of a song
  * (stages/shared/DancerEntrance.tsx), without the floor ripple: bubbles rising around it and
  * a squash-and-stretch pop. When it goes down, the leaving dancer puffs up like a balloon and
- * pops: its skin tears open from the chest and is gone. The rest regroup around the middle. Two stand side by side; three make a triangle with
+ * pops, freezing mid-move: its skin tears open from the chest and the shreds fly off. The rest
+ * regroup around the middle. Two stand side by side; three make a triangle with
  * player 3 at the front, and four a diamond with player 4 at the back, so the puck keeps
  * its size. The diamond stands turned a little, so the back dancer isn't hidden behind the
  * front one.
@@ -49,9 +50,10 @@ const SPOT_EPSILON = 0.01;
 // Players three and four dance the duet's parts a beat behind one and two.
 const LAG = [0, 0, 3.5, 3.5];
 // A dancer's middle and the top of its head (stage units).
-// Leaving: the dancer puffs up for INFLATE_TIME, then its skin tears away until POP_TIME.
+// Leaving: the dancer puffs up for INFLATE_TIME, then its skin tears, and the last shreds are
+// gone by POP_TIME.
 const INFLATE_TIME = 0.12;
-const POP_TIME = 0.22;
+const POP_TIME = 0.72;
 
 // How far the diamond is turned about the middle (radians): the front dancer steps left and
 // the back one right, so the back one shows between the others.
@@ -204,7 +206,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
     }
 
     if (!still) clock.current += dt;
-    playback.forEach((p, i) => { p.current = clock.current + LAG[i]; });
+    playback.forEach((p, i) => { if (list[i].phase !== 'pop') p.current = clock.current + LAG[i]; });
 
     // Rise and regrouping ease in, unless the stage is off screen.
     lift.current += ((raised ? RAISE : 0) - lift.current) * k;
@@ -238,13 +240,11 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
         o.current = 1;
         if (entrance.ms >= 0) d.phase = 'in';
       } else if (d.phase === 'pop') {
-        // Puffs up like a balloon in a blink, then tears open from the chest; what's left of the
-        // skin snaps back a little as the hole runs over it.
+        // Puffs up like a balloon in a blink, then tears open from the chest and the shreds fly.
         const q = 1 - (1 - clamp01(d.t / INFLATE_TIME)) ** 2;
-        const tear = clamp01((d.t - INFLATE_TIME) / (POP_TIME - INFLATE_TIME));
-        balloon.inflate = 1.1 * q * (1 - 0.35 * tear);
-        balloon.tear = d.t > INFLATE_TIME ? Math.max(0.02, tear) : 0;
-        size = 1 + 0.1 * q * (1 - 0.5 * tear);
+        balloon.inflate = 1.1 * q;
+        balloon.tear = Math.max(0, d.t - INFLATE_TIME);
+        size = 1 + 0.1 * q;
         stretch = 1 - 0.06 * q;
         y = 0.2 * q;
         o.current = 1;
