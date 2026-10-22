@@ -151,6 +151,21 @@ function laserGeometry() {
 
 const additive = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
 
+// Where outer head i (at x along the truss) aims at time t in each sweep pattern.
+function sweepTarget(mode: number, i: number, x: number, t: number, out: THREE.Vector3) {
+  if (mode === 0) {
+    // Slow fan sweeping across the crowd.
+    return out.set(x * 1.3 + Math.sin(t * 0.6 + i * 0.7) * 3.5, FLOOR, 4 + Math.cos(t * 0.45 + i) * 3.5);
+  }
+  if (mode === 1) {
+    // Crossing pairs.
+    return out.set(-x * 1.4 + Math.sin(t * 0.9) * 2 * (i % 2 ? 1 : -1), FLOOR, 3 + Math.sin(t * 0.7 + i) * 2.5);
+  }
+  // Circling the stage.
+  const a = t * 0.8 + (i / HEADS.length) * Math.PI * 2;
+  return out.set(Math.cos(a) * 7.5, FLOOR, 1 + Math.sin(a) * 6);
+}
+
 export default function Beams() {
   const heads = useRef<THREE.InstancedMesh>(null);
   const lenses = useRef<THREE.InstancedMesh>(null);
@@ -191,7 +206,7 @@ export default function Beams() {
       }),
     };
   });
-  const tmp = useDisposable(() => ({ o: new THREE.Object3D(), target: new THREE.Vector3(), c: new THREE.Color() }));
+  const tmp = useDisposable(() => ({ o: new THREE.Object3D(), target: new THREE.Vector3(), next: new THREE.Vector3(), c: new THREE.Color() }));
 
   useLayoutEffect(() => {
     // Seed instance colors before the first frame so the shaders compile with them.
@@ -212,15 +227,25 @@ export default function Beams() {
     const kick = club.uPulse.value;
     // Colors drift through the palette smoothly rather than stepping each bar.
     const bars = beatCount() / 4;
+    // The outer heads move through three patterns, four bars each, gliding from one into the
+    // next over the last two bars instead of jumping.
+    const blocks = reducedMotion ? 0 : beatCount() / 16;
+    const mode = Math.floor(blocks) % 3;
+    const blend = THREE.MathUtils.smoothstep(blocks - Math.floor(blocks), 0.5, 1);
     for (let i = 0; i < HEADS.length; i++) {
       const x = HEADS[i];
       const follow = i === 2 || i === 3;
-      // Every head lights the dancer on its own side, its beam circling them slowly and
-      // steadily: the inner two hold tight as follow spots, the outer ones swing wider. The
-      // cones land just behind the dancers, so they frame them without washing them out.
-      const r = follow ? 0.3 : 0.9;
-      const a = t * (follow ? 0.6 : 0.45) * (i % 2 ? 1 : -1) + i * 1.7;
-      target.set(Math.sign(x) * DANCER_X + Math.cos(a) * r, 0, -0.9 + Math.sin(a) * r * 0.4);
+      let floorY = FLOOR;
+      if (follow) {
+        // The inner two circle the dancer on their own side as follow spots, landing mostly
+        // behind them so the cones frame them without washing them out.
+        floorY = 0;
+        const a = t * 0.5 * (i % 2 ? 1 : -1) + i * 1.7;
+        target.set(Math.sign(x) * DANCER_X + Math.cos(a) * 0.8, 0, -0.9 + Math.sin(a) * 0.45);
+      } else {
+        sweepTarget(mode, i, x, t, target);
+        if (blend > 0) target.lerp(sweepTarget((mode + 1) % 3, i, x, t, tmp.next), blend);
+      }
       o.position.set(x, HEAD_Y, TRUSS.z);
       o.scale.set(1, 1, 1);
       o.lookAt(target);
@@ -230,7 +255,7 @@ export default function Beams() {
       o.scale.set(1, 1, o.position.distanceTo(target) / BEAM_LEN);
       o.updateMatrix();
       bm.setMatrixAt(i, o.matrix);
-      o.position.set(target.x, 0.02, target.z);
+      o.position.set(target.x, floorY + 0.02, target.z);
       o.rotation.set(0, 0, 0);
       o.scale.setScalar(1); // a pool of light where the cone lands
       o.updateMatrix();
@@ -240,8 +265,8 @@ export default function Beams() {
       lm.setColorAt(i, c.multiplyScalar(3.5));
       if (follow) c.setRGB(0.75, 0.9, 1.0).multiplyScalar(0.6);
       else hue(bars * 0.17 + i * 0.06, c);
-      bm.setColorAt(i, c.multiplyScalar(follow ? 0.16 : 0.4));
-      pm.setColorAt(i, c.multiplyScalar(0.6 / 0.55));
+      bm.setColorAt(i, c.multiplyScalar(follow ? 0.1 : 0.24));
+      pm.setColorAt(i, c.multiplyScalar(0.8));
     }
     hm.instanceMatrix.needsUpdate = true;
     lm.instanceMatrix.needsUpdate = true;
