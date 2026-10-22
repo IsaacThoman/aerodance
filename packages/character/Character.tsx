@@ -7,8 +7,9 @@ import {
   MeshBasicMaterial,
   Color,
   BufferAttribute,
+  Vector3,
 } from "three";
-import type { BufferGeometry, ColorRepresentation, Mesh, Object3D } from "three";
+import type { BufferGeometry, ColorRepresentation, Material, Mesh, Object3D, WebGLProgramParametersWithUniforms } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createRetargeter } from "./motion.ts";
 import { createPoseApplier } from "./retarget.ts";
@@ -34,6 +35,8 @@ export interface CharacterProps {
   appearance: CharacterAppearance;
   /** Fades the character (gel and ink) each frame. */
   opacityRef?: RefObject<number>;
+  /** Blows the character up like a balloon each frame: 0 is its own shape, 1 about twice as round in the middle. */
+  inflateRef?: RefObject<number>;
   animation?: string;
   motion?: MotionTake | null;
   person?: number;
@@ -46,9 +49,32 @@ export interface CharacterProps {
 }
 const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
 
+// Inflating swells the posed body out from its middle (this far above the Body bone, about the
+// neck), most near the middle and less towards the hands and feet, so it rounds out like a
+// balloon. The swell grows outwards along each ray from the middle, so the eyes stay on the
+// face instead of sinking into it.
+const INFLATE_MIDDLE = new Vector3(0, 0.85, 0);
+const INFLATE_REACH = "1.7";
+interface Inflation { inflate: { value: number }; inflateMiddle: { value: Vector3 } }
+function inflatable(material: Material, uniforms: Inflation, compile?: (shader: WebGLProgramParametersWithUniforms) => void) {
+  material.onBeforeCompile = (shader) => {
+    compile?.(shader);
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = "uniform float inflate; uniform vec3 inflateMiddle;\n" + shader.vertexShader.replace(
+      "#include <skinning_vertex>",
+      `#include <skinning_vertex>
+      vec3 inflateOut = transformed - inflateMiddle;
+      transformed += inflateOut * inflate * exp(-dot(inflateOut, inflateOut) / (${INFLATE_REACH} * ${INFLATE_REACH}));`,
+    );
+  };
+  // Tells three the shader differs from an uninflatable material's with the same hook.
+  material.customProgramCacheKey = () => `inflate-${material.type}`;
+}
+
 export default function Character({
   appearance,
   opacityRef,
+  inflateRef,
   animation = "Idle",
   motion,
   person = 0,
@@ -70,9 +96,13 @@ export default function Character({
   const poseFilter=useMemo(()=>new LivePoseFilter(),[model,calibration,live]);
   const invalidate=useThree(state=>state.invalidate);
   const mixer = useMemo(() => new AnimationMixer(model), [model]);
-  const ink = useMemo(() => new MeshBasicMaterial({
-    color: "#020611", transparent: !!opacityRef, depthWrite: !opacityRef,
-  }), [opacityRef]);
+  const inflate = useMemo<Inflation>(() => ({ inflate: { value: 0 }, inflateMiddle: { value: new Vector3() } }), []);
+  const inflating = !!inflateRef;
+  const ink = useMemo(() => {
+    const material = new MeshBasicMaterial({ color: "#020611", transparent: !!opacityRef, depthWrite: !opacityRef });
+    if (inflating) inflatable(material, inflate);
+    return material;
+  }, [opacityRef, inflating, inflate]);
   const gel = useMemo(() => {
     const material = new MeshPhysicalMaterial({
       name: "AquaGel",
@@ -87,7 +117,7 @@ export default function Character({
       depthWrite: false,
       envMapIntensity: 1.4,
     });
-    material.onBeforeCompile = (shader) => {
+    const compile = (shader: WebGLProgramParametersWithUniforms) => {
       shader.vertexShader =
         "attribute float gelHeight; varying float vGelHeight;\n" +
         shader.vertexShader;
@@ -102,8 +132,10 @@ export default function Character({
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * exp(-pow((vGelHeight - 0.19) / 0.16, 2.0)) * pow(max(dot(normal, normalize(vViewPosition)), 0.0), 5.0) * 4.5;",
       );
     };
+    if (inflating) inflatable(material, inflate, compile);
+    else material.onBeforeCompile = compile;
     return material;
-  }, []);
+  }, [inflating, inflate]);
   useEffect(() => {
     const ownedGeometries: BufferGeometry[] = [];
     model.traverse((obj) => {
@@ -167,6 +199,7 @@ export default function Character({
     };
   }, [animation, gltf, mixer, retarget, applyPose]);
   useFrame((_, delta) => {
+    if (inflateRef) inflate.inflate.value = inflateRef.current;
     if (opacityRef) {
       gel.opacity = (appearance.opacity ?? 0.72) * opacityRef.current;
       ink.opacity = opacityRef.current;
@@ -180,6 +213,12 @@ export default function Character({
     }
     else if (retarget) retarget(playback?.current ?? 0);
     else mixer.update(Math.min(delta, 0.05));
-  }, opacityRef ? 1 : 0);
+    // The skinned meshes sit untransformed in the model, so its space is theirs.
+    const body = inflateRef && inflateRef.current > 0 ? model.getObjectByName("Body") : undefined;
+    if (body) {
+      body.updateWorldMatrix(true, false);
+      model.worldToLocal(body.localToWorld(inflate.inflateMiddle.value.copy(INFLATE_MIDDLE)));
+    }
+  }, opacityRef || inflateRef ? 1 : 0);
   return <primitive object={model} dispose={null} />;
 }
