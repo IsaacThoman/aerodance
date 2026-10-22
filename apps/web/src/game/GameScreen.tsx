@@ -15,7 +15,7 @@ import type { GamePhase, GameSession, Readiness } from './GameSession.ts';
 import { WEBCAM_STILL_MS } from './webcamCalibration.ts';
 import type { CalibrationPlayerStatus, CalibrationStatus } from './webcamCalibration.ts';
 import type { JudgementEvent, PlayerResult, WindowJudgement } from '../../../../packages/score/scorer.ts';
-import { drawWebcamPreview } from '../../../../packages/pose/browser/preview.ts';
+import { drawWebcamPreview, SKELETON } from '../../../../packages/pose/browser/preview.ts';
 import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
@@ -66,7 +66,7 @@ const JUDGEMENT_LOOK: Record<WindowJudgement, [label: string, face: Face]> = {
   lost: ['LOST TRACKING', ['#ffffff', '#e2e9f2', '#9fb3c8']],
 };
 const POPUP_S = 0.9;
-// Each status's label, colour and a short label for the narrow lanes of three or four players.
+// Each status's label, colour and a short label for the narrow columns of three or four players.
 const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color: string, short: string]> = {
   missing: ['Step into view', '#ffffff', 'Step in'],
   body: ['Keep your whole body in view', '#ffe27a', 'Whole body'],
@@ -139,21 +139,24 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     fade.addColorStop(1, 'rgba(4, 34, 61, 0.85)');
     g.fillStyle = fade;
     g.fillRect(preview.x, top, preview.w, 110);
-    // Each player's status under their lane label, over the camera picture's lanes (the setup
-    // preview is mirrored: player 1 is on its left-hand side), short where the lane is narrow.
-    const lane = picture.w / session.playerCount;
+    // Each player's status under their label, P1 to P4 left to right across the camera picture
+    // (the order the players were numbered in as they stepped into view), short where the
+    // columns are narrow. The preview labels each player over their head in the same colour.
+    const column = picture.w / session.playerCount;
     const crowd = session.playerCount > 2;
     const size = crowd ? 17 : 20;
     calibration.players.forEach((status, id) => {
       const [label, color, short] = CALIBRATION_STATUS[status];
+      const cx = picture.x + column * (id + 0.5);
+      if (session.playerCount > 1) drawShadowText(g, `P${id + 1}`, cx, preview.y + 24, { size: 16, weight: 800, align: 'center', color: SKELETON[id % SKELETON.length] });
       g.font = `800 ${size}px ${FONT}`;
-      const fits = !crowd && g.measureText(label).width <= lane - 24;
-      drawShadowText(g, ellipsize(g, fits ? label : short, lane - 24), picture.x + lane * (id + 0.5), preview.y + 50, { size, weight: 800, align: 'center', color });
+      const fits = !crowd && g.measureText(label).width <= column - 24;
+      drawShadowText(g, ellipsize(g, fits ? label : short, column - 24), cx, preview.y + 50, { size, weight: 800, align: 'center', color });
     });
     const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
     const message = calibration.complete ? 'Calibrated! Starting…'
       : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
-      : session.playerCount > 2 && calibration.players.includes('missing') ? 'One player per lane, feet in view'
+      : session.playerCount > 2 && calibration.players.includes('missing') ? 'Stand side by side, feet in view'
       : 'Stand still for 2.5 seconds';
     drawShadowText(g, message, mid, GAME_CALIBRATION_PROGRESS.y - 24, { size: 22, weight: 800, align: 'center' });
     drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);

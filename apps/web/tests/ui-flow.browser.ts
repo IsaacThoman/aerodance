@@ -306,7 +306,7 @@ try {
   await until({ songScreen: 'list', stage: '' });
 
   // Dancing with the webcam calibrates first, and the camera is set up right there: pressing
-  // the preview starts it (and reports the denial). Three players calibrate in three lanes.
+  // the preview starts it (and reports the denial). Three players calibrate side by side.
   await serveFixture();
   await openSong(3, 0);
   await until({ songScreen: 'preview', songReady: 'true', stageReady: 'true' });

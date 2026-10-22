@@ -3,7 +3,7 @@ import type { FrameSize, Pose } from '../choreography.ts';
 
 export interface PreviewRect { x: number; y: number; w: number; h: number; }
 // Each player's skeleton: P1 cyan and P2 gold as ever, then green and pink.
-const SKELETON = ['#7dffff', '#ffdc70', '#8dffb4', '#ff9fd2'];
+export const SKELETON = ['#7dffff', '#ffdc70', '#8dffb4', '#ff9fd2'];
 export interface PreviewOptions {
   /** Show the picture as a mirror (a camera facing the viewer); false shows it as the camera sees it. */
   mirror?: boolean;
@@ -13,10 +13,10 @@ export interface PreviewOptions {
   soloPlayerId?: number;
 }
 
-// Shared setup view: mirrored display only; captured landmarks stay canonical. The player
-// lanes show once the camera's picture (or, without one, its frame) does; without either it
-// shows `placeholder` (the caller may draw its own instead). Returns where the picture landed
-// inside `rect` (all of it without one), so callers can line labels up with the lanes.
+// Shared setup view: mirrored display only; captured landmarks stay canonical. Each tracked
+// player is labelled over their head once the camera's picture (or, without one, its frame)
+// shows; without either it shows `placeholder` (the caller may draw its own instead). Returns
+// where the picture landed inside `rect` (all of it without one).
 /** A still picture to preview under the skeletons (a phone's, sent through the pairing relay). */
 export interface PreviewFrame { image: CanvasImageSource; width: number; height: number; close?(): void; }
 /** What a preview shows: a live video, or the latest still picture. */
@@ -59,15 +59,18 @@ export function drawWebcamPreview(g: CanvasRenderingContext2D, video: PreviewPic
     }
   }
   g.font = 'bold 16px sans-serif'; g.fillStyle = '#fff'; g.textAlign = 'center';
-  // Player lanes only over a live picture, splitting the picture itself. Player 1 is on the
-  // camera's left, so on the left of a mirrored picture and the right of an unmirrored one.
+  // With several players, each is labelled over their head (the tracker follows each person,
+  // wherever they stand); one player's label sits at the top.
   if (size && playerCount > 1) {
-    const lane = picture.w / playerCount;
-    g.strokeStyle = '#fff8'; g.lineWidth = 1; g.beginPath();
-    for (let i = 1; i < playerCount; i++) { g.moveTo(picture.x + lane * i, y); g.lineTo(picture.x + lane * i, y + h); }
-    g.stroke();
-    g.shadowColor = '#000a'; g.shadowBlur = 4;
-    for (let i = 0; i < playerCount; i++) g.fillText(`P${(mirror ? i : playerCount - 1 - i) + 1}`, picture.x + lane * (i + 0.5), y + 22);
+    g.shadowColor = '#000'; g.shadowBlur = 4;
+    for (const pose of snapshot?.poses || []) {
+      const head = pose.landmarks.slice(0, 13).filter(p => (p.confidence ?? 0) >= 0.5);
+      if (!head.length) continue;
+      const top = Math.min(...head.map(p => p.y));
+      const cx = head.reduce((sum, p) => sum + (mirror ? 1 - p.x : p.x), 0) / head.length;
+      g.fillStyle = SKELETON[pose.playerId % SKELETON.length];
+      g.fillText(`P${pose.playerId + 1}`, picture.x + cx * picture.w, Math.max(y + 18, picture.y + top * picture.h - 14));
+    }
   } else if (size) g.fillText(`P${soloPlayerId + 1}`, x + w / 2, y + 22);
   if (!video && !frame && placeholder) g.fillText(placeholder, x + w / 2, y + h / 2);
   g.restore();

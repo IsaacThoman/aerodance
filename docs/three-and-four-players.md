@@ -22,11 +22,11 @@ extra person costs something:
   camera frame. That is within what the landmark model handles, but confidence is lower
   than for one or two close players, so a player is dropped more often in poor light.
 - **Overlap and identity.** MediaPipe returns poses in no stable order and can merge or
-  drop people who overlap. The game never relied on its order: each player owns a lane of
-  the picture (left to right in the mirrored preview: P1, P2, P3, P4) and a detection only
-  counts in its own lane, away from the lane edges. With four lanes each one is narrower
-  (160 px of a 640 px frame), so players have to keep to their lane more carefully than
-  with two.
+  drop people who overlap. The game never relied on its order: the players are numbered left
+  to right in the mirrored preview (P1, P2, P3, P4) once they're all in view, and then each
+  number follows its person ([player tracking](player-tracking.md)). Players packed closer
+  together overlap more often, so with four there are more moments where a player is lost
+  for a few frames.
 
 **Verdict:** three players is comfortable. Four players should work with enough room, good
 light and the Lite or Full model, with more frequent "Step back into view" drops than with
@@ -48,7 +48,7 @@ camera, and real MediaPipe Lite tracks it (`apps/web/tests/webcam.browser.ts`, a
 | 4 copies 213 px wide, overlapping their neighbours | one tracked |
 | 4 copies in a 16:9 (852x480) frame, 213 px lanes | none tracked |
 
-In the failing four-copy runs MediaPipe itself returned no poses, so the game's lane
+In the failing four-copy runs MediaPipe itself returned no poses, so the game's player
 assignment wasn't throwing tracked players away. Two limits show up: a person needs to be
 roughly 40% of the frame height or more for the detector to find them, and dancers whose
 outstretched arms overlap are merged or dropped. Four of this photo's wide-stance copies
@@ -56,7 +56,7 @@ can't satisfy both in one 4:3 frame. Real players standing side by side with arm
 narrower than this photo, so a real four-player game may do better, but that still needs a
 test with four people in front of one webcam. Expect four players to need about 4 m of
 width at 3–3.5 m from the camera, with players keeping their arms out of their neighbours'
-lanes.
+way.
 
 Speed wasn't measured meaningfully: the headless GPU session's pose rate swung between
 about 1 and 20 poses/s with the stage's GPU load, for two players as much as for three or
@@ -89,14 +89,14 @@ with four.
 - `PlayerCount` is `1 | 2 | 3 | 4`; webcam records (including a paired phone's, sent
   through the pairing relay) carry up to four poses. Choreographies, takes, tracks and Studio
   captures stay duets.
-- Webcam tracking asks MediaPipe for up to four poses and splits the picture into that
-  many lanes; the setup preview draws the lanes over the camera picture itself (not the
-  letterbox around it) and each player's skeleton in their colour. A paired phone's own
-  preview shows the lanes too.
+- Webcam tracking asks MediaPipe for one more pose than there are players and follows each
+  player ([player tracking](player-tracking.md)); the setup preview draws each player's
+  skeleton in their colour with their number over their head. A paired phone's own preview
+  labels them too.
 - `?record` recordings (`.adpose` kind `recording`) have one slot per player, up to four;
   every other `.adpose` kind still has at most two ([pose binary format](pose-binary-format.md)).
 - Calibration has every player hold still together, as before, with shorter status labels
-  when the lanes are narrow.
+  when the columns are narrow.
 - The players screen's dial picks the count; the dancers on the menu's glass stage show
   it, arriving in a soap bubble and popping when they leave.
 - The live characters and their scores sit in the top corners: P1 and P2 on the left and
