@@ -241,7 +241,7 @@ export default function StageView({ active = false, orbiting = false, stageId, r
   const target = active ? resolveStage(stageId) : null;
   const props = useRef({ target, shown, onState, routine, orbiting, results });
   props.current = { target, shown, onState, routine, orbiting, results };
-  useEffect(() => () => { stagePlay.dancing = false; }, []);
+  useEffect(() => () => { Object.assign(stagePlay, { dancing: false, celebrating: false }); }, []);
   const orbit = useRef({ speed: 0, phase: 0, ramp: 0, on: false });
   // Keep dancing the last routine while the veil comes up on the way out.
   const lastRoutine = useRef<SongRoutine | null>(null);
@@ -263,8 +263,10 @@ export default function StageView({ active = false, orbiting = false, stageId, r
     const o = orbit.current;
     const { target: want, shown: have, routine: current } = props.current;
     if (current && current !== st.routine) { st.routine = current; st.dancersFailed = false; }
-    // The song itself (not Song Select's preview or the results): stages calm their busiest effects.
-    stagePlay.dancing = have !== null && want === have && !props.current.orbiting && !props.current.results;
+    // The song and its results (not Song Select's preview): stages calm their busiest effects.
+    const playing = have !== null && want === have && !props.current.orbiting;
+    stagePlay.dancing = playing && !props.current.results;
+    stagePlay.celebrating = playing && !!props.current.results;
     if (have === null) {
       Object.assign(o, { speed: 0, phase: 0, ramp: 0, on: false });
       stageOrbit.yaw = 0;

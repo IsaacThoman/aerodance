@@ -23,11 +23,11 @@ import BubbleColumns from './BubbleColumns.tsx';
 import Bar from './Bar.tsx';
 import Particles from './Particles.tsx';
 
-// Drives the shared club uniforms; bloom breathes with the kick, except while a song is danced.
+// Drives the shared club uniforms; bloom breathes with the kick (club.uPulse holds steady during a song).
 function ClubClock() {
   useFrame((state, delta) => {
     tickClub(state.clock.elapsedTime, delta);
-    post.bloomStrength = meta.post.bloomStrength * (1 + beat.pulse * 0.2 * (1 - club.uCalm.value));
+    post.bloomStrength = meta.post.bloomStrength * (1 + club.uPulse.value * 0.2);
   });
   return null;
 }
@@ -84,7 +84,7 @@ function Lights() {
       const side = i ? 1 : -1;
       aim.position.set(side * 2 + Math.sin(t * 0.7 + i * 2) * 0.6, 1.4, Math.sin(t * 0.5 + i) * 0.5);
       light.color.copy(RIM[(i + swap) % RIM.length]);
-      light.intensity = 230 + beat.pulse * 70;
+      light.intensity = 230 + club.uPulse.value * 70;
     }
   });
   return (

@@ -205,7 +205,8 @@ export default function Beams() {
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
     const { o, target, c } = tmp;
     const mode = Math.floor(beat.bar / 4) % 3;
-    const pulse = 0.75 + 0.5 * beat.pulse;
+    const kick = club.uPulse.value;
+    const pulse = 0.75 + 0.5 * kick;
     for (let i = 0; i < HEADS.length; i++) {
       const x = HEADS[i];
       const s = i % 2 ? 1 : -1;
@@ -241,7 +242,7 @@ export default function Beams() {
       o.updateMatrix();
       pm.setMatrixAt(i, o.matrix);
       hue(beat.bar * 0.17 + i * 0.06, c);
-      lm.setColorAt(i, c.multiplyScalar(3 + beat.pulse * 3));
+      lm.setColorAt(i, c.multiplyScalar(3 + kick * 3));
       if (follow) c.setRGB(0.75, 0.9, 1.0).multiplyScalar(0.6);
       else hue(beat.bar * 0.17 + i * 0.06, c);
       bm.setColorAt(i, c.multiplyScalar((follow ? 0.3 : 0.55) * pulse));
@@ -254,10 +255,12 @@ export default function Beams() {
     if (lm.instanceColor) lm.instanceColor.needsUpdate = true;
     if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
     if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
-    // Lasers fire on the second half of every four bars, but not while a song is danced.
+    // Lasers fire on the second half of every four bars. They stay on through the results
+    // rather than flashing, and off while a song is danced.
     const lu = res.laserMat.uniforms;
     lu.uTime.value = t;
-    lu.uIntensity.value = (beat.bar % 4 >= 2 ? 1 : 0) * (0.5 + 0.4 * beat.pulse) * (1 - club.uCalm.value);
+    const firing = THREE.MathUtils.lerp(beat.bar % 4 >= 2 ? 1 : 0, 1, club.uSteady.value);
+    lu.uIntensity.value = firing * (0.5 + 0.4 * kick) * (1 - club.uCalm.value);
   });
 
   const n = HEADS.length;

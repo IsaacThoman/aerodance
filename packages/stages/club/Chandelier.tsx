@@ -38,7 +38,7 @@ void main() {
   float id = hash12(vec2(row, col));
   vec3 env = mix(vec3(0.03, 0.05, 0.16), vec3(0.15, 0.2, 0.5), smoothstep(-0.3, 0.8, R.y));
   env += clubHue(atan(R.x, R.z) * 0.3 + uTime * 0.05) * smoothstep(0.2, 1.0, hash12(vec2(row * 1.3, col + floor(uBeat)))) * 0.9;
-  float glint = step(0.94, hash12(vec2(col * 1.7, row + floor(uBeat * 2.0)))) * (0.6 + uPulse * 1.2 * (1.0 - uCalm));
+  float glint = step(0.94, hash12(vec2(col * 1.7, row + floor(uBeat * 2.0)))) * (0.6 + uPulse * 1.2);
   env += vec3(1.0, 0.97, 0.95) * glint * 1.4;
   env += vec3(0.9, 0.97, 1.0) * pow(max(dot(R, normalize(vec3(0.2, 0.3, 1.0))), 0.0), 30.0) * 1.5;
   gl_FragColor = vec4(env * mix(0.15, 1.0, grout) * (0.8 + 0.4 * id), 1.0);
@@ -96,15 +96,15 @@ void main() {
 
 const haloFragment = /* glsl */ `
 uniform float uPulse;
-uniform float uCalm;
+uniform float uSteady;
 varying vec2 vUv;
 void main() {
   vec2 d = vUv - 0.5;
   float r = length(d) * 2.0;
   float g = exp(-r * r * 6.0) * 0.45 + exp(-r * 10.0) * 0.4;
   float star = exp(-abs(d.x) * 70.0) * exp(-abs(d.y) * 5.0) + exp(-abs(d.y) * 70.0) * exp(-abs(d.x) * 5.0);
-  // While a song is danced the halo holds steady and loses its star streaks.
-  float a = (g + star * 0.5 * (1.0 - uCalm)) * (0.4 + 0.3 * uPulse * (1.0 - uCalm)) * smoothstep(1.0, 0.6, r);
+  // During a song and its results the halo loses its star streaks.
+  float a = (g + star * 0.5 * (1.0 - uSteady)) * (0.4 + 0.3 * uPulse) * smoothstep(1.0, 0.6, r);
   gl_FragColor = vec4(vec3(0.75, 0.92, 1.0) * a, 1.0);
 }
 `;
