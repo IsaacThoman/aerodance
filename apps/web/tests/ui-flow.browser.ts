@@ -21,7 +21,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { ASPECT, BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START } = menuLayout(design.w);
+const { ASPECT, BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
 const { BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
@@ -141,8 +141,16 @@ try {
   const auto = center(menuLayout(otherDesign.w).ASPECT(0));
   await page.mouse.click(otherFrame.x + (auto.x / otherDesign.w) * otherFrame.width, otherFrame.y + (auto.y / otherDesign.h) * otherFrame.height);
   await until({ displayMode: mode, menuReady: 'true' });
-  assert.deepEqual(await page.evaluate(() => localStorage.getItem('aerodance.graphics')), JSON.stringify({ aspect: 'auto' }));
+  assert.deepEqual(await page.evaluate(() => localStorage.getItem('aerodance.graphics')), JSON.stringify({ aspect: 'auto', stats: 'off' }));
   frame = await frameBox();
+  // Graphics → Stats shows the overlay, which reports its numbers; Off takes it and them away.
+  await click(STATS(1));
+  await until({ statsMode: 'basic', statsFps: /^\d/ });
+  await click(STATS(2));
+  await until({ statsMode: 'full' });
+  await shot('settings-stats-full');
+  await click(STATS(0));
+  await page.waitForFunction(() => !('statsMode' in (document.querySelector('canvas')?.dataset ?? {})));
   await click(MENU_BACK);
   await menuOn('main');
   await shot('main-menu');

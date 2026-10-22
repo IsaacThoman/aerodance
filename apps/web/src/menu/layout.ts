@@ -38,10 +38,13 @@ export function menuLayout(width = 1600) {
   const w = compact ? 540 : 600;
   const rowsHeight = (rows: number) => ROWS_TOP + (rows - 1) * ROW_H + 48;
   const SOUND = { x, y: 222, w, h: rowsHeight(5) };
-  const GRAPHICS = { x, y: SOUND.y + SOUND.h + 24, w, h: rowsHeight(1) };
-  // Aspect ratio: Auto / 4:3 / 16:9 side by side, right of the row's label.
+  const GRAPHICS = { x, y: SOUND.y + SOUND.h + 24, w, h: rowsHeight(2) };
+  const graphicsRowY = (row: number) => GRAPHICS.y + ROWS_TOP + row * ROW_H;
+  // Three options side by side, right of the row's label: Aspect ratio Auto / 4:3 / 16:9, then
+  // Stats Off / Basic / Full.
   const options = { x0: x + 240, x1: x + w - 32, gap: 6 };
   const optionW = (options.x1 - options.x0 - 2 * options.gap) / 3;
+  const option = (row: number, i: number) => ({ x: options.x0 + i * (optionW + options.gap), y: graphicsRowY(row) - 21, w: optionW, h: 42 });
   return {
     TITLE: { ...TITLE, x: x - 4, size: compact ? 122 : TITLE.size },
     START: { ...START, x, w: compact ? 400 : START.w },
@@ -57,7 +60,9 @@ export function menuLayout(width = 1600) {
     TRACK: { x0: x + 190, x1: x + w - 110 },
     SWITCH: { w: 84, h: 42, x: x + w - 124 },
     ROW_Y: (i: number) => SOUND.y + ROWS_TOP + i * ROW_H,
-    ASPECT_ROW_Y: GRAPHICS.y + ROWS_TOP,
-    ASPECT: (i: number) => ({ x: options.x0 + i * (optionW + options.gap), y: GRAPHICS.y + ROWS_TOP - 21, w: optionW, h: 42 }),
+    ASPECT_ROW_Y: graphicsRowY(0),
+    ASPECT: (i: number) => option(0, i),
+    STATS_ROW_Y: graphicsRowY(1),
+    STATS: (i: number) => option(1, i),
   };
 }
