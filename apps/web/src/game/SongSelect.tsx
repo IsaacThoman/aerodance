@@ -34,13 +34,15 @@ import { displayDesign } from '../display.ts';
  *            and Dance!, which hands the bundle to the game (onDance); the menu music
  *            ducks underneath
  *
- * Bundles are fully verified before they play (songs/loadBundle.ts). Back / Escape go from
- * the preview to the list and from the list to the player count.
+ * Choosing a song keeps the list up, its row loading, until the preview can show at once: the
+ * bundle loads (fully verified, songs/loadBundle.ts) while the stage's code downloads, then the
+ * stage is built and compiled out of sight (StageView's `prepared`) and the preview opens.
+ * Back / Escape go from the preview to the list and from the list to the player count.
  * The canvas reports data-song-screen, -song-ready, -catalog, -song-count, -player-slots, -preview-state
  * and -preview-time-ms for tests.
  *
  * <SongSelect visible playerCount={1} connection={view} onBack
- *   stageState={{ showing, ready, stage, failed }} onPreviewChange onDance />
+ *   stageState={{ showing, prepared, ready, stage, failed }} onPreviewChange onDance />
  */
 
 export interface SongSelectProps {
@@ -155,6 +157,8 @@ export default function SongSelect({
     props.current.onPreviewChange?.(null);
   };
 
+  // The preview's stage is mounted out of sight (StageView) while the list stays up with the
+  // song's row loading; showPreview opens the preview once it's built and compiled.
   const openPreview = (bundle: LoadedSongBundle) => {
     const { song } = bundle;
     st.bundle = bundle;
@@ -168,10 +172,8 @@ export default function SongSelect({
       playing: () => st.player?.state === 'playing',
     };
     st.routine = routine;
-    preloadStage(resolveStage(song.stage));
     props.current.onPreviewChange?.(routine);
-    duckMenuMusic(true);
-    go('preview');
+    // The audio decodes meanwhile; it plays once the preview is open.
     createSongPlayer(bundle.audio, { startMs: song.playableStartMs, endMs: song.playableEndMs }, { untilHeard: false })
       .then((player) => {
         if (st.bundle !== bundle) { player.dispose(); return; }
@@ -182,7 +184,7 @@ export default function SongSelect({
           st.previewState = player.state;
           ui.invalidate();
         });
-        if (!document.hidden) player.play();
+        if (!document.hidden && st.next === 'preview') player.play();
         st.previewState = player.state;
       })
       .catch(() => {
@@ -193,18 +195,29 @@ export default function SongSelect({
       .finally(() => ui.invalidate());
   };
 
+  // Once the preview's stage is in (or failed): the music starts and the preview opens.
+  const showPreview = () => {
+    st.loading = null;
+    duckMenuMusic(true);
+    go('preview');
+    if (!document.hidden) st.player?.play();
+  };
+
   const chooseSong = (entry: CatalogSong) => {
     st.loading?.controller.abort();
     const controller = new AbortController();
     st.loading = { id: entry.id, controller };
     st.chosen = entry.id;
     st.loadError = '';
+    // The stage's code downloads alongside the bundle.
+    preloadStage(resolveStage(entry.stage));
     loadSongBundle(entry, CATALOG_URL(), { signal: controller.signal })
       .then((bundle) => { if (!controller.signal.aborted && props.current.visible) openPreview(bundle); })
       .catch((error: unknown) => { if (!controller.signal.aborted) st.loadError = message(error); })
       .finally(() => {
         if (controller.signal.aborted) return;
-        st.loading = null;
+        // An opened bundle keeps the row loading until its stage is in (showPreview).
+        if (!st.bundle) st.loading = null;
         ui.invalidate();
       });
   };
@@ -280,6 +293,11 @@ export default function SongSelect({
         s.invalidate();
       }
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 3 : 6);
+      // A chosen song waits on the list until its stage is prepared (or failed).
+      if (st.bundle && st.loading && st.next === 'list') {
+        const want = resolveStage(st.bundle.song.stage);
+        if (p.stageState.stage === want && (p.stageState.prepared || p.stageState.failed)) showPreview();
+      }
       const c = p.connection;
       const slots = Array.from({ length: p.playerCount }, (_, i) => slotStatus(c, i).label);
       const key = [
@@ -348,7 +366,7 @@ export default function SongSelect({
             const best = bestScore(song.id, p.playerCount, SCORER_VERSION);
             // Catalog difficulty is free-form display text.
             const difficulty = typeof song.difficulty === 'string' || typeof song.difficulty === 'number' ? String(song.difficulty) : 'Routine';
-            const sub = loadingThis ? `Loading bundle${dots}` : [song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
+            const sub = loadingThis ? `Loading${dots}` : [song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
               best ? `Best ${best.score.toLocaleString('en-US')} ${best.grade}` : null].filter(Boolean).join(' · ');
             g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
             drawPill(g, rect, {
@@ -413,7 +431,8 @@ export default function SongSelect({
 
   // A hidden tab pauses the song.
   useEffect(() => {
-    const onVisibility = () => { if (document.hidden) st.player?.pause(); else st.player?.play(); };
+    // A song still waiting on its stage stays quiet.
+    const onVisibility = () => { if (document.hidden) st.player?.pause(); else if (st.next === 'preview') st.player?.play(); };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [st]);

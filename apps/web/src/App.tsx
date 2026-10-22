@@ -97,7 +97,7 @@ export default function App() {
   const activeSource: PoseSource = replay ?? source;
   // Song Select's preview: the routine to dance, and how its stage is doing.
   const [preview, setPreview] = useState<SongRoutine | null>(null);
-  const [stage, setStage] = useState<StageState>({ showing: false, ready: false, stage: null, failed: false });
+  const [stage, setStage] = useState<StageState>({ showing: false, prepared: false, ready: false, stage: null, failed: false });
   const menuOpen = screen === 'menu';
   const selectedConnection = replay && replayView ? replayView : connection;
   // The song being danced, its phase, and the results screen's reveal (StageView and
