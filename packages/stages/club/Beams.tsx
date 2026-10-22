@@ -14,10 +14,11 @@ const DANCER_X = meta.dancers.spacing / 2;
 const HEADS = [-6, -3.6, -1.2, 1.2, 3.6, 6];
 const HEAD_Y = TRUSS.y - 0.42;
 const BEAM_LEN = 15;
+const BEAM_END_R = 1.25;
 const LASERS = 5;
 
-// Soft volumetric beam: bright at the source, fading along its length and
-// toward the silhouette edges, with a slow haze shimmer.
+// Soft volumetric beam: a cone that is narrow and bright at the lamp, widening and
+// fading a little toward the floor, soft at its silhouette edges, with a slow haze shimmer.
 const beamVertex = /* glsl */ `
 uniform float uLen;
 varying float vAlong;
@@ -48,7 +49,7 @@ void main() {
   float f = abs(dot(normalize(vN), normalize(vV)));
   float edge = pow(f, 1.8);
   float a = clamp(vAlong, 0.0, 1.0);
-  float fall = pow(1.0 - a, 1.4) * 0.85 + 0.15 * (1.0 - a);
+  float fall = mix(1.0, 0.45, a);
   float haze = 0.65 + 0.35 * sin(vW.y * 1.7 + vW.x * 0.9 - uTime * 0.9) * sin(vW.z * 1.3 + uTime * 0.6);
   float hot = exp(-a * 25.0) * 1.2;
   float floorFade = smoothstep(${FLOOR.toFixed(2)}, ${(FLOOR + 1.2).toFixed(2)}, vW.y);
@@ -166,8 +167,9 @@ export default function Beams() {
       truss,
       head: new RoundedBoxGeometry(0.42, 0.42, 0.52, 3, 0.12),
       lens: new THREE.CircleGeometry(0.15, 20).translate(0, 0, 0.265),
-      beam: new THREE.CylinderGeometry(0.1, 1.3, BEAM_LEN, 20, 1, true).translate(0, BEAM_LEN / 2, 0).rotateX(Math.PI / 2),
-      pool: new THREE.CircleGeometry(1.4, 32).rotateX(-Math.PI / 2),
+      // Narrow at the lamp (z = 0), wide where it lands (z = BEAM_LEN, scaled to the distance).
+      beam: new THREE.CylinderGeometry(BEAM_END_R, 0.12, BEAM_LEN, 24, 1, true).translate(0, BEAM_LEN / 2, 0).rotateX(Math.PI / 2),
+      pool: new THREE.CircleGeometry(BEAM_END_R, 32).rotateX(-Math.PI / 2),
       laser: laserGeometry(),
       chrome: new THREE.MeshStandardMaterial({ color: '#c9d4f0', metalness: 1, roughness: 0.2 }),
       body: new THREE.MeshPhysicalMaterial({ color: '#d7def5', roughness: 0.25, clearcoat: 1, envMapIntensity: 0.5 }),
@@ -214,10 +216,11 @@ export default function Beams() {
       const x = HEADS[i];
       const follow = i === 2 || i === 3;
       // Every head lights the dancer on its own side, its beam circling them slowly and
-      // steadily: the inner two hold tight as follow spots, the outer ones swing wider.
+      // steadily: the inner two hold tight as follow spots, the outer ones swing wider. The
+      // cones land just behind the dancers, so they frame them without washing them out.
       const r = follow ? 0.3 : 0.9;
       const a = t * (follow ? 0.6 : 0.45) * (i % 2 ? 1 : -1) + i * 1.7;
-      target.set(Math.sign(x) * DANCER_X + Math.cos(a) * r, 0, 0.2 + Math.sin(a) * r * 0.8);
+      target.set(Math.sign(x) * DANCER_X + Math.cos(a) * r, 0, -0.9 + Math.sin(a) * r * 0.4);
       o.position.set(x, HEAD_Y, TRUSS.z);
       o.scale.set(1, 1, 1);
       o.lookAt(target);
@@ -229,7 +232,7 @@ export default function Beams() {
       bm.setMatrixAt(i, o.matrix);
       o.position.set(target.x, 0.02, target.z);
       o.rotation.set(0, 0, 0);
-      o.scale.setScalar(follow ? 0 : 0.6); // the floor shader already pools light under the dancers
+      o.scale.setScalar(1); // a pool of light where the cone lands
       o.updateMatrix();
       pm.setMatrixAt(i, o.matrix);
       // Steady brightness: no flash on the beat.
@@ -237,7 +240,7 @@ export default function Beams() {
       lm.setColorAt(i, c.multiplyScalar(3.5));
       if (follow) c.setRGB(0.75, 0.9, 1.0).multiplyScalar(0.6);
       else hue(bars * 0.17 + i * 0.06, c);
-      bm.setColorAt(i, c.multiplyScalar((follow ? 0.3 : 0.55) * 0.85));
+      bm.setColorAt(i, c.multiplyScalar(follow ? 0.16 : 0.4));
       pm.setColorAt(i, c.multiplyScalar(0.6 / 0.55));
     }
     hm.instanceMatrix.needsUpdate = true;
