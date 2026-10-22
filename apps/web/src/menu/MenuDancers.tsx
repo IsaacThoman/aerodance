@@ -53,7 +53,7 @@ const LAG = [0, 0, 3.5, 3.5];
 // Leaving: the dancer puffs up for INFLATE_TIME, then its skin tears, and the last shreds are
 // gone by POP_TIME.
 const INFLATE_TIME = 0.12;
-const POP_TIME = 0.56;
+const POP_TIME = 0.64;
 
 // How far the diamond is turned about the middle (radians): the front dancer steps left and
 // the back one right, so the back one shows between the others.
