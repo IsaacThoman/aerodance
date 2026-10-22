@@ -125,7 +125,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
   drawGlassPanel(g, GAME_CALIBRATION_CARD, 30);
 
-  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 76 });
+  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 66 });
   const pairing = camera.pairing();
   if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
@@ -160,7 +160,8 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     calibration.players.forEach((status, id) => {
       const [label, color, short] = CALIBRATION_STATUS[status];
       const cx = picture.x + column * (columns.indexOf(id) + 0.5);
-      if (session.playerCount > 1) drawShadowText(g, `P${id + 1}`, cx, preview.y + 24, { size: 16, weight: 800, align: 'center', color: SKELETON[id % SKELETON.length] });
+      // (One player's label too: the fade dims the preview's own.)
+      drawShadowText(g, `P${id + 1}`, cx, preview.y + 24, { size: 16, weight: 800, align: 'center', color: SKELETON[id % SKELETON.length] });
       g.font = `800 ${size}px ${FONT}`;
       const fits = !crowd && g.measureText(label).width <= column - 24;
       drawShadowText(g, ellipsize(g, fits ? label : short, column - 24), cx, preview.y + 50, { size, weight: 800, align: 'center', color });

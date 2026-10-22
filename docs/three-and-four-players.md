@@ -58,6 +58,14 @@ test with four people in front of one webcam. Expect four players to need about 
 width at 3–3.5 m from the camera, with players keeping their arms out of their neighbours'
 way.
 
+Later measurements on real footage of three and four dancers (portrait phone video, and the
+same cropped to the dancers) agree: MediaPipe found about two people per frame on average,
+however many were in view, and the Full and Heavy models found no more than Lite (they share
+its person detector; only the landmark model differs) while Heavy took twice as long. So with
+three or four players, each player is missed in a good share of frames, and the tracker's job
+is mostly to keep each number on its person through those gaps
+([player tracking](player-tracking.md)).
+
 Speed wasn't measured meaningfully: the headless GPU session's pose rate swung between
 about 1 and 20 poses/s with the stage's GPU load, for two players as much as for three or
 four, so it says nothing about speed on a player's machine.

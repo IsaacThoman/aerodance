@@ -50,10 +50,11 @@ const BYSTANDER = 10, NEAR = 2;
 /** ...who can only take the number of a player gone this long. */
 const LONG_MS = 5000;
 /**
- * For this long after somebody new takes a missing player's number, the player can have it
- * back: somebody who came into view since then, at the player's place for RESTORE results.
+ * For this long after somebody new takes a missing player's number (or the player takes it back
+ * somewhere else), the player can have it back: somebody their size who came into view since,
+ * standing at the player's place for RESTORE results running.
  */
-const RESTORE_MS = 30000, RESTORE = 5;
+const RESTORE_MS = 30000, RESTORE = 8;
 /**
  * Players closer than this (in body sizes) overlap; farther than APART they're clearly apart.
  * Side by side, shoulder to shoulder, two people are about 0.75 apart.
@@ -112,7 +113,9 @@ interface Player {
    */
   claims: Map<number, { margin: number; run: number }>;
   /** Who had this number before somebody new took it, and when; and when the last somebody new did. */
-  former: { place: number; looks: number[] | null; samples: number; at: number } | null;
+  former: { place: number; scale: number; looks: number[] | null; samples: number; at: number;
+    /** Who has been back at the place (by chain), where they were first, and in how many results running. */
+    back?: { chain: number; x: number; run: number } } | null;
   anew: number;
 }
 
@@ -252,7 +255,11 @@ export class PlayerTracker {
     const needed = this.playerCount === 1 ? 1 : 2;
     // Where each player is: just seen, or their place.
     const where = this.players.map(p => p.track && now - p.track.seen <= FRESH_MS ? p.track.body.x : p.place);
-    const nearest = (p: Player, body: Body) => this.players.every((q, i) => q === p || !q.track || Math.abs(body.x - where[i]) > Math.abs(body.x - p.place));
+    // A player whose number is given up, on whose place another player has stood since, isn't there any more.
+    const givenUp = (p: Player) => !!p.track && now - p.track.seen > RESERVE_MS;
+    const superseded = (p: Player, q: Player, body: Body) => givenUp(p) && !givenUp(q) && Math.abs(p.place - q.place) < CLOSE * body.scale;
+    const nearest = (p: Player, body: Body) => this.players.every((q, i) => q === p || !q.track
+      || (!superseded(p, q, body) && (superseded(q, p, body) || Math.abs(body.x - where[i]) > Math.abs(body.x - p.place))));
     // Looks count for a player whose looks tell them from every other player.
     const recognisable = this.players.map((p, i) => p.samples >= LOOKS_SAMPLES && this.players.every((q, j) => i === j || !q.track || this.distinct(i, j)));
     const biggest = Math.max(...bodies.map(b => b.scale));
@@ -310,7 +317,7 @@ export class PlayerTracker {
       const p = this.players[id];
       // (Only one who had it a while: not somebody who took it lately, while its note stands.)
       if (p.track && anew[id].has(c)) {
-        if (now - p.anew > RESTORE_MS && (!p.former || now - p.former.at > RESTORE_MS)) p.former = { place: p.place, looks: p.looks, samples: p.samples, at: now };
+        if (now - p.anew > RESTORE_MS && (!p.former || now - p.former.at > RESTORE_MS)) p.former = { place: p.place, scale: p.track.body.scale, looks: p.looks, samples: p.samples, at: now };
         p.anew = now;
       }
       if (!p.track || now - p.track.seen > FRESH_MS) p.track = { body: bodies[c], vx: 0, vy: 0, seen: now };
@@ -323,7 +330,8 @@ export class PlayerTracker {
       if (all.every((a, i) => all.every((b, j) => i === j || Math.abs(a.x - b.x) > CLOSE * Math.max(a.scale, b.scale)))) {
         this.lined = true;
         const players = [...found.keys()].sort((a, b) => found.get(b)!.x - found.get(a)!.x).map(id => ({ ...this.players[id], body: found.get(id)! }));
-        players.forEach(({ body, ...p }, id) => { this.players[id] = { ...p, doubt: [], claims: new Map(), former: null, anew: -Infinity }; found.set(id, body); });
+        // Looks learnt while the numbers were provisional may be anybody's: they're learnt afresh.
+        players.forEach(({ body, ...p }, id) => { this.players[id] = { ...p, looks: null, samples: 0, doubt: [], claims: new Map(), former: null, anew: -Infinity }; found.set(id, body); });
         this.tangled.clear();
       }
     }
@@ -348,7 +356,9 @@ export class PlayerTracker {
       const own = looksDistance(body.looks, p.looks);
       for (let other = 0; other < this.playerCount; other++) {
         if (other === id) continue;
-        const margin = this.distinct(id, other) ? own - looksDistance(body.looks, this.players[other].looks!) : 0;
+        // Only somebody who looks like the other player (not merely less unlike them) is them.
+        const theirs = this.distinct(id, other) ? looksDistance(body.looks, this.players[other].looks!) : Infinity;
+        const margin = theirs < STRANGER ? own - theirs : 0;
         p.doubt[other] = 0.7 * (p.doubt[other] ?? 0) + 0.3 * margin;
       }
     }
@@ -386,9 +396,9 @@ export class PlayerTracker {
       const own = looksDistance(body.looks, p.looks);
       const claims = new Map<number, { margin: number; run: number }>();
       for (const other of loose) {
-        // A bystander only when they look just like the player (somebody dressed alike could be beside them).
+        // Never a bystander: somebody dressed alike could be beside them.
         const theirs = looksDistance(other.looks!, p.looks);
-        const margin = own > STRANGER && (other.extra < BYSTANDER || theirs < STRANGER / 2) ? own - theirs : 0;
+        const margin = own > STRANGER && other.extra < BYSTANDER ? own - theirs : 0;
         const before = p.claims.get(other.chain);
         claims.set(other.chain, { margin: 0.7 * (before?.margin ?? 0) + 0.3 * margin, run: margin > 0 ? (before?.run ?? 0) + 1 : 0 });
       }
@@ -404,9 +414,9 @@ export class PlayerTracker {
   }
 
   /**
-   * Gives a number back to the player somebody new took it from, when somebody who has come into
-   * view since is back at their place for a few results (a bystander who stood there all along
-   * isn't them), while whoever took it is elsewhere, and doesn't look more like them.
+   * Gives a number back to the player somebody new took it from, when somebody their size who has
+   * come into view since is back at their place for a few results running (a bystander who stood
+   * there all along isn't them), while whoever took it is elsewhere, and doesn't look more like them.
    */
   restore(found: Map<number, Body>, bodies: Body[], now: number) {
     for (const [id, p] of this.players.entries()) {
@@ -414,10 +424,13 @@ export class PlayerTracker {
       if (!former) continue;
       if (now - former.at > RESTORE_MS) { p.former = null; continue; }
       const holder = found.get(id);
-      const back = bodies.filter(b => ![...found.values()].includes(b) && b.hits >= RESTORE && b.since > former.at - SEEN_GAP_MS
-        && Math.abs(b.x - former.place) / b.scale <= RETURN)
+      const back = bodies.filter(b => ![...found.values()].includes(b) && b.since > former.at - SEEN_GAP_MS
+        && Math.abs(b.x - former.place) / b.scale <= RETURN && Math.abs(Math.log(b.scale / former.scale)) <= GROWTH)
         .sort((a, b) => Math.abs(a.x - former.place) - Math.abs(b.x - former.place))[0];
-      if (!back || (holder && Math.abs(holder.x - former.place) <= APART * holder.scale)) continue;
+      // Standing there, not walking past.
+      const still = back && former.back?.chain === back.chain && Math.abs(back.x - former.back.x) <= CLOSE * back.scale;
+      former.back = back ? (still ? { ...former.back!, run: former.back!.run + 1 } : { chain: back.chain, x: back.x, run: 1 }) : undefined;
+      if (!back || former.back!.run < RESTORE || (holder && Math.abs(holder.x - former.place) <= APART * holder.scale)) continue;
       if (former.looks && former.samples >= LOOKS_SAMPLES && back.looks && holder?.looks
         && looksDistance(back.looks, former.looks) > looksDistance(holder.looks, former.looks)) continue;
       this.players[id] = { ...p, track: { body: back, vx: 0, vy: 0, seen: now }, place: former.place, looks: former.looks, samples: former.samples,
@@ -446,8 +459,9 @@ export class PlayerTracker {
       });
       if (!clear || [...this.tangled.keys()].some(key => key.split(',').includes(String(id)))) continue;
       p.place = body.x;
-      // Looks are learnt from a person who doesn't look like them (who may be somebody else) only slowly.
-      if (body.looks && !p.doubt.some(d => d > DOUBT / 3)) {
+      // Looks are learnt from a person who doesn't look like them (who may be somebody else) only
+      // slowly, and not at all while somebody new has their number (the player may be back).
+      if (body.looks && !p.doubt.some(d => d > DOUBT / 3) && now - p.anew > RESTORE_MS) {
         const rate = !p.looks || p.samples < LOOKS_SAMPLES || looksDistance(body.looks, p.looks) <= STRANGER ? LEARN : LEARN_STRANGER;
         p.looks = p.looks ? p.looks.map((v, i) => (1 - rate) * v + rate * body.looks![i]) : [...body.looks];
         p.samples++;
@@ -471,6 +485,8 @@ export class PlayerTracker {
       if (!group.every(id => found.has(id))) continue;
       const bodies = group.map(id => found.get(id)!);
       if (!bodies.every((a, i) => bodies.every((b, j) => i === j || apart(a, b)))) continue;
+      // Somebody much bigger or smaller than any of them (passing behind) isn't one of them.
+      if (!bodies.every(b => group.some(id => Math.abs(Math.log(b.scale / this.players[id].track!.body.scale)) <= GROWTH))) continue;
       for (const key of [...this.tangled.keys()]) if (key.split(',').some(id => group.includes(Number(id)))) this.tangled.delete(key);
       let order: Body[];
       if (bodies.every(b => b.looks) && group.every(a => group.every(b => a === b || this.distinct(a, b)))) {

@@ -57,6 +57,88 @@ test('one player is found at once, and a passer-by can neither push them out nor
   assert.ok(passing.every(m => m.get(0) === 0.5), 'the player keeps their number while somebody walks past');
 });
 
+test('a player standing where a long-gone player stood keeps their number through a moment unseen', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(30, () => ({ people: [person(0.3, { arms: 0.1 }), person(0.7)] })));
+  // P1 (0.7) leaves; P2 walks over to P1's old place and stands there; the model misses them.
+  run(tracker, repeat(90, () => ({ people: [person(0.3, { arms: 0.1 })] })), 1000);
+  run(tracker, repeat(40, i => ({ people: [person(0.3 + 0.4 * i / 39, { arms: 0.1 })] })), 4000);
+  run(tracker, repeat(30, () => ({ people: [person(0.7, { arms: 0.1 })] })), 5400);
+  run(tracker, repeat(9, () => ({ people: [] })), 6400);
+  const back = run(tracker, repeat(30, () => ({ people: [person(0.7, { arms: 0.1 })] })), 6700);
+  assert.deepEqual([...back.at(-1)!], [[1, 0.7]]);
+});
+
+test('a bystander missed for a moment is still a bystander', () => {
+  const tracker = new PlayerTracker(2);
+  const by = () => person(0.05, { size: 0.6, arms: 0.2 });
+  run(tracker, repeat(300, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()] })));
+  run(tracker, repeat(35, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 })] })), 10000);
+  // Back in view as P2 steps out: they don't take P2's number when P2 has only just gone.
+  const out = run(tracker, repeat(36, () => ({ people: [person(0.6), by()] })), 11200);
+  assert.ok(out.every(m => !m.has(1)), 'P2 kept');
+  const back = run(tracker, repeat(10, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()] })), 12400);
+  assert.deepEqual([...back.at(-1)!].sort(), [[0, 0.6], [1, 0.25]]);
+});
+
+test('a player who comes back somewhere else doesn\'t lose their number to a passer-by at their old place', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 })] })));
+  run(tracker, repeat(180, () => ({ people: [person(0.6)] })), 2000);
+  // P2 comes back a while later beyond P1 (the camera's right of the line-up), then somebody
+  // farther back walks across behind them, through P2's old place.
+  const back = run(tracker, repeat(90, () => ({ people: [person(0.6), person(0.85, { arms: 0.1 })] })), 8000);
+  assert.equal(back.at(-1)!.get(1), 0.85, 'P2 is back');
+  const walk = run(tracker, repeat(120, i => ({ people: [person(0.6), person(0.85, { arms: 0.1 }), person(0.02 + i * 0.008, { size: 0.6, arms: 0.2 })] })), 11000);
+  assert.ok(walk.every(m => m.get(1) === undefined || m.get(1) === 0.85), 'P2 is never the passer-by');
+});
+
+test('a passer-by their size walking through a player\'s old place doesn\'t get their number either', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 })] })));
+  run(tracker, repeat(180, () => ({ people: [person(0.6)] })), 2000);
+  run(tracker, repeat(90, () => ({ people: [person(0.6), person(0.85, { arms: 0.1 })] })), 8000);
+  const walk = run(tracker, repeat(30, i => ({ people: [person(0.6), person(0.85, { arms: 0.1 }), person(0.02 + i * 0.02, { arms: 0.2 })] })), 11000);
+  assert.ok(walk.every(m => m.get(1) === undefined || m.get(1) === 0.85), 'P2 is never the passer-by');
+});
+
+test('the people in front are numbered before somebody farther back', () => {
+  // Two players and, between them and farther back, somebody watching: all in view from the start.
+  const tracker = new PlayerTracker(2);
+  const results = run(tracker, repeat(30, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), person(0.75, { size: 0.6, arms: 0.2 })] })));
+  assert.deepEqual([...results.at(-1)!].sort(), [[0, 0.6], [1, 0.25]]);
+});
+
+test('somebody overlapping a player (a ghost of them) isn\'t a bystander, so the player can still be followed', () => {
+  const tracker = new PlayerTracker(2);
+  // The model keeps reporting a second, offset copy of P2 beside them.
+  run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), person(0.3, { arms: 0.4 })] })));
+  // Then just P2, where the copy was.
+  const after = run(tracker, repeat(30, () => ({ people: [person(0.6), person(0.3, { arms: 0.4 })] })), 2000);
+  assert.deepEqual([...after.at(-1)!].sort(), [[0, 0.6], [1, 0.3]]);
+});
+
+test('a bystander is known as one even after a player has left for good', () => {
+  const tracker = new PlayerTracker(3);
+  run(tracker, repeat(30, () => ({ people: [person(0.8), person(0.5, { arms: 0.1 }), person(0.2, { arms: 0.2 })] })));
+  // P3 leaves for good; a bystander farther back watches beside P1 and P2.
+  run(tracker, repeat(300, () => ({ people: [person(0.8), person(0.5, { arms: 0.1 }), person(0.05, { size: 0.6, arms: 0.3 })] })), 1000);
+  // P1 is out of sight for two and a half seconds: the bystander doesn't take P1's number.
+  const out = run(tracker, repeat(75, () => ({ people: [person(0.5, { arms: 0.1 }), person(0.05, { size: 0.6, arms: 0.3 })] })), 11000);
+  assert.ok(out.every(m => !m.has(0)), 'P1 kept');
+});
+
+test('a player isn\'t given another player\'s person while that one is only just out of sight', () => {
+  const tracker = new PlayerTracker(2);
+  const by = () => person(0.93, { size: 0.6, arms: 0.2 });
+  run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()], looks: [RED, BLUE, GREEN] })));
+  // P1 is missed for three results while P2's clothes read like P1's (a reflection, a shadow).
+  run(tracker, repeat(3, () => ({ people: [person(0.25, { arms: 0.1 }), by()], looks: [RED, GREEN] })), 2000);
+  const after = run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()], looks: [RED, BLUE, GREEN] })), 2100);
+  assert.ok(after.every(m => m.get(1) !== 0.93 && m.get(0) !== 0.93), 'nobody on the bystander');
+  assert.deepEqual([...after.at(-1)!].sort(), [[0, 0.6], [1, 0.25]]);
+});
+
 test('a missing player comes back to their number, and a bystander beside the players does not take it', () => {
   const tracker = new PlayerTracker(2);
   const lineUp = () => ({ people: [person(0.25), person(0.6, { arms: 0.1 }), person(0.92, { size: 0.6, arms: 0.2 })] });
@@ -89,8 +171,8 @@ test('somebody dressed like a player does not take their number when the player 
   run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()], looks: [RED, BLUE, RED] })));
   // P1 folds their arms over their shirt: they look unlike themselves for a few results.
   const covered = [0.45, 0.25, 0.1, 0.45, 0.25, 0.1, 0.45, 0.25, 0.1];
-  run(tracker, repeat(4, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()], looks: [covered, BLUE, RED] })), 2000);
-  const after = run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()], looks: [RED, BLUE, RED] })), 2200);
+  run(tracker, repeat(15, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()], looks: [covered, BLUE, RED] })), 2000);
+  const after = run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 }), by()], looks: [RED, BLUE, RED] })), 2500);
   assert.deepEqual([...after.at(-1)!].sort(), [[0, 0.6], [1, 0.25]]);
 });
 
@@ -98,9 +180,9 @@ test('a player whose number went to a bystander takes it back, told by their loo
   const tracker = new PlayerTracker(2);
   const by = () => person(0.05, { size: 0.6, arms: 0.2 });
   run(tracker, repeat(300, () => ({ people: [person(0.6), person(0.3, { arms: 0.1 }), by()], looks: [RED, BLUE, GREEN] })));
-  run(tracker, repeat(200, () => ({ people: [person(0.6), by()], looks: [RED, GREEN] })), 10000);
+  run(tracker, repeat(600, () => ({ people: [person(0.6), by()], looks: [RED, GREEN] })), 10000);
   // P2 comes back somewhere else, which their place can't tell, but their clothes can.
-  const back = run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.85, { arms: 0.1 }), by()], looks: [RED, BLUE, GREEN] })), 17000);
+  const back = run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.85, { arms: 0.1 }), by()], looks: [RED, BLUE, GREEN] })), 30000);
   assert.deepEqual([...back.at(-1)!].sort(), [[0, 0.6], [1, 0.85]]);
 });
 
@@ -131,6 +213,16 @@ test('a player following the wrong person is put right by their looks', () => {
   // too far to follow), but say so by their looks: within a few results the numbers follow them.
   const after = run(tracker, repeat(20, () => ({ people: [person(0.62), person(0.38, { arms: 0.1 })], looks: [RED, BLUE] })), 700);
   assert.deepEqual([...after.at(-1)!].sort(), [[0, 0.38], [1, 0.62]]);
+});
+
+test('a player whose clothes change isn\'t taken for another player they only look less unlike', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(30, () => ({ people: [person(0.3), person(0.7, { arms: 0.1 })], looks: [RED, BLUE] })));
+  // P2 (in red) takes their jacket off while P1 (in blue) is out of sight: now nearer blue than
+  // red, but nothing like either.
+  const changed = BLUE.map((v, i) => 0.65 * v + 0.35 * RED[i]);
+  const after = run(tracker, repeat(30, () => ({ people: [person(0.3)], looks: [changed] })), 1000);
+  assert.ok(after.every(m => !m.has(0)), 'never P1');
 });
 
 test('a player isn\'t carried off by somebody smaller (farther back) passing where they are missed', () => {
