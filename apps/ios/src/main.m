@@ -693,6 +693,7 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
 @property (nonatomic) CGRect remotePickerRect;                  // where the remote page says it goes; null: nowhere
 @property (nonatomic) BOOL remoteLoading;                       // asked for /remote/ (a failed load clears it)
 @property (nonatomic) NSUInteger remoteFailures;                // since the remote last loaded, for the backoff
+@property (nonatomic) NSUInteger remoteLoads;                   // loads asked for, so a retry for an older one does nothing
 @property (nonatomic, strong) nw_listener_t remoteServer;       // the server when the remote started loading
 @property (nonatomic, copy) NSString *remoteSent;               // the last state the remote page was given
 @property (nonatomic, strong) UIImpactFeedbackGenerator *haptics;
@@ -826,6 +827,7 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   // (Only while the game is on a TV: the remote waits for the next one otherwise.)
   if (!self.remoteWeb || self.remoteLoading || !GameHost.shared.serverReady || !GameHost.shared.onTV) return;
   self.remoteLoading = YES;
+  self.remoteLoads++;
   self.remoteSent = nil;
   NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/remote/", Port()]];
   [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeMemoryCache] modifiedSince:NSDate.distantPast completionHandler:^{
@@ -836,7 +838,9 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
 - (void)retryRemote:(NSString *)reason {
   NSTimeInterval delay = MIN(0.5 * pow(2, self.remoteFailures++), 8);
   NSLog(@"aerodance: the remote %@; loading it again in %.1f s", reason, delay);
+  NSUInteger load = self.remoteLoads;
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    if (load != self.remoteLoads) return;  // another load has started since
     self.remoteLoading = NO;
     [self loadRemote];
   });

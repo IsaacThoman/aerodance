@@ -118,11 +118,6 @@ export default function RemoteScreen({ page, shown, onKey }: RemoteScreenProps) 
       st.timer = window.setInterval(() => { if (st.held === id) props.current.onKey(key, true); }, REPEAT_EVERY_MS);
     }, REPEAT_DELAY_MS);
   };
-  // A remote put away (the TV gone, the app in the background) may never hear the finger lift:
-  // stop repeating.
-  useEffect(() => {
-    if (!shown) { clearTimeout(st.timer); st.timer = 0; st.held = null; }
-  }, [shown, st]);
   useEffect(() => {
     const onHide = () => { if (document.hidden) { clearTimeout(st.timer); st.timer = 0; st.held = null; } };
     document.addEventListener('visibilitychange', onHide);
@@ -192,6 +187,17 @@ export default function RemoteScreen({ page, shown, onKey }: RemoteScreenProps) 
 
   // The game's state arrives between frames.
   useEffect(() => { ui.invalidate(); }, [ui, page]);
+
+  // A remote put away (the TV gone, the app in the background) may never hear the finger lift:
+  // stop repeating, and forget the press.
+  useEffect(() => {
+    if (shown) return;
+    clearTimeout(st.timer);
+    st.timer = 0;
+    st.held = null;
+    ui.drag = null;
+    ui.pressed = null;
+  }, [shown, st, ui]);
 
   return null;
 }
