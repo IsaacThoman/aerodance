@@ -4,7 +4,7 @@ import { createPortal, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../../packages/character/Character.tsx';
-import type { CharacterAppearance } from '../../../../packages/character/Character.tsx';
+import type { Balloon, CharacterAppearance } from '../../../../packages/character/Character.tsx';
 import { loadMotion } from '../../../../packages/character/motion.ts';
 import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
@@ -21,8 +21,8 @@ import { PLAYER_COLORS } from './layout.ts';
  *
  * When the count goes up, the new dancer makes the same entrance as at the start of a song
  * (stages/shared/DancerEntrance.tsx), without the floor ripple: bubbles rising around it and
- * a squash-and-stretch pop. When it goes down, the leaving dancer blows up like a balloon,
- * rising and straining as it rounds out, and pops. The rest regroup around the middle. Two stand side by side; three make a triangle with
+ * a squash-and-stretch pop. When it goes down, the leaving dancer puffs up like a balloon and
+ * pops: its skin tears open from the chest and is gone. The rest regroup around the middle. Two stand side by side; three make a triangle with
  * player 3 at the front, and four a diamond with player 4 at the back, so the puck keeps
  * its size. The diamond stands turned a little, so the back dancer isn't hidden behind the
  * front one.
@@ -49,10 +49,9 @@ const SPOT_EPSILON = 0.01;
 // Players three and four dance the duet's parts a beat behind one and two.
 const LAG = [0, 0, 3.5, 3.5];
 // A dancer's middle and the top of its head (stage units).
-// Leaving: the dancer inflates for INFLATE_TIME, then its skin bursts outwards and is gone by
-// POP_TIME.
-const INFLATE_TIME = 0.7;
-const POP_TIME = 0.76;
+// Leaving: the dancer puffs up for INFLATE_TIME, then its skin tears away until POP_TIME.
+const INFLATE_TIME = 0.12;
+const POP_TIME = 0.22;
 
 // How far the diamond is turned about the middle (radians): the front dancer steps left and
 // the back one right, so the back one shows between the others.
@@ -151,7 +150,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
   const lastCount = useRef(n);
   const opacity = useMemo(() => APPEARANCES.map((_, i) => ({ current: i < initial.current ? 1 : 0 })), []);
   const playback = useMemo(() => APPEARANCES.map(() => ({ current: 0 })), []);
-  const inflate = useMemo(() => APPEARANCES.map(() => ({ current: 0 })), []);
+  const balloons = useMemo(() => APPEARANCES.map(() => ({ current: { inflate: 0, tear: 0 } as Balloon })), []);
   const still = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
   // Each dancer's entrance clock, in the song-clock terms DancerEntrance expects: -Infinity
   // keeps it hidden, Infinity shows it settled, and an arrival counts up from -ENTRANCE_LEAD.
@@ -224,8 +223,8 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
       let size = 1;
       let stretch = 1;
       let y = 0;
-      let shake = 0;
-      inflate[i].current = 0;
+      const balloon = balloons[i].current;
+      balloon.inflate = balloon.tear = 0;
       if (d.phase === 'in' || d.phase === 'spawn') {
         spot.position.x += (tx - spot.position.x) * k;
         spot.position.z += (tz - spot.position.z) * k;
@@ -239,16 +238,16 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
         o.current = 1;
         if (entrance.ms >= 0) d.phase = 'in';
       } else if (d.phase === 'pop') {
-        // Blows up like a balloon: it rounds out, rises a little and strains, faster and faster,
-        // until its skin bursts outwards and is gone.
-        const q = clamp01(d.t / INFLATE_TIME);
-        const burst = clamp01((d.t - INFLATE_TIME) / (POP_TIME - INFLATE_TIME));
-        inflate[i].current = 1.2 * q * q + 0.6 * burst;
-        size = 1 + 0.12 * q * q + 0.35 * burst;
-        stretch = 1 - 0.08 * q * q;
-        y = 0.35 * q * q;
-        shake = 0.05 * q ** 3 * Math.sin(d.t * 90);
-        o.current = 1 - burst;
+        // Puffs up like a balloon in a blink, then tears open from the chest; what's left of the
+        // skin snaps back a little as the hole runs over it.
+        const q = 1 - (1 - clamp01(d.t / INFLATE_TIME)) ** 2;
+        const tear = clamp01((d.t - INFLATE_TIME) / (POP_TIME - INFLATE_TIME));
+        balloon.inflate = 1.1 * q * (1 - 0.35 * tear);
+        balloon.tear = d.t > INFLATE_TIME ? Math.max(0.02, tear) : 0;
+        size = 1 + 0.1 * q * (1 - 0.5 * tear);
+        stretch = 1 - 0.06 * q;
+        y = 0.2 * q;
+        o.current = 1;
         if (d.t >= POP_TIME) {
           d.phase = 'out';
           entrance.ms = -Infinity;
@@ -261,7 +260,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
       spot.visible = o.current > 0.001;
       spot.position.y = y;
       spot.scale.set(size / Math.sqrt(stretch), size * stretch, size / Math.sqrt(stretch));
-      spot.rotation.set(shake, 0, shake * 0.7);
+
     });
 
     // A 4:3 display keeps the stage smaller, in its own area on the right.
@@ -324,7 +323,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
                       appearance={appearance}
                       // Player 1 never leaves, so it keeps the solid (depth-writing) outline.
                       opacityRef={i ? opacity[i] : undefined}
-                      inflateRef={i ? inflate[i] : undefined}
+                      balloonRef={i ? balloons[i] : undefined}
                     />
                   </group>
                 </DancerEntrance>

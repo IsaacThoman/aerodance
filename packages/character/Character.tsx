@@ -35,8 +35,8 @@ export interface CharacterProps {
   appearance: CharacterAppearance;
   /** Fades the character (gel and ink) each frame. */
   opacityRef?: RefObject<number>;
-  /** Blows the character up like a balloon each frame: 0 is its own shape, 1 about twice as round in the middle. */
-  inflateRef?: RefObject<number>;
+  /** Blows the character up and tears it open like a balloon each frame. */
+  balloonRef?: RefObject<Balloon>;
   animation?: string;
   motion?: MotionTake | null;
   person?: number;
@@ -49,32 +49,66 @@ export interface CharacterProps {
 }
 const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
 
+/**
+ * `inflate`: 0 is the character's own shape, 1 about twice as round in the middle.
+ * `tear`: 0 is whole; above that a hole rips open from the chest and runs over the whole skin by 1.
+ */
+export interface Balloon { inflate: number; tear: number }
+
 // Inflating swells the posed body out from its middle (this far above the Body bone, about the
 // neck), most near the middle and less towards the hands and feet, so it rounds out like a
 // balloon. The swell grows outwards along each ray from the middle, so the eyes stay on the
 // face instead of sinking into it.
 const INFLATE_MIDDLE = new Vector3(0, 0.85, 0);
 const INFLATE_REACH = "1.7";
-interface Inflation { inflate: { value: number }; inflateMiddle: { value: Vector3 } }
-function inflatable(material: Material, uniforms: Inflation, compile?: (shader: WebGLProgramParametersWithUniforms) => void) {
+// The tear starts just off the front of the chest, on the camera's side, and its edge runs this
+// far out by the time it's done, past the feet of the most inflated body. It runs out fastest
+// along a few cracks and is jagged all along, like torn rubber: tearEdge is how far a point is
+// inside the hole.
+const TEAR_FROM = new Vector3(0.35, 0.95, 0.9);
+const TEAR_EDGE = `
+uniform float tear; uniform vec3 tearFrom;
+float tearEdge(vec3 p) {
+  vec3 away = p - tearFrom;
+  vec3 way = normalize(away);
+  float crack = sin(way.x * 9.0 + 1.3) * sin(way.y * 7.0 + 0.4) * sin(way.z * 11.0 + 2.1) + 0.15 * sin(dot(p, vec3(31.0, 23.0, 27.0)));
+  return tear * 3.4 - length(away) * (1.0 + 0.5 * crack);
+}
+`;
+interface BalloonUniforms { inflate: { value: number }; inflateMiddle: { value: Vector3 }; tear: { value: number }; tearFrom: { value: Vector3 } }
+function balloon(material: Material, uniforms: BalloonUniforms, compile?: (shader: WebGLProgramParametersWithUniforms) => void) {
   material.onBeforeCompile = (shader) => {
     compile?.(shader);
     Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = "uniform float inflate; uniform vec3 inflateMiddle;\n" + shader.vertexShader.replace(
+    // The skin by the hole peels back away from it.
+    shader.vertexShader = `uniform float inflate; uniform vec3 inflateMiddle; varying vec3 vBalloon;\n${TEAR_EDGE}` + shader.vertexShader.replace(
       "#include <skinning_vertex>",
       `#include <skinning_vertex>
       vec3 inflateOut = transformed - inflateMiddle;
-      transformed += inflateOut * inflate * exp(-dot(inflateOut, inflateOut) / (${INFLATE_REACH} * ${INFLATE_REACH}));`,
+      transformed += inflateOut * inflate * exp(-dot(inflateOut, inflateOut) / (${INFLATE_REACH} * ${INFLATE_REACH}));
+      vBalloon = transformed;
+      if (tear > 0.0) transformed += normalize(transformed - tearFrom) * 0.3 * smoothstep(-0.6, 0.0, tearEdge(transformed));`,
+    );
+    // Through the hole there's nothing, and its freshly stretched edge shines.
+    shader.fragmentShader = `varying vec3 vBalloon;\n${TEAR_EDGE}` + shader.fragmentShader.replace(
+      "#include <clipping_planes_fragment>",
+      `#include <clipping_planes_fragment>
+      float torn = tearEdge(vBalloon);
+      if (tear > 0.0 && torn > 0.0) discard;`,
+    ).replace(
+      "#include <emissivemap_fragment>",
+      `#include <emissivemap_fragment>
+      if (tear > 0.0) totalEmissiveRadiance += diffuseColor.rgb * 2.5 * smoothstep(-0.3, 0.0, torn);`,
     );
   };
-  // Tells three the shader differs from an uninflatable material's with the same hook.
-  material.customProgramCacheKey = () => `inflate-${material.type}`;
+  // Tells three the shader differs from a plain material's with the same hook.
+  material.customProgramCacheKey = () => `balloon-${material.type}`;
 }
 
 export default function Character({
   appearance,
   opacityRef,
-  inflateRef,
+  balloonRef,
   animation = "Idle",
   motion,
   person = 0,
@@ -96,13 +130,15 @@ export default function Character({
   const poseFilter=useMemo(()=>new LivePoseFilter(),[model,calibration,live]);
   const invalidate=useThree(state=>state.invalidate);
   const mixer = useMemo(() => new AnimationMixer(model), [model]);
-  const inflate = useMemo<Inflation>(() => ({ inflate: { value: 0 }, inflateMiddle: { value: new Vector3() } }), []);
-  const inflating = !!inflateRef;
+  const balloonUniforms = useMemo<BalloonUniforms>(() => ({
+    inflate: { value: 0 }, inflateMiddle: { value: new Vector3() }, tear: { value: 0 }, tearFrom: { value: new Vector3() },
+  }), []);
+  const isBalloon = !!balloonRef;
   const ink = useMemo(() => {
     const material = new MeshBasicMaterial({ color: "#020611", transparent: !!opacityRef, depthWrite: !opacityRef });
-    if (inflating) inflatable(material, inflate);
+    if (isBalloon) balloon(material, balloonUniforms);
     return material;
-  }, [opacityRef, inflating, inflate]);
+  }, [opacityRef, isBalloon, balloonUniforms]);
   const gel = useMemo(() => {
     const material = new MeshPhysicalMaterial({
       name: "AquaGel",
@@ -132,10 +168,10 @@ export default function Character({
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * exp(-pow((vGelHeight - 0.19) / 0.16, 2.0)) * pow(max(dot(normal, normalize(vViewPosition)), 0.0), 5.0) * 4.5;",
       );
     };
-    if (inflating) inflatable(material, inflate, compile);
+    if (isBalloon) balloon(material, balloonUniforms, compile);
     else material.onBeforeCompile = compile;
     return material;
-  }, [inflating, inflate]);
+  }, [isBalloon, balloonUniforms]);
   useEffect(() => {
     const ownedGeometries: BufferGeometry[] = [];
     model.traverse((obj) => {
@@ -199,7 +235,10 @@ export default function Character({
     };
   }, [animation, gltf, mixer, retarget, applyPose]);
   useFrame((_, delta) => {
-    if (inflateRef) inflate.inflate.value = inflateRef.current;
+    if (balloonRef) {
+      balloonUniforms.inflate.value = balloonRef.current.inflate;
+      balloonUniforms.tear.value = balloonRef.current.tear;
+    }
     if (opacityRef) {
       gel.opacity = (appearance.opacity ?? 0.72) * opacityRef.current;
       ink.opacity = opacityRef.current;
@@ -214,11 +253,12 @@ export default function Character({
     else if (retarget) retarget(playback?.current ?? 0);
     else mixer.update(Math.min(delta, 0.05));
     // The skinned meshes sit untransformed in the model, so its space is theirs.
-    const body = inflateRef && inflateRef.current > 0 ? model.getObjectByName("Body") : undefined;
+    const body = balloonRef && (balloonRef.current.inflate > 0 || balloonRef.current.tear > 0) ? model.getObjectByName("Body") : undefined;
     if (body) {
       body.updateWorldMatrix(true, false);
-      model.worldToLocal(body.localToWorld(inflate.inflateMiddle.value.copy(INFLATE_MIDDLE)));
+      model.worldToLocal(body.localToWorld(balloonUniforms.inflateMiddle.value.copy(INFLATE_MIDDLE)));
+      model.worldToLocal(body.localToWorld(balloonUniforms.tearFrom.value.copy(TEAR_FROM)));
     }
-  }, opacityRef || inflateRef ? 1 : 0);
+  }, opacityRef || balloonRef ? 1 : 0);
   return <primitive object={model} dispose={null} />;
 }
