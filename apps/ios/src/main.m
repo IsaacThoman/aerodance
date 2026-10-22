@@ -199,7 +199,6 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic, weak) UIView *tvView;
 @property (nonatomic, copy) NSString *tvDescription;  // e.g. "1920×1080 @ 60 Hz", while a TV is connected
 @property (nonatomic, copy) NSDictionary *page;        // the canvas's data-* state, from inject.js
-@property (nonatomic) double fps;
 @property (nonatomic) BOOL shownOnTV;                  // where the page was last told the game is (hostState's screen)
 @property (nonatomic) CGRect airplayRect;              // the game's AirPlay bubble in the web view's points; null while it's away
 // What the page is told about the app (inject.js __aerodanceHost).
@@ -378,12 +377,17 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   });
 }
 
+// A page of ours couldn't load from the server: a listener can look ready with its socket gone, so
+// a ready one is replaced too (the remote's loads count as well).
+- (void)serverFailedToServe {
+  if (self.serverState == nw_listener_state_ready) nw_listener_cancel(self.server);
+}
+
 - (void)pageFailed:(NSError *)error {
   NSURL *url = error.userInfo[NSURLErrorFailingURLErrorKey];
   // Cancelled loads (a newer navigation; a link opened in Safari is WebKit's domain) aren't failures.
   if (![error.domain isEqual:NSURLErrorDomain] || error.code == NSURLErrorCancelled || ![self isOurs:url]) return;
-  // A listener can look ready with its socket gone, so a ready one is replaced too.
-  if (self.serverState == nw_listener_state_ready) nw_listener_cancel(self.server);
+  [self serverFailedToServe];
   [self retryPage:url because:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
 }
 
@@ -564,14 +568,13 @@ static CGRect PageRect(id value) {
   NSDictionary *body = message.body;
   if (![body isKindOfClass:NSDictionary.class]) return;
   if ([body[@"page"] isKindOfClass:NSDictionary.class]) { self.page = body[@"page"]; [self reloadIfWanted]; }
-  if ([body[@"fps"] isKindOfClass:NSNumber.class]) self.fps = [body[@"fps"] doubleValue];
   // The game's AirPlay bubble moved, came or went (menu/AirPlayButton.tsx).
   if (body[@"airplay"]) self.airplayRect = PageRect(body[@"airplay"]);
   if ([body[@"storage"] isKindOfClass:NSDictionary.class] && SaveStorage(body[@"storage"])) [self installScripts];
   if ([body[@"restored"] isKindOfClass:NSArray.class] && [body[@"restored"] count]) {
     NSLog(@"aerodance: restored %@ from the saved copy", [body[@"restored"] componentsJoinedByString:@", "]);
   }
-  if (body[@"page"] || body[@"fps"] || body[@"airplay"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+  if (body[@"page"] || body[@"airplay"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
 
 // The game's own camera tracking (MediaPipe in the page) may use the phone's camera; only the
@@ -604,6 +607,8 @@ static CGRect PageRect(id value) {
 // current host state and storage.
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
   NSLog(@"aerodance: web content process ended; reloading");
+  self.airplayRect = CGRectNull;  // the page, and its bubble, are gone
+  [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
   NSURL *url = webView.URL;
   [self loadWhenServerReady:[self isOurs:url] ? url : [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/", Port()]]];
 }
@@ -684,7 +689,10 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
 @property (nonatomic, strong) UIView *remote;
 @property (nonatomic, strong) WKWebView *remoteWeb;              // /remote/, made the first time the game goes to a TV
 @property (nonatomic, strong) AVRoutePickerView *remotePicker;  // over the remote's AirPlay button
+@property (nonatomic) CGRect remotePickerRect;                  // where the remote page says it goes; null: nowhere
 @property (nonatomic) BOOL remoteLoading;                       // asked for /remote/ (a failed load clears it)
+@property (nonatomic) NSUInteger remoteFailures;                // since the remote last loaded, for the backoff
+@property (nonatomic, strong) nw_listener_t remoteServer;       // the server when the remote started loading
 @property (nonatomic, copy) NSString *remoteSent;               // the last state the remote page was given
 @property (nonatomic, strong) UIImpactFeedbackGenerator *haptics;
 @property (nonatomic, strong) UISceneAccessoryRegistration *tvAccessory API_AVAILABLE(ios(27.0));
@@ -711,6 +719,7 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   self.remote.backgroundColor = RemoteBackground();
   self.remote.hidden = YES;
   [self.view addSubview:self.remote];
+  self.remotePickerRect = CGRectNull;
 
   GameHost *host = GameHost.shared;
   host.phoneView = self.gameView;
@@ -732,10 +741,12 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   }
 }
 
-// The game's bubble moves with the page (a turn of the iPad), which says so; the picker follows.
+// The pickers follow their buttons when the views move (a turn of the iPad, the status bar
+// coming or going); the pages say when the buttons themselves move.
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
   [self placeGamePicker];
+  [self placeRemotePicker];
 }
 
 - (void)refresh {
@@ -753,6 +764,7 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   }
   if (tv) [self makeRemote];
   self.remote.hidden = !tv;
+  self.remoteWeb.hidden = !tv;  // so the page knows it's away, and lets go of a held arrow
   self.gameView.hidden = tv;
   [self loadRemote];
   [self tellRemote:NO];
@@ -806,43 +818,71 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   [self.remote addSubview:self.remotePicker = InvisiblePicker()];
 }
 
-// The remote loads from the game's own server once it's ready, and again if it couldn't.
+// The remote loads from the game's own server once it's ready, and again if it couldn't, as the
+// game does (GameHost): a failure replaces a server that only looks ready, and retries back off
+// from 0.5 s to 8 s. WebKit's memory cache would keep the failed loads, so it goes first.
 - (void)loadRemote {
   if (!self.remoteWeb || self.remoteLoading || !GameHost.shared.serverReady) return;
   self.remoteLoading = YES;
   self.remoteSent = nil;
   NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/remote/", Port()]];
-  [self.remoteWeb loadRequest:[NSURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:10]];
+  [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeMemoryCache] modifiedSince:NSDate.distantPast completionHandler:^{
+    [self.remoteWeb loadRequest:[NSURLRequest requestWithURL:url]];
+  }];
 }
 
-- (void)remoteFailed:(NSError *)error {
-  if ([error.domain isEqual:NSURLErrorDomain] && error.code == NSURLErrorCancelled) return;
-  NSLog(@"aerodance: the remote couldn't load (%@); trying again", error.localizedDescription);
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+- (void)retryRemote:(NSString *)reason {
+  NSTimeInterval delay = MIN(0.5 * pow(2, self.remoteFailures++), 8);
+  NSLog(@"aerodance: the remote %@; loading it again in %.1f s", reason, delay);
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
     self.remoteLoading = NO;
     [self loadRemote];
   });
 }
 
+- (void)remoteFailed:(NSError *)error {
+  if ([error.domain isEqual:NSURLErrorDomain] && error.code == NSURLErrorCancelled) return;
+  [GameHost.shared serverFailedToServe];
+  [self retryRemote:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
+}
+
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.remoteServer = GameHost.shared.server; }
+
+// A remote that finished while the server was down or being replaced may lack its scripts.
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+  GameHost *host = GameHost.shared;
+  if (!host.serverReady || host.server != self.remoteServer) { [self retryRemote:@"loaded while the server was down"]; return; }
+  self.remoteFailures = 0;
+}
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
   NSLog(@"aerodance: the remote's web content process ended; reloading");
   self.remoteLoading = NO;
-  self.remotePicker.hidden = YES;
+  self.remotePickerRect = CGRectNull;
+  [self placeRemotePicker];
   [self loadRemote];
 }
 
 // The remote stays on its own page.
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-  decisionHandler([action.request.URL.host isEqual:@"127.0.0.1"] ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+  decisionHandler([GameHost.shared isOurs:action.request.URL] ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+}
+
+// Over the remote's AirPlay button, where the page says it is (in the remote web view's points).
+- (void)placeRemotePicker {
+  BOOL shown = self.remoteWeb && !CGRectIsNull(self.remotePickerRect);
+  self.remotePicker.hidden = !shown;
+  if (!shown) return;
+  [self.remote layoutIfNeeded];
+  self.remotePicker.frame = [self.remoteWeb convertRect:self.remotePickerRect toView:self.remote];
 }
 
 // The remote shows what the game is showing (the game's reported state), whenever it changes.
 - (void)tellRemote:(BOOL)always {
   if (!self.remoteWeb) return;
-  NSString *state = JSON(@{ @"page": GameHost.shared.page ?: @{} });
+  NSString *state = JSON(@{ @"page": GameHost.shared.page ?: @{}, @"shown": @(GameHost.shared.onTV) });
   if (!always && [state isEqual:self.remoteSent]) return;
   self.remoteSent = state;
   [self.remoteWeb evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceRemote && window.__aerodanceRemote(%@)", state] completionHandler:nil];
@@ -856,15 +896,14 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   // (Only while the game is on the TV: a held arrow can outlast it.)
   if ([body[@"key"] isKindOfClass:NSString.class] && GameHost.shared.onTV) {
     // A tap on the glass, not each repeat of a held arrow.
-    if (![body[@"repeat"] boolValue]) [self.haptics impactOccurred];
+    if (![body[@"repeat"] isEqual:@YES]) [self.haptics impactOccurred];
     [GameHost.shared sendKey:body[@"key"]];
   }
   if (body[@"airplay"]) {
-    CGRect rect = PageRect(body[@"airplay"]);
-    self.remotePicker.hidden = CGRectIsNull(rect);
-    if (!CGRectIsNull(rect)) self.remotePicker.frame = [self.remoteWeb convertRect:rect toView:self.remote];
+    self.remotePickerRect = PageRect(body[@"airplay"]);
+    [self placeRemotePicker];
   }
-  if ([body[@"ready"] boolValue]) [self tellRemote:YES];
+  if ([body[@"ready"] isEqual:@YES]) [self tellRemote:YES];
 }
 
 // iPhone: the 16:9 game only fits sideways, and the remote's column only fits upright, so it's

@@ -1,7 +1,8 @@
 // Run after npm run build. The TV remote the iPhone/iPad app shows (/remote/), in a phone-sized
 // touch screen with a stand-in for the app's message handler: every button sends its key where it
-// is drawn, held arrows repeat until let go, Back follows the song, and the app is told where its
-// AirPlay picker goes. Then the game's own AirPlay bubble: on the main menu in the app, it says
+// is drawn, once even when VoiceOver also clicks its label, held arrows repeat until let go (or
+// the TV goes), Back follows the song, the app is told where its AirPlay picker goes, and the
+// text fits an iPad held sideways. Then the game's own AirPlay bubble: on the main menu in the app, it says
 // where it is, and takes the picker away when the menu moves on or the game goes to the TV.
 //
 // REMOTE_BROWSER=webkit runs it in WebKit (the app's engine) instead of Chromium.
@@ -83,6 +84,30 @@ try {
   const afterRelease = (await keys(page)).length;
   await page.waitForTimeout(500);
   assert.equal((await keys(page)).length, afterRelease, 'Down kept repeating after it was let go');
+  // The TV going lets go of a held arrow, though the finger is still down.
+  before = (await keys(page)).length;
+  await page.mouse.move(down.x, down.y);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.evaluate(() => (window as TestWindow).__aerodanceRemote?.({ page: {}, shown: false }));
+  await page.waitForTimeout(100);
+  const whenGone = (await keys(page)).length;
+  await page.waitForTimeout(600);
+  assert.equal((await keys(page)).length, whenGone, 'Down kept repeating after the TV went');
+  assert.ok(whenGone - before >= 2, 'Down didn\'t repeat before the TV went');
+  await page.mouse.up();
+  await page.evaluate(() => (window as TestWindow).__aerodanceRemote?.({ page: { menuScreen: 'main', menuReady: 'true' }, shown: true }));
+
+  // VoiceOver presses a label with a click: one key, and none more when it also touches the canvas.
+  before = (await keys(page)).length;
+  await page.getByRole('button', { name: 'Up', exact: true }).evaluate((el: HTMLElement) => el.click());
+  const up = await centre(page, 'Up');
+  await page.touchscreen.tap(up.x, up.y);
+  await page.getByRole('button', { name: 'Up', exact: true }).evaluate((el: HTMLElement) => el.click());
+  await page.waitForTimeout(200);
+  assert.deepEqual((await keys(page)).slice(before), [{ key: 'ArrowUp', repeat: false }, { key: 'ArrowUp', repeat: false }],
+    'a label click, then a touch with its click, should be two presses');
+
   const ok = await centre(page, 'OK');
   before = (await keys(page)).length;
   await page.mouse.move(ok.x, ok.y);
@@ -101,11 +126,33 @@ try {
   await page.screenshot({ path: '/tmp/aerodance-remote.png' });
   await page.close();
 
+  // A 4:3 iPad held sideways: the narrowest column, and every line of text still on screen.
+  const wide = await browser.newPage({ viewport: { width: 1024, height: 744 } });
+  await wide.addInitScript(() => {
+    const w = window as typeof window & { offscreen: string[] };
+    w.offscreen = [];
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (value, x, y, maxWidth) {
+      const width = this.measureText(value).width;
+      const left = this.textAlign === 'center' ? x - width / 2 : this.textAlign === 'right' || this.textAlign === 'end' ? x - width : x;
+      const a = this.getTransform().transformPoint({ x: left, y }), b = this.getTransform().transformPoint({ x: left + width, y });
+      if (a.x < -0.5 || b.x > this.canvas.width + 0.5) w.offscreen.push(value);
+      if (maxWidth === undefined) fillText.call(this, value, x, y);
+      else fillText.call(this, value, x, y, maxWidth);
+    };
+  });
+  await wide.goto('http://127.0.0.1:4184/remote/');
+  await wide.waitForFunction(() => document.querySelector('canvas')?.dataset.remoteReady === 'true');
+  await wide.waitForTimeout(300);
+  assert.deepEqual(await wide.evaluate(() => (window as typeof window & { offscreen: string[] }).offscreen), [], 'text runs off the screen');
+  await wide.screenshot({ path: '/tmp/aerodance-remote-ipad-sideways.png' });
+  await wide.close();
+
   // Outside the app the page says what it's for.
   const outside = await browser.newPage({ viewport: { width: 402, height: 791 } });
   await outside.goto('http://127.0.0.1:4184/remote/');
   await outside.waitForFunction(() => document.querySelector('canvas')?.dataset.remoteReady === 'true');
-  assert.equal((await dataset(outside)).remoteScreen, 'The remote for the aerodance app on a TV');
+  assert.equal((await dataset(outside)).remoteScreen, 'Opens from the aerodance app');
   await outside.close();
 
   // The game's AirPlay bubble, in the app (on the phone), on an iPhone's main menu.

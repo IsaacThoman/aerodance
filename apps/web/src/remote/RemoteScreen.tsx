@@ -20,7 +20,7 @@ import type { BackAction, GamePage, RemoteKey } from './bridge.ts';
  * The canvas reports data-remote-ready / -screen (the status line's) / -back (back, pause or
  * resume) for tests.
  *
- * <RemoteScreen page onKey />
+ * <RemoteScreen page shown onKey />
  */
 
 export const KEYS: Record<RemoteButton, RemoteKey> = {
@@ -37,11 +37,13 @@ export const BACK_LABELS: Record<BackAction, { label: string; icon: IconName }> 
 };
 
 /** The status line: what the TV shows, or that the page needs the app. */
-export const statusLine = (page: GamePage, app = inApp()) => (app ? `On the TV · ${screenName(page)}` : 'The remote for the aerodance app on a TV');
+export const statusLine = (page: GamePage, app = inApp()) => (app ? `On the TV · ${screenName(page)}` : 'Opens from the aerodance app');
 
 export interface RemoteScreenProps {
   /** The game's reported state, from the app. */
   page: GamePage;
+  /** The remote is showing: false once the TV has gone, which lets go of a held arrow. */
+  shown: boolean;
   /** A button: its key, and whether it's repeating while held. */
   onKey: (key: RemoteKey, repeat: boolean) => void;
 }
@@ -93,7 +95,7 @@ function drawOK(g: CanvasRenderingContext2D, c: Circle, held: boolean) {
   shadowed(g, () => text(g, 'OK', c.x, c.y + 3, { size: Math.round(r * 0.5), weight: 800, align: 'center' }));
 }
 
-export default function RemoteScreen({ page, onKey }: RemoteScreenProps) {
+export default function RemoteScreen({ page, shown, onKey }: RemoteScreenProps) {
   const gl = useThree((state) => state.gl);
   const props = useRef({ page, onKey });
   props.current = { page, onKey };
@@ -116,7 +118,11 @@ export default function RemoteScreen({ page, onKey }: RemoteScreenProps) {
       st.timer = window.setInterval(() => { if (st.held === id) props.current.onKey(key, true); }, REPEAT_EVERY_MS);
     }, REPEAT_DELAY_MS);
   };
-  // A hidden page (the TV gone, the app away) may never hear the finger lift: stop repeating.
+  // A remote put away (the TV gone, the app in the background) may never hear the finger lift:
+  // stop repeating.
+  useEffect(() => {
+    if (!shown) { clearTimeout(st.timer); st.timer = 0; st.held = null; }
+  }, [shown, st]);
   useEffect(() => {
     const onHide = () => { if (document.hidden) { clearTimeout(st.timer); st.timer = 0; st.held = null; } };
     document.addEventListener('visibilitychange', onHide);
@@ -174,7 +180,12 @@ export default function RemoteScreen({ page, onKey }: RemoteScreenProps) {
       const back = BACK_LABELS[backAction(p.page)];
       drawPill(g, L.back, { ...back, hover: s.hover.back ?? 0, press: st.held === 'back' ? 1 : 0 });
 
-      shadowed(g, () => text(g, 'Change the volume with the volume buttons', L.hint.x, L.hint.y, { size: 20, weight: 600, color: 'rgba(230, 248, 255, 0.75)', align: 'center' }));
+      // Smaller where the column is narrow (an iPad held sideways).
+      const hint = 'Change the volume with the volume buttons';
+      g.font = `600 20px ${FONT}`;
+      const size = Math.max(14, Math.min(20, Math.floor(20 * L.hint.w / g.measureText(hint).width)));
+      g.font = `600 ${size}px ${FONT}`;
+      shadowed(g, () => text(g, ellipsize(g, hint, L.hint.w), L.hint.x, L.hint.y, { size, weight: 600, color: 'rgba(230, 248, 255, 0.75)', align: 'center' }));
     },
   });
 

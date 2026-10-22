@@ -76,7 +76,10 @@ test('the remote talks to the app through its message handler, and to nothing in
     assert.deepEqual(sent, [{ ready: true }], 'listening asks the app for its state');
     page.__aerodanceRemote?.({ page: { menuScreen: 'main', menuReady: 'true', fps: 60 } });
     page.__aerodanceRemote?.(null);
-    assert.deepEqual(seen, [{ page: { menuScreen: 'main', menuReady: 'true' } }, { page: {} }], 'only strings come through');
+    page.__aerodanceRemote?.({ page: {}, shown: false });
+    assert.deepEqual(seen, [
+      { page: { menuScreen: 'main', menuReady: 'true' }, shown: true }, { page: {}, shown: true }, { page: {}, shown: false },
+    ], 'only strings come through, and the remote is shown unless the app says otherwise');
     off();
     assert.equal(page.__aerodanceRemote, undefined);
     post({ key: 'Escape', repeat: false });

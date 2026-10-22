@@ -28,8 +28,14 @@ const box = (shape: Circle | Rect, scale: number) => ('r' in shape
   ? { left: (shape.x - shape.r) * scale, top: (shape.y - shape.r) * scale, width: shape.r * 2 * scale, height: shape.r * 2 * scale }
   : { left: shape.x * scale, top: shape.y * scale, width: shape.w * scale, height: shape.h * scale });
 
+// A label's click within this long of a touch on the canvas sending the same key is that touch
+// again (VoiceOver can do both), not another press.
+const SAME_PRESS_MS = 400;
+
 export default function RemoteApp() {
   const [page, setPage] = useState<GamePage>({});
+  const [shown, setShown] = useState(true);
+  const lastKey = useRef({ key: '', at: -Infinity });
   const frame = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
@@ -43,7 +49,7 @@ export default function RemoteApp() {
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => listen((state) => setPage(state.page)), []);
+  useEffect(() => listen((state) => { setPage(state.page); setShown(state.shown); }), []);
 
   const L = remoteLayout(phoneDesign(size.w || 1, size.h || 1));
   const scale = size.w / L.w;
@@ -55,14 +61,22 @@ export default function RemoteApp() {
   const pickerKey = JSON.stringify(picker);
   useEffect(() => { post({ airplay: JSON.parse(pickerKey) }); }, [pickerKey]);
 
-  const send = (key: RemoteKey, repeat: boolean) => post({ key, repeat });
+  const send = (key: RemoteKey, repeat: boolean) => {
+    lastKey.current = { key, at: performance.now() };
+    post({ key, repeat });
+  };
+  const click = (key: RemoteKey) => {
+    const last = lastKey.current;
+    if (last.key === key && performance.now() - last.at < SAME_PRESS_MS) return;
+    send(key, false);
+  };
   const back = BACK_LABELS[backAction(page)].label;
   return (
     <div className="canvas-frame phone" ref={frame}>
       <Canvas dpr={1} flat frameloop="demand" camera={{ fov: 66, near: 0.3, far: 6500 }}>
         <PhoneRenderResolution />
         <Background />
-        <RemoteScreen page={page} onKey={send} />
+        <RemoteScreen page={page} shown={shown} onKey={send} />
       </Canvas>
       {size.w > 0 && (
         <>
@@ -76,7 +90,7 @@ export default function RemoteApp() {
               className="remote-label"
               aria-label={id === 'back' ? back : LABELS[id]}
               tabIndex={-1}
-              onClick={() => send(KEYS[id], false)}
+              onClick={() => click(KEYS[id])}
               style={box(id === 'back' ? L.back : L[id], scale)}
             />
           ))}

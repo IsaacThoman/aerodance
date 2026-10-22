@@ -6,15 +6,16 @@
  *   { key, repeat }       a button: the key the game's canvas UI understands (repeat: held down)
  *   { airplay: rect }     where the app's invisible AirPlay picker goes, in CSS pixels (null: away)
  *   { ready: true }       the page listens now; the app sends its state
- * App to page: window.__aerodanceRemote({ page }) with the game's reported state (the canvas's
- * data-* values inject.js passes on: menuScreen, songScreen, gamePhase…) whenever it changes.
+ * App to page: window.__aerodanceRemote({ page, shown }) with the game's reported state (the
+ * canvas's data-* values inject.js passes on: menuScreen, songScreen, gamePhase…) whenever it
+ * changes, and whether the remote is showing (false once the TV has gone).
  *
  * Outside the app nothing is listening: inApp() is false and messages go nowhere.
  */
 
 /** The game's reported state, as inject.js passes it on. */
 export type GamePage = Readonly<Record<string, string>>;
-export interface RemoteState { page: GamePage; }
+export interface RemoteState { page: GamePage; shown: boolean; }
 export type RemoteKey = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'Enter' | 'Escape';
 
 interface Handler { postMessage(message: unknown): void; }
@@ -32,7 +33,10 @@ export function post(message: object) {
 const readState = (value: unknown): RemoteState => {
   const v = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
   const raw = typeof v.page === 'object' && v.page !== null ? v.page as Record<string, unknown> : {};
-  return { page: Object.fromEntries(Object.entries(raw).filter((e): e is [string, string] => typeof e[1] === 'string')) };
+  return {
+    page: Object.fromEntries(Object.entries(raw).filter((e): e is [string, string] => typeof e[1] === 'string')),
+    shown: v.shown !== false,
+  };
 };
 
 /** Calls fn with the app's state now and on every change; returns the unsubscribe. */

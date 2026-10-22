@@ -100,8 +100,8 @@
     if (json !== sent) { sent = json; post({ page }); }
   }, 250);
 
-  // Frame rate, always (for the remote's status line, every two seconds). With a --report URL
-  // (scripts/ios.ts --report), also JavaScript time and draw calls per frame, sent to the Mac.
+  // With a --report URL (scripts/ios.ts --report): the frame rate, JavaScript time and draw calls
+  // per frame, sent to the Mac every two seconds.
   const reportUrl = '__REPORT_URL__';
   const report = msg => { if (reportUrl) fetch(reportUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(msg) }).catch(() => {}); };
   const R = { type: 'frames', label: 'airplay-ios', device: navigator.userAgent, longFrames: 0,
@@ -126,24 +126,21 @@
     });
   }
   const tick = ts => { frames++; const dt = ts - prev; prev = ts; dts.push(dt); if (dt > 25) R.longFrames++; raf(tick); };
-  raf(tick);
-  setInterval(() => {
+  if (reportUrl) raf(tick);
+  if (reportUrl) setInterval(() => {
     const now = performance.now(), n = Math.max(1, frames);
     const sorted = dts.sort((a, b) => a - b), pct = p => +(sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0).toFixed(1);
     Object.assign(R, { t: Math.round(now), fps: +(frames * 1000 / (now - last)).toFixed(1), frameMs: { p50: pct(0.5), p95: pct(0.95), max: pct(1) },
       display: window.__aerodanceDisplay ?? 'phone', viewport: `${innerWidth}x${innerHeight}@${devicePixelRatio}` });
-    post({ fps: R.fps });
-    if (reportUrl) {
-      // Heat and Low Power Mode come from the app (main.m tellPage).
-      const device = window.__aerodanceDevice ?? {};
-      Object.assign(R, { jsMsPerFrame: +(jsMs / n).toFixed(2), jsWorstMs: +jsWorst.toFixed(1), drawsPerFrame: Math.round(draws / n),
-        dataset: { ...(canvas()?.dataset ?? {}) }, thermal: device.thermal, lowPower: device.lowPower, host: globalThis.__aerodanceHost });
-      if (probe) { const c = getComputedStyle(probe); R.safeArea = [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft].map(parseFloat).join(' '); }
-      // The saved scores and settings, once a run, to check they survive.
-      if (firstReport) { firstReport = false; R.storage = {}; try { for (const k of Object.keys(localStorage).filter(ours)) R.storage[k] = localStorage.getItem(k); } catch { /* storage unavailable */ } } else delete R.storage;
-      if (!R.gl) { const gl = document.createElement('canvas').getContext('webgl2'); const e = gl && gl.getExtension('WEBGL_debug_renderer_info'); R.gl = gl ? (e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : 'none'; }
-      report(R);
-    }
+    // Heat and Low Power Mode come from the app (main.m tellPage).
+    const device = window.__aerodanceDevice ?? {};
+    Object.assign(R, { jsMsPerFrame: +(jsMs / n).toFixed(2), jsWorstMs: +jsWorst.toFixed(1), drawsPerFrame: Math.round(draws / n),
+      dataset: { ...(canvas()?.dataset ?? {}) }, thermal: device.thermal, lowPower: device.lowPower, host: globalThis.__aerodanceHost });
+    if (probe) { const c = getComputedStyle(probe); R.safeArea = [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft].map(parseFloat).join(' '); }
+    // The saved scores and settings, once a run, to check they survive.
+    if (firstReport) { firstReport = false; R.storage = {}; try { for (const k of Object.keys(localStorage).filter(ours)) R.storage[k] = localStorage.getItem(k); } catch { /* storage unavailable */ } } else delete R.storage;
+    if (!R.gl) { const gl = document.createElement('canvas').getContext('webgl2'); const e = gl && gl.getExtension('WEBGL_debug_renderer_info'); R.gl = gl ? (e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : 'none'; }
+    report(R);
     frames = 0; jsMs = 0; jsWorst = 0; draws = 0; dts = []; last = now;
   }, 2000);
 
