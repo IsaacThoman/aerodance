@@ -14,7 +14,7 @@ import type { Material } from "three";
 // Seconds for the hole to spread over the whole dancer, and for a scrap to shrivel away once
 // the tear has passed it.
 const TEAR = 0.14;
-const SCRAP_LIFE = 0.3;
+const SCRAP_LIFE = 0.34;
 // How far the hole spreads (model units): past the farthest skin from any puncture.
 const REACH = 2.4;
 /** Seconds from the puncture until the last scrap has gone. */
@@ -83,7 +83,7 @@ vec3 popOffset(vec3 p) {
     return peel * curl * curl;
   }
   float age = popAge(edge, reach);
-  return peel + (away * 3.2 + back * 1.2) * age - vec3(0.0, 4.5 * age * age, 0.0);
+  return peel + (away * 4.8 + back * 1.8) * age - vec3(0.0, 4.5 * age * age, 0.0);
 }
 `;
 
