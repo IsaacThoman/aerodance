@@ -3,11 +3,14 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { beat, reducedMotion, useDisposable } from '../shared/hooks.ts';
-import { club, hue } from './clock.ts';
+import { beatCount, club, hue } from './clock.ts';
 import { mergeAll } from './geometry.ts';
 import { COLUMNS, FLOOR, ROOM_R, polar } from './layout.ts';
+import meta from './meta.ts';
 
 const TRUSS = { y: 8.5, z: -5.6, half: 7.2 };
+// The two dancers stand this far either side of the middle.
+const DANCER_X = meta.dancers.spacing / 2;
 const HEADS = [-6, -3.6, -1.2, 1.2, 3.6, 6];
 const HEAD_Y = TRUSS.y - 0.42;
 const BEAM_LEN = 15;
@@ -204,29 +207,17 @@ export default function Beams() {
     if (!hm || !lm || !bm || !pm) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
     const { o, target, c } = tmp;
-    const mode = Math.floor(beat.bar / 4) % 3;
     const kick = club.uPulse.value;
-    const pulse = 0.75 + 0.5 * kick;
+    // Colors drift through the palette smoothly rather than stepping each bar.
+    const bars = beatCount() / 4;
     for (let i = 0; i < HEADS.length; i++) {
       const x = HEADS[i];
-      const s = i % 2 ? 1 : -1;
       const follow = i === 2 || i === 3;
-      let floorY = FLOOR;
-      if (follow) {
-        // The two inner heads cross over as follow spots on the dancers.
-        floorY = 0;
-        target.set((i === 2 ? 2 : -2) + Math.sin(t * 0.9 + i) * 0.5, 0, 0.3 + Math.sin(t * 0.6 + i) * 0.4);
-      } else if (mode === 0) {
-        // Slow fan sweeping across the crowd.
-        target.set(x * 1.3 + Math.sin(t * 0.6 + i * 0.7) * 3.5, FLOOR, 4 + Math.cos(t * 0.45 + i) * 3.5);
-      } else if (mode === 1) {
-        // Crossing pairs.
-        target.set(-x * 1.4 + Math.sin(t * 0.9) * 2 * s, FLOOR, 3 + Math.sin(t * 0.7 + i) * 2.5);
-      } else {
-        // Circling the stage.
-        const a = t * 0.8 + (i / HEADS.length) * Math.PI * 2;
-        target.set(Math.cos(a) * 7.5, FLOOR, 1 + Math.sin(a) * 6);
-      }
+      // Every head lights the dancer on its own side, its beam circling them slowly and
+      // steadily: the inner two hold tight as follow spots, the outer ones swing wider.
+      const r = follow ? 0.3 : 0.9;
+      const a = t * (follow ? 0.6 : 0.45) * (i % 2 ? 1 : -1) + i * 1.7;
+      target.set(Math.sign(x) * DANCER_X + Math.cos(a) * r, 0, 0.2 + Math.sin(a) * r * 0.8);
       o.position.set(x, HEAD_Y, TRUSS.z);
       o.scale.set(1, 1, 1);
       o.lookAt(target);
@@ -236,16 +227,17 @@ export default function Beams() {
       o.scale.set(1, 1, o.position.distanceTo(target) / BEAM_LEN);
       o.updateMatrix();
       bm.setMatrixAt(i, o.matrix);
-      o.position.set(target.x, floorY + 0.02, target.z);
+      o.position.set(target.x, 0.02, target.z);
       o.rotation.set(0, 0, 0);
-      o.scale.setScalar(follow ? 0 : 1); // the floor shader already pools light under the dancers
+      o.scale.setScalar(follow ? 0 : 0.6); // the floor shader already pools light under the dancers
       o.updateMatrix();
       pm.setMatrixAt(i, o.matrix);
-      hue(beat.bar * 0.17 + i * 0.06, c);
-      lm.setColorAt(i, c.multiplyScalar(3 + kick * 3));
+      // Steady brightness: no flash on the beat.
+      hue(bars * 0.17 + i * 0.06, c);
+      lm.setColorAt(i, c.multiplyScalar(3.5));
       if (follow) c.setRGB(0.75, 0.9, 1.0).multiplyScalar(0.6);
-      else hue(beat.bar * 0.17 + i * 0.06, c);
-      bm.setColorAt(i, c.multiplyScalar((follow ? 0.3 : 0.55) * pulse));
+      else hue(bars * 0.17 + i * 0.06, c);
+      bm.setColorAt(i, c.multiplyScalar((follow ? 0.3 : 0.55) * 0.85));
       pm.setColorAt(i, c.multiplyScalar(0.6 / 0.55));
     }
     hm.instanceMatrix.needsUpdate = true;
@@ -255,12 +247,12 @@ export default function Beams() {
     if (lm.instanceColor) lm.instanceColor.needsUpdate = true;
     if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
     if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
-    // Lasers fire on the second half of every four bars. They stay on through the results
-    // rather than flashing, and off during the preview and the song.
+    // Lasers fire on the second half of every four bars. In the game (preview, song and
+    // results) they stay on, still sweeping, rather than flashing.
     const lu = res.laserMat.uniforms;
     lu.uTime.value = t;
     const firing = THREE.MathUtils.lerp(beat.bar % 4 >= 2 ? 1 : 0, 1, club.uSteady.value);
-    lu.uIntensity.value = firing * (0.5 + 0.4 * kick) * (1 - club.uCalm.value);
+    lu.uIntensity.value = firing * (0.5 + 0.4 * kick);
   });
 
   const n = HEADS.length;

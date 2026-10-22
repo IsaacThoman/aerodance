@@ -3,12 +3,12 @@ import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
-import { StageCamera, beat } from '../shared/hooks.ts';
+import { StageCamera } from '../shared/hooks.ts';
 import { StageEnvironment } from '../shared/Environment.tsx';
 import type { EnvironmentLight } from '../shared/Environment.tsx';
 import { post } from '../shared/post.tsx';
 import meta from './meta.ts';
-import { C, club, tickClub } from './clock.ts';
+import { C, beatCount, club, tickClub } from './clock.ts';
 import type { Vec3 } from '../catalog.ts';
 import Room from './Room.tsx';
 import DanceFloor from './DanceFloor.tsx';
@@ -75,16 +75,19 @@ function Lights() {
   const aims = [useRef<THREE.Object3D>(null), useRef<THREE.Object3D>(null)];
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    // Rim spots drift with the dancers and trade colors every four bars.
-    const swap = Math.floor(beat.bar / 4) % 4;
+    // Rim spots drift with the dancers at a steady brightness, blending into each other's
+    // colors over the last bar of every four.
+    const blocks = beatCount() / 16;
+    const swap = Math.floor(blocks);
+    const f = THREE.MathUtils.smoothstep(blocks - swap, 0.75, 1);
     for (let i = 0; i < 2; i++) {
       const light = lights[i].current;
       const aim = aims[i].current;
       if (!light || !aim) continue;
       const side = i ? 1 : -1;
       aim.position.set(side * 2 + Math.sin(t * 0.7 + i * 2) * 0.6, 1.4, Math.sin(t * 0.5 + i) * 0.5);
-      light.color.copy(RIM[(i + swap) % RIM.length]);
-      light.intensity = 230 + club.uPulse.value * 70;
+      light.color.copy(RIM[(i + swap) % RIM.length]).lerp(RIM[(i + swap + 1) % RIM.length], f);
+      light.intensity = 240;
     }
   });
   return (
