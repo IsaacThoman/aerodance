@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { createPortal, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import Character from '../../../../packages/character/Character.tsx';
+import Character, { TEAR_TIME } from '../../../../packages/character/Character.tsx';
 import type { Balloon, CharacterAppearance } from '../../../../packages/character/Character.tsx';
 import { loadMotion } from '../../../../packages/character/motion.ts';
 import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
@@ -53,7 +53,7 @@ const LAG = [0, 0, 3.5, 3.5];
 // Leaving: the dancer puffs up for INFLATE_TIME, then its skin tears, and the last shreds are
 // gone by POP_TIME.
 const INFLATE_TIME = 0.12;
-const POP_TIME = 0.64;
+const POP_TIME = INFLATE_TIME + TEAR_TIME;
 
 // How far the diamond is turned about the middle (radians): the front dancer steps left and
 // the back one right, so the back one shows between the others.

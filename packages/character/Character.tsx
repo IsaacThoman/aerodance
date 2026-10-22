@@ -52,7 +52,7 @@ const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
 /**
  * `inflate`: 0 is the character's own shape, 1 about twice as round in the middle.
  * `tear`: seconds since the skin tore, or 0 while it's whole. It rips open from the chest and
- * the shreds fly off, tumbling, and shrink away.
+ * the shreds fly off, tumbling, and shrink away. The last is gone by TEAR_TIME.
  */
 export interface Balloon { inflate: number; tear: number }
 
@@ -62,14 +62,24 @@ export interface Balloon { inflate: number; tear: number }
 // face instead of sinking into it.
 const INFLATE_MIDDLE = new Vector3(0, 0.85, 0);
 const INFLATE_REACH = "1.7";
+const INFLATE = `
+uniform float inflate; uniform vec3 inflateMiddle;
+vec3 inflated(vec3 p) {
+  vec3 away = p - inflateMiddle;
+  return p + away * inflate * exp(-dot(away, away) / (${INFLATE_REACH} * ${INFLATE_REACH}));
+}
+`;
 // Tearing cuts the skin into ragged shreds, a cell of the rest pose each, and each comes away
 // as the tear reaches it. The tear starts just off the front of the chest, on the camera's
-// side, and runs out fastest along a few cracks. A shred flies away from the body's middle,
-// tumbling and falling, flashes as it comes away, and blinks out after a lifetime of its own,
-// somewhere in the SHRED_LIFE range (seconds), so they go one by one. Most go early, and a few
-// linger to the end.
+// side, and runs out fastest along a few cracks, reaching every shred within TEAR_SPREAD
+// seconds. A shred flies away from the body's middle, tumbling and falling, flashes as it comes
+// away, and shrinks away to nothing over a lifetime of its own, somewhere in the SHRED_LIFE range
+// (seconds), so they go one by one. Most go early, and a few linger to the end.
 const SHRED_SIZE = "0.45";
-const SHRED_LIFE = [0.04, 0.4] as const;
+const TEAR_SPREAD = 0.1;
+const SHRED_LIFE = [0.1, 0.4] as const;
+/** Seconds from the tear until the last shred has shrunk away. */
+export const TEAR_TIME = TEAR_SPREAD + SHRED_LIFE[1];
 const SHREDS = `
 uniform float tear;
 varying vec3 vRest; varying vec3 vShred; varying float vShredAge;
@@ -86,19 +96,27 @@ if (tear > 0.0) {
   vec3 fromTear = shredMiddle - vec3(0.35, 2.05, 0.9);
   vec3 way = normalize(fromTear);
   float crack = sin(way.x * 9.0 + 1.3) * sin(way.y * 7.0 + 0.4) * sin(way.z * 11.0 + 2.1);
-  float age = tear - length(fromTear) * (1.0 + 0.5 * crack) / 34.0;
+  float age = tear - min(length(fromTear) * (1.0 + 0.5 * crack) / 34.0, ${TEAR_SPREAD.toFixed(2)});
   if (age > 0.0) {
     vShredAge = age;
     vec3 r = vec3(shredHash(shredAt, 1.0), shredHash(shredAt, 2.0), shredHash(shredAt, 3.0));
-    vec3 pivot = transformed - (position - shredMiddle);
+    // The shred spins and shrinks about its middle, posed by this vertex's own bones, so it
+    // shrinks right down to a point.
+    vec3 pivot = shredMiddle;
+    #ifdef USE_SKINNING
+      vec4 pivotSkin = bindMatrix * vec4(shredMiddle, 1.0);
+      pivot = (bindMatrixInverse * (boneMatX * pivotSkin * skinWeight.x + boneMatY * pivotSkin * skinWeight.y
+        + boneMatZ * pivotSkin * skinWeight.z + boneMatW * pivotSkin * skinWeight.w)).xyz;
+    #endif
+    pivot = inflated(pivot);
     vec3 spinAxis = normalize(r - 0.5 + 0.001);
     float spin = age * (12.0 + 20.0 * r.y);
     vec3 v = transformed - pivot;
     v = v * cos(spin) + cross(spinAxis, v) * sin(spin) + spinAxis * dot(spinAxis, v) * (1.0 - cos(spin));
-    // Snaps back a little at once, as stretched rubber does, and shrinks to nothing in a blink at the end of its life.
+    // Snaps back a little at once, as stretched rubber does, and shrinks away over its life.
     float lifeRoll = shredHash(shredAt, 4.0);
     float life = mix(${SHRED_LIFE[0].toFixed(2)}, ${SHRED_LIFE[1].toFixed(2)}, lifeRoll * lifeRoll);
-    v *= (1.0 - 0.3 * min(age / 0.08, 1.0)) * clamp((life - age) / 0.03, 0.0, 1.0);
+    v *= (1.0 - 0.3 * min(age / 0.08, 1.0)) * (1.0 - smoothstep(0.0, life, age));
     vec3 flight = normalize(shredMiddle - vec3(0.0, 1.95, 0.0)) * (5.0 + 6.0 * r.x) + (r - 0.5) * 4.0 + vec3(0.0, 2.5, 0.0);
     transformed = pivot + v + flight * age - vec3(0.0, 9.0 * age * age, 0.0);
   }
@@ -109,11 +127,10 @@ function balloon(material: Material, uniforms: BalloonUniforms, compile?: (shade
   material.onBeforeCompile = (shader) => {
     compile?.(shader);
     Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = `uniform float inflate; uniform vec3 inflateMiddle;\n${SHREDS}` + shader.vertexShader.replace(
+    shader.vertexShader = `${INFLATE}${SHREDS}` + shader.vertexShader.replace(
       "#include <skinning_vertex>",
       `#include <skinning_vertex>
-      vec3 inflateOut = transformed - inflateMiddle;
-      transformed += inflateOut * inflate * exp(-dot(inflateOut, inflateOut) / (${INFLATE_REACH} * ${INFLATE_REACH}));
+      transformed = inflated(transformed);
       ${SHRED_FLIGHT}`,
     );
     // A triangle across two shreds, one of them flying, would stretch between them: it's torn.
