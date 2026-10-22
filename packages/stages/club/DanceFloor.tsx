@@ -74,7 +74,7 @@ const bulbEmissive = (y0: number, y1: number, n: number, color: string) => /* gl
   float yc = ${((y0 + y1) / 2).toFixed(3)};
   float fy = (w.y - yc) / ${((y1 - y0) / 2).toFixed(3)};
   float bulb = smoothstep(0.32, 0.12, length(vec2(fx, fy * 0.5)));
-  // The chase holds at its average brightness during a song and its results.
+  // The chase holds at its average brightness in the game (preview, song and results).
   float on = mix(mod(idx - floor(uBeat * 2.0), 3.0) < 0.5 ? 1.0 : 0.25, 0.5, uSteady);
   float stripe = exp(-fy * fy * 1.2) * 0.12;
   vec3 col = ${color};
@@ -127,7 +127,7 @@ export default function DanceFloor() {
   }));
 
   useFrame(() => {
-    // Pattern crossfade every two bars. During a song and its results only the smooth
+    // Pattern crossfade every two bars. In the game (preview, song and results) only the smooth
     // color sweep plays: the ripples, checker flashes and sparkle blink on the beat.
     const m = beatCount() / 8;
     const i = Math.floor(m) % 4;

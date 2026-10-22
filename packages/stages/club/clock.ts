@@ -10,8 +10,8 @@ export const club = {
   uBallPos: { value: new THREE.Vector3(0, 6.0, 0.4) },
   uBallRot: { value: 0 },
   uDots: { value: 1 }, // mirror-ball dot intensity
-  uCalm: { value: 0 }, // 1 while a song is danced: no lasers or confetti
-  uSteady: { value: 0 }, // 1 during a song and its results: nothing flashes on the beat
+  uCalm: { value: 0 }, // 1 during the preview and the song: no lasers or confetti
+  uSteady: { value: 0 }, // 1 in the game (preview, song and results): nothing flashes on the beat
 } satisfies Record<string, THREE.IUniform>;
 
 export const BALL_POS = club.uBallPos.value;

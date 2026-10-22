@@ -23,7 +23,7 @@ import BubbleColumns from './BubbleColumns.tsx';
 import Bar from './Bar.tsx';
 import Particles from './Particles.tsx';
 
-// Drives the shared club uniforms; bloom breathes with the kick (club.uPulse holds steady during a song).
+// Drives the shared club uniforms; bloom breathes with the kick (club.uPulse holds steady in the game).
 function ClubClock() {
   useFrame((state, delta) => {
     tickClub(state.clock.elapsedTime, delta);

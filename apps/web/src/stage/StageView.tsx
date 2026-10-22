@@ -263,8 +263,8 @@ export default function StageView({ active = false, orbiting = false, stageId, r
     const o = orbit.current;
     const { target: want, shown: have, routine: current } = props.current;
     if (current && current !== st.routine) { st.routine = current; st.dancersFailed = false; }
-    // The song and its results (not Song Select's preview): stages calm their busiest effects.
-    const playing = have !== null && want === have && !props.current.orbiting;
+    // Song Select's preview, the song and its results: stages calm their busiest effects.
+    const playing = have !== null && want === have;
     stagePlay.dancing = playing && !props.current.results;
     stagePlay.celebrating = playing && !!props.current.results;
     if (have === null) {

@@ -40,7 +40,7 @@ void main() {
   float orb = smoothstep(1.15, 1.05, r);
   vec3 orbCol = mix(vec3(0.1, 0.55, 1.0), vec3(0.75, 1.0, 1.0), smoothstep(-1.4, 1.2, q.y));
   float shine = smoothstep(0.7, 0.15, length((q - vec2(-0.27, 0.5)) * vec2(1.0, 1.7)));
-  // During a song and its results the orb throws no rings.
+  // In the game (preview, song and results) the orb throws no rings.
   float strobe = 1.0 - uSteady;
   col = mix(col, orbCol * (0.45 + 0.35 * uPulse) + shine * 0.7, orb);
   col += vec3(0.4, 0.9, 1.0) * exp(-pow((r - 1.12) * 9.0, 2.0)) * 1.2;

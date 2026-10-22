@@ -103,7 +103,7 @@ void main() {
   float r = length(d) * 2.0;
   float g = exp(-r * r * 6.0) * 0.45 + exp(-r * 10.0) * 0.4;
   float star = exp(-abs(d.x) * 70.0) * exp(-abs(d.y) * 5.0) + exp(-abs(d.y) * 70.0) * exp(-abs(d.x) * 5.0);
-  // During a song and its results the halo loses its star streaks.
+  // In the game (preview, song and results) the halo loses its star streaks.
   float a = (g + star * 0.5 * (1.0 - uSteady)) * (0.4 + 0.3 * uPulse) * smoothstep(1.0, 0.6, r);
   gl_FragColor = vec4(vec3(0.75, 0.92, 1.0) * a, 1.0);
 }

@@ -31,7 +31,7 @@ export function disposeDeep(value: unknown): void {
 export const stageOrbit: { yaw: number } = { yaw: 0 };
 
 // What the game is showing on the stage, so stages can tone down their busiest effects:
-// `dancing` while the song is on, `celebrating` on its results (neither in Song Select's preview).
+// `dancing` during Song Select's preview and the song, `celebrating` on the song's results.
 export const stagePlay: { dancing: boolean; celebrating: boolean } = { dancing: false, celebrating: false };
 
 export interface StageCameraProps {

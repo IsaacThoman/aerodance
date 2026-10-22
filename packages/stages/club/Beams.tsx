@@ -256,7 +256,7 @@ export default function Beams() {
     if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
     if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
     // Lasers fire on the second half of every four bars. They stay on through the results
-    // rather than flashing, and off while a song is danced.
+    // rather than flashing, and off during the preview and the song.
     const lu = res.laserMat.uniforms;
     lu.uTime.value = t;
     const firing = THREE.MathUtils.lerp(beat.bar % 4 >= 2 ? 1 : 0, 1, club.uSteady.value);

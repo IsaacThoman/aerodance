@@ -147,7 +147,7 @@ export default function Particles() {
     bubbleMat: new THREE.ShaderMaterial({ uniforms: { uTime: club.uTime }, vertexShader: bubbleVertex, fragmentShader: bubbleFragment, ...additive }),
   }));
 
-  // No confetti while a song is danced; a fresh burst celebrates the song's end.
+  // No confetti during the preview and the song; a fresh burst celebrates the song's end.
   const song = useRef({ dancing: false, endBeat: -Infinity });
   useFrame(() => {
     const beats = beat.beat + beat.phase;
