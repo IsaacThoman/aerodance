@@ -1,6 +1,6 @@
 import { MEDIAPIPE_VERSION, ASSET_PATH, isPoseModelId, poseModel } from './models.ts';
 import type { PoseModelId } from './models.ts';
-import { PlayerSlotMapper } from './slots.ts';
+import { PlayerTracker } from './tracker.ts';
 import { validateWebcamRecord } from '../webcamRecord.ts';
 import type { WebcamRecord } from '../webcamRecord.ts';
 import { isPlayerCount } from '../choreography.ts';
@@ -137,7 +137,7 @@ export class WebcamPoseSource {
   lastMediaTime = -Infinity;
   /** When the camera last delivered a new frame (tracked or not). */
   lastFrame = 0;
-  slots = new PlayerSlotMapper();
+  tracker = new PlayerTracker(1);
   resultTimes: number[] = [];
   startedAt = 0;
   completed = 0;
@@ -288,7 +288,7 @@ export class WebcamPoseSource {
       this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
       const model = poseModel(this.view.model);
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
-      this.slots = new PlayerSlotMapper(); this.resultTimes = [];
+      this.tracker = new PlayerTracker(this.playerCount); this.resultTimes = [];
       this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.lastFrame = this.startedAt;
       const worker = this.worker = this.createWorker();
       worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
@@ -297,7 +297,11 @@ export class WebcamPoseSource {
       this.publish({ status: 'initializing', message: `Loading ${model.label} model…`,
         modelConfig: { modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION,
           thresholds: { detection: 0.5, presence: 0.5, tracking: 0.5 }, timingMethod: 'browser-frame-observation' } });
-      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount,
+      // With several players, one more person than there are players, so somebody walking past
+      // can't push a player out of the model's results (the tracker ignores them). One player
+      // doesn't need it: the model keeps following one person by itself, and looking for a
+      // second makes it search the whole picture every frame, which costs about three times as much.
+      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount === 1 ? 1 : this.playerCount + 1, looks: true,
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }
   }
@@ -349,7 +353,7 @@ export class WebcamPoseSource {
       const record = validateWebcamRecord({ schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose',
         sessionId: this.sessionId, seq: pending.seq, playerCount: this.playerCount, input: this.input,
         modelId: this.view.model, mediaTimeMs: pending.mediaTimeMs, frameBrowserTimeMs: pending.frameBrowserTimeMs, resultBrowserTimeMs: receivedBrowserTimeMs,
-        timingMethod: 'browser-frame-observation', poses: this.slots.map(data.landmarks, this.playerCount) });
+        timingMethod: 'browser-frame-observation', poses: this.input ? this.tracker.update(data.landmarks, this.input, pending.frameBrowserTimeMs, data.looks) : [] });
       clearTimeout(this.startupTimeout);
       this.completed++;
       this.emit({ record, receivedBrowserTimeMs, captureBrowserTimeMs: record.frameBrowserTimeMs,
@@ -382,7 +386,7 @@ export class WebcamPoseSource {
         // No frame is in flight (busy returned above), so no result mixes the two sizes.
         // Calibration and the live characters start afresh when a record's input size changes.
         this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
-        this.slots = new PlayerSlotMapper();
+        this.tracker = new PlayerTracker(this.playerCount);
       }
       this.busy = true;
       const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs: this.now() };
