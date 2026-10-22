@@ -65,9 +65,10 @@ const INFLATE_REACH = "1.7";
 // Tearing cuts the skin into ragged shreds, a cell of the rest pose each, and each comes away
 // as the tear reaches it. The tear starts just off the front of the chest, on the camera's
 // side, and runs out fastest along a few cracks. A shred flies away from the body's middle,
-// tumbling and falling, flashes as it comes away, and is gone after SHRED_LIFE seconds.
+// tumbling and falling, flashes as it comes away, and shrinks away after a lifetime of its own,
+// somewhere in the SHRED_LIFE range (seconds), so they go one by one.
 const SHRED_SIZE = "0.45";
-const SHRED_LIFE = 0.45;
+const SHRED_LIFE = [0.1, 0.3] as const;
 const SHREDS = `
 uniform float tear;
 varying vec3 vRest; varying vec3 vShred; varying float vShredAge;
@@ -93,8 +94,9 @@ if (tear > 0.0) {
     float spin = age * (12.0 + 20.0 * r.y);
     vec3 v = transformed - pivot;
     v = v * cos(spin) + cross(spinAxis, v) * sin(spin) + spinAxis * dot(spinAxis, v) * (1.0 - cos(spin));
-    // Snaps back a little at once, as stretched rubber does, then shrinks away.
-    v *= (1.0 - 0.3 * min(age / 0.08, 1.0)) * max(0.0, 1.0 - age / ${SHRED_LIFE.toFixed(2)});
+    // Snaps back a little at once, as stretched rubber does, and shrinks away over the end of its life.
+    float life = mix(${SHRED_LIFE[0].toFixed(2)}, ${SHRED_LIFE[1].toFixed(2)}, shredHash(shredAt, 4.0));
+    v *= (1.0 - 0.3 * min(age / 0.08, 1.0)) * clamp((life - age) / (0.4 * life), 0.0, 1.0);
     vec3 flight = normalize(shredMiddle - vec3(0.0, 1.95, 0.0)) * (5.0 + 6.0 * r.x) + (r - 0.5) * 4.0 + vec3(0.0, 2.5, 0.0);
     transformed = pivot + v + flight * age - vec3(0.0, 9.0 * age * age, 0.0);
   }
