@@ -3,18 +3,22 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { beat, reducedMotion, useDisposable } from '../shared/hooks.ts';
-import { club, hue } from './clock.ts';
+import { beatCount, club, hue } from './clock.ts';
 import { mergeAll } from './geometry.ts';
 import { COLUMNS, FLOOR, ROOM_R, polar } from './layout.ts';
+import meta from './meta.ts';
 
 const TRUSS = { y: 8.5, z: -5.6, half: 7.2 };
+// The two dancers stand this far either side of the middle.
+const DANCER_X = meta.dancers.spacing / 2;
 const HEADS = [-6, -3.6, -1.2, 1.2, 3.6, 6];
 const HEAD_Y = TRUSS.y - 0.42;
 const BEAM_LEN = 15;
+const BEAM_END_R = 1.25;
 const LASERS = 5;
 
-// Soft volumetric beam: bright at the source, fading along its length and
-// toward the silhouette edges, with a slow haze shimmer.
+// Soft volumetric beam: a cone that is narrow and bright at the lamp, widening and
+// fading a little toward the floor, soft at its silhouette edges, with a slow haze shimmer.
 const beamVertex = /* glsl */ `
 uniform float uLen;
 varying float vAlong;
@@ -45,7 +49,7 @@ void main() {
   float f = abs(dot(normalize(vN), normalize(vV)));
   float edge = pow(f, 1.8);
   float a = clamp(vAlong, 0.0, 1.0);
-  float fall = pow(1.0 - a, 1.4) * 0.85 + 0.15 * (1.0 - a);
+  float fall = mix(1.0, 0.45, a);
   float haze = 0.65 + 0.35 * sin(vW.y * 1.7 + vW.x * 0.9 - uTime * 0.9) * sin(vW.z * 1.3 + uTime * 0.6);
   float hot = exp(-a * 25.0) * 1.2;
   float floorFade = smoothstep(${FLOOR.toFixed(2)}, ${(FLOOR + 1.2).toFixed(2)}, vW.y);
@@ -147,6 +151,21 @@ function laserGeometry() {
 
 const additive = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
 
+// Where outer head i (at x along the truss) aims at time t in each sweep pattern.
+function sweepTarget(mode: number, i: number, x: number, t: number, out: THREE.Vector3) {
+  if (mode === 0) {
+    // Slow fan sweeping across the crowd.
+    return out.set(x * 1.3 + Math.sin(t * 0.6 + i * 0.7) * 3.5, FLOOR, 4 + Math.cos(t * 0.45 + i) * 3.5);
+  }
+  if (mode === 1) {
+    // Crossing pairs.
+    return out.set(-x * 1.4 + Math.sin(t * 0.9) * 2 * (i % 2 ? 1 : -1), FLOOR, 3 + Math.sin(t * 0.7 + i) * 2.5);
+  }
+  // Circling the stage.
+  const a = t * 0.8 + (i / HEADS.length) * Math.PI * 2;
+  return out.set(Math.cos(a) * 7.5, FLOOR, 1 + Math.sin(a) * 6);
+}
+
 export default function Beams() {
   const heads = useRef<THREE.InstancedMesh>(null);
   const lenses = useRef<THREE.InstancedMesh>(null);
@@ -163,8 +182,9 @@ export default function Beams() {
       truss,
       head: new RoundedBoxGeometry(0.42, 0.42, 0.52, 3, 0.12),
       lens: new THREE.CircleGeometry(0.15, 20).translate(0, 0, 0.265),
-      beam: new THREE.CylinderGeometry(0.1, 1.3, BEAM_LEN, 20, 1, true).translate(0, BEAM_LEN / 2, 0).rotateX(Math.PI / 2),
-      pool: new THREE.CircleGeometry(1.4, 32).rotateX(-Math.PI / 2),
+      // Narrow at the lamp (z = 0), wide where it lands (z = BEAM_LEN, scaled to the distance).
+      beam: new THREE.CylinderGeometry(BEAM_END_R, 0.12, BEAM_LEN, 24, 1, true).translate(0, BEAM_LEN / 2, 0).rotateX(Math.PI / 2),
+      pool: new THREE.CircleGeometry(BEAM_END_R, 32).rotateX(-Math.PI / 2),
       laser: laserGeometry(),
       chrome: new THREE.MeshStandardMaterial({ color: '#c9d4f0', metalness: 1, roughness: 0.2 }),
       body: new THREE.MeshPhysicalMaterial({ color: '#d7def5', roughness: 0.25, clearcoat: 1, envMapIntensity: 0.5 }),
@@ -186,7 +206,7 @@ export default function Beams() {
       }),
     };
   });
-  const tmp = useDisposable(() => ({ o: new THREE.Object3D(), target: new THREE.Vector3(), c: new THREE.Color() }));
+  const tmp = useDisposable(() => ({ o: new THREE.Object3D(), target: new THREE.Vector3(), next: new THREE.Vector3(), c: new THREE.Color() }));
 
   useLayoutEffect(() => {
     // Seed instance colors before the first frame so the shaders compile with them.
@@ -204,27 +224,27 @@ export default function Beams() {
     if (!hm || !lm || !bm || !pm) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
     const { o, target, c } = tmp;
-    const mode = Math.floor(beat.bar / 4) % 3;
-    const pulse = 0.75 + 0.5 * beat.pulse;
+    const kick = club.uPulse.value;
+    // Colors drift through the palette smoothly rather than stepping each bar.
+    const bars = beatCount() / 4;
+    // The outer heads move through three patterns, four bars each, gliding from one into the
+    // next over the last two bars instead of jumping.
+    const blocks = reducedMotion ? 0 : beatCount() / 16;
+    const mode = Math.floor(blocks) % 3;
+    const blend = THREE.MathUtils.smoothstep(blocks - Math.floor(blocks), 0.5, 1);
     for (let i = 0; i < HEADS.length; i++) {
       const x = HEADS[i];
-      const s = i % 2 ? 1 : -1;
       const follow = i === 2 || i === 3;
       let floorY = FLOOR;
       if (follow) {
-        // The two inner heads cross over as follow spots on the dancers.
+        // The inner two circle the dancer on their own side as follow spots, landing mostly
+        // behind them so the cones frame them without washing them out.
         floorY = 0;
-        target.set((i === 2 ? 2 : -2) + Math.sin(t * 0.9 + i) * 0.5, 0, 0.3 + Math.sin(t * 0.6 + i) * 0.4);
-      } else if (mode === 0) {
-        // Slow fan sweeping across the crowd.
-        target.set(x * 1.3 + Math.sin(t * 0.6 + i * 0.7) * 3.5, FLOOR, 4 + Math.cos(t * 0.45 + i) * 3.5);
-      } else if (mode === 1) {
-        // Crossing pairs.
-        target.set(-x * 1.4 + Math.sin(t * 0.9) * 2 * s, FLOOR, 3 + Math.sin(t * 0.7 + i) * 2.5);
+        const a = t * 0.5 * (i % 2 ? 1 : -1) + i * 1.7;
+        target.set(Math.sign(x) * DANCER_X + Math.cos(a) * 0.8, 0, -0.9 + Math.sin(a) * 0.45);
       } else {
-        // Circling the stage.
-        const a = t * 0.8 + (i / HEADS.length) * Math.PI * 2;
-        target.set(Math.cos(a) * 7.5, FLOOR, 1 + Math.sin(a) * 6);
+        sweepTarget(mode, i, x, t, target);
+        if (blend > 0) target.lerp(sweepTarget((mode + 1) % 3, i, x, t, tmp.next), blend);
       }
       o.position.set(x, HEAD_Y, TRUSS.z);
       o.scale.set(1, 1, 1);
@@ -237,15 +257,16 @@ export default function Beams() {
       bm.setMatrixAt(i, o.matrix);
       o.position.set(target.x, floorY + 0.02, target.z);
       o.rotation.set(0, 0, 0);
-      o.scale.setScalar(follow ? 0 : 1); // the floor shader already pools light under the dancers
+      o.scale.setScalar(1); // a pool of light where the cone lands
       o.updateMatrix();
       pm.setMatrixAt(i, o.matrix);
-      hue(beat.bar * 0.17 + i * 0.06, c);
-      lm.setColorAt(i, c.multiplyScalar(3 + beat.pulse * 3));
+      // Steady brightness: no flash on the beat.
+      hue(bars * 0.17 + i * 0.06, c);
+      lm.setColorAt(i, c.multiplyScalar(3.5));
       if (follow) c.setRGB(0.75, 0.9, 1.0).multiplyScalar(0.6);
-      else hue(beat.bar * 0.17 + i * 0.06, c);
-      bm.setColorAt(i, c.multiplyScalar((follow ? 0.3 : 0.55) * pulse));
-      pm.setColorAt(i, c.multiplyScalar(0.6 / 0.55));
+      else hue(bars * 0.17 + i * 0.06, c);
+      bm.setColorAt(i, c.multiplyScalar(follow ? 0.1 : 0.24));
+      pm.setColorAt(i, c.multiplyScalar(0.8));
     }
     hm.instanceMatrix.needsUpdate = true;
     lm.instanceMatrix.needsUpdate = true;
@@ -254,10 +275,12 @@ export default function Beams() {
     if (lm.instanceColor) lm.instanceColor.needsUpdate = true;
     if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
     if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
-    // Lasers fire on the second half of every four bars.
+    // Lasers fire on the second half of every four bars. In the game (preview, song and
+    // results) they stay on, still sweeping, rather than flashing.
     const lu = res.laserMat.uniforms;
     lu.uTime.value = t;
-    lu.uIntensity.value = (beat.bar % 4 >= 2 ? 1 : 0) * (0.5 + 0.4 * beat.pulse);
+    const firing = THREE.MathUtils.lerp(beat.bar % 4 >= 2 ? 1 : 0, 1, club.uSteady.value);
+    lu.uIntensity.value = firing * (0.5 + 0.4 * kick);
   });
 
   const n = HEADS.length;
