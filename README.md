@@ -9,8 +9,8 @@ See [the browser webcam plan](docs/browser-webcam-plan.md) for shared game/edito
 See [the song and dance authoring workflow](docs/song-dance-authoring-workflow.md) for the proposed Docker-hosted editor, pose format, raw landmark editing, Frutiger playback, and portable song bundle contract.
 
 The editor is implemented as [Dance Studio](tools/choreography/README.md).
-Run `docker compose -f tools/choreography/compose.yaml up --build -d` and open
-http://localhost:8082 to record/import, edit, preview, save, and export song bundles.
+Run `docker compose -f tools/choreography/compose.yaml -f tools/choreography/compose.local.yaml up --build -d`
+and open http://localhost:8082 to record/import, edit, preview, save, and export song bundles.
 Dance Studio is also static: projects autosave in browser storage (IndexedDB and
 OPFS). Download project backups to keep or transfer your work; see its README for
 migration from older disk-based deployments.
@@ -136,7 +136,7 @@ The base `compose.yaml` publishes no host ports. The app serves the static build
 2. Assign the domain to service `app` with internal port `3000`, for example `https://aerodance.example.com:3000`. Coolify routes HTTPS through Traefik on public port `443` to the app's internal port.
 3. Deploy using only the base Compose file. Include `compose.local.yaml` only for local development.
 
-See [Coolify's Docker Compose documentation](https://coolify.io/docs/applications/builds/docker-compose) for deployment and domain configuration.
+See [Coolify's Docker Compose documentation](https://coolify.io/docs/applications/builds/docker-compose) for deployment and domain configuration. Dance Studio deploys the same way as a separate application; see [its README](tools/choreography/README.md#deploy-with-coolify).
 
 ### Pull request previews
 
