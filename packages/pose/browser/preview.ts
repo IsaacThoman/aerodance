@@ -11,6 +11,8 @@ export interface PreviewOptions {
   frame?: FrameSize | null;
   /** A one-player preview's label is this player's (P2 when only player 2 is tracked). */
   soloPlayerId?: number;
+  /** Labels over players' heads go no higher than this (to stay clear of the caller's own labels). */
+  labelTop?: number;
 }
 
 // Shared setup view: mirrored display only; captured landmarks stay canonical. Each tracked
@@ -28,7 +30,7 @@ const shownSize = (p: PreviewPicture) => isFrame(p) ? (p.width ? { width: p.widt
 
 export function drawWebcamPreview(g: CanvasRenderingContext2D, video: PreviewPicture | null | undefined,
   snapshot: { poses: readonly Pose[] } | null | undefined, rect: PreviewRect, playerCount = 2, placeholder = 'Start camera to preview',
-  { mirror = true, frame = null, soloPlayerId = 0 }: PreviewOptions = {}): PreviewRect {
+  { mirror = true, frame = null, soloPlayerId = 0, labelTop = rect.y + 18 }: PreviewOptions = {}): PreviewRect {
   const { x, y, w, h } = rect;
   let picture: PreviewRect = rect;
   g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
@@ -69,7 +71,7 @@ export function drawWebcamPreview(g: CanvasRenderingContext2D, video: PreviewPic
       const top = Math.min(...head.map(p => p.y));
       const cx = head.reduce((sum, p) => sum + (mirror ? 1 - p.x : p.x), 0) / head.length;
       g.fillStyle = SKELETON[pose.playerId % SKELETON.length];
-      g.fillText(`P${pose.playerId + 1}`, picture.x + cx * picture.w, Math.max(y + 18, picture.y + top * picture.h - 14));
+      g.fillText(`P${pose.playerId + 1}`, picture.x + cx * picture.w, Math.max(labelTop, picture.y + top * picture.h - 14));
     }
   } else if (size) g.fillText(`P${soloPlayerId + 1}`, x + w / 2, y + 22);
   if (!video && !frame && placeholder) g.fillText(placeholder, x + w / 2, y + h / 2);

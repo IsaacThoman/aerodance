@@ -125,7 +125,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
   drawGlassPanel(g, GAME_CALIBRATION_CARD, 30);
 
-  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
+  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 76 });
   const pairing = camera.pairing();
   if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
@@ -139,15 +139,27 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     fade.addColorStop(1, 'rgba(4, 34, 61, 0.85)');
     g.fillStyle = fade;
     g.fillRect(preview.x, top, preview.w, 110);
-    // Each player's status under their label, P1 to P4 left to right across the camera picture
-    // (the order the players were numbered in as they stepped into view), short where the
-    // columns are narrow. The preview labels each player over their head in the same colour.
+    // The players' statuses sit on one along the top.
+    const head = g.createLinearGradient(0, preview.y, 0, preview.y + 72);
+    head.addColorStop(0, 'rgba(4, 34, 61, 0.75)');
+    head.addColorStop(1, 'rgba(4, 34, 61, 0)');
+    g.fillStyle = head;
+    g.fillRect(preview.x, preview.y, preview.w, 72);
+    // Each player's status under their label, in a column each across the camera picture in the
+    // order they stand (mirrored, as the preview shows them; a player out of view keeps their
+    // number's place), short where the columns are narrow. The preview labels each player over
+    // their head in the same colour.
     const column = picture.w / session.playerCount;
     const crowd = session.playerCount > 2;
     const size = crowd ? 17 : 20;
+    const standing = (id: number) => {
+      const pose = connection.snapshot?.poses.find(p => p.playerId === id);
+      return pose ? 1 - (pose.landmarks[23].x + pose.landmarks[24].x) / 2 : (id + 0.5) / session.playerCount;
+    };
+    const columns = calibration.players.map((_, id) => id).sort((a, b) => standing(a) - standing(b));
     calibration.players.forEach((status, id) => {
       const [label, color, short] = CALIBRATION_STATUS[status];
-      const cx = picture.x + column * (id + 0.5);
+      const cx = picture.x + column * (columns.indexOf(id) + 0.5);
       if (session.playerCount > 1) drawShadowText(g, `P${id + 1}`, cx, preview.y + 24, { size: 16, weight: 800, align: 'center', color: SKELETON[id % SKELETON.length] });
       g.font = `800 ${size}px ${FONT}`;
       const fits = !crowd && g.measureText(label).width <= column - 24;

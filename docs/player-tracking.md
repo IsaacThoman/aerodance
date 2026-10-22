@@ -22,29 +22,40 @@ the tracker replaced them.
 
 - **Following.** Each result's people are given to the players all at once, in the cheapest
   way. A player seen in the last quarter-second takes the person where they were heading (their
-  last place moved on by their recent speed), and nobody farther away than 0.7 of a body size.
-  A player missing for longer takes a person seen in two results near the place they were last
-  seen, if that person is nearer it than to any other player.
+  last place moved on by their recent speed): nobody farther away than 0.7 of a body size, and
+  nobody half as big or twice as big (somebody farther back walking past). A player missing for
+  longer takes a person seen in two results near the place they were last seen, if that person
+  is nearer it than any other player.
 - **The line-up.** Each player has a place: where they last stood clear of everyone else. A
-  choice that changes the players' left-to-right order costs extra, so it only happens when
-  the players were followed through it. Until everyone has been in view at once, numbers are
-  provisional; the first time they all are, apart, they're numbered left to right (P1 on the
-  left of the mirrored preview). That is during calibration, which needs everyone in view.
+  choice that changes the players' left-to-right order, passing a player found now or the place
+  of one seen in the last five seconds, costs extra, so it only happens when the players were
+  followed through it frame by frame (and isn't counted for players their looks tell apart).
+  Until everyone has been in view at once, numbers are provisional; the first time they all
+  are, none overlapping another, they're numbered left to right (P1 on the left of the mirrored
+  preview). That is during calibration, which needs everyone in view; after it, a number only
+  moves to another person through the rules below.
 - **Overlaps.** Players who come within 0.6 of a body size of each other (or one vanishes
   beside the other) are tangled: the model may merge or swap them there. When they're all found
   and apart again, they're told apart by their looks if those differ clearly, and otherwise put
-  back in the order they stood in before.
+  back in the order they stood in before, whichever way the model's results went through it.
 - **Looks.** Once players' looks are known and differ clearly, they count when matching, and
   they put mistakes right: a player whose person has looked like another player for a few
-  results becomes that player, and a player whose person doesn't look like them while somebody
-  else in view does takes that somebody instead. Players dressed alike are never told apart by
-  looks; brightness counts for a quarter, since how much of a white shirt or a dark jacket shows
-  changes as somebody dances.
+  results becomes that player (both swap when each looks like the other), and a player whose
+  person doesn't look like them while somebody else in view does, for ten results running,
+  takes that somebody instead. Players dressed alike are never told apart by looks; brightness
+  counts for a quarter, since how much of a white shirt or a dark jacket shows changes as
+  somebody dances. A player's looks are learnt from frames where they stand clear, and only very
+  slowly from a person who doesn't look like them (who may be somebody else).
 - **Extra people.** Nobody can push a player out of the model's results while there's room
-  for one more person, and extra people are ignored while every player is found. Somebody who
-  has been in view beside all the players is a bystander: they can take a missing player's
-  number only once that player has been gone five seconds. A player missing for a second and a
-  half can be found again anywhere; until then their number is kept for them.
+  for one more person, and extra people are ignored while every player is found. Somebody seen
+  in ten results beside every player just seen (not overlapping one, and nowhere near a missing
+  player's place) is a bystander: they can't take a player's number until that player has been
+  gone five seconds. When there are more new people than free numbers, the bigger ones (nearer
+  the camera) come first. A player missing for a second and a half can be found again anywhere;
+  until then their number is kept for them.
+- **Giving numbers back.** For 30 seconds after somebody new takes a missing player's number,
+  somebody who has come into view since and stands at that player's place (for five results,
+  while whoever took the number is elsewhere and doesn't look more like them) gets it back.
 - **Ghosts.** The model sometimes reports one person twice. A result whose joints mostly fall
   on another's is dropped.
 
@@ -63,8 +74,8 @@ looking for one more person costs about 10–20% more inference.
 
 ## What it can't do
 
-- Two people dressed alike who cross over while overlapping, unseen, can't be told from two
-  people who part where they came from: they're put back in their old order.
+- Two people dressed alike who cross over while overlapping can't be told from two people who
+  part where they came from: they're put back in their old order.
 - Somebody in view before every player is (a bystander while players step in) can be numbered
   as a player. The preview labels everyone over their head, so they can step out.
 - Four players still depend on MediaPipe finding four people in one frame
@@ -72,6 +83,10 @@ looking for one more person costs about 10–20% more inference.
 
 ## Tests
 
-`packages/pose/tests/tracker.test.ts` covers numbering, passers-by, a missing player coming
-back beside a bystander, overlaps with and without looks, a swap put right by looks, ghosts and
-the looks themselves. `apps/web/tests/webcam.browser.ts` tracks the fixture photo for real.
+`packages/pose/tests/tracker.test.ts` has a scenario for each rule above, each failing without
+its rule: numbering shoulder to shoulder, walking onto a missing player's place, a passer-by
+behind a missed player, a neighbour lurching toward a missing player's place, a newcomer beyond
+another player, bystanders (kept out, taking a number after five seconds and giving it back,
+dressed like a player), overlaps and merges with and without looks, swaps put right by looks,
+ghosts, and the looks themselves. `apps/web/tests/webcam.browser.ts` tracks the fixture photo
+for real.
