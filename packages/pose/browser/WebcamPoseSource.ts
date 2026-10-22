@@ -301,7 +301,8 @@ export class WebcamPoseSource {
       // can't push a player out of the model's results (the tracker ignores them). One player
       // doesn't need it: the model keeps following one person by itself, and looking for a
       // second makes it search the whole picture every frame, which costs about three times as much.
-      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount === 1 ? 1 : this.playerCount + 1, looks: true,
+      // Looks tell players apart, so one player doesn't need them.
+      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount === 1 ? 1 : this.playerCount + 1, looks: this.playerCount > 1,
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }
   }

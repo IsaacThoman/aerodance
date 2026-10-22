@@ -139,7 +139,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     fade.addColorStop(1, 'rgba(4, 34, 61, 0.85)');
     g.fillStyle = fade;
     g.fillRect(preview.x, top, preview.w, 110);
-    // The players' statuses sit on one along the top.
+    // The players' statuses sit on a fade along the top, too.
     const head = g.createLinearGradient(0, preview.y, 0, preview.y + 72);
     head.addColorStop(0, 'rgba(4, 34, 61, 0.75)');
     head.addColorStop(1, 'rgba(4, 34, 61, 0)');

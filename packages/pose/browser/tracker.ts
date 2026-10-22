@@ -115,7 +115,7 @@ interface Player {
   /** Who had this number before somebody new took it, and when; and when the last somebody new did. */
   former: { place: number; scale: number; looks: number[] | null; samples: number; at: number;
     /** Who has been back at the place (by chain), where they were first, and in how many results running. */
-    back?: { chain: number; x: number; run: number } } | null;
+    back?: { chain: number; x: number; run: number; seen: number } } | null;
   anew: number;
 }
 
@@ -256,12 +256,12 @@ export class PlayerTracker {
     // Where each player is: just seen, or their place.
     const where = this.players.map(p => p.track && now - p.track.seen <= FRESH_MS ? p.track.body.x : p.place);
     // A player whose number is given up, on whose place another player has stood since, isn't there any more.
-    const givenUp = (p: Player) => !!p.track && now - p.track.seen > RESERVE_MS;
-    const superseded = (p: Player, q: Player, body: Body) => givenUp(p) && !givenUp(q) && Math.abs(p.place - q.place) < CLOSE * body.scale;
+    const givenUp = (p: Player) => !!p.track && now - p.track.seen > LONG_MS;
+    const superseded = (p: Player, q: Player) => givenUp(p) && !givenUp(q) && Math.abs(p.place - q.place) < CLOSE * q.track!.body.scale;
     const nearest = (p: Player, body: Body) => this.players.every((q, i) => q === p || !q.track
-      || (!superseded(p, q, body) && (superseded(q, p, body) || Math.abs(body.x - where[i]) > Math.abs(body.x - p.place))));
-    // Looks count for a player whose looks tell them from every other player.
-    const recognisable = this.players.map((p, i) => p.samples >= LOOKS_SAMPLES && this.players.every((q, j) => i === j || !q.track || this.distinct(i, j)));
+      || (!superseded(p, q) && (superseded(q, p) || Math.abs(body.x - where[i]) > Math.abs(body.x - p.place))));
+    // Looks count for a player whose looks tell them from every other player (so not for one player alone).
+    const recognisable = this.players.map((p, i) => this.playerCount > 1 && p.samples >= LOOKS_SAMPLES && this.players.every((q, j) => i === j || !q.track || this.distinct(i, j)));
     const biggest = Math.max(...bodies.map(b => b.scale));
     // Which players would take which people as somebody new (rather than as themselves).
     const anew = this.players.map(() => new Set<number>());
@@ -316,7 +316,9 @@ export class PlayerTracker {
       // player's number leaves a note of who had it.
       const p = this.players[id];
       // (Only one who had it a while: not somebody who took it lately, while its note stands.)
-      if (p.track && anew[id].has(c)) {
+      // (Not when their looks, which tell this player from the others, say it's the player themselves.)
+      const themselves = recognisable[id] && bodies[c].looks && looksDistance(bodies[c].looks!, p.looks!) < STRANGER;
+      if (p.track && anew[id].has(c) && !themselves) {
         if (now - p.anew > RESTORE_MS && (!p.former || now - p.former.at > RESTORE_MS)) p.former = { place: p.place, scale: p.track.body.scale, looks: p.looks, samples: p.samples, at: now };
         p.anew = now;
       }
@@ -396,9 +398,10 @@ export class PlayerTracker {
       const own = looksDistance(body.looks, p.looks);
       const claims = new Map<number, { margin: number; run: number }>();
       for (const other of loose) {
-        // Never a bystander: somebody dressed alike could be beside them.
+        // Never a bystander (somebody dressed alike could be beside them), unless they came into
+        // view since somebody new took this number: the player coming back.
         const theirs = looksDistance(other.looks!, p.looks);
-        const margin = own > STRANGER && other.extra < BYSTANDER ? own - theirs : 0;
+        const margin = own > STRANGER && (other.extra < BYSTANDER || (now - p.anew <= RESTORE_MS && other.since > p.anew)) ? own - theirs : 0;
         const before = p.claims.get(other.chain);
         claims.set(other.chain, { margin: 0.7 * (before?.margin ?? 0) + 0.3 * margin, run: margin > 0 ? (before?.run ?? 0) + 1 : 0 });
       }
@@ -427,9 +430,10 @@ export class PlayerTracker {
       const back = bodies.filter(b => ![...found.values()].includes(b) && b.since > former.at - SEEN_GAP_MS
         && Math.abs(b.x - former.place) / b.scale <= RETURN && Math.abs(Math.log(b.scale / former.scale)) <= GROWTH)
         .sort((a, b) => Math.abs(a.x - former.place) - Math.abs(b.x - former.place))[0];
-      // Standing there, not walking past.
-      const still = back && former.back?.chain === back.chain && Math.abs(back.x - former.back.x) <= CLOSE * back.scale;
-      former.back = back ? (still ? { ...former.back!, run: former.back!.run + 1 } : { chain: back.chain, x: back.x, run: 1 }) : undefined;
+      // Standing there, not walking past (a result the model misses them in doesn't count either way).
+      const still = back && former.back?.chain === back.chain && Math.abs(back.x - former.back.x) <= 0.3 * back.scale;
+      if (back) former.back = still ? { ...former.back!, run: former.back!.run + 1, seen: now } : { chain: back.chain, x: back.x, run: 1, seen: now };
+      else if (former.back && now - former.back.seen > SEEN_GAP_MS) former.back = undefined;
       if (!back || former.back!.run < RESTORE || (holder && Math.abs(holder.x - former.place) <= APART * holder.scale)) continue;
       if (former.looks && former.samples >= LOOKS_SAMPLES && back.looks && holder?.looks
         && looksDistance(back.looks, former.looks) > looksDistance(holder.looks, former.looks)) continue;
@@ -485,8 +489,6 @@ export class PlayerTracker {
       if (!group.every(id => found.has(id))) continue;
       const bodies = group.map(id => found.get(id)!);
       if (!bodies.every((a, i) => bodies.every((b, j) => i === j || apart(a, b)))) continue;
-      // Somebody much bigger or smaller than any of them (passing behind) isn't one of them.
-      if (!bodies.every(b => group.some(id => Math.abs(Math.log(b.scale / this.players[id].track!.body.scale)) <= GROWTH))) continue;
       for (const key of [...this.tangled.keys()]) if (key.split(',').some(id => group.includes(Number(id)))) this.tangled.delete(key);
       let order: Body[];
       if (bodies.every(b => b.looks) && group.every(a => group.every(b => a === b || this.distinct(a, b)))) {
