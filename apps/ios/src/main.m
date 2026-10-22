@@ -394,9 +394,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self pageFailed:error]; }
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self pageFailed:error]; }
 
-- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
-  self.loadServer = self.server;
-  // The new page says where its AirPlay bubble is once it shows it.
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.loadServer = self.server; }
+
+// A new page has replaced the old one, and says where its AirPlay bubble is once it shows it.
+- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
   self.airplayRect = CGRectNull;
   [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
@@ -822,7 +823,8 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
 // game does (GameHost): a failure replaces a server that only looks ready, and retries back off
 // from 0.5 s to 8 s. WebKit's memory cache would keep the failed loads, so it goes first.
 - (void)loadRemote {
-  if (!self.remoteWeb || self.remoteLoading || !GameHost.shared.serverReady) return;
+  // (Only while the game is on a TV: the remote waits for the next one otherwise.)
+  if (!self.remoteWeb || self.remoteLoading || !GameHost.shared.serverReady || !GameHost.shared.onTV) return;
   self.remoteLoading = YES;
   self.remoteSent = nil;
   NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/remote/", Port()]];
@@ -840,9 +842,12 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   });
 }
 
+// Like the game's pages (GameHost pageFailed:), only a failed request to our own server says the
+// server is gone; anything else (the remote's process ending) just loads it again.
 - (void)remoteFailed:(NSError *)error {
-  if ([error.domain isEqual:NSURLErrorDomain] && error.code == NSURLErrorCancelled) return;
-  [GameHost.shared serverFailedToServe];
+  BOOL network = [error.domain isEqual:NSURLErrorDomain];
+  if (network && error.code == NSURLErrorCancelled) return;
+  if (network && [GameHost.shared isOurs:error.userInfo[NSURLErrorFailingURLErrorKey]]) [GameHost.shared serverFailedToServe];
   [self retryRemote:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
 }
 

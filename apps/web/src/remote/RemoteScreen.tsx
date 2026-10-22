@@ -97,8 +97,8 @@ function drawOK(g: CanvasRenderingContext2D, c: Circle, held: boolean) {
 
 export default function RemoteScreen({ page, shown, onKey }: RemoteScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ page, onKey });
-  props.current = { page, onKey };
+  const props = useRef({ page, shown, onKey });
+  props.current = { page, shown, onKey };
   const st = useRef<{ held: RemoteButton | null; timer: number; drawn: string; reported: string }>(
     { held: null, timer: 0, drawn: '', reported: '' }).current;
 
@@ -144,7 +144,8 @@ export default function RemoteScreen({ page, shown, onKey }: RemoteScreenProps) 
         { id: 'back', rect: L.back, drag: true },
       ];
     },
-    onDrag: (wdg) => { if (st.held !== wdg.id) hold(wdg.id); },
+    // (Not while the remote is put away: the canvas may still think a finger is down.)
+    onDrag: (wdg) => { if (st.held !== wdg.id && props.current.shown) hold(wdg.id); },
     update: (_dt, s) => {
       // Let go: the canvas UI's drag has ended.
       if (st.held && s.drag?.id !== st.held) { release(); s.invalidate(); }
