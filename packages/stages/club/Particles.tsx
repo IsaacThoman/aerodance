@@ -1,6 +1,7 @@
+import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { beat, useDisposable } from '../shared/hooks.ts';
+import { beat, stagePlay, useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import type { Random } from '../shared/random.ts';
 import { club } from './clock.ts';
@@ -55,6 +56,7 @@ void main() {
 const confettiVertex = /* glsl */ `
 uniform float uTime;
 uniform float uBurst;
+uniform float uCalm;
 attribute vec4 aSeed;
 varying float vSpin;
 varying float vHue;
@@ -71,7 +73,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
   vSpin = uTime * (3.0 + aSeed.w * 5.0) + aSeed.x * 10.0;
   vHue = aSeed.z;
-  vFade = smoothstep(9.5, 8.5, p.y) * smoothstep(-0.9, 0.5, p.y) * step(age, 15.0);
+  vFade = smoothstep(9.5, 8.5, p.y) * smoothstep(-0.9, 0.5, p.y) * step(age, 15.0) * (1.0 - uCalm);
   gl_PointSize = 0.16 * 600.0 / -mv.z;
 }
 `;
@@ -137,7 +139,7 @@ export default function Particles() {
     bubbles: seededGeometry(36, 7, (r) => [r.chance(0.5) ? r.sign() * r.range(0.08, 0.3) : r.range(0.2, 0.8), r.next(), r.next(), r.next()]),
     sparkleMat: new THREE.ShaderMaterial({ uniforms: { uTime: club.uTime }, vertexShader: sparkleVertex, fragmentShader: sparkleFragment, ...additive }),
     confettiMat: new THREE.ShaderMaterial({
-      uniforms: { uTime: club.uTime, uBurst: { value: 100 } },
+      uniforms: { uTime: club.uTime, uBurst: { value: 100 }, uCalm: club.uCalm },
       vertexShader: confettiVertex,
       fragmentShader: confettiFragment,
       depthWrite: true,
@@ -145,11 +147,17 @@ export default function Particles() {
     bubbleMat: new THREE.ShaderMaterial({ uniforms: { uTime: club.uTime }, vertexShader: bubbleVertex, fragmentShader: bubbleFragment, ...additive }),
   }));
 
+  // No confetti while a song is danced; a fresh burst celebrates the song's end.
+  const song = useRef({ dancing: false, endBeat: -Infinity });
   useFrame(() => {
-    // Seconds since the latest burst bar started.
     const beats = beat.beat + beat.phase;
+    const s = song.current;
+    if (s.dancing && !stagePlay.dancing) s.endBeat = beats;
+    s.dancing = stagePlay.dancing;
+    // Seconds since the latest burst started.
     const sinceBar = beats - Math.floor(beats / (BURST_BARS * 4)) * BURST_BARS * 4;
-    res.confettiMat.uniforms.uBurst.value = (sinceBar * 60) / beat.bpm;
+    const sinceEnd = beats >= s.endBeat ? beats - s.endBeat : Infinity;
+    res.confettiMat.uniforms.uBurst.value = (Math.min(sinceBar, sinceEnd) * 60) / beat.bpm;
   });
 
   return (

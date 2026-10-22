@@ -10,6 +10,7 @@ uniform float uPulse;
 uniform vec3 uBallPos;
 uniform float uBallRot;
 uniform float uDots;
+uniform float uCalm;
 `;
 
 export const hueGLSL = /* glsl */ `

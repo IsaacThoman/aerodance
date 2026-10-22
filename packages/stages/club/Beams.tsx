@@ -254,10 +254,10 @@ export default function Beams() {
     if (lm.instanceColor) lm.instanceColor.needsUpdate = true;
     if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
     if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
-    // Lasers fire on the second half of every four bars.
+    // Lasers fire on the second half of every four bars, but not while a song is danced.
     const lu = res.laserMat.uniforms;
     lu.uTime.value = t;
-    lu.uIntensity.value = (beat.bar % 4 >= 2 ? 1 : 0) * (0.5 + 0.4 * beat.pulse);
+    lu.uIntensity.value = (beat.bar % 4 >= 2 ? 1 : 0) * (0.5 + 0.4 * beat.pulse) * (1 - club.uCalm.value);
   });
 
   const n = HEADS.length;

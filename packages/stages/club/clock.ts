@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { beat } from '../shared/hooks.ts';
+import { beat, stagePlay } from '../shared/hooks.ts';
 
 // Club-wide uniforms shared by reference across every club material, so one
 // update per frame drives the floor, walls, beams and screens in sync.
@@ -10,12 +10,14 @@ export const club = {
   uBallPos: { value: new THREE.Vector3(0, 6.0, 0.4) },
   uBallRot: { value: 0 },
   uDots: { value: 1 }, // mirror-ball dot intensity
+  uCalm: { value: 0 }, // 1 while a song is danced: no lasers, confetti or center strobe
 } satisfies Record<string, THREE.IUniform>;
 
 export const BALL_POS = club.uBallPos.value;
 
-export function tickClub(t: number) {
+export function tickClub(t: number, delta: number) {
   club.uTime.value = t;
+  club.uCalm.value += ((stagePlay.dancing ? 1 : 0) - club.uCalm.value) * Math.min(1, delta * 4);
   club.uBeat.value = beat.beat + beat.phase;
   club.uPulse.value = beat.pulse;
   club.uBallRot.value = t * 0.22;

@@ -6,7 +6,7 @@ import { STAGES, resolveStage } from '../../../../packages/stages/index.ts';
 import type { DancerPlacement, Stage, StageId, StageMeta } from '../../../../packages/stages/index.ts';
 import { RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
-import { beat, stageOrbit } from '../../../../packages/stages/shared/hooks.ts';
+import { beat, stageOrbit, stagePlay } from '../../../../packages/stages/shared/hooks.ts';
 import { loadMotion } from '../../../../packages/character/motion.ts';
 import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
@@ -239,8 +239,9 @@ export default function StageView({ active = false, orbiting = false, stageId, r
   const fade = useRef<Fade>({ value: 0, settled: 0 });
   const st = useRef<StageViewState>({ loaded: null, failed: new Set(), dancersFailed: false, routine: null, requested: undefined, reported: '' }).current;
   const target = active ? resolveStage(stageId) : null;
-  const props = useRef({ target, shown, onState, routine, orbiting });
-  props.current = { target, shown, onState, routine, orbiting };
+  const props = useRef({ target, shown, onState, routine, orbiting, results });
+  props.current = { target, shown, onState, routine, orbiting, results };
+  useEffect(() => () => { stagePlay.dancing = false; }, []);
   const orbit = useRef({ speed: 0, phase: 0, ramp: 0, on: false });
   // Keep dancing the last routine while the veil comes up on the way out.
   const lastRoutine = useRef<SongRoutine | null>(null);
@@ -262,6 +263,8 @@ export default function StageView({ active = false, orbiting = false, stageId, r
     const o = orbit.current;
     const { target: want, shown: have, routine: current } = props.current;
     if (current && current !== st.routine) { st.routine = current; st.dancersFailed = false; }
+    // The song itself (not Song Select's preview or the results): stages calm their busiest effects.
+    stagePlay.dancing = have !== null && want === have && !props.current.orbiting && !props.current.results;
     if (have === null) {
       Object.assign(o, { speed: 0, phase: 0, ramp: 0, on: false });
       stageOrbit.yaw = 0;

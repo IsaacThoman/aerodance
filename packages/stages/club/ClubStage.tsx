@@ -8,7 +8,7 @@ import { StageEnvironment } from '../shared/Environment.tsx';
 import type { EnvironmentLight } from '../shared/Environment.tsx';
 import { post } from '../shared/post.tsx';
 import meta from './meta.ts';
-import { C, tickClub } from './clock.ts';
+import { C, club, tickClub } from './clock.ts';
 import type { Vec3 } from '../catalog.ts';
 import Room from './Room.tsx';
 import DanceFloor from './DanceFloor.tsx';
@@ -23,11 +23,11 @@ import BubbleColumns from './BubbleColumns.tsx';
 import Bar from './Bar.tsx';
 import Particles from './Particles.tsx';
 
-// Drives the shared club uniforms; bloom breathes with the kick.
+// Drives the shared club uniforms; bloom breathes with the kick, except while a song is danced.
 function ClubClock() {
-  useFrame((state) => {
-    tickClub(state.clock.elapsedTime);
-    post.bloomStrength = meta.post.bloomStrength * (1 + beat.pulse * 0.2);
+  useFrame((state, delta) => {
+    tickClub(state.clock.elapsedTime, delta);
+    post.bloomStrength = meta.post.bloomStrength * (1 + beat.pulse * 0.2 * (1 - club.uCalm.value));
   });
   return null;
 }
