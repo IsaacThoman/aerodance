@@ -588,7 +588,7 @@ export class PhonePoseSource implements PoseSource {
       this.phone = message;
       // The phone's own choice of model sticks here too.
       if (message.model !== this.view.model) save(MODEL_KEY, message.model);
-      this.publish({ model: message.model, message: this.describe() });
+      this.publish({ model: message.model, delegate: message.delegate ?? undefined, message: this.describe() });
     } else this.onPose(message.record);
   }
 

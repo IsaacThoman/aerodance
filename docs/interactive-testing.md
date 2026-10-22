@@ -113,6 +113,7 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
+- Performance, while the stats overlay is on (Settings → Graphics → Stats: `click STATS.1` for Basic, `STATS.2` for Full, `STATS.0` for Off; or open `/?diag=stats`): `statsMode`, `statsFps`, `statsFrameMs`, `statsP99Ms`, `statsMaxMs`, `statsCpuMs`, `statsGpuMs` (Full only, and `--` without timer queries), `statsDrawCalls`, `statsTriangles`, `statsPoseHz`, `statsPoseAgeMs`. They update four times a second, e.g. `wait 'statsFps>55'`.
 
 Wait on `menuReady=true` or `songReady=true` after changing screens: these become `true`
 once the screen's entrance animation has finished and it accepts clicks.
