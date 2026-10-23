@@ -83,7 +83,7 @@ A phone can be the camera instead of a webcam: pick **Phone camera** with the ca
 
 ## Apple TV (experimental)
 
-[`apps/tvos/`](apps/tvos/README.md) is a tvOS app that runs the production game's own JavaScript in the system JavaScriptCore, with WebGL 2 on OpenGL ES and the 2D canvas on CoreGraphics. It uses public APIs only, so it can go to the App Store, and it holds 60 fps on an Apple TV 4K, with a paired phone as the camera (through the pairing server's relay, since there's no WebRTC there) and the Siri Remote (`npm run tvos -- build --game`, then `run`). [docs/apple-tv.md](docs/apple-tv.md) compares everything that was tried, with device measurements.
+[`apps/tvos/`](apps/tvos/README.md) is a tvOS app that runs the production game's own JavaScript in the system JavaScriptCore, with WebGL 2 on OpenGL ES and the 2D canvas on CoreGraphics. It uses public APIs only, so it can go to the App Store, and it holds 60 fps on an Apple TV 4K (3rd generation), with a paired phone as the camera (through the pairing server's relay, since there's no WebRTC there) and the Siri Remote (`npm run tvos -- build --game`, then `run`). [docs/apple-tv.md](docs/apple-tv.md) compares everything that was tried, with device measurements.
 
 ## Shared packages
 
