@@ -50,6 +50,29 @@ static NSString *Port(void) {
   return port;
 }
 
+// Which way up a screen or the device is, as WebKit counts it for the camera (and
+// window.orientation): 0 upright, 90 turned counterclockwise (sideways with the bottom on the
+// right), -90 clockwise, 180 upside down. An unknown one counts as upright, as in WebKit.
+static NSInteger ScreenDegrees(UIWindowScene *scene) {
+  switch (scene.effectiveGeometry.interfaceOrientation) {
+    case UIInterfaceOrientationLandscapeRight: return 90;
+    case UIInterfaceOrientationLandscapeLeft: return -90;
+    case UIInterfaceOrientationPortraitUpsideDown: return 180;
+    default: return 0;
+  }
+}
+
+// The device's own orientation is the screen's mirror image: held sideways with the bottom on the
+// right is UIDeviceOrientationLandscapeLeft and UIInterfaceOrientationLandscapeRight.
+static NSInteger DeviceDegrees(UIDeviceOrientation orientation) {
+  switch (orientation) {
+    case UIDeviceOrientationLandscapeLeft: return 90;
+    case UIDeviceOrientationLandscapeRight: return -90;
+    case UIDeviceOrientationPortraitUpsideDown: return 180;
+    default: return 0;
+  }
+}
+
 static NSString *JSON(id object) {
   NSData *data = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingFragmentsAllowed error:nil];
   return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"null";
@@ -204,6 +227,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 // What the page is told about the app (inject.js __aerodanceHost).
 @property (nonatomic) BOOL tv;            // the game is on an external display (AirPlay mirroring, HDMI); kept in step with onTV
 @property (nonatomic) BOOL interrupted;   // between an audio interruption's start and end (a call, Siri, an alarm)
+@property (nonatomic) NSInteger held;          // which way up the device is held (ScreenDegrees' terms), as last seen upright or sideways
+@property (nonatomic) BOOL heldKnown;          // held has been seen (not only flat, or before the first reading)
+@property (nonatomic) NSInteger gameScreen;    // which way up the game's screen is: the TV's (always upright) or the phone's
+@property (nonatomic) NSInteger phoneScreen;   // which way up the phone's screen is
 @property (nonatomic, strong) WKUserContentController *scripts;
 @property (nonatomic, copy) NSString *injectSource;
 @property (nonatomic, strong) id drive;  // --drive's steps
@@ -428,7 +455,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   [self.scripts addUserScript:[[WKUserScript alloc] initWithSource:self.injectSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
 }
 
-- (NSDictionary *)hostState { return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv), @"screen": self.onTV ? @"tv" : @"phone" }; }
+- (NSDictionary *)hostState {
+  return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv), @"screen": self.onTV ? @"tv" : @"phone",
+            @"held": @(self.held), @"screens": @{ @"game": @(self.gameScreen), @"phone": @(self.phoneScreen) } };
+}
 
 - (void)setTv:(BOOL)tv {
   if (_tv == tv) return;
@@ -440,6 +470,24 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (_interrupted == interrupted) return;
   _interrupted = interrupted;
   [self hostChanged];
+}
+
+// WebKit turns the camera's picture upright for the screen the web view is on, and on a TV that's
+// upright however the phone is held. So the page is told how the device is held and which way up
+// each screen is, and turns the picture itself (cameraTurn in apps/web/src/host.ts). Flat on a
+// table, the device is still held the way it last was.
+- (void)updateOrientation {
+  NSDictionary *was = self.hostState;
+  UIDeviceOrientation device = UIDevice.currentDevice.orientation;
+  self.phoneScreen = ScreenDegrees(self.phoneView.window.windowScene);
+  self.gameScreen = _web.window ? ScreenDegrees(_web.window.windowScene) : self.phoneScreen;
+  if (UIDeviceOrientationIsPortrait(device) || UIDeviceOrientationIsLandscape(device)) {
+    self.held = DeviceDegrees(device);
+    self.heldKnown = YES;
+  } else if (!self.heldKnown) {
+    self.held = self.phoneScreen;
+  }
+  if (![was isEqual:self.hostState]) [self hostChanged];
 }
 
 - (void)hostChanged {
@@ -467,6 +515,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     [target addSubview:web];
   }
   [self updateTV];
+  [self updateOrientation];
   if (self.onTV != self.shownOnTV) {
     self.shownOnTV = self.onTV;
     [self hostChanged];
@@ -504,6 +553,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   [center addObserverForName:AVAudioSessionRouteChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self updateTV]; }];
   [center addObserver:self selector:@selector(sceneActivated) name:UISceneDidActivateNotification object:nil];
   [center addObserver:self selector:@selector(checkServer) name:UIApplicationWillEnterForegroundNotification object:nil];
+  [UIDevice.currentDevice beginGeneratingDeviceOrientationNotifications];
+  [center addObserver:self selector:@selector(updateOrientation) name:UIDeviceOrientationDidChangeNotification object:nil];
   for (NSNotificationName name in @[NSProcessInfoThermalStateDidChangeNotification, NSProcessInfoPowerStateDidChangeNotification]) {
     [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self tellPage]; }];
   }
@@ -749,6 +800,7 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   [super viewDidLayoutSubviews];
   [self placeGamePicker];
   [self placeRemotePicker];
+  [GameHost.shared updateOrientation];  // the phone's screen may have turned
 }
 
 - (void)refresh {

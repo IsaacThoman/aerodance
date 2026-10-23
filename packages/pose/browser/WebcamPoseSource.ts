@@ -6,6 +6,7 @@ import type { WebcamRecord } from '../webcamRecord.ts';
 import { isPlayerCount } from '../choreography.ts';
 import type { CaptureInput, PlayerCount } from '../choreography.ts';
 import type { PoseDelegate, PoseWorkerRequest, PoseWorkerResponse } from './pose.worker.ts';
+import type { PreviewPicture } from './preview.ts';
 
 export type WebcamStatus = 'disconnected' | 'connecting' | 'initializing' | 'connected' | 'error';
 /** Which way the camera faces when no camera is chosen: towards the screen (user) or away. */
@@ -58,7 +59,8 @@ export interface WebcamPoseSourceOptions {
   mediaDevices?: Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'>;
   createWorker?: () => PoseWorker;
   createVideo?: () => HTMLVideoElement;
-  bitmap?: (video: HTMLVideoElement) => Promise<ImageBitmap>;
+  createCanvas?: () => HTMLCanvasElement;
+  bitmap?: (picture: HTMLVideoElement | HTMLCanvasElement) => Promise<ImageBitmap>;
   now?: () => number;
   assetUrl?: () => string;
   /** Prefix of the saved model and camera settings (a phone camera keeps its own). */
@@ -70,6 +72,13 @@ export interface WebcamPoseSourceOptions {
    * watchdog's). Infinity waits for it: in the iPhone/iPad app, iOS gives it back after a call.
    */
   interruptedTimeoutMs?: number;
+  /**
+   * How far to turn the camera's picture so it's upright, clockwise in degrees (0, 90, 180 or
+   * 270), asked on every frame with the picture's size and which way its camera faces. Tracking
+   * and the preview (picture) get the turned picture. The iPhone/iPad app's WebKit turns it
+   * upright for the screen, not the way the device is held (cameraTurn in apps/web/src/host.ts).
+   */
+  turn?: (frame: { width: number; height: number; facing?: string }) => number;
 }
 export interface WebcamConfigureOptions { modelId?: string; cameraId?: string; facing?: CameraFacing; }
 interface PendingFrame { seq: number; mediaTimeMs: number; frameBrowserTimeMs: number; }
@@ -107,12 +116,14 @@ export class WebcamPoseSource {
   mediaDevices: Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'> | undefined;
   createWorker: () => PoseWorker;
   createVideo: () => HTMLVideoElement;
-  bitmap: (video: HTMLVideoElement) => Promise<ImageBitmap>;
+  createCanvas: () => HTMLCanvasElement;
+  bitmap: (picture: HTMLVideoElement | HTMLCanvasElement) => Promise<ImageBitmap>;
   now: () => number;
   assetUrl: () => string;
   settingsKey: string;
   adaptToResize: boolean;
   interruptedTimeoutMs: number;
+  turn: (frame: { width: number; height: number; facing?: string }) => number;
   listeners = new Set<Listener<WebcamView>>();
   recordListeners = new Set<Listener<WebcamRecordEvent>>();
   generation = 0;
@@ -122,6 +133,11 @@ export class WebcamPoseSource {
   startupTimeout: ReturnType<typeof setTimeout> | undefined;
   watchdog: ReturnType<typeof setInterval> | undefined;
   video: HTMLVideoElement | null = null;
+  /** The camera's picture turned upright, while it's turned (turned isn't 0). */
+  canvas: HTMLCanvasElement | null = null;
+  turned = 0;
+  /** Which way the running camera faces ('user', 'environment'; unknown for some). */
+  facing: string | undefined;
   stream: MediaStream | null = null;
   worker: PoseWorker | null = null;
   frameCallback: number | null = null;
@@ -147,14 +163,14 @@ export class WebcamPoseSource {
   interruptedAt = 0;
   constructor({ mediaDevices = globalThis.navigator?.mediaDevices,
     createWorker = () => new Worker(new URL('./pose.worker.ts', import.meta.url), { type: 'module' }),
-    createVideo = () => document.createElement('video'),
-    bitmap = video => createImageBitmap(video), now = () => performance.now(),
+    createVideo = () => document.createElement('video'), createCanvas = () => document.createElement('canvas'),
+    bitmap = picture => createImageBitmap(picture), now = () => performance.now(),
     assetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href,
-    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS,
+    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS, turn = () => 0,
   }: WebcamPoseSourceOptions = {}) {
-    this.mediaDevices = mediaDevices; this.createWorker = createWorker; this.createVideo = createVideo;
+    this.mediaDevices = mediaDevices; this.createWorker = createWorker; this.createVideo = createVideo; this.createCanvas = createCanvas;
     this.bitmap = bitmap; this.now = now; this.assetUrl = assetUrl; this.settingsKey = settingsKey; this.adaptToResize = adaptToResize;
-    this.interruptedTimeoutMs = interruptedTimeoutMs;
+    this.interruptedTimeoutMs = interruptedTimeoutMs; this.turn = turn;
     const savedModel = saved(`${settingsKey}-model`, 'lite');
     const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
     const facing = saved(`${settingsKey}-facing`, '');
@@ -162,6 +178,32 @@ export class WebcamPoseSource {
       message: 'Choose a camera and model, then Start camera.', interrupted: false, model: modelId,
       cameraId: saved(`${settingsKey}-camera`, ''), cameras: [], stats: null,
       ...(facing === 'user' || facing === 'environment' ? { facing } : {}) };
+  }
+  /** What a preview shows: the camera's video, or its picture turned upright while it's turned. */
+  get picture(): PreviewPicture | null {
+    if (!this.video) return null;
+    return this.turned && this.canvas ? { image: this.canvas, width: this.canvas.width, height: this.canvas.height } : this.video;
+  }
+  /** Turns the video's current picture upright into canvas (turned must not be 0). */
+  drawTurned(video: HTMLVideoElement) {
+    const canvas = this.canvas ??= this.createCanvas();
+    const w = video.videoWidth, h = video.videoHeight, sideways = this.turned % 180 !== 0;
+    const cw = sideways ? h : w, ch = sideways ? w : h;
+    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    g.setTransform(1, 0, 0, 1, cw / 2, ch / 2);
+    g.rotate(this.turned * Math.PI / 180);
+    g.drawImage(video, -w / 2, -h / 2, w, h);
+  }
+  /** The picture's size once turned upright. */
+  uprightSize(video: HTMLVideoElement) {
+    return this.turned % 180 ? { width: video.videoHeight, height: video.videoWidth } : { width: video.videoWidth, height: video.videoHeight };
+  }
+  /** Asks how far to turn the video's picture, and turns its current one. */
+  updateTurn(video: HTMLVideoElement) {
+    this.turned = this.turn({ width: video.videoWidth, height: video.videoHeight, facing: this.facing });
+    if (this.turned) this.drawTurned(video);
   }
   subscribe(listener: Listener<WebcamView>) { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
   subscribeRecords(listener: Listener<WebcamRecordEvent>) { this.recordListeners.add(listener); return () => this.recordListeners.delete(listener); }
@@ -201,7 +243,7 @@ export class WebcamPoseSource {
       this.video.pause(); this.video.srcObject = null; this.video.remove?.();
     }
     for (const track of this.stream?.getTracks() || []) track.stop();
-    this.stream = null; this.video = null;
+    this.stream = null; this.video = null; this.turned = 0; this.facing = undefined;
     // Ask the worker to close; termination releases it even during a hung inference.
     if (this.worker) {
       const worker = this.worker;
@@ -269,7 +311,8 @@ export class WebcamPoseSource {
       }
       await this.refreshCameras();
       if (!current()) return;
-      const deviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+      const settings = stream.getVideoTracks()[0]?.getSettings(), deviceId = settings?.deviceId;
+      this.facing = settings?.facingMode;
       const actualCamera = deviceId !== undefined && this.view.cameras.some(camera => camera.deviceId === deviceId) ? deviceId : this.view.cameraId;
       // A camera picked by facing stays unchosen, so turning the phone round picks again.
       if (!this.view.facing || this.view.cameraId) { this.publish({ cameraId: actualCamera }); save(`${this.settingsKey}-camera`, actualCamera); }
@@ -285,7 +328,8 @@ export class WebcamPoseSource {
       await aborted(video.play(), controller.signal);
       if (!current()) return;
       if (!video.videoWidth || !video.videoHeight) throw Error('Camera produced no video frames. Start again.');
-      this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
+      this.updateTurn(video);
+      this.input = { ...this.uprightSize(video), mirrored: false };
       const model = poseModel(this.view.model);
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
       this.slots = new PlayerSlotMapper(); this.resultTimes = [];
@@ -376,17 +420,21 @@ export class WebcamPoseSource {
       if (!Number.isFinite(mediaTimeMs) || mediaTimeMs <= this.lastMediaTime) return;
       this.lastMediaTime = mediaTimeMs;
       this.lastFrame = this.now();
+      // Every new picture is turned, for the preview, even when it isn't tracked.
+      if (video.videoWidth && video.videoHeight) this.updateTurn(video);
       if (this.busy) { this.dropped++; return; }
-      if (video.videoWidth !== this.input?.width || video.videoHeight !== this.input.height) {
-        if (!this.adaptToResize || !video.videoWidth || !video.videoHeight) { this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return; }
+      const size = this.uprightSize(video);
+      if (size.width !== this.input?.width || size.height !== this.input.height) {
+        if (!this.adaptToResize || !size.width || !size.height) { this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return; }
         // No frame is in flight (busy returned above), so no result mixes the two sizes.
         // Calibration and the live characters start afresh when a record's input size changes.
-        this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
+        this.input = { ...size, mirrored: false };
         this.slots = new PlayerSlotMapper();
       }
       this.busy = true;
       const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs: this.now() };
-      void this.bitmap(video).then(bitmap => {
+      // (createImageBitmap copies the canvas now, before the next picture is drawn into it.)
+      void this.bitmap(this.turned && this.canvas ? this.canvas : video).then(bitmap => {
         const worker = this.worker;
         if (generation !== this.generation || !worker) { bitmap.close(); return; }
         worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs }, [bitmap]);
