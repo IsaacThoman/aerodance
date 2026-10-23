@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { diagnostic } from '../diagnostics.ts';
 import { displayDesign } from '../display.ts';
 import { glassCorner } from './draw.ts';
 import type { Rect } from './draw.ts';
@@ -121,6 +122,8 @@ export default function useGlassBlur(frame: () => GlassBlurFrame, { priority = 1
   }, [pass]);
 
   useFrame(() => {
+    // ?diag=noui leaves the UI out of the picture, its frosted glass with it.
+    if (diagnostic('noui')) return;
     const { panes, alpha, offsetX = 0 } = get.current();
     const count = Math.min(panes.length, MAX_PANES);
     if (!count || alpha < 0.005) return;
