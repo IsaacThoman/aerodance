@@ -1,6 +1,6 @@
 import { ASSET_PATH, MEDIAPIPE_VERSION, poseModel } from '../../../packages/pose/browser/models.ts';
 import type { PoseModel } from '../../../packages/pose/browser/models.ts';
-import { assignPlayerSlots, detectedConfidence, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
+import { assignPlayerSlots, detectedConfidence, laneOf, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
 import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
 import type { PoseDelegate, PoseRunningMode, PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { reliableBodyPose } from '../../../packages/character/calibration.ts';
@@ -10,11 +10,11 @@ import type { FrameInput } from '../../../packages/pose/binary.ts';
 import type { CalibrationFrame } from '../core.ts';
 import { captureHeader } from '../poseFiles.ts';
 import type { CaptureStart } from '../poseFiles.ts';
-import type { Landmark, Pose } from '../../../packages/pose/choreography.ts';
+import type { Landmark, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
 import { takeIdOf } from './api.ts';
 import type { ApiRequest } from './api.ts';
 import type { Input as MediaInput } from 'mediabunny';
-import { capturePoses, detectionCount } from './captureMode.ts';
+import { capturePoses, captureSlots, detectionCount, soloPlayer } from './captureMode.ts';
 import type { CaptureMode } from './captureMode.ts';
 import { CLEANUP_SETTINGS } from '../poseCleanup.ts';
 
@@ -62,6 +62,8 @@ export type DecodeFn = (file: Blob | null | undefined, options: DecodeOptions) =
 export interface VideoImporterOptions {
   cleanup?: boolean;
   captureMode?: CaptureMode;
+  /** The song's dancers: an 'all' capture finds each in their own strip of the picture. */
+  dancers?: number;
   video: HTMLVideoElement;
   file?: Blob | null;
   modelId: string;
@@ -87,7 +89,13 @@ export function* sampleTimes(durationMs: number, start = 0, rate = DEFAULT_SAMPL
 }
 
 const confident = (p: DetectedLandmark | undefined) => (p ? detectedConfidence(p) ?? 0 : 0) >= .5;
-export function videoRegionCrop(detections: readonly (readonly DetectedLandmark[])[], playerId: number, width: number, height: number): Crop {
+/**
+ * The strip of the picture (one of `lanes`, unmirrored) a hip centre x falls in, as the player
+ * it belongs to: the mirrored preview shows P1 on the left, so P1's strip is on the camera's right.
+ */
+export const stripOf = (x: number, lanes: number) => lanes - 1 - Math.min(lanes - 1, Math.max(0, Math.floor(x * lanes)));
+const hipStrip = (p: readonly DetectedLandmark[], lanes: number) => stripOf((p[23].x + p[24].x) / 2, lanes);
+export function videoRegionCrop(detections: readonly (readonly DetectedLandmark[])[], playerId: number, width: number, height: number, lanes = 2): Crop {
   // Small dancers in portrait footage need a vertical crop as well as a side
   // crop. Use reliable detections to locate the common dancing area.
   const ys = detections.flatMap(points => {
@@ -104,9 +112,9 @@ export function videoRegionCrop(detections: readonly (readonly DetectedLandmark[
   const cropHeight = Math.min(height, Math.max(width * .75, height * .4));
   const top = ys.length ? Math.max(0, Math.floor(Math.min(...ys) - padding)) : Math.floor((height - cropHeight) / 2);
   const bottom = ys.length ? Math.min(height, Math.ceil(Math.max(...ys) + padding)) : top + cropHeight;
-  const left = playerId === 1 ? 0 : Math.floor(width / 2);
-  return { x: left, y: top, width: playerId === 1 ? Math.floor(width / 2) : width - left,
-    height: Math.max(1, Math.ceil(bottom - top)) };
+  const strip = lanes - 1 - playerId;
+  const left = Math.floor(strip * width / lanes), right = strip === lanes - 1 ? width : Math.floor((strip + 1) * width / lanes);
+  return { x: left, y: top, width: right - left, height: Math.max(1, Math.ceil(bottom - top)) };
 }
 
 export function restoreVideoLandmarks<T extends DetectedLandmark>(points: readonly T[], crop: Crop, width: number, height: number): T[] {
@@ -115,8 +123,8 @@ export function restoreVideoLandmarks<T extends DetectedLandmark>(points: readon
 }
 
 /** Frozen crop coordinates keep VIDEO tracking state meaningful across frames. */
-export function fixedVideoCrop(poses: readonly Pose[], playerId: number, width: number, height: number): Crop {
-  const crop = videoRegionCrop([], playerId, width, height);
+export function fixedVideoCrop(poses: readonly Pose[], playerId: number, width: number, height: number, lanes = 2): Crop {
+  const crop = videoRegionCrop([], playerId, width, height, lanes);
   crop.y = 0; crop.height = height;
   const body = poses.find(p => p.playerId === playerId);
   if (!body || !reliableBodyPose(body)) return crop;
@@ -142,18 +150,19 @@ export function selectVideoPose(full: Pose | undefined, regional: Pose | undefin
 
 // Display every valid detection, even when confidence or framing prevents using
 // it for calibration. Otherwise a detected dancer looks completely missing.
-export function videoCalibrationPreview(detections: readonly (readonly DetectedLandmark[])[], captureMode: CaptureMode = 'both'): CalibrationPreview {
-  const accepted = capturePoses(assignPlayerSlots(detections, detectionCount(captureMode)).filter(reliableBodyPose), captureMode);
+export function videoCalibrationPreview(detections: readonly (readonly DetectedLandmark[])[], captureMode: CaptureMode = 'all', dancers = 2): CalibrationPreview {
+  const lanes = detectionCount(captureMode, dancers), solo = soloPlayer(captureMode);
+  const accepted = capturePoses(assignPlayerSlots(detections, lanes).filter(reliableBodyPose), captureMode);
   const detectedPoses = detections.flatMap((points): DetectedPose[] => {
     const landmarks: Landmark[] = points.map(p => ({ x: p.x, y: p.y, z: p.z,
       confidence: detectedConfidence(p) }));
     try { validatePoses([{ playerId: 0, landmarks }]); } catch { return []; }
     const x = (landmarks[23].x + landmarks[24].x) / 2;
-    const playerId = captureMode === 'both' ? x < .5 ? 1 : 0 : captureMode === 'p1' ? 0 : 1;
+    const playerId = solo ?? stripOf(x, lanes);
     const ready = accepted.some(p => p.playerId === playerId &&
       p.landmarks[23].x === landmarks[23].x && p.landmarks[23].y === landmarks[23].y);
-    const reason = ready ? 'ready' : captureMode === 'both' && Math.abs(x - .5) <= .025
-      ? 'move away from the center divider' : 'needs clearer shoulders, hips and feet';
+    const reason = ready ? 'ready' : solo === null && lanes > 1 && laneOf(x, lanes as PlayerCount) === null
+      ? lanes === 2 ? 'move away from the center divider' : 'move away from the dividers' : 'needs clearer shoulders, hips and feet';
     return [{ playerId, landmarks, ready, reason }];
   });
   return { poses: accepted, detectedPoses };
@@ -237,6 +246,7 @@ const defaultAssetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSE
 export class VideoImporter {
   cleanup: boolean;
   captureMode: CaptureMode;
+  dancers: number;
   video: HTMLVideoElement;
   file: Blob | null | undefined;
   modelId: string;
@@ -265,7 +275,7 @@ export class VideoImporter {
   batchCount = 0;
   recordCount = 0;
   processed?: boolean;
-  constructor({ video, file, modelId, request, projectId, cleanup = true, captureMode = 'both', onProgress = () => {}, sampleRate = DEFAULT_SAMPLE_RATE,
+  constructor({ video, file, modelId, request, projectId, cleanup = true, captureMode = 'all', dancers = 2, onProgress = () => {}, sampleRate = DEFAULT_SAMPLE_RATE,
     createWorker = createPoseWorker, bitmap = createBitmap, seek = seekVideoFrame, decodeFrames = webCodecsFrames,
     assetUrl = defaultAssetUrl,
   }: VideoImporterOptions) {
@@ -274,6 +284,7 @@ export class VideoImporter {
     this.seek = seek; this.decodeFrames = decodeFrames; this.assetUrl = assetUrl;
     this.model = poseModel(modelId);
     this.captureMode = captureMode;
+    this.dancers = dancers;
     this.cleanup = cleanup;
   }
   abort() {
@@ -314,18 +325,20 @@ export class VideoImporter {
     this.closeWorker(); this.worker = this.createWorker();
     this.regionCrops.clear(); this.previousPoses.clear();
     const base = this.assetUrl();
-    this.workerConfig = { type: 'initialize', sessionId: this.sessionId, playerCount: detectionCount(this.captureMode), runningMode,
+    this.workerConfig = { type: 'initialize', sessionId: this.sessionId, playerCount: this.lanes, runningMode,
       modelUrl: new URL(this.model.file, base).href, modelHash: this.model.sha256,
       wasmUrl: new URL('wasm', base).href };
     const ready = await this.waitForMessage(this.workerConfig, 'ready');
     return { modelId: this.model.id, modelHash: this.model.sha256, packageVersion: MEDIAPIPE_VERSION,
       delegate: ready.delegate, thresholds: { detection: .5, presence: .5, tracking: .5 },
-      inferenceMethod: this.captureMode === 'both' ? 'full-frame-with-continuous-region-tracking' : 'full-frame-solo' };
+      inferenceMethod: soloPlayer(this.captureMode) === null ? 'full-frame-with-continuous-region-tracking' : 'full-frame-solo' };
   }
+  /** How many people each frame is searched for: every dancer, each in their own strip, or one. */
+  get lanes() { return detectionCount(this.captureMode, this.dancers); }
   async ensureRegionWorker(regionId: number): Promise<ImportWorker> {
     if (!this.regionWorkers.has(regionId)) {
       if (!this.workerConfig) throw Error('Initialize video tracking first');
-      // One independent task per side preserves both VIDEO tracking histories.
+      // One independent task per strip preserves every VIDEO tracking history.
       const worker = this.createWorker();
       this.regionWorkers.set(regionId, worker);
       await this.waitForMessage({ ...this.workerConfig, playerCount: 1 }, 'ready', worker);
@@ -342,26 +355,27 @@ export class VideoImporter {
   async detectDancers(mediaTimeMs: number, calibration = false, source: DecodedFrame['source'] = this.video): Promise<DetectedLandmark[][]> {
     const result = await this.infer(mediaTimeMs, null, null, source);
     let detections: DetectedLandmark[][] = result.landmarks;
-    if (this.captureMode !== 'both') return detections;
-    const accepted = assignPlayerSlots(detections, 2).filter(p => !calibration || reliableBodyPose(p));
+    const lanes = this.lanes;
+    if (soloPlayer(this.captureMode) !== null || lanes < 2) return detections;
+    const accepted = assignPlayerSlots(detections, lanes).filter(p => !calibration || reliableBodyPose(p));
     const width = this.video.videoWidth, height = this.video.videoHeight;
-    for (const id of [0, 1]) {
+    for (let id = 0; id < lanes; id++) {
       if (calibration && accepted.some(p => p.playerId === id)) continue;
-      if (!this.regionCrops.has(id)) this.regionCrops.set(id, fixedVideoCrop(this.calibrationPoses, id, width, height));
-      const crop = calibration ? videoRegionCrop(detections, id, width, height) : this.regionCrops.get(id)!;
+      if (!this.regionCrops.has(id)) this.regionCrops.set(id, fixedVideoCrop(this.calibrationPoses, id, width, height, lanes));
+      const crop = calibration ? videoRegionCrop(detections, id, width, height, lanes) : this.regionCrops.get(id)!;
       const regional = await this.infer(mediaTimeMs, crop, id, source);
       const restored = regional.landmarks.map(p => restoreVideoLandmarks(p, crop, width, height));
-      const candidate = assignPlayerSlots(restored, 2).find(p => p.playerId === id);
+      const candidate = assignPlayerSlots(restored, lanes).find(p => p.playerId === id);
       const chosen = calibration ? candidate && reliableBodyPose(candidate) ? candidate : undefined
         : selectVideoPose(accepted.find(p => p.playerId === id), candidate, this.previousPoses.get(id), mediaTimeMs, width/height);
       if (!chosen) {
-        if (!calibration) detections = detections.filter(p => ((p[23].x+p[24].x)/2 < .5 ? 1 : 0) !== id);
+        if (!calibration) detections = detections.filter(p => hipStrip(p, lanes) !== id);
         continue;
       }
       if (!calibration) this.previousPoses.set(id, {pose: chosen, time: mediaTimeMs});
       // Replace candidates only in the searched region, retaining the other
-      // dancer and its original coordinates and confidence.
-      detections = detections.filter(p => ((p[23].x + p[24].x) / 2 < .5 ? 1 : 0) !== id);
+      // dancers and their original coordinates and confidence.
+      detections = detections.filter(p => hipStrip(p, lanes) !== id);
       detections.push(chosen.landmarks.map(({ confidence, ...p }) => ({ ...p, visibility: confidence, presence: confidence })));
     }
     return detections;
@@ -370,7 +384,7 @@ export class VideoImporter {
     try {
       await this.initialize('IMAGE');
       const frame = await this.seek(this.video, time, this.controller.signal);
-      const preview = videoCalibrationPreview(await this.detectDancers(frame.mediaTimeMs, true), this.captureMode);
+      const preview = videoCalibrationPreview(await this.detectDancers(frame.mediaTimeMs, true), this.captureMode, this.dancers);
       if (!preview.detectedPoses.length) throw Error('No dancers detected in this frame. Try another frame or Full / Heavy.');
       this.calibrationPoses = preview.poses;
       return { mediaTimeMs: frame.mediaTimeMs, ...preview };
@@ -394,7 +408,7 @@ export class VideoImporter {
       const status = { ...await this.initialize('VIDEO'), filename, durationMs, targetRateHz: this.sampleRate, captureMode: this.captureMode,
         cleanup: this.cleanup ? { ...CLEANUP_SETTINGS } : false };
       const header: CaptureStart = { sourceKind: 'video', sessionId: this.sessionId, input: { width: input.width, height: input.height },
-        playerCount: 2, modelId: this.model.id, audioPlaybackRate: null, extensionBases: [] };
+        playerCount: captureSlots(this.captureMode, this.dancers), modelId: this.model.id, audioPlaybackRate: null, extensionBases: [] };
       const writer = new PoseFileWriter(captureHeader(header));
       const capture = await this.upload(`/api/projects/${this.projectId}/takes`, { sourceKind: 'video', name: filename, status, header });
       const path = `/api/projects/${this.projectId}/takes/${takeIdOf(capture)}`;
@@ -426,7 +440,7 @@ export class VideoImporter {
           if (mediaTimeMs > lastTime && mediaTimeMs <= durationMs) {
             if (!prefetch && (this.video.videoWidth !== input.width || this.video.videoHeight !== input.height))
               throw Error('Video dimensions changed during processing');
-            const poses = capturePoses(slots.map(await this.detectDancers(mediaTimeMs, false, source), detectionCount(this.captureMode)), this.captureMode);
+            const poses = capturePoses(slots.map(await this.detectDancers(mediaTimeMs, false, source), this.lanes), this.captureMode);
             for (const p of poses) this.players.add(p.playerId);
             pending.push({ timeMs: mediaTimeMs, poses: validatePoses(poses), seq: ++this.recordCount,
               seekTime: timingMethod === 'seek-time' });

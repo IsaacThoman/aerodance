@@ -13,11 +13,12 @@ const transport = (fields: Partial<RecorderTransport>): RecorderTransport => ({
   active: false, rate: 1, positionMs: 0, startTime: 0, audioAnchor: null,
   current: () => 0, atBrowserTime: time => time, ...fields,
 });
-test('solo recording writes the selected logical player into a two-slot capture and rejects mode changes', async t => {
-  for (const captureMode of ['p1', 'p2'] as const satisfies readonly CaptureMode[]) {
+test('solo recording writes the selected logical player into its own slot and rejects mode changes', async t => {
+  for (const captureMode of ['p1', 'p2', 'p3', 'p4'] as const satisfies readonly CaptureMode[]) {
+    const playerId = Number(captureMode[1]) - 1;
     let listener: ((event: WebcamRecordEvent) => void) | undefined;
     const calls: Call[] = [], failures: string[] = [], input = { width: 640, height: 480, mirrored: false };
-    const recorder = new Recorder({ captureMode, source: {
+    const recorder = new Recorder({ captureMode, dancers: 4, source: {
       view: { sourceKind: 'webcam', model: 'lite', snapshot: { sessionId: 'solo', input } },
       subscribeRecords(callback) { listener = callback; return () => {}; },
     }, transport: transport({}), projectId: 'project', onFailure: message => failures.push(message),
@@ -34,12 +35,41 @@ test('solo recording writes the selected logical player into a two-slot capture 
     }
     await recorder.stop();
     const batches = uploadedFrames(calls);
-    assert.ok(batches.every(b => b.playerSlots === 2));
+    // One slot each up to the solo dancer's own: P3 alone needs three.
+    assert.ok(batches.every(b => b.playerSlots === playerId + 1), captureMode);
     const poses = batches.flatMap(b => Array.from(b.times, (_, i) => framesToPoses(b, i).poses).flat());
     assert.equal(poses.length, 2);
-    assert.ok(poses.every(p => p.playerId === (captureMode === 'p1' ? 0 : 1)));
+    assert.ok(poses.every(p => p.playerId === playerId));
     assert.equal(failures.length, 1);
     assert.match(failures[0], /player mode/);
+  }
+});
+
+test('recording all of a song\'s dancers keeps each in their own slot', async t => {
+  for (const dancers of [3, 4]) {
+    let listener: ((event: WebcamRecordEvent) => void) | undefined;
+    const calls: Call[] = [], failures: string[] = [], input = { width: 640, height: 480, mirrored: false };
+    const recorder = new Recorder({ captureMode: 'all', dancers, source: {
+      view: { sourceKind: 'webcam', model: 'lite', snapshot: { sessionId: 'group', input } },
+      subscribeRecords(callback) { listener = callback; return () => {}; },
+    }, transport: transport({}), projectId: 'project', onFailure: message => failures.push(message),
+    request: async (url, options) => { calls.push({ url, body: options?.body }); return { takeId: 'group' }; } });
+    await recorder.start(); t.after(() => clearInterval(recorder.timer));
+    assert.equal((found(calls[0]).body as { header: { playerCount: number } }).header.playerCount, dancers);
+    const emit = found(listener);
+    const ids = Array.from({ length: dancers }, (_, id) => id);
+    for (let i = 0; i < 2; i++) {
+      const record: WebcamRecord = { schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 'group', seq: i + 1,
+        modelId: 'lite', playerCount: dancers as 3 | 4, input, mediaTimeMs: i * 100, frameBrowserTimeMs: i * 100,
+        resultBrowserTimeMs: i * 100, timingMethod: 'browser-frame-observation',
+        poses: ids.map(playerId => ({ playerId, landmarks: Array.from({ length: 33 }, () => ({ x: (playerId + .5) / dancers, y: .5, z: 0, confidence: .9 })) })) };
+      emit({ record, receivedBrowserTimeMs: performance.now(), captureBrowserTimeMs: record.frameBrowserTimeMs, timing: { method: record.timingMethod } });
+    }
+    await recorder.stop();
+    const batches = uploadedFrames(calls);
+    assert.ok(batches.every(b => b.playerSlots === dancers));
+    assert.deepEqual(batches.flatMap(b => Array.from(b.times, (_, i) => framesToPoses(b, i).poses.map(p => p.playerId))), [ids, ids]);
+    assert.deepEqual(failures, []);
   }
 });
 

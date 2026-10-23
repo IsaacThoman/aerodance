@@ -14,6 +14,8 @@ export interface RecordingOptions {
   connection: PoseSourceView;
   studio: StudioProject;
   captureMode?: CaptureMode;
+  /** The song's dancers, all of whom an 'all' capture records. */
+  dancers?: number;
   /** Stops song and take playback. */
   pause: () => void;
   setView: Dispatch<SetStateAction<View>>;
@@ -26,7 +28,7 @@ export interface RecordingOptions {
 export type Recording = ReturnType<typeof useRecording>;
 
 // Records a webcam take against the song: a countdown, then pose records anchored to the audio clock.
-export function useRecording({ transport, source, connection, studio, captureMode = 'both', pause, setView, setPlaying, setCursor, setMode, attachTake }: RecordingOptions) {
+export function useRecording({ transport, source, connection, studio, captureMode = 'all', dancers = 2, pause, setView, setPlaying, setCursor, setMode, attachTake }: RecordingOptions) {
   const { project, projectRef, execute, saveProject, setBusy, setError, setNotice } = studio;
   const [recording, setRecording] = useState(false),
     [recordCount, setRecordCount] = useState(0),
@@ -86,6 +88,7 @@ export function useRecording({ transport, source, connection, studio, captureMod
       const r = new Recorder({
         source,
         captureMode,
+        dancers,
         transport,
         request,
         projectId: project.projectId,

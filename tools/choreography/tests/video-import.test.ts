@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
-import { VideoImporter, sampleTimes, seekVideoFrame, videoCalibrationPreview, videoRegionCrop, restoreVideoLandmarks } from '../web/videoImport.ts';
+import { VideoImporter, sampleTimes, seekVideoFrame, stripOf, videoCalibrationPreview, videoRegionCrop, restoreVideoLandmarks } from '../web/videoImport.ts';
 import type { BitmapFn, Crop, DecodedFrame, DecodeOptions, ErrorListener, ImportWorker, ImportWorkerRequest, MessageListener } from '../web/videoImport.ts';
 import { createStudio } from '../server/index.ts';
 import { readZip } from '../server/zip.ts';
@@ -223,6 +223,51 @@ test('continuous region workers keep separate VIDEO histories and frozen crops, 
     assert.ok(worker.crops.every(c=>JSON.stringify(c)===JSON.stringify(worker.crops[0])));
   }
   assert.equal(diagnostics.terminated,3);
+});
+
+test('three or four dancers each get their own strip of the video, P1 the rightmost', async () => {
+  // Strips are counted from the camera's right, as the mirrored preview shows P1 on the left.
+  assert.deepEqual([.1, .3, .6, .9].map(x => stripOf(x, 4)), [3, 2, 1, 0]);
+  assert.deepEqual([.1, .5, .9].map(x => stripOf(x, 3)), [2, 1, 0]);
+  assert.deepEqual([0, 1, 2, 3].map(id => videoRegionCrop([], id, 640, 480, 4)).map(c => [c.x, c.width]), [[480, 160], [320, 160], [160, 160], [0, 160]]);
+  assert.deepEqual([0, 1, 2].map(id => videoRegionCrop([], id, 640, 480, 3)).map(c => [c.x, c.width]), [[426, 214], [213, 213], [0, 213]]);
+  // Calibration names each dancer by their strip, and sends one standing on a divider away from it.
+  const at = (x: number) => detected(pose(0)).map(p => ({ ...p, x: x + (p.x - .75) * .2 }));
+  let preview = videoCalibrationPreview([at(.15), at(.5), at(.85)], 'all', 3);
+  assert.deepEqual(preview.poses.map(p => p.playerId), [0, 1, 2]);
+  assert.deepEqual(preview.detectedPoses.map(p => [p.playerId, p.ready]), [[2, true], [1, true], [0, true]]);
+  preview = videoCalibrationPreview([at(.15), at(.665)], 'all', 3);
+  assert.match(found(preview.detectedPoses.find(p => !p.ready)).reason, /dividers/);
+  // Processing runs the whole frame plus a tracker per strip, each with its own fixed crop.
+  const diagnostics = newDiagnostics(), calls: Call[] = [], crops = new Map<number, Crop[]>();
+  class Quartet extends PoseWorker {
+    landmarks(frame: FrameRequest) {
+      if (frame.regionId === undefined) return [.1, .35, .65, .9].map(at);
+      const crop = found(frame.bitmap instanceof Bitmap ? frame.bitmap.crop : undefined);
+      crops.set(frame.regionId, [...crops.get(frame.regionId) ?? [], crop]);
+      return [];
+    }
+    postMessage(data: ImportWorkerRequest) {
+      if (data.type === 'initialize') assert.ok(data.playerCount === 4 || data.playerCount === 1);
+      super.postMessage(data);
+    }
+  }
+  const job = new VideoImporter({ video: video({ duration: .2, videoWidth: 640, videoHeight: 480 }), modelId: 'full', projectId: 'project',
+    captureMode: 'all', dancers: 4, bitmap, decodeFrames: async () => null, assetUrl: () => 'http://localhost/',
+    seek: async (_v, time) => ({ mediaTimeMs: time * 1000, timingMethod: 'decoded-frame' }),
+    createWorker: () => new Quartet(diagnostics),
+    request: async (url, options) => { calls.push({ url, body: structuredClone(options?.body) }); return { takeId: 'quartet' }; } });
+  await job.process('quartet.webm');
+  assert.equal(diagnostics.terminated, 5);
+  assert.deepEqual([...crops.keys()].sort(), [0, 1, 2, 3]);
+  for (const [id, list] of crops) assert.ok(list.every(c => c.x === (3 - id) * 160 && c.width === 160), `strip ${id}`);
+  assert.equal(read(calls[0].body, 'header', 'playerCount'), 4);
+  // A dancer is taken on from their second frame in view (PlayerSlotMapper).
+  const records = uploadedRecords(calls).flat().slice(1);
+  assert.ok(records.length >= 2);
+  // Found from the camera's right: P1 at x .9, P4 at x .1.
+  for (const r of records) assert.deepEqual(r.poses.map(p => p.playerId), [0, 1, 2, 3]);
+  for (const r of records) assert.ok(r.poses.every((p, i) => Math.abs((p.landmarks[23].x + p.landmarks[24].x) / 2 - [.9, .65, .35, .1][i]) < .02));
 });
 
 test('crop worker failure stops the import and releases every initialized worker', async () => {
