@@ -1,4 +1,4 @@
-import { Suspense, createRef, useEffect, useMemo, useRef } from 'react';
+import { Suspense, createRef, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -6,19 +6,32 @@ import Character from '../../../../packages/character/Character.tsx';
 import { DANCER_LOOKS, dancerSpot } from '../../../../packages/stages/shared/Dancers.tsx';
 import type { DancerPlacement, StageMeta } from '../../../../packages/stages/index.ts';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
-import { PLAYERS, REVEAL, easeOut, timeline } from '../game/results.ts';
+import type { Pose, TrackCalibration } from '../../../../packages/pose/choreography.ts';
+import { PLAYERS, REVEAL, easeOut, resultsTag, timeline } from '../game/results.ts';
 import type { ResultsShow } from '../game/results.ts';
 
 /*
  * The 3D side of the results screen, in place of the
- * reference dancers on the song's stage:
+ * reference dancers on the song's stage (ResultsScreen's scoreboard covers the left of the
+ * screen; StageView shifts the stage's picture right):
  *   - win: the winner steps up to centre stage under a light column, on a glowing halo in
- *     their colour, with confetti; the other dancer steps back and shrinks a little.
- *   - tie: the dancers stay side by side, the tied ones on gold halos (the rest step back as
- *     in a win).
+ *     their colour, with confetti, and grows to full size; everyone else fades away.
+ *   - tie: the tied dancers gather side by side at centre stage on gold halos (the rest fade).
  *   - solo: the one dancer takes centre stage.
- * Everything animates from the dance-floor positions to the result at the reveal.
+ * Everything animates from the dance-floor positions to the result at the reveal. From then
+ * on the dancers left on stage copy their player's live pose while the camera still sees them
+ * (`live`), and dance the celebration clip when it doesn't (no camera, a replay, or they left).
  */
+
+/** The players' live poses during the results (the GameSession's). */
+export interface ResultsLive {
+  /** The smoothed pose to draw now (null while the camera doesn't see them). */
+  livePose(id: number, now: number): Pose | null;
+  calibration(id: number): TrackCalibration | null;
+}
+
+// Without a pose for this long, a tracked dancer goes back to the celebration clip.
+const LOST_MS = 600;
 
 const FOOT_CLEARANCE = 0.015;
 const GOLD = '#ffd34d';
@@ -131,10 +144,49 @@ function Confetti({ colors, show }: { colors: readonly string[]; show: RefObject
   return <instancedMesh ref={mesh} args={[geometry, material, CONFETTI]} frustumCulled={false} />;
 }
 
+interface SeatDancerProps {
+  seat: number;
+  motion: MotionTake;
+  playback: RefObject<number>;
+  /** Copies the player's live pose when there is one (from the reveal, for those who stay). */
+  live: ResultsLive | null;
+  tracking: RefObject<boolean>;
+  opacity: RefObject<number>;
+}
+
+// One seat's character: the player's live pose while the camera sees them and `tracking` is on,
+// else the celebration clip.
+function SeatDancer({ seat, motion, playback, live, tracking, opacity }: SeatDancerProps) {
+  const poseRef = useRef<Pose | null>(null);
+  const seen = useRef(-Infinity);
+  const [calibration, setCalibration] = useState<TrackCalibration | null>(null);
+  useFrame(() => {
+    const now = performance.now();
+    const pose = live && tracking.current ? live.livePose(seat, now) : null;
+    poseRef.current = pose;
+    if (pose) seen.current = now;
+    const next = live && tracking.current && now - seen.current < LOST_MS ? live.calibration(seat) : null;
+    if (next !== calibration) setCalibration(next);
+  }, -1);
+  return (
+    <Character
+      motion={calibration ? null : motion}
+      person={seat % 2}
+      playback={playback}
+      poseRef={poseRef}
+      calibration={calibration}
+      live
+      opacityRef={opacity}
+      appearance={DANCER_LOOKS[seat % DANCER_LOOKS.length]}
+    />
+  );
+}
+
 /**
- * show: ref of { start, results, winner } (start on the render clock, results [{ score }])
+ * show: ref of { start, results, winner, leaders } (start on the render clock, results [{ score }])
  * floor: the stage's meta.dancers ({ position, rotationY, spacing, scale })
  * motion, playback: the captured demo clip the dancers celebrate to
+ * live: the players' live poses, for the dancers left on stage after the reveal
  */
 export interface ResultsDancersProps {
   motion: MotionTake;
@@ -143,9 +195,12 @@ export interface ResultsDancersProps {
   show: RefObject<ResultsShow>;
   floor: DancerPlacement;
   accent: StageMeta['accent'];
+  live?: ResultsLive | null;
 }
 
-export default function ResultsDancers({ motion, playback, show, floor, accent }: ResultsDancersProps) {
+const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+
+export default function ResultsDancers({ motion, playback, show, floor, accent, live = null }: ResultsDancersProps) {
   const { position = [0, 0, 0], rotationY = 0, spacing = 4, scale = 1 } = floor;
   const s0 = show.current;
   const count = s0.results.length;
@@ -153,37 +208,54 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
   const seats = Array.from({ length: count }, (_, i) => i);
   const groups = useMemo(() => Array.from({ length: count }, () => createRef<THREE.Group>()), [count]);
   const halo = useMemo((): RefObject<number>[] => Array.from({ length: count }, () => ({ current: 0 })), [count]);
+  const opacity = useMemo((): RefObject<number>[] => Array.from({ length: count }, () => ({ current: 1 })), [count]);
+  const tracking = useMemo((): RefObject<boolean>[] => Array.from({ length: count }, () => ({ current: false })), [count]);
   const column = useRef(0);
+  const feet = useMemo(() => new THREE.Vector3(), []);
   const winColor = s0.winner === null ? GOLD : PLAYERS[s0.winner % PLAYERS.length].color;
   const confettiColors = useMemo(() => (s0.winner === null ? [GOLD, '#ffffff', accent[0]] : [PLAYERS[s0.winner % PLAYERS.length].color, PLAYERS[s0.winner % PLAYERS.length].light, '#ffffff', accent[0], GOLD]), [s0.winner, accent]);
+  useEffect(() => () => { resultsTag.visible = false; }, []);
 
-  useFrame(() => {
+  useFrame(({ camera }) => {
     const s = show.current;
     // k: the walk to the result spots (slow, eased at both ends); glow: halo and column fade-in.
-    const { reveal, step: k } = timeline(s, performance.now() / 1000);
+    const { t, reveal, step: k } = timeline(s, performance.now() / 1000);
     const glow = easeOut(reveal);
+    // Who stays on stage: the solo dancer, the winner, or everyone tied for first.
+    const stays = solo ? [0] : s.winner !== null ? [s.winner] : s.leaders;
     seats.forEach((seat) => {
       const g = groups[seat].current;
       if (!g) return;
       const spot = dancerSpot(seat, count, spacing);
-      const start = spot.x;
-      let x = start;
-      let z = 0;
-      let sc = 1;
-      if (solo) z = 0.6 * k;
-      else if (s.winner === seat) { x = start * (1 - k); z = 0.8 * k; }
-      else if (!s.leaders.includes(seat)) {
-        // In a crowd, losers also step aside, away from the centre the winner walks to (one
-        // starting in the middle, away from the winner's side), so none is left behind them.
-        const aside = count > 2 && s.winner !== null ? Math.sign(start || start - dancerSpot(s.winner, count, spacing).x) * spacing * 0.35 * k : 0;
-        x = start * (1 + 0.55 * k) + aside; z = -1.6 * k; sc = 1 - 0.15 * k;
+      const place = stays.indexOf(seat);
+      let x = spot.x;
+      let z;
+      let sc;
+      if (place >= 0) {
+        // To centre stage (side by side when tied), at full size.
+        const end = dancerSpot(place, stays.length, spacing);
+        x = lerp(spot.x, end.x, k);
+        z = (stays.length === 1 ? (solo ? 0.6 : 0.8) : 0) * k;
+        sc = lerp(spot.scale, end.scale, k);
+      } else {
+        // Steps back as it fades away.
+        z = -1.6 * k;
+        sc = spot.scale * (1 - 0.15 * k);
       }
       g.position.set(x, 0, z);
-      g.scale.setScalar(sc * spot.scale);
-      const lit = solo || s.leaders.includes(seat);
-      halo[seat].current = lit ? glow : 0;
+      g.scale.setScalar(sc);
+      opacity[seat].current = place >= 0 ? 1 : 1 - glow;
+      g.visible = opacity[seat].current > 0.001;
+      tracking[seat].current = place >= 0 && t >= REVEAL;
+      halo[seat].current = place >= 0 ? glow : 0;
     });
-    column.current = (solo || s.winner !== null ? 1 : 0) * glow;
+    column.current = (stays.length === 1 ? 1 : 0) * glow;
+    // Where the featured dancer's feet are on screen, for their name under them.
+    const featured = stays.length === 1 ? groups[stays[0]].current : null;
+    if (featured) {
+      feet.setFromMatrixPosition(featured.matrixWorld).project(camera);
+      Object.assign(resultsTag, { x: (feet.x + 1) / 2, y: (1 - feet.y) / 2, visible: true });
+    } else resultsTag.visible = false;
   });
 
   // The halo, column and confetti follow the featured dancer (or sit between them on a tie).
@@ -196,7 +268,7 @@ export default function ResultsDancers({ motion, playback, show, floor, accent }
           <group key={seat} ref={groups[seat]}>
             {/* Mirrored like a dance coach, on an inner group: the outer one is rescaled every frame. */}
             <group scale={[-1, 1, 1]}>
-              <Character motion={motion} person={seat % 2} playback={playback} appearance={DANCER_LOOKS[seat % DANCER_LOOKS.length]} />
+              <SeatDancer seat={seat} motion={motion} playback={playback} live={live} tracking={tracking[seat]} opacity={opacity[seat]} />
             </group>
             <Halo color={featured === null ? GOLD : PLAYERS[seat % PLAYERS.length].color} intensity={halo[seat]} />
           </group>
