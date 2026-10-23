@@ -163,20 +163,24 @@ async function keepStorage() {
 
 const savedFolder = (store: CustomSongStore, record: CustomSongRecord) => folderOf((path) => store.file(record.id, path), record.sizes);
 
-/** The saved songs' catalog entries by title, checked again (a damaged one is left out). */
 /** A saved song for Settings: damaged when it no longer checks out (so Song Select leaves it out). */
 export interface SavedSong { entry: CatalogSong; damaged: boolean; }
+const text = (value: unknown) => (typeof value === 'string' ? value : '');
+/** Every saved song by title, checked again. */
 export async function listSavedSongs(store: CustomSongStore = indexedDBStore(), warn: (message: string) => void = console.warn): Promise<SavedSong[]> {
   const songs: SavedSong[] = [];
   for (const record of await store.all()) {
     try { songs.push({ entry: await catalogEntry(record.id, savedFolder(store, record)), damaged: false }); }
     catch (error) {
       warn(`Imported song ${record.id} is damaged: ${errorText(error)}`);
-      songs.push({ entry: record.entry, damaged: true });
+      // Named as best it can be; its revision and hash stay as saved, so removing it matches.
+      const { entry } = record;
+      songs.push({ entry: { ...entry, id: record.id, title: text(entry.title) || record.id, artist: text(entry.artist) }, damaged: true });
     }
   }
   return songs.sort((a, b) => a.entry.title.localeCompare(b.entry.title) || a.entry.id.localeCompare(b.entry.id));
 }
+/** The catalog entries of the saved songs that check out, by title. */
 export const listCustomSongs = async (store: CustomSongStore = indexedDBStore(), warn: (message: string) => void = console.warn) =>
   (await listSavedSongs(store, warn)).filter((song) => !song.damaged).map((song) => song.entry);
 

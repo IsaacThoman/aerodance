@@ -109,7 +109,7 @@ Each screen reports what it shows on the canvas's `data-*` attributes, which is 
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen while Settings → Graphics → Aspect ratio is on Auto (`click ASPECT.0`); `ASPECT.1` / `ASPECT.2` hold 4:3 / 16:9 whatever the window, and the choice is saved. Both keep the canvas buffer at 640×480.
-- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice` (`click SONG_TRASH.0` removes the first song, after a confirm)
+- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice` (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first)
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`

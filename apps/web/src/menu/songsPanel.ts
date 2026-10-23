@@ -53,6 +53,8 @@ export function createSongsPanel({ layout, ui, showing }: {
     page: 0,
     /** Bumped by each listing, so only the latest lands. */
     loads: 0,
+    /** A listing is on its way (the songs listed already stay up meanwhile). */
+    listing: false,
     importing: false,
     notice: null as { text: string; error: boolean } | null,
     picker: null as HTMLInputElement | null,
@@ -62,11 +64,13 @@ export function createSongsPanel({ layout, ui, showing }: {
   const trash = (saved: SavedSong, i: number): SongsWidget => ({ id: trashId(saved), saved, circle: layout().SONG_TRASH(i) });
   const importWidget = (): SongsWidget => ({ id: 'song-import', rect: layout().SONG_IMPORT });
 
-  // Lists the saved songs. With show (an ID), the list turns to that song's page; with focus,
-  // a keyboard cursor goes to the song at that place on the page (or Import song past the end).
-  const refresh = ({ show, focus }: { show?: string; focus?: number } = {}) => {
+  // Lists the saved songs. With show (an ID), the list turns to that song's page; with focus (a
+  // place on a page), a keyboard cursor goes to the song there now, the last one if the page has
+  // fewer, or Import song once none are left.
+  const refresh = ({ show, focus }: { show?: string; focus?: { page: number; at: number } } = {}) => {
+    if (!CAN_IMPORT) return;
     const load = ++st.loads;
-    // Songs listed already stay up while the list reloads.
+    st.listing = true;
     if (st.status !== 'ready') st.status = 'loading';
     Promise.race([
       listSavedSongs(),
@@ -78,9 +82,9 @@ export function createSongsPanel({ layout, ui, showing }: {
         st.songs = songs;
         const i = show ? songs.findIndex((saved) => saved.entry.id === show) : -1;
         st.page = i >= 0 ? Math.floor(i / SONGS_PER_PAGE) : Math.min(st.page, pages() - 1);
-        if (focus !== undefined && ui().keyboard && showing()) {
+        if (focus && ui().keyboard && showing()) {
           const shown = pageSongs();
-          const at = Math.min(focus, shown.length - 1);
+          const at = st.page === focus.page ? Math.min(focus.at, shown.length - 1) : shown.length - 1;
           ui().focus(at >= 0 ? trash(shown[at], at) : importWidget());
         }
       })
@@ -88,9 +92,13 @@ export function createSongsPanel({ layout, ui, showing }: {
         if (load !== st.loads) return;
         st.status = 'error';
         st.songs = [];
+        st.page = 0;
         st.error = message(error) || "Saved songs aren't available in this browser.";
       })
-      .finally(() => ui().invalidate());
+      .finally(() => {
+        if (load === st.loads) st.listing = false;
+        ui().invalidate();
+      });
   };
 
   // A Dance Studio export ZIP, checked and saved. Saving over a copy of the same or a later
@@ -106,8 +114,11 @@ export function createSongsPanel({ layout, ui, showing }: {
     })
       .then(({ status, entry }) => {
         const title = `“${entry.title}”`;
+        // Song Select only lists it for the player counts it has.
+        const most = Math.max(...entry.supportedPlayerCounts);
+        const note = most < 4 ? ` It's for up to ${most} player${most === 1 ? '' : 's'}.` : '';
         st.notice = {
-          text: status === 'kept' ? `Kept the ${title} already imported.` : status === 'replaced' ? `Updated ${title} to revision ${entry.bundleRevision}.` : `Imported ${title}.`,
+          text: (status === 'kept' ? `Kept the ${title} already imported.` : status === 'replaced' ? `Updated ${title} to revision ${entry.bundleRevision}.` : `Imported ${title}.`) + note,
           error: false,
         };
         refresh({ show: entry.id });
@@ -142,15 +153,14 @@ export function createSongsPanel({ layout, ui, showing }: {
   const remove = (saved: SavedSong) => {
     const { entry } = saved;
     if (!window.confirm(`Remove “${entry.title}” from this browser?`)) return;
-    const focused = ui().keyFocus === trashId(saved);
-    const at = pageSongs().indexOf(saved);
+    const focus = ui().keyFocus === trashId(saved) ? { page: st.page, at: pageSongs().indexOf(saved) } : undefined;
     removeCustomSong(entry)
       // Not removed: another tab already did, or put another copy in its place (which stays).
       .then(async (removed) => removed || !await savedCustomSong(entry.id))
       .then((gone) => {
         st.notice = gone ? { text: `Removed “${entry.title}”.`, error: false }
           : { text: `“${entry.title}” has changed since the list loaded, so it wasn't removed.`, error: false };
-        refresh(focused ? { focus: at } : {});
+        refresh({ focus });
       })
       .catch((error: unknown) => { st.notice = { text: message(error) || "That song couldn't be removed.", error: true }; })
       .finally(() => ui().invalidate());
@@ -192,7 +202,10 @@ export function createSongsPanel({ layout, ui, showing }: {
       refresh();
     },
     close() {
+      // A listing on its way is dropped; the next visit lists them again.
       st.loads++;
+      st.listing = false;
+      if (st.status === 'loading') st.status = 'idle';
       // An import still going says how it went next time.
       if (!st.importing) st.notice = null;
     },
@@ -255,18 +268,24 @@ export function createSongsPanel({ layout, ui, showing }: {
             g.fillStyle = `rgba(255,255,255,${hv * 0.1})`;
             g.fill();
           }
-          // Title, then the artist (or that it's damaged) dimmer, fitting before the button.
+          // Title, then the artist dimmer if there's room, fitting before the button. A damaged
+          // song always says so.
           const room = row.w - 64;
+          g.font = `600 19px ${FONT}`;
+          const damaged = saved.damaged ? g.measureText(' · Damaged').width : 0;
           g.font = `600 24px ${FONT}`;
-          const title = ellipsize(g, saved.entry.title, room);
+          const title = ellipsize(g, saved.entry.title, room - damaged);
           g.fillStyle = '#ffffff';
           g.fillText(title, textX, cy + 1);
-          const after = room - g.measureText(title).width - 4;
+          const x = textX + g.measureText(title).width;
+          const after = room - (x - textX) - 4;
           g.font = `600 19px ${FONT}`;
-          const sub = saved.damaged ? 'Damaged' : saved.entry.artist;
-          if (after > 60 && sub) {
-            g.fillStyle = saved.damaged ? '#ffb38a' : '#d8f6ff';
-            g.fillText(ellipsize(g, ` · ${sub}`, after), textX + room - after, cy + 2);
+          if (saved.damaged) {
+            g.fillStyle = '#ffb38a';
+            g.fillText(' · Damaged', x, cy + 2);
+          } else if (after > 60 && saved.entry.artist) {
+            g.fillStyle = '#d8f6ff';
+            g.fillText(ellipsize(g, ` · ${saved.entry.artist}`, after), x, cy + 2);
           }
           drawButton(g, layout().SONG_TRASH(i), 'trash', hv, press(id));
         });
@@ -304,14 +323,18 @@ export function createSongsPanel({ layout, ui, showing }: {
         g.restore();
       }
     },
-    key: () => [st.status, st.songs.length, st.page, st.importing, st.notice?.text, st.error].join('~'),
+    key: () => [st.status, st.songs.map((saved) => `${saved.entry.id}:${saved.entry.bundleRevision}:${saved.damaged}`).join(','), st.page, st.importing, st.notice?.text, st.error].join('~'),
     busy: () => st.importing || st.status === 'loading',
-    report: () => ({
-      savedSongs: st.status === 'ready' ? String(st.songs.length) : '',
-      damagedSongs: st.status === 'ready' ? String(st.songs.filter((saved) => saved.damaged).length) : '',
-      songImport: st.importing ? 'importing' : st.notice ? (st.notice.error ? 'error' : 'done') : 'idle',
-      songNotice: st.notice?.text ?? '',
-    }),
+    report(): Record<string, string> {
+      if (!CAN_IMPORT) return {};
+      return {
+        // Once listed this visit.
+        savedSongs: st.status === 'ready' && !st.listing ? String(st.songs.length) : '',
+        damagedSongs: st.status === 'ready' && !st.listing ? String(st.songs.filter((saved) => saved.damaged).length) : '',
+        songImport: st.importing ? 'importing' : st.notice ? (st.notice.error ? 'error' : 'done') : 'idle',
+        songNotice: st.notice?.text ?? '',
+      };
+    },
     dispose() {
       st.loads++;
       st.picker?.remove();

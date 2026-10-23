@@ -160,11 +160,14 @@ try {
     await (accept ? dialog.accept() : dialog.dismiss());
   }));
 
+  // The notice says which player counts Song Select lists it for.
+  const imported = `Imported “${song.title}”. It's for up to ${Math.max(...song.supportedPlayerCounts)} players.`;
+  assert.ok(Math.max(...song.supportedPlayerCounts) < 4);
   await toSettings();
   await until({ savedSongs: '0', songImport: 'idle' });
   await shot('custom-settings');
   await importZip();
-  await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, savedSongs: '1', damagedSongs: '0' });
+  await until({ songImport: 'done', songNotice: imported, savedSongs: '1', damagedSongs: '0' });
   await shot('custom-imported');
 
   // Listed after the published song, and still there after a reload.
@@ -216,7 +219,7 @@ try {
     await cdp.send('Storage.clearDataForOrigin', { origin: 'http://127.0.0.1:4174', storageTypes: 'indexeddb' });
   }
   await importZip();
-  await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, savedSongs: '1' });
+  await until({ songImport: 'done', songNotice: imported, savedSongs: '1' });
   await toSongSelect();
   await until({ customSongCount: '1' });
 

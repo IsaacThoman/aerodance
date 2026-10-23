@@ -175,6 +175,14 @@ test('lists saved songs by title; Song Select leaves out damaged ones, Settings 
   assert.deepEqual(saved.map(({ entry, damaged }) => [entry.id, damaged]), [['apple', false], ['mango', true], ['zebra', false]]);
   assert.equal(await removeCustomSong(saved[1].entry, store), true);
   assert.deepEqual((await listSavedSongs(store, () => {})).map(({ entry }) => entry.id), ['apple', 'zebra']);
+  // A damaged record missing its title lists under its ID, and still removes.
+  const { title: _, ...untitled } = store.records.get('zebra')!.entry;
+  Object.assign(store.records.get('zebra')!, { entry: untitled });
+  store.records.get('zebra')!.sizes.delete('audio.wav');
+  const damaged = await listSavedSongs(store, () => {});
+  assert.deepEqual(damaged.map(({ entry, damaged: broken }) => [entry.title, broken]), [['Apple pie', false], ['zebra', true]]);
+  assert.deepEqual((await listCustomSongs(store, () => {})).map((song) => song.id), ['apple']);
+  assert.equal(await removeCustomSong(damaged[1].entry, store), true);
   // A song replaced since it was listed doesn't load as the old revision.
   const [apple] = await listCustomSongs(store, () => {});
   const fixture = bundleFixture();

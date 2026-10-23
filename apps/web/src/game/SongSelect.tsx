@@ -391,7 +391,8 @@ export default function SongSelect({
           g.shadowOffsetY = 2;
           paragraph(g, others
             ? 'Re-export these songs from Dance Studio to dance them with three or four players, or pick fewer players.'
-            : 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
+            : CUSTOM_SONGS ? 'No playable songs have been published yet. Import one exported from Dance Studio in Settings → Songs.'
+              : 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
           g.restore();
         } else {
           pageSongs().forEach((song, i) => {
