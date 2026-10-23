@@ -11,8 +11,8 @@ import {
   sparseSamples,
 } from "../../packages/pose/binary.ts";
 import type { PoseFrames, PoseHeaderInput } from "../../packages/pose/binary.ts";
-import { finite, isArray, isObject } from "../../packages/pose/choreography.ts";
-import type { FrameSize } from "../../packages/pose/choreography.ts";
+import { finite, isArray, isObject, isPlayerCount } from "../../packages/pose/choreography.ts";
+import type { FrameSize, PlayerCount } from "../../packages/pose/choreography.ts";
 import { isPoseModelId } from "../../packages/pose/browser/models.ts";
 import type { PoseModelId } from "../../packages/pose/browser/models.ts";
 import type { CalibrationFrame, SourceRef, Take, TakeSummary, TrackData } from "./core.ts";
@@ -42,10 +42,17 @@ function decodeKind(bytes: Uint8Array, kind: PoseFrames["kind"]): PoseFrames {
   return f;
 }
 
+// A take holds two slots, as takes always have, or one per dancer up to the highest it has.
+function takeSlots(take: Take): PlayerCount {
+  let slots = 2;
+  for (const s of [...take.samples, ...(take.calibrationFrame ? [take.calibrationFrame] : [])])
+    for (const p of s.poses) slots = Math.max(slots, p.playerId + 1);
+  return slots as PlayerCount;
+}
 export function encodeTake(take: Take): Uint8Array<ArrayBuffer> {
   const frame = take.calibrationFrame;
   return encodePoseFile(framesFromSamples({
-    kind: "take", playerSlots: 2, input: frameSize(take.input), modelId: modelOf(take.provenance),
+    kind: "take", playerSlots: takeSlots(take), input: frameSize(take.input), modelId: modelOf(take.provenance),
     ...(take.provenance == null ? {} : { provenance: take.provenance }),
   }, take.samples, "takeTimeMs", frame ? { calibrationFrame: { timeMs: frame.mediaTimeMs, poses: frame.poses } } : {}));
 }
@@ -95,7 +102,8 @@ export interface CaptureStart {
   sourceKind: "webcam" | "video";
   sessionId: string;
   input: FrameSize;
-  playerCount: 1 | 2;
+  /** The capture's pose slots: one per dancer it can hold (a solo capture, as many as its dancer's slot). */
+  playerCount: PlayerCount;
   modelId: PoseModelId;
   /** Webcam: the song playback rate. */
   audioPlaybackRate: number | null;
@@ -111,12 +119,12 @@ export function captureHeader(start: unknown): PoseHeaderInput {
     !isPoseModelId(start.modelId)) throw Error("Invalid capture header");
   const webcam = start.sourceKind === "webcam", bases = start.extensionBases;
   if (webcam
-    ? !(start.playerCount === 1 || start.playerCount === 2) || !finite(start.audioPlaybackRate) || start.audioPlaybackRate <= 0 ||
+    ? !isPlayerCount(start.playerCount) || !finite(start.audioPlaybackRate) || start.audioPlaybackRate <= 0 ||
       !isArray(bases) || bases.length !== WEBCAM_EXTENSIONS.length || !bases.every(finite)
-    : start.playerCount !== 2 || start.audioPlaybackRate !== null || !isArray(bases) || bases.length)
+    : !isPlayerCount(start.playerCount) || start.audioPlaybackRate !== null || !isArray(bases) || bases.length)
     throw Error("Invalid capture header");
   return {
-    kind: "capture", playerSlots: start.playerCount as 1 | 2, input: { width: start.input.width as number, height: start.input.height as number },
+    kind: "capture", playerSlots: start.playerCount as PlayerCount, input: { width: start.input.width as number, height: start.input.height as number },
     modelId: start.modelId,
     extensionIds: webcam ? WEBCAM_EXTENSIONS : [], extensionBases: bases as number[],
     capture: { sourceKind: start.sourceKind, sessionId: start.sessionId, audioPlaybackRate: webcam ? start.audioPlaybackRate as number : null },

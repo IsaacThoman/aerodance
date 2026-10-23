@@ -75,17 +75,23 @@ are not part of the production image.
 1. Create a project, import music, and enter **Song details**. Duration is measured
    by the browser audio decoder. Set the real artist, authors/choreographers, the
    **Stage** the game shows the routine on (`openreef` by default), and
-   distribution licenses or permissions.
+   distribution licenses or permissions. **Dancers** sets how many people dance
+   the song, 1 to 4 (2 by default): each has a track, P1 to P4. In the game any
+   number of players can dance it, each dancing one of its dancers. Changing the
+   count is one undo step; fewer dancers drop the last tracks, after asking when
+   they have poses, and Undo brings them back.
 2. Import a pose JSON, or start the webcam and **Record new take**.
-   Choose **Both players**, **P1 only**, or **P2 only**, a camera and
+   Choose **Both players** (with three or four dancers, **All 3 dancers** or
+   **All 4 dancers**), or one dancer alone, **P1 only** to **P4 only**, a camera and
    **Lite / Full / Heavy**, then **Start camera**
    and allow permission. Recording stays disabled until the first pose result
    arrives, even if neither player is detected. You can start the countdown and
    then step into position. **Cancel connection** stops the wait. Set
    **Recording delay (seconds)** from 0 to 60 (default 3). A visible countdown
    gives you time to get into position before music and movement capture start.
-   **Cancel countdown** stops the wait without adding a take. The mirrored setup preview labels the two camera-side
-   slots. Solo mode follows one dancer anywhere in the whole frame and labels
+   **Cancel countdown** stops the wait without adding a take. The mirrored setup preview labels each dancer's
+   camera-side slot; three or four dancers are each looked for in their own strip
+   of the picture, as the game does. Solo mode follows one dancer anywhere in the whole frame and labels
    them as the selected player; only that player's calibration is needed.
    Switching player mode restarts tracking and calibration.
    Camera/model preferences are remembered in this browser. Changes restart
@@ -100,8 +106,9 @@ are not part of the production image.
    the same distance compensation for playback; older bundles retain
    their original calibration mode. This handles body size in the image, rather
    than correcting optical lens distortion.
-   For a prerecorded video, choose **Import video**, choose **Both players** or
-   solo **P1 only / P2 only**, select **Lite / Full / Heavy** (Heavy is the default),
+   For a prerecorded video, choose **Import video**, choose all the song's dancers
+   (**Both players**, **All 3 dancers** or **All 4 dancers**) or one alone,
+   **P1 only** to **P4 only**, select **Lite / Full / Heavy** (Heavy is the default),
    and scrub or play the source until you find an upright stance with shoulders,
    hips, and feet clearly visible. Choose **Use current frame for calibration**,
    then **Process video**. The selected frame calibrates every captured dancer;
@@ -110,14 +117,15 @@ are not part of the production image.
    or needs a clearer frame; processing requires every shown dancer to be ready.
    if another dancer appears later, choose a frame containing both and **Save take**
    without processing the poses again. Two-player detection uses the webcam's
-   left/right regions; solo detection uses the whole frame. The importer creates
+   left/right regions, and three or four dancers an even strip each, P1's on the
+   video's right (the left of a mirror); solo detection uses the whole frame. The importer creates
    a new library take; use its menu to assign tracks.
    Inference runs locally and waits for each sampled frame, up to 30 samples/second.
-   Two-player imports continuously track each side in separate VIDEO workers
+   Imports of several dancers continuously track each strip in separate VIDEO workers
    alongside the whole-frame pass. Crops stay fixed from calibration, including
    room for raised arms and feet. Recovery checks torso continuity and retains
-   the original video coordinates and selected model. Left/right slot assignment
-   is unchanged; this does not track identities across the center divider.
+   the original video coordinates and selected model. Slot assignment by strip
+   is unchanged; this does not track identities across the dividers.
    **Clean up poses after detection** defaults on: it rejects isolated joint spikes,
    repairs supported gaps bounded by reliable poses no more than 200 ms apart, and
    applies centered confidence-weighted smoothing (120 ms XY, 180 ms depth).
@@ -152,7 +160,9 @@ are not part of the production image.
    read-only. A joint keyframe blends over 150 ms on either side. Undo/redo preserves
    the source take. Drag the selection start/end handles on the waveform to select a timeline
    range (arrow keys adjust a focused handle) to swap tracks, mirror, smooth, repair
-   a short gap, approve references, or exclude reference scoring.
+   a short gap, approve references, or exclude reference scoring. A swap trades the
+   selected player's poses with another track's over the range: the other dancer of
+   a duet, or the one picked in **Swap with**; a solo song has nothing to swap.
    **Clean up selected range** applies the same cleanup to the selected player's
    existing track as one undoable edit. It reads context outside the selection but
    only changes samples inside it. **Smooth** uses confidence-aware smoothing without
@@ -166,17 +176,21 @@ are not part of the production image.
    **Live view**. Scrub, step, and play the take without changing the routine.
    Take playback also works without music. A completed recording opens its new
    take automatically. Imports and recordings remain in the library until assigned.
-   Open its **⋯** menu and choose **Overwrite P1 track**, **Overwrite P2 track**, or
-   **Overwrite both tracks**. Each action copies the corresponding source player
+   Open its **⋯** menu and choose **Overwrite P1 track** (and so on for each of the
+   song's dancers), or **Overwrite both tracks** (**Overwrite all tracks** with three
+   or four, or the tracks the take has dancers for). A solo take also offers
+   **Copy P1 to P3 track** and the like, to put its one dancer on another track.
+   Each action copies the corresponding source player
    into independent track storage and uses the take's original audio alignment;
    it replaces the entire destination track, including its edits.
    To create a two-person dance from one dancer, assign the solo take to its player,
    open that player's **Options**, then choose **Mirror P1 track to P2** or
-   **Mirror P2 track to P1**. This replaces the other track with a reflected copy
+   **Mirror P2 track to P1** (with three or four dancers, pick the track in
+   **Mirror to** first). This replaces that track with a reflected copy
    of the complete edited source, preserving timing and gaps. It is one undo step.
    The tracks are independent afterward; source changes require mirroring again.
-   Review and approve reflected poses before scoring. All exported bundles still
-   contain both player tracks and require coverage for both players.
+   Review and approve reflected poses before scoring. Exported bundles contain
+   every dancer's track and require coverage for each.
    Adjust each track's **Offset (seconds)** independently in Playback. Positive
    offsets delay poses; negative offsets advance them. Poses before song time zero
    are omitted from playback/export but retained for later realignment. Track
@@ -189,7 +203,7 @@ are not part of the production image.
    timing review, long missing references, and empty score coverage.
 
 The Project sidebar opens Import, Configuration, and History as separate panels.
-Select P1/P2 above the preview or from a timeline lane. The selected player expands to show
+Select P1 to P4 (as many as the song has dancers) above the preview or from a timeline lane. The selected player expands to show
 an **Options** button to the right of its label, which opens track tools for that player.
 In Live view, camera setup and recording delay are in Configuration, with Record/Stop beside playback.
 Capture controls are hidden in Playback and Take views.
@@ -215,7 +229,7 @@ The committed capture at
 editor. It has no per-joint confidence, so review/approve its reference poses
 explicitly before publication. It has no music.
 
-**Interpolate P1/P2 missing intervals** fills every bounded gap on that player
+**Interpolate P1–P4 missing intervals** fills every bounded gap on that player
 track, including gaps longer than one second. It preserves available poses and
 linearly interpolates missing XYZ coordinates at 30 Hz. Missing beginnings and
 endings remain unchanged because they lack two endpoints. Generated poses have
@@ -223,7 +237,7 @@ unknown confidence and scoring remains disabled until explicitly approved.
 The existing **Repair short gap** action still repairs a selected range within
 one second. Interpolation does not modify the library take.
 
-All deletion actions ask for confirmation. **Delete P1/P2 track** clears only that
+All deletion actions ask for confirmation. **Delete P1–P4 track** clears only that
 track and resets its offset; it is undoable. **Delete** in a take's menu removes
 that take and its raw capture while preserving assigned track poses and their
 source provenance. **Delete project/song** permanently removes the whole routine,
@@ -287,8 +301,10 @@ Settings → Songs and pick the exported ZIP. It's saved in that browser only; s
 
 Re-exporting a song preserves its song ID and updates its bundle revision.
 Replace its complete folder; discovery reads the new revision from `song.json`.
-The runtime bundle contains both tracks; one-player mode selects track 0. Editor
-export does not deploy or publish automatically. The game owns character assets.
+The runtime bundle contains every dancer's track, and `song.json`'s `dancerCount` says
+how many; the game casts its players onto them (by where they stand, or as they choose
+before the song). Editor export does not deploy or publish automatically. The game owns
+character assets.
 
 ## Checks
 
@@ -346,7 +362,7 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
   a track. Each independent player track retains its own inference dimensions.
 - Audio decode/write validation uses the local browser's measured duration. Server
   transcoding and format-independent audio inspection are not implemented.
-- Publication requires some eligible poses on both tracks and explicit gap review.
+- Publication requires some eligible poses on every track and explicit gap review.
   Final scoring thresholds/minimum coverage belong to the game's scoring evaluation.
 - Browser storage is local to each profile and origin. Backups are required for
   transfer and recovery after clearing site data. Browser storage regression tests

@@ -12,6 +12,8 @@ import type { PoseEditor } from "./usePoseEditor.ts";
 import type { PreviewMode, Workspace } from "./useWorkspace.ts";
 
 export interface PreviewPanelProps {
+  /** The song's dancers: one selector, lane and character each. */
+  dancers: number;
   workspace: Workspace;
   editor: PoseEditor;
   live: LiveCapture;
@@ -23,34 +25,40 @@ export interface PreviewPanelProps {
   onTrackOptions: () => void;
 }
 const MODES: readonly PreviewMode[] = ["skeleton", "characters", "both"];
-// Placeholder dancers until a take or the song provides calibrations.
-const FALLBACK_TRACKS: readonly PreviewTrack[] = [0, 1].map((playerId) => ({
+// Placeholder dancers until a take or the song provides calibrations: side by side, P1 on the
+// camera's right.
+const fallbackTracks = (dancers: number): PreviewTrack[] => Array.from({ length: dancers }, (_, playerId) => ({
   playerId,
   calibration: {
     inputWidth: 640,
     inputHeight: 480,
     torsoLength: 0.2,
-    baseHip: { x: playerId === 0 ? 0.75 : 0.25, y: 0.55, z: 0 },
+    baseHip: { x: 1 - (playerId + 0.5) / dancers, y: 0.55, z: 0 },
     floorY: 0.9,
     profileVersion: 1,
   },
 }));
 
 // The pose preview, what it shows (song, take or live camera) and how.
-export default function PreviewPanel({ workspace, editor, live, compiled, original, busy, trackOptionsOpen, onTrackOptions }: PreviewPanelProps) {
+export default function PreviewPanel({ dancers, workspace, editor, live, compiled, original, busy, trackOptionsOpen, onTrackOptions }: PreviewPanelProps) {
   const { recording, countdown, view, mode, setMode, cursor, readOnly, showingLive, showingTake, selectedTake, changeView } = workspace;
   const { connection, liveTracks } = live;
   const { snapshot, selectedPose, playerId, joint, pointGroup } = editor;
+  // A take shows its own dancers, in their places among as many as it holds.
+  const takeDancers = useMemo(() => selectedTake
+    ? [...new Set(selectedTake.samples.flatMap((s) => s.poses.map((p) => p.playerId)))].sort((a, b) => a - b) : [], [selectedTake]);
   const previewTracks = useMemo(
     () =>
-      selectedTake
-        ? [0, 1].map((playerId) => ({
+      selectedTake && takeDancers.length
+        ? takeDancers.map((playerId) => ({
             playerId,
             calibration: takeCalibration(selectedTake, playerId),
           }))
         : null,
-    [selectedTake],
+    [selectedTake, takeDancers],
   );
+  const fallback = useMemo(() => fallbackTracks(dancers), [dancers]);
+  const slots = showingTake ? Math.max(dancers, (takeDancers.at(-1) ?? 0) + 1) : dancers;
   return (
     <>
       <div className="preview-bar">
@@ -102,7 +110,7 @@ export default function PreviewPanel({ workspace, editor, live, compiled, origin
           </button>
         </div>
         <div className="player-selector" role="group" aria-label="Selected player">
-          {[0, 1].map(id => <div key={id} className={`player-control player-${id} ${playerId === id ? "selected" : ""}`}>
+          {Array.from({ length: dancers }, (_, id) => <div key={id} className={`player-control player-${id} ${playerId === id ? "selected" : ""}`}>
             <button className="player-button" aria-label={`Select P${id + 1}`} aria-pressed={playerId === id}
               onClick={() => editor.selectPlayer(id)}>P{id + 1}</button>
             {playerId === id && <button className="player-options" aria-label={`P${id + 1} track options`}
@@ -122,9 +130,10 @@ export default function PreviewPanel({ workspace, editor, live, compiled, origin
           showingLive
             ? liveTracks || []
             : showingTake
-              ? previewTracks || FALLBACK_TRACKS
-              : compiled.data?.tracks || FALLBACK_TRACKS
+              ? previewTracks || fallback
+              : compiled.data?.tracks || fallback
         }
+        slots={slots}
         mode={mode}
         playerId={playerId}
         joint={joint}

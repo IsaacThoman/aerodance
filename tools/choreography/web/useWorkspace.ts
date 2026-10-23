@@ -23,6 +23,8 @@ export interface WorkspaceOptions {
   connection: PoseSourceView;
   studio: StudioProject;
   captureMode?: CaptureMode;
+  /** The song's dancers, all of whom an 'all' capture records. */
+  dancers?: number;
 }
 export type Workspace = ReturnType<typeof useWorkspace>;
 
@@ -36,7 +38,7 @@ export const takeLength = (take: Take) =>
 
 // The song transport and what the preview shows: playback, the take view, the selected range,
 // recording, and opening projects (which resets all of it).
-export function useWorkspace({ transport, source, connection, studio, captureMode = 'both' }: WorkspaceOptions) {
+export function useWorkspace({ transport, source, connection, studio, captureMode = 'all', dancers = 2 }: WorkspaceOptions) {
   const { project, projectRef, dirtyRef, dirty, busy, takes, execute, refresh, saveProject, load, setError, setNotice, setProjects } = studio;
   const [cursor, setCursor] = useState(0),
     [playing, setPlaying] = useState(false),
@@ -84,7 +86,7 @@ export function useWorkspace({ transport, source, connection, studio, captureMod
       `Imported ${take.samples.length} samples. Review alignment and confidence before exporting.`,
     );
   }, [addTakeToProject, selectTake, setNotice]);
-  const recorder = useRecording({ transport, source, connection, studio, captureMode, pause, setView, setPlaying, setCursor, setMode, attachTake });
+  const recorder = useRecording({ transport, source, connection, studio, captureMode, dancers, pause, setView, setPlaying, setCursor, setMode, attachTake });
   const { recording, recordingRef, stopRecording, setCountdown, tick: recordingTick } = recorder;
   const openProject = useCallback(async (value: unknown) => {
     // Validate saved projects before installing them into render state.

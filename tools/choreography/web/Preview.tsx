@@ -11,6 +11,7 @@ import {
 } from "../../../packages/pose/choreography.ts";
 import type { Landmark, Pose, TrackCalibration } from "../../../packages/pose/choreography.ts";
 import type { PreviewMode } from "./useWorkspace.ts";
+import { dancerColor, dancerTint } from "./players.ts";
 
 /** A dancer to draw as a character: its calibration maps poses onto the rig. */
 export interface PreviewTrack { playerId: number; calibration: TrackCalibration; }
@@ -19,6 +20,8 @@ export interface PreviewProps {
   /** Unedited poses drawn faintly behind the skeleton. */
   raw: { poses: Pose[] } | null;
   tracks: readonly PreviewTrack[];
+  /** How many places the dancers stand in, P1 to Pn (at least as many as tracks). */
+  slots?: number;
   mode: PreviewMode;
   playerId: number;
   joint: number;
@@ -33,7 +36,9 @@ export interface PreviewProps {
   emptyMessage?: string;
   emptyHint?: string;
 }
-interface ActorProps { pose: Pose | undefined; calibration: TrackCalibration; id: number; mirrored: boolean; live: boolean; }
+interface ActorProps { pose: Pose | undefined; calibration: TrackCalibration; id: number; slots: number; mirrored: boolean; live: boolean; }
+// How far apart the characters stand: a duet's 3.6, closer for three or four.
+const actorX = (id: number, slots: number) => -(id - (slots - 1) / 2) * (slots > 2 ? 2.4 : 3.6);
 function Environment() {
   const { gl, scene, camera } = useThree();
   useEffect(() => {
@@ -51,14 +56,14 @@ function Environment() {
   }, [gl, scene, camera]);
   return null;
 }
-function Actor({ pose, calibration, id, mirrored, live }: ActorProps) {
+function Actor({ pose, calibration, id, slots, mirrored, live }: ActorProps) {
   const invalidate = useThree((state) => state.invalidate);
   const poseRef = useRef<Pose | null>(null);
   poseRef.current = pose ?? null;
   useEffect(() => invalidate(), [pose, calibration, invalidate]);
   const appearance = useMemo(
     (): CharacterAppearance => ({
-      color: id === 0 ? "#32c6ea" : "#b79bff",
+      color: dancerColor(id),
       gloss: 85,
       accessory: "None",
     }),
@@ -66,7 +71,7 @@ function Actor({ pose, calibration, id, mirrored, live }: ActorProps) {
   );
   return (
     <group
-      position={[(id === 0 ? 1.8 : -1.8) * (mirrored ? -1 : 1), 0, 0]}
+      position={[actorX(id, slots) * (mirrored ? -1 : 1), 0, 0]}
       scale={[mirrored ? -1 : 1, 1, 1]}
     >
       <Character
@@ -98,6 +103,7 @@ export default function Preview({
   snapshot,
   raw,
   tracks,
+  slots = 2,
   mode,
   playerId,
   joint,
@@ -182,6 +188,7 @@ export default function Preview({
                 <Actor
                   key={t.playerId}
                   id={t.playerId}
+                  slots={Math.max(slots, t.playerId + 1)}
                   calibration={t.calibration}
                   mirrored={mirrored}
                   live={readOnly}
@@ -244,7 +251,7 @@ export default function Preview({
           {snapshot.poses.map((p) => (
             <g
               key={p.playerId}
-              style={{ color: p.playerId === 0 ? "#51daf0" : "#be9cff" }}
+              style={{ color: dancerTint(p.playerId) }}
             >
               {CONNECTIONS.map(([a, b]) => (
                 <line
@@ -293,14 +300,12 @@ export default function Preview({
         className="stage-label"
         style={{ flexDirection: mirrored ? "row" : "row-reverse" }}
       >
-        <span>
-          <i className="dot cyan" />
-          PLAYER 1
-        </span>
-        <span>
-          <i className="dot violet" />
-          PLAYER 2
-        </span>
+        {Array.from({ length: Math.max(slots, ...tracks.map((t) => t.playerId + 1)) }, (_, id) => (
+          <span key={id}>
+            <i className="dot" style={{ background: dancerTint(id) }} />
+            PLAYER {id + 1}
+          </span>
+        ))}
       </div>
       {!snapshot.poses.length && (
         <div className="empty-stage">

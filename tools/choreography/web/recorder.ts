@@ -7,7 +7,7 @@ import type { CaptureStart } from "../poseFiles.ts";
 import type { AudioTransport } from "./audio.ts";
 import { takeIdOf } from "./api.ts";
 import type { ApiRequest } from "./api.ts";
-import { capturePoses, detectionCount } from './captureMode.ts';
+import { capturePoses, captureSlots, detectionCount } from './captureMode.ts';
 import type { CaptureMode } from './captureMode.ts';
 
 /** The part of the pose source a recording reads (PoseSourceController). */
@@ -26,11 +26,14 @@ export interface RecorderOptions {
   projectId: string;
   onFailure: (message: string) => void;
   captureMode?: CaptureMode;
+  /** The song's dancers, all of whom an 'all' capture records. */
+  dancers?: number;
 }
 /** A pose frame or a lifecycle event waiting for upload, in capture order. */
 export type PendingRecord = { frame: FrameInput } | { event: TimedCaptureEvent };
 export class Recorder {
   captureMode: CaptureMode;
+  dancers: number;
   source: RecorderSource;
   transport: RecorderTransport;
   request: ApiRequest;
@@ -58,8 +61,9 @@ export class Recorder {
   startedAt = 0;
   lastAck = 0;
   captureStartedAt?: number;
-  constructor({ source, transport, request, projectId, onFailure, captureMode = 'both' }: RecorderOptions) {
+  constructor({ source, transport, request, projectId, onFailure, captureMode = 'all', dancers = 2 }: RecorderOptions) {
     this.captureMode = captureMode;
+    this.dancers = dancers;
     this.source = source;
     this.transport = transport;
     this.request = request;
@@ -80,11 +84,11 @@ export class Recorder {
     const now = performance.now(), position = this.transport.positionMs;
     const header: Partial<CaptureStart> = {
       sourceKind: "webcam", sessionId: this.session, input: this.input && { width: this.input.width, height: this.input.height },
-      playerCount: 2, modelId: this.modelId as CaptureStart["modelId"], audioPlaybackRate: this.rate,
+      playerCount: captureSlots(this.captureMode, this.dancers), modelId: this.modelId as CaptureStart["modelId"], audioPlaybackRate: this.rate,
       extensionBases: [now, now, now, position, position],
     };
     this.writer = new PoseFileWriter(captureHeader(header));
-    this.frameBytes = strideOf(2, false, this.writer.header.extensionIds.length);
+    this.frameBytes = strideOf(this.writer.header.playerSlots, false, this.writer.header.extensionIds.length);
     this.takeId = takeIdOf(await this.request(
       `/api/projects/${this.projectId}/takes`,
       {
@@ -120,7 +124,7 @@ export class Recorder {
         e.record.schema !== 'aerodance.webcam-record' ||
         e.record.modelId !== this.modelId ||
         (e.record.type === "pose" &&
-          (e.record.playerCount !== detectionCount(this.captureMode) ||
+          (e.record.playerCount !== detectionCount(this.captureMode, this.dancers) ||
             e.record.input.width !== this.input?.width ||
             e.record.input.height !== this.input?.height ||
             e.record.input.mirrored !== false))

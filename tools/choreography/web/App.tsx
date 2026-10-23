@@ -22,8 +22,8 @@ export default function App() {
   const [source] = useState(() => new PoseSourceController()),
     [transport] = useState(() => new AudioTransport());
   const studio = useStudioProject(transport);
-  const live = useLiveCapture(source);
-  const workspace = useWorkspace({ transport, source, connection: live.connection, studio, captureMode: live.captureMode });
+  const live = useLiveCapture(source, studio.project?.tracks.length);
+  const workspace = useWorkspace({ transport, source, connection: live.connection, studio, captureMode: live.captureMode, dancers: live.dancers });
   const { compiled, original, fillable } = useCompiled(studio.project, studio.takes);
   const editor = usePoseEditor({ studio, workspace, compiled, connection: live.connection });
   const [panel, setPanel] = useState<LibraryPanel>("assets");
@@ -33,7 +33,7 @@ export default function App() {
     return <LoadingScreen studio={studio} openProject={workspace.openProject} />;
   return (
     <div className="studio">
-      {videoFile && <VideoImportPanel key={`${videoFile.name}-${videoFile.lastModified}-${videoFile.size}`} file={videoFile} projectId={project.projectId} request={request}
+      {videoFile && <VideoImportPanel key={`${videoFile.name}-${videoFile.lastModified}-${videoFile.size}`} file={videoFile} projectId={project.projectId} dancers={project.tracks.length} request={request}
         onBusy={studio.setBusy} onImported={async (value, audio) => {
           if (audio) {
             const take = validateTake(value), saved = await studio.saveProject();
@@ -62,7 +62,7 @@ export default function App() {
         <Library panel={panel} setPanel={setPanel} editor={editor} project={project} studio={studio} workspace={workspace} live={live} source={source}
           transport={transport} fillable={fillable} onImportVideo={setVideoFile} />
         <main className="editor">
-          <PreviewPanel trackOptionsOpen={panel === "track"} onTrackOptions={() => setPanel(panel === "track" ? "assets" : "track")} workspace={workspace} editor={editor} live={live} compiled={compiled} original={original} busy={studio.busy} />
+          <PreviewPanel dancers={project.tracks.length} trackOptionsOpen={panel === "track"} onTrackOptions={() => setPanel(panel === "track" ? "assets" : "track")} workspace={workspace} editor={editor} live={live} compiled={compiled} original={original} busy={studio.busy} />
           <Timeline project={project} studio={studio} workspace={workspace} compiled={compiled} editor={editor} connection={live.connection} onConfigure={() => setPanel("configuration")} />
         </main>
         <Inspector project={project} studio={studio} workspace={workspace} editor={editor} compiled={compiled} />

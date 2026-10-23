@@ -291,8 +291,9 @@ export class Store {
       durationMs: p.durationMs,
       playableStartMs: p.playableStartMs,
       playableEndMs: p.playableEndMs,
-      // Duets: three or four players dance the two parts again (partOf).
+      // Any number of players can dance any number of dancers: the game casts them.
       supportedPlayerCounts: [1, 2, 3, 4],
+      dancerCount: data.tracks.length,
       audio: { path: filename, mimeType: p.audio.mimeType },
       choreography: { path: "choreography.adpose", schemaVersion: 2 },
       coachMode: "mirror-player",

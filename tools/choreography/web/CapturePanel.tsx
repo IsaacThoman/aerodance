@@ -4,16 +4,16 @@ import { Dot } from "./ui.tsx";
 import type { LiveCapture } from "./useLiveCapture.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import type { Workspace } from "./useWorkspace.ts";
-import { capturePlayers, detectionCount } from './captureMode.ts';
-import type { CaptureMode } from './captureMode.ts';
+import { captureModeLabel, captureModes, capturePlayers, detectionCount, isCaptureMode, soloPlayer } from './captureMode.ts';
 
 export interface CapturePanelProps { source: PoseSourceController; live: LiveCapture; studio: StudioProject; workspace: Workspace; }
 
 // Webcam setup, body calibration and recording a new take.
 export default function CapturePanel({ source, live, studio, workspace }: CapturePanelProps) {
   const { busy, execute } = studio;
-  const { connection, calibrationCounts, recalibrate, captureMode, setCaptureMode } = live;
-  const players = capturePlayers(captureMode);
+  const { connection, calibrationCounts, recalibrate, captureMode, setCaptureMode, dancers } = live;
+  const players = capturePlayers(captureMode, dancers);
+  const solo = soloPlayer(captureMode);
   const { recording, recordDelay, setRecordDelay } = workspace;
   return (
     <div className="capture">
@@ -22,10 +22,10 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
         <Dot color={connection.status === "connected" ? "green" : ""} />
       </div>
       <label>Players<select aria-label="Webcam players" value={captureMode} disabled={recording || busy}
-        onChange={e => void execute(() => setCaptureMode(e.target.value as CaptureMode))}>
-        <option value="both">Both players</option><option value="p1">P1 only</option><option value="p2">P2 only</option>
+        onChange={e => { const mode = e.target.value; if (isCaptureMode(mode)) void execute(() => setCaptureMode(mode)); }}>
+        {captureModes(dancers).map(mode => <option key={mode} value={mode}>{captureModeLabel(mode, dancers)}</option>)}
       </select></label>
-      <WebcamControls source={source} connection={connection} captureMode={captureMode} disabled={recording || busy} />
+      <WebcamControls source={source} connection={connection} captureMode={captureMode} dancers={dancers} disabled={recording || busy} />
       <button
         disabled={recording || busy}
         onClick={() =>
@@ -38,7 +38,7 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
               source.disconnect();
               return;
             }
-            await source.setPlayerCount(detectionCount(captureMode));
+            await source.setPlayerCount(detectionCount(captureMode, dancers));
             await source.connect();
           })
         }
@@ -51,7 +51,7 @@ export default function CapturePanel({ source, live, studio, workspace }: Captur
       </button>
       <p className="connection-status">
         {connection.status} ·{" "}
-        {connection.message || (captureMode === 'both' ? "Two players, one camera" : `P${players[0] + 1} · whole-frame tracking`)}
+        {connection.message || (solo === null ? `${dancers === 2 ? "Two" : dancers === 3 ? "Three" : "Four"} players, one camera` : `P${solo + 1} · whole-frame tracking`)}
       </p>
       <div className="tracking">
         {players.map((id) => (

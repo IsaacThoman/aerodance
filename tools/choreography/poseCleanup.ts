@@ -1,4 +1,4 @@
-import { qualityFor, isObject } from '../../packages/pose/choreography.ts';
+import { qualityFor, isObject, MAX_DANCERS } from '../../packages/pose/choreography.ts';
 import type { FrameSize, Landmark, Pose, PoseQuality } from '../../packages/pose/choreography.ts';
 
 export const CLEANUP_SETTINGS = Object.freeze({ version: 1, confidence: .5, maxGapMs: 200, xyWindowMs: 120, zWindowMs: 180 });
@@ -18,7 +18,7 @@ export function cleanupPoses<T extends CleanupSample>(input: readonly T[], size:
   const distance = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot((a.x-b.x)*aspect,a.y-b.y);
   const selected = (i: number) => samples[i].takeTimeMs >= (options.startMs ?? -Infinity) && samples[i].takeTimeMs < (options.endMs ?? Infinity);
   samples.forEach(s => { s.quality ??= qualityFor(s.poses); });
-  for (const id of [0,1]) {
+  for (let id = 0; id < MAX_DANCERS; id++) {
     if (options.playerId != null && options.playerId !== id) continue;
     const original = input.map(s => s.poses.find(p => p.playerId === id));
     const hasOriginal = original.some(Boolean);

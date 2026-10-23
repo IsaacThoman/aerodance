@@ -15,9 +15,10 @@ Frutiger/skeleton previews, coordinate edits and undo/redo, track swaps, mirrori
 smoothing, bounded gap repair, phrase replacement, review, backups, and runtime
 bundle export. Video imports create library takes without assigning tracks;
 song audio is retained unless **Use video audio as song audio** is selected.
-Solo webcam/video capture can target either player, and a complete edited track
-can be mirrored onto the other player to create a two-player bundle from one
-dancer. The source footage is session-only. The sections below
+A song has one to four dancers, one track each (two by default). Webcam and video
+capture record every dancer at once or one alone, for any of the song's players,
+and a complete edited track can be mirrored onto another player to make a duet or
+group from one dancer. The source footage is session-only. The sections below
 remain the broader design reference. Calibrated Android clock mapping, mixed-camera normalization,
 transition controls, and final scoring policy remain follow-up work. See the
 run guide's current limits before treating every proposed field/API as implemented.
@@ -49,10 +50,11 @@ samples. These describe capture, not song playback. Android `protocolVersion: 2`
 the old demo's `version: 1`, and the new schemas' `schemaVersion: 1` are independent
 version namespaces. Sharing pose objects does not make the file a live stream.
 
-One bundle contains two choreography tracks, IDs **0 and 1**. One-player mode
-loads track 0 from that same bundle; two-player mode loads both. Initial publication
-requires both tracks to pass review. Keep authoring drafts outside the public game
-assets.
+One bundle contains a choreography track per dancer, one to four, IDs **0** up
+(`dancerCount` in `song.json`; songs exported before it are duets). The game lets
+any number of players dance any song: each player dances one of its dancers, picked
+by where they stand or chosen before the song. Publication requires every track to
+pass review. Keep authoring drafts outside the public game assets.
 
 ## Existing code to reuse
 
@@ -267,10 +269,10 @@ integers. Assets are content-addressed with lowercase SHA-256 hashes.
 
 The implemented Dance Studio uses `project.json` with
 `schema: "aerodance.project"`, `schemaVersion: 2`, `projectId`, `revision`,
-creation/update times, song metadata, audio/take references, two ordered `tracks`,
-`operations`, `operationCursor`, markers, and `alignmentReviewed`.
+creation/update times, song metadata, audio/take references, one to four ordered
+`tracks` (one per dancer), `operations`, `operationCursor`, markers, and `alignmentReviewed`.
 
-Each track has `playerId` (0 or 1), `label`, `offsetMs`, `dataId`, and
+Each track has `playerId` (0 to 3, its place in `tracks`), `label`, `offsetMs`, `dataId`, and
 `originalDataId`. Null data references mean an empty track. Snapshots are stored
 in `tracks/<dataId>.json` using `schema: "aerodance.track"`, `schemaVersion: 1`,
 `dataId`, `playerId`, input geometry, `samples`, `sources`, and `exclusions`.
@@ -283,8 +285,11 @@ does not change the routine. `originalDataId` supplies the unedited comparison.
 Each edit-history entry stores `operationId`, its edit type/range, and ordered
 `beforeTracks`/`afterTracks` references. Undo/redo restores those snapshots and
 offsets. Backup includes current and historical snapshot references. Overwriting
-copies the requested source player(s), resets their offsets to recorded timing,
-and records one history entry. Track clearing resets its offset and references.
+copies the requested source player(s), onto the same track or a solo take's one
+dancer onto any track, resets their offsets to recorded timing, and records one
+history entry. Track clearing resets its offset and references. Changing the number
+of dancers is a history entry too: new tracks start empty and removed ones (always
+the last) stay in the history, so undo restores them.
 
 Older project schema v1 referenced takes through `clips` with `clipId`, `takeId`,
 `sourcePlayerId`, `sourceStartMs`, `sourceEndMs`, `songStartMs`, and `timeScale`.
@@ -415,6 +420,7 @@ Example `song.json` (illustrative metadata, not a playable committed song):
   "stage": "openreef",
   "tags": ["aero", "duet"],
   "supportedPlayerCounts": [1, 2, 3, 4],
+  "dancerCount": 2,
   "audio": { "path": "audio.mp3", "mimeType": "audio/mpeg" },
   "choreography": { "path": "choreography.json", "schemaVersion": 1 },
   "cover": { "path": "cover.webp", "mimeType": "image/webp" },
@@ -433,7 +439,8 @@ Example `song.json` (illustrative metadata, not a playable committed song):
 Required: schema/version, ID/revision, title, artist, songwriter/choreographer lists
 (possibly empty), measured duration, playable bounds, supported player counts,
 audio/choreography references, coach/rig profiles, rights metadata, timestamps,
-and build identity. Optional: description, cover, BPM, tags, difficulty, stage. Use null
+and build identity. Optional: description, cover, BPM, tags, difficulty, stage, and
+`dancerCount` (1 to 4, the choreography's tracks; two when missing). Use null
 for unknown BPM and an explicit `unknown` rights license when unresolved; never
 infer permission from a file upload. Publication requires an author to resolve
 distribution rights. Musical authorship is distinct from performing artist and
@@ -471,7 +478,7 @@ sampling:
   targetRateHz = 30
   maxInterpolationGapMs = 200
   confidenceThreshold = 0.5
-tracks: [track0, track1]
+tracks: [track0, ...]    # one per dancer, one to four, playerId 0 up
 samples: [{songTimeMs, poses, quality}, ...]
 ```
 
@@ -645,7 +652,7 @@ An authoring command that **mirrors the actual dance target** is different: set
 `1↔4, 2↔5, 3↔6, 7↔8, 9↔10, 11↔12, 13↔14, 15↔16, 17↔18,
 19↔20, 21↔22, 23↔24, 25↔26, 27↔28, 29↔30, 31↔32`.
 Swap confidence/quality alongside coordinates; nose 0 is unchanged. Mirror the
-calibration frame as well. IDs 0/1 remain their destination track identities.
+calibration frame as well. IDs 0 to 3 remain their destination track identities.
 Never choose mirrored/unmirrored targets opportunistically while scoring.
 
 ## Migrating the current demo

@@ -17,7 +17,7 @@ function resumable(metadata: CaptureMetadata): CaptureMetadata {
   if (!oneOf(CAPTURE_SOURCES, metadata.sourceKind) || metadata.header === undefined) throw Error("Unsupported capture source");
   return metadata;
 }
-/** The largest upload batch: 500 two-player webcam frames plus events. */
+/** The largest upload batch: 500 webcam frames of up to four dancers, plus events. */
 const MAX_BATCH_BYTES = 512 * 1024;
 const calibrationFrameOf = (value: unknown): CalibrationFrame | undefined => {
   if (value == null) return undefined;

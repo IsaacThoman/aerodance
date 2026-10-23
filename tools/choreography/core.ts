@@ -12,6 +12,9 @@ import {
   PAIRS,
   assertChoreography,
   validateChoreography,
+  isDancerCount,
+  MAX_DANCERS,
+  DUET,
 } from "../../packages/pose/choreography.ts";
 import type {
   CaptureInput,
@@ -63,21 +66,26 @@ export interface TakeSummary {
 /** A track points at an immutable snapshot (tracks/<dataId>.adpose) placed at offsetMs. */
 export interface Track { playerId: number; label: string; dataId: string | null; originalDataId: string | null; offsetMs: number; }
 
-/** Edits apply over [startMs, endMs) on the song clock; a null playerId means both players. */
+/** Edits apply over [startMs, endMs) on the song clock; a null playerId means every track. */
 interface RangeEdit { startMs: number; endMs: number; playerId: number | null; }
 export interface JointTarget { joint: number; value: Point3; }
 /** Moves one joint (or a group, `targets`) at timeMs, blended in and out over the range. */
 export interface JointEdit extends RangeEdit { type: "joint"; joint: number; value: Point3; timeMs: number; targets?: JointTarget[]; }
-export interface PoseEdit extends RangeEdit { type: "swap" | "mirror" | "repair"; }
+export interface PoseEdit extends RangeEdit { type: "mirror" | "repair"; }
+/** Swaps two tracks' poses over the range: playerId's and withPlayerId's (older edits: P1's and P2's). */
+export interface SwapEdit extends RangeEdit { type: "swap"; withPlayerId?: number; }
 export interface SmoothEdit extends RangeEdit { type: "smooth"; windowMs: number; }
 export interface CleanupEdit extends RangeEdit { type: "cleanup"; }
 export interface ReviewEdit extends RangeEdit { type: "exclude" | "approve"; reason: string; }
-export type EditCommand = JointEdit | PoseEdit | SmoothEdit | ReviewEdit | CleanupEdit;
+export type EditCommand = JointEdit | PoseEdit | SwapEdit | SmoothEdit | ReviewEdit | CleanupEdit;
 export type EditType = EditCommand["type"];
-export interface TrackEdit { type: "overwrite" | "clear" | "offset" | "interpolate"; playerId: number | null; }
+/** playerId null: more than one track, listed in playerIds (older overwrites: both tracks). */
+export interface TrackEdit { type: "overwrite" | "clear" | "offset" | "interpolate"; playerId: number | null; playerIds?: number[]; }
 export interface MirrorTrackEdit { type: "mirror-track"; playerId: number; sourcePlayerId: number; }
 export interface RecalibrateTrackEdit { type: "recalibrate-body"; playerId: number; timeMs: number; }
-export type TrackCommand = EditCommand | TrackEdit | MirrorTrackEdit | RecalibrateTrackEdit;
+/** Changes how many dancers (tracks) the song has; the history keeps the removed tracks. */
+export interface DancerCountEdit { type: "dancers"; playerId: null; dancers: number; }
+export type TrackCommand = EditCommand | TrackEdit | MirrorTrackEdit | RecalibrateTrackEdit | DancerCountEdit;
 export type OperationType = TrackCommand["type"];
 /** History: each change keeps the track references before and after it. */
 export type TrackChange = TrackCommand & { operationId: string; beforeTracks: Track[]; afterTracks: Track[] };
@@ -94,6 +102,7 @@ export interface ProjectV3 {
   operationCursor: number;
   markers: Marker[];
   alignmentReviewed: boolean;
+  /** One per dancer, one to four, numbered 0 up in order. */
   schemaVersion: 3; tracks: Track[]; operations: TrackChange[];
 }
 export type Project = ProjectV3;
@@ -183,10 +192,18 @@ const ID = /^[a-zA-Z0-9-]{1,80}$/;
 const isId = (v: unknown): v is string => typeof v === "string" && ID.test(v);
 const strings = (v: unknown) => isArray(v) && v.every((s) => typeof s === "string");
 const point3 = (v: unknown): v is Point3 => isObject(v) && finite(v.x) && finite(v.y) && finite(v.z);
-const isPlayerId = (v: unknown): v is number => v === 0 || v === 1;
+const isPlayerId = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < MAX_DANCERS;
+/** The project's dancers' player IDs, in order. */
+export const dancerIds = (project: Pick<Project, "tracks">) => project.tracks.map((t) => t.playerId);
+const trackLabel = (playerId: number) => `Player ${playerId + 1}`;
+/** The project has a track for this player. */
+const hasTrack = (project: Pick<Project, "tracks">, playerId: unknown): playerId is number =>
+  isPlayerId(playerId) && playerId < project.tracks.length;
+const emptyTrack = (playerId: number): Track => ({ playerId, label: trackLabel(playerId), dataId: null, originalDataId: null, offsetMs: 0 });
 const lastOf = <T>(items: readonly T[]): T => items[items.length - 1];
 
-export function newProject(id: string = crypto.randomUUID()): Project {
+export function newProject(id: string = crypto.randomUUID(), dancers = DUET): Project {
+  assert(isDancerCount(dancers), "A song has one to four dancers");
   const now = new Date().toISOString();
   const metadata: ProjectMetadata = {
     title: "Untitled routine",
@@ -216,9 +233,8 @@ export function newProject(id: string = crypto.randomUUID()): Project {
     takes: [],
   };
   const tail = { operationCursor: 0, markers: [], alignmentReviewed: false };
-  const label = (playerId: number) => `Player ${playerId + 1}`;
   return { schema: "aerodance.project", schemaVersion: 3, ...head,
-    tracks: [0, 1].map((playerId) => ({ playerId, label: label(playerId), dataId: null, originalDataId: null, offsetMs: 0 })),
+    tracks: Array.from({ length: dancers }, (_, playerId) => emptyTrack(playerId)),
     operations: [], ...tail };
 }
 function assert(ok: unknown, message: string): asserts ok {
@@ -282,11 +298,9 @@ export function assertProject(p: unknown): asserts p is Project {
     "Invalid playable range",
   );
   assert(
-    isArray(p.tracks) &&
-      p.tracks.length === 2 &&
-      isObject(p.tracks[0]) && p.tracks[0].playerId === 0 &&
-      isObject(p.tracks[1]) && p.tracks[1].playerId === 1,
-    "Two ordered tracks required",
+    isArray(p.tracks) && isDancerCount(p.tracks.length) &&
+      p.tracks.every((t, i) => isObject(t) && t.playerId === i),
+    "One to four ordered tracks required",
   );
   assert(
     isArray(p.takes) &&
@@ -329,6 +343,13 @@ function assertEditCommand(op: unknown): asserts op is EditCommand {
     "Invalid edit range",
   );
   assert(op.playerId === null || isPlayerId(op.playerId), "Invalid edit track");
+  if (op.type === "swap")
+    assert(
+      op.withPlayerId === undefined
+        ? op.playerId === null
+        : isPlayerId(op.playerId) && isPlayerId(op.withPlayerId) && op.playerId !== op.withPlayerId,
+      "Swap two different tracks",
+    );
   if (op.type === "joint")
     assert(
       typeof op.joint === "number" &&
@@ -545,7 +566,7 @@ export function webcamTakeFromRecords(capture: PoseFrames, metadata: CaptureMeta
   const { model, config } = captureConfig(capture, metadata, 'webcam');
   const session = capture.capture!.sessionId, rate = capture.capture!.audioPlaybackRate;
   assert(rate !== null && finite(rate) && rate > 0, 'Invalid capture audio rate');
-  assert(capture.playerSlots === 2, 'Capture source/session/model/mode/geometry changed');
+  assert(isDancerCount(capture.playerSlots), 'Capture source/session/model/mode/geometry changed');
   const frameTime = extension(capture, EXTENSION.frameBrowserTimeMs), resultTime = extension(capture, EXTENSION.resultBrowserTimeMs),
     receivedTime = extension(capture, EXTENSION.receivedBrowserTimeMs), audioAtFrame = extension(capture, EXTENSION.audioPositionAtFrameMs);
   const samples: StudioTakeSample[] = [];
@@ -662,6 +683,9 @@ interface TrackSources {
   exclusions: ReviewEdit[];
 }
 const isExclusion = (o: EditCommand): o is ReviewEdit => o.type === "exclude";
+/** The two tracks a swap exchanges. */
+const swapped = (op: SwapEdit): [number, number] =>
+  op.withPlayerId === undefined || op.playerId === null ? [0, 1] : [op.playerId, op.withPlayerId];
 export function compileProject(
   project: Project,
   takes: StudioAssets,
@@ -740,11 +764,13 @@ export function compileProject(
       )
         continue;
       if (op.type === "swap") {
+        const [a, b] = swapped(op);
+        const other = (id: number) => (id === a ? b : id === b ? a : id);
         s.poses.forEach((v) => {
-          v.playerId = 1 - v.playerId;
+          v.playerId = other(v.playerId);
         });
         s.quality.forEach((v) => {
-          v.playerId = 1 - v.playerId;
+          v.playerId = other(v.playerId);
         });
         s.poses.sort((a, b) => a.playerId - b.playerId);
         s.quality.sort((a, b) => a.playerId - b.playerId);
@@ -963,7 +989,7 @@ export function reviewTimeline(data: CompiledChoreography): ReviewReport {
     blockers.push(
       "Synthetic tracking takes cannot be published as song choreography",
     );
-  for (const id of [0, 1]) {
+  for (const { playerId: id } of data.tracks) {
     let missing = 0,
       eligible = 0,
       edited = 0,
@@ -1028,7 +1054,7 @@ export function reviewTimeline(data: CompiledChoreography): ReviewReport {
 // Track snapshots have no dependency on a library take. History only stores refs.
 function assertTrackRefs(tracks: unknown, ordered = true): asserts tracks is Track[] {
   assert(
-    isArray(tracks) && (!ordered || tracks.length === 2),
+    isArray(tracks) && (!ordered || isDancerCount(tracks.length)),
     "Invalid track state",
   );
   tracks.forEach((t, i) => {
@@ -1177,7 +1203,12 @@ export function historyStep<P extends Project>(project: P, delta: number): P {
   q.alignmentReviewed = false;
   return p;
 }
-export function overwriteTracks(project: ProjectV3, take: Take, playerIds: readonly number[], assets: StudioAssets): ProjectV3 {
+/**
+ * Copies the take's dancers playerIds onto the tracks toPlayerIds (by default the same ones),
+ * replacing those tracks.
+ */
+export function overwriteTracks(project: ProjectV3, take: Take, playerIds: readonly number[], assets: StudioAssets,
+  toPlayerIds: readonly number[] = playerIds): ProjectV3 {
   assertTake(take);
   assert(
     playerIds.length > 0 &&
@@ -1188,14 +1219,20 @@ export function overwriteTracks(project: ProjectV3, take: Take, playerIds: reado
       ),
     "Take has no poses for the requested player",
   );
+  assert(
+    toPlayerIds.length === playerIds.length && new Set(toPlayerIds).size === toPlayerIds.length &&
+      toPlayerIds.every((id) => hasTrack(project, id)),
+    "The song has no track for that player",
+  );
   const tracks = copy(project.tracks);
-  for (const id of playerIds) {
+  playerIds.forEach((from, i) => {
+    const id = toPlayerIds[i];
     const samples = take.samples.map((s) => ({
       takeTimeMs: s.takeTimeMs * take.timeScale,
-      poses: copy(s.poses.filter((p) => p.playerId === id)),
+      poses: copy(s.poses.filter((p) => p.playerId === from)).map((p) => ({ ...p, playerId: id })),
       quality: copy(
-        (s.quality || qualityFor(s.poses)).filter((q) => q.playerId === id),
-      ),
+        (s.quality || qualityFor(s.poses)).filter((q) => q.playerId === from),
+      ).map((q) => ({ ...q, playerId: id })),
     }));
     const data = trackSnapshot(id, take.input, samples, [
       {
@@ -1205,7 +1242,7 @@ export function overwriteTracks(project: ProjectV3, take: Take, playerIds: reado
         sha256: take.sha256 || null,
         provenance: take.provenance || null,
       },
-    ], [], take.calibrationFrame ? takeCalibration(take, id) : undefined);
+    ], [], take.calibrationFrame ? takeCalibration(take, from) : undefined);
     assets.set(data.dataId, data);
     tracks[id] = {
       ...tracks[id],
@@ -1213,18 +1250,22 @@ export function overwriteTracks(project: ProjectV3, take: Take, playerIds: reado
       originalDataId: data.dataId,
       offsetMs: take.offsetMs,
     };
-  }
-  return recordTrackChange(project, tracks, {
-    type: "overwrite",
-    playerId: playerIds.length === 2 ? null : playerIds[0],
   });
+  return recordTrackChange(project, tracks, toPlayerIds.length > 1
+    ? { type: "overwrite", playerId: null, playerIds: [...toPlayerIds] }
+    : { type: "overwrite", playerId: toPlayerIds[0] });
 }
-/** Copies the complete edited source, including retained off-timeline data, into a reflected independent track. */
-export function mirrorTrack(project: ProjectV3, assets: StudioAssets, sourcePlayerId: number): ProjectV3 {
-  assert(isPlayerId(sourcePlayerId), 'Invalid source player');
+/**
+ * Copies the complete edited source, including retained off-timeline data, into a reflected
+ * independent track: playerId's (with two dancers, by default the other one).
+ */
+export function mirrorTrack(project: ProjectV3, assets: StudioAssets, sourcePlayerId: number,
+  playerId = project.tracks.length === 2 ? 1 - sourcePlayerId : -1): ProjectV3 {
+  assert(hasTrack(project, sourcePlayerId), 'Invalid source player');
+  assert(hasTrack(project, playerId) && playerId !== sourcePlayerId, 'Choose another track to mirror to');
   const source = project.tracks[sourcePlayerId];
   assert(source.dataId, 'Source track has no poses');
-  const data = trackAsset(assets, source.dataId), playerId = 1 - sourcePlayerId;
+  const data = trackAsset(assets, source.dataId);
   assert(data.samples.some(s => s.poses.length), 'Source track has no poses');
   const samples = data.samples.map(s => ({ ...copy(s),
     poses: s.poses.map(p => ({ ...mirrorPose(p), playerId })),
@@ -1241,7 +1282,7 @@ export function mirrorTrack(project: ProjectV3, assets: StudioAssets, sourcePlay
 }
 /** Uses the edited song skeleton at the playhead as this track's body reference. */
 export function recalibrateTrack(project: ProjectV3, assets: StudioAssets, playerId: number, timeMs: number): ProjectV3 {
-  assert(isPlayerId(playerId), 'Invalid calibration player');
+  assert(hasTrack(project, playerId), 'Invalid calibration player');
   assert(finite(timeMs) && timeMs >= project.playableStartMs && timeMs <= project.playableEndMs, 'Choose a frame within the playable range');
   const track = project.tracks[playerId];
   assert(track.dataId, 'Track has no poses');
@@ -1256,6 +1297,7 @@ export function recalibrateTrack(project: ProjectV3, assets: StudioAssets, playe
   return recordTrackChange(project, tracks, { type: 'recalibrate-body', playerId, timeMs });
 }
 export function clearTrack(project: ProjectV3, playerId: number): ProjectV3 {
+  assert(hasTrack(project, playerId), "The song has no track for that player");
   const tracks = copy(project.tracks);
   tracks[playerId] = {
     ...tracks[playerId],
@@ -1266,6 +1308,7 @@ export function clearTrack(project: ProjectV3, playerId: number): ProjectV3 {
   return recordTrackChange(project, tracks, { type: "clear", playerId });
 }
 export function offsetTrack(project: ProjectV3, playerId: number, offsetMs: number): ProjectV3 {
+  assert(hasTrack(project, playerId), "The song has no track for that player");
   assert(
     finite(offsetMs) && Math.abs(offsetMs) <= 3600000,
     "Offset must be finite and within one hour",
@@ -1307,6 +1350,7 @@ function storeEditedTracks(
         ? [
             ...new Map(
               project.tracks
+                .filter((t) => playerIds.includes(t.playerId))
                 .flatMap((t) => (t.dataId ? trackAsset(assets, t.dataId).sources : []))
                 .map((s) => [s.takeId, s] as const),
             ).values(),
@@ -1336,19 +1380,26 @@ function storeEditedTracks(
 }
 function editTracks(project: ProjectV3, operation: EditCommand, assets: StudioAssets | undefined): ProjectV3 {
   assert(assets instanceof Map, "Track assets are required for editing");
+  const ids = operation.type === "swap" ? swapped(operation)
+    : operation.playerId === null ? dancerIds(project) : [operation.playerId];
+  assert(ids.every((id) => hasTrack(project, id)), "The song has no track for that player");
   // Apply the existing editing algorithms to the entire retained timeline, then
   // save independent snapshots. Negative/out-of-range poses remain recoverable.
   const data = compileProject(project, assets, {
     fullTimeline: true,
     editOperation: operation,
   });
-  return storeEditedTracks(
-    project,
-    assets,
-    data,
-    operation.playerId === null ? [0, 1] : [operation.playerId],
-    operation,
-  );
+  return storeEditedTracks(project, assets, data, ids, operation);
+}
+/**
+ * Gives the song `dancers` tracks: new ones start empty, and removed ones (the last) stay in
+ * the history, so undo brings them back.
+ */
+export function setDancerCount(project: ProjectV3, dancers: number): ProjectV3 {
+  assert(isDancerCount(dancers), "A song has one to four dancers");
+  assert(dancers !== project.tracks.length, "The song already has that many dancers");
+  const tracks = Array.from({ length: dancers }, (_, id) => (id < project.tracks.length ? copy(project.tracks[id]) : emptyTrack(id)));
+  return recordTrackChange(project, tracks, { type: "dancers", playerId: null, dancers });
 }
 /** Clean one immutable track snapshot on its own clock, retaining selection context. */
 export function cleanupTrack(project: ProjectV3, assets: StudioAssets, playerId: number, startMs: number, endMs: number): { project: ProjectV3; counts: CleanupCounts } {
