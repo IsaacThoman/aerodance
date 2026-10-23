@@ -15,7 +15,7 @@
  * The app also lays an invisible AirPlay picker over the game's AirPlay bubble
  * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker().
  *
- * const off = onHostChange((host) => ...); hostState().tv; inApp()
+ * const off = onHostChange((host) => ...); hostState().tv; inApp(); client() === 'tvos'
  */
 
 export interface HostState { interrupted: boolean; tv: boolean; screen: 'phone' | 'tv'; }
@@ -30,6 +30,15 @@ export const hostState = () => read(host());
 
 /** The page runs in the iPhone/iPad app rather than a browser. */
 export const inApp = () => typeof host() === 'object' && host() !== null;
+
+/**
+ * Which build of the game this is: 'web' (a browser), 'ios' (the iPhone/iPad app's web view,
+ * apps/ios/) or 'tvos' (the Apple TV app's JavaScriptCore host, apps/tvos/, which puts its
+ * natives on globalThis.__native). Prefer checking for the feature itself where there is one
+ * (RTCPeerConnection, getUserMedia); this is for what only the platform tells you.
+ */
+export type Client = 'web' | 'ios' | 'tvos';
+export const client = (): Client => ('__native' in globalThis ? 'tvos' : inApp() ? 'ios' : 'web');
 
 /** Calls fn with the app's new state on every change; returns the unsubscribe. */
 export function onHostChange(fn: (state: HostState) => void, target: EventTarget | undefined = globalThis.window) {

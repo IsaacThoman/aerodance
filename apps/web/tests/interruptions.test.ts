@@ -3,7 +3,7 @@ import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { CAMERA_GRACE_MS, watchInterruptions } from '../src/game/interruptions.ts';
 import type { InterruptionCause } from '../src/game/interruptions.ts';
-import { hostState, inApp, onHostChange } from '../src/host.ts';
+import { client, hostState, inApp, onHostChange } from '../src/host.ts';
 import { CameraSetup } from '../src/connect/cameraSetup.ts';
 import type { CameraInput, CameraInputView } from '../src/pose/CameraInput.ts';
 
@@ -82,6 +82,19 @@ test('the camera being taken away pauses once; an already interrupted camera doe
   w.audio.set('interrupted');
   w.host.dispatchEvent(hostEvent({ interrupted: true }));
   assert.equal(w.pauses.length, 2, 'nothing is heard after unsubscribing');
+});
+
+test('the client is the browser unless the iOS app or the Apple TV host says otherwise', () => {
+  assert.equal(client(), 'web');
+  const page = globalThis as { __aerodanceHost?: unknown; __native?: unknown };
+  try {
+    page.__aerodanceHost = {};
+    assert.equal(client(), 'ios');
+    delete page.__aerodanceHost;
+    page.__native = {};
+    assert.equal(client(), 'tvos');
+  } finally { delete page.__aerodanceHost; delete page.__native; }
+  assert.equal(client(), 'web');
 });
 
 test('the host state reads only booleans and a known screen, and is all off in a browser', () => {

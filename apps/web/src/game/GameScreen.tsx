@@ -301,6 +301,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
       }
       mirror.current = null;
       if (!p.visible || !session) return;
+      if (calibrating()) camera.update();
       session.update(performance.now());
       if (SONG_PHASES.includes(session.phase) && tracking(session)) {
         mirror.current = { rect: gameLayout(s.w).GAME_MIRROR, w: s.w, h: s.h, dim: session.phase === 'paused' ? VEIL : 0, alpha: st.alpha };
