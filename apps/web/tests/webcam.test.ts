@@ -153,24 +153,25 @@ test('a frame that waited is closed when the camera changed size before it came'
 // A turned camera (the iPhone/iPad app on a TV): a canvas and createImageBitmap that remember which
 // of the camera's pictures, and what size, each copy is of.
 function turned(t: TestContext, turnOf: () => number) {
-  let shown = 0;
+  let shown = 0, taken = 0;
   const canvas = { width: 0, height: 0, content: { frame: 0, w: 0, h: 0 }, getContext: () => g } as unknown as HTMLCanvasElement & { content: { frame: number; w: number; h: number } };
   const g = { setTransform() {}, rotate() {}, drawImage() { canvas.content = { frame: shown, w: canvas.width, h: canvas.height }; } };
   const f = fixture(t, { adaptToResize: true, createCanvas: () => canvas, turn: () => turnOf(),
     bitmap: async picture => {
+      taken++;
       const copy = picture === canvas ? { ...canvas.content } : { frame: shown, w: f.video.videoWidth!, h: f.video.videoHeight! };
       return { ...copy, width: copy.w, height: copy.h, close() {} } as unknown as ImageBitmap;
     } });
   const records: WebcamRecord[] = [];
   f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
   const sent = () => f.messages.flatMap(m => m.type === 'frame' ? [m.bitmap as unknown as { frame: number; width: number; height: number }] : []);
-  return { f, records, sent, show(frame: number) { shown = frame; } };
+  return { f, records, sent, show(frame: number) { shown = frame; }, get taken() { return taken; } };
 }
 const settled = () => new Promise(resolve => setTimeout(resolve, 0));
 
 test('a frame that waits on a turned camera goes with its own picture, turned, at its size, though the turn changed meanwhile', async t => {
   let turn = 0;
-  const { f, records, sent, show } = turned(t, () => turn);
+  const rig = turned(t, () => turn), { f, records, sent, show } = rig;
   await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
   show(1); await f.frame(1); await settled();
   // The device is turned sideways while the first frame is in flight.
@@ -179,6 +180,30 @@ test('a frame that waits on a turned camera goes with its own picture, turned, a
   f.setTime(1090); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 20 }); await settled();
   assert.deepEqual(records.map(r => `${r.input.width}x${r.input.height}`), ['640x480', '480x640'], 'each result at its own picture\'s size');
   assert.deepEqual(sent().map(b => [b.frame, b.width, b.height]), [[1, 640, 480], [2, 480, 640]], 'the second picture is the one that waited, turned');
+  assert.equal(rig.taken, 2, 'taken once each, when it came');
+});
+
+test('a frame that waited since before the camera changed size goes at its old size, and the next one finds the change', async t => {
+  const pictures: { width: number; height: number; closed: boolean }[] = [];
+  const f = fixture(t, { bitmap: async () => {
+    const picture = { width: f.video.videoWidth!, height: f.video.videoHeight!, closed: false };
+    pictures.push(picture);
+    return { ...picture, close() { picture.closed = true; } } as unknown as ImageBitmap;
+  } });
+  const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  await f.frame(1); await f.frame(1.033);
+  Object.assign(f.video, { videoWidth: 480, videoHeight: 640 });
+  f.setTime(1050); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 30 });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const sent = f.messages.flatMap(m => m.type === 'frame' ? [m.bitmap as unknown as { width: number; height: number }] : []);
+  assert.deepEqual(sent.map(b => `${b.width}x${b.height}`), ['640x480', '640x480'], 'the frame that waited goes, at the size it was');
+  f.setTime(1080); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 30 });
+  assert.deepEqual(records.map(r => `${r.input.width}x${r.input.height}`), ['640x480', '640x480']);
+  await f.frame(1.066); await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.source.view.status, 'error', 'the next frame, at the new size, can\'t be tracked by this source');
+  assert.equal(pictures.filter(p => p.closed).length, 1, 'and its picture is closed');
 });
 
 test('a frame that waits on a turned camera keeps its size when the camera changes before it goes', async t => {
