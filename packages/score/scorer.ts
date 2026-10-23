@@ -1,16 +1,16 @@
 import { sampleSong } from '../pose/song.ts';
 import type { SongBundle } from '../pose/song.ts';
-import { isPlayerCount, partOf } from '../pose/choreography.ts';
-import type { Landmark, PlayerCount } from '../pose/choreography.ts';
+import { autoCast, isCast, isPlayerCount } from '../pose/choreography.ts';
+import type { Cast, Landmark, PlayerCount } from '../pose/choreography.ts';
 import { LIMBS, TOTAL_WEIGHT, angleBetween, lerpDirections, limbDirections, liveUsable } from './features.ts';
 import type { LimbDirections } from './features.ts';
 
 /*
- * The dance scorer: each player against their own choreography track, on song time.
- * docs/scoring.md explains the method and every constant below; change SCORER_VERSION
+ * The dance scorer: each player against the choreography track of the dancer they dance, on
+ * song time. docs/scoring.md explains the method and every constant below; change SCORER_VERSION
  * whenever a change would move scores, so saved bests stay comparable.
  *
- * const scorer = createScorer(bundle, playerCount);
+ * const scorer = createScorer(bundle, playerCount);  // or a cast: createScorer(bundle, [1, 0])
  * scorer.addSample(playerId, songTimeMs, landmarks, aspect);  // live poses, any order
  * scorer.advance(songTimeMs);  // every live sample up to here has arrived
  * scorer.finish();             // the song is over: score what's left
@@ -88,24 +88,21 @@ export const judge = (s: number) => lookup(JUDGEMENTS, s);
 export const gradeFor = (accuracy: number) => lookup(GRADES, accuracy);
 
 /**
- * Reference limb directions for one choreography track (a part) on a fixed grid. Players who
- * dance the same part (P1 and P3, P2 and P4) share it.
+ * Reference limb directions for one choreography track (a dancer) on a fixed grid. Players who
+ * dance the same dancer share it.
  */
 type ReferenceGrid = (songTimeMs: number) => LimbDirections | null;
-function referenceGrid(bundle: SongBundle, playerCount: PlayerCount, part: number): ReferenceGrid {
+function referenceGrid(bundle: SongBundle, dancer: number): ReferenceGrid {
   const { song, choreography } = bundle;
-  const { inputWidth, inputHeight } = choreography.tracks[part].calibration;
-  // Only the parts are sampled: players 3 and 4 would just copy them.
-  const sampled = Math.min(playerCount, choreography.tracks.length) as PlayerCount;
+  const { inputWidth, inputHeight } = choreography.tracks[dancer].calibration;
   const aspect = inputWidth / inputHeight;
   const from = song.playableStartMs - MOTION_MS - 200;
   const count = Math.ceil((song.playableEndMs + 200 - from) / REF_STEP_MS) + 1;
   const dirs: (LimbDirections | null)[] = new Array(count);
   for (let i = 0; i < count; i++) {
     const t = from + i * REF_STEP_MS;
-    const { poses, quality } = sampleSong(bundle, t, sampled);
-    const pose = poses.find((p) => p.playerId === part);
-    const q = quality.find((p) => p.playerId === part);
+    // Just this dancer, as if one player danced them.
+    const { poses: [pose], quality: [q] } = sampleSong(bundle, t, [dancer]);
     dirs[i] = pose && q ? limbDirections(pose.landmarks, aspect, q.scoreEligible) : null;
   }
   // Grid points sit exactly on multiples of REF_STEP_MS from `from`, so lookups are exact.
@@ -192,12 +189,14 @@ function liveAt(track: Track, t: number) {
   return near ? near.dirs : null;
 }
 
-export function createScorer(bundle: SongBundle, playerCount: PlayerCount): Scorer {
-  if (!isPlayerCount(playerCount)) throw Error('Invalid player count');
-  const parts = bundle.choreography.tracks.length;
+export function createScorer(bundle: SongBundle, players: PlayerCount | Cast): Scorer {
+  const dancers = bundle.choreography.tracks.length;
+  const cast = typeof players === 'number' ? (isPlayerCount(players) ? autoCast(players, dancers) : null) : players;
+  if (!isCast(cast, dancers)) throw Error('Invalid player count or cast');
+  const playerCount = cast.length as PlayerCount;
   const grids = new Map<number, ReferenceGrid>();
-  const gridFor = (part: number) => grids.get(part) ?? grids.set(part, referenceGrid(bundle, playerCount, part)).get(part)!;
-  const tracks = Array.from({ length: playerCount }, (_, id) => createTrack(bundle, id, gridFor(partOf(id, parts))));
+  const gridFor = (dancer: number) => grids.get(dancer) ?? grids.set(dancer, referenceGrid(bundle, dancer)).get(dancer)!;
+  const tracks = cast.map((dancer, id) => createTrack(bundle, id, gridFor(dancer)));
   const listeners = new Set<(event: JudgementEvent) => void>();
   const emit = (event: JudgementEvent) => { for (const fn of listeners) fn(event); };
 

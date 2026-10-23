@@ -1,6 +1,6 @@
 import type { CameraInfo, PoseRecordEvent, SourceStoppedEvent, WebcamStatus } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PreviewPicture } from '../../../../packages/pose/browser/preview.ts';
-import type { CaptureInput, PlayerCount, Pose } from '../../../../packages/pose/choreography.ts';
+import type { CaptureInput, Cast, PlayerCount, Pose } from '../../../../packages/pose/choreography.ts';
 import type { SongBundle } from '../../../../packages/pose/song.ts';
 
 /*
@@ -45,6 +45,8 @@ export interface PoseInputView {
 /** The song clock a source can follow while a song plays (GameSession attaches it). */
 export interface SongClock {
   bundle: SongBundle;
+  /** The dancer each player dances (GameSession's cast); the automatic one when missing. */
+  cast?: Cast;
   /** The song position audible at a performance.now() time. */
   songTimeAt(perfMs: number): number;
   /** The performance.now() time a song position is (or was) audible. */

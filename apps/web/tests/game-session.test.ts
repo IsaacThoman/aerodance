@@ -3,7 +3,7 @@ import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { sampleSong, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
-import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
+import type { Cast, PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
 import type { PoseRecordEvent } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import { AUDIO_START_MS, COUNTDOWN_MS, GameSession, LATE_ALLOWANCE_MS, READY_HOLD_MS } from '../src/game/GameSession.ts';
 import type { GameSessionOptions, SessionPlayer } from '../src/game/GameSession.ts';
@@ -509,7 +509,7 @@ test('the ghost replay dances the routine and stands in its halves without a son
   assert.equal(last.captureBrowserTimeMs, 5000);
 });
 
-test('a four-player ghost stands side by side and doubles the duet', async () => {
+test('a four-player ghost stands side by side and dances the duet in pairs', async () => {
   let now = 0;
   const ghost = new ReplayPoseSource({ now: () => now, noise: 0 });
   const records: PoseRecordEvent<LivePoseRecord>[] = [];
@@ -524,9 +524,43 @@ test('a four-player ghost stands side by side and doubles the duet', async () =>
   ghost.tick();
   const last = records[records.length - 1].record;
   assert.equal(last.playerCount, 4);
-  assert.deepEqual(last.poses[2].landmarks, last.poses[0].landmarks);
-  assert.deepEqual(last.poses[3].landmarks, last.poses[1].landmarks);
+  // The left two dance the left dancer, the right two the right one.
+  assert.deepEqual(last.poses[1].landmarks, last.poses[0].landmarks);
+  assert.deepEqual(last.poses[3].landmarks, last.poses[2].landmarks);
+  assert.notDeepEqual(last.poses[2].landmarks, last.poses[0].landmarks);
+  // A song's cast decides who copies whom: here everyone dances the second dancer.
+  ghost.attachSong({ bundle, cast: [1, 1, 1, 1], songTimeAt: (perf) => perf, perfAtSong: (ms) => ms, playing: () => true });
+  now = 5100;
+  ghost.tick();
+  const cast = records[records.length - 1].record;
+  for (const pose of cast.poses) assert.deepEqual(pose.landmarks, cast.poses[3].landmarks);
+  assert.deepEqual(cast.poses.map((p) => p.landmarks), sampleSong(bundle, 5100, [1, 1, 1, 1]).poses.map((p) => p.landmarks));
   await assert.rejects(ghost.setPlayerCount(5 as PlayerCount));
+});
+
+test('a session scores and shows each player against the dancer they picked', async () => {
+  const auto = await setup(2);
+  assert.deepEqual(auto.session.cast, [0, 1]);
+  assert.deepEqual(auto.session.routine().cast, [0, 1]);
+  // Both players dance each other's part: that's right only for the cast that swapped them.
+  const dance = async (cast?: Cast) => {
+    const { session, source, step } = await setup(2, cast ? { cast } : {});
+    session.start();
+    step(COUNTDOWN_MS + 50);
+    step(8000, (now) => {
+      const poses = reference(session.loaded().songTimeAt(now), 2).map((p) => ({ ...p, playerId: 1 - p.playerId }));
+      source.send(poses.sort((a, b) => a.playerId - b.playerId), now, 2);
+    });
+    return { session, source, scores: session.scorer.results().map((r) => r.score) };
+  };
+  const swapped = await dance([1, 0]), unswapped = await dance();
+  assert.deepEqual(swapped.session.routine().cast, [1, 0]);
+  // The pose source (the ghost) follows the same cast.
+  assert.deepEqual(swapped.source.attached?.cast, [1, 0]);
+  for (const id of [0, 1]) assert.ok(swapped.scores[id] > 2 * unswapped.scores[id], `player ${id + 1}: ${swapped.scores[id]} vs ${unswapped.scores[id]}`);
+  // A cast for another player count is ignored: the players are cast by where they stand.
+  const stale = await setup(4, { cast: [1, 0] });
+  assert.deepEqual(stale.session.cast, [0, 0, 1, 1]);
 });
 
 test('a four-player pose recording keeps every player', async () => {

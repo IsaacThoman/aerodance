@@ -12,7 +12,11 @@ export interface BundleFixture {
   entry: CatalogSong;
 }
 
-export function bundleFixture(): BundleFixture {
+/** Where the fixture's dancer stands across the picture: left to right from 0.3 to 0.7. */
+export const dancerX = (dancer: number, dancers: number) => 0.3 + (dancer * 0.4) / Math.max(1, dancers - 1);
+
+/** The fixture with `dancers` dancers (song.json leaves a duet's dancerCount out, like older songs). */
+export function bundleFixture(dancers = 2): BundleFixture {
   const song: Song = {
     schema:'aerodance.song',schemaVersion:1,songId:'fixture',bundleRevision:1,title:'Fixture routine',artist:'Test artist',
     songwriters:[],choreographers:[],durationMs:1000,playableStartMs:100,playableEndMs:900,supportedPlayerCounts:[1,2,3,4],
@@ -20,18 +24,21 @@ export function bundleFixture(): BundleFixture {
     coachMode:'mirror-player',rigProfile:'frutiger-seven-bone-v1',
     rights:{audio:{license:'test',attribution:''},choreography:{license:'test',attribution:''}},
     createdAt:'2026-10-10T00:00:00Z',publishedAt:'2026-10-10T00:00:00Z',build:{compilerVersion:'test',projectRevision:1},
+    ...(dancers === 2 ? {} : { dancerCount: dancers }),
   };
-  const poses = [0,1].map((playerId): Pose => ({playerId,landmarks:Array.from({length:33},(_,i)=>({x:.3+playerId*.4,y:i<23?.3:.7,z:0,confidence:.8}))}));
+  const ids = Array.from({length:dancers},(_,id)=>id);
+  const poses = ids.map((playerId): Pose => ({playerId,landmarks:Array.from({length:33},(_,i)=>({x:dancerX(playerId,dancers),y:i<23?.3:.7,z:0,confidence:.8}))}));
   const choreography: BundleFixture['choreography'] = {
     schema:'aerodance.choreography',schemaVersion:1,songId:song.songId,durationMs:1000,playableStartMs:100,playableEndMs:900,
     coordinates:{kind:'mediapipe-image',landmarkCount:33,ordering:'mediapipe-pose-33',xAxis:'right',yAxis:'down',zAxis:'away-from-camera',mirrored:false,depthUnit:'relative-image-width'},
     sampling:{targetRateHz:30,maxInterpolationGapMs:200,confidenceThreshold:.5},
-    tracks:[0,1].map(playerId=>({playerId,label:`Player ${playerId+1}`,calibration:{inputWidth:640,inputHeight:480,torsoLength:.4,baseHip:{x:.3+playerId*.4,y:.7,z:0},floorY:.7,profileVersion:1},unscorableIntervals:[{startMs:300,endMs:400,reason:'Test exclusion'}]})),
+    tracks:ids.map(playerId=>({playerId,label:`Player ${playerId+1}`,calibration:{inputWidth:640,inputHeight:480,torsoLength:.4,baseHip:{x:dancerX(playerId,dancers),y:.7,z:0},floorY:.7,profileVersion:1},unscorableIntervals:[{startMs:300,endMs:400,reason:'Test exclusion'}]})),
     samples:[100,300,500,700,900].map(songTimeMs=>({songTimeMs,poses:structuredClone(poses),quality:qualityFor(poses)}))
   };
   // One second of silent PCM, solely for automated browser tests; never cataloged publicly.
   const audio = silentWav(1000);
-  const entry: CatalogSong = {id:song.songId,title:song.title,artist:song.artist,durationMs:1000,supportedPlayerCounts:[1,2,3,4],bundleRevision:1,bundle:'fixture/song.json'};
+  const entry: CatalogSong = {id:song.songId,title:song.title,artist:song.artist,durationMs:1000,supportedPlayerCounts:[1,2,3,4],bundleRevision:1,bundle:'fixture/song.json',
+    ...(dancers === 2 ? {} : { dancerCount: dancers })};
   return {song,choreography,audio,entry};
 }
 

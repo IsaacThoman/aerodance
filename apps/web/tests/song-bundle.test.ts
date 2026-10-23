@@ -2,10 +2,10 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { sha256, validateCatalog, validateBundlePath, validateSong, validateSongChoreography, sampleSong } from '../../../packages/pose/song.ts';
-import { isArray, isObject } from '../../../packages/pose/choreography.ts';
+import { autoCast, isArray, isObject } from '../../../packages/pose/choreography.ts';
 import { loadSongBundle } from '../src/songs/loadBundle.ts';
 import type { Fetcher } from '../src/songs/loadBundle.ts';
-import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
+import { bundleFixture, choreographyBytes, dancerX } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 const file = (files: Map<string, Uint8Array<ArrayBuffer>>, name: string) => {
@@ -52,26 +52,70 @@ test('absence and long gaps cannot become frozen or interpolated players',()=>{
   bundle.choreography.samples.splice(1,1);
   assert.deepEqual(sampleSong(decoded(bundle),250,2).poses,[]);
 });
-test('three and four players dance the parts of the duet again, with their own ids and exclusions',()=>{
+test('three and four players share a duet by where they stand, with their own ids and exclusions',()=>{
   const bundle = bundleFixture(), song = decoded(bundle);
   const two = sampleSong(song,200,2), four = sampleSong(song,200,4), three = sampleSong(song,200,3);
   assert.deepEqual(four.poses.map(p=>p.playerId),[0,1,2,3]);
   assert.deepEqual(four.quality.map(q=>q.playerId),[0,1,2,3]);
-  assert.deepEqual(four.poses[2].landmarks,two.poses[0].landmarks); assert.deepEqual(four.poses[3].landmarks,two.poses[1].landmarks);
-  assert.notEqual(four.poses[2].landmarks,four.poses[0].landmarks);
-  assert.deepEqual(three.poses.map(p=>p.playerId),[0,1,2]);
+  // The left two dance the left dancer and the right two the right one.
+  assert.deepEqual(four.poses.map(p=>p.landmarks),[0,0,1,1].map(d=>two.poses[d].landmarks));
+  assert.notEqual(four.poses[1].landmarks,four.poses[0].landmarks);
+  assert.deepEqual(three.poses.map(p=>p.landmarks),[0,0,1].map(d=>two.poses[d].landmarks));
   assert.ok(sampleSong(song,350,4).quality.every(q=>q.scoreEligible.every(v=>!v)));
   assert.ok(sampleSong(song,400,4).quality.every(q=>q.scoreEligible.some(Boolean)));
-  // Each part's exclusions follow everyone who dances it.
+  // Each dancer's exclusions follow everyone who dances them.
   const parts = bundleFixture();
   parts.choreography.tracks[1].unscorableIntervals = [{startMs:500,endMs:600,reason:'Part 2 only'}];
   const excluded = (t: number) => sampleSong(decoded(parts),t,4).quality.map(q=>q.scoreEligible.every(v=>!v));
-  assert.deepEqual(excluded(350),[true,false,true,false]);
-  assert.deepEqual(excluded(550),[false,true,false,true]);
-  // A missing part is missing for everyone who dances it.
+  assert.deepEqual(excluded(350),[true,true,false,false]);
+  assert.deepEqual(excluded(550),[false,false,true,true]);
+  // A missing dancer is missing for everyone who dances them.
   bundle.choreography.samples[1].poses = [bundle.choreography.samples[1].poses[1]];
   bundle.choreography.samples[1].quality = [bundle.choreography.samples[1].quality[1]];
-  assert.deepEqual(sampleSong(decoded(bundle),300,4).poses.map(p=>p.playerId),[1,3]);
+  assert.deepEqual(sampleSong(decoded(bundle),300,4).poses.map(p=>p.playerId),[2,3]);
+});
+test('players dance the dancers they pick',()=>{
+  const song = decoded(bundleFixture());
+  const two = sampleSong(song,200,2);
+  // Swapped, and both on the second dancer.
+  const swapped = sampleSong(song,200,[1,0]);
+  assert.deepEqual(swapped.poses.map(p=>p.playerId),[0,1]);
+  assert.deepEqual(swapped.poses.map(p=>p.landmarks),[two.poses[1].landmarks,two.poses[0].landmarks]);
+  assert.deepEqual(swapped.quality.map(q=>q.playerId),[0,1]);
+  assert.deepEqual(sampleSong(song,200,[1,1]).poses.map(p=>p.landmarks),[two.poses[1].landmarks,two.poses[1].landmarks]);
+  for (const cast of [[2],[0,-1],[],[0,0,0,0,0],[0.5]]) assert.throws(()=>sampleSong(song,200,cast),/cast/);
+});
+test('players are cast left to right as they stand, neighbours sharing when there are fewer dancers',()=>{
+  const table: [players: number, dancers: number, cast: number[]][] = [
+    [1,1,[0]],[1,2,[0]],[1,4,[0]],[2,1,[0,0]],[2,2,[0,1]],[2,4,[0,1]],[3,2,[0,0,1]],[3,3,[0,1,2]],
+    [4,1,[0,0,0,0]],[4,2,[0,0,1,1]],[4,3,[0,0,1,2]],[4,4,[0,1,2,3]],
+  ];
+  for (const [players,dancers,cast] of table) assert.deepEqual(autoCast(players,dancers),cast,`${players} players, ${dancers} dancers`);
+});
+test('a choreography has one to four dancers, as many as its song says',()=>{
+  for (const dancers of [1,3,4]) {
+    const fixture = bundleFixture(dancers);
+    assert.equal(fixture.song.dancerCount,dancers);
+    const song = decoded(fixture);
+    assert.equal(song.choreography.tracks.length,dancers);
+    assert.equal(song.choreography.playerSlots,dancers);
+    assert.deepEqual(sampleSong(song,200,dancers === 1 ? 1 : 2).poses.map(p=>p.playerId),dancers === 1 ? [0] : [0,1]);
+    // Every dancer once, each in their own place.
+    const everyone = sampleSong(song,200,Array.from({length:dancers},(_,d)=>d));
+    assert.deepEqual(everyone.poses.map(p=>p.landmarks[23].x.toFixed(3)),Array.from({length:dancers},(_,d)=>dancerX(d,dancers).toFixed(3)));
+    // song.json and the choreography have to agree.
+    assert.throws(()=>validateSongChoreography({...fixture.song,dancerCount:2},choreographyBytes(fixture)),/dancers/);
+    assert.throws(()=>validateSongChoreography({...fixture.song,dancerCount:undefined},choreographyBytes(fixture)),/dancers/);
+    validateCatalog({version:1,songs:[{...fixture.entry,dancerCount:dancers}]});
+  }
+  // Songs published before dancerCount are duets.
+  const duet = bundleFixture();
+  assert.equal(duet.song.dancerCount,undefined);
+  assert.equal(decoded(duet).choreography.tracks.length,2);
+  for (const dancerCount of [0,5,1.5,'2']) {
+    assert.throws(()=>validateSong({...duet.song,dancerCount}),/dancers/);
+    assert.throws(()=>validateCatalog({version:1,songs:[{...duet.entry,dancerCount}]}));
+  }
 });
 test('songs list every player count from one up to four',()=>{
   const {entry} = bundleFixture();

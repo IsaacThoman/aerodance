@@ -184,7 +184,7 @@ export class ReplayPoseSource implements PoseSource {
     const { playableStartMs, playableEndMs } = bundle.song;
     // The ghost dances what the coach did lagMs ago, held at the ends of the song.
     const t = Math.min(Math.max(songNow - this.lagMs, playableStartMs), playableEndMs - 1);
-    const sample = sampleSong(bundle, t, this.playerCount);
+    const sample = sampleSong(bundle, t, song.cast?.length === this.playerCount ? song.cast : this.playerCount);
     const poses = sample.poses.length ? sample.poses.map((p) => ({ playerId: p.playerId, landmarks: this.jitter(p.landmarks) })) : this.standing();
     const { inputWidth: width, inputHeight: height } = bundle.choreography.tracks[0].calibration;
     this.emit(poses, now, { width, height, mirrored: false });

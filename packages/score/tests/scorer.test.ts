@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mirrorPose } from '../../pose/choreography.ts';
-import type { Landmark, PlayerCount } from '../../pose/choreography.ts';
+import type { Cast, Landmark, PlayerCount } from '../../pose/choreography.ts';
 import { sampleSong, validateSong, validateSongChoreography } from '../../pose/song.ts';
 import type { SongBundle } from '../../pose/song.ts';
 import { MAX_SCORE, SCORER_VERSION, createScorer, gradeFor, judge } from '../scorer.ts';
@@ -36,12 +36,12 @@ function random(seed: number) {
 }
 
 interface PlayOptions {
-  players?: PlayerCount; rate?: number; jitter?: number; seed?: number;
+  players?: PlayerCount; cast?: Cast; rate?: number; jitter?: number; seed?: number;
   order?: 'in-order' | 'shuffled'; duplicate?: boolean;
 }
 /** Feed a scorer live poses at `rate` per second with timing jitter, as a camera would. */
-function play(poseAt: PoseAt, { players = 2, rate = 9, jitter = 30, seed = 1, order = 'in-order', duplicate = false }: PlayOptions = {}) {
-  const scorer = createScorer(bundle, players);
+function play(poseAt: PoseAt, { cast, players = (cast?.length ?? 2) as PlayerCount, rate = 9, jitter = 30, seed = 1, order = 'in-order', duplicate = false }: PlayOptions = {}) {
+  const scorer = createScorer(bundle, cast ?? players);
   const rnd = random(seed);
   const samples: [id: number, songTimeMs: number, landmarks: Landmark[]][] = [];
   for (let t = song.playableStartMs; t < song.playableEndMs; t += 1000 / rate) {
@@ -148,13 +148,27 @@ test('player 1 in one-player mode scores the same as in two-player mode', () => 
   assert.deepEqual(solo[0], perfect[0]);
 });
 
-test('players 3 and 4 score against parts 1 and 2, the same as players 1 and 2', () => {
-  const four = play((id, t) => reference(id % 2, t), { players: 4 });
+test('four players of a duet dance it in pairs, scored like one player of each dancer', () => {
+  // By where they stand: players 1 and 2 dance the left dancer, 3 and 4 the right.
+  const dancer = (id: number) => (id < 2 ? 0 : 1);
+  const four = play((id, t) => reference(dancer(id), t), { players: 4 });
   assert.equal(four.length, 4);
-  for (const id of [0, 1, 2, 3]) assert.equal(four[id].score, perfect[id % 2].score, `player ${id + 1}`);
-  // Player 3 copying part 2 instead of part 1 loses points.
-  const swapped = play((id, t) => reference(id === 2 ? 1 : id % 2, t), { players: 4 });
-  assert.ok(swapped[2].score < perfect[0].score * 0.9, `swapped part scored ${swapped[2].score}`);
+  for (const id of [0, 1, 2, 3]) assert.equal(four[id].score, perfect[dancer(id)].score, `player ${id + 1}`);
+  // Player 2 copying the right dancer instead of the left loses points.
+  const wrong = play((id, t) => reference(id === 1 ? 1 : dancer(id), t), { players: 4 });
+  assert.ok(wrong[1].score < perfect[0].score * 0.9, `the other dancer scored ${wrong[1].score}`);
+});
+
+test('players score against the dancers they picked', () => {
+  // Swapped: player 1 dances the right dancer and player 2 the left.
+  const swapped = play((id, t) => reference(1 - id, t), { cast: [1, 0] });
+  assert.equal(swapped[0].score, perfect[1].score);
+  assert.equal(swapped[1].score, perfect[0].score);
+  // One player can pick the second dancer, and two players can both pick one.
+  assert.equal(play((_, t) => reference(1, t), { cast: [1] })[0].score, perfect[1].score);
+  const both = play((_, t) => reference(1, t), { cast: [1, 1] });
+  assert.deepEqual(both.map((r) => r.score), [perfect[1].score, perfect[1].score]);
+  for (const cast of [[2], [0, -1], [], [0, 0, 0, 0, 0]]) assert.throws(() => createScorer(bundle, cast), /cast/);
 });
 
 test('judgements are emitted once per second of song with a running combo', () => {

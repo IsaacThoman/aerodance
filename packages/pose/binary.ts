@@ -1,6 +1,6 @@
 // .adpose, the chunked binary pose container (docs/pose-binary-format.md): one format for song
 // choreography, Studio takes, tracks and raw captures, and game replay recordings.
-import { DUET, MAX_PLAYERS, interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
+import { MAX_DANCERS, interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
 import type { FrameSize, LandmarkOrigin, PlayerCount, Pose, PoseQuality, PoseSnapshot, TimedPoses, TimeKey, TrackCalibration } from './choreography.ts';
 import type { PoseModelId } from './browser/models.ts';
 import type { ScoreExclusion } from './song.ts';
@@ -54,7 +54,7 @@ export type FileCaptureEvent = TimedCaptureEvent & { frameIndex: number };
 /** Everything in a file except its frames. */
 export interface PoseFileHeader {
   kind: PoseFileKind;
-  /** Up to two, except a game recording's one per player (up to four). */
+  /** One to four: a choreography's one per dancer, a game recording's one per player, a track's one. */
   playerSlots: PlayerCount;
   input: FrameSize;
   modelId: PoseModelId | null;
@@ -99,10 +99,9 @@ export type PoseHeaderInput = Omit<PoseFileHeader, 'positionStep' | 'extensionId
 
 function fail(message: string): never { throw Error(`Invalid pose file: ${message}`); }
 function check(condition: unknown, message: string): asserts condition { if (!condition) fail(message); }
-// Only a game recording holds three or four players; everything Studio makes is a duet.
-function checkSlots(kind: PoseFileKind, playerSlots: number) {
-  check(Number.isInteger(playerSlots) && playerSlots >= 1 && playerSlots <= MAX_PLAYERS, `player slots must be 1 to ${MAX_PLAYERS}`);
-  if (kind !== 'recording') check(playerSlots <= DUET, `a ${kind} holds at most two slots`);
+// Every kind holds one to four dancers (a track exactly one: checkKind).
+function checkSlots(playerSlots: number) {
+  check(Number.isInteger(playerSlots) && playerSlots >= 1 && playerSlots <= MAX_DANCERS, `player slots must be 1 to ${MAX_DANCERS}`);
 }
 const encoder = new TextEncoder();
 const pad8 = (n: number) => (8 - n % 8) % 8;
@@ -185,7 +184,7 @@ export function buildFrames(header: PoseHeaderInput, inputs: readonly FrameInput
   const positionStep = header.positionStep ?? DEFAULT_POSITION_STEP;
   const extensionIds = header.extensionIds ?? [];
   const extensionBases = header.extensionBases ?? extensionIds.map(id => inputs[0]?.extensions?.[id] ?? 0);
-  checkSlots(header.kind, header.playerSlots);
+  checkSlots(header.playerSlots);
   const full: PoseFileHeader = { ...header, positionStep, extensionIds, extensionBases };
   const P = header.playerSlots, n = inputs.length, threshold = thresholdOf(header);
   const frames: PoseFrames = {
@@ -274,7 +273,7 @@ function writeEvents(w: ByteWriter, events: readonly TimedCaptureEvent[]) {
   });
 }
 function writeHeader(w: ByteWriter, h: PoseFileHeader, hasFlags: boolean, calibrationFrame?: PoseFrames) {
-  checkSlots(h.kind, h.playerSlots);
+  checkSlots(h.playerSlots);
   w.bytes(MAGIC);
   w.chunk('HEAD', () => {
     w.u16(1); w.u8(KINDS.indexOf(h.kind) + 1); w.u8(CLOCKS.indexOf(KIND_CLOCK[h.kind]) + 1); w.u8(h.playerSlots); w.u8(1);
@@ -339,7 +338,7 @@ export class PoseFileWriter {
   frameCount: number;
   lastTimeMs: number;
   constructor(header: PoseHeaderInput) {
-    checkSlots(header.kind, header.playerSlots);
+    checkSlots(header.playerSlots);
     const extensionIds = header.extensionIds ?? [];
     if ((header.extensionBases ?? []).length !== extensionIds.length) throw Error('A streamed file needs a base for each extension field');
     this.header = { ...header, positionStep: header.positionStep ?? DEFAULT_POSITION_STEP, extensionIds, extensionBases: header.extensionBases ?? [] };
@@ -380,7 +379,7 @@ function readHead(payload: Uint8Array) {
   check(r.u16() === 1, 'unsupported format version');
   const kind = KINDS[r.u8() - 1], clock = CLOCKS[r.u8() - 1], playerSlots = r.u8(), landmarkSet = r.u8(), flags = r.u8(), model = r.u8();
   check(kind && clock === KIND_CLOCK[kind], 'unknown kind or clock');
-  checkSlots(kind, playerSlots);
+  checkSlots(playerSlots);
   check(landmarkSet === 1, 'unknown landmark set');
   check((flags & ~1) === 0 && model <= MODEL_IDS.length, 'unknown header flags or model');
   const input = { width: r.u16(), height: r.u16() }, positionStep = r.f32();
@@ -401,7 +400,7 @@ function readTrack(payload: Uint8Array, input: FrameSize): TrackHeader {
   const slot = r.u8(), playerId = r.u8(), label = r.str(), profile = r.u8();
   const [torsoLength, x, y, z, floorY, bodyTorsoLength] = Array.from({ length: 6 }, () => r.f32());
   const scaleMode = r.u8();
-  check(playerId <= 1 && profile <= 2 && scaleMode <= 1, 'invalid track header');
+  check(playerId < MAX_DANCERS && profile <= 2 && scaleMode <= 1, 'invalid track header');
   const exclusions = Array.from({ length: r.u16() }, () => ({ startMs: r.f64(), endMs: r.f64(), reason: r.str() }));
   r.end();
   let calibration: TrackCalibration | null = null;
@@ -562,13 +561,12 @@ export function decodePoseFile(bytes: Uint8Array, { allowTruncated = false }: De
 function checkKind(h: PoseFileHeader, tracks: TrackHeader[]) {
   if (h.kind === 'choreography' || h.kind === 'take' || h.kind === 'track') check(!h.extensionIds.length, `a ${h.kind} has no extension fields`);
   if (h.kind === 'choreography') {
-    check(h.playerSlots === 2 && tracks.length === 2 && tracks.every((t, i) => t.slot === i && t.playerId === i), 'both tracks are required');
+    check(tracks.length === h.playerSlots && tracks.every((t, i) => t.slot === i && t.playerId === i), 'every dancer needs a track, in slot order');
     const s = h.song!;
     check(Number.isFinite(s.durationMs) && s.durationMs > 0 && s.playableStartMs >= 0 && s.playableStartMs < s.playableEndMs && s.playableEndMs <= s.durationMs, 'invalid song bounds');
     check(s.maxInterpolationGapMs >= 1 && s.maxInterpolationGapMs <= 200 && s.confidenceThreshold <= 254, 'invalid sampling policy');
   }
   if (h.kind === 'track') check(h.playerSlots === 1 && tracks.length === 1 && tracks[0].slot === 0, 'a track holds one slot');
-  if (h.kind === 'capture') check(h.capture!.sourceKind === 'webcam' || h.playerSlots === 2, 'a video capture has two slots');
 }
 
 /** A slot's quality at a frame: stored flags, or derived from confidence as qualityFor does. */
