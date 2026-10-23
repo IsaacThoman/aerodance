@@ -5,18 +5,22 @@ import useCanvasUI from '../ui/useCanvasUI.ts';
 import { MIN_TOUCH_PX } from '../ui/hit.ts';
 import { canPickAirPlay, hostState, placeAirPlayPicker } from '../host.ts';
 import type { PickerRect } from '../host.ts';
-import { SLIDE_SECONDS, cornerBubble, smooth } from './FullscreenButton.tsx';
 
 /**
  * The main menu's AirPlay bubble in the iPhone/iPad app, drawn in-engine in the bottom-right
- * corner where a browser shows the fullscreen bubble (the app has no fullscreen, so that one
- * isn't drawn there). It slides off and back like that bubble. The bubble is only a picture:
+ * corner (priority 3.5). It slides off to the right outside the main menu and back in on
+ * return. The bubble is only a picture:
  * the app lays its own AirPlay picker, invisible, over it (host.ts placeAirPlayPicker), so a tap
  * opens the system's AirPlay menu. It's drawn only while the game is on the phone itself, and
  * nowhere outside the app.
  *
  * <AirPlayButton visible={() => isMainScreen} />
  */
+
+/** The bottom-right corner bubble, in design units. */
+const cornerBubble = (width: number) => ({ x: width - 84, y: 836, r: 42 });
+const SLIDE_SECONDS = 0.3;
+const smooth = (k: number) => k * k * (3 - 2 * k);
 
 export interface AirPlayButtonProps {
   /** Read every frame: whether the bubble should be on screen. */
