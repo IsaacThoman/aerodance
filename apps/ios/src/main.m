@@ -1,7 +1,7 @@
 // aerodance for iPhone and iPad: the production web build in WKWebView, shown on a TV through
 // AirPlay or an HDMI adapter while the phone becomes the remote. See ../README.md.
 //
-// Public API only (WebKit, AVKit, Network, CoreMotion), so this can go to the App Store.
+// Public API only (WebKit, AVKit, Network, CoreMotion, UniformTypeIdentifiers), so this can go to the App Store.
 // The built game is bundled under www/ and served from 127.0.0.1 so the page is a secure context
 // (song bundles are verified with crypto.subtle, and getUserMedia needs one). The port is fixed
 // so saved scores and settings, which belong to the page's origin, survive relaunches.
@@ -19,6 +19,7 @@
 #import <AVKit/AVKit.h>
 #import <CoreMotion/CoreMotion.h>
 #import <Network/Network.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #ifdef AERODANCE_DEV
 #import <notify.h>
 #endif
@@ -143,6 +144,178 @@ static void Respond(nw_connection_t c, int status, NSString *reason, NSString *h
   nw_connection_send(c, d, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, true, ^(nw_error_t error) { nw_connection_cancel(c); });
 }
 
+// A file, or the one byte range ("bytes=a-b") asked for, which WebKit's media loading asks for.
+static void SendFile(nw_connection_t c, NSString *file, NSArray<NSString *> *lines, BOOL isHead) {
+  void (^reply)(int, NSString *, NSString *, NSData *) = ^(int status, NSString *reason, NSString *headers, NSData *body) {
+    Respond(c, status, reason, headers, body.length, isHead ? nil : body);
+  };
+  NSData *body = [NSData dataWithContentsOfFile:file options:NSDataReadingMappedIfSafe error:nil] ?: [NSData data];
+  NSString *type = [NSString stringWithFormat:@"Content-Type: %@\r\nAccept-Ranges: bytes\r\n", MimeType(file.pathExtension)];
+  for (NSString *line in lines) {
+    if (![line.lowercaseString hasPrefix:@"range: bytes="]) continue;
+    NSArray<NSString *> *ab = [[line substringFromIndex:13] componentsSeparatedByString:@"-"];
+    NSUInteger len = body.length, a = ab[0].length ? (NSUInteger)ab[0].longLongValue : 0;
+    NSUInteger b = ab.count > 1 && ab[1].length ? MIN((NSUInteger)ab[1].longLongValue, len - 1) : len - 1;
+    if (!ab[0].length && ab.count > 1) { a = len - MIN((NSUInteger)ab[1].longLongValue, len); b = len - 1; }  // "bytes=-n"
+    if (len == 0 || a > b || a >= len) {
+      reply(416, @"Range Not Satisfiable", [NSString stringWithFormat:@"Content-Range: bytes */%lu\r\n", (unsigned long)len], [NSData data]); return;
+    }
+    NSString *range = [NSString stringWithFormat:@"%@Content-Range: bytes %lu-%lu/%lu\r\n", type, (unsigned long)a, (unsigned long)b, (unsigned long)len];
+    Respond(c, 206, @"Partial Content", range, b - a + 1, isHead ? nil : [body subdataWithRange:NSMakeRange(a, b - a + 1)]);
+    return;
+  }
+  reply(200, @"OK", type, body);
+}
+
+static NSString *Header(NSArray<NSString *> *lines, NSString *name) {
+  NSString *prefix = [name.lowercaseString stringByAppendingString:@":"];
+  for (NSString *line in lines) {
+    if ([line.lowercaseString hasPrefix:prefix]) return [[line substringFromIndex:prefix.length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+  }
+  return nil;
+}
+
+#pragma mark Imported songs
+
+// The page's imported songs (apps/web/src/songs/appSongs.ts) are Dance Studio export ZIPs in
+// Documents, which the Files app shows as On My iPhone › aerodance (UIFileSharingEnabled), so a
+// ZIP saved there from Files, AirDrop or a Mac is one too. The page checks them; the app only
+// keeps the files, under /app/ on the local server:
+//
+//   GET    /app/songs/          { files: [{ name, size, modified }] }, modified in Unix ms
+//   GET    /app/songs/<name>    the ZIP (HEAD and byte ranges too)
+//   PUT    /app/songs/<name>    saves the body as that ZIP, in place of one by that name, all at once
+//   DELETE /app/songs/<name>
+//   GET    /app/incoming/<name> a ZIP from the file picker (pickSong), and DELETE when it's read
+//
+// Other apps on the device can reach 127.0.0.1 too, so every /app/ request needs this launch's
+// key (X-Aerodance-Key), which only the game's page is given (inject.js __aerodanceSongs).
+static NSString *SongsKey(void) {
+  static NSString *key;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    uint8_t bytes[32];
+    arc4random_buf(bytes, sizeof bytes);
+    NSMutableString *hex = [NSMutableString string];
+    for (size_t i = 0; i < sizeof bytes; i++) [hex appendFormat:@"%02x", bytes[i]];
+    // --songs-key sets it, for tests that call the routes themselves.
+    key = LaunchArg(@"--songs-key", nil) ?: hex;
+  });
+  return key;
+}
+static NSString *SongsFolder(void) { return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject; }
+static NSString *IncomingFolder(void) { return [NSTemporaryDirectory() stringByAppendingPathComponent:@"incoming"]; }
+static NSString *UploadsFolder(void) { return [NSTemporaryDirectory() stringByAppendingPathComponent:@"uploads"]; }
+// A bundle can be 192 MiB (apps/web/src/songs/loadBundle.ts); its ZIP a little more.
+static const unsigned long long MaxSongBytes = 200ull * 1024 * 1024;
+
+// A ZIP's name in the folder: no paths, no hidden files.
+static BOOL SongName(NSString *name) {
+  return name.length > 0 && name.length <= 255 && ![name containsString:@"/"] && ![name hasPrefix:@"."] &&
+    [name rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location == NSNotFound &&
+    [name.pathExtension.lowercaseString isEqual:@"zip"];
+}
+
+static NSDictionary *SongFile(NSString *folder, NSString *name) {
+  NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:[folder stringByAppendingPathComponent:name] error:nil];
+  if (![attributes.fileType isEqual:NSFileTypeRegular]) return nil;
+  return @{ @"name": name, @"size": @(attributes.fileSize), @"modified": @(llround(attributes.fileModificationDate.timeIntervalSince1970 * 1000)) };
+}
+
+static NSData *SongList(void) {
+  NSMutableArray *files = [NSMutableArray array];
+  for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:SongsFolder() error:nil]) {
+    NSDictionary *file = SongName(name) ? SongFile(SongsFolder(), name) : nil;
+    if (file) [files addObject:file];
+  }
+  return [NSJSONSerialization dataWithJSONObject:@{ @"files": files } options:0 error:nil];
+}
+
+typedef NS_ENUM(NSInteger, BodyResult) { BodyDone, BodyCut, BodyNoSpace, BodyUnwritable };
+static BodyResult WriteFailed(NSError *error) {
+  NSError *posix = [error.domain isEqual:NSPOSIXErrorDomain] ? error : error.userInfo[NSUnderlyingErrorKey];
+  BOOL full = error.code == NSFileWriteOutOfSpaceError || ([posix.domain isEqual:NSPOSIXErrorDomain] && posix.code == ENOSPC);
+  return full ? BodyNoSpace : BodyUnwritable;
+}
+
+// Writes the next `left` bytes of a request's body to `out`.
+static void ReceiveBody(nw_connection_t c, NSFileHandle *out, unsigned long long left, void (^done)(BodyResult)) {
+  if (left == 0) { done(BodyDone); return; }
+  nw_connection_receive(c, 1, (uint32_t)MIN(left, 1024 * 1024), ^(dispatch_data_t content, nw_content_context_t ctx, bool complete, nw_error_t error) {
+    __block unsigned long long got = 0;
+    __block NSError *failed;
+    if (content) dispatch_data_apply(content, ^bool(dispatch_data_t region, size_t offset, const void *bytes, size_t size) {
+      size = (size_t)MIN((unsigned long long)size, left - got);
+      if (![out writeData:[NSData dataWithBytesNoCopy:(void *)bytes length:size freeWhenDone:NO] error:&failed]) return false;
+      got += size;
+      return got < left;
+    });
+    if (failed) done(WriteFailed(failed));
+    else if (got == left) done(BodyDone);
+    else if (error || complete) done(BodyCut);
+    else ReceiveBody(c, out, left - got, done);
+  });
+}
+
+// PUT /app/songs/<name>: the body goes to a file of its own, which then takes the name at once
+// (rename), so the folder never holds half a ZIP.
+static void SaveSong(nw_connection_t c, NSString *name, NSArray<NSString *> *lines, NSData *start) {
+  NSString *length = Header(lines, @"content-length");
+  unsigned long long size = length.longLongValue;
+  if (!length.length || length.longLongValue < 0) { Respond(c, 411, @"Length Required", @"", 0, nil); return; }
+  if (size > MaxSongBytes) { Respond(c, 413, @"Content Too Large", @"", 0, nil); return; }
+  NSFileManager *files = NSFileManager.defaultManager;
+  [files createDirectoryAtPath:UploadsFolder() withIntermediateDirectories:YES attributes:nil error:nil];
+  NSString *upload = [UploadsFolder() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+  [files createFileAtPath:upload contents:nil attributes:nil];
+  NSFileHandle *out = [NSFileHandle fileHandleForWritingAtPath:upload];
+  if (!out) { Respond(c, 500, @"Internal Server Error", @"", 0, nil); return; }
+  void (^done)(BodyResult) = ^(BodyResult result) {
+    [out closeFile];
+    NSString *path = [SongsFolder() stringByAppendingPathComponent:name];
+    if (result == BodyDone && rename(upload.fileSystemRepresentation, path.fileSystemRepresentation) == 0) {
+      NSData *body = [NSJSONSerialization dataWithJSONObject:SongFile(SongsFolder(), name) ?: @{} options:0 error:nil];
+      Respond(c, 200, @"OK", @"Content-Type: application/json\r\n", body.length, body);
+      return;
+    }
+    [files removeItemAtPath:upload error:nil];
+    if (result == BodyCut) nw_connection_cancel(c);
+    else if (result == BodyNoSpace) Respond(c, 507, @"Insufficient Storage", @"", 0, nil);
+    else Respond(c, 500, @"Internal Server Error", @"", 0, nil);
+  };
+  // What came with the headers first.
+  NSData *first = [start subdataWithRange:NSMakeRange(0, (NSUInteger)MIN((unsigned long long)start.length, size))];
+  NSError *error;
+  if (first.length && ![out writeData:first error:&error]) { done(WriteFailed(error)); return; }
+  ReceiveBody(c, out, size - first.length, done);
+}
+
+// /app/: the imported songs, above.
+static void ServeApp(nw_connection_t c, NSString *method, NSString *path, NSArray<NSString *> *lines, NSData *body) {
+  void (^status)(int, NSString *) = ^(int code, NSString *reason) { Respond(c, code, reason, @"", 0, nil); };
+  if (![Header(lines, @"x-aerodance-key") isEqual:SongsKey()]) { status(403, @"Forbidden"); return; }
+  BOOL get = [method isEqual:@"GET"] || [method isEqual:@"HEAD"], head = [method isEqual:@"HEAD"];
+  if ([path isEqual:@"/app/songs/"]) {
+    if (!get) { status(405, @"Method Not Allowed"); return; }
+    NSData *list = SongList();
+    Respond(c, 200, @"OK", @"Content-Type: application/json\r\n", list.length, head ? nil : list);
+    return;
+  }
+  NSString *prefix = [path hasPrefix:@"/app/songs/"] ? @"/app/songs/" : [path hasPrefix:@"/app/incoming/"] ? @"/app/incoming/" : nil;
+  NSString *folder = [prefix isEqual:@"/app/songs/"] ? SongsFolder() : IncomingFolder(), *name = [path substringFromIndex:prefix.length];
+  if (!prefix || !SongName(name)) { status(404, @"Not Found"); return; }
+  NSString *file = [folder stringByAppendingPathComponent:name];
+  if ([method isEqual:@"PUT"] && [prefix isEqual:@"/app/songs/"]) { SaveSong(c, name, lines, body); return; }
+  if ([method isEqual:@"DELETE"]) {
+    BOOL removed = SongFile(folder, name) && [NSFileManager.defaultManager removeItemAtPath:file error:nil];
+    removed ? status(204, @"No Content") : status(404, @"Not Found");
+    return;
+  }
+  if (!get) { status(405, @"Method Not Allowed"); return; }
+  if (!SongFile(folder, name)) { status(404, @"Not Found"); return; }
+  SendFile(c, file, lines, head);
+}
+
 static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
   nw_connection_receive(c, 1, 64 * 1024, ^(dispatch_data_t content, nw_content_context_t ctx, bool complete, nw_error_t error) {
     if (content) dispatch_data_apply(content, ^bool(dispatch_data_t region, size_t offset, const void *bytes, size_t size) {
@@ -160,10 +333,16 @@ static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
     void (^reply)(int, NSString *, NSString *, NSData *) = ^(int status, NSString *reason, NSString *headers, NSData *body) {
       Respond(c, status, reason, headers, body.length, isHead ? nil : body);
     };
-    if (parts.count < 2 || !([parts[0] isEqual:@"GET"] || isHead)) {
+    if (parts.count < 2) { reply(405, @"Method Not Allowed", @"Content-Type: text/plain\r\n", [NSData data]); return; }
+    NSString *path = [[parts[1] componentsSeparatedByString:@"?"].firstObject stringByRemovingPercentEncoding] ?: @"/";
+    if ([path hasPrefix:@"/app/"]) {
+      NSUInteger after = end.location + 4;
+      ServeApp(c, parts[0], path, lines, [buffer subdataWithRange:NSMakeRange(after, buffer.length - after)]);
+      return;
+    }
+    if (!([parts[0] isEqual:@"GET"] || isHead)) {
       reply(405, @"Method Not Allowed", @"Content-Type: text/plain\r\n", [NSData data]); return;
     }
-    NSString *path = [[parts[1] componentsSeparatedByString:@"?"].firstObject stringByRemovingPercentEncoding] ?: @"/";
     if ([path hasSuffix:@"/"]) path = [path stringByAppendingString:@"index.html"];
     NSString *file = [[root stringByAppendingPathComponent:path] stringByStandardizingPath];
     // Inside www/ only: with the "/", a sibling such as www2/ doesn't count.
@@ -172,23 +351,7 @@ static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
     if (!inside || ![NSFileManager.defaultManager fileExistsAtPath:file isDirectory:&dir] || dir) {
       reply(404, @"Not Found", @"Content-Type: text/plain\r\n", [@"not found" dataUsingEncoding:NSUTF8StringEncoding]); return;
     }
-    NSData *body = [NSData dataWithContentsOfFile:file options:NSDataReadingMappedIfSafe error:nil] ?: [NSData data];
-    NSString *type = [NSString stringWithFormat:@"Content-Type: %@\r\nAccept-Ranges: bytes\r\n", MimeType(file.pathExtension)];
-    // One byte range ("bytes=a-b"), which WebKit's media loading asks for.
-    for (NSString *line in lines) {
-      if (![line.lowercaseString hasPrefix:@"range: bytes="]) continue;
-      NSArray<NSString *> *ab = [[line substringFromIndex:13] componentsSeparatedByString:@"-"];
-      NSUInteger len = body.length, a = ab[0].length ? (NSUInteger)ab[0].longLongValue : 0;
-      NSUInteger b = ab.count > 1 && ab[1].length ? MIN((NSUInteger)ab[1].longLongValue, len - 1) : len - 1;
-      if (!ab[0].length && ab.count > 1) { a = len - MIN((NSUInteger)ab[1].longLongValue, len); b = len - 1; }  // "bytes=-n"
-      if (len == 0 || a > b || a >= len) {
-        reply(416, @"Range Not Satisfiable", [NSString stringWithFormat:@"Content-Range: bytes */%lu\r\n", (unsigned long)len], [NSData data]); return;
-      }
-      NSString *range = [NSString stringWithFormat:@"%@Content-Range: bytes %lu-%lu/%lu\r\n", type, (unsigned long)a, (unsigned long)b, (unsigned long)len];
-      Respond(c, 206, @"Partial Content", range, b - a + 1, isHead ? nil : [body subdataWithRange:NSMakeRange(a, b - a + 1)]);
-      return;
-    }
-    reply(200, @"OK", type, body);
+    SendFile(c, file, lines, isHead);
   });
 }
 
@@ -218,7 +381,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 #pragma mark - The game's web view, shared by both screens
 
 // Owns the one web view and puts it on the TV when there is one, else on the phone.
-@interface GameHost : NSObject <WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate>
+@interface GameHost : NSObject <WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, UIDocumentPickerDelegate>
 @property (class, readonly) GameHost *shared;
 @property (nonatomic, strong) WKWebView *web;
 @property (nonatomic, strong) nw_listener_t server;
@@ -247,6 +410,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic, strong) WKUserContentController *scripts;
 @property (nonatomic, copy) NSString *injectSource;
 @property (nonatomic, strong) id drive;  // --drive's steps
+@property (nonatomic, weak) UIDocumentPickerViewController *songPicker;  // open for the page's Import song
 @end
 
 @implementation GameHost
@@ -291,6 +455,11 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   NSDictionary *app = appJSON ? [NSJSONSerialization JSONObjectWithData:appJSON options:0 error:nil] : nil;
   NSString *site = [app isKindOfClass:NSDictionary.class] && [app[@"site"] isKindOfClass:NSString.class] ? app[@"site"] : @"";
   script = [script stringByReplacingOccurrencesOfString:@"__SITE__" withString:site];
+  // The key for the imported songs' routes, which only this page gets (SongsKey).
+  script = [script stringByReplacingOccurrencesOfString:@"__SONGS_KEY__" withString:SongsKey()];
+  // Files the picker and unfinished saves left behind last time.
+  [NSFileManager.defaultManager removeItemAtPath:IncomingFolder() error:nil];
+  [NSFileManager.defaultManager removeItemAtPath:UploadsFolder() error:nil];
   self.injectSource = script;
   // --drive '<json>': steps for inject.js to play, as the Apple TV app's launch config takes them.
   NSString *drive = LaunchArg(@"--drive", nil);
@@ -662,10 +831,74 @@ static CGRect PageRect(id value) {
   // The game's AirPlay bubble moved, came or went (menu/AirPlayButton.tsx).
   if (body[@"airplay"]) self.airplayRect = PageRect(body[@"airplay"]);
   if ([body[@"storage"] isKindOfClass:NSDictionary.class] && SaveStorage(body[@"storage"])) [self installScripts];
+  if ([body[@"pickSong"] isEqual:@YES]) [self pickSong];
   if ([body[@"restored"] isKindOfClass:NSArray.class] && [body[@"restored"] count]) {
     NSLog(@"aerodance: restored %@ from the saved copy", [body[@"restored"] componentsJoinedByString:@", "]);
   }
   if (body[@"page"] || body[@"airplay"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+}
+
+#pragma mark Importing songs and the page's dialogs
+
+// What the phone's screen shows on top, for the file picker and the page's dialogs: they go on
+// the phone even while the game is on the TV (whose screen can't be touched), over the remote.
+- (UIViewController *)phoneController {
+  UIViewController *controller = self.phoneView.window.rootViewController;
+  while (controller.presentedViewController && !controller.presentedViewController.isBeingDismissed) controller = controller.presentedViewController;
+  return controller;
+}
+
+// Import song (apps/web/src/songs/appSongs.ts pickAppSong): a ZIP from the Files app, copied
+// for the page to read under /app/incoming/ and answered with { url, name }, or null.
+- (void)pickSong {
+  if (self.songPicker) return;
+  UIViewController *controller = self.phoneController;
+  if (!controller) { [self songPicked:nil name:nil]; return; }
+  UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeZIP] asCopy:YES];
+  picker.delegate = self;
+  picker.allowsMultipleSelection = NO;
+  self.songPicker = picker;
+  [controller presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+  NSURL *url = urls.firstObject;
+  NSString *name = [NSUUID.UUID.UUIDString stringByAppendingPathExtension:@"zip"];
+  NSString *incoming = [IncomingFolder() stringByAppendingPathComponent:name];
+  NSError *error;
+  [NSFileManager.defaultManager createDirectoryAtPath:IncomingFolder() withIntermediateDirectories:YES attributes:nil error:nil];
+  if (!url || ![NSFileManager.defaultManager moveItemAtPath:url.path toPath:incoming error:&error]) {
+    NSLog(@"aerodance: couldn't take the picked file %@: %@", url, error);
+    [self songPicked:nil name:nil];
+    return;
+  }
+  [self songPicked:[@"/app/incoming/" stringByAppendingString:name] name:url.lastPathComponent];
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller { [self songPicked:nil name:nil]; }
+
+- (void)songPicked:(NSString *)url name:(NSString *)name {
+  id file = url ? @{ @"url": url, @"name": name ?: @"song.zip" } : NSNull.null;
+  [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceSongPicked && window.__aerodanceSongPicked(%@)", JSON(file)] completionHandler:nil];
+}
+
+// The page's alert() and confirm() (Settings → Songs asks before replacing or removing a song),
+// which WebKit only shows through the app.
+- (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler {
+  UIViewController *controller = self.phoneController;
+  if (!controller) { completionHandler(); return; }
+  UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
+  [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { completionHandler(); }]];
+  [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)webView:(WKWebView *)webView runJavaScriptConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL))completionHandler {
+  UIViewController *controller = self.phoneController;
+  if (!controller) { completionHandler(NO); return; }
+  UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
+  [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) { completionHandler(NO); }]];
+  [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { completionHandler(YES); }]];
+  [controller presentViewController:alert animated:YES completion:nil];
 }
 
 // The game's own camera tracking (MediaPipe in the page) may use the phone's camera; only the

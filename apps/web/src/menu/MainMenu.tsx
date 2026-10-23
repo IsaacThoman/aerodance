@@ -25,7 +25,7 @@ import type { SongsPanel, SongsWidget } from './songsPanel.ts';
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
  * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
  * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies;
- * where the browser can save songs, a Songs panel beside them: the songs imported into it and
+ * where the browser or app can save songs, a Songs panel beside them: the songs imported into it and
  * Import song, menu/songsPanel.ts).
  * The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in the
  * iPhone/iPad app). The title rises while the players screen is up and fades out while settings

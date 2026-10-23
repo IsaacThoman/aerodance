@@ -4,6 +4,9 @@ import { createHash } from 'node:crypto';
 import { makeZip, readZip } from '../../../packages/pose/zip.ts';
 import { customScoreId, importSongZip, listCustomSongs, listSavedSongs, loadCustomSong, readSongZip, removeCustomSong } from '../src/songs/customSongs.ts';
 import type { CustomSongRecord, CustomSongStore } from '../src/songs/customSongs.ts';
+import { appSongsStore, pickAppSong } from '../src/songs/appSongs.ts';
+import type { AppSongsOptions } from '../src/songs/appSongs.ts';
+import type { PickedSong } from '../src/host.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
 
@@ -190,4 +193,106 @@ test('lists saved songs by title; Song Select leaves out damaged ones, Settings 
   fixture.choreography.songId = 'apple';
   await importSongZip(exportZip(bundleFiles(fixture), { folder: 'apple' }), { store });
   await assert.rejects(loadCustomSong(apple, { store }), /revision mismatch|hash mismatch/);
+});
+
+/** The iPhone/iPad app's song folder as main.m serves it under /app/songs/, and the requests it was sent. */
+function appFolder(key = 'launch-key') {
+  const files = new Map<string, { bytes: Uint8Array; modified: number }>();
+  const requests: string[] = [];
+  let clock = Date.parse('2026-10-23T00:00:00Z');
+  const fetcher = async (url: string, init: RequestInit = {}) => {
+    const method = init.method ?? 'GET';
+    requests.push(`${method} ${url}`);
+    if (new Headers(init.headers).get('x-aerodance-key') !== key) return new Response(null, { status: 403 });
+    const listed = (name: string) => ({ name, size: files.get(name)!.bytes.length, modified: files.get(name)!.modified });
+    if (url === '/app/songs/') return Response.json({ files: [...files.keys()].map(listed) });
+    const name = decodeURIComponent(url.slice('/app/songs/'.length));
+    if (method === 'PUT') {
+      files.set(name, { bytes: new Uint8Array(await new Response(init.body).arrayBuffer()), modified: clock++ });
+      return Response.json(listed(name));
+    }
+    if (method === 'DELETE') return new Response(null, { status: files.delete(name) ? 204 : 404 });
+    const file = files.get(name);
+    return file ? new Response(file.bytes as Uint8Array<ArrayBuffer>) : new Response(null, { status: 404 });
+  };
+  // A ZIP saved to the folder from the Files app.
+  const drop = async (name: string, zip: Blob) => { files.set(name, { bytes: new Uint8Array(await zip.arrayBuffer()), modified: clock++ }); };
+  const kept = new Map<string, string>();
+  const cache = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => { kept.set(k, v); } };
+  const store = (options: Partial<AppSongsOptions> = {}) => appSongsStore({ key, fetcher, cache, warn: () => {}, listKeepMs: 0, ...options });
+  // How many times each ZIP was read whole.
+  const reads = () => requests.filter((r) => r.startsWith('GET /app/songs/') && r !== 'GET /app/songs/').length;
+  return { files, requests, fetcher, drop, store, reads };
+}
+
+test('in the app, an import is saved to its folder as Dance Studio exports it, and loads from there', async () => {
+  const folder = appFolder(), store = folder.store();
+  const result = await importSongZip(exportZip(bundleFiles(), { folder: 'fixture 2', extra: { '__MACOSX/fixture 2/._song.json': new Uint8Array([2]) } }), { store });
+  assert.equal(result.status, 'imported');
+  assert.deepEqual([...folder.files.keys()], ['fixture-r1.aerodance-song.zip']);
+  const zip = await readZip(folder.files.get('fixture-r1.aerodance-song.zip')!.bytes);
+  assert.deepEqual([...zip.keys()].sort(), ['fixture/audio.wav', 'fixture/checksums.json', 'fixture/choreography.adpose', 'fixture/song.json']);
+  const [entry] = await listCustomSongs(store);
+  assert.deepEqual(entry, result.entry);
+  const bundle = await loadCustomSong(entry, { store });
+  assert.equal(bundle.scoreId, 'custom:fixture');
+  assert.equal(bundle.audio.size, bundleFixture().audio.length);
+  // Saving told the store what the ZIP holds, so listing hasn't read it whole; loading did, once.
+  assert.equal(folder.reads(), 1);
+  // Every request carries the app's key.
+  await assert.rejects(listCustomSongs(folder.store({ key: 'another app' })), /aren't available in this app \(403\)/);
+});
+
+test('in the app, ZIPs saved to its folder from Files list, each read once until it changes', async () => {
+  const folder = appFolder();
+  await folder.drop('My song.zip', exportZip(bundleFiles(), { folder: 'fixture 2' }));
+  await folder.drop('notes.zip', new Blob([makeZip(new Map([['readme.txt', new Uint8Array([1])]]))]));
+  await folder.drop('broken.zip', new Blob(['not a zip']));
+  const store = folder.store();
+  const listed = async (s = store) => (await listSavedSongs(s, () => {})).map(({ entry, damaged }) => [entry.id, entry.title, damaged]);
+  // A ZIP that isn't a song lists by its file name, damaged, to remove.
+  const all = [['zip:broken.zip', 'broken.zip', true], ['fixture', 'Fixture routine', false], ['zip:notes.zip', 'notes.zip', true]];
+  assert.deepEqual(await listed(), all);
+  assert.equal(folder.reads(), 3);
+  assert.deepEqual(await listed(), all);
+  // What each holds is kept for the next launch too.
+  assert.deepEqual(await listed(folder.store()), all);
+  assert.equal(folder.reads(), 3);
+  // A ZIP changed in Files is read again.
+  await folder.drop('My song.zip', exportZip(revised(2), { folder: 'fixture' }));
+  assert.equal((await listCustomSongs(store))[0].bundleRevision, 2);
+  assert.equal(folder.reads(), 4);
+  // Removing a damaged one deletes its file.
+  const [broken] = await listSavedSongs(store, () => {});
+  assert.equal(await removeCustomSong(broken.entry, store), true);
+  assert.deepEqual([...folder.files.keys()].sort(), ['My song.zip', 'notes.zip']);
+});
+
+test('in the app, two ZIPs of one song list as the later revision, and removing or importing it takes both', async () => {
+  const folder = appFolder(), store = folder.store();
+  await folder.drop('first.zip', exportZip(revised(1)));
+  await folder.drop('second.zip', exportZip(revised(2)));
+  assert.deepEqual((await listCustomSongs(store)).map((song) => song.bundleRevision), [2]);
+  assert.equal((await importSongZip(exportZip(revised(3)), { store })).status, 'replaced');
+  assert.deepEqual([...folder.files.keys()], ['fixture-r3.aerodance-song.zip']);
+  await folder.drop('old.zip', exportZip(revised(1)));
+  const [song] = await listCustomSongs(store);
+  assert.equal(song.bundleRevision, 3);
+  assert.equal(await removeCustomSong(song, store), true);
+  assert.deepEqual([...folder.files.keys()], []);
+});
+
+test("in the app, the picker's ZIP is read with the key, and the app's copy deleted", async () => {
+  const requests: string[] = [];
+  const zip = exportZip();
+  const fetcher = async (url: string, init: RequestInit = {}) => {
+    requests.push(`${init.method ?? 'GET'} ${url} ${new Headers(init.headers).get('x-aerodance-key')}`);
+    return new Response(init.method === 'DELETE' ? null : zip);
+  };
+  const songs = (picked: PickedSong | null) => ({ key: 'k', pick: async () => picked });
+  assert.equal(await pickAppSong(songs(null), fetcher), null);
+  const file = await pickAppSong(songs({ url: '/app/incoming/1.zip', name: 'fixture-r1.aerodance-song.zip' }), fetcher);
+  assert.equal(file?.name, 'fixture-r1.aerodance-song.zip');
+  assert.equal(file?.size, zip.size);
+  assert.deepEqual(requests, ['GET /app/incoming/1.zip k', 'DELETE /app/incoming/1.zip k']);
 });

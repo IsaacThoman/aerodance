@@ -12,7 +12,9 @@ import XCTest
 //                         (--report), GET /state returns the latest (POST /reset forgets it) with
 //                         _display, _fps, _held and _screens from the rest of the report,
 //                         POST /shot?name= keeps a screenshot, POST /tv?on=1|0 turns the simulator's
-//                         TV-out screen on or off, and POST /shot-tv?name= keeps a screenshot of it
+//                         TV-out screen on or off, POST /shot-tv?name= keeps a screenshot of it,
+//                         POST /drop-song?name= saves a song's ZIP to the app's folder (as the Files
+//                         app would), POST /clear-songs empties it and GET /songs lists it
 //   AERODANCE_LAYOUT      JSON from the game's layout.ts: the design size and the rects tapped
 //
 // The game draws its UI on a canvas, so there are no elements to find: taps go to design units
@@ -21,7 +23,7 @@ final class AerodanceUITests: XCTestCase {
   struct Layout: Decodable {
     struct Rect: Decodable { let x, y, w, h: Double }
     let design: [Double]
-    let start, letsDance, firstSong, dance: Rect
+    let start, letsDance, firstSong, secondSong, dance, settings, back, songImport, firstSongTrash: Rect
   }
 
   let env = ProcessInfo.processInfo.environment
@@ -234,7 +236,99 @@ final class AerodanceUITests: XCTestCase {
     shot("6-remote-results")
   }
 
+  // Imported songs. A ZIP saved to the app's folder (as from the Files app) lists in Settings →
+  // Songs. Import song picks one through the system's picker, on the phone: here the same song, so
+  // the page asks (the app's confirm dialog) before replacing it, and it's saved as Dance Studio
+  // names it, in place of the other. It plays from Song Select, after the published songs, and
+  // it's still there after a relaunch that clears the page's website data. Removing it asks, then
+  // deletes its ZIP.
+  func test7ImportsASong() throws {
+    let layouts = try JSONDecoder().decode([String: Layout].self, from: Data((env["AERODANCE_LAYOUT"] ?? "").utf8))
+    XCUIDevice.shared.orientation = .landscapeLeft
+    send("clear-songs")
+    send("drop-song?name=Demo%20from%20Files.zip")
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    let window = app.windows.firstMatch
+    XCTAssertTrue(waitUntil { window.frame.width > window.frame.height }, "the app didn't turn to landscape")
+    sleep(1)
+    let layout = try XCTUnwrap(layouts[state()["displayMode"] ?? "widescreen"])
+    let frame = gameFrame(design: layout.design)
+    let tap = { (rect: Layout.Rect) in self.tap(rect, in: frame, design: layout.design) }
+    tap(layout.settings)
+    waitFor(["menuScreen": "settings", "savedSongs": "1", "damagedSongs": "0"], timeout: 30)
+    shot("7-settings-song-from-files")
+
+    tap(layout.songImport)
+    try pickFile("Demo from Files")
+    let replace = app.alerts.firstMatch
+    XCTAssertTrue(replace.waitForExistence(timeout: 20), "no dialog asking to replace the song")
+    XCTAssertTrue(replace.label.contains("already imported") || replace.staticTexts.allElementsBoundByIndex.contains { $0.label.contains("already imported") },
+                  "the dialog doesn't ask about replacing it: \(replace.debugDescription)")
+    shot("7-replace-dialog")
+    replace.buttons["OK"].tap()
+    waitFor(["songImport": "done", "savedSongs": "1"], timeout: 30)
+    shot("7-imported")
+    let saved = songs()
+    XCTAssertTrue(saved.count == 1 && saved[0].hasPrefix("demo-track-1-r") && saved[0].hasSuffix(".aerodance-song.zip"), "the app's folder holds \(saved)")
+
+    tap(layout.back)
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    tap(layout.start)
+    waitFor(["menuScreen": "players", "menuReady": "true"])
+    tap(layout.letsDance)
+    waitFor(["songScreen": "list", "songReady": "true", "catalog": "ready", "customSongCount": "1"])
+    shot("7-song-list")
+    tap(layout.secondSong)
+    waitFor(["songScreen": "preview", "songReady": "true", "songLoadError": ""])
+    shot("7-imported-song-preview")
+
+    app.terminate()
+    app.launchArguments += ["--clear-website-data"]
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    sleep(1)
+    tap(layout.settings)
+    waitFor(["menuScreen": "settings", "savedSongs": "1", "damagedSongs": "0"], timeout: 30)
+    tap(layout.firstSongTrash)
+    let remove = app.alerts.firstMatch
+    XCTAssertTrue(remove.waitForExistence(timeout: 10), "no dialog asking to remove the song")
+    shot("7-remove-dialog")
+    remove.buttons["OK"].tap()
+    waitFor(["savedSongs": "0"], timeout: 30)
+    shot("7-removed")
+    XCTAssertEqual(songs(), [], "removing the song left its ZIP")
+  }
+
   // MARK: - Helpers
+
+  /// Picks a file in the app's folder (On My iPhone › aerodance) in the system's document picker.
+  func pickFile(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws {
+    // The first element on screen with this in its label (the app's own window is labelled aerodance too).
+    let find = { (text: String) -> XCUIElement? in
+      self.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", text)).allElementsBoundByIndex.first { $0.isHittable }
+    }
+    for place in ["", "Browse", "On My iPhone", "On My iPad", "aerodance"] {
+      if !place.isEmpty, let step = find(place) { step.tap(); sleep(1) }
+      if waitUntil(timeout: 5, { find(name) != nil }), let item = find(name) { item.tap(); return }
+    }
+    shot("7-picker-lost")
+    XCTFail("couldn't find \(name) in the picker: \(app.debugDescription)", file: file, line: line)
+  }
+
+  /// The ZIPs in the app's folder, through ui.ios.ts.
+  func songs() -> [String] {
+    guard let url = URL(string: "\(runner)/songs") else { return [] }
+    let done = DispatchSemaphore(value: 0)
+    var result: [String] = []
+    URLSession.shared.dataTask(with: url) { data, _, _ in
+      if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String] { result = json }
+      done.signal()
+    }.resume()
+    _ = done.wait(timeout: .now() + 5)
+    return result
+  }
+
 
   /// A touch on a remote button: the page's label for it lets touches through to the canvas under it.
   func press(_ button: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {

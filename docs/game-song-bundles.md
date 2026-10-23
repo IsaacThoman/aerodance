@@ -30,7 +30,7 @@ projects. The repo ships one song, **Demo Track 1** (`apps/web/public/songs/demo
 a 30-second duet we recorded ourselves on the `club` stage, set to generated
 brown noise so the bundle carries no licensed music.
 
-## Import a song in the browser
+## Import a song in the browser or the iPhone/iPad app
 
 Players can add a song without rebuilding the game: **Settings → Songs → Import song**
 takes the ZIP Dance Studio's **Export song** downloads
@@ -52,10 +52,18 @@ can't be opened there says to remove it in Settings.
   is reported when the song is opened, as for a published song.
 - Importing is checked on the page itself: a ZIP takes several times its size in memory
   while it's checked.
-- The Apple TV app (no IndexedDB or file picker) and the iPhone/iPad app (WebKit may clear
-  its storage) don't offer importing. Browsers that clear site data clear imported songs.
+- Browsers that clear site data clear imported songs.
+- The iPhone/iPad app keeps imported songs itself, since WebKit may clear the page's storage:
+  as ZIPs in its folder in the Files app (On My iPhone › aerodance), each saved as Dance
+  Studio exports it. Import song opens the system's file picker on the phone, even while the
+  game is on a TV. A ZIP saved to that folder from Files, AirDrop or a Mac lists too, the next
+  time Settings or Song Select opens; one that isn't a playable song shows in Settings as
+  **Damaged** under its file name. Of two ZIPs of one song, the later revision lists; removing
+  or importing it replaces both. Deleting a ZIP in Files removes the song.
+- The Apple TV app (no storage or file picker for the page) doesn't offer importing.
 
 Code: `apps/web/src/songs/customSongs.ts` (import, storage, loading),
+`apps/web/src/songs/appSongs.ts` and `apps/ios/src/main.m` (the iPhone/iPad app's folder),
 `apps/web/src/menu/songsPanel.ts` (the Settings panel),
 `packages/pose/song.ts` `catalogEntry` (the folder checks shared with
 `scripts/songCatalog.ts`) and `packages/pose/zip.ts` (shared with Dance Studio).

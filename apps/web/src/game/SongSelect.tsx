@@ -28,7 +28,7 @@ import { displayDesign } from '../display.ts';
  * Song Select, drawn in-engine after the player count is picked (menu/MainMenu.tsx).
  *
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
- *            then the songs imported into this browser (songs/customSongs.ts; Settings →
+ *            then the songs imported into this browser or app (songs/customSongs.ts; Settings →
  *            Songs imports and removes them), four to a page
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
@@ -60,7 +60,7 @@ export interface SongSelectProps {
 type SongScreen = 'list' | 'preview';
 type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
 type PreviewState = 'loading' | 'error' | SongPlayer['state'];
-/** A listed song: published, or imported into this browser (custom). key tells them apart in the list. */
+/** A listed song: published, or imported into this browser or app (custom). key tells them apart in the list. */
 type ListedSong = CatalogSong & { custom: boolean; key: string };
 type SongWidget = Widget & { song?: ListedSong };
 interface SongSelectState {
