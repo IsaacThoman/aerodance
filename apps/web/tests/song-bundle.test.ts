@@ -1,9 +1,9 @@
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
-import { validateCatalog, validateBundlePath, validateSong, validateSongChoreography, sampleSong } from '../../../packages/pose/song.ts';
+import { sha256, validateCatalog, validateBundlePath, validateSong, validateSongChoreography, sampleSong } from '../../../packages/pose/song.ts';
 import { isArray, isObject } from '../../../packages/pose/choreography.ts';
-import { loadSongBundle, sha256 } from '../src/songs/loadBundle.ts';
+import { loadSongBundle } from '../src/songs/loadBundle.ts';
 import type { Fetcher } from '../src/songs/loadBundle.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
