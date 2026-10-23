@@ -1,4 +1,4 @@
-import { FONT, ICONS, drawCaps, drawGlassPanel, ellipsize, paragraph, pill, wrapText } from '../ui/draw.ts';
+import { FONT, ICONS, drawCaps, drawGlassPanel, drawMarquee, ellipsize, paragraph, pill, wrapText } from '../ui/draw.ts';
 import type { Circle } from '../ui/draw.ts';
 import type { CanvasUI, Widget } from '../ui/useCanvasUI.ts';
 import { customSongsSupported, importSongZip, listSavedSongs, removeCustomSong, savedCustomSong } from '../songs/customSongs.ts';
@@ -8,8 +8,8 @@ import type { menuLayout } from './layout.ts';
 
 /**
  * Settings → Songs: the songs imported into this browser (songs/customSongs.ts), a dense list
- * SONGS_PER_PAGE to a page, each with a remove button, and Import song at the bottom, which
- * takes a Dance Studio export ZIP. Song Select lists the imported songs that check out; the
+ * SONGS_PER_PAGE to a page, each with a remove button (a title too long for its row scrolls:
+ * drawMarquee), and Import song at the bottom, which takes a Dance Studio export ZIP. Song Select lists the imported songs that check out; the
  * damaged ones are only here, to remove. Only where the browser can save songs
  * (customSongsSupported): elsewhere Settings has no Songs panel.
  *
@@ -58,6 +58,16 @@ export function createSongsPanel({ layout, ui, showing }: {
     importing: false,
     notice: null as { text: string; error: boolean } | null,
     picker: null as HTMLInputElement | null,
+    /** When this page of titles showed, for their marquees; when one next moves (0: it is). */
+    shownAt: 0,
+    nextMotion: Infinity,
+    motionTimer: 0,
+  };
+  // The marquees start over whenever the titles showing change.
+  const restartMarquees = () => { st.shownAt = performance.now(); };
+  const stopMarquees = () => {
+    clearTimeout(st.motionTimer);
+    st.nextMotion = Infinity;
   };
   const pages = () => Math.max(1, Math.ceil(st.songs.length / SONGS_PER_PAGE));
   const pageSongs = () => st.songs.slice(st.page * SONGS_PER_PAGE, (st.page + 1) * SONGS_PER_PAGE);
@@ -82,6 +92,7 @@ export function createSongsPanel({ layout, ui, showing }: {
         st.songs = songs;
         const i = show ? songs.findIndex((saved) => saved.entry.id === show) : -1;
         st.page = i >= 0 ? Math.floor(i / SONGS_PER_PAGE) : Math.min(st.page, pages() - 1);
+        restartMarquees();
         if (focus && ui().keyboard && showing()) {
           const shown = pageSongs();
           const at = st.page === focus.page ? Math.min(focus.at, shown.length - 1) : shown.length - 1;
@@ -168,6 +179,7 @@ export function createSongsPanel({ layout, ui, showing }: {
 
   const turn = (dir: -1 | 1) => {
     st.page = Math.min(pages() - 1, Math.max(0, st.page + dir));
+    restartMarquees();
     // The keyboard cursor stays on the arrow, or once it's gone (the first or last page), goes
     // to the song beside it: the last one going up, the first going down.
     const s = ui();
@@ -206,6 +218,7 @@ export function createSongsPanel({ layout, ui, showing }: {
       st.loads++;
       st.listing = false;
       if (st.status === 'loading') st.status = 'idle';
+      stopMarquees();
       // An import still going says how it went next time.
       if (!st.importing) st.notice = null;
     },
@@ -248,6 +261,8 @@ export function createSongsPanel({ layout, ui, showing }: {
         g.textAlign = 'left';
       }
 
+      // Only titles drawn now can move.
+      stopMarquees();
       const top = SONG_ROW(0);
       if (st.status === 'loading' || st.status === 'idle') {
         g.font = `600 24px ${FONT}`;
@@ -258,6 +273,8 @@ export function createSongsPanel({ layout, ui, showing }: {
       } else if (!st.songs.length) {
         paragraph(g, 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here to dance it in this browser.', textX, top.y + top.h / 2, textW, { size: 22 });
       } else {
+        const elapsed = performance.now() - st.shownAt;
+        let next = Infinity;
         pageSongs().forEach((saved, i) => {
           const row = SONG_ROW(i);
           const cy = row.y + row.h / 2;
@@ -274,10 +291,9 @@ export function createSongsPanel({ layout, ui, showing }: {
           g.font = `600 19px ${FONT}`;
           const damaged = saved.damaged ? g.measureText(' · Damaged').width : 0;
           g.font = `600 24px ${FONT}`;
-          const title = ellipsize(g, saved.entry.title, room - damaged);
-          g.fillStyle = '#ffffff';
-          g.fillText(title, textX, cy + 1);
-          const x = textX + g.measureText(title).width;
+          const titleW = Math.min(room - damaged, g.measureText(saved.entry.title).width);
+          next = Math.min(next, drawMarquee(g, saved.entry.title, textX, cy + 1, titleW, '#ffffff', elapsed));
+          const x = textX + titleW;
           const after = room - (x - textX) - 4;
           g.font = `600 19px ${FONT}`;
           if (saved.damaged) {
@@ -289,6 +305,10 @@ export function createSongsPanel({ layout, ui, showing }: {
           }
           drawButton(g, layout().SONG_TRASH(i), 'trash', hv, press(id));
         });
+        // While a title scrolls MainMenu draws every frame (busy); while they hold, once more
+        // when the next one moves.
+        st.nextMotion = next;
+        if (next > 0 && next < Infinity) st.motionTimer = window.setTimeout(() => ui().invalidate(), next);
       }
 
       // What the last import or removal did, two lines at most.
@@ -324,7 +344,7 @@ export function createSongsPanel({ layout, ui, showing }: {
       }
     },
     key: () => [st.status, st.songs.map((saved) => `${saved.entry.id}:${saved.entry.bundleRevision}:${saved.damaged}`).join(','), st.page, st.importing, st.notice?.text, st.error].join('~'),
-    busy: () => st.importing || st.status === 'loading',
+    busy: () => st.importing || st.status === 'loading' || st.nextMotion === 0,
     report(): Record<string, string> {
       if (!CAN_IMPORT) return {};
       return {
@@ -337,6 +357,7 @@ export function createSongsPanel({ layout, ui, showing }: {
     },
     dispose() {
       st.loads++;
+      stopMarquees();
       st.picker?.remove();
     },
   };

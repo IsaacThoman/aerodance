@@ -575,6 +575,43 @@ export function ellipsize(g: Ctx, text: string, maxW: number) {
   return `${t.trimEnd()}…`;
 }
 
+// Text wider than maxW (in the current font, left-aligned) holds still for MARQUEE_HOLD_MS, then
+// scrolls left and comes round again after a gap, faded where it's cut off, like the now-playing
+// marquee on jamie's Pi display. elapsed (ms) is how long it's been showing. With
+// prefers-reduced-motion it's ellipsized instead. color is #rrggbb. Returns the ms until it next moves (0 while it
+// does, Infinity when it never will), so a demand-driven overlay knows when to draw again.
+export const MARQUEE_HOLD_MS = 3000;
+const MARQUEE_SPEED = 40;
+const MARQUEE_GAP = 48;
+const MARQUEE_FADE = 14;
+const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+export function drawMarquee(g: Ctx, str: string, x: number, y: number, maxW: number, color: `#${string}`, elapsed: number) {
+  g.fillStyle = color;
+  const m = g.measureText(str);
+  if (m.width <= maxW) { g.fillText(str, x, y); return Infinity; }
+  if (reduceMotion) { g.fillText(ellipsize(g, str, maxW), x, y); return Infinity; }
+  const distance = m.width + MARQUEE_GAP;
+  const scrollMs = (distance / MARQUEE_SPEED) * 1000;
+  const phase = Math.max(0, elapsed) % (MARQUEE_HOLD_MS + scrollMs);
+  const offset = phase <= MARQUEE_HOLD_MS ? 0 : ((phase - MARQUEE_HOLD_MS) / scrollMs) * distance;
+  g.save();
+  g.beginPath();
+  g.rect(x, y - m.actualBoundingBoxAscent - 6, maxW, m.actualBoundingBoxAscent + m.actualBoundingBoxDescent + 12);
+  g.clip();
+  // The text's own colour fading out at the cut edges (the left one only once it's moving).
+  const fade = g.createLinearGradient(x, 0, x + maxW, 0);
+  const edge = MARQUEE_FADE / maxW;
+  fade.addColorStop(0, offset > 0 ? `${color}00` : color);
+  fade.addColorStop(edge, color);
+  fade.addColorStop(1 - edge, color);
+  fade.addColorStop(1, `${color}00`);
+  g.fillStyle = fade;
+  g.fillText(str, x - offset, y);
+  g.fillText(str, x - offset + distance, y);
+  g.restore();
+  return phase <= MARQUEE_HOLD_MS ? MARQUEE_HOLD_MS - phase : 0;
+}
+
 // Splits text into lines no wider than maxW in the current font.
 export function wrapText(g: Ctx, text: string, maxW: number) {
   const lines: string[] = [];
