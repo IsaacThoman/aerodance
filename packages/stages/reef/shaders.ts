@@ -195,10 +195,14 @@ varying vec3 vWorld;
 varying vec3 vNormalW;
 varying vec3 vCol;
 void main() {
-  float alpha = 1.0;
   #ifdef LACE
-    alpha = texture2D(uMap, vUv).a;
-    if (alpha < 0.02) discard;
+    // Cut out at 0.5. The mipmaps average the thin strands away, so scale alpha up with the
+    // mip level to keep the lace's coverage in the distance.
+    vec2 texel = vUv * vec2(textureSize(uMap, 0));
+    vec2 dx = dFdx(texel);
+    vec2 dy = dFdy(texel);
+    float lod = max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))), 0.0);
+    if (texture2D(uMap, vUv).a * (1.0 + lod * 0.25) < 0.5) discard;
   #endif
   vec3 n = normalize(vNormalW);
   #ifdef DOUBLE_SIDED
@@ -221,11 +225,7 @@ void main() {
   float c = caustics(vWorld, uUnderSun, uSurfaceY, uTime);
   col += base * sunC * c * uCaustics * smoothstep(-0.3, 0.9, n.y) * (0.55 + 0.45 * diff);
   col = underwaterFog(col, vWorld);
-  #ifdef LACE
-    gl_FragColor = vec4(col, alpha);
-  #else
-    gl_FragColor = vec4(col, 1.0);
-  #endif
+  gl_FragColor = vec4(col, 1.0);
 }
 `;
 
@@ -269,7 +269,7 @@ export function makeLitMaterial(shared: SharedUniforms, {
   defines = {},
   map = null,
 }: LitMaterialOptions = {}) {
-  const m = shaderMaterial({
+  return shaderMaterial({
     uniforms: {
       ...shared,
       uColor: { value: new THREE.Color(color) },
@@ -297,8 +297,6 @@ export function makeLitMaterial(shared: SharedUniforms, {
     vertexColors,
     side,
   });
-  if (map) m.alphaToCoverage = true;
-  return m;
 }
 
 export type LitMaterial = ReturnType<typeof makeLitMaterial>;
