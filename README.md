@@ -1,8 +1,14 @@
+<div align="center">
+# aerodance
+</div>
+
 <p align="center">
   <img src="assets/banner.gif" alt="Two glass dancers dancing on the underwater openreef stage" width="768">
 </p>
 
-# aerodance
+
+
+
 
 An open-source Frutiger Aero dance game. Dance in front of a webcam or your phone's camera:
 pose tracking runs in the browser and scores you against the routine. Play it at
