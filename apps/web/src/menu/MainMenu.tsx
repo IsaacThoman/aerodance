@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { FONT, NAVY, TAU, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
-import type { Circle } from '../ui/draw.ts';
+import type { Circle, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
-import type { AspectSetting, GraphicsSettings } from './graphicsSettings.ts';
+import type { AspectSetting, GraphicsSettings, StatsSetting } from './graphicsSettings.ts';
 import AirPlayButton from './AirPlayButton.tsx';
 import FullscreenButton from './FullscreenButton.tsx';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
@@ -21,10 +21,11 @@ import { displayDesign } from '../display.ts';
  * Screens: main (Start, Settings), players (a 1-4 dial, shown by that many dancers on the
  * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
- * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, which App.tsx
- * applies). The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in
- * the iPhone/iPad app). The title rises while the players screen is up and fades out while
- * settings is.
+ * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
+ * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies).
+ * The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in the
+ * iPhone/iPad app). The title rises while the players screen is up and fades out while settings
+ * is.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
@@ -58,7 +59,7 @@ export interface MainMenuProps {
 type SliderKey = 'master' | 'music' | 'sfx';
 type ToggleKey = 'menuMusic' | 'muted';
 interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
-type MenuWidget = Widget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting };
+type MenuWidget = Widget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting };
 
 const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
@@ -75,6 +76,11 @@ const ASPECTS: readonly { value: AspectSetting; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'standard', label: '4:3' },
   { value: 'widescreen', label: '16:9' },
+];
+const STATS: readonly { value: StatsSetting; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'basic', label: 'Basic' },
+  { value: 'full', label: 'Full' },
 ];
 // Where back / Escape leads from each submenu, and the button there that opens it.
 const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
@@ -127,7 +133,7 @@ function drawStep(g: CanvasRenderingContext2D, c: Circle, plus: boolean, hover: 
 }
 
 function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>, layout: ReturnType<typeof menuLayout>) {
-  const { SOUND, GRAPHICS, TRACK, ROW_Y, SWITCH, ASPECT, ASPECT_ROW_Y } = layout;
+  const { SOUND, GRAPHICS, TRACK, ROW_Y, SWITCH, ASPECT, ASPECT_ROW_Y, STATS: STATS_RECT, STATS_ROW_Y } = layout;
   const { sound } = p;
   const { x, w } = SOUND;
   const base = g.globalAlpha;
@@ -206,15 +212,22 @@ function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover:
   drawGlassPanel(g, GRAPHICS, 34);
   drawCaps(g, 'GRAPHICS', x + 40, GRAPHICS.y + 44, { size: 22 });
   label('Aspect ratio', ASPECT_ROW_Y);
-  // A segmented switch: the chosen option filled like a switch that's on.
-  const first = ASPECT(0), last = ASPECT(ASPECTS.length - 1);
+  drawSegments(g, ASPECTS, ASPECT, p.graphics.aspect, (v) => hover[`aspect-${v}`] ?? 0);
+  label('Stats', STATS_ROW_Y);
+  drawSegments(g, STATS, STATS_RECT, p.graphics.stats, (v) => hover[`stats-${v}`] ?? 0);
+}
+
+// A segmented switch: the chosen option filled like a switch that's on.
+function drawSegments<V extends string>(g: CanvasRenderingContext2D, options: readonly { value: V; label: string }[], rect: (i: number) => Rect,
+  value: V, hover: (value: V) => number) {
+  const first = rect(0), last = rect(options.length - 1);
   pill(g, first.x - 4, first.y - 4, last.x + last.w - first.x + 8, first.h + 8);
   g.fillStyle = 'rgba(0, 30, 70, 0.45)';
   g.fill();
-  ASPECTS.forEach((a, i) => {
-    const r = ASPECT(i);
-    const on = p.graphics.aspect === a.value;
-    const hv = hover[`aspect-${a.value}`] ?? 0;
+  options.forEach((a, i) => {
+    const r = rect(i);
+    const on = value === a.value;
+    const hv = hover(a.value);
     pill(g, r.x, r.y, r.w, r.h);
     if (on) {
       const fill = g.createLinearGradient(0, r.y, 0, r.y + r.h);
@@ -277,6 +290,7 @@ export default function MainMenu({
       ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
       ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: SOUND.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: SOUND.w - 32, h: 48 } })),
       ...ASPECTS.map((a, i) => ({ id: `aspect-${a.value}`, aspect: a.value, rect: ASPECT(i) })),
+      ...STATS.map((a, i) => ({ id: `stats-${a.value}`, stats: a.value, rect: layout.STATS(i) })),
     ],
   };
   const menu = useRef<MenuState>({
@@ -339,6 +353,12 @@ export default function MainMenu({
       if (wdg.aspect) {
         const { graphics: cur, onGraphicsChange: cb } = props.current;
         if (cur.aspect !== wdg.aspect) cb?.({ ...cur, aspect: wdg.aspect });
+        s.invalidate();
+        return;
+      }
+      if (wdg.stats) {
+        const { graphics: cur, onGraphicsChange: cb } = props.current;
+        if (cur.stats !== wdg.stats) cb?.({ ...cur, stats: wdg.stats });
         s.invalidate();
         return;
       }
