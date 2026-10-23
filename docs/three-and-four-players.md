@@ -99,9 +99,10 @@ with four.
   when the lanes are narrow.
 - The players screen's dial picks the count; the dancers on the menu's glass stage show
   it, arriving in a soap bubble and popping when they leave.
-- The live characters and their scores sit in the top corners: P1 and P2 on the left and
-  P3 and P4 on the right with four players (P1, P2 left and P3 right with three), so the
-  order matches where people stand.
+- The scores sit in the top corners: P1 and P2 on the left and P3 and P4 on the right with
+  four players (P1, P2 left and P3 right with three), so the order matches where people
+  stand. The mirror between them shows every player's character as a cutout in their
+  colour, mirrored like the setup preview.
 - The stage's coach dancers, the results dancers and the results scores show one dancer per
   player in that player's colour.
 
