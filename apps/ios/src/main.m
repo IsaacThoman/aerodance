@@ -1,7 +1,7 @@
 // aerodance for iPhone and iPad: the production web build in WKWebView, shown on a TV through
 // AirPlay or an HDMI adapter while the phone becomes the remote. See ../README.md.
 //
-// Public API only (WebKit, AVKit, Network), so this can go to the App Store.
+// Public API only (WebKit, AVKit, Network, CoreMotion), so this can go to the App Store.
 // The built game is bundled under www/ and served from 127.0.0.1 so the page is a secure context
 // (song bundles are verified with crypto.subtle, and getUserMedia needs one). The port is fixed
 // so saved scores and settings, which belong to the page's origin, survive relaunches.
@@ -17,6 +17,7 @@
 #import <WebKit/WebKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
+#import <CoreMotion/CoreMotion.h>
 #import <Network/Network.h>
 #ifdef AERODANCE_DEV
 #import <notify.h>
@@ -48,6 +49,40 @@ static NSString *Port(void) {
   static dispatch_once_t once;
   dispatch_once(&once, ^{ port = LaunchArg(@"--port", @"8417"); });
   return port;
+}
+
+// Which way up a screen or the device is, as WebKit counts it for the camera (and
+// window.orientation): 0 upright, 90 turned counterclockwise (sideways with the bottom on the
+// right), -90 clockwise, 180 upside down. An unknown one counts as upright, as in WebKit.
+static NSInteger ScreenDegrees(UIWindowScene *scene) {
+  switch (scene.effectiveGeometry.interfaceOrientation) {
+    case UIInterfaceOrientationLandscapeRight: return 90;
+    case UIInterfaceOrientationLandscapeLeft: return -90;
+    case UIInterfaceOrientationPortraitUpsideDown: return 180;
+    default: return 0;
+  }
+}
+
+// The device's own orientation is the screen's mirror image: held sideways with the bottom on the
+// right is UIDeviceOrientationLandscapeLeft and UIInterfaceOrientationLandscapeRight.
+static NSInteger DeviceDegrees(UIDeviceOrientation orientation) {
+  switch (orientation) {
+    case UIDeviceOrientationLandscapeLeft: return 90;
+    case UIDeviceOrientationLandscapeRight: return -90;
+    case UIDeviceOrientationPortraitUpsideDown: return 180;
+    default: return 0;
+  }
+}
+
+// Which way up the device is from gravity (the accelerometer's x and y, in g): down along -y is
+// upright, along -x it's turned counterclockwise. Leaning back on a stand counts; near flat, or
+// near halfway between two ways, it's neither (nil), so it takes a clear turn to change.
+static NSNumber *GravityDegrees(CMAcceleration a) {
+  double x = fabs(a.x), y = fabs(a.y);
+  if (hypot(a.x, a.y) < 0.35) return nil;
+  if (y > x * 1.5) return a.y < 0 ? @0 : @180;
+  if (x > y * 1.5) return a.x < 0 ? @90 : @-90;
+  return nil;
 }
 
 static NSString *JSON(id object) {
@@ -204,6 +239,11 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 // What the page is told about the app (inject.js __aerodanceHost).
 @property (nonatomic) BOOL tv;            // the game is on an external display (AirPlay mirroring, HDMI); kept in step with onTV
 @property (nonatomic) BOOL interrupted;   // between an audio interruption's start and end (a call, Siri, an alarm)
+@property (nonatomic) NSInteger held;          // which way up the device is held (ScreenDegrees' terms), as last seen upright or sideways
+@property (nonatomic) BOOL heldKnown;          // held has been seen (not only flat, or before the first reading)
+@property (nonatomic) NSInteger gameScreen;    // which way up the game's screen is: the TV's (always upright) or the phone's
+@property (nonatomic) NSInteger phoneScreen;   // which way up the phone's screen is
+@property (nonatomic, strong) CMMotionManager *motion;  // gravity, for held, while the game is on a TV
 @property (nonatomic, strong) WKUserContentController *scripts;
 @property (nonatomic, copy) NSString *injectSource;
 @property (nonatomic, strong) id drive;  // --drive's steps
@@ -428,7 +468,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   [self.scripts addUserScript:[[WKUserScript alloc] initWithSource:self.injectSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
 }
 
-- (NSDictionary *)hostState { return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv), @"screen": self.onTV ? @"tv" : @"phone" }; }
+- (NSDictionary *)hostState {
+  return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv), @"screen": self.onTV ? @"tv" : @"phone",
+            @"held": @(self.held), @"screens": @{ @"game": @(self.gameScreen), @"phone": @(self.phoneScreen) } };
+}
 
 - (void)setTv:(BOOL)tv {
   if (_tv == tv) return;
@@ -440,6 +483,47 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (_interrupted == interrupted) return;
   _interrupted = interrupted;
   [self hostChanged];
+}
+
+// WebKit turns the camera's picture upright for the screen the web view is on, and on a TV that's
+// upright however the phone is held. So the page is told how the device is held and which way up
+// each screen is, and turns the picture itself (cameraTurner in apps/web/src/host.ts). While the
+// game is on a TV, how the device is held comes from gravity, as Orientation Lock leaves UIDevice
+// upright; otherwise (and in the simulator, which has no accelerometer), from UIDevice. Flat on a
+// table, the device is still held the way it last was. A turn is only told to the page: the start script
+// (installScripts) isn't rebuilt for one, as that mid-load (an iPhone turning sideways at launch) can
+// leave the page without inject.js, and a page that loads later is told when it finishes.
+- (void)updateOrientation { [self updateOrientationHeld:nil]; }
+
+- (void)updateOrientationHeld:(NSNumber *)gravity {
+  NSDictionary *was = self.hostState;
+  NSInteger phone = ScreenDegrees(self.phoneView.window.windowScene);
+  NSInteger game = _web.window ? ScreenDegrees(_web.window.windowScene) : phone;
+  self.gameScreen = game;
+  self.phoneScreen = phone;
+  UIDeviceOrientation device = UIDevice.currentDevice.orientation;
+  if (gravity) {
+    self.held = gravity.integerValue;
+    self.heldKnown = YES;
+  } else if (!self.motion.accelerometerActive && (UIDeviceOrientationIsPortrait(device) || UIDeviceOrientationIsLandscape(device))) {
+    self.held = DeviceDegrees(device);
+    self.heldKnown = YES;
+  } else if (!self.heldKnown) {
+    self.held = phone;
+  }
+  if ([was isEqual:self.hostState]) return;
+  NSLog(@"aerodance: host %@", JSON(self.hostState));
+  [self tellPageHost];
+}
+
+// Gravity is only needed while the game is on a TV.
+- (void)watchGravity {
+  if (!self.motion.accelerometerAvailable || self.onTV == self.motion.accelerometerActive) return;
+  if (!self.onTV) { [self.motion stopAccelerometerUpdates]; return; }
+  [self.motion startAccelerometerUpdatesToQueue:NSOperationQueue.mainQueue withHandler:^(CMAccelerometerData *data, NSError *error) {
+    NSNumber *held = data ? GravityDegrees(data.acceleration) : nil;
+    if (held && (!self.heldKnown || held.integerValue != self.held)) [self updateOrientationHeld:held];
+  }];
 }
 
 - (void)hostChanged {
@@ -467,6 +551,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     [target addSubview:web];
   }
   [self updateTV];
+  [self updateOrientation];
+  [self watchGravity];
   if (self.onTV != self.shownOnTV) {
     self.shownOnTV = self.onTV;
     [self hostChanged];
@@ -499,11 +585,15 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (instancetype)init {
   if (!(self = [super init])) return nil;
   _airplayRect = CGRectNull;
+  _motion = [CMMotionManager new];
+  _motion.accelerometerUpdateInterval = 0.2;
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   [center addObserver:self selector:@selector(audioInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
   [center addObserverForName:AVAudioSessionRouteChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self updateTV]; }];
   [center addObserver:self selector:@selector(sceneActivated) name:UISceneDidActivateNotification object:nil];
   [center addObserver:self selector:@selector(checkServer) name:UIApplicationWillEnterForegroundNotification object:nil];
+  [UIDevice.currentDevice beginGeneratingDeviceOrientationNotifications];
+  [center addObserver:self selector:@selector(updateOrientation) name:UIDeviceOrientationDidChangeNotification object:nil];
   for (NSNotificationName name in @[NSProcessInfoThermalStateDidChangeNotification, NSProcessInfoPowerStateDidChangeNotification]) {
     [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self tellPage]; }];
   }
@@ -749,6 +839,13 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   [super viewDidLayoutSubviews];
   [self placeGamePicker];
   [self placeRemotePicker];
+  [GameHost.shared updateOrientation];  // the phone's screen may have turned
+}
+
+// (And once it has turned, in case the layout came first.)
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+  [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+  [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) { [GameHost.shared updateOrientation]; }];
 }
 
 - (void)refresh {

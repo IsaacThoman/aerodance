@@ -97,15 +97,17 @@ test('the client is the browser unless the iOS app or the Apple TV host says oth
   assert.equal(client(), 'web');
 });
 
-test('the host state reads only booleans and a known screen, and is all off in a browser', () => {
-  assert.deepEqual(hostState(), { interrupted: false, tv: false, screen: 'phone' });
+const upright = { held: 0, screens: { game: 0, phone: 0 } };
+test('the host state reads only booleans, a known screen and quarter turns, and is all off in a browser', () => {
+  assert.deepEqual(hostState(), { interrupted: false, tv: false, screen: 'phone', ...upright });
   assert.equal(inApp(), false);
   const page = globalThis as { __aerodanceHost?: unknown };
-  page.__aerodanceHost = { tv: true, interrupted: 'yes', screen: 'tv' };
+  page.__aerodanceHost = { tv: true, interrupted: 'yes', screen: 'tv', held: 90, screens: { game: 0, phone: -90 } };
   try {
-    assert.deepEqual(hostState(), { interrupted: false, tv: true, screen: 'tv' });
-    page.__aerodanceHost = { screen: 'watch' };
+    assert.deepEqual(hostState(), { interrupted: false, tv: true, screen: 'tv', held: 90, screens: { game: 0, phone: -90 } });
+    page.__aerodanceHost = { screen: 'watch', held: 45, screens: { game: '180', phone: 180 } };
     assert.equal(hostState().screen, 'phone');
+    assert.deepEqual([hostState().held, hostState().screens], [0, { game: 0, phone: 180 }]);
     assert.equal(inApp(), true);
   } finally { delete page.__aerodanceHost; }
   const target = new EventTarget();
@@ -115,7 +117,7 @@ test('the host state reads only booleans and a known screen, and is all off in a
   target.dispatchEvent(hostEvent({ interrupted: true }));
   off();
   target.dispatchEvent(hostEvent({ interrupted: true }));
-  assert.deepEqual(seen, [{ interrupted: false, tv: false, screen: 'phone' }, { interrupted: true, tv: false, screen: 'phone' }]);
+  assert.deepEqual(seen, [{ interrupted: false, tv: false, screen: 'phone', ...upright }, { interrupted: true, tv: false, screen: 'phone', ...upright }]);
 });
 
 test('the calibration and pause screens say the camera stopped: in the app, that it comes back', () => {

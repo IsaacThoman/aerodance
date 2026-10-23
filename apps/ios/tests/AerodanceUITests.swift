@@ -9,7 +9,8 @@ import XCTest
 //   AERODANCE_PORT        its loopback port (--port)
 //   AERODANCE_PATH        the page it opens (--path, /?input=ghost)
 //   AERODANCE_RUNNER      ui.ios.ts's address: the app reports the game's canvas data-* state there
-//                         (--report), GET /state returns the latest (POST /reset forgets it),
+//                         (--report), GET /state returns the latest (POST /reset forgets it) with
+//                         _display, _fps, _held and _screens from the rest of the report,
 //                         POST /shot?name= keeps a screenshot, POST /tv?on=1|0 turns the simulator's
 //                         TV-out screen on or off, and POST /shot-tv?name= keeps a screenshot of it
 //   AERODANCE_LAYOUT      JSON from the game's layout.ts: the design size and the rects tapped
@@ -113,7 +114,8 @@ final class AerodanceUITests: XCTestCase {
   // A TV connects while the phone is held sideways: the game moves to it and the phone shows the
   // remote (the in-engine /remote/ page), turned upright on an iPhone (its column doesn't fit
   // sideways); an iPad stays as it is held. Every control is on screen and clear of the others,
-  // found by the labels the page lays over them. When the TV goes, the game comes back in landscape.
+  // found by the labels the page lays over them. The game is told how the phone is held, for turning
+  // its camera's picture, however its screens are. When the TV goes, the game comes back in landscape.
   func test5RemoteOnTheTV() throws {
     XCUIDevice.shared.orientation = .landscapeLeft
     launch()
@@ -137,6 +139,13 @@ final class AerodanceUITests: XCTestCase {
       XCTAssertTrue(screen.contains(frame) && frame.width > 20 && frame.height > 10, "control \(i) (\(control.label)) is at \(frame) in a \(screen) window")
       for other in controls[..<i] { XCTAssertFalse(frame.intersects(other.frame), "\(control.label) at \(frame) overlaps \(other.label) at \(other.frame)") }
     }
+    // Held sideways with its bottom on the right (90): the TV's screen is upright (0), and so is the
+    // iPhone's remote, while the iPad's turns with it.
+    waitFor(["_held": "90", "_screens": isPad ? "0,90" : "0,0"], timeout: 20)
+    XCUIDevice.shared.orientation = .portrait
+    waitFor(["_held": "0", "_screens": "0,0"], timeout: 20)
+    XCUIDevice.shared.orientation = .landscapeRight
+    waitFor(["_held": "-90", "_screens": isPad ? "0,-90" : "0,0"], timeout: 20)
     tv(false)
     XCTAssertTrue(waitUntil { !ok.exists }, "the remote is still showing")
     if !isPad { XCTAssertTrue(waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }, "the game came back \(app.windows.firstMatch.frame.size): not landscape") }

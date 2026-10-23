@@ -86,6 +86,55 @@ export function validateCatalog(data: unknown): SongCatalog {
   assertCatalog(data);
   return data;
 }
+/** Lowercase hex SHA-256 (Web Crypto: browsers' secure contexts and Node). */
+export async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+}
+/** An exported song folder's files, by bundle-relative path: on disk, in a ZIP, or saved in the browser. */
+export interface SongFolder {
+  /** The file's size in bytes; throws if it's missing or isn't a plain file inside the folder. */
+  size(path: string): Promise<number>;
+  read(path: string): Promise<Uint8Array<ArrayBuffer>>;
+}
+const MAX_METADATA_BYTES = 1024 * 1024, MAX_ASSET_BYTES = 128 * 1024 * 1024;
+/**
+ * The catalog entry for an exported song folder named `name`, checking its metadata, that every
+ * file it plays is listed in checksums.json at its real size, and song.json's own checksum. The
+ * game's bundle loader checks the rest (every file's hash, the choreography) when it's played.
+ */
+export async function catalogEntry(name: string, folder: SongFolder): Promise<CatalogSong> {
+  const json = async (path: string) => {
+    if (await folder.size(path) > MAX_METADATA_BYTES) throw Error(`Metadata exceeds size limit: ${path}`);
+    return folder.read(path);
+  };
+  const bytes = await json('song.json');
+  const song = validateSong(JSON.parse(new TextDecoder().decode(bytes)));
+  if (song.songId !== name) throw Error('Folder name must match songId');
+  const checksums: unknown = JSON.parse(new TextDecoder().decode(await json('checksums.json')));
+  if (!isObject(checksums) || checksums.schema !== 'aerodance.checksums' || checksums.schemaVersion !== 1 || !isArray(checksums.files) || !checksums.files.every(isObject)) throw Error('Invalid checksums manifest');
+  const entries = checksums.files;
+  const required = ['song.json', song.audio.path, song.choreography.path, ...(song.cover ? [song.cover.path] : [])];
+  if (new Set(required).size !== required.length) throw Error('Conflicting media paths');
+  const verified = new Map<string, string>();
+  for (const path of required) {
+    const matches = entries.filter(entry => entry.path === path);
+    const match = matches[0], size = await folder.size(path);
+    if (matches.length !== 1 || match.bytes !== size || !Number.isSafeInteger(match.bytes) || size > MAX_ASSET_BYTES ||
+      typeof match.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(match.sha256)) throw Error(`Missing or incomplete asset: ${path}`);
+    verified.set(path, match.sha256);
+  }
+  const hash = await sha256(bytes);
+  if (verified.get('song.json') !== hash) throw Error('Song metadata checksum mismatch');
+  return {
+    id: song.songId, title: song.title, artist: song.artist,
+    durationMs: song.durationMs, supportedPlayerCounts: song.supportedPlayerCounts,
+    bundleRevision: song.bundleRevision, bundle: `${song.songId}/song.json`, sha256: hash,
+    ...(song.difficulty ? { difficulty: song.difficulty } : {}),
+    ...(song.stage ? { stage: song.stage } : {}),
+    ...(song.cover ? { cover: `${song.songId}/${song.cover.path}` } : {}),
+  };
+}
 const rights = (v: unknown) => isObject(v) && text(v.license) && typeof v.attribution === 'string';
 const timestamp = (v: unknown) => typeof v === 'string' && Number.isFinite(Date.parse(v));
 export function assertSong(song: unknown): asserts song is Song {

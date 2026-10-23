@@ -4,7 +4,7 @@ An iPhone and iPad app that runs the production web build in `WKWebView` and sho
 an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
 phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
 
-Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network),
+Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network, CoreMotion),
 so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
 WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows the video.
 
@@ -50,6 +50,10 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   plays with the ring switch on silent and follows the AirPlay route to the TV.
 - **Camera.** The game's own pose tracking (MediaPipe in the page) can use the phone's camera:
   the app has a camera usage description and grants the page's camera requests, video only.
+  While the game is on a TV its picture is upright the way the device is held, though the
+  iPhone's remote stays upright. WebKit turns camera pictures upright for the screen a web view is on
+  (the TV's never turns), one way for the whole app, so the page turns the picture the rest of the
+  way itself (`cameraTurner` in `apps/web/src/host.ts`) from the host state's `held` and `screens`.
 - The phone doesn't lock while the app is open.
 - **App icon.** [`assets/app-icon/aerodance.icon`](../../assets/README.md#phone-app-icons), an Icon
   Composer document, is the app icon (`ASSETCATALOG_COMPILER_APPICON_NAME`). Xcode compiles its
@@ -62,10 +66,16 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   and the page letterboxes itself. The web view is edge to edge (`viewport-fit=cover`), so the
   page gets the notch and home indicator as `env(safe-area-inset-*)`; while the game is on the
   phone, the status bar is hidden and the home indicator hides itself.
-- **Host state.** `globalThis.__aerodanceHost` is `{ interrupted, tv, screen }`, set before the game's
+- **Host state.** `globalThis.__aerodanceHost` is `{ interrupted, tv, screen, held, screens }`, set before the game's
   scripts run, and every change also fires
-  `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { interrupted, tv, screen } }))`.
+  `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { interrupted, tv, screen, held, screens } }))`.
   `screen` is where the game's picture is: `'phone'` or `'tv'` (wherever the sound goes).
+  `held` is which way up the device is held, all in `window.orientation`'s terms: 0 upright, 90
+  turned counterclockwise, -90 clockwise, 180 upside down. While the game is on a TV it comes from
+  gravity (CoreMotion's accelerometer, which needs no permission), because Orientation Lock keeps
+  `UIDevice` upright; lying flat, it's the way it last was. (The simulator has no accelerometer, so
+  there it's `UIDevice`'s.) `screens` is `{ game, phone }`: which way up the game's screen
+  (the TV's is always upright) and the phone's own are.
   `interrupted` is true from the start to the end of an audio interruption (a call, Siri, an
   alarm); at the end the app reactivates its audio session if iOS says to resume, and the game
   waits for the player's next tap either way. `tv` is true while the game is on an external display and its sound goes
@@ -172,7 +182,7 @@ real touches: it launches and reaches the main menu, an iPhone holds it in lands
 Let's dance (for one player, the dial's starting count) and the first song tapped at their `layout.ts` positions open the song preview, an
 iPad turns portrait, landscape and back, and a TV connected (through `tools/simscreen.m`) while
 the device is held sideways shows the remote with every control on screen, upright on an iPhone,
-and the game comes back in landscape when the TV goes. One plays a whole song on the TV with the
+the game is told how the device is held as it turns (for its camera's picture), and the game comes back in landscape when the TV goes. One plays a whole song on the TV with the
 remote's buttons only: the menus, the players dial, Back, Pause and Resume, and the TV going and
 coming back mid-song, which the song plays through. The main menu's AirPlay picker sits over the
 game's AirPlay bubble.

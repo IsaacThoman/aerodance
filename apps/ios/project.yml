@@ -27,6 +27,7 @@ targets:
       - sdk: WebKit.framework
       - sdk: AVKit.framework
       - sdk: Network.framework
+      - sdk: CoreMotion.framework
     # XcodeGen writes Info.plist from these properties.
     info:
       path: Info.plist
