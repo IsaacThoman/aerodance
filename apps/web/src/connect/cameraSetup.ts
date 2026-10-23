@@ -89,8 +89,10 @@ export class CameraSetup {
     if (wdg.cameraDelta) {
       // Default camera stands in for this computer's cameras until the browser names them. After
       // that it is one of them (a running default camera takes on its id), so it would come round twice.
+      // Without a webcam at all (the Apple TV app) there is nothing for it to stand in for.
       const known = connection.cameras || [];
-      const cameras = known.some(camera => ![PHONE_CAMERA.deviceId, NO_CAMERA.deviceId].includes(camera.deviceId)) ? known : [DEFAULT_CAMERA, ...known];
+      const named = known.some(camera => ![PHONE_CAMERA.deviceId, NO_CAMERA.deviceId].includes(camera.deviceId));
+      const cameras = named || !source.webcamSupported ? known : [DEFAULT_CAMERA, ...known];
       const index = cameras.findIndex(camera => camera.deviceId === connection.cameraId);
       // From a camera that isn't listed (the default one, or one unplugged), Right goes to the first, Left to the last.
       const next = index < 0 ? (wdg.cameraDelta > 0 ? 0 : cameras.length - 1) : index + wdg.cameraDelta;
