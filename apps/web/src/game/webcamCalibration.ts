@@ -10,6 +10,8 @@ export type CalibrationRecord = Pick<LivePoseRecord, 'sessionId' | 'seq' | 'pose
 
 export const WEBCAM_STILL_MS = 2500;
 export const WEBCAM_FRAME_GAP_MS = 400;
+/** A player the model misses for no longer than this, once everyone is holding still, is still holding. */
+export const WEBCAM_MISS_MS = 200;
 const MIN_SAMPLES = 6;
 const MOVEMENT_TOLERANCE = 0.15; // Fraction of the initial torso length, independent of camera distance.
 const BODY = [11, 12, 23, 24, 27, 28];
@@ -28,6 +30,8 @@ export class WebcamCalibration {
   startedAt: number | null = null;
   anchors: Pose[] | null = null;
   frames: Pose[][] = [];
+  /** When each player was last in view holding still. */
+  seen: number[] = [];
   players: CalibrationPlayerStatus[] = [];
   progress = 0;
   /** One calibration per player, once everyone has held still. */
@@ -41,6 +45,7 @@ export class WebcamCalibration {
     this.startedAt = null;
     this.anchors = null;
     this.frames = Array.from({ length: this.playerCount }, () => []);
+    this.seen = Array<number>(this.playerCount).fill(-Infinity);
     this.players = players;
     this.progress = 0;
     this.tracks = null;
@@ -65,18 +70,19 @@ export class WebcamCalibration {
     if (this.tracks) return true;
 
     const found = Array.from({ length: this.playerCount }, (_, id) => record.poses.find(p => p.playerId === id));
-    const players = found.map((p): CalibrationPlayerStatus => !p ? 'missing' : reliableBodyPose(p) ? 'holding' : 'body');
+    // (Somebody holding still whom the model misses for a moment hasn't moved.)
+    const players = found.map((p, id): CalibrationPlayerStatus => !p ? (this.anchors && captureTime - this.seen[id] <= WEBCAM_MISS_MS ? 'holding' : 'missing')
+      : reliableBodyPose(p) ? 'holding' : 'body');
     if (players.some(p => p !== 'holding')) {
       this.resetHold(players);
       return false;
     }
-    // Everyone is in view: one pose per player, in player order.
-    const poses = found.filter((p): p is Pose => p !== undefined);
 
     const aspect = record.input.width / record.input.height;
     const { anchors } = this;
     if (anchors) {
-      poses.forEach((pose, id) => {
+      found.forEach((pose, id) => {
+        if (!pose) return;
         const p = pose.landmarks, anchor = anchors[id].landmarks;
         const tolerance = Math.max(0.02, distance(mid(anchor, 11, 12), mid(anchor, 23, 24), aspect)) * MOVEMENT_TOLERANCE;
         const joints = [...BODY, ...WRISTS.filter(i => reliable(p[i]) && reliable(anchor[i]))];
@@ -87,14 +93,15 @@ export class WebcamCalibration {
         return false;
       }
     } else {
-      this.anchors = poses;
+      // Everyone is in view (nobody is missed before a hold starts): one pose per player, in player order.
+      this.anchors = found.filter((p): p is Pose => p !== undefined);
       this.startedAt = captureTime;
     }
 
     this.players = players;
-    poses.forEach((pose, id) => this.frames[id].push(pose));
+    found.forEach((pose, id) => { if (pose) { this.frames[id].push(pose); this.seen[id] = captureTime; } });
     this.progress = Math.min(1, (captureTime - (this.startedAt ?? captureTime)) / WEBCAM_STILL_MS);
-    if (this.progress < 1 || this.frames[0].length < MIN_SAMPLES) return false;
+    if (this.progress < 1 || this.frames.some(frames => frames.length < MIN_SAMPLES)) return false;
     this.tracks = this.frames.map(frames => calibratePoses(frames, record.input, { adaptiveDistance: true }));
     this.players = Array(this.playerCount).fill('ready');
     return true;

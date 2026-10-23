@@ -155,8 +155,8 @@ function fakeCamera({ image, mode }: { image: string; mode: Options['camera'] })
       const draw = () => {
         g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
         const offset = Math.sin(count++ / 20) * 2;
-        // One dancer in the middle, two side by side; three or four squeezed into narrower lanes
-        // at full height (the photo's arms-out stance is too small for MediaPipe at lane width).
+        // One dancer in the middle, two side by side; three or four squeezed into narrower slots
+        // at full height (the photo's arms-out stance is too small for MediaPipe at slot width).
         // MediaPipe tracks three of these reliably but not four (docs/three-and-four-players.md).
         const n = w.playDancers, width = n > 2 ? 640 / n : 320;
         for (let i = 0; i < n; i++) g.drawImage(photo, 200, 0, 600, 667, (n === 1 ? 320 : (i + 0.5) * 640 / n) - width / 2 + offset, 40, width, 356);

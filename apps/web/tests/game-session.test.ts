@@ -18,7 +18,7 @@ const dir = new URL('./fixtures/song-70c63c8e/', import.meta.url);
 const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
 const song = validateSong(read('song.json'));
 // The session never decodes audio here: createPlayer is faked.
-const bundle: LoadedSongBundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null };
+const bundle: LoadedSongBundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null, scoreId: song.songId };
 
 interface Clock { now: number; }
 type FakePlayer = SessionPlayer & {
@@ -509,7 +509,7 @@ test('the ghost replay dances the routine and stands in its halves without a son
   assert.equal(last.captureBrowserTimeMs, 5000);
 });
 
-test('a four-player ghost stands one per lane and doubles the duet', async () => {
+test('a four-player ghost stands side by side and doubles the duet', async () => {
   let now = 0;
   const ghost = new ReplayPoseSource({ now: () => now, noise: 0 });
   const records: PoseRecordEvent<LivePoseRecord>[] = [];

@@ -14,14 +14,18 @@
   if (site) globalThis.__aerodanceSite = site;
 
   // What the game should know about the app: interrupted (a phone call, Siri or an alarm has the
-  // audio), tv (the game is on an external display, whose picture is as late as its sound) and
-  // screen (where the picture is: 'phone' or 'tv'). The page reads globalThis.__aerodanceHost and
-  // listens for 'aerodance-host' events; the app calls __aerodanceSetHost whenever one changes.
-  const hostState = s => ({ interrupted: !!s?.interrupted, tv: !!s?.tv, screen: s?.screen === 'tv' ? 'tv' : 'phone' });
+  // audio), tv (the game is on an external display, whose picture is as late as its sound),
+  // screen (where the picture is: 'phone' or 'tv'), held (which way up the device is held) and
+  // screens (which way up the game's and the phone's screens are), for turning the camera's
+  // picture. The page reads globalThis.__aerodanceHost and listens for 'aerodance-host' events;
+  // the app calls __aerodanceSetHost whenever one changes.
+  const turn = n => [90, -90, 180].includes(n) ? n : 0;
+  const hostState = s => ({ interrupted: !!s?.interrupted, tv: !!s?.tv, screen: s?.screen === 'tv' ? 'tv' : 'phone',
+    held: turn(s?.held), screens: { game: turn(s?.screens?.game), phone: turn(s?.screens?.phone) } });
   globalThis.__aerodanceHost = hostState(start.host);
   window.__aerodanceSetHost = s => {
     const next = hostState(s), now = globalThis.__aerodanceHost;
-    if (next.interrupted === now.interrupted && next.tv === now.tv && next.screen === now.screen) return;
+    if (JSON.stringify(next) === JSON.stringify(now)) return;
     globalThis.__aerodanceHost = next;
     window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { ...next } }));
   };
@@ -73,6 +77,27 @@
   // The main menu's camera bubble (menu/PhoneCameraButton.tsx): the app shows the phone camera
   // page over the game, to be another game's camera.
   window.__aerodanceOpenCamera = () => post({ camera: true });
+
+  // Imported songs are ZIPs the app keeps (main.m, songs/appSongs.ts): the key its /app/ routes
+  // need, and its file picker, which answers with where it put the ZIP ({ url, name }) or null.
+  let picking = null;
+  window.__aerodanceSongPicked = file => {
+    const done = picking?.done;
+    picking = null;
+    done?.(file && typeof file.url === 'string' ? { url: file.url, name: String(file.name) } : null);
+  };
+  globalThis.__aerodanceSongs = {
+    key: '__SONGS_KEY__',
+    pick: () => {
+      if (!picking) {
+        let done;
+        picking = { promise: new Promise(resolve => { done = resolve; }) };
+        picking.done = done;
+        post({ pickSong: true });
+      }
+      return picking.promise;
+    },
+  };
 
   // The phone's remote buttons arrive as the key events the canvas UI already understands.
   window.__aerodanceKey = key => {

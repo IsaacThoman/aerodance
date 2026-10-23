@@ -1,4 +1,5 @@
-// Real bundled MediaPipe in a worker, with a local synthetic camera stream.
+// Real bundled MediaPipe in a worker, with a local synthetic camera stream. BROWSER_GPU=metal runs it
+// on the Mac's GPU, where three players are looked for in strips of the picture (tiles.ts).
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import express from 'express';
@@ -17,7 +18,7 @@ import type { Page } from 'playwright';
 /** What the page script adds to window: the synthetic camera's controls and counters. */
 type TestWindow = typeof window & {
   cameraRequests: number; cameraStops: number; cameraMode: 'normal' | 'denied'; cameraViewScale: number; cameraPeople: number;
-  poseDiagnostics?: unknown;
+  poseDiagnostics?: unknown; poseTiled?: boolean;
 };
 
 const staticApp = await staticStudio();
@@ -27,7 +28,9 @@ apps[0].use(express.static('dist'));
 apps[1].use(staticApp.app);
 const servers = apps.map((app, i) => app.listen(4180 + i, '127.0.0.1'));
 await Promise.all(servers.map(server => new Promise(resolve => server.once('listening', resolve))));
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const gpu = process.env.BROWSER_GPU === 'metal';
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required',
+  ...gpu ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']] });
 const errors: string[] = [];
 async function pageFor(port: number) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -49,7 +52,8 @@ async function pageFor(port: number) {
     w.Worker = class extends NativeWorker {
       constructor(...args: ConstructorParameters<typeof Worker>) {
         super(...args);
-        this.addEventListener('message', ({ data }: MessageEvent<{ type: string; landmarks?: unknown[][] }>) => {
+        this.addEventListener('message', ({ data }: MessageEvent<{ type: string; landmarks?: unknown[][]; tiled?: boolean }>) => {
+          if (data.type === 'ready') w.poseTiled = data.tiled;
           if (data.type === 'result') w.poseDiagnostics = data.landmarks?.map(points => [11, 12, 23, 24].map(i => points[i]));
         });
       }
@@ -67,7 +71,7 @@ async function pageFor(port: number) {
           g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
           const offset = Math.sin(count++ / 20) * 2;
           g.save(); g.translate(320,240); g.scale(w.cameraViewScale,w.cameraViewScale); g.translate(-320,-240);
-          // Side by side, one per lane; three are squeezed into narrower lanes at full height.
+          // Side by side; three are squeezed narrower at full height.
           const n = w.cameraPeople, width = 640 / n;
           for (let i = 0; i < n; i++) g.drawImage(image, 200, 0, 600, 667, i * width + offset, 40, width, 356);
           g.restore();
@@ -252,13 +256,15 @@ try {
   await game.evaluate(() => { (window as TestWindow).cameraMode = 'normal'; }); await click(GAME_CALIBRATION_PREVIEW);
   await until('gameCameraStatus', 'connected'); await until('gameCameraModel', 'lite');
   await game.keyboard.press('Escape'); await until('songScreen', 'list'); await until('playerSlots', 'Detected|Detected');
-  // Three people, one per lane: MediaPipe tracks three poses. (Four copies of this wide-stance
-  // photo are too small or overlap too much to be found; see docs/three-and-four-players.md.)
+  // Three people side by side: MediaPipe tracks three poses (on a GPU, in a strip each). (Four
+  // copies of this wide-stance photo are too small or overlap too much to be found on the whole
+  // picture; see docs/three-and-four-players.md.)
   await game.evaluate(() => { (window as TestWindow).cameraPeople = 3; });
   await until('songReady', 'true'); await game.waitForTimeout(500);
   await click(BACK); await until('menuScreen', 'players'); await until('menuReady', 'true');
   await dialTo(3); await click(PLAYERS_GO); await until('playerSlots', 'Detected|Detected|Detected');
   assert.equal(await game.evaluate(() => ((window as TestWindow).poseDiagnostics as unknown[] | undefined)?.length), 3, 'MediaPipe reports three poses');
+  assert.equal(await game.evaluate(() => (window as TestWindow).poseTiled), gpu, gpu ? 'in strips on a GPU' : 'on the whole picture without one');
   assert.deepEqual(errors, []);
   console.log('Webcam integration passed: all Studio models, real two- and three-player inference, game camera permissions on calibration, cleanup, Studio live view, frame-timed recording, export, game bundle playback, persistence.');
 } catch (error) {

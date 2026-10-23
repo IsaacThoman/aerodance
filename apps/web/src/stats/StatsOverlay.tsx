@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { Component, useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import { addAfterEffect, addEffect, useThree } from '@react-three/fiber';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import { PIXEL_CAP, drawPixelText, loadPixelFont, pixelTextWidth } from '../ui/pixelFont.ts';
@@ -139,7 +140,20 @@ const newMeters = (): Meters => ({
   gpuTimer: null, gpuSupported: false, lastFrame: 0, frameStart: 0, draws: 0, triangles: 0,
 });
 
-export default function StatsOverlay({ mode, source, game, screen }: StatsOverlayProps) {
+export default function StatsOverlay(props: StatsOverlayProps) {
+  return <OverlayBoundary><Overlay {...props} /></OverlayBoundary>;
+}
+
+// The setting is saved, so an overlay that throws would take the game down on every launch:
+// it goes quietly instead.
+class OverlayBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error: unknown) { console.error('Stats overlay failed:', error); }
+  render() { return this.state.failed ? null : this.props.children; }
+}
+
+function Overlay({ mode, source, game, screen }: StatsOverlayProps) {
   const gl = useThree((state) => state.gl);
   const meters = useRef<Meters>(null);
   meters.current ??= newMeters();
@@ -196,9 +210,9 @@ export default function StatsOverlay({ mode, source, game, screen }: StatsOverla
     poseAges.add(event.receivedBrowserTimeMs, event.receivedBrowserTimeMs - event.captureBrowserTimeMs);
   }), [source, m, poseAges]);
 
-  // Main-thread tasks over 50ms (Chromium only).
+  // Main-thread tasks over 50ms (Chromium only; the Apple TV app has no PerformanceObserver).
   useEffect(() => {
-    if (!PerformanceObserver.supportedEntryTypes?.includes('longtask')) return undefined;
+    if (typeof PerformanceObserver === 'undefined' || !PerformanceObserver.supportedEntryTypes?.includes('longtask')) return undefined;
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) m.longTasks.add(entry.startTime + entry.duration, entry.duration);
     });

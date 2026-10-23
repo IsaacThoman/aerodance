@@ -14,6 +14,8 @@ import type { PoseWorker, WebcamPoseSourceOptions } from '../../../packages/pose
 import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { assignPlayerSlots, laneOf, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
 import { validateWebcamRecord } from '../../../packages/pose/webcamRecord.ts';
+import { cameraTurn, cameraTurner, hostState } from '../src/host.ts';
+import type { HostState, Orientation } from '../src/host.ts';
 import type { WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
 
 /** A worker response as the test writes it; deliver() adds the session. */
@@ -24,7 +26,7 @@ const detected = (landmarks: readonly Landmark[]): NormalizedLandmark[] =>
   landmarks.map(({ x, y, z, confidence }) => ({ x, y, z, visibility: confidence ?? 0, presence: confidence ?? undefined }));
 
 const points = (x: number) => Array.from({ length: 33 }, () => ({ x, y: 0.5, z: 0, visibility: 0.95, presence: 0.95 }));
-test('two-player slots require consecutive evidence and clear immediately on ambiguity', () => {
+test('Studio\'s video import lanes: two-player slots require consecutive evidence and clear immediately on ambiguity', () => {
   const slots = new PlayerSlotMapper();
   assert.deepEqual(slots.map([points(0.25)], 2), []);
   assert.deepEqual(slots.map([points(0.25)], 2).map(p => p.playerId), [1]);
@@ -33,7 +35,7 @@ test('two-player slots require consecutive evidence and clear immediately on amb
   assert.deepEqual(slots.map([points(0.75)], 2), []);
   assert.deepEqual(slots.map([points(0.75)], 2).map(p => p.playerId), [0]);
 });
-test('three and four players get one camera lane each, P1 on the left of the mirrored preview', () => {
+test('Studio\'s video import lanes: three and four players get one camera lane each, P1 on the left of the mirrored preview', () => {
   // Unmirrored camera x: P1's lane is on the camera's right.
   assert.deepEqual([0.875, 0.625, 0.375, 0.125].map(x => laneOf(x, 4)), [0, 1, 2, 3]);
   assert.deepEqual([0.85, 0.5, 0.15].map(x => laneOf(x, 3)), [0, 1, 2]);
@@ -47,7 +49,7 @@ test('three and four players get one camera lane each, P1 on the left of the mir
   assert.deepEqual(slots.map(all, 4).map(p => p.playerId), [0, 1, 2, 3]);
   assert.deepEqual(slots.map(all.slice(0, 3), 4).map(p => p.playerId), [0, 1, 2]);
 });
-test('webcam slots use camera regions, preserve missing dancers and reject ambiguity', () => {
+test('Studio\'s video import lanes use camera regions, preserve missing dancers and reject ambiguity', () => {
   assert.deepEqual(assignPlayerSlots([points(0.75), points(0.25)], 2).map(p => [p.playerId, p.landmarks[0].x]), [[0, 0.75], [1, 0.25]]);
   assert.deepEqual(assignPlayerSlots([points(0.75)], 2).map(p => p.playerId), [0]);
   assert.deepEqual(assignPlayerSlots([points(0.5)], 2), []);
@@ -122,6 +124,105 @@ test('webcam backpressure, empty detections, freshness and cleanup', async t => 
   assert.equal(f.source.view.status, 'disconnected');
   assert.equal(f.stopped, 1); assert.equal(f.terminated, 1);
 });
+test('the newest frame that comes while one is in flight is sent as soon as its result is in', async t => {
+  const f = fixture(t);
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  const frames = () => f.messages.filter(m => m.type === 'frame');
+  await f.frame(1); await f.frame(1.033); await f.frame(1.066);
+  assert.equal(frames().length, 1, 'one frame in flight');
+  f.setTime(1070); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 40 });
+  await Promise.resolve();
+  const sent = frames();
+  assert.equal(sent.length, 2, 'the waiting frame goes at once, without waiting for the camera\'s next');
+  assert.equal(sent[1].type === 'frame' && Math.round(sent[1].timestampMs), 1066, 'the newest of the frames that waited');
+  assert.equal(f.source.dropped, 1, 'the older one is dropped');
+});
+test('a frame that waited is closed when the camera changed size before it came', async t => {
+  let made = 0, closed = 0;
+  const f = fixture(t, { bitmap: async () => { made++; return { close() { closed++; } } as ImageBitmap; } });
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  await f.frame(1);
+  Object.assign(f.video, { videoWidth: 480, videoHeight: 640 });
+  await f.frame(1.033);
+  f.setTime(1050); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 30 });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.source.view.status, 'error');
+  assert.deepEqual({ made, closed }, { made: 2, closed: 1 }, 'all but the one the worker has (and closes)');
+});
+
+// A turned camera (the iPhone/iPad app on a TV): a canvas and createImageBitmap that remember which
+// of the camera's pictures, and what size, each copy is of.
+function turned(t: TestContext, turnOf: () => number) {
+  let shown = 0, taken = 0;
+  const canvas = { width: 0, height: 0, content: { frame: 0, w: 0, h: 0 }, getContext: () => g } as unknown as HTMLCanvasElement & { content: { frame: number; w: number; h: number } };
+  const g = { setTransform() {}, rotate() {}, drawImage() { canvas.content = { frame: shown, w: canvas.width, h: canvas.height }; } };
+  const f = fixture(t, { adaptToResize: true, createCanvas: () => canvas, turn: () => turnOf(),
+    bitmap: async picture => {
+      taken++;
+      const copy = picture === canvas ? { ...canvas.content } : { frame: shown, w: f.video.videoWidth!, h: f.video.videoHeight! };
+      return { ...copy, width: copy.w, height: copy.h, close() {} } as unknown as ImageBitmap;
+    } });
+  const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  const sent = () => f.messages.flatMap(m => m.type === 'frame' ? [m.bitmap as unknown as { frame: number; width: number; height: number }] : []);
+  return { f, records, sent, show(frame: number) { shown = frame; }, get taken() { return taken; } };
+}
+const settled = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('a frame that waits on a turned camera goes with its own picture, turned, at its size, though the turn changed meanwhile', async t => {
+  let turn = 0;
+  const rig = turned(t, () => turn), { f, records, sent, show } = rig;
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  show(1); await f.frame(1); await settled();
+  // The device is turned sideways while the first frame is in flight.
+  turn = 90; show(2); await f.frame(1.033); await settled();
+  f.setTime(1060); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 20 }); await settled();
+  f.setTime(1090); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 20 }); await settled();
+  assert.deepEqual(records.map(r => `${r.input.width}x${r.input.height}`), ['640x480', '480x640'], 'each result at its own picture\'s size');
+  assert.deepEqual(sent().map(b => [b.frame, b.width, b.height]), [[1, 640, 480], [2, 480, 640]], 'the second picture is the one that waited, turned');
+  assert.equal(rig.taken, 2, 'taken once each, when it came');
+});
+
+test('a frame that waited since before the camera changed size goes at its old size, and the next one finds the change', async t => {
+  const pictures: { width: number; height: number; closed: boolean }[] = [];
+  const f = fixture(t, { bitmap: async () => {
+    const picture = { width: f.video.videoWidth!, height: f.video.videoHeight!, closed: false };
+    pictures.push(picture);
+    return { ...picture, close() { picture.closed = true; } } as unknown as ImageBitmap;
+  } });
+  const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  await f.frame(1); await f.frame(1.033);
+  Object.assign(f.video, { videoWidth: 480, videoHeight: 640 });
+  f.setTime(1050); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 30 });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const sent = f.messages.flatMap(m => m.type === 'frame' ? [m.bitmap as unknown as { width: number; height: number }] : []);
+  assert.deepEqual(sent.map(b => `${b.width}x${b.height}`), ['640x480', '640x480'], 'the frame that waited goes, at the size it was');
+  f.setTime(1080); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 30 });
+  assert.deepEqual(records.map(r => `${r.input.width}x${r.input.height}`), ['640x480', '640x480']);
+  await f.frame(1.066); await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.source.view.status, 'error', 'the next frame, at the new size, can\'t be tracked by this source');
+  assert.equal(pictures.filter(p => p.closed).length, 1, 'and its picture is closed');
+});
+
+test('a frame that waits on a turned camera keeps its size when the camera changes before it goes', async t => {
+  // An iPad on a TV held sideways: WebKit turned the camera for the TV (the game turns it back), then
+  // turns it for the iPad's own screen, which needs no turn. Upright, the picture never changes size.
+  let turn = 90;
+  const { f, records, sent, show } = turned(t, () => turn);
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  show(1); await f.frame(1); await settled();
+  show(2); await f.frame(1.033); await settled();
+  // The camera turns before the next picture's callback.
+  Object.assign(f.video, { videoWidth: 480, videoHeight: 640 }); turn = 0;
+  f.setTime(1060); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 20 }); await settled();
+  f.setTime(1090); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 20 }); await settled();
+  show(3); await f.frame(1.066); await settled();
+  f.setTime(1120); f.deliver({ type: 'result', seq: 3, landmarks: [], inferenceMs: 20 }); await settled();
+  assert.deepEqual(records.map(r => `${r.input.width}x${r.input.height}`), ['480x640', '480x640', '480x640'], 'no change of size, so nothing starts afresh');
+  assert.deepEqual(sent().map(b => [b.frame, b.width, b.height]), [[1, 480, 640], [2, 480, 640], [3, 480, 640]]);
+});
 test('a permission grant after cancellation releases its camera without starting a worker', async t => {
   const f = fixture(t); let grant: ((stream: MediaStream) => void) | undefined;
   assert.ok(f.source.mediaDevices);
@@ -132,6 +233,43 @@ test('a permission grant after cancellation releases its camera without starting
   grant(f.stream); await starting;
   assert.equal(f.stopped, 1); assert.equal(f.messages.length, 0);
   assert.equal(f.source.view.status, 'disconnected');
+});
+test('three or four players are each looked for in a strip of the picture', async t => {
+  const f = fixture(t);
+  await f.source.setPlayerCount(3); await f.source.connect();
+  const init = f.messages.find(m => m.type === 'initialize');
+  assert.ok(init?.type === 'initialize');
+  assert.deepEqual(init.tiles?.map(tile => +(tile.x + tile.width / 2).toFixed(3)), [0.225, 0.5, 0.775], 'evenly spread, covering the picture');
+  assert.equal(init.playerCount, 4, 'a whole-picture fallback looks for one more person than there are players');
+  // Two players use the whole picture, and so do sources asked not to use strips.
+  const two = fixture(t);
+  await two.source.setPlayerCount(2); await two.source.connect();
+  const twoInit = two.messages.find(m => m.type === 'initialize');
+  assert.ok(twoInit?.type === 'initialize' && !twoInit.tiles);
+  assert.equal(twoInit.playerCount, 2, 'two players must not keep the detector searching for a third person');
+  const whole = fixture(t, { tiles: false });
+  await whole.source.setPlayerCount(4); await whole.source.connect();
+  const wholeInit = whole.messages.find(m => m.type === 'initialize');
+  assert.ok(wholeInit?.type === 'initialize' && !wholeInit.tiles);
+});
+test('each frame tells the worker how many players the last result found, for its strips', async t => {
+  // Somebody standing at x, as MediaPipe reports them.
+  const person = (cx: number) => Array.from({ length: 33 }, (_, i) => {
+    const side = i % 2 ? -1 : 1, joint = ({ 11: [0.07, -0.13], 13: [0.085, -0.01], 15: [0.09, 0.1], 23: [0.045, 0.11], 25: [0.05, 0.27], 27: [0.05, 0.43] } as Record<number, number[]>)[i - (i % 2 ? 0 : 1)] ?? [0, -0.25];
+    return { x: cx + (i >= 11 ? joint[0] * side : 0), y: 0.45 + joint[1], z: 0, visibility: 0.95, presence: 0.95 };
+  });
+  const f = fixture(t);
+  await f.source.setPlayerCount(3); await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '', tiled: true });
+  const frames = () => f.messages.filter(m => m.type === 'frame');
+  for (let i = 0; i < 3; i++) {
+    await f.frame(1 + i / 30); f.setTime(1000 + i * 33 + 20);
+    f.deliver({ type: 'result', seq: i + 1, landmarks: [person(0.3), person(0.7)], inferenceMs: 20 });
+  }
+  await f.frame(1.1);
+  assert.deepEqual(frames().map(m => m.type === 'frame' && m.players), [0, 0, 2, 2], 'none until somebody has been seen twice, then two');
+  f.source.disconnect(); await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '', tiled: true });
+  await f.frame(2);
+  assert.equal(frames().at(-1)?.type === 'frame' && frames().at(-1)?.players, 0, 'a new session starts with none');
 });
 test('changing a running model resets the session and records the explicit selection', async t => {
   const f = fixture(t);
@@ -152,7 +290,7 @@ test('webcam capture times drive scored gameplay and recordings through the cont
   const dir = new URL('./fixtures/song-70c63c8e/', import.meta.url);
   const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
   const song = validateSong(read('song.json'));
-  const bundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null };
+  const bundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null, scoreId: song.songId };
   let songStart = 0;
   // Only play and songTimeAt matter here: the test never updates the session.
   const player: SessionPlayer = { state: 'paused', ended: false, endMs: bundle.song.playableEndMs, play() { this.state = 'playing'; songStart = f.now; },
@@ -233,6 +371,75 @@ test('frames from a camera whose frame metadata never advances (Safari) are stil
   // A repeat of the same picture is still skipped.
   await f.frame(0, 120);
   assert.equal(sent().length, 3);
+});
+test('in the app, the camera picture turns upright the way the device is held, not the way the TV is', () => {
+  const tall = { width: 480, height: 640 }, wide = { width: 640, height: 480 };
+  // An iPhone on a TV: its remote is upright, so WebKit turns the picture upright for an upright phone.
+  const onTV = (held: Orientation): HostState => ({ ...hostState(), screen: 'tv', held, screens: { game: 0, phone: 0 } });
+  assert.deepEqual([0, 90, -90, 180].map(held => cameraTurn({ ...tall, facing: 'environment' }, onTV(held as Orientation))), [0, 270, 90, 180],
+    'the back camera turns back against the phone: counterclockwise when it is turned counterclockwise');
+  assert.deepEqual([0, 90, -90, 180].map(held => cameraTurn({ ...tall, facing: 'user' }, onTV(held as Orientation))), [0, 90, 270, 180],
+    'the front camera, facing the other way, the other way round');
+  assert.equal(cameraTurn({ ...tall }, onTV(90)), 0, 'a camera facing neither way (plugged in) stays as it is');
+  // An iPad on a TV, sideways: WebKit may have turned the picture for the TV's screen or the iPad's.
+  const iPad: HostState = { ...onTV(90), screens: { game: 0, phone: 90 } };
+  assert.equal(cameraTurn({ ...tall, facing: 'environment' }, iPad), 270, 'upright for the TV');
+  assert.equal(cameraTurn({ ...wide, facing: 'environment' }, iPad), 0, 'upright for the iPad, which is held that way');
+  // Upside down, both screens are upright ones: the one WebKit last turned the camera for decides.
+  const upsideDown: HostState = { ...onTV(180), screens: { game: 0, phone: 180 } };
+  assert.equal(cameraTurn({ ...tall, facing: 'environment' }, upsideDown, 'phone'), 0, 'the iPad turned upside down on the TV');
+  assert.equal(cameraTurn({ ...tall, facing: 'environment' }, upsideDown, 'game'), 180, 'the camera started with the iPad upside down');
+  // With the game on an iPhone, the picture stays upright for its screen, however it's held.
+  const phone: HostState = { ...hostState(), held: 0, screens: { game: -90, phone: -90 } };
+  assert.equal(cameraTurn({ ...wide, facing: 'user' }, phone), 0);
+});
+test('WebKit turns the camera for the game\'s screen when a camera starts or the game moves, and for the iPad\'s when it turns after', () => {
+  let host: HostState = { ...hostState(), screen: 'tv', held: 180, screens: { game: 0, phone: 180 } };
+  const turn = cameraTurner(() => host), back = { width: 480, height: 640, facing: 'environment' };
+  assert.equal(turn({ ...back, capture: 1 }), 180, 'started upside down: turned for the TV');
+  host = { ...host, held: 0, screens: { game: 0, phone: 0 } };
+  assert.equal(turn({ ...back, capture: 1 }), 0, 'the iPad turned upright');
+  host = { ...host, held: 180, screens: { game: 0, phone: 180 } };
+  assert.equal(turn({ ...back, capture: 1 }), 0, 'and upside down again: turned for the iPad');
+  assert.equal(turn({ ...back, capture: 2 }), 180, 'a new start of the camera: for the TV again');
+  host = { ...host, screen: 'phone', screens: { game: 180, phone: 180 } };
+  assert.equal(turn({ ...back, capture: 2 }), 0, 'the game back on the iPad');
+});
+test('a turned camera tracks and previews its picture turned upright, and a turn of the device carries on at the new size', async t => {
+  let turn = 270;
+  const asked: unknown[] = [], drawn: unknown[][] = [], tracked: unknown[] = [];
+  const g = { setTransform() {}, rotate(angle: number) { drawn.push(['rotate', Math.round(angle * 180 / Math.PI)]); },
+    drawImage(...args: unknown[]) { drawn.push(['drawImage', ...args.slice(1)]); } };
+  const canvas = { width: 0, height: 0, getContext: () => g } as unknown as HTMLCanvasElement;
+  const f = fixture(t, { adaptToResize: true, createCanvas: () => canvas,
+    turn: frame => { asked.push(frame); return turn; }, bitmap: async picture => { tracked.push(picture); return { close() {} } as ImageBitmap; } });
+  f.track.getSettings = () => ({ deviceId: 'camera', facingMode: 'environment' });
+  const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.deepEqual(asked[0], { width: 640, height: 480, facing: 'environment', capture: f.source.generation });
+  assert.deepEqual(f.source.picture, { image: canvas, width: 480, height: 640 }, 'the preview shows the turned picture');
+  assert.deepEqual(drawn.slice(0, 2), [['rotate', 270], ['drawImage', -320, -240, 640, 480]]);
+  await f.frame(1); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 5 });
+  assert.equal(tracked[0], canvas, 'tracking gets the turned picture');
+  assert.deepEqual(records[0].input, { width: 480, height: 640, mirrored: false });
+  // The device turns upright again: the picture is the video's own, at its own size.
+  turn = 0;
+  await f.frame(2); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 5 });
+  assert.equal(f.source.picture, f.video);
+  assert.equal(tracked[1], f.video);
+  assert.deepEqual(records[1].input, { width: 640, height: 480, mirrored: false });
+  assert.equal(f.source.view.status, 'connected');
+  f.source.disconnect();
+  assert.equal(f.source.picture, null);
+  // Without adaptToResize (a browser's webcam), a new size needs a new calibration.
+  const h = fixture(t, { createCanvas: () => canvas, turn: () => turn });
+  turn = 0;
+  await h.source.connect(); h.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  turn = 90;
+  await h.frame(1);
+  assert.equal(h.source.view.status, 'error');
+  assert.match(h.source.view.message, /^Camera dimensions changed/);
 });
 test('a muted camera says it was interrupted instead of looking empty, and tracks again on unmute without restarting', async t => {
   const tick = () => new Promise(resolve => setTimeout(resolve, 150));

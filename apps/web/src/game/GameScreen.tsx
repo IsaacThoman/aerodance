@@ -15,7 +15,7 @@ import type { GamePhase, GameSession, Readiness } from './GameSession.ts';
 import { WEBCAM_STILL_MS } from './webcamCalibration.ts';
 import type { CalibrationPlayerStatus, CalibrationStatus } from './webcamCalibration.ts';
 import type { JudgementEvent, PlayerResult, WindowJudgement } from '../../../../packages/score/scorer.ts';
-import { drawWebcamPreview } from '../../../../packages/pose/browser/preview.ts';
+import { drawWebcamPreview, SKELETON } from '../../../../packages/pose/browser/preview.ts';
 import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
@@ -68,7 +68,7 @@ const JUDGEMENT_LOOK: Record<WindowJudgement, [label: string, face: Face]> = {
   lost: ['LOST TRACKING', ['#ffffff', '#e2e9f2', '#9fb3c8']],
 };
 const POPUP_S = 0.9;
-// Each status's label, colour and a short label for the narrow lanes of three or four players.
+// Each status's label, colour and a short label for the narrow columns of three or four players.
 const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color: string, short: string]> = {
   missing: ['Step into view', '#ffffff', 'Step in'],
   body: ['Keep your whole body in view', '#ffe27a', 'Whole body'],
@@ -133,6 +133,8 @@ function drawMirror(g: CanvasRenderingContext2D, { x, y, w, h }: Rect) {
 // preview, each player's status along the top and the shared hold along the bottom. With the
 // camera off, the preview is a big Start camera button (or with No camera, a button that plays
 // without one).
+/** Where each player last stood in the calibration preview (mirrored, as a fraction of its width). */
+const lastStood = new WeakMap<GameSession, number[]>();
 function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
   const { GAME_READY_BACK, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PROGRESS } = gameLayout(s.w);
   const h = s.hover;
@@ -143,7 +145,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
   drawGlassPanel(g, GAME_CALIBRATION_CARD, 30);
 
-  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame });
+  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 66 });
   const pairing = camera.pairing();
   if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
@@ -157,21 +159,40 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     fade.addColorStop(1, 'rgba(4, 34, 61, 0.85)');
     g.fillStyle = fade;
     g.fillRect(preview.x, top, preview.w, 110);
-    // Each player's status under their lane label, over the camera picture's lanes (the setup
-    // preview is mirrored: player 1 is on its left-hand side), short where the lane is narrow.
-    const lane = picture.w / session.playerCount;
+    // The players' statuses sit on a fade along the top, too.
+    const head = g.createLinearGradient(0, preview.y, 0, preview.y + 72);
+    head.addColorStop(0, 'rgba(4, 34, 61, 0.75)');
+    head.addColorStop(1, 'rgba(4, 34, 61, 0)');
+    g.fillStyle = head;
+    g.fillRect(preview.x, preview.y, preview.w, 72);
+    // Each player's status under their label, in a column each across the camera picture in the
+    // order they stand (mirrored, as the preview shows them; a player out of view keeps where
+    // they last stood, or their number's place), short where the columns are narrow. The preview
+    // labels each player over their head in the same colour.
+    const column = picture.w / session.playerCount;
     const crowd = session.playerCount > 2;
     const size = crowd ? 17 : 20;
+    const stood = lastStood.get(session) ?? Array.from({ length: session.playerCount }, (_, id) => (id + 0.5) / session.playerCount);
+    lastStood.set(session, stood);
+    const standing = (id: number) => {
+      const pose = connection.snapshot?.poses.find(p => p.playerId === id);
+      if (pose) stood[id] = 1 - (pose.landmarks[23].x + pose.landmarks[24].x) / 2;
+      return stood[id];
+    };
+    const columns = calibration.players.map((_, id) => id).sort((a, b) => standing(a) - standing(b));
     calibration.players.forEach((status, id) => {
       const [label, color, short] = CALIBRATION_STATUS[status];
+      const cx = picture.x + column * (columns.indexOf(id) + 0.5);
+      // (One player's label too: the fade dims the preview's own.)
+      drawShadowText(g, `P${id + 1}`, cx, preview.y + 24, { size: 16, weight: 800, align: 'center', color: SKELETON[id % SKELETON.length] });
       g.font = `800 ${size}px ${FONT}`;
-      const fits = !crowd && g.measureText(label).width <= lane - 24;
-      drawShadowText(g, ellipsize(g, fits ? label : short, lane - 24), picture.x + lane * (id + 0.5), preview.y + 50, { size, weight: 800, align: 'center', color });
+      const fits = !crowd && g.measureText(label).width <= column - 24;
+      drawShadowText(g, ellipsize(g, fits ? label : short, column - 24), cx, preview.y + 50, { size, weight: 800, align: 'center', color });
     });
     const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
     const message = calibration.complete ? 'Calibrated! Starting…'
       : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
-      : session.playerCount > 2 && calibration.players.includes('missing') ? 'One player per lane, feet in view'
+      : session.playerCount > 2 && calibration.players.includes('missing') ? 'Stand side by side, feet in view'
       : 'Stand still for 2.5 seconds';
     drawShadowText(g, message, mid, GAME_CALIBRATION_PROGRESS.y - 24, { size: 22, weight: 800, align: 'center' });
     drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);

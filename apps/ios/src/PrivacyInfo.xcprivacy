@@ -2,8 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   The app's privacy manifest. No tracking and no data collected: the camera's frames are only
-  tracked on the device. main.m's one required-reason API is NSUserDefaults, which keeps a copy of
-  the page's saved scores and settings, read and written by the app alone (CA92.1).
+  tracked on the device. main.m's required-reason APIs are NSUserDefaults, which keeps a copy of
+  the page's saved scores and settings, read and written by the app alone (CA92.1), and the
+  modification times of the imported songs' ZIPs in the app's Documents folder, so the page
+  reads one again when it changes (C617.1).
 -->
 <plist version="1.0">
 <dict>
@@ -21,6 +23,14 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
 			</array>
 		</dict>
 	</array>

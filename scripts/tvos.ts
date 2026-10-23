@@ -126,14 +126,15 @@ function writeSplash() {
   writeFileSync(path.join(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'xcode', version: 1 } }, null, 2));
 }
 
-// Fonts the canvas UI uses: Inter (scripts/apple.ts) and Nunito from @fontsource. Bundled as
-// <Family>__<weight>.<ext> (src/Fonts.mm).
+// Fonts the canvas UI uses: Inter (scripts/apple.ts), and Nunito and Tiny5 (the stats overlay)
+// from @fontsource. Bundled as <Family>__<weight>.<ext> (src/Fonts.mm).
 async function copyFonts() {
   const out = path.join(www, 'fonts');
   await copyInter(out);
   for (const weight of [700, 900]) {
     cpSync(path.join(root, `node_modules/@fontsource/nunito/files/nunito-latin-${weight}-normal.woff`), path.join(out, `Nunito__${weight}.woff`));
   }
+  cpSync(path.join(root, 'node_modules/@fontsource/tiny5/files/tiny5-latin-400-normal.woff'), path.join(out, 'Tiny5__400.woff'));
 }
 
 /** The Aero world benchmark (apps/tvos/bench/) into apps/tvos/bench/dist/. */

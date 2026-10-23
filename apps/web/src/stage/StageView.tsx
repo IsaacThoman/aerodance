@@ -374,7 +374,7 @@ function StageContent({ id, onScreen, routine, results, onReady, onDancersFail }
         </Suspense>
       </StageBoundary>
       {/* A new song or stage gives dancers that failed to load another try. */}
-      <DancerBoundary key={`${id}|${routine?.bundle.song.songId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
+      <DancerBoundary key={`${id}|${routine?.bundle.scoreId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
         {results
           ? hasShow(results) && <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent} />
           : <Dancers routine={routine} {...meta.dancers} />}
