@@ -198,7 +198,13 @@ void BuildEngine() {
   }];
   [gEngine attachNode:gSourceNode];
   NSError *error = nil;
-  if (![gEngine connect:gSourceNode to:gEngine.mainMixerNode format:format error:&error]) HostLog(2, [NSString stringWithFormat:@"audio connect: %@", error]);
+  if (@available(tvOS 27.0, *)) {
+    if (![gEngine connect:gSourceNode to:gEngine.mainMixerNode format:format error:&error]) HostLog(2, [NSString stringWithFormat:@"audio connect: %@", error]);
+  } else {
+    // tvOS 26 (the last on the first Apple TV 4K) only has the version that throws.
+    @try { [gEngine connect:gSourceNode to:gEngine.mainMixerNode format:format]; }
+    @catch (NSException *e) { HostLog(2, [NSString stringWithFormat:@"audio connect: %@", e.reason]); }
+  }
   if (![gEngine startAndReturnError:&error]) HostLog(2, [NSString stringWithFormat:@"audio engine: %@", error]);
   // A new output route (AirPods, a HomePod, a different TV) stops the engine: start it again.
   __block id observer = [NSNotificationCenter.defaultCenter addObserverForName:AVAudioEngineConfigurationChangeNotification object:gEngine queue:nil usingBlock:^(NSNotification *) {
@@ -228,10 +234,18 @@ void Start() {
   os_unfair_lock_unlock(&gLock);
   BuildEngine();
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-  // After an interruption (another app took the audio session) the system recommends resuming.
-  [center addObserverForName:AVAudioSessionResumptionRecommendationNotification object:session queue:nil usingBlock:^(NSNotification *) {
-    dispatch_async(gEvents, ^{ Restart(@"an interruption"); });
-  }];
+  // After an interruption (another app took the audio session) the system recommends resuming;
+  // before tvOS 27 it says so with the interruption's end.
+  if (@available(tvOS 27.0, *)) {
+    [center addObserverForName:AVAudioSessionResumptionRecommendationNotification object:session queue:nil usingBlock:^(NSNotification *) {
+      dispatch_async(gEvents, ^{ Restart(@"an interruption"); });
+    }];
+  } else {
+    [center addObserverForName:AVAudioSessionInterruptionNotification object:session queue:nil usingBlock:^(NSNotification *note) {
+      if ([note.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue] != AVAudioSessionInterruptionTypeEnded) return;
+      dispatch_async(gEvents, ^{ Restart(@"an interruption"); });
+    }];
+  }
   [center addObserverForName:AVAudioSessionMediaServicesWereResetNotification object:session queue:nil usingBlock:^(NSNotification *) {
     dispatch_async(gEvents, ^{ [AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryPlayback error:nil]; Restart(@"a media services reset"); });
   }];
