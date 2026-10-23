@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, drawStatusDot,
-  ellipsize, ICONS, paragraph, text,
+  FONT, drawCaps, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, drawStatusDot,
+  ellipsize, ICONS, paragraph, roundRect, text,
 } from '../ui/draw.ts';
-import type { Face } from '../ui/draw.ts';
+import type { Face, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import { CameraSetup, cameraWidgets, drawCameraPicker } from '../connect/cameraSetup.ts';
@@ -20,12 +20,13 @@ import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
 import { getMixer } from '../audio/mixer.ts';
-import { gameLayout, LIVE_PANEL, livePanelCenterX, livePanelHeight } from './layout.ts';
+import { gameLayout, PLAYER_HUD_TOP, playerHudX } from './layout.ts';
 import { displayDesign } from '../display.ts';
+import MirrorDancers from './MirrorDancers.tsx';
+import type { MirrorView } from './MirrorDancers.tsx';
 
 /**
- * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers
- * and the players' live characters):
+ * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers):
  *
  *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
  *              pressed, over the camera picker; every player holds still together for
@@ -34,7 +35,8 @@ import { displayDesign } from '../display.ts';
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
- *   playing    each player's score, combo and judgements under their live character, the
+ *   playing    each player's score, combo and judgements in the top corners, the mirror
+ *              (every player's live character as a cutout, top centre; MirrorDancers), the
  *              song's progress, and a pause button (Escape, a hidden tab, or an interruption:
  *              a phone call taking the audio, or iOS taking the camera; interruptions.ts)
  *   paused     Resume (with a fresh countdown), Restart, Song select, and why the song can't
@@ -77,6 +79,10 @@ const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color:
 
 // The song plays with the live camera (not a replay, and not with No camera).
 const usesCamera = (session: GameSession) => !!session.source && session.source.view.sourceKind !== 'replay' && !session.withoutCamera;
+// The players' HUD and the mirror show during the song.
+const SONG_PHASES: readonly GamePhase[] = ['countdown', 'playing', 'paused', 'finishing'];
+// The pause screen's veil over the song.
+const VEIL = 0.35;
 
 const fmt = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -85,8 +91,8 @@ const fmt = (ms: number) => {
 
 // Without a camera (tracking false) there is nothing to say about tracking.
 function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean, width: number) {
-  const cx = livePanelCenterX(id, count, width) * width;
-  const top = (LIVE_PANEL.top + livePanelHeight(count)) * 900 + 14;
+  const cx = playerHudX(id, count, width) * width;
+  const top = PLAYER_HUD_TOP;
   const p = PLAYERS[id];
   // Three or four panels share the corners, so their text is smaller.
   const crowd = count > 2;
@@ -94,7 +100,7 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, r
   headline(g, (result?.score ?? 0).toLocaleString('en-US'), cx, top + (crowd ? 66 : 76), crowd ? 36 : 46, ['#ffffff', p.light, p.color], crowd ? 200 : 300);
   if (result && result.combo > 1) drawShadowText(g, `${result.combo} combo`, cx, top + (crowd ? 94 : 108), { size: crowd ? 18 : 22, weight: 800, align: 'center', color: '#bff4ff' });
   if (tracking && readiness === 'missing') drawShadowText(g, crowd ? 'Step back in' : 'Step back into view', cx, top + (crowd ? 120 : 138), { size: crowd ? 17 : 20, weight: 700, align: 'center', color: '#ffe27a' });
-  // The newest judgement pops in over the character's feet and floats up.
+  // The newest judgement pops in over the score and floats up.
   const pop = popups.filter((j) => j.playerId === id && (tracking || j.judgement !== 'lost')).at(-1);
   if (pop) {
     const age = now - pop.at;
@@ -109,6 +115,18 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, r
       g.restore();
     }
   }
+}
+
+// The mirror's dark glass; MirrorDancers draws the players' cutouts over it.
+function drawMirror(g: CanvasRenderingContext2D, { x, y, w, h }: Rect) {
+  g.save();
+  roundRect(g, x, y, w, h, 18);
+  g.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  g.fill();
+  g.lineWidth = 2;
+  g.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  g.stroke();
+  g.restore();
 }
 
 // The webcam setup card, centred: the mirrored preview, then the camera picker. Over the
@@ -204,12 +222,16 @@ function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup,
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
+  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, session, source, onQuit, onRetry });
   props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
   // The calibration screen's camera controls (the source's view is always current).
   const [camera] = useState(() => new CameraSetup(() => ({ source: props.current.source, connection: props.current.source.view })));
+  // The mirror this frame, for MirrorDancers (null hides it).
+  const mirror = useRef<MirrorView | null>(null);
+  // Nothing to say about tracking without a camera, or while iOS has it (the pause screen says why).
+  const tracking = (session: GameSession) => (!session.withoutCamera || props.current.source.view.status === 'connected') && !(usesCamera(session) && camera.interrupted());
 
   const live = () => props.current.visible && phase() !== 'results' && st.alpha > 0.3;
   const phase = (): GamePhase => props.current.session?.phase ?? 'loading';
@@ -277,8 +299,12 @@ export default function GameScreen({ visible = false, session, camera: source, o
         st.screen = screen;
         if (s.keyFocus) s.focus(null);
       }
+      mirror.current = null;
       if (!p.visible || !session) return;
       session.update(performance.now());
+      if (SONG_PHASES.includes(session.phase) && tracking(session)) {
+        mirror.current = { rect: gameLayout(s.w).GAME_MIRROR, w: s.w, h: s.h, dim: session.phase === 'paused' ? VEIL : 0, alpha: st.alpha };
+      }
       // Animated every frame while a song is on: scores, the countdown, popups, readiness.
       s.invalidate();
       const now = s.time;
@@ -349,16 +375,17 @@ export default function GameScreen({ visible = false, session, camera: source, o
       // During the song: the players' scores, judgements and the song's progress.
       const scores = session.scorer.results();
       const readiness = session.readiness();
-      // Nothing to say about tracking while iOS has the camera either (the pause screen says why).
-      const tracking = (!session.withoutCamera || p.source.view.status === 'connected') && !(usesCamera(session) && camera.interrupted());
-      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, session.playerCount, scores[id], readiness[id], st.popups, now, tracking, s.w);
+      const tracked = tracking(session);
+      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, session.playerCount, scores[id], readiness[id], st.popups, now, tracked, s.w);
+      if (tracked) drawMirror(g, GAME_MIRROR);
       if (ph !== 'paused') {
-        drawGlassCircle(g, GAME_PAUSE, h.pause ?? 0);
+        // Just the icon, light grey at the top of the mirror (white when hovered).
+        const hover = h.pause ?? 0;
         g.save();
-        g.fillStyle = g.strokeStyle = '#ffffff';
+        g.strokeStyle = `rgb(${200 + hover * 55}, ${205 + hover * 50}, ${212 + hover * 43})`;
         g.lineWidth = 4;
         g.lineCap = 'round';
-        ICONS.pause(g, GAME_PAUSE.x, GAME_PAUSE.y, GAME_PAUSE.r * 1.4);
+        ICONS.pause(g, GAME_PAUSE.x, GAME_PAUSE.y, 36);
         g.restore();
       }
       const t = session.loaded().timeMs() - song.playableStartMs;
@@ -388,7 +415,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
         drawShadowText(g, 'Tallying the bubbles…', s.w / 2, 470, { size: 40, weight: 800, align: 'center' });
       } else if (ph === 'paused') {
         g.save();
-        g.fillStyle = 'rgba(0, 24, 60, 0.35)';
+        g.fillStyle = `rgba(0, 24, 60, ${VEIL})`;
         g.fillRect(0, 0, s.w, s.h);
         g.restore();
         drawGlassPanel(g, GAME_PAUSE_PANEL, 34);
@@ -437,5 +464,5 @@ export default function GameScreen({ visible = false, session, camera: source, o
     ui.invalidate();
   }, [visible, gl, st, ui]);
 
-  return null;
+  return session ? <MirrorDancers session={session} view={mirror} /> : null;
 }

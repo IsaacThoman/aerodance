@@ -20,7 +20,6 @@ import StageView from './stage/StageView.tsx';
 import StatsOverlay from './stats/StatsOverlay.tsx';
 import { diagnostic } from './diagnostics.ts';
 import type { StageState } from './stage/StageView.tsx';
-import type { LiveDancers } from './stage/LivePanels.tsx';
 import type { LoadedSongBundle } from './songs/loadBundle.ts';
 import { resolveStage } from '../../../packages/stages/catalog.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
@@ -164,7 +163,7 @@ export default function App() {
     if (bundle) startGame(bundle);
   }, [game, endGame, startGame]);
 
-  // The session's phases drive the stage (live characters, results).
+  // The session's phases drive the stage (results).
   useEffect(() => {
     if (!game) return undefined;
     return game.onChange((session) => {
@@ -195,12 +194,6 @@ export default function App() {
   const statsMode = diagnostic('stats') ? 'full' : graphics.stats;
   // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
-  // The players' own characters, while the song is on.
-  const liveDancers = useMemo((): LiveDancers | null => (game && gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase) ? {
-    playerCount: game.playerCount,
-    livePose: (id, now) => game.livePose(id, now),
-    calibration: (id) => game.live[id]?.calibration ?? null,
-  } : null), [game, gamePhase]);
 
   return (
     <div ref={viewport} className="display-viewport">
@@ -213,7 +206,6 @@ export default function App() {
             orbiting={songsOpen && !!preview}
             stageId={stageId}
             routine={game ? gameRoutine : preview}
-            live={liveDancers}
             results={resultsVisible ? resultsShow : null}
             onState={setStage}
           />
