@@ -52,14 +52,24 @@ export const GAME_QUIT = { x: 610, y: 548, w: 380, h: 84 };
 export const GAME_PROGRESS = { x: 560, y: 852, w: 480, h: 14 };
 export const RESULTS_RETRY = { x: 470, y: 806, w: 320, h: 80 };
 export const RESULTS_SONGS = { x: 810, y: 806, w: 320, h: 80 };
-// Song Select preview: Dance! starts the song for real, bottom right.
+// Song Select preview: Dance! starts the song for real, bottom right, with Dancers beside it.
 export const DANCE = { x: 1172, y: 770, w: 300, h: 96 };
+export const DANCERS = { x: DANCE.x - 24 - 280, y: DANCE.y, w: 280, h: DANCE.h };
+// Dancers: a glass panel along the bottom with a column per player (as wide as four columns
+// fill the room left of Dance!), each showing a cutout of every dancer in the song to pick
+// from; Auto, above Dance!, casts everyone by where they stand again.
+const CAST_TOP = 676;
+export const CAST_AUTO = { x: DANCE.x, y: CAST_TOP, w: DANCE.w, h: 80 };
+const CAST_SLOT_H = 112;
 
 export function gameLayout(width = 1600) {
   const dx = (width - 1600) / 2;
   const compact = width === 1200;
   const centered = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x + dx });
   const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 480 : ROWS.w };
+  const dance = { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w };
+  const castW = Math.floor((dance.x - 24 - rows.x) / 4);
+  const castColumn = (player: number): Rect => ({ x: rows.x + player * castW, y: CAST_TOP, w: castW, h: dance.y + dance.h - CAST_TOP });
   return {
     BACK: { ...BACK, x: compact ? 110 : BACK.x },
     ROWS: rows,
@@ -68,7 +78,19 @@ export function gameLayout(width = 1600) {
     PAGE_DOWN: { ...PAGE_DOWN, x: rows.x + rows.w + 42 },
     RETRY: { ...RETRY, x: rows.x },
     PREVIEW_NOTE: { ...PREVIEW_NOTE, x: rows.x },
-    DANCE: { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w },
+    DANCE: dance,
+    DANCERS: { ...DANCERS, x: dance.x - 24 - DANCERS.w },
+    CAST_AUTO: { ...CAST_AUTO, x: dance.x },
+    /** The Dancers panel for a player count: their columns side by side. */
+    castPanel: (players: number): Rect => ({ ...castColumn(0), w: castW * players }),
+    /** A player's column in the Dancers panel. */
+    castColumn,
+    /** In a song with `dancers`, the cutout of each dancer a player can pick, centred in their column. */
+    castSlot: (dancers: number) => (player: number) => (dancer: number): Rect => {
+      const column = castColumn(player);
+      const w = Math.min(68, Math.floor((column.w - 24) / dancers));
+      return { x: column.x + (column.w - w * dancers) / 2 + dancer * w, y: column.y + 42, w, h: CAST_SLOT_H };
+    },
     GAME_MIRROR: centered(GAME_MIRROR),
     GAME_PAUSE: centered(GAME_PAUSE),
     GAME_READY_START: centered(GAME_READY_START),

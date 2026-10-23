@@ -1,6 +1,7 @@
 // Frutiger Aero drawing kit for the in-engine 2D overlays. Everything takes design units;
 // useCanvasUI scales them to the render buffer.
 import type { WebcamStatus } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
+import { CUTOUT_POSES, drawAeroCutout } from './aeroCutout.ts';
 
 type Ctx = CanvasRenderingContext2D;
 /** A point in design units. */
@@ -360,6 +361,13 @@ export const ICONS = {
     g.lineTo(cx - a + a * 0.55, cy + a * 0.55);
     g.stroke();
   },
+  // Two aero dancers side by side, filled in the ink (choose who dances which dancer).
+  dancers(g, cx, cy, r) {
+    const h = r * 1.05;
+    const fill = g.fillStyle;
+    drawAeroCutout(g, cx - r * 0.32, cy + h / 2, h, { fill, eyes: 'rgba(12, 47, 82, 0.9)', pose: CUTOUT_POSES[1] });
+    drawAeroCutout(g, cx + r * 0.32, cy + h / 2, h, { fill, eyes: 'rgba(12, 47, 82, 0.9)', pose: CUTOUT_POSES[0] });
+  },
   // Chevrons: up / down page a list, left / right step through choices.
   up(g, cx, cy, r) { chevron(g, cx, cy, r, -Math.PI / 2); },
   down(g, cx, cy, r) { chevron(g, cx, cy, r, Math.PI / 2); },
@@ -475,6 +483,11 @@ export type GlassButtonOptions = PillOptions & {
   style?: GlassStyle;
   /** Show the chevron on the right; the style decides by default. */
   chevron?: boolean;
+  /**
+   * Something drawn at the button's right end, `width` wide (the label shortens to leave it),
+   * in the label's ink and shadow, given the button's rect as drawn (lifted while hovered).
+   */
+  trailing?: { width: number; draw: (g: Ctx, rect: Rect) => void };
 };
 
 type Stops = readonly [top: string, bottom: string];
@@ -575,7 +588,7 @@ function drawIconTile(g: Ctx, x: number, y: number, s: number, [top, bottom]: St
 // Glass button (the title menu) in one of GLASS_STYLES: a rounded slab with a bright rim, its
 // icon, label and maybe a chevron. ui/useGlassBlur.ts blurs the world inside it; nothing
 // outside it is blurred or shadowed. Disabled buttons fade and stay put.
-export function drawGlassButton(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, press = 0, angle, disabled = false, style = 'dark', chevron }: GlassButtonOptions) {
+export function drawGlassButton(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, press = 0, angle, disabled = false, style = 'dark', chevron, trailing }: GlassButtonOptions) {
   if (disabled) {
     hover = 0;
     press = 0;
@@ -665,7 +678,7 @@ export function drawGlassButton(g: Ctx, rect: Rect, { label, sub, icon, hover = 
   // Label (and a smaller line under it), shortened to fit before the chevron, then the chevron.
   const arrow = chevron ?? look.chevron;
   const lx = glassLabelX(rect, style);
-  const room = x + w - lx - h * (arrow ? 0.62 : 0.3);
+  const room = x + w - lx - h * (arrow ? 0.62 : 0.3) - (trailing?.width ?? 0);
   g.save();
   if (look.shadow) [g.shadowColor, g.shadowBlur, g.shadowOffsetY] = look.shadow;
   g.fillStyle = look.ink;
@@ -690,6 +703,14 @@ export function drawGlassButton(g: Ctx, rect: Rect, { label, sub, icon, hover = 
     ICONS.right(g, x + w - h * 0.42 + hover * 4, cy, h * 0.3);
   }
   g.restore();
+  if (trailing) {
+    g.save();
+    if (look.shadow) [g.shadowColor, g.shadowBlur, g.shadowOffsetY] = look.shadow;
+    g.fillStyle = look.ink;
+    g.strokeStyle = look.ink;
+    trailing.draw(g, { x, y, w, h });
+    g.restore();
+  }
   g.restore();
 }
 

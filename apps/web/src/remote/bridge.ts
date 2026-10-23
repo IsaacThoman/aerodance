@@ -57,7 +57,7 @@ export function screenName(p: GamePage): string {
     case 'results': return 'Results';
     case 'error': return 'The song couldn\'t start';
   }
-  if (p.songReady === 'true') return p.songScreen === 'preview' ? 'Song preview' : 'Choosing a song';
+  if (p.songReady === 'true') return p.songScreen === 'preview' ? 'Song preview' : p.songScreen === 'cast' ? 'Choosing dancers' : 'Choosing a song';
   switch (p.menuScreen) {
     case 'main': return 'Main menu';
     case 'players': return 'Players';

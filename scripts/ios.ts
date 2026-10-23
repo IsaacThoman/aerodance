@@ -222,7 +222,7 @@ function receiveReports() {
       if (r.safeArea !== undefined && r.safeArea !== safeArea) { safeArea = r.safeArea; console.log(`Safe area: ${safeArea} px (top right bottom left)`); }
       if (r.host && JSON.stringify(r.host) !== host) { host = JSON.stringify(r.host); console.log(`Host: ${host}`); }
       const d = r.dataset ?? {};
-      const screen = d.gamePhase ? `game ${d.gamePhase}` : d.songScreen === 'preview' ? 'song preview' : `menu ${d.menuScreen ?? '?'}`;
+      const screen = d.gamePhase ? `game ${d.gamePhase}` : d.songScreen === 'preview' ? 'song preview' : d.songScreen === 'cast' ? 'song dancers' : `menu ${d.menuScreen ?? '?'}`;
       const heat = `${r.thermal ?? '?'}${r.lowPower ? ', low power' : ''}`;
       console.log(`${time}  ${String(r.fps).padStart(5)} fps  p95 ${String(r.frameMs?.p95).padStart(5)} ms  JS ${String(r.jsMsPerFrame).padStart(6)} ms/frame  ${String(r.drawsPerFrame).padStart(4)} draws  ${heat}  ${screen}  on ${r.display}`);
     });

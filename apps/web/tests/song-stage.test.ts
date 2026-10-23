@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { validateCatalog, validateSong } from '../../../packages/pose/song.ts';
 import { DEFAULT_STAGE, STAGE_LIST, resolveStage } from '../../../packages/stages/catalog.ts';
+import { coachesFor, routineCast } from '../../../packages/stages/shared/routine.ts';
 import { discoverSongs } from '../../../scripts/songCatalog.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 
@@ -15,6 +16,23 @@ test('the stage catalog lists the six dance stages and defaults to openreef', ()
   assert.equal(resolveStage('club'), 'club');
   assert.equal(resolveStage(undefined), 'openreef');
   assert.equal(resolveStage('moon'), 'openreef');
+});
+
+test('the stage shows every dancer of a song, once per player dancing them or once for nobody', () => {
+  const coach = (dancer: number, player: number | null) => ({ dancer, player });
+  assert.deepEqual(coachesFor([0, 1], 2), [coach(0, 0), coach(1, 1)]);
+  // One player of a duet sees the partner too; four see it danced in pairs.
+  assert.deepEqual(coachesFor([0], 2), [coach(0, 0), coach(1, null)]);
+  assert.deepEqual(coachesFor([0, 0, 1, 1], 2), [coach(0, 0), coach(0, 1), coach(1, 2), coach(1, 3)]);
+  // Picks put each player's coach at their dancer, the rest standing by in dancer order.
+  assert.deepEqual(coachesFor([2], 4), [coach(0, null), coach(1, null), coach(2, 0), coach(3, null)]);
+  assert.deepEqual(coachesFor([1, 0], 2), [coach(0, 1), coach(1, 0)]);
+  assert.equal(coachesFor([1, 1, 1, 1], 4).length, 7);
+  // A routine without a cast is cast by where the players stand.
+  const { song, choreography } = bundleFixture(3);
+  const bundle = { song, choreography: { tracks: choreography.tracks } } as unknown as Parameters<typeof routineCast>[0]['bundle'];
+  assert.deepEqual(routineCast({ bundle, playerCount: 4, timeMs: () => 0 }), [0, 0, 1, 2]);
+  assert.deepEqual(routineCast({ bundle, playerCount: 2, cast: [2, 2], timeMs: () => 0 }), [2, 2]);
 });
 
 test('songs and catalog entries may name a stage by id', () => {

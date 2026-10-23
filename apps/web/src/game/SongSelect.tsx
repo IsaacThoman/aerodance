@@ -1,21 +1,24 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText, ellipsize, glassCorner, paragraph, wrapText,
+  FONT, ICONS, drawCaps, drawDarkGlassPanel, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText, ellipsize, glassCorner,
+  paragraph, roundRect, wrapText,
 } from '../ui/draw.ts';
-import type { Circle, IconName } from '../ui/draw.ts';
+import type { Circle, IconName, Rect } from '../ui/draw.ts';
+import { WAVES, cutoutWidth, drawAeroCutout, traceAeroCutout } from '../ui/aeroCutout.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
-import useGlassBlur, { buttonPane } from '../ui/useGlassBlur.ts';
-import type { Widget } from '../ui/useCanvasUI.ts';
+import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
+import type { CanvasUI, Widget } from '../ui/useCanvasUI.ts';
 import { duckMenuMusic } from '../audio/mixer.ts';
 import { createSongPlayer } from '../audio/songPlayer.ts';
 import type { SongPlayer } from '../audio/songPlayer.ts';
 import { loadSongBundle } from '../songs/loadBundle.ts';
 import type { LoadedSongBundle } from '../songs/loadBundle.ts';
 import { customScoreId, customSongsSupported, listCustomSongs, loadCustomSong, savedCustomSong } from '../songs/customSongs.ts';
-import { validateCatalog } from '../../../../packages/pose/song.ts';
+import { songDancers, validateCatalog } from '../../../../packages/pose/song.ts';
 import type { CatalogSong } from '../../../../packages/pose/song.ts';
-import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
+import { autoCast } from '../../../../packages/pose/choreography.ts';
+import type { Cast, PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { SCORER_VERSION } from '../../../../packages/score/scorer.ts';
 import { bestScore } from './bestScores.ts';
 import type { SongRoutine } from './GameSession.ts';
@@ -23,6 +26,7 @@ import type { PoseInputView } from '../pose/PoseSource.ts';
 import { preloadStage, resolveStage } from '../../../../packages/stages/index.ts';
 import type { StageState } from '../stage/StageView.tsx';
 import { gameLayout } from './layout.ts';
+import { PLAYERS } from './results.ts';
 import { displayDesign } from '../display.ts';
 
 /**
@@ -31,21 +35,28 @@ import { displayDesign } from '../display.ts';
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
  *            then the songs imported into this browser or app (songs/customSongs.ts; Settings →
  *            Songs imports and removes them), four to a page
+ *            Each song's button shows a cutout of every dancer it was recorded with.
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
  *            Studio), the music looping on its own while the stage camera circles them,
- *            and Dance!, which hands the bundle to the game (onDance); the menu music
- *            ducks underneath
+ *            and Dance!, which hands the bundle and the cast to the game (onDance); the
+ *            menu music ducks underneath. Dancers (for a song of two or more) opens:
+ *   cast     who dances which dancer: a column per player, each picking one of the song's
+ *            dancers (by its cutout, or Left/Right); the stage's coaches take the colours of
+ *            the players dancing them. Without a pick, the players are cast by where they
+ *            stand (autoCast), as Auto puts back. Dance! starts from here too.
  *
  * Choosing a song keeps the list up, its row loading, until the preview can show at once: the
  * bundle loads (fully verified, songs/loadBundle.ts) while the stage's code downloads, then the
  * stage is built and compiled out of sight (StageView's `prepared`) and the preview opens.
- * Back / Escape go from the preview to the list and from the list to the player count.
+ * Back / Escape go from the dancers to the preview, from the preview to the list and from the
+ * list to the player count.
  * The canvas reports data-song-screen, -song-ready, -catalog, -song-count, -custom-song-count,
- * -song-load-error, -player-slots, -preview-state and -preview-time-ms for tests.
+ * -song-dancers (the page's songs' dancer counts), -song-load-error, -player-slots,
+ * -preview-state, -preview-time-ms, -cast (each player's dancer) and -cast-auto for tests.
  *
  * <SongSelect visible playerCount={1} connection={view} onBack
- *   stageState={{ showing, prepared, ready, stage, failed }} onPreviewChange onDance />
+ *   stageState={{ showing, prepared, ready, stage, failed }} onPreviewChange onDance={(bundle, cast) => ...} />
  */
 
 export interface SongSelectProps {
@@ -56,9 +67,11 @@ export interface SongSelectProps {
   stageState?: Partial<StageState>;
   /** The routine to preview on its stage, or null when the preview closes. */
   onPreviewChange?: (routine: SongRoutine | null) => void;
-  onDance?: (bundle: LoadedSongBundle) => void;
+  /** The Dancers screen opened (true) or closed: the stage camera faces the dancers meanwhile. */
+  onCastingChange?: (casting: boolean) => void;
+  onDance?: (bundle: LoadedSongBundle, cast: Cast) => void;
 }
-type SongScreen = 'list' | 'preview';
+type SongScreen = 'list' | 'preview' | 'cast';
 type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
 type PreviewState = 'loading' | 'error' | SongPlayer['state'];
 /** A listed song: published, or imported into this browser or app (custom). key tells them apart in the list. */
@@ -76,6 +89,11 @@ interface SongSelectState {
   bundle: LoadedSongBundle | null;
   player: SongPlayer | null;
   routine: SongRoutine | null;
+  /** The players' picks of dancers, or null to cast them by where they stand; and whose song they're for. */
+  cast: number[] | null;
+  castSong: string | null;
+  /** The Dancers screen is (about to be) up, as onCastingChange last heard. */
+  casting: boolean;
   previewState: PreviewState;
   previewError: string;
   drawn: string;
@@ -90,6 +108,29 @@ const listed = (songs: readonly CatalogSong[], custom: boolean): ListedSong[] =>
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
 const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
+const INK_EYES = 'rgba(12, 47, 82, 0.9)';
+// Over the Dancers panel: which player is which.
+const CAST_HINTS = [
+  'Pick the dancer you’ll dance.',
+  'Player 1 stands on the left, Player 2 on the right.',
+  'Player 1 stands furthest left, then 2 and 3.',
+  'Player 1 stands furthest left, then 2, 3 and 4.',
+];
+
+// A white cutout of each of a song's dancers, side by side at the right end of its button: as
+// many as it was recorded with, however many are playing.
+function dancerCutouts(dancers: number, rowH: number) {
+  const height = Math.round(rowH * 0.64);
+  const w = cutoutWidth(height);
+  const step = w * 0.86;
+  return {
+    width: w + (dancers - 1) * step + rowH * 0.12,
+    draw: (g: CanvasRenderingContext2D, rect: Rect) => {
+      const right = rect.x + rect.w - rect.h * 0.28 - w / 2;
+      for (let i = 0; i < dancers; i++) drawAeroCutout(g, right - (dancers - 1 - i) * step, rect.y + rect.h * 0.85, height, { fill: '#ffffff', eyes: INK_EYES });
+    },
+  };
+}
 
 // Each player's tracking, from the pose input (reported for tests as data-player-slots).
 function slotStatus(connection: PoseInputView, id: number): { label: string; kind?: 'detected' } {
@@ -103,18 +144,18 @@ function slotStatus(connection: PoseInputView, id: number): { label: string; kin
 
 export default function SongSelect({
   visible = false, playerCount = 1, connection, onBack,
-  stageState = {}, onPreviewChange, onDance,
+  stageState = {}, onPreviewChange, onCastingChange, onDance,
 }: SongSelectProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const { BACK, DANCE, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, rowRect } = gameLayout(displayDesign(size.width, size.height).w);
-  const props = useRef({ visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance });
-  props.current = { visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance };
+  const { BACK, CAST_AUTO, DANCE, DANCERS, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, castColumn, castPanel, castSlot, rowRect } = gameLayout(displayDesign(size.width, size.height).w);
+  const props = useRef({ visible, playerCount, connection, onBack, stageState, onPreviewChange, onCastingChange, onDance });
+  props.current = { visible, playerCount, connection, onBack, stageState, onPreviewChange, onCastingChange, onDance };
   const st = useRef<SongSelectState>({
     alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
     loading: null, chosen: null, loadError: '',
-    bundle: null, player: null, routine: null, previewState: 'loading', previewError: '',
+    bundle: null, player: null, routine: null, cast: null, castSong: null, casting: false, previewState: 'loading', previewError: '',
     drawn: '', reported: '',
   }).current;
 
@@ -126,14 +167,31 @@ export default function SongSelect({
   const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.key === st.chosen));
   const songWidget = (song: ListedSong, i: number): SongWidget => ({ id: `song-${song.key}`, song, rect: rowRect(i), corner: glassCorner(rowRect(i).h), primary: i === primaryRow() });
   // The keyboard cursor starts over on the next screen; back on the list (also by Escape), on
-  // the song it opened.
+  // the song it opened, and on the dancers, on player 1.
   const go = (screen: SongScreen, key = ui.keyboard) => {
     if (screen === st.next) return;
     st.next = screen;
     if (!key) return;
+    if (screen === 'cast') { ui.focus(castWidget(0)); return; }
     const i = screen === 'list' ? pageSongs().findIndex((song) => song.key === st.chosen) : -1;
     ui.focus(i >= 0 ? songWidget(pageSongs()[i], i) : null);
   };
+
+  // The previewed song's dancers, and who dances each: the players' picks, or by where they stand.
+  const dancers = () => st.bundle?.choreography.tracks.length ?? 0;
+  const cast = (): Cast => (st.cast?.length === props.current.playerCount ? st.cast : autoCast(props.current.playerCount, dancers()));
+  const castWidget = (player: number): Widget => ({ id: `cast-${player}`, rect: castColumn(player), corner: 24 });
+  // A new cast goes to the stage (its coaches recolour) in a new routine. Picking what the
+  // players would be cast anyway is no pick at all.
+  const recast = (picks: number[] | null) => {
+    const auto = autoCast(props.current.playerCount, dancers());
+    st.cast = picks && picks.some((d, i) => d !== auto[i]) ? picks : null;
+    if (!st.routine) return;
+    st.routine = { ...st.routine, cast: cast() };
+    props.current.onPreviewChange?.(st.routine);
+  };
+  const pick = (player: number, dancer: number) => recast(cast().map((d, i) => (i === player ? dancer : d)));
+  const step = (player: number, dir: number) => pick(player, (cast()[player] + dir + dancers()) % dancers());
 
   // Loads the published and imported songs. With show (a song's key), the list turns to its page
   // and the keyboard cursor, if out, goes to it; otherwise the page stays where it was.
@@ -185,9 +243,13 @@ export default function SongSelect({
     st.bundle = bundle;
     st.previewState = 'loading';
     st.previewError = '';
+    // The players' picks last while they come back to the same song.
+    if (st.castSong !== bundle.scoreId) st.cast = null;
+    st.castSong = bundle.scoreId;
     const routine: SongRoutine = {
       bundle,
       playerCount: props.current.playerCount,
+      cast: cast(),
       // While the timeline is dragged the dancers follow the knob.
       timeMs: () => st.player?.timeMs() ?? song.playableStartMs,
       playing: () => st.player?.state === 'playing',
@@ -205,7 +267,7 @@ export default function SongSelect({
           st.previewState = player.state;
           ui.invalidate();
         });
-        if (!document.hidden && st.next === 'preview') player.play();
+        if (!document.hidden && st.next !== 'list') player.play();
         st.previewState = player.state;
       })
       .catch(() => {
@@ -249,6 +311,12 @@ export default function SongSelect({
   };
 
   const back = (key?: boolean) => {
+    if (st.screen === 'cast') {
+      // The cursor comes back to Dancers.
+      go('preview', false);
+      if (key || ui.keyboard) ui.focus({ id: 'dancers', rect: DANCERS });
+      return;
+    }
     if (st.screen === 'preview') { closePreview(); go('list', key); return; }
     // Escape counts as the keyboard: the cursor comes along to the players screen.
     if (key && !ui.keyboard) ui.focus({ id: 'back', circle: BACK });
@@ -275,8 +343,69 @@ export default function SongSelect({
   const dance = () => {
     const { bundle } = st;
     if (!bundle) return;
+    const picked = cast();
     closePreview();
-    props.current.onDance?.(bundle);
+    props.current.onDance?.(bundle, picked);
+  };
+
+  // The Dancers panel: a column per player, with a cutout of each of the song's dancers. The
+  // one they dance waves (its outer hand) in their colour; the rest stand faint, brightening
+  // under the pointer.
+  const drawCast = (g: CanvasRenderingContext2D, s: CanvasUI<SongWidget>) => {
+    const players = props.current.playerCount, n = dancers(), picks = cast(), h = s.hover;
+    const panel = castPanel(players);
+    drawShadowText(g, CAST_HINTS[players - 1], panel.x + 6, panel.y - 28, { size: 22, weight: 700, color: '#d8f6ff' });
+    drawDarkGlassPanel(g, panel, 30);
+    for (let player = 0; player < players; player++) {
+      const column = castColumn(player);
+      const look = PLAYERS[player];
+      const cx = column.x + column.w / 2;
+      // The keyboard cursor on the column leaves the pointer over whichever cutout is in its
+      // middle: then the column lights up, not that cutout.
+      const keyed = s.keyFocus === `cast-${player}`;
+      const slotHover = (dancer: number) => (keyed ? 0 : h[`cast-${player}-${dancer}`] ?? 0);
+      const over = keyed ? 1 : Math.max(h[`cast-${player}`] ?? 0, ...Array.from({ length: n }, (_, d) => slotHover(d)));
+      g.save();
+      if (over > 0.01) {
+        roundRect(g, column.x + 8, column.y + 8, column.w - 16, column.h - 16, 22);
+        g.fillStyle = `rgba(255, 255, 255, ${0.08 * over})`;
+        g.fill();
+      }
+      if (player) {
+        g.fillStyle = 'rgba(255, 255, 255, 0.22)';
+        g.fillRect(column.x - 1, column.y + 26, 2, column.h - 52);
+      }
+      g.restore();
+      drawCaps(g, `PLAYER ${player + 1}`, cx, column.y + 28, { size: 16, align: 'center' });
+      for (let dancer = 0; dancer < n; dancer++) {
+        const slot = castSlot(n)(player)(dancer);
+        const height = Math.min(slot.h - 12, slot.w * 1.4);
+        const x = slot.x + slot.w / 2, foot = slot.y + slot.h - 8;
+        const wave = WAVES[dancer < (n - 1) / 2 ? 0 : 1];
+        g.save();
+        if (picks[player] === dancer) {
+          // A white rim: the outline stroked wide, then the cutout filled over its inner half.
+          g.shadowColor = 'rgba(0, 30, 50, 0.6)';
+          g.shadowBlur = 8;
+          g.shadowOffsetY = 3;
+          traceAeroCutout(g, x, foot, height, wave);
+          g.lineWidth = 5;
+          g.lineJoin = 'round';
+          g.strokeStyle = '#ffffff';
+          g.stroke();
+          g.shadowColor = 'transparent';
+          const fill = g.createLinearGradient(0, foot - height, 0, foot);
+          fill.addColorStop(0, look.light);
+          fill.addColorStop(1, look.color);
+          drawAeroCutout(g, x, foot, height, { fill, pose: wave });
+        } else {
+          drawAeroCutout(g, x, foot, height, { fill: `rgba(255, 255, 255, ${0.3 + 0.4 * slotHover(dancer)})`, eyes: 'rgba(12, 47, 82, 0.5)' });
+        }
+        g.restore();
+      }
+      drawShadowText(g, `Dancer ${picks[player] + 1}`, cx, column.y + column.h - 26, { size: 22, weight: 800, align: 'center', color: look.light });
+    }
+    drawGlassButton(g, CAST_AUTO, { label: 'Auto', sub: 'Where you stand', icon: 'replay', hover: h.auto ?? 0, press: s.press * (h.auto ?? 0) });
   };
 
   const ui = useCanvasUI<SongWidget>({
@@ -284,7 +413,16 @@ export default function SongSelect({
     active: live,
     keyNav: true,
     widgets: () => {
-      if (st.screen === 'preview') return [{ id: 'back', circle: BACK }, { id: 'dance', rect: DANCE, corner: glassCorner(DANCE.h), primary: true }];
+      const danceButton: SongWidget = { id: 'dance', rect: DANCE, corner: glassCorner(DANCE.h), primary: true };
+      // A solo has nobody else to dance.
+      if (st.screen === 'preview') return [{ id: 'back', circle: BACK }, ...(dancers() > 1 ? [{ id: 'dancers', rect: DANCERS, corner: glassCorner(DANCERS.h) }] : []), danceButton];
+      if (st.screen === 'cast') {
+        const players = Array.from({ length: props.current.playerCount }, (_, player) => player);
+        // Each dancer's cutout picks them (before its column, which is under it), and the
+        // column steps through them with Left/Right or a press.
+        const slots = players.flatMap((player) => Array.from({ length: dancers() }, (_, dancer): SongWidget => ({ id: `cast-${player}-${dancer}`, rect: castSlot(dancers())(player)(dancer), corner: 12, nav: false })));
+        return [{ id: 'back', circle: BACK }, ...slots, ...players.map(castWidget), { id: 'auto', rect: CAST_AUTO, corner: glassCorner(CAST_AUTO.h) }, danceButton];
+      }
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
         if (!st.loading) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
@@ -295,7 +433,12 @@ export default function SongSelect({
       return list;
     },
     onActivate: (wdg, s) => {
+      const picked = /^cast-(\d)-(\d)$/.exec(wdg.id), column = /^cast-(\d)$/.exec(wdg.id);
       if (wdg.song) chooseSong(wdg.song);
+      else if (picked) pick(Number(picked[1]), Number(picked[2]));
+      else if (column) step(Number(column[1]), 1);
+      else if (wdg.id === 'dancers') go('cast');
+      else if (wdg.id === 'auto') recast(null);
       else if (wdg.id === 'back') back();
       else if (wdg.id === 'page-up' || wdg.id === 'page-down') {
         const up = wdg.id === 'page-up';
@@ -309,6 +452,14 @@ export default function SongSelect({
       else if (wdg.id === 'retry') fetchCatalog();
       else if (wdg.id === 'dance') dance();
       s.invalidate();
+    },
+    // Left/Right on a player's column picks the dancer beside theirs.
+    onStep: (wdg, dir, s, repeat) => {
+      const column = /^cast-(\d)$/.exec(wdg.id);
+      if (!column || !live()) return false;
+      if (!repeat) step(Number(column[1]), dir);
+      s.invalidate();
+      return true;
     },
     onKey: (e, s) => {
       // A held key shouldn't run through screens.
@@ -329,6 +480,8 @@ export default function SongSelect({
         s.invalidate();
       }
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 3 : 6);
+      const casting = p.visible && st.next === 'cast';
+      if (casting !== st.casting) { st.casting = casting; p.onCastingChange?.(casting); }
       // A chosen song waits on the list until its stage is prepared (or failed).
       if (st.bundle && st.loading && st.next === 'list') {
         const want = resolveStage(st.bundle.song.stage);
@@ -338,7 +491,7 @@ export default function SongSelect({
       const slots = Array.from({ length: p.playerCount }, (_, i) => slotStatus(c, i).label);
       const key = [
         st.screen, st.catalog.status, st.page, st.loading?.id, st.loadError, st.previewState, st.previewError,
-        p.stageState.stage, p.stageState.ready, p.stageState.failed,
+        p.stageState.stage, p.stageState.ready, p.stageState.failed, st.bundle ? cast().join() : '',
       ].join('~');
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
       if (st.catalog.status === 'loading' || st.loading) s.invalidate();
@@ -349,10 +502,13 @@ export default function SongSelect({
         catalog: st.catalog.status === 'ready' && !songs().length ? 'empty' : st.catalog.status,
         songCount: String(songs().length),
         customSongCount: String(songs().filter((song) => song.custom).length),
+        songDancers: st.catalog.status === 'ready' ? pageSongs().map(songDancers).join('|') : '',
         songLoadError: st.loadError,
         playerSlots: slots.join('|'),
-        previewState: st.screen === 'preview' ? (st.previewError ? 'error' : st.previewState) : '',
+        previewState: st.screen !== 'list' ? (st.previewError ? 'error' : st.previewState) : '',
         previewTimeMs: st.routine ? String(Math.round(st.routine.timeMs())) : '',
+        cast: st.bundle ? cast().join('|') : '',
+        castAuto: st.bundle ? String(!st.cast) : '',
       };
       const json = JSON.stringify(report);
       if (json !== st.reported) { st.reported = json; Object.assign(gl.domElement.dataset, report); }
@@ -409,6 +565,7 @@ export default function SongSelect({
             drawGlassButton(g, rect, {
               label: song.title, sub, icon: 'note',
               hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
+              trailing: dancerCutouts(songDancers(song), rect.h),
             });
           });
           if (pages() > 1) {
@@ -436,15 +593,21 @@ export default function SongSelect({
         }
       } else if (st.bundle) {
         const { song } = st.bundle;
-        drawHeader(g, BACK, 'PREVIEW', h.back ?? 0);
+        const casting = st.screen === 'cast';
+        drawHeader(g, BACK, casting ? 'DANCERS' : 'PREVIEW', h.back ?? 0);
         g.font = `800 64px ${FONT}`;
         drawShadowText(g, ellipsize(g, song.title, s.w - BACK.x - 90), BACK.x - 38, BACK.y + 84, { size: 64, weight: 800 });
         g.font = `700 30px ${FONT}`;
         drawShadowText(g, ellipsize(g, `${song.artist} · ${resolveStage(song.stage)}`, s.w - BACK.x - 90), BACK.x - 36, BACK.y + 140, { size: 30, color: '#d8f6ff' });
 
-        const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
-        const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');
-        if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, DANCE.x - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
+        if (casting) drawCast(g, s);
+        else {
+          const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
+          const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');
+          const right = dancers() > 1 ? DANCERS.x : DANCE.x;
+          if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, right - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
+          if (dancers() > 1) drawGlassButton(g, DANCERS, { label: 'Dancers', sub: st.cast ? 'Picked' : 'Auto', icon: 'dancers', hover: h.dancers ?? 0, press: press('dancers') });
+        }
         drawGlassButton(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       }
       g.restore();
@@ -453,7 +616,8 @@ export default function SongSelect({
 
   // Frosted glass inside the buttons drawn above (ui/useGlassBlur.ts), fading and sliding with them.
   useGlassBlur(() => {
-    const panes = st.screen === 'preview' ? (st.bundle ? [buttonPane(ui, 'dance', DANCE)] : [])
+    const panes = st.screen === 'preview' ? (st.bundle ? [...(dancers() > 1 ? [buttonPane(ui, 'dancers', DANCERS)] : []), buttonPane(ui, 'dance', DANCE)] : [])
+      : st.screen === 'cast' ? (st.bundle ? [panelPane(castPanel(props.current.playerCount), 30), buttonPane(ui, 'auto', CAST_AUTO), buttonPane(ui, 'dance', DANCE)] : [])
       : st.catalog.status === 'error' ? [buttonPane(ui, 'retry', RETRY)]
         : st.catalog.status === 'ready' ? pageSongs().map((song, i) => buttonPane(ui, `song-${song.key}`, rowRect(i))) : [];
     return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
@@ -481,7 +645,7 @@ export default function SongSelect({
   // A hidden tab pauses the song.
   useEffect(() => {
     // A song still waiting on its stage stays quiet.
-    const onVisibility = () => { if (document.hidden) st.player?.pause(); else if (st.next === 'preview') st.player?.play(); };
+    const onVisibility = () => { if (document.hidden) st.player?.pause(); else if (st.next !== 'list') st.player?.play(); };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [st]);

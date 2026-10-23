@@ -44,7 +44,8 @@ import type { MirrorView } from './MirrorDancers.tsx';
  *              go on yet: the audio didn't start again, or the camera is muted
  *   results    hands the overlay to ResultsScreen
  *
- * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms and -game-scores for tests,
+ * The canvas reports data-game-phase, -game-ready (taking input), -game-countdown, -game-time-ms, -game-scores and
+ * -game-cast (each player's dancer) for tests,
  * the camera's -game-camera-status / -model / -message / -interrupted, and while calibrating -game-calibration-* and -game-pairing.
  *
  * <GameScreen visible session={GameSession} camera={source} onQuit onRetry />
@@ -344,6 +345,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
         gameCountdown: session.phase === 'countdown' ? String(Math.ceil(session.countdownMs() / 1000)) : '',
         gameTimeMs: session.player ? String(Math.round(session.player.timeMs())) : '',
         gameScores: scores.join('|'),
+        gameCast: session.cast.join('|'),
         gameCalibrationProgress: calibration ? calibration.progress.toFixed(3) : '',
         gameCalibrationPlayers: calibration?.players.join('|') ?? '',
         gameCalibrationPreview: calibration ? String(!!p.source.video || !!view.frame) : '',
@@ -496,7 +498,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
 
   useEffect(() => {
     if (!visible) {
-      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCalibrationVideo', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage', 'gameCameraInterrupted', 'gamePairing']) delete gl.domElement.dataset[key];
+      for (const key of ['gamePhase', 'gameReady', 'gameCountdown', 'gameTimeMs', 'gameScores', 'gameCast', 'gameCalibrationProgress', 'gameCalibrationPlayers', 'gameCalibrationPreview', 'gameCalibrationVideo', 'gameCameraStatus', 'gameCameraModel', 'gameCameraMessage', 'gameCameraInterrupted', 'gamePairing']) delete gl.domElement.dataset[key];
       st.reported = '';
     }
     ui.invalidate();

@@ -52,6 +52,7 @@ test('the status line names what the TV shows, and Back says what it does', () =
   assert.equal(screenName({ menuScreen: 'players' }), 'Players');
   assert.equal(screenName({ menuScreen: 'main', songReady: 'true', songScreen: 'list' }), 'Choosing a song');
   assert.equal(screenName({ songReady: 'true', songScreen: 'preview' }), 'Song preview');
+  assert.equal(screenName({ songReady: 'true', songScreen: 'cast' }), 'Choosing dancers');
   assert.equal(screenName({ songReady: 'true', songScreen: 'preview', gamePhase: 'calibrating' }), 'Getting ready');
   assert.equal(screenName({ gamePhase: 'playing' }), 'Dancing');
   assert.equal(screenName({ gamePhase: 'paused' }), 'Paused');
