@@ -1,6 +1,6 @@
 import { PoseSourceController } from '../../../../packages/pose/browser/PoseSourceController.ts';
 import { WebcamPoseSource } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
-import { inApp } from '../host.ts';
+import { cameraTurner, inApp } from '../host.ts';
 import type { CameraInfo, WebcamConfigureOptions, WebcamStatus } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { FrameSize, PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { PhonePoseSource } from './PhonePoseSource.ts';
@@ -53,10 +53,13 @@ export class CameraInput implements PoseSource {
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
   // In the iPhone/iPad app, a muted camera is iOS holding it for a call: wait for it to come back.
-  // The app also looks for three or four players in the whole picture: strips (tiles.ts) work in
-  // its WebKit, but each costs a landmarker, about 100 MB more in the process the game runs in (and
-  // 160-215 MB in all, measured in the iOS simulator), which hasn't been tried on a device.
-  constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource({ interruptedTimeoutMs: inApp() ? Infinity : undefined, tiles: !inApp() }) }), phone = new PhonePoseSource(),
+  // Its picture is turned upright the way the device is held (cameraTurner), so turning the device
+  // carries on at the new size, as a phone camera does. It also looks for three or four players in
+  // the whole picture: strips (tiles.ts) work in its WebKit, but each costs a landmarker, about
+  // 100 MB more in the process the game runs in (and 160-215 MB in all, measured in the iOS
+  // simulator), which hasn't been tried on a device.
+  constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource(inApp()
+    ? { interruptedTimeoutMs: Infinity, adaptToResize: true, turn: cameraTurner(), tiles: false } : {}) }), phone = new PhonePoseSource(),
     webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone; this.webcamSupported = webcamSupported;
     const choice = saved();
@@ -69,7 +72,7 @@ export class CameraInput implements PoseSource {
   }
 
   /** The camera feed for the setup preview: this computer's webcam, or the phone's picture while it sends one. */
-  get video() { return this.mode === 'webcam' ? this.webcam.video : this.mode === 'phone' ? this.phone.video : null; }
+  get video() { return this.mode === 'webcam' ? this.webcam.picture : this.mode === 'phone' ? this.phone.video : null; }
   get playerCount() { return this.webcam.playerCount; }
   /** The chosen camera's source (null for No camera). */
   get active() { return this.mode === 'webcam' ? this.webcam : this.mode === 'phone' ? this.phone : null; }
