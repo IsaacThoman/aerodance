@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { CANVAS_OPS, GL_OPS, OP } from '../apps/tvos/runtime/ops.ts';
-import { checkSite, copyInter, DEFAULT_BUNDLE_ID, DEFAULT_TEAM_ID, root, SITE } from './apple.ts';
+import { archive, ARCHIVE_USAGE, archiveOptions, checkSite, copyInter, DEFAULT_BUNDLE_ID, DEFAULT_TEAM_ID, root, SITE } from './apple.ts';
 
 const appDir = path.join(root, 'apps/tvos');
 const www = path.join(appDir, 'www');
@@ -25,6 +25,11 @@ const USAGE = `Usage: node scripts/tvos.ts <command> [options]
   run [--sim <udid>] [--device <udid>] --config <json>
                                    install the built app and launch it with a launch config
                                    (see apps/tvos/README.md), printing its console
+  archive --version <x.y.z> [--build-number <n>] [--upload] [--site <origin>]
+                                   bundle the game as build --game --release does and archive
+                                   the app for the App Store
+
+${ARCHIVE_USAGE}
 
 Signing uses TVOS_TEAM_ID (default ${TEAM_ID}) and TVOS_BUNDLE_ID (default ${BUNDLE_ID}).`;
 
@@ -139,7 +144,8 @@ function buildBench() {
   cpSync(path.join(root, 'apps/tvos/bench/aero-bench.html'), path.join(out, 'aero-bench.html'));
 }
 
-async function build(sim: boolean, game: boolean, release: boolean, site = SITE, ghost = false) {
+/** Bundles www/ and generates the Xcode project; returns xcodebuild's environment. */
+async function prepare(game: boolean, release: boolean, site: string, ghost: boolean) {
   checkSite(site);
   writeOpsHeader();
   writeBrandAssets();
@@ -168,6 +174,11 @@ async function build(sim: boolean, game: boolean, release: boolean, site = SITE,
     run('plutil', ['-insert', 'NSLocalNetworkUsageDescription', '-string', "Sends performance diagnostics to the developer's Mac during testing.", plist]);
     run('plutil', ['-insert', 'NSAppTransportSecurity', '-json', '{"NSAllowsLocalNetworking":true}', plist]);
   }
+  return env;
+}
+
+async function build(sim: boolean, game: boolean, release: boolean, site = SITE, ghost = false) {
+  const env = await prepare(game, release, site, ghost);
   run('xcodebuild', [
     '-project', 'AerodanceJSC.xcodeproj', '-scheme', 'AerodanceJSC', '-configuration', 'Release',
     '-destination', sim ? 'generic/platform=tvOS Simulator' : 'generic/platform=tvOS', '-derivedDataPath', 'build',
@@ -195,6 +206,11 @@ async function main() {
   const has = (name: string) => { const i = args.indexOf(name); if (i >= 0) args.splice(i, 1); return i >= 0; };
   if (!cmd || cmd === 'help' || cmd === '--help') return console.log(USAGE);
   if (cmd === 'build') { const site = flag('--site'); return build(has('--sim'), has('--game'), has('--release'), site, has('--ghost')); }
+  if (cmd === 'archive') {
+    const options = archiveOptions(flag('--version'), flag('--build-number'), has('--upload'));
+    const env = await prepare(true, true, flag('--site') || SITE, false);
+    return archive({ appDir, project: 'AerodanceJSC.xcodeproj', scheme: 'AerodanceJSC', platform: 'tvOS', teamId: TEAM_ID, env }, options);
+  }
   if (cmd === 'run') {
     const sim = flag('--sim'), device = flag('--device'), config = flag('--config') ?? readFileSync(path.join(www, 'config.json'), 'utf8');
     if (!sim && !device) throw Error('run needs --sim <udid> or --device <udid>');

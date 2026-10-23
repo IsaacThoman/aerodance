@@ -9,15 +9,15 @@ See [the browser webcam plan](docs/browser-webcam-plan.md) for shared game/edito
 See [the song and dance authoring workflow](docs/song-dance-authoring-workflow.md) for the proposed Docker-hosted editor, pose format, raw landmark editing, Frutiger playback, and portable song bundle contract.
 
 The editor is implemented as [Dance Studio](tools/choreography/README.md).
-Run `docker compose -f tools/choreography/compose.yaml up --build -d` and open
-http://localhost:8082 to record/import, edit, preview, save, and export song bundles.
+Run `docker compose -f tools/choreography/compose.yaml -f tools/choreography/compose.local.yaml up --build -d`
+and open http://localhost:8082 to record/import, edit, preview, save, and export song bundles.
 Dance Studio is also static: projects autosave in browser storage (IndexedDB and
 OPFS). Download project backups to keep or transfer your work; see its README for
 migration from older disk-based deployments.
 
 ## Aero background
 
-The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display automatically chooses **Standard (4:3)** or **Widescreen (16:9)**, matching the Wii's display configurations. Both use a fixed **640×480** render buffer: widescreen is anamorphic, with the camera and UI laid out at 16:9 before the image is stretched for display. The canvas scales up with `image-rendering: pixelated`; resizing never increases the rendered pixel count. The mode that fills more of the safe available window is selected (switching at about 1.54:1). Menus, stage cameras, calibration, gameplay and results adapt to the chosen shape; the rest is black bars. Safe-area insets keep the frame clear of phone/tablet cutouts and the home indicator (`apps/web/src/styles.css`). The paired phone camera page keeps its separate screen-filling layout. See [Nintendo's aspect-ratio settings](https://en-americas-support.nintendo.com/app/answers/detail/a_id/2688/p/50) and [480-line output settings](https://en-americas-support.nintendo.com/app/answers/detail/a_id/2687/~/how-to-adjust-the-tv-resolution).
+The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display automatically chooses **Standard (4:3)** or **Widescreen (16:9)**, matching the Wii's display configurations. Both use a fixed **640×480** render buffer: widescreen is anamorphic, with the camera and UI laid out at 16:9 before the image is stretched for display. The canvas scales up with `image-rendering: pixelated`; resizing never increases the rendered pixel count. The mode that fills more of the safe available window is selected (switching at about 1.54:1). Menus, stage cameras, calibration, gameplay and results adapt to the chosen shape; the rest is black bars. Safe-area insets keep the frame clear of phone/tablet cutouts and the status bar, but not the home indicator, which the iPhone/iPad app hides while it plays (`apps/web/src/styles.css`). The paired phone camera page keeps its separate screen-filling layout. See [Nintendo's aspect-ratio settings](https://en-americas-support.nintendo.com/app/answers/detail/a_id/2688/p/50) and [480-line output settings](https://en-americas-support.nintendo.com/app/answers/detail/a_id/2687/~/how-to-adjust-the-tv-resolution).
 
 - `apps/web/src/aero/aeroBackground.ts` builds the world. `createAeroWorld({ renderer, scene, camera, speed })` returns `{ update(dt), render(), setSpeed, dispose }` for use inside an existing renderer; `createAeroBackground(canvas, options)` is a standalone full-canvas version.
 - `apps/web/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
@@ -136,13 +136,19 @@ The base `compose.yaml` publishes no host ports. The app serves the static build
 2. Assign the domain to service `app` with internal port `3000`, for example `https://aerodance.example.com:3000`. Coolify routes HTTPS through Traefik on public port `443` to the app's internal port.
 3. Deploy using only the base Compose file. Include `compose.local.yaml` only for local development.
 
-See [Coolify's Docker Compose documentation](https://coolify.io/docs/applications/builds/docker-compose) for deployment and domain configuration.
+See [Coolify's Docker Compose documentation](https://coolify.io/docs/applications/builds/docker-compose) for deployment and domain configuration. Dance Studio deploys the same way as a separate application; see [its README](tools/choreography/README.md#deploy-with-coolify).
 
 ### Pull request previews
 
 Bee Coolify deploys `dev`, the primary branch, at https://aerodance.party. Its GitHub App automatically builds previews for repository members' pull requests targeting `dev`, updates them when commits are pushed, and removes them when the PR is closed or merged.
 
 The preview URL template is `{{pr_id}}.aerodance.party`, so PR #3 is available at https://3.aerodance.party. Wildcard DNS for `*.aerodance.party` routes these hosts to Bee through Cloudflare. Set service `app` domains to internal port `3000` in Coolify; previews inherit that port from the production domain configuration.
+
+## Releases
+
+Merging `dev` into `main` releases the Apple apps. Once CI passes on `main`, [semantic-release](https://semantic-release.org) (`release.config.mjs`) works out the version from the conventional commits since the last `v*` tag (a `fix` is a patch, a `feat` a minor version), tags it and creates a GitHub Release. Then `.github/workflows/testflight.yml` archives the iPhone/iPad and Apple TV apps at that version (`scripts/ios.ts` and `scripts/tvos.ts` `archive --upload`, with the Unix time as the build number) on GitHub's Xcode 27 runner and uploads them to App Store Connect, where they appear in TestFlight. A push to `main` with nothing to release (only `docs`, `chore`, `test` and so on) uploads nothing.
+
+The `testflight` environment, open to `main` and `v*` tags only, holds the App Store Connect API key (`APP_STORE_CONNECT_API_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_PRIVATE_KEY`: an Admin key, for the team's cloud-managed distribution certificate) and an Apple Development certificate that signs the archives (`IOS_DEVELOPMENT_CERTIFICATE_P12_BASE64`, `IOS_DEVELOPMENT_CERTIFICATE_PASSWORD`). Running the TestFlight workflow by hand rebuilds a release from its tag, or with upload off only archives and signs both apps.
 
 ## Local development
 

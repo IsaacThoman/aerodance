@@ -1,7 +1,7 @@
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
-import { beatCount } from './clock.ts';
+import { beatCount, club } from './clock.ts';
 import { patchClub } from './patch.ts';
 import { FLOOR } from './layout.ts';
 
@@ -9,6 +9,7 @@ const STAGE_R = 4.9;
 const STAGE_TOP = 0;
 const TIER_R = STAGE_R + 0.75;
 const TIER_Y = -0.55;
+const SWEEP_ONLY = new THREE.Vector4(0, 0, 1, 0);
 
 // Glass LED tiles: four beat-driven patterns (ripples from the center, checker
 // flashes, a rotating color sweep, random sparkle) crossfaded every two bars.
@@ -73,7 +74,8 @@ const bulbEmissive = (y0: number, y1: number, n: number, color: string) => /* gl
   float yc = ${((y0 + y1) / 2).toFixed(3)};
   float fy = (w.y - yc) / ${((y1 - y0) / 2).toFixed(3)};
   float bulb = smoothstep(0.32, 0.12, length(vec2(fx, fy * 0.5)));
-  float on = mod(idx - floor(uBeat * 2.0), 3.0) < 0.5 ? 1.0 : 0.25;
+  // The chase holds at its average brightness in the game (preview, song and results).
+  float on = mix(mod(idx - floor(uBeat * 2.0), 3.0) < 0.5 ? 1.0 : 0.25, 0.5, uSteady);
   float stripe = exp(-fy * fy * 1.2) * 0.12;
   vec3 col = ${color};
   totalEmissiveRadiance += col * (bulb * on * (1.1 + 0.45 * uPulse) + stripe);
@@ -125,11 +127,12 @@ export default function DanceFloor() {
   }));
 
   useFrame(() => {
-    // Pattern crossfade every two bars.
+    // Pattern crossfade every two bars. In the game (preview, song and results) only the smooth
+    // color sweep plays: the ripples, checker flashes and sparkle blink on the beat.
     const m = beatCount() / 8;
     const i = Math.floor(m) % 4;
     const f = THREE.MathUtils.smoothstep(m - Math.floor(m), 0, 0.12);
-    mats.mix.set(0, 0, 0, 0).setComponent(i, f).setComponent((i + 3) % 4, 1 - f);
+    mats.mix.set(0, 0, 0, 0).setComponent(i, f).setComponent((i + 3) % 4, 1 - f).lerp(SWEEP_ONLY, club.uSteady.value);
   });
 
   return (

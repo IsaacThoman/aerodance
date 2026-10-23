@@ -65,7 +65,8 @@ Requirements:
 ```sh
 node scripts/tvos.ts build --game              # runtime, benchmark and game; app for the Apple TV
 node scripts/tvos.ts build --game --sim        # ...for the tvOS simulator
-node scripts/tvos.ts build --game --release    # for TestFlight / the App Store (see below)
+node scripts/tvos.ts build --game --release    # the release configuration (see below)
+node scripts/tvos.ts archive --version 0.2.0 --upload   # archive it and upload it to TestFlight
 node scripts/tvos.ts build --game --site https://24.aerodance.party   # pair through a PR preview
 node scripts/tvos.ts build --game --ghost      # play with the autoplay ghost instead of a phone
 node scripts/tvos.ts run --device <udid> --config '{"script":"game.js","url":"http://aerodance.local/","site":"https://aerodance.party","fit":"fill","pixelated":true}'
@@ -130,7 +131,13 @@ Development builds add `NSLocalNetworkUsageDescription` and `NSAppTransportSecur
 `NSAllowsLocalNetworking` to `Info.plist`, so the `report` and `logUrl` options can reach a Mac on
 the local network. `build --release` leaves both out, which is what an App Store build should ship;
 the report and log options then have nowhere to send to and stay off. The shipped game pairs phones
-through `site` over HTTPS.
+through `site` over HTTPS. `src/PrivacyInfo.xcprivacy` is the privacy manifest: no tracking, no
+data collected, and two required-reason APIs, `NSUserDefaults` for storage (CA92.1) and
+`mach_absolute_time` for the clock (35F9.1).
+
+`archive --version <x.y.z>` bundles the game as `build --game --release` does and archives the app,
+then exports it for App Store Connect, or uploads it to TestFlight with `--upload`; the iPhone and
+iPad app's README (Release builds) has the build number and signing details.
 
 ## Known gaps
 

@@ -17,6 +17,7 @@ import { recordResults } from './game/bestScores.ts';
 import { PLAYERS, leadersOf, winnerOf } from './game/results.ts';
 import type { ResultsShow } from './game/results.ts';
 import StageView from './stage/StageView.tsx';
+import StatsOverlay from './stats/StatsOverlay.tsx';
 import { diagnostic } from './diagnostics.ts';
 import type { StageState } from './stage/StageView.tsx';
 import type { LiveDancers } from './stage/LivePanels.tsx';
@@ -97,7 +98,7 @@ export default function App() {
   const activeSource: PoseSource = replay ?? source;
   // Song Select's preview: the routine to dance, and how its stage is doing.
   const [preview, setPreview] = useState<SongRoutine | null>(null);
-  const [stage, setStage] = useState<StageState>({ showing: false, ready: false, stage: null, failed: false });
+  const [stage, setStage] = useState<StageState>({ showing: false, prepared: false, ready: false, stage: null, failed: false });
   const menuOpen = screen === 'menu';
   const selectedConnection = replay && replayView ? replayView : connection;
   // The song being danced, its phase, and the results screen's reveal (StageView and
@@ -190,6 +191,8 @@ export default function App() {
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';
   const gameRoutine = useMemo(() => game?.routine() ?? null, [game]);
+  // Settings → Graphics → Stats, or ?diag=stats for the full set whatever the setting.
+  const statsMode = diagnostic('stats') ? 'full' : graphics.stats;
   // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
   // The players' own characters, while the song is on.
@@ -256,6 +259,14 @@ export default function App() {
             onQuit={quitGame}
             onRetry={retryGame}
           />
+          {statsMode !== 'off' && (
+            <StatsOverlay
+              mode={statsMode}
+              source={activeSource}
+              game={game}
+              screen={menuOpen ? `menu/${menuShown}` : songsOpen ? 'songs' : `game/${gamePhase ?? 'loading'}`}
+            />
+          )}
         </Canvas>
       </div>
     </div>

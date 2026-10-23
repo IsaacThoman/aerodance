@@ -16,7 +16,8 @@
     "studio:dev": "vite --config tools/choreography/vite.config.ts",
     "studio:build": "vite build --config tools/choreography/vite.config.ts",
     "studio:start": "vite preview --config tools/choreography/vite.config.ts",
-    "studio:test": "node --test tools/choreography/tests/*.test.ts"
+    "studio:test": "node --test tools/choreography/tests/*.test.ts",
+    "release": "semantic-release"
   },
   "type": "module",
   "dependencies": {
@@ -27,8 +28,10 @@
     "@eslint/js": "^10.0.1",
     "@fontsource/exo-2": "^5.3.0",
     "@fontsource/nunito": "^5.3.0",
+    "@fontsource/tiny5": "^5.3.0",
     "@mediapipe/tasks-vision": "1.1.0",
     "@react-three/fiber": "^9.8.1",
+    "@semantic-release/exec": "^7.1.0",
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
@@ -44,6 +47,7 @@
     "playwright": "1.58.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "semantic-release": "^25.0.9",
     "three": "^0.186.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.2",

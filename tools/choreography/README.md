@@ -10,11 +10,11 @@ See the [format/workflow reference](../../docs/song-dance-authoring-workflow.md)
 From the repository root:
 
 ```sh
-docker compose -f tools/choreography/compose.yaml up --build -d
+docker compose -f tools/choreography/compose.yaml -f tools/choreography/compose.local.yaml up --build -d
 ```
 
-Open **http://localhost:8082**. The container serves static files with nginx and
-has no project data volume. Audio, takes, raw recorder batches and track snapshots
+Open **http://localhost:8082** (set `STUDIO_PORT` to change it). The container
+serves static files with nginx and has no project data volume. Audio, takes, raw recorder batches and track snapshots
 live in the browser's private filesystem (OPFS); project metadata, revision snapshots
 and asset pointers live in IndexedDB. Metadata changes commit atomically after
 asset writes finish. Web Locks serialize saves across tabs; revision conflicts
@@ -39,10 +39,28 @@ npm run studio:dev
 
 Open http://localhost:5177. To check the production static build, run
 `npm run studio:build`, then `npm run studio:start` and open http://localhost:8082.
-Serve `tools/choreography/dist/` with any static HTTPS host. The game and Studio
-can use separate domains; publishing a song remains an explicit export/install step.
+Serve `tools/choreography/dist/` with any static HTTPS host, or deploy the container
+with Coolify (below). The game and Studio can use separate domains; publishing a song remains an explicit export/install step.
 The Studio needs HTTPS or localhost, IndexedDB, OPFS writable files, and Web Locks.
 No API proxy or server environment variables are required.
+
+### Deploy with Coolify
+
+The base `compose.yaml` publishes no host ports; the container serves the build on
+port `3000` with its own `nginx.conf`.
+
+1. Create a separate Git-based application in Coolify with the Docker Compose build
+   strategy, base directory `/` and Compose file `/tools/choreography/compose.yaml`.
+   The build context is the repository root.
+2. Assign the domain to service `studio` with internal port `3000`, for example
+   `https://studio.example.com:3000`. Traefik terminates HTTPS, which the Studio needs.
+   The Studio is built for `/`, so give it its own hostname rather than a path on the
+   game's. Projects stay with the origin, so changing the domain later leaves existing
+   projects behind on the old one.
+3. Deploy using only the base Compose file. Include `compose.local.yaml` only for
+   local use. For pull request previews, use a template that doesn't collide with the
+   game's `{{pr_id}}.aerodance.party`, such as `studio-{{pr_id}}.aerodance.party`
+   (one level deep, so the existing wildcard DNS covers it).
 
 ### Projects from earlier versions
 

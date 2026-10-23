@@ -7,12 +7,21 @@ import { clamp, mulberry32 } from './random.ts';
 import { shaderMaterial } from './glsl.ts';
 
 // The floor wakes up on the last count; the dancer settles exactly at the first beat.
-const LEAD_SECONDS = 0.72;
-const DURATION = 2.1;
+export const LEAD_SECONDS = 0.72;
+// When the bubbles have all faded, in seconds from the start of the entrance.
+export const DURATION = 2.1;
 const BUBBLES = 42;
+// Three.js sorts a blended draw as one object, so the burst draws twice, split at the dancer's
+// axis: the bubbles behind it before its gel and those in front after. Each half sorts from a
+// point this far (local units) behind or in front of the body, past its arms.
+const BODY = new THREE.Vector3(0, 1.3, 0);
+const SORT_OFFSET = 1;
+const eye = new THREE.Vector3();
+const toLocal = new THREE.Matrix4();
 
 const bubbleVertex = /* glsl */ `
   uniform float uTime;
+  uniform float uSide;
   attribute vec4 aBubble;
   attribute vec3 aShape;
   varying vec2 vUv;
@@ -28,8 +37,16 @@ const bubbleVertex = /* glsl */ `
     float spread = aBubble.w * (0.55 + k * 0.6);
     vec3 centre = vec3(cos(angle) * spread, aShape.x + k * aShape.y, sin(angle) * spread);
     centre.x += sin(k * 7.0 + aShape.z) * k * 0.16;
-    // Billboards keep their glass rims round from every stage's camera angle.
     vec4 view = modelViewMatrix * vec4(centre, 1.0);
+    // This half draws only the bubbles on its own side of the dancer's axis; the rest collapse
+    // off screen.
+    vec4 axis = modelViewMatrix * vec4(0.0, centre.y, 0.0, 1.0);
+    if ((view.z >= axis.z ? 1.0 : -1.0) != uSide) {
+      vAlpha = 0.0;
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+    // Billboards keep their glass rims round from every stage's camera angle.
     float scale = length(modelMatrix[0].xyz);
     view.xy += position.xy * aShape.x * 2.0 * grow * (1.0 + k * 0.3) * scale;
     gl_Position = projectionMatrix * view;
@@ -74,10 +91,12 @@ export interface DancerEntranceProps {
   timeMs?: () => number;
   color: THREE.ColorRepresentation;
   seed: number;
+  /** The ripple on the floor under the dancer (default on). */
+  ripple?: boolean;
 }
 
 /** A short, song-clock-driven entrance in the dancer's local floor coordinates. */
-export default function DancerEntrance({ children, timeMs, color, seed }: DancerEntranceProps) {
+export default function DancerEntrance({ children, timeMs, color, seed, ripple = true }: DancerEntranceProps) {
   const dancer = useRef<THREE.Group>(null);
   const effects = useRef<THREE.Group>(null);
   const resources = useDisposable(() => {
@@ -91,14 +110,30 @@ export default function DancerEntrance({ children, timeMs, color, seed }: Dancer
     }
     geometry.setAttribute('aBubble', new THREE.InstancedBufferAttribute(bubbles, 4));
     geometry.setAttribute('aShape', new THREE.InstancedBufferAttribute(shapes, 3));
-    const material = (vertexShader: string, fragmentShader: string) => shaderMaterial({
+    // Shared by the ripple and both halves of the burst.
+    const uniforms = { uTime: { value: 0 }, uColor: { value: new THREE.Color(color).lerp(new THREE.Color('#d2fcff'), 0.35) } };
+    const material = (vertexShader: string, fragmentShader: string, extra = {}) => shaderMaterial({
       vertexShader, fragmentShader,
-      uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(color).lerp(new THREE.Color('#d2fcff'), 0.35) } },
+      uniforms: { ...uniforms, ...extra },
       transparent: true, depthWrite: false,
     });
+    const half = (side: 1 | -1) => {
+      const mesh = new THREE.InstancedMesh(geometry, material(bubbleVertex, bubbleFragment, { uSide: { value: side } }), BUBBLES);
+      mesh.frustumCulled = false;
+      // Three.js sorts by this sphere's centre. Each render moves it to its side of the body as
+      // seen from that camera, which orders the next frame; it starts facing +z.
+      mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, BODY.y, side * SORT_OFFSET), 0);
+      mesh.onBeforeRender = (_renderer, _scene, camera) => {
+        eye.setFromMatrixPosition(camera.matrixWorld).applyMatrix4(toLocal.copy(mesh.matrixWorld).invert()).sub(BODY);
+        if (eye.lengthSq() > 0) mesh.boundingSphere!.center.copy(BODY).addScaledVector(eye.normalize(), side * SORT_OFFSET);
+      };
+      return mesh;
+    };
+    const back = half(-1);
+    const front = half(1);
     return {
-      geometry,
-      bubble: material(bubbleVertex, bubbleFragment),
+      geometry, uniforms, back, front,
+      materials: [back.material, front.material],
       ripple: material('varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', rippleFragment),
     };
   }, [color, seed]);
@@ -115,19 +150,21 @@ export default function DancerEntrance({ children, timeMs, color, seed }: Dancer
     dancer.current.position.y = reducedMotion ? 0 : Math.sin(k * Math.PI) * 0.12;
     effects.current.visible = !reducedMotion && t > 0 && t < DURATION;
     if (!effects.current.visible) return;
-    resources.bubble.uniforms.uTime.value = t;
-    resources.ripple.uniforms.uTime.value = t;
+    resources.uniforms.uTime.value = t;
   });
 
   return (
     <group name="dancer-entrance">
       <group name="entrance-character" ref={dancer} visible={!timeMs}>{children}</group>
       <group name="entrance-bubbles" ref={effects} visible={false}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} material={resources.ripple}>
-          <planeGeometry args={[4.2, 4.2]} />
-        </mesh>
-        {/* One draw call for the whole burst; no lights, textures or per-frame allocations. */}
-        <instancedMesh args={[resources.geometry, resources.bubble, BUBBLES]} frustumCulled={false} />
+        {ripple && (
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} material={resources.ripple}>
+            <planeGeometry args={[4.2, 4.2]} />
+          </mesh>
+        )}
+        {/* Two draw calls for the whole burst; no lights, textures or per-frame allocations. */}
+        <primitive object={resources.back} />
+        <primitive object={resources.front} />
       </group>
     </group>
   );
