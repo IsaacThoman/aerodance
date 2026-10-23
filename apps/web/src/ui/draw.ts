@@ -300,6 +300,40 @@ export const ICONS = {
     g.lineTo(cx + a * 0.45, cy + a);
     g.stroke();
   },
+  // A screen with a triangle rising into it from below: AirPlay (choose where it plays).
+  airplay(g, cx, cy, r) {
+    const w = r * 0.5;
+    const top = cy - r * 0.42;
+    const bottom = cy + r * 0.2;
+    g.beginPath();
+    g.moveTo(cx - w * 0.42, bottom);
+    g.lineTo(cx - w, bottom);
+    g.lineTo(cx - w, top);
+    g.lineTo(cx + w, top);
+    g.lineTo(cx + w, bottom);
+    g.lineTo(cx + w * 0.42, bottom);
+    g.stroke();
+    g.save();
+    g.fillStyle = g.strokeStyle;
+    g.beginPath();
+    g.moveTo(cx, cy - r * 0.02);
+    g.lineTo(cx + r * 0.3, cy + r * 0.44);
+    g.lineTo(cx - r * 0.3, cy + r * 0.44);
+    g.closePath();
+    g.fill();
+    g.restore();
+  },
+  // An arrow pointing left (go back).
+  back(g, cx, cy, r) {
+    const a = r * 0.4;
+    g.beginPath();
+    g.moveTo(cx + a, cy);
+    g.lineTo(cx - a, cy);
+    g.moveTo(cx - a + a * 0.55, cy - a * 0.55);
+    g.lineTo(cx - a, cy);
+    g.lineTo(cx - a + a * 0.55, cy + a * 0.55);
+    g.stroke();
+  },
   // Chevrons: up / down page a list, left / right step through choices.
   up(g, cx, cy, r) { chevron(g, cx, cy, r, -Math.PI / 2); },
   down(g, cx, cy, r) { chevron(g, cx, cy, r, Math.PI / 2); },

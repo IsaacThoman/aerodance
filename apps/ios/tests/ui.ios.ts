@@ -55,7 +55,11 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     const body = Buffer.concat(chunks);
     if (req.method === 'POST' && url.pathname === '/report') {
-      try { state = (JSON.parse(body.toString()) as { dataset?: Record<string, string> }).dataset ?? state; } catch { /* Not a report. */ }
+      try {
+        // The canvas's data-* state, plus where the game is showing and its frame rate as _display and _fps.
+        const r = JSON.parse(body.toString()) as { dataset?: Record<string, string>; display?: string; fps?: number };
+        if (r.dataset) state = { ...r.dataset, _display: r.display ?? '', _fps: String(r.fps ?? '') };
+      } catch { /* Not a report. */ }
     } else if (req.method === 'POST' && url.pathname === '/reset') {
       state = {};
     } else if (req.method === 'POST' && url.pathname === '/shot') {

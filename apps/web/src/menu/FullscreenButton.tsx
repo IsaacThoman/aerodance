@@ -14,10 +14,12 @@ import type { Fullscreen } from './useFullscreen.ts';
  * <FullscreenButton visible={() => isMainScreen} />
  */
 
-const button = (width: number) => ({ x: width - 84, y: 836, r: 42 });
-const SLIDE_SECONDS = 0.3;
+/** The bottom-right corner bubble, in design units (the app's AirPlay bubble uses it too). */
+export const cornerBubble = (width: number) => ({ x: width - 84, y: 836, r: 42 });
+const button = cornerBubble;
+export const SLIDE_SECONDS = 0.3;
 
-const smooth = (k: number) => k * k * (3 - 2 * k);
+export const smooth = (k: number) => k * k * (3 - 2 * k);
 
 export interface FullscreenButtonProps {
   /** Read every frame: whether the bubble should be on screen. */

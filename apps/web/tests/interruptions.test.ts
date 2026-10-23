@@ -84,13 +84,15 @@ test('the camera being taken away pauses once; an already interrupted camera doe
   assert.equal(w.pauses.length, 2, 'nothing is heard after unsubscribing');
 });
 
-test('the host state reads only booleans, and is all false in a browser', () => {
-  assert.deepEqual(hostState(), { interrupted: false, tv: false });
+test('the host state reads only booleans and a known screen, and is all off in a browser', () => {
+  assert.deepEqual(hostState(), { interrupted: false, tv: false, screen: 'phone' });
   assert.equal(inApp(), false);
   const page = globalThis as { __aerodanceHost?: unknown };
-  page.__aerodanceHost = { tv: true, interrupted: 'yes' };
+  page.__aerodanceHost = { tv: true, interrupted: 'yes', screen: 'tv' };
   try {
-    assert.deepEqual(hostState(), { interrupted: false, tv: true });
+    assert.deepEqual(hostState(), { interrupted: false, tv: true, screen: 'tv' });
+    page.__aerodanceHost = { screen: 'watch' };
+    assert.equal(hostState().screen, 'phone');
     assert.equal(inApp(), true);
   } finally { delete page.__aerodanceHost; }
   const target = new EventTarget();
@@ -100,7 +102,7 @@ test('the host state reads only booleans, and is all false in a browser', () => 
   target.dispatchEvent(hostEvent({ interrupted: true }));
   off();
   target.dispatchEvent(hostEvent({ interrupted: true }));
-  assert.deepEqual(seen, [{ interrupted: false, tv: false }, { interrupted: true, tv: false }]);
+  assert.deepEqual(seen, [{ interrupted: false, tv: false, screen: 'phone' }, { interrupted: true, tv: false, screen: 'phone' }]);
 });
 
 test('the calibration and pause screens say the camera stopped: in the app, that it comes back', () => {
