@@ -23,9 +23,9 @@ import type { DetectedLandmark } from './slots.ts';
  * - A player whose person has looked like another player for a while becomes that player, and
  *   one whose person doesn't look like them while somebody else in view does takes them back.
  *
- * With two players the model looks for one more person than there are players, so a passer-by
- * can't push a player out of its results (three or four are looked for in a strip each,
- * tiles.ts). Extra people are ignored while every player is found, and
+ * One or two players are looked for in the whole picture, asking for exactly that many people;
+ * three or four in a strip each (tiles.ts). When extra detections are available, they are
+ * ignored while every player is found, and
  * somebody who has been in view beside all the players is a bystander: they can take a missing
  * player's number only once that player has been gone a while.
  */

@@ -352,15 +352,13 @@ export class WebcamPoseSource {
       this.publish({ status: 'initializing', message: `Loading ${model.label} model…`,
         modelConfig: { modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION,
           thresholds: { detection: 0.5, presence: 0.5, tracking: 0.5 }, timingMethod: 'browser-frame-observation' } });
-      // With several players, one more person than there are players, so somebody walking past
-      // can't push a player out of the model's results (the tracker ignores them). One player
-      // doesn't need it: the model keeps following one person by itself, and looking for a
-      // second makes it search the whole picture every frame, which costs about three times as much.
-      // Looks tell players apart, so one player doesn't need them. Three or four players are each
-      // looked for in a strip of the picture, which finds nearly all of them where the whole
-      // picture finds about two (tiles.ts).
+      // One or two players: ask for exactly that many people. Asking for an extra person keeps
+      // the detector searching every frame while only the players are present; those searches
+      // can repeatedly lose somebody it was already following. Three or four players use strips
+      // (tiles.ts), with room for one extra person in their whole-picture fallback. Looks tell
+      // players apart, so one player doesn't need them.
       const tiles = this.tiling && evenTiles(this.playerCount);
-      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount === 1 ? 1 : this.playerCount + 1, looks: this.playerCount > 1,
+      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount <= 2 ? this.playerCount : this.playerCount + 1, looks: this.playerCount > 1,
         ...(tiles ? { tiles } : {}),
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }

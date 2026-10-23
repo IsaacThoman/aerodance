@@ -9,8 +9,9 @@ How the webcam (or a paired phone's camera) turns people into players.
    is in flight waits, replacing an older one, and goes as soon as the result is in, so tracking
    keeps up with the camera whenever a frame takes less than a frame's time.
 2. The worker (`pose.worker.ts`) runs MediaPipe's PoseLandmarker in VIDEO mode:
-   - **One or two players:** on the whole picture, asking for one person with one player and
-     one more than there are players with two.
+   - **One or two players:** on the whole picture, asking for exactly the selected number of
+     people. Asking for an extra person keeps the detector searching every frame while only
+     the players are present, which can repeatedly lose someone it was already following.
    - **Three or four players:** on a full-height strip of the picture per player, asking each
      for one person (`tiles.ts`). On the whole picture, MediaPipe found about two people per
      frame with three or four in view: its person detector sees the picture shrunk to a small
@@ -92,8 +93,9 @@ the tracker replaced them.
   only very slowly from a person who doesn't look like them (who may be somebody else), not at
   all while somebody new has their number, and afresh once the players are first numbered. One
   player doesn't use looks at all (nobody to tell them from, and they may come back changed).
-- **Extra people.** On the whole picture, nobody can push a player out of the model's results
-  while there's room for one more person; in strips, a strip whose player is out of sight may
+- **Extra people.** With one or two players, a bystander can displace a player in the model's
+  limited results. The whole-picture fallback for three or four players has room for one
+  extra person; in strips, a strip whose player is out of sight may
   follow somebody else, who is then just another person for the tracker. Extra people are
   ignored while every player is found. Somebody seen
   in ten results beside every player just seen (not overlapping one, and nowhere near a missing
@@ -120,15 +122,15 @@ the tracker replaced them.
 
 | | 1 player | 2 players | 3 players | 4 players |
 |---|---|---|---|---|
-| People asked for | 1 | 3 | 1 in each of 3 strips | 1 in each of 4 strips |
+| People asked for | 1 | 2 | 1 in each of 3 strips | 1 in each of 4 strips |
 | A new person counts after | 1 result | 2 results | 2 results | 2 results |
 | Numbered | at once | left to right, once all are in view | left to right, once all are in view | left to right, once all are in view |
 
 With one player, MediaPipe keeps following one person by itself, and looking for a second
 would make it search the whole picture every frame, about three times the work. The tracker
-still holds the player through moments where the model loses them. With two players, looking
-for one more person costs about 10% more inference; two strips would cost no more, but both
-can latch onto the same person when the players stand in the middle.
+still holds the player through moments where the model loses them. With two players, asking
+for two people lets MediaPipe keep following both once found. Two strips can latch onto the
+same person when the players stand in the middle, so two players use the whole picture.
 
 ## Camera settings
 

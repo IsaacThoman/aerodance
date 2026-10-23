@@ -246,6 +246,7 @@ test('three or four players are each looked for in a strip of the picture', asyn
   await two.source.setPlayerCount(2); await two.source.connect();
   const twoInit = two.messages.find(m => m.type === 'initialize');
   assert.ok(twoInit?.type === 'initialize' && !twoInit.tiles);
+  assert.equal(twoInit.playerCount, 2, 'two players must not keep the detector searching for a third person');
   const whole = fixture(t, { tiles: false });
   await whole.source.setPlayerCount(4); await whole.source.connect();
   const wholeInit = whole.messages.find(m => m.type === 'initialize');
