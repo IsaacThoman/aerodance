@@ -140,12 +140,13 @@ final class AerodanceUITests: XCTestCase {
       for other in controls[..<i] { XCTAssertFalse(frame.intersects(other.frame), "\(control.label) at \(frame) overlaps \(other.label) at \(other.frame)") }
     }
     // Held sideways with its bottom on the right (90): the TV's screen is upright (0), and so is the
-    // iPhone's remote, while the iPad's turns with it.
-    waitFor(["_held": "90", "_screens": isPad ? "0,90" : "0,0"], timeout: 20)
+    // iPhone's remote, while the iPad's turns with it, after the game's screen and then as the screen
+    // that turned last. (On an iPhone, which of its two upright screens turned last makes no odds.)
+    waitFor(isPad ? ["_held": "90", "_screens": "0,90", "_latest": "game"] : ["_held": "90", "_screens": "0,0"], timeout: 20)
     XCUIDevice.shared.orientation = .portrait
-    waitFor(["_held": "0", "_screens": "0,0"], timeout: 20)
+    waitFor(isPad ? ["_held": "0", "_screens": "0,0", "_latest": "phone"] : ["_held": "0", "_screens": "0,0"], timeout: 20)
     XCUIDevice.shared.orientation = .landscapeRight
-    waitFor(["_held": "-90", "_screens": isPad ? "0,-90" : "0,0"], timeout: 20)
+    waitFor(isPad ? ["_held": "-90", "_screens": "0,-90", "_latest": "phone"] : ["_held": "-90", "_screens": "0,0"], timeout: 20)
     tv(false)
     XCTAssertTrue(waitUntil { !ok.exists }, "the remote is still showing")
     if !isPad { XCTAssertTrue(waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }, "the game came back \(app.windows.firstMatch.frame.size): not landscape") }

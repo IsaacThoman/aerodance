@@ -4,7 +4,7 @@ An iPhone and iPad app that runs the production web build in `WKWebView` and sho
 an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
 phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
 
-Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network),
+Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network, CoreMotion),
 so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
 WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows the video.
 
@@ -50,7 +50,7 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   plays with the ring switch on silent and follows the AirPlay route to the TV.
 - **Camera.** The game's own pose tracking (MediaPipe in the page) can use the phone's camera:
   the app has a camera usage description and grants the page's camera requests, video only.
-  Its picture is upright the way the device is held, even while the game is on a TV and the
+  While the game is on a TV its picture is upright the way the device is held, though the
   iPhone's remote stays upright. WebKit turns camera pictures upright for the screen a web view is on
   (the TV's never turns), one way for the whole app, so the page turns the picture the rest of the
   way itself (`cameraTurn` in `apps/web/src/host.ts`) from the host state's `held` and `screens`.
@@ -70,10 +70,12 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   scripts run, and every change also fires
   `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { interrupted, tv, screen, held, screens } }))`.
   `screen` is where the game's picture is: `'phone'` or `'tv'` (wherever the sound goes).
-  `held` is which way up the device is held (`UIDevice` orientation; lying flat, the way it last
-  was) and `screens` is `{ game, phone }`, which way up the game's screen (the TV's is always upright)
-  and the phone's own are, all in `window.orientation`'s terms: 0 upright, 90 turned
-  counterclockwise, -90 clockwise, 180 upside down.
+  `held` is which way up the device is held, all in `window.orientation`'s terms: 0 upright, 90
+  turned counterclockwise, -90 clockwise, 180 upside down. While the game is on a TV it comes from
+  gravity (CoreMotion's accelerometer, which needs no permission), because Orientation Lock keeps
+  `UIDevice` upright; lying flat, it's the way it last was. (The simulator has no accelerometer, so
+  there it's `UIDevice`'s.) `screens` is `{ game, phone, latest }`: which way up the game's screen
+  (the TV's is always upright) and the phone's own are, and which of the two turned last.
   `interrupted` is true from the start to the end of an audio interruption (a call, Siri, an
   alarm); at the end the app reactivates its audio session if iOS says to resume, and the game
   waits for the player's next tap either way. `tv` is true while the game is on an external display and its sound goes

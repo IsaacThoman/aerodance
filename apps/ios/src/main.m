@@ -1,7 +1,7 @@
 // aerodance for iPhone and iPad: the production web build in WKWebView, shown on a TV through
 // AirPlay or an HDMI adapter while the phone becomes the remote. See ../README.md.
 //
-// Public API only (WebKit, AVKit, Network), so this can go to the App Store.
+// Public API only (WebKit, AVKit, Network, CoreMotion), so this can go to the App Store.
 // The built game is bundled under www/ and served from 127.0.0.1 so the page is a secure context
 // (song bundles are verified with crypto.subtle, and getUserMedia needs one). The port is fixed
 // so saved scores and settings, which belong to the page's origin, survive relaunches.
@@ -17,6 +17,7 @@
 #import <WebKit/WebKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
+#import <CoreMotion/CoreMotion.h>
 #import <Network/Network.h>
 #ifdef AERODANCE_DEV
 #import <notify.h>
@@ -71,6 +72,17 @@ static NSInteger DeviceDegrees(UIDeviceOrientation orientation) {
     case UIDeviceOrientationPortraitUpsideDown: return 180;
     default: return 0;
   }
+}
+
+// Which way up the device is from gravity (the accelerometer's x and y, in g): down along -y is
+// upright, along -x it's turned counterclockwise. Near flat or between two ways it's neither (nil),
+// so it takes a clear turn to change.
+static NSNumber *GravityDegrees(CMAcceleration a) {
+  if (a.y <= -0.75) return @0;
+  if (a.y >= 0.75) return @180;
+  if (a.x <= -0.75) return @90;
+  if (a.x >= 0.75) return @-90;
+  return nil;
 }
 
 static NSString *JSON(id object) {
@@ -231,6 +243,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic) BOOL heldKnown;          // held has been seen (not only flat, or before the first reading)
 @property (nonatomic) NSInteger gameScreen;    // which way up the game's screen is: the TV's (always upright) or the phone's
 @property (nonatomic) NSInteger phoneScreen;   // which way up the phone's screen is
+@property (nonatomic, copy) NSString *latestScreen;  // which of the two last turned: @"game" or @"phone"
+@property (nonatomic, strong) CMMotionManager *motion;  // gravity, for held, while the game is on a TV
 @property (nonatomic, strong) WKUserContentController *scripts;
 @property (nonatomic, copy) NSString *injectSource;
 @property (nonatomic, strong) id drive;  // --drive's steps
@@ -457,7 +471,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 - (NSDictionary *)hostState {
   return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv), @"screen": self.onTV ? @"tv" : @"phone",
-            @"held": @(self.held), @"screens": @{ @"game": @(self.gameScreen), @"phone": @(self.phoneScreen) } };
+            @"held": @(self.held), @"screens": @{ @"game": @(self.gameScreen), @"phone": @(self.phoneScreen), @"latest": self.latestScreen } };
 }
 
 - (void)setTv:(BOOL)tv {
@@ -474,20 +488,43 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 // WebKit turns the camera's picture upright for the screen the web view is on, and on a TV that's
 // upright however the phone is held. So the page is told how the device is held and which way up
-// each screen is, and turns the picture itself (cameraTurn in apps/web/src/host.ts). Flat on a
-// table, the device is still held the way it last was.
-- (void)updateOrientation {
+// each screen is, and turns the picture itself (cameraTurn in apps/web/src/host.ts). WebKit keeps
+// one camera orientation for the app, from whichever web view's screen last turned (the game's
+// moving to the TV, the iPad's remote turning with it), so the page is told which that was too.
+// While the game is on a TV, how the device is held comes from gravity, as Orientation Lock leaves
+// UIDevice upright; without an accelerometer (the simulator), from UIDevice. Flat on a table, the
+// device is still held the way it last was.
+- (void)updateOrientation { [self updateOrientationHeld:nil]; }
+
+- (void)updateOrientationHeld:(NSNumber *)gravity {
   NSDictionary *was = self.hostState;
+  NSInteger phone = ScreenDegrees(self.phoneView.window.windowScene);
+  NSInteger game = _web.window ? ScreenDegrees(_web.window.windowScene) : phone;
+  if (game != self.gameScreen) self.latestScreen = @"game";
+  else if (phone != self.phoneScreen) self.latestScreen = @"phone";
+  self.gameScreen = game;
+  self.phoneScreen = phone;
   UIDeviceOrientation device = UIDevice.currentDevice.orientation;
-  self.phoneScreen = ScreenDegrees(self.phoneView.window.windowScene);
-  self.gameScreen = _web.window ? ScreenDegrees(_web.window.windowScene) : self.phoneScreen;
-  if (UIDeviceOrientationIsPortrait(device) || UIDeviceOrientationIsLandscape(device)) {
+  if (gravity) {
+    self.held = gravity.integerValue;
+    self.heldKnown = YES;
+  } else if (!self.motion.accelerometerAvailable && (UIDeviceOrientationIsPortrait(device) || UIDeviceOrientationIsLandscape(device))) {
     self.held = DeviceDegrees(device);
     self.heldKnown = YES;
   } else if (!self.heldKnown) {
-    self.held = self.phoneScreen;
+    self.held = phone;
   }
   if (![was isEqual:self.hostState]) [self hostChanged];
+}
+
+// Gravity is only needed while the game is on a TV.
+- (void)watchGravity {
+  if (!self.motion.accelerometerAvailable || self.onTV == self.motion.accelerometerActive) return;
+  if (!self.onTV) { [self.motion stopAccelerometerUpdates]; return; }
+  [self.motion startAccelerometerUpdatesToQueue:NSOperationQueue.mainQueue withHandler:^(CMAccelerometerData *data, NSError *error) {
+    NSNumber *held = data ? GravityDegrees(data.acceleration) : nil;
+    if (held && (!self.heldKnown || held.integerValue != self.held)) [self updateOrientationHeld:held];
+  }];
 }
 
 - (void)hostChanged {
@@ -516,6 +553,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   }
   [self updateTV];
   [self updateOrientation];
+  [self watchGravity];
   if (self.onTV != self.shownOnTV) {
     self.shownOnTV = self.onTV;
     [self hostChanged];
@@ -548,6 +586,9 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (instancetype)init {
   if (!(self = [super init])) return nil;
   _airplayRect = CGRectNull;
+  _latestScreen = @"game";
+  _motion = [CMMotionManager new];
+  _motion.accelerometerUpdateInterval = 0.2;
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   [center addObserver:self selector:@selector(audioInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
   [center addObserverForName:AVAudioSessionRouteChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self updateTV]; }];
@@ -801,6 +842,12 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   [self placeGamePicker];
   [self placeRemotePicker];
   [GameHost.shared updateOrientation];  // the phone's screen may have turned
+}
+
+// (And once it has turned, in case the layout came first.)
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+  [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+  [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) { [GameHost.shared updateOrientation]; }];
 }
 
 - (void)refresh {

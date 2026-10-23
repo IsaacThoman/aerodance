@@ -15,7 +15,7 @@ import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/po
 import { assignPlayerSlots, laneOf, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
 import { validateWebcamRecord } from '../../../packages/pose/webcamRecord.ts';
 import { cameraTurn, hostState } from '../src/host.ts';
-import type { Orientation } from '../src/host.ts';
+import type { HostState, Orientation } from '../src/host.ts';
 import type { WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
 
 /** A worker response as the test writes it; deliver() adds the session. */
@@ -239,18 +239,23 @@ test('frames from a camera whose frame metadata never advances (Safari) are stil
 test('in the app, the camera picture turns upright the way the device is held, not the way the TV is', () => {
   const tall = { width: 480, height: 640 }, wide = { width: 640, height: 480 };
   // An iPhone on a TV: its remote is upright, so WebKit turns the picture upright for an upright phone.
-  const onTV = (held: Orientation) => ({ ...hostState(), screen: 'tv' as const, held, screens: { game: 0 as const, phone: 0 as const } });
+  const onTV = (held: Orientation): HostState => ({ ...hostState(), screen: 'tv', held, screens: { game: 0, phone: 0, latest: 'game' } });
   assert.deepEqual([0, 90, -90, 180].map(held => cameraTurn({ ...tall, facing: 'environment' }, onTV(held as Orientation))), [0, 270, 90, 180],
     'the back camera turns back against the phone: counterclockwise when it is turned counterclockwise');
   assert.deepEqual([0, 90, -90, 180].map(held => cameraTurn({ ...tall, facing: 'user' }, onTV(held as Orientation))), [0, 90, 270, 180],
     'the front camera, facing the other way, the other way round');
   assert.equal(cameraTurn({ ...tall }, onTV(90)), 0, 'a camera facing neither way (plugged in) stays as it is');
   // An iPad on a TV, sideways: WebKit may have turned the picture for the TV's screen or the iPad's.
-  const iPad = { ...onTV(90), screens: { game: 0 as const, phone: 90 as const } };
+  const iPad: HostState = { ...onTV(90), screens: { game: 0, phone: 90, latest: 'phone' } };
   assert.equal(cameraTurn({ ...tall, facing: 'environment' }, iPad), 270, 'upright for the TV');
   assert.equal(cameraTurn({ ...wide, facing: 'environment' }, iPad), 0, 'upright for the iPad, which is held that way');
-  // The game on an iPhone, sideways like its screen.
-  const phone = { ...hostState(), held: -90 as const, screens: { game: -90 as const, phone: -90 as const } };
+  // Upside down, both screens are upright ones: the one that turned last is the one WebKit used.
+  const upsideDown: HostState = { ...onTV(180), screens: { game: 0, phone: 180, latest: 'phone' } };
+  assert.equal(cameraTurn({ ...tall, facing: 'environment' }, upsideDown), 0, 'the iPad turned upside down on the TV');
+  assert.equal(cameraTurn({ ...tall, facing: 'environment' }, { ...upsideDown, screens: { ...upsideDown.screens, latest: 'game' } }), 180,
+    'the game went to the TV with the iPad already upside down');
+  // With the game on an iPhone, the picture stays upright for its screen, however it's held.
+  const phone: HostState = { ...hostState(), held: 0, screens: { game: -90, phone: -90, latest: 'game' } };
   assert.equal(cameraTurn({ ...wide, facing: 'user' }, phone), 0);
 });
 test('a turned camera tracks and previews its picture turned upright, and a turn of the device carries on at the new size', async t => {
