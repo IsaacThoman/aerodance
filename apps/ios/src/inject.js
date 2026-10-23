@@ -14,14 +14,18 @@
   if (site) globalThis.__aerodanceSite = site;
 
   // What the game should know about the app: interrupted (a phone call, Siri or an alarm has the
-  // audio), tv (the game is on an external display, whose picture is as late as its sound) and
-  // screen (where the picture is: 'phone' or 'tv'). The page reads globalThis.__aerodanceHost and
-  // listens for 'aerodance-host' events; the app calls __aerodanceSetHost whenever one changes.
-  const hostState = s => ({ interrupted: !!s?.interrupted, tv: !!s?.tv, screen: s?.screen === 'tv' ? 'tv' : 'phone' });
+  // audio), tv (the game is on an external display, whose picture is as late as its sound),
+  // screen (where the picture is: 'phone' or 'tv'), held (which way up the device is held) and
+  // screens (which way up the game's and the phone's screens are), for turning the camera's
+  // picture. The page reads globalThis.__aerodanceHost and listens for 'aerodance-host' events;
+  // the app calls __aerodanceSetHost whenever one changes.
+  const turn = n => [90, -90, 180].includes(n) ? n : 0;
+  const hostState = s => ({ interrupted: !!s?.interrupted, tv: !!s?.tv, screen: s?.screen === 'tv' ? 'tv' : 'phone',
+    held: turn(s?.held), screens: { game: turn(s?.screens?.game), phone: turn(s?.screens?.phone) } });
   globalThis.__aerodanceHost = hostState(start.host);
   window.__aerodanceSetHost = s => {
     const next = hostState(s), now = globalThis.__aerodanceHost;
-    if (next.interrupted === now.interrupted && next.tv === now.tv && next.screen === now.screen) return;
+    if (JSON.stringify(next) === JSON.stringify(now)) return;
     globalThis.__aerodanceHost = next;
     window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { ...next } }));
   };

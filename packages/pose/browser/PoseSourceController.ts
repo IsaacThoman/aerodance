@@ -32,6 +32,8 @@ export class PoseSourceController {
     void this.refreshCameras().catch(() => {});
   }
   get video() { return this.source.video; }
+  /** What a preview shows: the video, turned upright if the source turns it. */
+  get picture() { return this.source.picture; }
   subscribe(listener: Listener<PoseSourceView>) { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
   subscribeRecords(listener: Listener<WebcamRecordEvent>) { this.recordListeners.add(listener); return () => this.recordListeners.delete(listener); }
   connect() { return this.source.connect(); }
