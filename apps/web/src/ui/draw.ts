@@ -545,6 +545,9 @@ const LOOKS: Record<GlassStyle, GlassLook> = {
   },
 };
 
+/** Where a glass button's label starts, in design units (after its icon or tile). */
+export const glassLabelX = ({ x, h }: Rect, style: GlassStyle = 'dark') => x + h * (LOOKS[style].tile ? 1.08 : 1.05);
+
 // A glossy rounded-square tile for a glass button's icon.
 function drawIconTile(g: Ctx, x: number, y: number, s: number, [top, bottom]: Stops) {
   const r = s * 0.26;
@@ -661,7 +664,7 @@ export function drawGlassButton(g: Ctx, rect: Rect, { label, sub, icon, hover = 
 
   // Label (and a smaller line under it), shortened to fit before the chevron, then the chevron.
   const arrow = chevron ?? look.chevron;
-  const lx = x + h * (look.tile ? 1.08 : 1.05);
+  const lx = glassLabelX(rect, style);
   const room = x + w - lx - h * (arrow ? 0.62 : 0.3);
   g.save();
   if (look.shadow) [g.shadowColor, g.shadowBlur, g.shadowOffsetY] = look.shadow;
