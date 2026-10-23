@@ -77,39 +77,64 @@ Speed wasn't measured meaningfully: the headless GPU session's pose rate swung b
 about 1 and 20 poses/s with the stage's GPU load, for two players as much as for three or
 four, so it says nothing about speed on a player's machine.
 
-## Choreography: duets danced by up to four
+## Choreography: one to four dancers, and who dances which
 
-Songs are recorded in Dance Studio as duets: every choreography has exactly two tracks,
-and recording four people at once would need a new Studio capture flow and new content.
-So three and four players dance the duet's two parts in turn:
+A song's choreography has one to four dancers, a track each: `dancerCount` in `song.json`
+(songs published without it are duets), checked against the choreography's tracks when the
+bundle loads. Any number of players can dance any song. Each player dances one of its
+dancers, and several players can dance the same one. Which player dances which dancer is the
+**cast** (`Cast` in `packages/pose/choreography.ts`: a dancer per player).
 
-| Player | Part danced          | Colour |
-|--------|----------------------|--------|
-| P1     | part 1 (track 0)     | blue `#078fff`   |
-| P2     | part 2 (track 1)     | purple `#b86bff` |
-| P3     | part 1 (track 0)     | green `#1fcf72`  |
-| P4     | part 2 (track 1)     | pink `#ff5fb4`   |
+Without a pick, players are cast by where they stand (`autoCast`). They're numbered left to
+right as they stand, and the coaches face them in the same order, so with at least as many
+dancers as players, player 1 dances dancer 1, player 2 dancer 2 and so on. With fewer dancers,
+neighbours share: everyone dances a solo, and four players dance a duet in pairs.
 
-`partOf(playerId)` in `packages/pose/choreography.ts` is the one place that decides this,
-and `sampleSong` hands each player their part's pose, quality mask and score exclusions,
-so the scorer, the stage's coach dancers and ghost replay all see one pose per player.
+| Players | 1 dancer   | 2 dancers  | 3 dancers  | 4 dancers  |
+|---------|------------|------------|------------|------------|
+| 1       | 1          | 1          | 1          | 1          |
+| 2       | 1, 1       | 1, 2       | 1, 2       | 1, 2       |
+| 3       | 1, 1, 1    | 1, 1, 2    | 1, 2, 3    | 1, 2, 3    |
+| 4       | 1, 1, 1, 1 | 1, 1, 2, 2 | 1, 1, 2, 3 | 1, 2, 3, 4 |
 
-A song says which counts it supports in `supportedPlayerCounts`: `[1, 2]`, `[1, 2, 3]` or
-`[1, 2, 3, 4]`, and Song Select lists only the songs that support the chosen count. Dance
-Studio now publishes `[1, 2, 3, 4]`, and the demo song was republished (bundle revision 3)
-with four.
+Song Select's preview has **Dancers** beside **Dance!** (for songs of two or more dancers):
+a column per player, each with a cutout of every dancer to pick from by pointer, or with
+Left/Right on the column. Auto goes back to casting by where everyone stands. The picks last
+while the players come back to the same song, and Play again keeps them.
+
+`sampleSong` hands each player their dancer's pose, quality mask and score exclusions, so the
+scorer, ghost replay and the stage see one pose per player whoever they dance. The stage
+shows every dancer of the song: once for each player dancing them, in that player's colour
+(so players sharing a dancer each have their own coach, side by side), or once in clear glass
+when nobody is (`coachesFor` in `packages/stages/shared/routine.ts`). On the Dancers screen
+the stage camera stops circling and faces them.
+
+| Player | Colour           |
+|--------|------------------|
+| P1     | blue `#078fff`   |
+| P2     | purple `#b86bff` |
+| P3     | green `#1fcf72`  |
+| P4     | pink `#ff5fb4`   |
+
+Song Select's buttons show a white cutout of each dancer a song was recorded with, however
+many are playing.
+
+A song says which player counts it supports in `supportedPlayerCounts`: `[1, 2]`,
+`[1, 2, 3]` or `[1, 2, 3, 4]`, and Song Select lists only the songs that support the chosen
+count. Dance Studio publishes `[1, 2, 3, 4]`, and the demo song was republished (bundle
+revision 3) with four.
 
 ## What changed with the player count
 
 - `PlayerCount` is `1 | 2 | 3 | 4`; webcam records (including a paired phone's, sent
-  through the pairing relay) carry up to four poses. Choreographies, takes, tracks and Studio
-  captures stay duets.
+  through the pairing relay) carry up to four poses, as do choreographies, takes and Studio
+  captures.
 - Webcam tracking looks for each of three or four players in their own strip of the picture
   and follows each player ([player tracking](player-tracking.md)); the setup preview draws each
   player's skeleton in their colour with their number over their head. A paired phone's own
   preview labels them too.
-- `?record` recordings (`.adpose` kind `recording`) have one slot per player, up to four;
-  every other `.adpose` kind still has at most two ([pose binary format](pose-binary-format.md)).
+- `?record` recordings (`.adpose` kind `recording`) have one slot per player, up to four, and
+  choreographies one per dancer ([pose binary format](pose-binary-format.md)).
 - Calibration has every player hold still together, as before, with shorter status labels
   when the columns are narrow. A player the model misses for a moment (up to 0.2 s) is still
   holding: with three or four, one is missed now and then, and restarting the hold each time
@@ -120,12 +145,11 @@ with four.
   four players (P1, P2 left and P3 right with three), so the order matches where people
   stand. The mirror between them shows every player's character as a cutout in their
   colour, mirrored like the setup preview.
-- The stage's coach dancers, the results dancers and the results scores show one dancer per
-  player in that player's colour.
+- The stage's coach dancers show every dancer of the song, each player's in their colour;
+  the results dancers and the results scores show one dancer per player in that player's
+  colour.
 
 ## Not done
 
-- Native three- and four-part choreography (more than two tracks), and recording it in
-  Dance Studio.
 - A test with four real people in front of one webcam. The automated webcam test covers
   three tracked people; four is covered only by ghost replay and unit tests.

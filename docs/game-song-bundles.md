@@ -71,7 +71,7 @@ Code: `apps/web/src/songs/customSongs.ts` (import, storage, loading),
 Catalog paths resolve relative to the catalog; media paths resolve relative to
 `song.json`. Only safe relative file paths are accepted. The loader checks
 schema/profile support, catalog identity and revision, song/choreography time
-agreement, both tracks, calibration, sample quality, file lengths and SHA-256 for
+agreement, a track for each of the song's dancers, calibration, sample quality, file lengths and SHA-256 for
 all referenced runtime files. Requests include the selected bundle revision.
 Downloads have per-file and total declared-size limits. Errors appear in Song
 Select and allow retry; leaving the screen cancels the pending request.
@@ -94,9 +94,11 @@ pose recordings (`node tools/pose/migrate-legacy.ts in.ndjson out.adpose`). `?re
 downloads `<songId>-poses.adpose`, which `?input=recording&recording=<url>`
 replays.
 
-One-player preview selects player ID 0 from the same choreography. Two-player
-preview selects IDs 0 and 1, and three or four players dance those two parts again
-(players 3 and 4 copy IDs 0 and 1, `partOf`). The shared finite sampler preserves absence and
+A choreography has one to four dancers, a track each: `song.json`'s `dancerCount`
+(two when it's missing, for songs published before it), which the catalog carries too so
+Song Select can show them. Each player dances one of them, picked on Song Select's Dancers
+screen or cast by where they stand (`autoCast`); `sampleSong` gives each player their
+dancer's pose ([three and four players](three-and-four-players.md)). The shared finite sampler preserves absence and
 refuses interpolation over gaps longer than the authored limit (at most 200 ms).
 Authored exclusions clear score eligibility without changing the visual pose.
 Coach reflection is visual only; stored anatomy and player IDs remain unchanged.
