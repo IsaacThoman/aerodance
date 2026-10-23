@@ -195,7 +195,7 @@ export default function Timeline({ project, studio, workspace, compiled, editor,
           <span key={i}>{timeLabel((duration * i) / 6).slice(0, 5)}</span>
         ))}
       </div>
-      <div className="timeline-content">
+      <div className={`timeline-content ${tracks.length > 2 ? "crowded" : ""}`}>
         {!showingTake && project.durationMs > 0 && <div className="playable-overlay" aria-label="Playable range on timeline">
           <div className="outside-playable" style={{ left: 0, width: `${project.playableStartMs / duration * 100}%` }} />
           <div className="outside-playable" style={{ left: `${project.playableEndMs / duration * 100}%`, right: 0 }} />

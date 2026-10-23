@@ -34,6 +34,6 @@ export function useCompiled(project: ProjectV3 | null, takes: StudioAssets) {
     } catch { return null; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, tracks, takes, markers, playableStartMs, playableEndMs, durationMs]);
-  const fillable = useMemo(() => [0, 1].map(id => timeline.data ? missingIntervalsFromTimeline(timeline.data, id).length : 0), [timeline.data]);
+  const fillable = useMemo(() => (timeline.data?.tracks ?? []).map(t => timeline.data ? missingIntervalsFromTimeline(timeline.data, t.playerId).length : 0), [timeline.data]);
   return { compiled: { data, report, error: timeline.error } satisfies Compiled, original, fillable };
 }

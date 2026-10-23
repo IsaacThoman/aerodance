@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { sampleSnapshot } from "../../../packages/pose/choreography.ts";
 import { takeCalibration } from "../core.ts";
+import { takeSlots } from "../poseFiles.ts";
 import type { CompiledChoreography } from "../core.ts";
 import Preview from "./Preview.tsx";
 import type { PreviewTrack } from "./Preview.tsx";
@@ -40,11 +41,12 @@ const FALLBACK_TRACKS: readonly PreviewTrack[] = [0, 1].map((playerId) => ({
 export default function PreviewPanel({ workspace, editor, live, compiled, original, busy, trackOptionsOpen, onTrackOptions }: PreviewPanelProps) {
   const { recording, countdown, view, mode, setMode, cursor, readOnly, showingLive, showingTake, selectedTake, changeView } = workspace;
   const { connection, liveTracks } = live;
-  const { snapshot, selectedPose, playerId, joint, pointGroup } = editor;
+  const { snapshot, selectedPose, playerId, joint, pointGroup, dancers } = editor;
+  // A take's dancers: a capture's one or two, or every dancer of a song imported as a take.
   const previewTracks = useMemo(
     () =>
       selectedTake
-        ? [0, 1].map((playerId) => ({
+        ? Array.from({ length: takeSlots(selectedTake) }, (_, playerId) => ({
             playerId,
             calibration: takeCalibration(selectedTake, playerId),
           }))
@@ -102,7 +104,7 @@ export default function PreviewPanel({ workspace, editor, live, compiled, origin
           </button>
         </div>
         <div className="player-selector" role="group" aria-label="Selected player">
-          {[0, 1].map(id => <div key={id} className={`player-control player-${id} ${playerId === id ? "selected" : ""}`}>
+          {Array.from({ length: dancers }, (_, id) => <div key={id} className={`player-control player-${id} ${playerId === id ? "selected" : ""}`}>
             <button className="player-button" aria-label={`Select P${id + 1}`} aria-pressed={playerId === id}
               onClick={() => editor.selectPlayer(id)}>P{id + 1}</button>
             {playerId === id && <button className="player-options" aria-label={`P${id + 1} track options`}

@@ -35,6 +35,18 @@ test('centered cleanup halves stationary XY and depth noise without mutating tim
   assert.equal(result.samples[15].quality[0].landmarkOrigins[15],'edited');
 });
 
+test('cleanup reaches a crew song\'s third and fourth dancers, alone or with everyone',()=>{
+  for (const id of [2,3]) {
+    const samples=frames().map(s=>({...s,poses:[{...s.poses[0],playerId:id}],quality:[{...s.quality[0],playerId:id}]}));
+    samples.forEach((s,i)=>{s.poses[0].landmarks[15].x+=(i%2 ? 1:-1)*.015;});
+    for (const options of [{playerId:id},{}]) {
+      const result=cleanupPoses(samples,size,options);
+      assert.ok(result.counts.smoothedJoints>0,`P${id+1} smoothed`);
+      assert.ok(Math.abs(result.samples[15].poses[0].landmarks[15].x-.4)<Math.abs(samples[15].poses[0].landmarks[15].x-.4));
+    }
+  }
+});
+
 test('isolated high-confidence wrist spikes and low-confidence ankle runs are repaired and unscorable',()=>{
   const samples=frames(); joint(samples[10]).x=1.2;
   for (const i of [15,16]) {joint(samples[i],27).confidence=.1; joint(samples[i],27).x=.1;}
