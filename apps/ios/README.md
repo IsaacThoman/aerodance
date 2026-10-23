@@ -4,7 +4,7 @@ An iPhone and iPad app that runs the production web build in `WKWebView` and sho
 an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
 phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
 
-Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network, CoreMotion),
+Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network, CoreMotion, UniformTypeIdentifiers),
 so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
 WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows the video.
 
@@ -84,13 +84,25 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   still does (`apps/web/src/audio/songPlayer.ts`). An HDMI picture with the sound on AirPods isn't
   `tv`. The simulator's TV-out screen keeps the sound on the Mac, so `tv` stays false there. A page that loads or reloads later
   (after `webViewWebContentProcessDidTerminate`) starts with the current state.
+- **Imported songs.** Settings → Songs imports Dance Studio export ZIPs, as in a browser, but
+  the app keeps them, since WebKit may clear the page's storage: as ZIPs in `Documents`, which
+  the Files app shows as On My iPhone › aerodance (`UIFileSharingEnabled`), so a song saved
+  there from Files, AirDrop or a Mac is imported too, and deleting it there removes it. The local
+  server serves the folder under `/app/songs/` (list, read, save in one go, delete) to requests
+  with a key made at launch (`X-Aerodance-Key`), which only the game's page gets
+  (`globalThis.__aerodanceSongs`): other apps on the device can reach 127.0.0.1 too. The page
+  checks every song itself (`apps/web/src/songs/appSongs.ts`). Import song posts
+  `{ pickSong: true }` and the app opens the system's file picker on the phone (over the remote
+  while the game is on a TV), copies the ZIP for the page to read from `/app/incoming/`, and
+  answers with `window.__aerodanceSongPicked({ url, name })` (or `null`). The page's `confirm()`
+  and `alert()` (replacing or removing a song) show as the app's alerts, on the phone too.
 - **Saved data.** Scores and settings live in the page's `localStorage`. The app also keeps a copy
   of every key starting with `aerodance` in `NSUserDefaults` (per port), updated whenever the page
   changes one, and puts back any key the page has lost before the game starts, in case WebKit
   clears the site's data. A key the page still has is never overwritten.
 - **Privacy manifest.** `src/PrivacyInfo.xcprivacy`: no tracking, no data collected (camera frames
-  are tracked on the device), and `NSUserDefaults` (reason CA92.1, the app's own data) as the one
-  required-reason API.
+  are tracked on the device), and two required-reason APIs: `NSUserDefaults` (reason CA92.1, the
+  app's own data) and the imported songs' modification times (C617.1, files in the app's container).
 
 ## Requirements
 
@@ -120,7 +132,8 @@ each its own with `--port <port>` (saved scores and settings belong to the port)
 ## Release builds
 
 Development builds take the launch options above (`--path`, `--report`, `--flow`, `--drive`,
-`--clear-website-data`, `--port`), are
+`--clear-website-data`, `--port`, and `--songs-key <key>`, which fixes the imported songs' key for
+tests that call the routes themselves), are
 inspectable in Safari's Web Inspector, and add `NSAllowsLocalNetworking` to `Info.plist` so
 `--report` can reach the Mac. (Every build has `NSLocalNetworkUsageDescription`: a paired phone on
 the same Wi-Fi connects to the app directly.) `build --release`
@@ -185,7 +198,10 @@ the device is held sideways shows the remote with every control on screen, uprig
 the game is told how the device is held as it turns (for its camera's picture), and the game comes back in landscape when the TV goes. One plays a whole song on the TV with the
 remote's buttons only: the menus, the players dial, Back, Pause and Resume, and the TV going and
 coming back mid-song, which the song plays through. The main menu's AirPlay picker sits over the
-game's AirPlay bubble.
+game's AirPlay bubble. And a song ZIP saved to the app's folder lists in Settings → Songs, Import
+song picks one in the system's picker (the same song, so the replace dialog shows), the song
+plays from Song Select and survives a relaunch that clears the page's website data, and
+removing it deletes its ZIP.
 
 ```sh
 node scripts/ios.ts sim --device <UDID> --port 8423 --path '/?input=ghost'   # build and install

@@ -1,17 +1,21 @@
 import { FONT, ICONS, drawCaps, drawGlassPanel, drawMarquee, ellipsize, paragraph, pill, wrapText } from '../ui/draw.ts';
 import type { Circle } from '../ui/draw.ts';
 import type { CanvasUI, Widget } from '../ui/useCanvasUI.ts';
-import { customSongsSupported, importSongZip, listSavedSongs, removeCustomSong, savedCustomSong } from '../songs/customSongs.ts';
+import { customSongsSupported, importSongZip, listSavedSongs, removeCustomSong, savedCustomSong, savedIn } from '../songs/customSongs.ts';
+import { pickAppSong } from '../songs/appSongs.ts';
+import { appSongs } from '../host.ts';
 import type { SavedSong } from '../songs/customSongs.ts';
 import { SONGS_PER_PAGE } from './layout.ts';
 import type { menuLayout } from './layout.ts';
 
 /**
- * Settings → Songs: the songs imported into this browser (songs/customSongs.ts), a dense list
+ * Settings → Songs: the songs imported into this browser or app (songs/customSongs.ts), a dense list
  * SONGS_PER_PAGE to a page, each with a remove button (a title too long for its row scrolls:
  * drawMarquee), and Import song at the bottom, which takes a Dance Studio export ZIP. Song Select lists the imported songs that check out; the
- * damaged ones are only here, to remove. Only where the browser can save songs
- * (customSongsSupported): elsewhere Settings has no Songs panel.
+ * damaged ones are only here, to remove. Only where the browser or app can save songs
+ * (customSongsSupported): elsewhere Settings has no Songs panel. In the iPhone/iPad app the
+ * app's own picker picks the ZIP (pickAppSong), and a ZIP saved to its folder in the Files
+ * app lists too.
  *
  * MainMenu draws it beside Sound and Graphics and passes its widgets and presses on: open()
  * and close() as Settings shows and hides. report() is data-saved-songs and -damaged-songs (the
@@ -35,6 +39,7 @@ export interface SongsPanel {
 }
 
 export const CAN_IMPORT = customSongsSupported();
+const IN_APP = appSongs() !== null;
 // Saved songs that take longer than this to list show as unavailable.
 const LIST_TIMEOUT_MS = 5000;
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
@@ -56,6 +61,8 @@ export function createSongsPanel({ layout, ui, showing }: {
     /** A listing is on its way (the songs listed already stay up meanwhile). */
     listing: false,
     importing: false,
+    /** The app's file picker is open. */
+    picking: false,
     notice: null as { text: string; error: boolean } | null,
     picker: null as HTMLInputElement | null,
     /** When this page of titles showed, for their marquees; when one next moves (0: it is). */
@@ -84,7 +91,7 @@ export function createSongsPanel({ layout, ui, showing }: {
     if (st.status !== 'ready') st.status = 'loading';
     Promise.race([
       listSavedSongs(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(Error("Saved songs aren't available in this browser (timed out).")), LIST_TIMEOUT_MS)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(Error(`Saved songs aren't available ${savedIn()} (timed out).`)), LIST_TIMEOUT_MS)),
     ])
       .then((songs) => {
         if (load !== st.loads) return;
@@ -104,7 +111,7 @@ export function createSongsPanel({ layout, ui, showing }: {
         st.status = 'error';
         st.songs = [];
         st.page = 0;
-        st.error = message(error) || "Saved songs aren't available in this browser.";
+        st.error = message(error) || `Saved songs aren't available ${savedIn()}.`;
       })
       .finally(() => {
         if (load === st.loads) st.listing = false;
@@ -141,8 +148,20 @@ export function createSongsPanel({ layout, ui, showing }: {
       });
   };
   // The file picker opens from the press itself (browsers only open one from the user's input).
+  // In the app, the app's picker opens on the phone's screen.
   const pickSong = () => {
-    if (st.importing) return;
+    if (st.importing || st.picking) return;
+    if (IN_APP) {
+      st.picking = true;
+      pickAppSong()
+        .then((file) => { st.picking = false; if (file) importFile(file); })
+        .catch((error: unknown) => {
+          st.picking = false;
+          st.notice = { text: message(error) || "That file couldn't be opened.", error: true };
+          ui().invalidate();
+        });
+      return;
+    }
     if (!st.picker) {
       const input = document.createElement('input');
       input.type = 'file';
@@ -159,11 +178,12 @@ export function createSongsPanel({ layout, ui, showing }: {
     st.picker.click();
   };
 
-  // Deletes a song from this browser (its best scores stay), unless another tab has put another
-  // copy in its place since it was listed. A keyboard cursor moves on to the song after it.
+  // Deletes a song from this browser or app (its best scores stay), unless another tab has put
+  // another copy in its place since it was listed. A keyboard cursor moves on to the song after it.
   const remove = (saved: SavedSong) => {
     const { entry } = saved;
-    if (!window.confirm(`Remove “${entry.title}” from this browser?`)) return;
+    const question = IN_APP ? `Remove “${entry.title}”? Its ZIP is deleted from the aerodance folder in Files.` : `Remove “${entry.title}” from this browser?`;
+    if (!window.confirm(question)) return;
     const focus = ui().keyFocus === trashId(saved) ? { page: st.page, at: pageSongs().indexOf(saved) } : undefined;
     removeCustomSong(entry)
       // Not removed: another tab already did, or put another copy in its place (which stays).
@@ -271,7 +291,8 @@ export function createSongsPanel({ layout, ui, showing }: {
       } else if (st.status === 'error') {
         paragraph(g, st.error, textX, top.y + top.h / 2, textW, { size: 22, color: '#ffb38a' });
       } else if (!st.songs.length) {
-        paragraph(g, 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here to dance it in this browser.', textX, top.y + top.h / 2, textW, { size: 22 });
+        paragraph(g, IN_APP ? 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here or save it to the aerodance folder in Files.'
+          : 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here to dance it in this browser.', textX, top.y + top.h / 2, textW, { size: 22 });
       } else {
         const elapsed = performance.now() - st.shownAt;
         let next = Infinity;

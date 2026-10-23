@@ -20,7 +20,8 @@
  *              picture upright: cameraTurner().
  *
  * The app also lays an invisible AirPlay picker over the game's AirPlay bubble
- * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker().
+ * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker(). And it keeps the
+ * imported songs, as ZIPs in its folder in the Files app: appSongs() (songs/appSongs.ts).
  *
  * const off = onHostChange((host) => ...); hostState().tv; inApp(); client() === 'tvos'
  */
@@ -120,4 +121,17 @@ export const canPickAirPlay = () => typeof airPlayHook() === 'function';
 export function placeAirPlayPicker(rect: PickerRect | null) {
   const hook = airPlayHook();
   if (typeof hook === 'function') (hook as AirPlayHook)(rect);
+}
+
+/** A song ZIP the app's file picker gave the page: where the app serves it, and its file name. */
+export interface PickedSong { url: string; name: string; }
+/**
+ * The app's song folder (the iPhone/iPad app, apps/ios/): the key every /app/ request needs
+ * (other apps on the device can reach its loopback server too), and its file picker, which
+ * shows on the phone's own screen even while the game is on a TV. null in a browser.
+ */
+export interface AppSongs { key: string; pick(): Promise<PickedSong | null>; }
+export function appSongs(): AppSongs | null {
+  const songs = record((globalThis as { __aerodanceSongs?: unknown }).__aerodanceSongs);
+  return typeof songs.key === 'string' && songs.key && typeof songs.pick === 'function' ? songs as unknown as AppSongs : null;
 }

@@ -74,6 +74,27 @@
     post({ airplay: r });
   };
 
+  // Imported songs are ZIPs the app keeps (main.m, songs/appSongs.ts): the key its /app/ routes
+  // need, and its file picker, which answers with where it put the ZIP ({ url, name }) or null.
+  let picking = null;
+  window.__aerodanceSongPicked = file => {
+    const done = picking?.done;
+    picking = null;
+    done?.(file && typeof file.url === 'string' ? { url: file.url, name: String(file.name) } : null);
+  };
+  globalThis.__aerodanceSongs = {
+    key: '__SONGS_KEY__',
+    pick: () => {
+      if (!picking) {
+        let done;
+        picking = { promise: new Promise(resolve => { done = resolve; }) };
+        picking.done = done;
+        post({ pickSong: true });
+      }
+      return picking.promise;
+    },
+  };
+
   // The phone's remote buttons arrive as the key events the canvas UI already understands.
   window.__aerodanceKey = key => {
     const init = { key, code: key, bubbles: true, cancelable: true };
