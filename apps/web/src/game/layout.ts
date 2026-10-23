@@ -29,7 +29,7 @@ export const playerHudX = (id: number, playerCount: number, width = 1600) => {
 
 // Gameplay overlay (GameScreen.jsx).
 // The mirror, top centre between the scores (narrow enough for four in 4:3): every player's
-// skeleton on a dark glass, under a strip `top` tall along its top holding the pause icon.
+// character cutout on a dark glass, under a strip `top` tall along its top holding the pause icon.
 export const GAME_MIRROR = { x: 656, y: 24, w: 288, h: 196, top: 34 };
 export const GAME_PAUSE = { x: GAME_MIRROR.x + GAME_MIRROR.w / 2, y: GAME_MIRROR.y + 20, r: 30 };
 export const GAME_READY_START = { x: 610, y: 690, w: 380, h: 96 };
