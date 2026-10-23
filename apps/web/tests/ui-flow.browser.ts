@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 import { bundleFixture, choreographyBytes, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
-import { gameLayout } from '../src/game/layout.ts';
+import { gameLayout, resultsRetry, resultsSongs } from '../src/game/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
 import { glassLabelX } from '../src/ui/draw.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
@@ -22,8 +22,8 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { ASPECT, BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
-const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, castRow, rowRect } = gameLayout(design.w);
+const { ASPECT, BACK: MENU_BACK, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
+const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, castRow, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
 type Shape = Rect | Circle | { rect: Rect };
@@ -152,6 +152,16 @@ try {
   await shot('settings-stats-full');
   await click(STATS(0));
   await page.waitForFunction(() => !('statsMode' in (document.querySelector('canvas')?.dataset ?? {})));
+  // Graphics → Fullscreen (Chromium can go fullscreen) switches the page into fullscreen and out.
+  assert.ok(FULLSCREEN);
+  await click(FULLSCREEN);
+  await page.waitForFunction(() => !!document.fullscreenElement);
+  await until({ displayMode: mode, menuReady: 'true' });
+  frame = await frameBox();
+  await click(FULLSCREEN);
+  await page.waitForFunction(() => !document.fullscreenElement);
+  await until({ displayMode: mode, menuReady: 'true' });
+  frame = await frameBox();
   await click(MENU_BACK);
   await menuOn('main');
   await shot('main-menu');
@@ -426,7 +436,7 @@ try {
   const scores = ((await data()).gameScores ?? '').split('|').map(Number);
   assert.equal(scores.length, 2);
   for (const score of scores) assert.ok(score > 850000, `the ghost copies the routine: ${score}`);
-  await click(RESULTS_RETRY);
+  await click(resultsRetry(2));
   await until({ gamePhase: 'countdown' }, 30000);
   await click(GAME_PAUSE);
   await until({ gamePhase: 'paused' }, 5000);
@@ -456,7 +466,7 @@ try {
   const four = ((await data()).gameScores ?? '').split('|').map(Number);
   assert.equal(four.length, 4);
   for (const score of four) assert.ok(score > 850000, `each of four ghosts copies the dancer they picked: ${score}`);
-  await click(RESULTS_SONGS);
+  await click(resultsSongs(4));
   await until({ songScreen: 'list', songReady: 'true' }, 10000);
   assert.deepEqual(errors, []);
   console.log('Browser flow passed: Settings, camera setup and permission denial on the calibration screen, the 1-4 players dial, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit), picking dancers for a solo, a trio and a duet, a scored four-player ghost song with three players on one dancer and no runtime errors.');

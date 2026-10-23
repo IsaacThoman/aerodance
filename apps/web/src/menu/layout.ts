@@ -30,21 +30,26 @@ export const SONGS_PER_PAGE = 7;
 // Settings rows: the first row's centre below its panel's top, and the spacing.
 const ROWS_TOP = 98;
 const ROW_H = 50;
+// Graphics rows hold segmented switches, whose tracks are 50 tall, so they sit further apart.
+const GRAPHICS_ROW_H = ROW_H + 12;
 
-/** Compact menus leave a separate area for the dancers on the right. */
-export function menuLayout(width = 1600) {
+/**
+ * Compact menus leave a separate area for the dancers on the right. Graphics has a Fullscreen
+ * row only where the page can go fullscreen.
+ */
+export function menuLayout(width = 1600, fullscreen = true) {
   const compact = width === 1200;
   const x = compact ? 72 : 128;
   // Shapes from the left edge of the 16:9 layout, moved to this one's.
   const left = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x - 128 + x });
   // Each settings panel has its heading, then rows ROW_H apart.
   const w = compact ? 540 : 600;
-  const rowsHeight = (rows: number) => ROWS_TOP + (rows - 1) * ROW_H + 48;
+  const rowsHeight = (rows: number, rowH = ROW_H) => ROWS_TOP + (rows - 1) * rowH + 48;
   const SOUND = { x, y: 222, w, h: rowsHeight(5) };
-  const GRAPHICS = { x, y: SOUND.y + SOUND.h + 24, w, h: rowsHeight(2) };
-  const graphicsRowY = (row: number) => GRAPHICS.y + ROWS_TOP + row * ROW_H;
+  const GRAPHICS = { x, y: SOUND.y + SOUND.h + 24, w, h: rowsHeight(fullscreen ? 3 : 2, GRAPHICS_ROW_H) };
+  const graphicsRowY = (row: number) => GRAPHICS.y + ROWS_TOP + row * GRAPHICS_ROW_H;
   // Three options side by side, right of the row's label: Aspect ratio Auto / 4:3 / 16:9, then
-  // Stats Off / Basic / Full.
+  // Stats Off / Basic / Full. Then a Fullscreen switch like Sound's.
   const options = { x0: x + 240, x1: x + w - 32, gap: 6 };
   const optionW = (options.x1 - options.x0 - 2 * options.gap) / 3;
   const option = (row: number, i: number) => ({ x: options.x0 + i * (optionW + options.gap), y: graphicsRowY(row) - 21, w: optionW, h: 42 });
@@ -71,6 +76,8 @@ export function menuLayout(width = 1600) {
     ASPECT: (i: number) => option(0, i),
     STATS_ROW_Y: graphicsRowY(1),
     STATS: (i: number) => option(1, i),
+    /** The Fullscreen row, which toggles from anywhere along it like Sound's switches. */
+    FULLSCREEN: fullscreen ? { x: x + 16, y: graphicsRowY(2) - 24, w: w - 32, h: 48 } : null,
     SONGS,
     SONG_ROW: songRow,
     /** Each song's remove button, at its row's right end. */

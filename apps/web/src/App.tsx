@@ -196,6 +196,11 @@ export default function App() {
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';
   const gameRoutine = useMemo(() => game?.routine() ?? null, [game]);
+  // The players' live poses, for the winner left on stage after the results' reveal.
+  const gameLive = useMemo(() => (game ? {
+    livePose: (id: number, now: number) => game.livePose(id, now),
+    calibration: (id: number) => game.live[id]?.calibration ?? null,
+  } : null), [game]);
   // Settings → Graphics → Stats, or ?diag=stats for the full set whatever the setting.
   const statsMode = diagnostic('stats') ? 'full' : graphics.stats;
   // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
@@ -214,6 +219,7 @@ export default function App() {
             stageId={stageId}
             routine={game ? gameRoutine : preview}
             results={resultsVisible ? resultsShow : null}
+            live={gameLive}
             onState={setStage}
           />
           <MenuDancers

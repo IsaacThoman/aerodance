@@ -6,7 +6,7 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import { PLAYERS_GO, START } from '../src/menu/layout.ts';
-import { DANCE, GAME_CALIBRATION_PREVIEW, GAME_READY_START, RESULTS_RETRY, rowRect } from '../src/game/layout.ts';
+import { DANCE, GAME_CALIBRATION_PREVIEW, GAME_READY_START, resultsRetry, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 
 /** What the page script adds to window: whether the synthetic dancers are in shot. */
@@ -106,7 +106,7 @@ try {
   assert.ok(await page.evaluate(() => performance.now()) - freshHoldStart >= 2500, 'fresh full-body evidence must span 2.5 seconds');
   await until('gamePhase', 'playing'); await until('gamePhase', 'results');
   await page.evaluate(() => { (window as TestWindow).cameraVisible = false; });
-  await click(RESULTS_RETRY); await until('gamePhase', 'calibrating'); await until('gameCalibrationProgress', '0.000');
+  await click(resultsRetry(2)); await until('gamePhase', 'calibrating'); await until('gameCalibrationProgress', '0.000');
   await page.keyboard.press('Escape'); await until('songReady', 'true');
   assert.deepEqual(errors, []);
   console.log('Webcam calibration passed: real two-player tracking, required hold, preview, camera start from the calibration preview, Back, tracking-loss reset, countdown, gameplay, fresh calibration on retry.');

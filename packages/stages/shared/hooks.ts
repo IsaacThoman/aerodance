@@ -36,6 +36,11 @@ export const stageOrbit: { yaw: number; lift: number } = { yaw: 0, lift: 0 };
 // `dancing` during Song Select's preview and the song, `celebrating` on the song's results.
 export const stagePlay: { dancing: boolean; celebrating: boolean } = { dancing: false, celebrating: false };
 
+// How far every stage camera's picture is pushed right, as a fraction of its width (a view
+// offset: the camera itself doesn't move). The game's results screen eases it in so the stage
+// and its winner sit right of its scoreboard.
+export const stageShift: { x: number } = { x: 0 };
+
 export interface StageCameraProps {
   position?: Vec3;
   target?: Vec3;
@@ -92,8 +97,8 @@ export function StageCamera({
   const smooth = useRef(new THREE.Vector2());
   const offset = useRef(new THREE.Vector3());
   const spherical = useRef(new THREE.Spherical());
-  // The lift and aspect the view offset was set for.
-  const lifted = useRef('0');
+  // The shift, lift and aspect the view offset was set for.
+  const viewed = useRef('0');
 
   useLayoutEffect(() => {
     // Preserve the wide composition's horizontal field of view on a 4:3 display,
@@ -130,15 +135,17 @@ export function StageCamera({
     camera.position.y += Math.sin(t * 0.17 + 1.3) * sway[1] + smooth.current.y * parallax[1];
     camera.position.z += Math.sin(t * 0.13 + 2.1) * sway[2];
     camera.lookAt(look.current);
-    onFrame?.(camera, state, delta);
-    // Lifted, the picture is drawn from lower in the view, so everything sits higher on screen.
-    // (setViewOffset takes the aspect from its full size, so that's the camera's own.)
-    const lift = stageOrbit.lift, key = lift ? `${lift}|${camera.aspect}` : '0';
-    if (key !== lifted.current) {
-      lifted.current = key;
-      if (lift) camera.setViewOffset(camera.aspect, 1, 0, lift, camera.aspect, 1);
-      else camera.clearViewOffset();
+    // Shifted or lifted, the picture is drawn from elsewhere in the view, so everything sits
+    // further right or higher on screen. (setViewOffset takes the aspect from its full size, so
+    // that's the camera's own: a 1x1 full size would squash the picture to square.)
+    const { x: shift } = stageShift, { lift } = stageOrbit;
+    const key = shift || lift ? `${shift}|${lift}|${camera.aspect}` : '0';
+    if (key !== viewed.current) {
+      viewed.current = key;
+      if (key === '0') camera.clearViewOffset();
+      else camera.setViewOffset(camera.aspect, 1, -shift * camera.aspect, lift, camera.aspect, 1);
     }
+    onFrame?.(camera, state, delta);
   });
 
   return null;
