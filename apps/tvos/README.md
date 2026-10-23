@@ -51,8 +51,9 @@ Requirements:
 
 - A Mac with Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 - An Apple TV 4K of any generation on tvOS 26 or later (the first generation, from 2017, stops at
-  tvOS 26), paired with the Mac. On the Apple TV, open Settings → Remotes and
-  Devices → Remote App and Devices; then pair from Xcode's Devices window, or run
+  tvOS 26), paired with the Mac. tvOS has no device capability that excludes the Apple TV HD
+  (A8), so it can install the app too, but it isn't supported. On the Apple TV, open Settings →
+  Remotes and Devices → Remote App and Devices; then pair from Xcode's Devices window, or run
   `xcrun devicectl manage pair --device <name>` and type the code the TV shows. The tvOS
   simulator needs none of this.
 - A paid Apple Developer team, signed in to Xcode. Builds use `TVOS_TEAM_ID` (default
