@@ -13,6 +13,8 @@ import type { Workspace } from "./useWorkspace.ts";
 export type InspectorTab = "joint" | "song" | "review";
 /** Range edits the inspector offers. */
 export type RangeEditType = "swap" | "smooth" | "repair" | "approve" | "exclude";
+/** A swap's other track: playerId's poses trade places with these. */
+export interface RangeEditOptions { withPlayerId?: number; }
 /** What the preview draws: poses, with quality when they come from a take or the song. */
 export interface PreviewSnapshot { poses: Pose[]; }
 export interface PoseEditorOptions {
@@ -29,10 +31,13 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
   const { project, busy, modifyTracks } = studio;
   const { cursor, takeCursor, selection, draftJoint, setDraftJoint, readOnly, showingLive, showingTake, selectedTake } = workspace;
   const [tab, setTab] = useState<InspectorTab>("joint"),
-    [playerId, setPlayerId] = useState(0),
+    [chosenPlayer, setPlayerId] = useState(0),
     [joint, setJoint] = useState(15),
     [pointGroup, setPointGroup] = useState<PointSelection>("single"),
     [reason, setReason] = useState("Reviewed against audio and source pose");
+  // A song with fewer dancers than before selects its last one.
+  const dancers = project?.tracks.length ?? 2;
+  const playerId = Math.min(chosenPlayer, dancers - 1);
   let snapshot: PreviewSnapshot = showingLive
     ? connection.snapshot || EMPTY
     : showingTake
@@ -58,10 +63,10 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
     selectedJoint = selectedPose?.landmarks[joint];
   /** All track selectors clear any unfinished drag. */
   const selectPlayer = useCallback((id: number) => {
-    if (id !== 0 && id !== 1) return;
+    if (!Number.isInteger(id) || id < 0 || id >= dancers) return;
     setPlayerId(id);
     setDraftJoint(null);
-  }, [setDraftJoint]);
+  }, [setDraftJoint, dancers]);
   /** Selects a joint in the preview. */
   const select = (id: number, index: number) => {
     setPlayerId(id);
@@ -75,12 +80,12 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
     if (!readOnly) setTab("joint");
   };
   /** Applies an edit to the selected range. */
-  const apply = (type: RangeEditType) => {
+  const apply = (type: RangeEditType, { withPlayerId }: RangeEditOptions = {}) => {
     if (readOnly || busy) return;
     const range = { startMs: selection[0], endMs: selection[1] };
     const command: EditCommand =
       type === "swap"
-        ? { type, ...range, playerId: null }
+        ? { type, ...range, playerId, withPlayerId: withPlayerId ?? (playerId === 0 ? 1 : 0) }
         : type === "smooth"
           ? { type, ...range, playerId, windowMs: 120 }
           : type === "exclude" || type === "approve"

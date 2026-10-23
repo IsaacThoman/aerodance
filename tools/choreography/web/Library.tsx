@@ -9,7 +9,7 @@ import CapturePanel from "./CapturePanel.tsx";
 import TakeList from "./TakeList.tsx";
 import TrackTools from "./TrackTools.tsx";
 import StorageStatus from "./StorageStatus.tsx";
-import { OPERATION_NAMES, timeLabel } from "./format.ts";
+import { OPERATION_NAMES, operationTracks, timeLabel } from "./format.ts";
 import type { PoseEditor } from "./usePoseEditor.ts";
 
 import type { LiveCapture } from "./useLiveCapture.ts";
@@ -179,7 +179,7 @@ export default function Library({ project, studio, workspace, live, source, tran
         <ol className="history">
           {project.operations.map((op, index) => <li key={op.operationId} className={index >= project.operationCursor ? "undone" : ""}>
             <strong>{OPERATION_NAMES[op.type]}{index >= project.operationCursor ? " (undone)" : ""}</strong>
-            <small>{op.playerId === null ? "Both tracks" : `P${op.playerId + 1}`}
+            <small>{operationTracks(op)}
               {"startMs" in op ? ` · ${timeLabel(op.startMs)}–${timeLabel(op.endMs)}` : ""}</small>
           </li>)}
         </ol>

@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { oneOf } from "../../../packages/pose/choreography.ts";
+import { MAX_DANCERS, oneOf } from "../../../packages/pose/choreography.ts";
 import { DEFAULT_STAGE, STAGE_LIST, isStageId } from "../../../packages/stages/catalog.ts";
+import { setDancerCount } from "../core.ts";
 import type { Difficulty, ProjectV3 } from "../core.ts";
+import { playerList } from "./players.ts";
 import { timeLabel } from "./format.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 
@@ -17,6 +19,7 @@ const LIST_FIELDS = [
   ["tags", "Tags"],
 ] as const;
 const DIFFICULTIES: readonly Difficulty[] = ["easy", "normal", "hard"];
+const DANCER_COUNTS = Array.from({ length: MAX_DANCERS }, (_, i) => i + 1);
 // Raw text stays local; parsed values are committed immediately for Save and autosave.
 function ListField({ label, values, disabled, onChange }: {
   label: string; values: string[]; disabled: boolean; onChange: (values: string[]) => void;
@@ -32,7 +35,16 @@ function ListField({ label, values, disabled, onChange }: {
 
 // Song details and audio alignment.
 export default function SongDetails({ project, studio, recording }: SongDetailsProps) {
-  const { busy, edit, updateMetadata } = studio;
+  const { busy, edit, updateMetadata, modifyTracks, setNotice } = studio;
+  // Fewer dancers drop the last tracks (Undo brings them back): ask first when they have poses.
+  const setDancers = (dancers: number) => {
+    if (dancers === project.tracks.length) return;
+    const removed = project.tracks.slice(dancers).filter(t => t.dataId).map(t => t.playerId);
+    if (removed.length && !window.confirm(
+      `Remove the ${playerList(removed)} track${removed.length > 1 ? "s" : ""}? ${removed.length > 1 ? "Their" : "Its"} poses and edits leave the song; Undo brings them back.`)) return;
+    modifyTracks(p => setDancerCount(p, dancers));
+    setNotice(`The song has ${dancers} dancer${dancers === 1 ? "" : "s"}. In the game, each player dances one of them.`);
+  };
   return (
     <div className="song-fields">
       {TEXT_FIELDS.map(([key, label]) => (
@@ -93,6 +105,21 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
           {STAGE_LIST.map((stage) => (
             <option key={stage.id} value={stage.id}>
               {stage.id} — {stage.subtitle}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Dancers
+        <select
+          aria-label="Dancers"
+          disabled={recording || busy}
+          value={project.tracks.length}
+          onChange={(e) => setDancers(Number(e.target.value))}
+        >
+          {DANCER_COUNTS.map((n) => (
+            <option key={n} value={n}>
+              {n} · {n === 1 ? "solo" : `P1–P${n}`}
             </option>
           ))}
         </select>

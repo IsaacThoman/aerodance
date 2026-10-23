@@ -62,7 +62,7 @@ export default function App() {
         <Library panel={panel} setPanel={setPanel} editor={editor} project={project} studio={studio} workspace={workspace} live={live} source={source}
           transport={transport} fillable={fillable} onImportVideo={setVideoFile} />
         <main className="editor">
-          <PreviewPanel trackOptionsOpen={panel === "track"} onTrackOptions={() => setPanel(panel === "track" ? "assets" : "track")} workspace={workspace} editor={editor} live={live} compiled={compiled} original={original} busy={studio.busy} />
+          <PreviewPanel dancers={project.tracks.length} trackOptionsOpen={panel === "track"} onTrackOptions={() => setPanel(panel === "track" ? "assets" : "track")} workspace={workspace} editor={editor} live={live} compiled={compiled} original={original} busy={studio.busy} />
           <Timeline project={project} studio={studio} workspace={workspace} compiled={compiled} editor={editor} connection={live.connection} onConfigure={() => setPanel("configuration")} />
         </main>
         <Inspector project={project} studio={studio} workspace={workspace} editor={editor} compiled={compiled} />

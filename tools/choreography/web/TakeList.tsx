@@ -6,12 +6,33 @@ import type { ProjectV3, Take, TakeSummary } from "../core.ts";
 import type { StudioProject } from "./useStudioProject.ts";
 import { takeById } from "./useWorkspace.ts";
 import type { Workspace } from "./useWorkspace.ts";
+import { playerList } from "./players.ts";
 
 export interface TakeListProps { project: ProjectV3; studio: StudioProject; workspace: Workspace; }
 const closeMenu = (e: MouseEvent<HTMLElement>) => {
   const menu = e.currentTarget.closest("details");
   if (menu) menu.open = false;
 };
+/** One way to copy a take onto tracks: its dancers `from` onto the tracks `to`. */
+interface Assignment { from: number[]; to: number[]; label: string; enabled: boolean; }
+/**
+ * A take menu's track actions for a song with tracks `tracks`: each track from the take's
+ * dancer of the same number, a solo take's dancer onto any other track, and every track the
+ * take has a dancer for at once.
+ */
+function assignments(tracks: readonly number[], dancers: readonly number[]): Assignment[] {
+  const has = (id: number) => dancers.includes(id);
+  const list: Assignment[] = tracks.map(id => ({ from: [id], to: [id], label: `Overwrite P${id + 1} track`, enabled: has(id) }));
+  const [solo] = dancers;
+  if (dancers.length === 1) for (const id of tracks) if (id !== solo)
+    list.push({ from: [solo], to: [id], label: `Copy P${solo + 1} to P${id + 1} track`, enabled: true });
+  if (tracks.length > 1) {
+    const both = tracks.filter(has), all = both.length === tracks.length || both.length < 2;
+    list.push({ from: both, to: both, enabled: both.length > 1,
+      label: all ? tracks.length === 2 ? "Overwrite both tracks" : "Overwrite all tracks" : `Overwrite ${playerList(both)} tracks` });
+  }
+  return list;
+}
 
 // The project's take library: view a take, copy it onto player tracks, or delete it.
 export default function TakeList({ project, studio, workspace }: TakeListProps) {
@@ -32,7 +53,7 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
   async function deleteTake(take: TakeSummary) {
     if (
       !window.confirm(
-        `Delete take “${take.name}”? Assigned P1 and P2 track data will remain intact.`,
+        `Delete take “${take.name}”? Assigned ${playerList(project.tracks.map((t) => t.playerId))} track data will remain intact.`,
       )
     )
       return;
@@ -48,15 +69,16 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
       setNotice("Take deleted. Assigned tracks were preserved.");
     });
   }
-  function assignTake(take: Take, ids: number[]) {
+  function assignTake(take: Take, { from, to }: Assignment) {
     pause();
-    modifyTracks((p, assets) => overwriteTracks(p, take, ids, assets));
+    modifyTracks((p, assets) => overwriteTracks(p, take, from, assets, to));
     setView("playback");
     setCursor(
       Math.max(0, take.offsetMs + take.samples[0].takeTimeMs * take.timeScale),
     );
     setNotice(
-      `Overwrote ${ids.length === 2 ? "both tracks" : `P${ids[0] + 1} track`}. Review alignment before export.`,
+      `Overwrote ${to.length === project.tracks.length && to.length > 1 ? to.length === 2 ? "both tracks" : "all tracks"
+        : to.length > 1 ? `${playerList(to)} tracks` : `P${to[0] + 1} track${from[0] === to[0] ? "" : ` with P${from[0] + 1}`}`}. Review alignment before export.`,
     );
   }
   return (
@@ -67,10 +89,7 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
       <div className="takes">
         {project.takes.map((t) => {
           const take = takeById(takes, t.takeId);
-          const hasPlayer = (id: number) =>
-            take?.samples.some((s) =>
-              s.poses.some((p) => p.playerId === id),
-            );
+          const dancers = [...new Set(take?.samples.flatMap((s) => s.poses.map((p) => p.playerId)) ?? [])].sort((a, b) => a - b);
           return (
             <div
               className={`take ${activeTake === t.takeId ? "active" : ""}`}
@@ -99,21 +118,19 @@ export default function TakeList({ project, studio, workspace }: TakeListProps) 
                   ⋯
                 </summary>
                 <div role="menu">
-                  {[[0], [1], [0, 1]].map((ids) => (
+                  {assignments(project.tracks.map((track) => track.playerId), dancers).map((a) => (
                     <button
-                      key={ids.join()}
+                      key={a.label}
                       role="menuitem"
-                      disabled={recording || busy || !ids.every(hasPlayer)}
+                      disabled={recording || busy || !a.enabled}
                       onClick={(e) => {
                         closeMenu(e);
                         void execute(async () => {
-                          if (take) assignTake(take, ids);
+                          if (take) assignTake(take, a);
                         });
                       }}
                     >
-                      {ids.length === 2
-                        ? "Overwrite both tracks"
-                        : `Overwrite P${ids[0] + 1} track`}
+                      {a.label}
                     </button>
                   ))}
                   <button
