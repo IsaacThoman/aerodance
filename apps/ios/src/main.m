@@ -1,7 +1,7 @@
 // aerodance for iPhone and iPad: the production web build in WKWebView, shown on a TV through
 // AirPlay or an HDMI adapter while the phone becomes the remote. See ../README.md.
 //
-// Public API only (WebKit, AVKit, MediaPlayer, Network), so this can go to the App Store.
+// Public API only (WebKit, AVKit, Network, CoreMotion, UniformTypeIdentifiers), so this can go to the App Store.
 // The built game is bundled under www/ and served from 127.0.0.1 so the page is a secure context
 // (song bundles are verified with crypto.subtle, and getUserMedia needs one). The port is fixed
 // so saved scores and settings, which belong to the page's origin, survive relaunches.
@@ -11,13 +11,15 @@
 //
 // One WKWebView runs the game. With no TV it fills the phone's screen and is played by touch.
 // When a display connects, iOS gives the app an external-display scene; the web view moves into
-// that scene's window (the page keeps running, nothing reloads) and the phone shows a remote.
+// that scene's window (the page keeps running, nothing reloads) and the phone shows the remote,
+// a second page of the game's own (/remote/), drawn in-engine like the game.
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
-#import <MediaPlayer/MediaPlayer.h>
+#import <CoreMotion/CoreMotion.h>
 #import <Network/Network.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #ifdef AERODANCE_DEV
 #import <notify.h>
 #endif
@@ -48,6 +50,40 @@ static NSString *Port(void) {
   static dispatch_once_t once;
   dispatch_once(&once, ^{ port = LaunchArg(@"--port", @"8417"); });
   return port;
+}
+
+// Which way up a screen or the device is, as WebKit counts it for the camera (and
+// window.orientation): 0 upright, 90 turned counterclockwise (sideways with the bottom on the
+// right), -90 clockwise, 180 upside down. An unknown one counts as upright, as in WebKit.
+static NSInteger ScreenDegrees(UIWindowScene *scene) {
+  switch (scene.effectiveGeometry.interfaceOrientation) {
+    case UIInterfaceOrientationLandscapeRight: return 90;
+    case UIInterfaceOrientationLandscapeLeft: return -90;
+    case UIInterfaceOrientationPortraitUpsideDown: return 180;
+    default: return 0;
+  }
+}
+
+// The device's own orientation is the screen's mirror image: held sideways with the bottom on the
+// right is UIDeviceOrientationLandscapeLeft and UIInterfaceOrientationLandscapeRight.
+static NSInteger DeviceDegrees(UIDeviceOrientation orientation) {
+  switch (orientation) {
+    case UIDeviceOrientationLandscapeLeft: return 90;
+    case UIDeviceOrientationLandscapeRight: return -90;
+    case UIDeviceOrientationPortraitUpsideDown: return 180;
+    default: return 0;
+  }
+}
+
+// Which way up the device is from gravity (the accelerometer's x and y, in g): down along -y is
+// upright, along -x it's turned counterclockwise. Leaning back on a stand counts; near flat, or
+// near halfway between two ways, it's neither (nil), so it takes a clear turn to change.
+static NSNumber *GravityDegrees(CMAcceleration a) {
+  double x = fabs(a.x), y = fabs(a.y);
+  if (hypot(a.x, a.y) < 0.35) return nil;
+  if (y > x * 1.5) return a.y < 0 ? @0 : @180;
+  if (x > y * 1.5) return a.x < 0 ? @90 : @-90;
+  return nil;
 }
 
 static NSString *JSON(id object) {
@@ -108,6 +144,178 @@ static void Respond(nw_connection_t c, int status, NSString *reason, NSString *h
   nw_connection_send(c, d, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, true, ^(nw_error_t error) { nw_connection_cancel(c); });
 }
 
+// A file, or the one byte range ("bytes=a-b") asked for, which WebKit's media loading asks for.
+static void SendFile(nw_connection_t c, NSString *file, NSArray<NSString *> *lines, BOOL isHead) {
+  void (^reply)(int, NSString *, NSString *, NSData *) = ^(int status, NSString *reason, NSString *headers, NSData *body) {
+    Respond(c, status, reason, headers, body.length, isHead ? nil : body);
+  };
+  NSData *body = [NSData dataWithContentsOfFile:file options:NSDataReadingMappedIfSafe error:nil] ?: [NSData data];
+  NSString *type = [NSString stringWithFormat:@"Content-Type: %@\r\nAccept-Ranges: bytes\r\n", MimeType(file.pathExtension)];
+  for (NSString *line in lines) {
+    if (![line.lowercaseString hasPrefix:@"range: bytes="]) continue;
+    NSArray<NSString *> *ab = [[line substringFromIndex:13] componentsSeparatedByString:@"-"];
+    NSUInteger len = body.length, a = ab[0].length ? (NSUInteger)ab[0].longLongValue : 0;
+    NSUInteger b = ab.count > 1 && ab[1].length ? MIN((NSUInteger)ab[1].longLongValue, len - 1) : len - 1;
+    if (!ab[0].length && ab.count > 1) { a = len - MIN((NSUInteger)ab[1].longLongValue, len); b = len - 1; }  // "bytes=-n"
+    if (len == 0 || a > b || a >= len) {
+      reply(416, @"Range Not Satisfiable", [NSString stringWithFormat:@"Content-Range: bytes */%lu\r\n", (unsigned long)len], [NSData data]); return;
+    }
+    NSString *range = [NSString stringWithFormat:@"%@Content-Range: bytes %lu-%lu/%lu\r\n", type, (unsigned long)a, (unsigned long)b, (unsigned long)len];
+    Respond(c, 206, @"Partial Content", range, b - a + 1, isHead ? nil : [body subdataWithRange:NSMakeRange(a, b - a + 1)]);
+    return;
+  }
+  reply(200, @"OK", type, body);
+}
+
+static NSString *Header(NSArray<NSString *> *lines, NSString *name) {
+  NSString *prefix = [name.lowercaseString stringByAppendingString:@":"];
+  for (NSString *line in lines) {
+    if ([line.lowercaseString hasPrefix:prefix]) return [[line substringFromIndex:prefix.length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+  }
+  return nil;
+}
+
+#pragma mark Imported songs
+
+// The page's imported songs (apps/web/src/songs/appSongs.ts) are Dance Studio export ZIPs in
+// Documents, which the Files app shows as On My iPhone › aerodance (UIFileSharingEnabled), so a
+// ZIP saved there from Files, AirDrop or a Mac is one too. The page checks them; the app only
+// keeps the files, under /app/ on the local server:
+//
+//   GET    /app/songs/          { files: [{ name, size, modified }] }, modified in Unix ms
+//   GET    /app/songs/<name>    the ZIP (HEAD and byte ranges too)
+//   PUT    /app/songs/<name>    saves the body as that ZIP, in place of one by that name, all at once
+//   DELETE /app/songs/<name>
+//   GET    /app/incoming/<name> a ZIP from the file picker (pickSong), and DELETE when it's read
+//
+// Other apps on the device can reach 127.0.0.1 too, so every /app/ request needs this launch's
+// key (X-Aerodance-Key), which only the game's page is given (inject.js __aerodanceSongs).
+static NSString *SongsKey(void) {
+  static NSString *key;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    uint8_t bytes[32];
+    arc4random_buf(bytes, sizeof bytes);
+    NSMutableString *hex = [NSMutableString string];
+    for (size_t i = 0; i < sizeof bytes; i++) [hex appendFormat:@"%02x", bytes[i]];
+    // --songs-key sets it, for tests that call the routes themselves.
+    key = LaunchArg(@"--songs-key", nil) ?: hex;
+  });
+  return key;
+}
+static NSString *SongsFolder(void) { return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject; }
+static NSString *IncomingFolder(void) { return [NSTemporaryDirectory() stringByAppendingPathComponent:@"incoming"]; }
+static NSString *UploadsFolder(void) { return [NSTemporaryDirectory() stringByAppendingPathComponent:@"uploads"]; }
+// A bundle can be 192 MiB (apps/web/src/songs/loadBundle.ts); its ZIP a little more.
+static const unsigned long long MaxSongBytes = 200ull * 1024 * 1024;
+
+// A ZIP's name in the folder: no paths, no hidden files.
+static BOOL SongName(NSString *name) {
+  return name.length > 0 && name.length <= 255 && ![name containsString:@"/"] && ![name hasPrefix:@"."] &&
+    [name rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location == NSNotFound &&
+    [name.pathExtension.lowercaseString isEqual:@"zip"];
+}
+
+static NSDictionary *SongFile(NSString *folder, NSString *name) {
+  NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:[folder stringByAppendingPathComponent:name] error:nil];
+  if (![attributes.fileType isEqual:NSFileTypeRegular]) return nil;
+  return @{ @"name": name, @"size": @(attributes.fileSize), @"modified": @(llround(attributes.fileModificationDate.timeIntervalSince1970 * 1000)) };
+}
+
+static NSData *SongList(void) {
+  NSMutableArray *files = [NSMutableArray array];
+  for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:SongsFolder() error:nil]) {
+    NSDictionary *file = SongName(name) ? SongFile(SongsFolder(), name) : nil;
+    if (file) [files addObject:file];
+  }
+  return [NSJSONSerialization dataWithJSONObject:@{ @"files": files } options:0 error:nil];
+}
+
+typedef NS_ENUM(NSInteger, BodyResult) { BodyDone, BodyCut, BodyNoSpace, BodyUnwritable };
+static BodyResult WriteFailed(NSError *error) {
+  NSError *posix = [error.domain isEqual:NSPOSIXErrorDomain] ? error : error.userInfo[NSUnderlyingErrorKey];
+  BOOL full = error.code == NSFileWriteOutOfSpaceError || ([posix.domain isEqual:NSPOSIXErrorDomain] && posix.code == ENOSPC);
+  return full ? BodyNoSpace : BodyUnwritable;
+}
+
+// Writes the next `left` bytes of a request's body to `out`.
+static void ReceiveBody(nw_connection_t c, NSFileHandle *out, unsigned long long left, void (^done)(BodyResult)) {
+  if (left == 0) { done(BodyDone); return; }
+  nw_connection_receive(c, 1, (uint32_t)MIN(left, 1024 * 1024), ^(dispatch_data_t content, nw_content_context_t ctx, bool complete, nw_error_t error) {
+    __block unsigned long long got = 0;
+    __block NSError *failed;
+    if (content) dispatch_data_apply(content, ^bool(dispatch_data_t region, size_t offset, const void *bytes, size_t size) {
+      size = (size_t)MIN((unsigned long long)size, left - got);
+      if (![out writeData:[NSData dataWithBytesNoCopy:(void *)bytes length:size freeWhenDone:NO] error:&failed]) return false;
+      got += size;
+      return got < left;
+    });
+    if (failed) done(WriteFailed(failed));
+    else if (got == left) done(BodyDone);
+    else if (error || complete) done(BodyCut);
+    else ReceiveBody(c, out, left - got, done);
+  });
+}
+
+// PUT /app/songs/<name>: the body goes to a file of its own, which then takes the name at once
+// (rename), so the folder never holds half a ZIP.
+static void SaveSong(nw_connection_t c, NSString *name, NSArray<NSString *> *lines, NSData *start) {
+  NSString *length = Header(lines, @"content-length");
+  unsigned long long size = length.longLongValue;
+  if (!length.length || length.longLongValue < 0) { Respond(c, 411, @"Length Required", @"", 0, nil); return; }
+  if (size > MaxSongBytes) { Respond(c, 413, @"Content Too Large", @"", 0, nil); return; }
+  NSFileManager *files = NSFileManager.defaultManager;
+  [files createDirectoryAtPath:UploadsFolder() withIntermediateDirectories:YES attributes:nil error:nil];
+  NSString *upload = [UploadsFolder() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+  [files createFileAtPath:upload contents:nil attributes:nil];
+  NSFileHandle *out = [NSFileHandle fileHandleForWritingAtPath:upload];
+  if (!out) { Respond(c, 500, @"Internal Server Error", @"", 0, nil); return; }
+  void (^done)(BodyResult) = ^(BodyResult result) {
+    [out closeFile];
+    NSString *path = [SongsFolder() stringByAppendingPathComponent:name];
+    if (result == BodyDone && rename(upload.fileSystemRepresentation, path.fileSystemRepresentation) == 0) {
+      NSData *body = [NSJSONSerialization dataWithJSONObject:SongFile(SongsFolder(), name) ?: @{} options:0 error:nil];
+      Respond(c, 200, @"OK", @"Content-Type: application/json\r\n", body.length, body);
+      return;
+    }
+    [files removeItemAtPath:upload error:nil];
+    if (result == BodyCut) nw_connection_cancel(c);
+    else if (result == BodyNoSpace) Respond(c, 507, @"Insufficient Storage", @"", 0, nil);
+    else Respond(c, 500, @"Internal Server Error", @"", 0, nil);
+  };
+  // What came with the headers first.
+  NSData *first = [start subdataWithRange:NSMakeRange(0, (NSUInteger)MIN((unsigned long long)start.length, size))];
+  NSError *error;
+  if (first.length && ![out writeData:first error:&error]) { done(WriteFailed(error)); return; }
+  ReceiveBody(c, out, size - first.length, done);
+}
+
+// /app/: the imported songs, above.
+static void ServeApp(nw_connection_t c, NSString *method, NSString *path, NSArray<NSString *> *lines, NSData *body) {
+  void (^status)(int, NSString *) = ^(int code, NSString *reason) { Respond(c, code, reason, @"", 0, nil); };
+  if (![Header(lines, @"x-aerodance-key") isEqual:SongsKey()]) { status(403, @"Forbidden"); return; }
+  BOOL get = [method isEqual:@"GET"] || [method isEqual:@"HEAD"], head = [method isEqual:@"HEAD"];
+  if ([path isEqual:@"/app/songs/"]) {
+    if (!get) { status(405, @"Method Not Allowed"); return; }
+    NSData *list = SongList();
+    Respond(c, 200, @"OK", @"Content-Type: application/json\r\n", list.length, head ? nil : list);
+    return;
+  }
+  NSString *prefix = [path hasPrefix:@"/app/songs/"] ? @"/app/songs/" : [path hasPrefix:@"/app/incoming/"] ? @"/app/incoming/" : nil;
+  NSString *folder = [prefix isEqual:@"/app/songs/"] ? SongsFolder() : IncomingFolder(), *name = [path substringFromIndex:prefix.length];
+  if (!prefix || !SongName(name)) { status(404, @"Not Found"); return; }
+  NSString *file = [folder stringByAppendingPathComponent:name];
+  if ([method isEqual:@"PUT"] && [prefix isEqual:@"/app/songs/"]) { SaveSong(c, name, lines, body); return; }
+  if ([method isEqual:@"DELETE"]) {
+    BOOL removed = SongFile(folder, name) && [NSFileManager.defaultManager removeItemAtPath:file error:nil];
+    removed ? status(204, @"No Content") : status(404, @"Not Found");
+    return;
+  }
+  if (!get) { status(405, @"Method Not Allowed"); return; }
+  if (!SongFile(folder, name)) { status(404, @"Not Found"); return; }
+  SendFile(c, file, lines, head);
+}
+
 static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
   nw_connection_receive(c, 1, 64 * 1024, ^(dispatch_data_t content, nw_content_context_t ctx, bool complete, nw_error_t error) {
     if (content) dispatch_data_apply(content, ^bool(dispatch_data_t region, size_t offset, const void *bytes, size_t size) {
@@ -125,10 +333,16 @@ static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
     void (^reply)(int, NSString *, NSString *, NSData *) = ^(int status, NSString *reason, NSString *headers, NSData *body) {
       Respond(c, status, reason, headers, body.length, isHead ? nil : body);
     };
-    if (parts.count < 2 || !([parts[0] isEqual:@"GET"] || isHead)) {
+    if (parts.count < 2) { reply(405, @"Method Not Allowed", @"Content-Type: text/plain\r\n", [NSData data]); return; }
+    NSString *path = [[parts[1] componentsSeparatedByString:@"?"].firstObject stringByRemovingPercentEncoding] ?: @"/";
+    if ([path hasPrefix:@"/app/"]) {
+      NSUInteger after = end.location + 4;
+      ServeApp(c, parts[0], path, lines, [buffer subdataWithRange:NSMakeRange(after, buffer.length - after)]);
+      return;
+    }
+    if (!([parts[0] isEqual:@"GET"] || isHead)) {
       reply(405, @"Method Not Allowed", @"Content-Type: text/plain\r\n", [NSData data]); return;
     }
-    NSString *path = [[parts[1] componentsSeparatedByString:@"?"].firstObject stringByRemovingPercentEncoding] ?: @"/";
     if ([path hasSuffix:@"/"]) path = [path stringByAppendingString:@"index.html"];
     NSString *file = [[root stringByAppendingPathComponent:path] stringByStandardizingPath];
     // Inside www/ only: with the "/", a sibling such as www2/ doesn't count.
@@ -137,23 +351,7 @@ static void Serve(nw_connection_t c, NSString *root, NSMutableData *buffer) {
     if (!inside || ![NSFileManager.defaultManager fileExistsAtPath:file isDirectory:&dir] || dir) {
       reply(404, @"Not Found", @"Content-Type: text/plain\r\n", [@"not found" dataUsingEncoding:NSUTF8StringEncoding]); return;
     }
-    NSData *body = [NSData dataWithContentsOfFile:file options:NSDataReadingMappedIfSafe error:nil] ?: [NSData data];
-    NSString *type = [NSString stringWithFormat:@"Content-Type: %@\r\nAccept-Ranges: bytes\r\n", MimeType(file.pathExtension)];
-    // One byte range ("bytes=a-b"), which WebKit's media loading asks for.
-    for (NSString *line in lines) {
-      if (![line.lowercaseString hasPrefix:@"range: bytes="]) continue;
-      NSArray<NSString *> *ab = [[line substringFromIndex:13] componentsSeparatedByString:@"-"];
-      NSUInteger len = body.length, a = ab[0].length ? (NSUInteger)ab[0].longLongValue : 0;
-      NSUInteger b = ab.count > 1 && ab[1].length ? MIN((NSUInteger)ab[1].longLongValue, len - 1) : len - 1;
-      if (!ab[0].length && ab.count > 1) { a = len - MIN((NSUInteger)ab[1].longLongValue, len); b = len - 1; }  // "bytes=-n"
-      if (len == 0 || a > b || a >= len) {
-        reply(416, @"Range Not Satisfiable", [NSString stringWithFormat:@"Content-Range: bytes */%lu\r\n", (unsigned long)len], [NSData data]); return;
-      }
-      NSString *range = [NSString stringWithFormat:@"%@Content-Range: bytes %lu-%lu/%lu\r\n", type, (unsigned long)a, (unsigned long)b, (unsigned long)len];
-      Respond(c, 206, @"Partial Content", range, b - a + 1, isHead ? nil : [body subdataWithRange:NSMakeRange(a, b - a + 1)]);
-      return;
-    }
-    reply(200, @"OK", type, body);
+    SendFile(c, file, lines, isHead);
   });
 }
 
@@ -183,7 +381,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 #pragma mark - The game's web view, shared by both screens
 
 // Owns the one web view and puts it on the TV when there is one, else on the phone.
-@interface GameHost : NSObject <WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate>
+@interface GameHost : NSObject <WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, UIDocumentPickerDelegate>
 @property (class, readonly) GameHost *shared;
 @property (nonatomic, strong) WKWebView *web;
 @property (nonatomic, strong) nw_listener_t server;
@@ -199,13 +397,20 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic, weak) UIView *tvView;
 @property (nonatomic, copy) NSString *tvDescription;  // e.g. "1920×1080 @ 60 Hz", while a TV is connected
 @property (nonatomic, copy) NSDictionary *page;        // the canvas's data-* state, from inject.js
-@property (nonatomic) double fps;
+@property (nonatomic) BOOL shownOnTV;                  // where the page was last told the game is (hostState's screen)
+@property (nonatomic) CGRect airplayRect;              // the game's AirPlay bubble in the web view's points; null while it's away
 // What the page is told about the app (inject.js __aerodanceHost).
 @property (nonatomic) BOOL tv;            // the game is on an external display (AirPlay mirroring, HDMI); kept in step with onTV
 @property (nonatomic) BOOL interrupted;   // between an audio interruption's start and end (a call, Siri, an alarm)
+@property (nonatomic) NSInteger held;          // which way up the device is held (ScreenDegrees' terms), as last seen upright or sideways
+@property (nonatomic) BOOL heldKnown;          // held has been seen (not only flat, or before the first reading)
+@property (nonatomic) NSInteger gameScreen;    // which way up the game's screen is: the TV's (always upright) or the phone's
+@property (nonatomic) NSInteger phoneScreen;   // which way up the phone's screen is
+@property (nonatomic, strong) CMMotionManager *motion;  // gravity, for held, while the game is on a TV
 @property (nonatomic, strong) WKUserContentController *scripts;
 @property (nonatomic, copy) NSString *injectSource;
 @property (nonatomic, strong) id drive;  // --drive's steps
+@property (nonatomic, weak) UIDocumentPickerViewController *songPicker;  // open for the page's Import song
 @end
 
 @implementation GameHost
@@ -250,6 +455,11 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   NSDictionary *app = appJSON ? [NSJSONSerialization JSONObjectWithData:appJSON options:0 error:nil] : nil;
   NSString *site = [app isKindOfClass:NSDictionary.class] && [app[@"site"] isKindOfClass:NSString.class] ? app[@"site"] : @"";
   script = [script stringByReplacingOccurrencesOfString:@"__SITE__" withString:site];
+  // The key for the imported songs' routes, which only this page gets (SongsKey).
+  script = [script stringByReplacingOccurrencesOfString:@"__SONGS_KEY__" withString:SongsKey()];
+  // Files the picker and unfinished saves left behind last time.
+  [NSFileManager.defaultManager removeItemAtPath:IncomingFolder() error:nil];
+  [NSFileManager.defaultManager removeItemAtPath:UploadsFolder() error:nil];
   self.injectSource = script;
   // --drive '<json>': steps for inject.js to play, as the Apple TV app's launch config takes them.
   NSString *drive = LaunchArg(@"--drive", nil);
@@ -311,6 +521,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     self.serverFailures = 0;
     [self loadPending];
     [self reloadIfWanted];
+    [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];  // the remote waits for it too
   } else if (state == nw_listener_state_failed || state == nw_listener_state_waiting) {
     nw_listener_cancel(listener);
   } else if (state == nw_listener_state_cancelled) {
@@ -375,12 +586,17 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   });
 }
 
+// A page of ours couldn't load from the server: a listener can look ready with its socket gone, so
+// a ready one is replaced too (the remote's loads count as well).
+- (void)serverFailedToServe {
+  if (self.serverState == nw_listener_state_ready) nw_listener_cancel(self.server);
+}
+
 - (void)pageFailed:(NSError *)error {
   NSURL *url = error.userInfo[NSURLErrorFailingURLErrorKey];
   // Cancelled loads (a newer navigation; a link opened in Safari is WebKit's domain) aren't failures.
   if (![error.domain isEqual:NSURLErrorDomain] || error.code == NSURLErrorCancelled || ![self isOurs:url]) return;
-  // A listener can look ready with its socket gone, so a ready one is replaced too.
-  if (self.serverState == nw_listener_state_ready) nw_listener_cancel(self.server);
+  [self serverFailedToServe];
   [self retryPage:url because:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
 }
 
@@ -388,6 +604,12 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self pageFailed:error]; }
 
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.loadServer = self.server; }
+
+// A new page has replaced the old one, and says where its AirPlay bubble is once it shows it.
+- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
+  self.airplayRect = CGRectNull;
+  [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+}
 
 // WebKit can finish a page from its cache while the server is down, without the scripts it needs
 // (a black screen), so a page that finished while the server was down or being replaced loads again.
@@ -415,7 +637,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   [self.scripts addUserScript:[[WKUserScript alloc] initWithSource:self.injectSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
 }
 
-- (NSDictionary *)hostState { return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv) }; }
+- (NSDictionary *)hostState {
+  return @{ @"interrupted": @(self.interrupted), @"tv": @(self.tv), @"screen": self.onTV ? @"tv" : @"phone",
+            @"held": @(self.held), @"screens": @{ @"game": @(self.gameScreen), @"phone": @(self.phoneScreen) } };
+}
 
 - (void)setTv:(BOOL)tv {
   if (_tv == tv) return;
@@ -427,6 +652,47 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (_interrupted == interrupted) return;
   _interrupted = interrupted;
   [self hostChanged];
+}
+
+// WebKit turns the camera's picture upright for the screen the web view is on, and on a TV that's
+// upright however the phone is held. So the page is told how the device is held and which way up
+// each screen is, and turns the picture itself (cameraTurner in apps/web/src/host.ts). While the
+// game is on a TV, how the device is held comes from gravity, as Orientation Lock leaves UIDevice
+// upright; otherwise (and in the simulator, which has no accelerometer), from UIDevice. Flat on a
+// table, the device is still held the way it last was. A turn is only told to the page: the start script
+// (installScripts) isn't rebuilt for one, as that mid-load (an iPhone turning sideways at launch) can
+// leave the page without inject.js, and a page that loads later is told when it finishes.
+- (void)updateOrientation { [self updateOrientationHeld:nil]; }
+
+- (void)updateOrientationHeld:(NSNumber *)gravity {
+  NSDictionary *was = self.hostState;
+  NSInteger phone = ScreenDegrees(self.phoneView.window.windowScene);
+  NSInteger game = _web.window ? ScreenDegrees(_web.window.windowScene) : phone;
+  self.gameScreen = game;
+  self.phoneScreen = phone;
+  UIDeviceOrientation device = UIDevice.currentDevice.orientation;
+  if (gravity) {
+    self.held = gravity.integerValue;
+    self.heldKnown = YES;
+  } else if (!self.motion.accelerometerActive && (UIDeviceOrientationIsPortrait(device) || UIDeviceOrientationIsLandscape(device))) {
+    self.held = DeviceDegrees(device);
+    self.heldKnown = YES;
+  } else if (!self.heldKnown) {
+    self.held = phone;
+  }
+  if ([was isEqual:self.hostState]) return;
+  NSLog(@"aerodance: host %@", JSON(self.hostState));
+  [self tellPageHost];
+}
+
+// Gravity is only needed while the game is on a TV.
+- (void)watchGravity {
+  if (!self.motion.accelerometerAvailable || self.onTV == self.motion.accelerometerActive) return;
+  if (!self.onTV) { [self.motion stopAccelerometerUpdates]; return; }
+  [self.motion startAccelerometerUpdatesToQueue:NSOperationQueue.mainQueue withHandler:^(CMAccelerometerData *data, NSError *error) {
+    NSNumber *held = data ? GravityDegrees(data.acceleration) : nil;
+    if (held && (!self.heldKnown || held.integerValue != self.held)) [self updateOrientationHeld:held];
+  }];
 }
 
 - (void)hostChanged {
@@ -454,6 +720,12 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     [target addSubview:web];
   }
   [self updateTV];
+  [self updateOrientation];
+  [self watchGravity];
+  if (self.onTV != self.shownOnTV) {
+    self.shownOnTV = self.onTV;
+    [self hostChanged];
+  }
   [self tellPage];
   [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
@@ -481,11 +753,16 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 - (instancetype)init {
   if (!(self = [super init])) return nil;
+  _airplayRect = CGRectNull;
+  _motion = [CMMotionManager new];
+  _motion.accelerometerUpdateInterval = 0.2;
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   [center addObserver:self selector:@selector(audioInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
   [center addObserverForName:AVAudioSessionRouteChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self updateTV]; }];
   [center addObserver:self selector:@selector(sceneActivated) name:UISceneDidActivateNotification object:nil];
   [center addObserver:self selector:@selector(checkServer) name:UIApplicationWillEnterForegroundNotification object:nil];
+  [UIDevice.currentDevice beginGeneratingDeviceOrientationNotifications];
+  [center addObserver:self selector:@selector(updateOrientation) name:UIDeviceOrientationDidChangeNotification object:nil];
   for (NSNotificationName name in @[NSProcessInfoThermalStateDidChangeNotification, NSProcessInfoPowerStateDidChangeNotification]) {
     [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self tellPage]; }];
   }
@@ -523,24 +800,105 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (AVAudioSession.sharedInstance.otherAudioPlaying || [self activateAudio]) self.interrupted = NO;
 }
 
+- (BOOL)serverReady { return self.serverState == nw_listener_state_ready; }
+
+// The keys the remote sends (the arrows, OK and Back), as the canvas UI knows them.
 - (void)sendKey:(NSString *)key {
+  if (![@[@"ArrowUp", @"ArrowDown", @"ArrowLeft", @"ArrowRight", @"Enter", @"Escape"] containsObject:key]) return;
   [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceKey && window.__aerodanceKey('%@')", key] completionHandler:nil];
 }
 
-// Only the game itself (the main frame, from the app's own server) talks to the app, not a frame
-// it embeds.
-- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+// Only the game's own pages (the main frame, from the app's own server) talk to the app, not a
+// frame one embeds.
+static BOOL FromOurPage(WKScriptMessage *message) {
   WKSecurityOrigin *origin = message.frameInfo.securityOrigin;
-  if (!message.frameInfo.isMainFrame || ![origin.protocol isEqual:@"http"] || ![origin.host isEqual:@"127.0.0.1"] || origin.port != Port().integerValue) return;
+  return message.frameInfo.isMainFrame && [origin.protocol isEqual:@"http"] && [origin.host isEqual:@"127.0.0.1"] && origin.port == Port().integerValue;
+}
+
+// A rect from a page ({ x, y, w, h } in CSS pixels, which are the web view's points), or CGRectNull.
+static CGRect PageRect(id value) {
+  if (![value isKindOfClass:NSDictionary.class]) return CGRectNull;
+  NSNumber *x = value[@"x"], *y = value[@"y"], *w = value[@"w"], *h = value[@"h"];
+  for (NSNumber *n in @[x ?: NSNull.null, y ?: NSNull.null, w ?: NSNull.null, h ?: NSNull.null]) if (![n isKindOfClass:NSNumber.class]) return CGRectNull;
+  return CGRectMake(x.doubleValue, y.doubleValue, w.doubleValue, h.doubleValue);
+}
+
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+  if (!FromOurPage(message)) return;
   NSDictionary *body = message.body;
   if (![body isKindOfClass:NSDictionary.class]) return;
   if ([body[@"page"] isKindOfClass:NSDictionary.class]) { self.page = body[@"page"]; [self reloadIfWanted]; }
-  if ([body[@"fps"] isKindOfClass:NSNumber.class]) self.fps = [body[@"fps"] doubleValue];
+  // The game's AirPlay bubble moved, came or went (menu/AirPlayButton.tsx).
+  if (body[@"airplay"]) self.airplayRect = PageRect(body[@"airplay"]);
   if ([body[@"storage"] isKindOfClass:NSDictionary.class] && SaveStorage(body[@"storage"])) [self installScripts];
+  if ([body[@"pickSong"] isEqual:@YES]) [self pickSong];
   if ([body[@"restored"] isKindOfClass:NSArray.class] && [body[@"restored"] count]) {
     NSLog(@"aerodance: restored %@ from the saved copy", [body[@"restored"] componentsJoinedByString:@", "]);
   }
-  if (body[@"page"] || body[@"fps"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+  if (body[@"page"] || body[@"airplay"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+}
+
+#pragma mark Importing songs and the page's dialogs
+
+// What the phone's screen shows on top, for the file picker and the page's dialogs: they go on
+// the phone even while the game is on the TV (whose screen can't be touched), over the remote.
+- (UIViewController *)phoneController {
+  UIViewController *controller = self.phoneView.window.rootViewController;
+  while (controller.presentedViewController && !controller.presentedViewController.isBeingDismissed) controller = controller.presentedViewController;
+  return controller;
+}
+
+// Import song (apps/web/src/songs/appSongs.ts pickAppSong): a ZIP from the Files app, copied
+// for the page to read under /app/incoming/ and answered with { url, name }, or null.
+- (void)pickSong {
+  if (self.songPicker) return;
+  UIViewController *controller = self.phoneController;
+  if (!controller) { [self songPicked:nil name:nil]; return; }
+  UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeZIP] asCopy:YES];
+  picker.delegate = self;
+  picker.allowsMultipleSelection = NO;
+  self.songPicker = picker;
+  [controller presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+  NSURL *url = urls.firstObject;
+  NSString *name = [NSUUID.UUID.UUIDString stringByAppendingPathExtension:@"zip"];
+  NSString *incoming = [IncomingFolder() stringByAppendingPathComponent:name];
+  NSError *error;
+  [NSFileManager.defaultManager createDirectoryAtPath:IncomingFolder() withIntermediateDirectories:YES attributes:nil error:nil];
+  if (!url || ![NSFileManager.defaultManager moveItemAtPath:url.path toPath:incoming error:&error]) {
+    NSLog(@"aerodance: couldn't take the picked file %@: %@", url, error);
+    [self songPicked:nil name:nil];
+    return;
+  }
+  [self songPicked:[@"/app/incoming/" stringByAppendingString:name] name:url.lastPathComponent];
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller { [self songPicked:nil name:nil]; }
+
+- (void)songPicked:(NSString *)url name:(NSString *)name {
+  id file = url ? @{ @"url": url, @"name": name ?: @"song.zip" } : NSNull.null;
+  [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceSongPicked && window.__aerodanceSongPicked(%@)", JSON(file)] completionHandler:nil];
+}
+
+// The page's alert() and confirm() (Settings → Songs asks before replacing or removing a song),
+// which WebKit only shows through the app.
+- (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler {
+  UIViewController *controller = self.phoneController;
+  if (!controller) { completionHandler(); return; }
+  UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
+  [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { completionHandler(); }]];
+  [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)webView:(WKWebView *)webView runJavaScriptConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL))completionHandler {
+  UIViewController *controller = self.phoneController;
+  if (!controller) { completionHandler(NO); return; }
+  UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
+  [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) { completionHandler(NO); }]];
+  [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { completionHandler(YES); }]];
+  [controller presentViewController:alert animated:YES completion:nil];
 }
 
 // The game's own camera tracking (MediaPipe in the page) may use the phone's camera; only the
@@ -573,6 +931,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 // current host state and storage.
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
   NSLog(@"aerodance: web content process ended; reloading");
+  self.airplayRect = CGRectNull;  // the page, and its bubble, are gone
+  [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
   NSURL *url = webView.URL;
   [self loadWhenServerReady:[self isOurs:url] ? url : [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/", Port()]]];
 }
@@ -620,43 +980,51 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 }
 @end
 
-#pragma mark - Phone screen: the game, or a remote while the game is on the TV
+#pragma mark - Phone screen: the game, or the remote while the game is on the TV
 
-@interface PhoneViewController : UIViewController
+// The remote page's messages, passed on without the web view's configuration keeping the view
+// controller alive.
+@interface RemoteMessages : NSObject <WKScriptMessageHandler>
+@property (nonatomic, weak) id<WKScriptMessageHandler> target;
+@end
+
+@implementation RemoteMessages
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+  [self.target userContentController:controller didReceiveScriptMessage:message];
+}
+@end
+
+// An AirPlay picker with nothing to see: the page draws the button, and this takes its taps.
+static AVRoutePickerView *InvisiblePicker(void) {
+  AVRoutePickerView *picker = [AVRoutePickerView new];
+  picker.prioritizesVideoDevices = YES;
+  picker.tintColor = UIColor.clearColor;
+  picker.activeTintColor = UIColor.clearColor;
+  picker.hidden = YES;
+  return picker;
+}
+
+// The remote page's background (apps/web/src/phone/pageCanvas.tsx), around it too.
+static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255.0 green:0x6f / 255.0 blue:0xd6 / 255.0 alpha:1]; }
+
+@interface PhoneViewController : UIViewController <WKScriptMessageHandler, WKNavigationDelegate>
 @property (nonatomic, strong) UIView *gameView;
+@property (nonatomic, strong) AVRoutePickerView *gamePicker;    // over the game's AirPlay bubble (main menu)
 @property (nonatomic, strong) UIView *remote;
-@property (nonatomic, strong) UILabel *status;
-@property (nonatomic, strong) UIButton *backButton;
-@property (nonatomic, strong) AVRoutePickerView *floatingPicker;
-@property (nonatomic, strong) NSTimer *repeat;
+@property (nonatomic, strong) WKWebView *remoteWeb;              // /remote/, made the first time the game goes to a TV
+@property (nonatomic, strong) AVRoutePickerView *remotePicker;  // over the remote's AirPlay button
+@property (nonatomic) CGRect remotePickerRect;                  // where the remote page says it goes; null: nowhere
+@property (nonatomic) BOOL remoteLoading;                       // asked for /remote/ (a failed load clears it)
+@property (nonatomic) NSUInteger remoteFailures;                // since the remote last loaded, for the backoff
+@property (nonatomic) NSUInteger remoteLoads;                   // loads asked for, so a retry for an older one does nothing
+@property (nonatomic, strong) nw_listener_t remoteServer;       // the server when the remote started loading
+@property (nonatomic, copy) NSString *remoteSent;               // the last state the remote page was given
 @property (nonatomic, strong) UIImpactFeedbackGenerator *haptics;
 @property (nonatomic, strong) UISceneAccessoryRegistration *tvAccessory API_AVAILABLE(ios(27.0));
 @property (nonatomic) BOOL shownOnTV;  // where the game was at the last refresh
 @end
 
 @implementation PhoneViewController
-
-static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
-  return @{ @1: @"ArrowUp", @2: @"ArrowDown", @3: @"ArrowLeft", @4: @"ArrowRight", @5: @"Enter", @6: @"Escape" };
-}
-
-- (UIButton *)button:(NSString *)symbol title:(NSString *)title tag:(NSInteger)tag size:(CGSize)size {
-  UIButtonConfiguration *c = tag == 5 ? [UIButtonConfiguration filledButtonConfiguration] : [UIButtonConfiguration grayButtonConfiguration];
-  c.cornerStyle = tag == 5 ? UIButtonConfigurationCornerStyleCapsule : UIButtonConfigurationCornerStyleLarge;
-  if (symbol) c.image = [UIImage systemImageNamed:symbol withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:size.height * 0.32 weight:UIImageSymbolWeightBold]];
-  if (title) c.attributedTitle = [[NSAttributedString alloc] initWithString:title attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:tag == 5 ? 26 : 20 weight:UIFontWeightBold] }];
-  c.imagePadding = 6;
-  c.baseBackgroundColor = tag == 5 ? [UIColor colorWithRed:0.37 green:0.78 blue:0.95 alpha:1] : nil;
-  c.baseForegroundColor = tag == 5 ? UIColor.blackColor : UIColor.whiteColor;
-  UIButton *b = [UIButton buttonWithConfiguration:c primaryAction:nil];
-  b.tag = tag;
-  b.accessibilityLabel = title ?: ButtonKeys()[@(tag)];
-  [b addTarget:self action:@selector(pressDown:) forControlEvents:UIControlEventTouchDown];
-  [b addTarget:self action:@selector(pressUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-  b.translatesAutoresizingMaskIntoConstraints = NO;
-  [NSLayoutConstraint activateConstraints:@[[b.widthAnchor constraintEqualToConstant:size.width], [b.heightAnchor constraintEqualToConstant:size.height]]];
-  return b;
-}
 
 - (void)viewDidLoad {
   [super viewDidLoad];
@@ -668,79 +1036,15 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   self.gameView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
   self.gameView.backgroundColor = UIColor.blackColor;
   [self.view addSubview:self.gameView];
+  [self.view addSubview:self.gamePicker = InvisiblePicker()];
 
-  // While the game is on the phone: a small AirPlay button in the corner.
-  self.floatingPicker = [AVRoutePickerView new];
-  self.floatingPicker.prioritizesVideoDevices = YES;
-  self.floatingPicker.tintColor = [UIColor colorWithWhite:1 alpha:0.6];
-  self.floatingPicker.translatesAutoresizingMaskIntoConstraints = NO;
-  [self.view addSubview:self.floatingPicker];
-
-  // While the game is on the TV: the remote.
-  UIView *remote = self.remote = [UIView new];
-  remote.translatesAutoresizingMaskIntoConstraints = NO;
-  remote.backgroundColor = [UIColor colorWithRed:0.05 green:0.07 blue:0.1 alpha:1];
-  [self.view addSubview:remote];
-
-  UILabel *title = [UILabel new];
-  title.text = @"aerodance";
-  title.font = [UIFont systemFontOfSize:28 weight:UIFontWeightHeavy];
-  title.textColor = UIColor.whiteColor;
-  UILabel *status = self.status = [UILabel new];
-  status.numberOfLines = 0;
-  status.textAlignment = NSTextAlignmentCenter;
-  status.font = [UIFont monospacedDigitSystemFontOfSize:14 weight:UIFontWeightRegular];
-  status.textColor = [UIColor colorWithWhite:1 alpha:0.7];
-
-  CGFloat s = 92;
-  CGSize key = CGSizeMake(s, s);
-  UIButton *up = [self button:@"chevron.up" title:nil tag:1 size:key], *down = [self button:@"chevron.down" title:nil tag:2 size:key];
-  UIButton *left = [self button:@"chevron.left" title:nil tag:3 size:key], *right = [self button:@"chevron.right" title:nil tag:4 size:key];
-  UIButton *ok = [self button:nil title:@"OK" tag:5 size:key];
-  UIStackView *middle = [[UIStackView alloc] initWithArrangedSubviews:@[left, ok, right]];
-  middle.spacing = 10;
-  UIStackView *pad = [[UIStackView alloc] initWithArrangedSubviews:@[up, middle, down]];
-  pad.axis = UILayoutConstraintAxisVertical;
-  pad.alignment = UIStackViewAlignmentCenter;
-  pad.spacing = 10;
-
-  UIButton *back = self.backButton = [self button:@"arrow.uturn.backward" title:@"Back" tag:6 size:CGSizeMake(3 * s + 20, 56)];
-
-  // The system volume, which is the TV's while AirPlaying, and the AirPlay picker.
-  MPVolumeView *volume = [MPVolumeView new];
-  volume.translatesAutoresizingMaskIntoConstraints = NO;
-  [volume.heightAnchor constraintEqualToConstant:34].active = YES;
-  AVRoutePickerView *picker = [AVRoutePickerView new];
-  picker.prioritizesVideoDevices = YES;
-  picker.tintColor = UIColor.whiteColor;
-  picker.translatesAutoresizingMaskIntoConstraints = NO;
-  [NSLayoutConstraint activateConstraints:@[[picker.widthAnchor constraintEqualToConstant:44], [picker.heightAnchor constraintEqualToConstant:44]]];
-  UIStackView *audio = [[UIStackView alloc] initWithArrangedSubviews:@[[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"speaker.wave.2.fill"]], volume, picker]];
-  audio.spacing = 12;
-  audio.alignment = UIStackViewAlignmentCenter;
-  audio.tintColor = [UIColor colorWithWhite:1 alpha:0.7];
-  [audio.widthAnchor constraintEqualToConstant:3 * s + 20].active = YES;
-
-  UIStackView *column = [[UIStackView alloc] initWithArrangedSubviews:@[title, status, pad, back, audio]];
-  column.axis = UILayoutConstraintAxisVertical;
-  column.alignment = UIStackViewAlignmentCenter;
-  column.spacing = 24;
-  [column setCustomSpacing:8 afterView:title];
-  [column setCustomSpacing:36 afterView:status];
-  column.translatesAutoresizingMaskIntoConstraints = NO;
-  [remote addSubview:column];
-
-  UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
-  [NSLayoutConstraint activateConstraints:@[
-    [remote.topAnchor constraintEqualToAnchor:self.view.topAnchor], [remote.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-    [remote.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor], [remote.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-    [column.centerXAnchor constraintEqualToAnchor:safe.centerXAnchor], [column.centerYAnchor constraintEqualToAnchor:safe.centerYAnchor],
-    [column.topAnchor constraintGreaterThanOrEqualToAnchor:safe.topAnchor constant:8],
-    [status.widthAnchor constraintLessThanOrEqualToAnchor:safe.widthAnchor constant:-32],
-    [self.floatingPicker.topAnchor constraintEqualToAnchor:safe.topAnchor constant:4],
-    [self.floatingPicker.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-4],
-    [self.floatingPicker.widthAnchor constraintEqualToConstant:36], [self.floatingPicker.heightAnchor constraintEqualToConstant:36],
-  ]];
+  // While the game is on the TV: the remote page, inside the safe area, on its own background.
+  self.remote = [[UIView alloc] initWithFrame:self.view.bounds];
+  self.remote.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  self.remote.backgroundColor = RemoteBackground();
+  self.remote.hidden = YES;
+  [self.view addSubview:self.remote];
+  self.remotePickerRect = CGRectNull;
 
   GameHost *host = GameHost.shared;
   host.phoneView = self.gameView;
@@ -762,6 +1066,21 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
   }
 }
 
+// The pickers follow their buttons when the views move (a turn of the iPad, the status bar
+// coming or going); the pages say when the buttons themselves move.
+- (void)viewDidLayoutSubviews {
+  [super viewDidLayoutSubviews];
+  [self placeGamePicker];
+  [self placeRemotePicker];
+  [GameHost.shared updateOrientation];  // the phone's screen may have turned
+}
+
+// (And once it has turned, in case the layout came first.)
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+  [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+  [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) { [GameHost.shared updateOrientation]; }];
+}
+
 - (void)refresh {
   GameHost *host = GameHost.shared;
   BOOL tv = host.onTV;
@@ -775,27 +1094,155 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
       [scene requestGeometryUpdateWithPreferences:turn errorHandler:^(NSError *error) { NSLog(@"aerodance: couldn't turn the phone's screen: %@", error); }];
     }
   }
+  if (tv) [self makeRemote];
   self.remote.hidden = !tv;
+  self.remoteWeb.hidden = !tv;  // so the page knows it's away, and lets go of a held arrow
   self.gameView.hidden = tv;
-  // Over the game the AirPlay button only shows on the main menu, where it doesn't cover play.
+  [self loadRemote];
+  [self tellRemote:NO];
+  [self placeGamePicker];
   NSDictionary *page = host.page ?: @{};
   BOOL inSong = page[@"gamePhase"] != nil;
   // The phone mustn't lock while players get ready and dance (nobody touches it), nor while it's
   // the TV's remote; paused, on the results and on the menus it may.
   NSArray *awake = @[@"loading", @"calibrating", @"ready", @"countdown", @"playing", @"finishing"];
   UIApplication.sharedApplication.idleTimerDisabled = tv || (inSong && [awake containsObject:page[@"gamePhase"]]);
-  self.floatingPicker.hidden = tv || inSong || ![page[@"menuScreen"] isEqual:@"main"];
-  NSString *screen = page[@"resultsScreen"] ? @"Results"
-    : inSong ? [NSString stringWithFormat:@"Song: %@", page[@"gamePhase"]]
-    : [page[@"songReady"] isEqual:@"true"] ? [NSString stringWithFormat:@"Songs: %@", page[@"songScreen"]]
-    : [NSString stringWithFormat:@"Menu: %@", page[@"menuScreen"] ?: @"loading"];
-  self.status.text = tv ? [NSString stringWithFormat:@"Playing on the TV (%@)\n%@ · %.0f fps", host.tvDescription, screen, host.fps] : @"";
-  UIButtonConfiguration *c = self.backButton.configuration;
-  c.attributedTitle = [[NSAttributedString alloc] initWithString:[page[@"gamePhase"] isEqual:@"playing"] ? @"Pause" : @"Back"
-    attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:20 weight:UIFontWeightBold] }];
-  self.backButton.configuration = c;
   [self setNeedsStatusBarAppearanceUpdate];
   [self setNeedsUpdateOfHomeIndicatorAutoHidden];
+}
+
+// The game's AirPlay bubble shows on its main menu while the game is on the phone; the page says
+// where (GameHost airplayRect), in the web view's points.
+- (void)placeGamePicker {
+  GameHost *host = GameHost.shared;
+  WKWebView *web = host.web;
+  BOOL shown = !host.onTV && !CGRectIsNull(host.airplayRect) && web.superview == self.gameView;
+  self.gamePicker.hidden = !shown;
+  if (shown) self.gamePicker.frame = [web convertRect:host.airplayRect toView:self.view];
+}
+
+#pragma mark The remote
+
+- (void)makeRemote {
+  if (self.remoteWeb) return;
+  WKWebViewConfiguration *config = [WKWebViewConfiguration new];
+  RemoteMessages *messages = [RemoteMessages new];
+  messages.target = self;
+  [config.userContentController addScriptMessageHandler:messages name:@"aerodanceRemote"];
+  WKWebView *web = self.remoteWeb = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
+#ifdef AERODANCE_DEV
+  web.inspectable = YES;
+#endif
+  web.navigationDelegate = self;
+  web.opaque = NO;
+  web.backgroundColor = RemoteBackground();
+  web.scrollView.backgroundColor = RemoteBackground();
+  web.scrollView.scrollEnabled = NO;
+  web.scrollView.bounces = NO;
+  web.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+  web.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.remote addSubview:web];
+  UILayoutGuide *safe = self.remote.safeAreaLayoutGuide;
+  [NSLayoutConstraint activateConstraints:@[
+    [web.topAnchor constraintEqualToAnchor:safe.topAnchor], [web.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+    [web.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor], [web.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+  ]];
+  [self.remote addSubview:self.remotePicker = InvisiblePicker()];
+}
+
+// The remote loads from the game's own server once it's ready, and again if it couldn't, as the
+// game does (GameHost): a failure replaces a server that only looks ready, and retries back off
+// from 0.5 s to 8 s. WebKit's memory cache would keep the failed loads, so it goes first.
+- (void)loadRemote {
+  // (Only while the game is on a TV: the remote waits for the next one otherwise.)
+  if (!self.remoteWeb || self.remoteLoading || !GameHost.shared.serverReady || !GameHost.shared.onTV) return;
+  self.remoteLoading = YES;
+  self.remoteLoads++;
+  self.remoteSent = nil;
+  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/remote/", Port()]];
+  [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeMemoryCache] modifiedSince:NSDate.distantPast completionHandler:^{
+    [self.remoteWeb loadRequest:[NSURLRequest requestWithURL:url]];
+  }];
+}
+
+- (void)retryRemote:(NSString *)reason {
+  NSTimeInterval delay = MIN(0.5 * pow(2, self.remoteFailures++), 8);
+  NSLog(@"aerodance: the remote %@; loading it again in %.1f s", reason, delay);
+  NSUInteger load = self.remoteLoads;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    if (load != self.remoteLoads) return;  // another load has started since
+    self.remoteLoading = NO;
+    [self loadRemote];
+  });
+}
+
+// Like the game's pages (GameHost pageFailed:), only a failed request to our own server says the
+// server is gone; anything else (the remote's process ending) just loads it again.
+- (void)remoteFailed:(NSError *)error {
+  BOOL network = [error.domain isEqual:NSURLErrorDomain];
+  if (network && error.code == NSURLErrorCancelled) return;
+  if (network && [GameHost.shared isOurs:error.userInfo[NSURLErrorFailingURLErrorKey]]) [GameHost.shared serverFailedToServe];
+  [self retryRemote:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
+}
+
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.remoteServer = GameHost.shared.server; }
+
+// A remote that finished while the server was down or being replaced may lack its scripts.
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+  GameHost *host = GameHost.shared;
+  if (!host.serverReady || host.server != self.remoteServer) { [self retryRemote:@"loaded while the server was down"]; return; }
+  self.remoteFailures = 0;
+}
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+  NSLog(@"aerodance: the remote's web content process ended; reloading");
+  self.remoteLoading = NO;
+  self.remotePickerRect = CGRectNull;
+  [self placeRemotePicker];
+  [self loadRemote];
+}
+
+// The remote stays on its own page.
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+  decisionHandler([GameHost.shared isOurs:action.request.URL] ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+}
+
+// Over the remote's AirPlay button, where the page says it is (in the remote web view's points).
+- (void)placeRemotePicker {
+  BOOL shown = self.remoteWeb && !CGRectIsNull(self.remotePickerRect);
+  self.remotePicker.hidden = !shown;
+  if (!shown) return;
+  [self.remote layoutIfNeeded];
+  self.remotePicker.frame = [self.remoteWeb convertRect:self.remotePickerRect toView:self.remote];
+}
+
+// The remote shows what the game is showing (the game's reported state), whenever it changes.
+- (void)tellRemote:(BOOL)always {
+  if (!self.remoteWeb) return;
+  NSString *state = JSON(@{ @"page": GameHost.shared.page ?: @{}, @"shown": @(GameHost.shared.onTV) });
+  if (!always && [state isEqual:self.remoteSent]) return;
+  self.remoteSent = state;
+  [self.remoteWeb evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceRemote && window.__aerodanceRemote(%@)", state] completionHandler:nil];
+}
+
+// The remote's buttons (bridge.ts): a key for the game, where the AirPlay picker goes, and ready.
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+  if (!FromOurPage(message)) return;
+  NSDictionary *body = message.body;
+  if (![body isKindOfClass:NSDictionary.class]) return;
+  // (Only while the game is on the TV: a held arrow can outlast it.)
+  if ([body[@"key"] isKindOfClass:NSString.class] && GameHost.shared.onTV) {
+    // A tap on the glass, not each repeat of a held arrow.
+    if (![body[@"repeat"] isEqual:@YES]) [self.haptics impactOccurred];
+    [GameHost.shared sendKey:body[@"key"]];
+  }
+  if (body[@"airplay"]) {
+    self.remotePickerRect = PageRect(body[@"airplay"]);
+    [self placeRemotePicker];
+  }
+  if ([body[@"ready"] isEqual:@YES]) [self tellRemote:YES];
 }
 
 // iPhone: the 16:9 game only fits sideways, and the remote's column only fits upright, so it's
@@ -810,20 +1257,6 @@ static NSDictionary<NSNumber *, NSString *> *ButtonKeys(void) {
 - (BOOL)prefersStatusBarHidden { return !GameHost.shared.onTV; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return !GameHost.shared.onTV; }
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return GameHost.shared.onTV ? UIRectEdgeNone : UIRectEdgeAll; }
-
-// Arrows repeat while held, like a keyboard.
-- (void)pressDown:(UIButton *)b {
-  [self.haptics impactOccurred];
-  NSString *key = ButtonKeys()[@(b.tag)];
-  [GameHost.shared sendKey:key];
-  [self.repeat invalidate];
-  if (b.tag > 4) return;
-  self.repeat = [NSTimer scheduledTimerWithTimeInterval:0.4 repeats:NO block:^(NSTimer *t) {
-    self.repeat = [NSTimer scheduledTimerWithTimeInterval:0.12 repeats:YES block:^(NSTimer *t) { [GameHost.shared sendKey:key]; }];
-  }];
-}
-
-- (void)pressUp:(UIButton *)b { [self.repeat invalidate]; self.repeat = nil; }
 
 @end
 

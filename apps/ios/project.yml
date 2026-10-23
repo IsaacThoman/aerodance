@@ -26,8 +26,9 @@ targets:
     dependencies:
       - sdk: WebKit.framework
       - sdk: AVKit.framework
-      - sdk: MediaPlayer.framework
       - sdk: Network.framework
+      - sdk: CoreMotion.framework
+      - sdk: UniformTypeIdentifiers.framework
     # XcodeGen writes Info.plist from these properties.
     info:
       path: Info.plist
@@ -61,6 +62,10 @@ targets:
             UIWindowSceneSessionRoleExternalDisplayNonInteractive:
               - UISceneConfigurationName: TV
                 UISceneDelegateClassName: TVSceneDelegate
+        # Imported songs are ZIPs in Documents, which the Files app shows as On My iPhone ›
+        # aerodance, where songs can be saved, shared and deleted too (main.m, Imported songs).
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         NSCameraUsageDescription: aerodance can use this camera to follow your dance moves. The video stays on this device.
         # Only the system's encryption (HTTPS, and WebRTC's DTLS in WebKit), so no export compliance
         # documentation.

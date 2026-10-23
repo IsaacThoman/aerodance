@@ -16,14 +16,17 @@ body,
 /*
  * The game chooses a letterboxed 4:3 or 16:9 frame; everything outside it is black bars.
  * On a phone or tablet (full screen, viewport-fit=cover) the frame stays clear of the
- * safe-area insets: the Dynamic Island, the rounded corners and the home indicator. It is
- * the largest frame that fits inside them, centred in the safe available area.
+ * Dynamic Island, the rounded corners and the status bar: it is the largest frame that fits
+ * inside the top, left and right safe-area insets, centred in that area. The bottom inset is
+ * left to the frame, as games do: it only holds the home indicator, which the iPhone/iPad app
+ * hides while the game is on the screen, and keeping clear of it left a band of black under
+ * the frame (and narrowed an iPad's 4:3 frame).
  */
 .display-viewport {
   box-sizing: border-box;
   width: 100vw;
   height: 100dvh;
-  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
   display: grid;
   place-items: center;
 }
@@ -31,7 +34,7 @@ body,
 .canvas-frame {
   --display-aspect: 16 / 9;
   --safe-w: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
-  --safe-h: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  --safe-h: calc(100dvh - env(safe-area-inset-top, 0px));
   --frame-w: min(var(--safe-w), calc(var(--safe-h) * var(--display-aspect)));
   --frame-h: min(var(--safe-h), calc(var(--safe-w) / (var(--display-aspect))));
   position: relative;
@@ -78,4 +81,19 @@ body,
   font-size: 16px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* The TV remote's labels (apps/web/remote/): over each button the canvas draws, for VoiceOver.
+   Invisible, and touches go through them to the canvas. */
+.remote-label {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }

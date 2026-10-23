@@ -1,15 +1,19 @@
-import { validateBundlePath, validateSong, validateSongChoreography } from '../../../../packages/pose/song.ts';
+import { sha256, validateBundlePath, validateSong, validateSongChoreography } from '../../../../packages/pose/song.ts';
 import type { CatalogSong, ChecksumEntry, ChecksumManifest, SongBundle } from '../../../../packages/pose/song.ts';
 import { isArray, isObject } from '../../../../packages/pose/choreography.ts';
 
 /** A verified bundle, ready to play: its song, choreography and media. */
-export interface LoadedSongBundle extends SongBundle { audio: Blob; cover: Blob | null; }
+export interface LoadedSongBundle extends SongBundle {
+  audio: Blob; cover: Blob | null;
+  /** What its best scores are kept under (game/bestScores.ts): the song ID, or custom:<id> for a song imported into this browser or app. */
+  scoreId: string;
+}
 /** The part of fetch the loader uses; replaceable in tests. */
 export type Fetcher = (url: URL, init: { signal?: AbortSignal }) => Promise<Response>;
-export interface LoadBundleOptions { signal?: AbortSignal; fetcher?: Fetcher; }
+export interface LoadBundleOptions { signal?: AbortSignal; fetcher?: Fetcher; scoreId?: string; }
 
 const MAX_FILE_BYTES = 128 * 1024 * 1024;
-const MAX_BUNDLE_BYTES = 192 * 1024 * 1024;
+export const MAX_BUNDLE_BYTES = 192 * 1024 * 1024;
 const decode = (bytes: Uint8Array): unknown => JSON.parse(new TextDecoder('utf-8', { fatal:true }).decode(bytes));
 function assertChecksums(checksums: unknown): asserts checksums is Omit<ChecksumManifest, 'files'> & { files: unknown[] } {
   if (!isObject(checksums) || checksums.schema !== 'aerodance.checksums' || checksums.schemaVersion !== 1 || !isArray(checksums.files)) throw Error('Unsupported checksums manifest');
@@ -18,10 +22,6 @@ function assertChecksumEntry(file: unknown): asserts file is ChecksumEntry {
   if (!isObject(file)) throw Error('Invalid checksums entry');
   validateBundlePath(file.path);
   if (file.path === 'checksums.json' || typeof file.bytes !== 'number' || !Number.isSafeInteger(file.bytes) || file.bytes < 0 || file.bytes > MAX_FILE_BYTES || typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256)) throw Error('Invalid checksums entry');
-}
-export async function sha256(bytes: Uint8Array<ArrayBuffer>) {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
 }
 async function readBytes(url: URL, signal: AbortSignal | undefined, fetcher: Fetcher, limit: number) {
   const response = await fetcher(url, { signal });
@@ -45,7 +45,7 @@ async function readBytes(url: URL, signal: AbortSignal | undefined, fetcher: Fet
   return bytes;
 }
 // The catalog selects a pinned revision; all runtime bytes are checked before use.
-export async function loadSongBundle(entry: CatalogSong, catalogUrl: string | URL, { signal, fetcher = fetch }: LoadBundleOptions = {}): Promise<LoadedSongBundle> {
+export async function loadSongBundle(entry: CatalogSong, catalogUrl: string | URL, { signal, fetcher = fetch, scoreId = entry.id }: LoadBundleOptions = {}): Promise<LoadedSongBundle> {
   validateBundlePath(entry.bundle);
   const songUrl = new URL(entry.bundle, catalogUrl);
   const root = new URL('.', songUrl);
@@ -84,6 +84,6 @@ export async function loadSongBundle(entry: CatalogSong, catalogUrl: string | UR
     song.cover ? verified(song.cover.path) : undefined,
   ]);
   const choreography = validateSongChoreography(song, choreographyBytes);
-  return { song, choreography, audio: new Blob([audioBytes], { type:song.audio.mimeType }),
+  return { song, choreography, scoreId, audio: new Blob([audioBytes], { type:song.audio.mimeType }),
     cover: song.cover && coverBytes ? new Blob([coverBytes], { type:song.cover.mimeType }) : null };
 }

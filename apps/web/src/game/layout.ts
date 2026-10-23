@@ -15,23 +15,23 @@ export const RETRY = { x: 128, y: 340, w: 300, h: 80 };
 // load) sits bottom left.
 export const PREVIEW_NOTE = { x: 128, y: 830 };
 
-// Gameplay: the live player panels, as fractions of the screen so the 3D characters
-// (stage/LivePanels.tsx) and their 2D labels (GameScreen.tsx) line up. Player 1 top left,
-// player 2 top right; with three or four players, players 1 and 2 share the left corner and
-// the rest the right, in the order they stand. Each character stands in a box `height` tall
-// (shorter for a crowd) whose top is at `top`, centred at livePanelCenterX: as far in from its
-// side of the screen in a 4:3 display as in 16:9.
-export const LIVE_PANEL = { top: 0.17, height: 0.27, crowdHeight: 0.22 };
+// Gameplay: each player's score in a top corner. Player 1 top left, player 2 top right; with
+// three or four players, players 1 and 2 share the left corner and the rest the right, in the
+// order they stand. Each score is centred at playerHudX: as far in from its side of the screen
+// in a 4:3 display as in 16:9, with its top at PLAYER_HUD_TOP (judgements pop up above it).
+export const PLAYER_HUD_TOP = 100;
 // Centres as fractions of the 16:9 screen, by player count.
-const LIVE_PANEL_X: Record<number, readonly number[]> = { 1: [0.1], 2: [0.1, 0.9], 3: [0.08, 0.22, 0.9], 4: [0.08, 0.22, 0.78, 0.92] };
-export const livePanelCenterX = (id: number, playerCount: number, width = 1600) => {
-  const x = LIVE_PANEL_X[playerCount]?.[id] ?? 0.5;
+const PLAYER_HUD_X: Record<number, readonly number[]> = { 1: [0.1], 2: [0.1, 0.9], 3: [0.08, 0.22, 0.9], 4: [0.08, 0.22, 0.78, 0.92] };
+export const playerHudX = (id: number, playerCount: number, width = 1600) => {
+  const x = PLAYER_HUD_X[playerCount]?.[id] ?? 0.5;
   return x < 0.5 ? x * 1600 / width : 1 - (1 - x) * 1600 / width;
 };
-export const livePanelHeight = (playerCount: number) => (playerCount > 2 ? LIVE_PANEL.crowdHeight : LIVE_PANEL.height);
 
 // Gameplay overlay (GameScreen.jsx).
-export const GAME_PAUSE = { x: 800, y: 66, r: 30 };
+// The mirror, top centre between the scores (narrow enough for four in 4:3): every player's
+// character cutout on a dark glass, under a strip `top` tall along its top holding the pause icon.
+export const GAME_MIRROR = { x: 656, y: 24, w: 288, h: 196, top: 34 };
+export const GAME_PAUSE = { x: GAME_MIRROR.x + GAME_MIRROR.w / 2, y: GAME_MIRROR.y + 20, r: 30 };
 export const GAME_READY_START = { x: 610, y: 690, w: 380, h: 96 };
 export const GAME_READY_BACK = { x: 166, y: 150, r: 30 };
 // Webcam calibration: one glass card with the setup preview (pressed to start the camera, or
@@ -69,6 +69,7 @@ export function gameLayout(width = 1600) {
     RETRY: { ...RETRY, x: rows.x },
     PREVIEW_NOTE: { ...PREVIEW_NOTE, x: rows.x },
     DANCE: { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w },
+    GAME_MIRROR: centered(GAME_MIRROR),
     GAME_PAUSE: centered(GAME_PAUSE),
     GAME_READY_START: centered(GAME_READY_START),
     GAME_READY_BACK: { ...GAME_READY_BACK, x: compact ? 110 : GAME_READY_BACK.x },

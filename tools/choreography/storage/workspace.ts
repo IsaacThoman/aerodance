@@ -1,5 +1,5 @@
 import { Store, decode, equal, httpError, id, isMissing, json, sha } from "./store.ts";
-import { makeZip, readZip } from "./zip.ts";
+import { makeZip, readZip } from "../../../packages/pose/zip.ts";
 import { CAPTURE_SOURCES, addTake, assertCaptureMetadata, assertProject, takeFromRecords, takeSummary, trackDataIds } from "../core.ts";
 import type { AudioExtension, CalibrationFrame, CaptureMetadata, ProjectAudio, Take } from "../core.ts";
 import { captureHead, captureHeader, concatBytes, decodeCaptureBatch } from "../poseFiles.ts";

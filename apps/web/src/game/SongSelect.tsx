@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, drawGlassCircle, drawHeader, drawPill, drawShadowText, ellipsize, paragraph,
+  FONT, ICONS, drawGlassCircle, drawHeader, drawPill, drawShadowText, ellipsize, paragraph, wrapText,
 } from '../ui/draw.ts';
 import type { Circle, IconName } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
@@ -11,6 +11,7 @@ import { createSongPlayer } from '../audio/songPlayer.ts';
 import type { SongPlayer } from '../audio/songPlayer.ts';
 import { loadSongBundle } from '../songs/loadBundle.ts';
 import type { LoadedSongBundle } from '../songs/loadBundle.ts';
+import { customScoreId, customSongsSupported, listCustomSongs, loadCustomSong, savedCustomSong } from '../songs/customSongs.ts';
 import { validateCatalog } from '../../../../packages/pose/song.ts';
 import type { CatalogSong } from '../../../../packages/pose/song.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
@@ -27,20 +28,23 @@ import { displayDesign } from '../display.ts';
  * Song Select, drawn in-engine after the player count is picked (menu/MainMenu.tsx).
  *
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
- *            four to a page
+ *            then the songs imported into this browser or app (songs/customSongs.ts; Settings →
+ *            Songs imports and removes them), four to a page
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
  *            Studio), the music looping on its own while the stage camera circles them,
  *            and Dance!, which hands the bundle to the game (onDance); the menu music
  *            ducks underneath
  *
- * Bundles are fully verified before they play (songs/loadBundle.ts). Back / Escape go from
- * the preview to the list and from the list to the player count.
- * The canvas reports data-song-screen, -song-ready, -catalog, -song-count, -player-slots, -preview-state
- * and -preview-time-ms for tests.
+ * Choosing a song keeps the list up, its row loading, until the preview can show at once: the
+ * bundle loads (fully verified, songs/loadBundle.ts) while the stage's code downloads, then the
+ * stage is built and compiled out of sight (StageView's `prepared`) and the preview opens.
+ * Back / Escape go from the preview to the list and from the list to the player count.
+ * The canvas reports data-song-screen, -song-ready, -catalog, -song-count, -custom-song-count,
+ * -song-load-error, -player-slots, -preview-state and -preview-time-ms for tests.
  *
  * <SongSelect visible playerCount={1} connection={view} onBack
- *   stageState={{ showing, ready, stage, failed }} onPreviewChange onDance />
+ *   stageState={{ showing, prepared, ready, stage, failed }} onPreviewChange onDance />
  */
 
 export interface SongSelectProps {
@@ -56,13 +60,16 @@ export interface SongSelectProps {
 type SongScreen = 'list' | 'preview';
 type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
 type PreviewState = 'loading' | 'error' | SongPlayer['state'];
-type SongWidget = Widget & { song?: CatalogSong };
+/** A listed song: published, or imported into this browser or app (custom). key tells them apart in the list. */
+type ListedSong = CatalogSong & { custom: boolean; key: string };
+type SongWidget = Widget & { song?: ListedSong };
 interface SongSelectState {
   alpha: number; screen: SongScreen; next: SongScreen; swap: number; page: number;
-  catalog: { status: CatalogStatus; songs: CatalogSong[]; error: string };
+  catalog: { status: CatalogStatus; songs: ListedSong[]; error: string };
   catalogCtl: AbortController | null;
+  /** The song (key) whose bundle is loading. */
   loading: { id: string; controller: AbortController } | null;
-  /** The last song opened, for the keyboard cursor coming back to the list. */
+  /** The last song (key) opened, for the keyboard cursor coming back to the list. */
   chosen: string | null;
   loadError: string;
   bundle: LoadedSongBundle | null;
@@ -76,6 +83,9 @@ interface SongSelectState {
 
 const CATALOG_URL = () => new URL(`${import.meta.env.BASE_URL}songs/manifest.json`, window.location.href).href;
 const ACTIVE = ['connecting'];
+const CUSTOM_SONGS = customSongsSupported();
+const IMPORTED_TIMEOUT_MS = 5000;
+const listed = (songs: readonly CatalogSong[], custom: boolean): ListedSong[] => songs.map((song) => ({ ...song, custom, key: custom ? customScoreId(song.id) : song.id }));
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 
 const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
@@ -112,32 +122,44 @@ export default function SongSelect({
   const pageSongs = () => songs().slice(st.page * ROWS.perPage, (st.page + 1) * ROWS.perPage);
   const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
   // The song opened last is the primary one while it's on the page, else the first.
-  const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.id === st.chosen));
-  const songWidget = (song: CatalogSong, i: number): SongWidget => ({ id: `song-${song.id}`, song, rect: rowRect(i), primary: i === primaryRow() });
+  const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.key === st.chosen));
+  const songWidget = (song: ListedSong, i: number): SongWidget => ({ id: `song-${song.key}`, song, rect: rowRect(i), primary: i === primaryRow() });
   // The keyboard cursor starts over on the next screen; back on the list (also by Escape), on
   // the song it opened.
   const go = (screen: SongScreen, key = ui.keyboard) => {
     if (screen === st.next) return;
     st.next = screen;
     if (!key) return;
-    const i = screen === 'list' ? pageSongs().findIndex((song) => song.id === st.chosen) : -1;
+    const i = screen === 'list' ? pageSongs().findIndex((song) => song.key === st.chosen) : -1;
     ui.focus(i >= 0 ? songWidget(pageSongs()[i], i) : null);
   };
 
-  const fetchCatalog = () => {
+  // Loads the published and imported songs. With show (a song's key), the list turns to its page
+  // and the keyboard cursor, if out, goes to it; otherwise the page stays where it was.
+  const fetchCatalog = (show?: string) => {
     st.catalogCtl?.abort();
     const ctl = new AbortController();
     st.catalogCtl = ctl;
     st.catalog = { status: 'loading', songs: [], error: '' };
-    fetch(CATALOG_URL(), { signal: ctl.signal, cache: 'no-store' })
+    const published = fetch(CATALOG_URL(), { signal: ctl.signal, cache: 'no-store' })
       .then((response) => {
         if (!response.ok) throw Error('Song catalog could not load.');
         return response.json();
       })
-      .then((data: unknown) => {
-        const catalog = validateCatalog(data);
-        st.catalog = { status: 'ready', songs: catalog.songs, error: '' };
-        st.page = 0;
+      .then((data: unknown) => validateCatalog(data).songs);
+    // Saved songs that can't be read (or take too long) leave the published songs listed (if
+    // those don't load, the list shows the error and Retry).
+    const imported = CUSTOM_SONGS ? Promise.race([
+      listCustomSongs(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(Error('timed out')), IMPORTED_TIMEOUT_MS)),
+    ]).catch((error: unknown) => { console.warn('Imported songs could not load:', error); return []; }) : [];
+    Promise.all([published, imported])
+      .then(([shipped, custom]) => {
+        if (ctl.signal.aborted) return;
+        st.catalog = { status: 'ready', songs: [...listed(shipped, false), ...listed(custom, true)], error: '' };
+        const i = show ? songs().findIndex((song) => song.key === show) : -1;
+        st.page = i >= 0 ? Math.floor(i / ROWS.perPage) : Math.min(st.page, pages() - 1);
+        if (i >= 0 && ui.keyboard && st.next === 'list') ui.focus(songWidget(songs()[i], i % ROWS.perPage));
       })
       .catch((error: unknown) => {
         if (ctl.signal.aborted) return;
@@ -155,6 +177,8 @@ export default function SongSelect({
     props.current.onPreviewChange?.(null);
   };
 
+  // The preview's stage is mounted out of sight (StageView) while the list stays up with the
+  // song's row loading; showPreview opens the preview once it's built and compiled.
   const openPreview = (bundle: LoadedSongBundle) => {
     const { song } = bundle;
     st.bundle = bundle;
@@ -168,10 +192,8 @@ export default function SongSelect({
       playing: () => st.player?.state === 'playing',
     };
     st.routine = routine;
-    preloadStage(resolveStage(song.stage));
     props.current.onPreviewChange?.(routine);
-    duckMenuMusic(true);
-    go('preview');
+    // The audio decodes meanwhile; it plays once the preview is open.
     createSongPlayer(bundle.audio, { startMs: song.playableStartMs, endMs: song.playableEndMs }, { untilHeard: false })
       .then((player) => {
         if (st.bundle !== bundle) { player.dispose(); return; }
@@ -182,7 +204,7 @@ export default function SongSelect({
           st.previewState = player.state;
           ui.invalidate();
         });
-        if (!document.hidden) player.play();
+        if (!document.hidden && st.next === 'preview') player.play();
         st.previewState = player.state;
       })
       .catch(() => {
@@ -193,18 +215,34 @@ export default function SongSelect({
       .finally(() => ui.invalidate());
   };
 
-  const chooseSong = (entry: CatalogSong) => {
+  // Once the preview's stage is in (or failed): the music starts and the preview opens.
+  const showPreview = () => {
+    st.loading = null;
+    duckMenuMusic(true);
+    go('preview');
+    if (!document.hidden) st.player?.play();
+  };
+
+  const chooseSong = (entry: ListedSong) => {
     st.loading?.controller.abort();
     const controller = new AbortController();
-    st.loading = { id: entry.id, controller };
-    st.chosen = entry.id;
+    st.loading = { id: entry.key, controller };
+    st.chosen = entry.key;
     st.loadError = '';
-    loadSongBundle(entry, CATALOG_URL(), { signal: controller.signal })
-      .then((bundle) => { if (!controller.signal.aborted && props.current.visible) openPreview(bundle); })
-      .catch((error: unknown) => { if (!controller.signal.aborted) st.loadError = message(error); })
+    const { signal } = controller;
+    // The stage's code downloads alongside the bundle.
+    preloadStage(resolveStage(entry.stage));
+    (entry.custom ? loadCustomSong(entry, { signal }) : loadSongBundle(entry, CATALOG_URL(), { signal }))
+      .then((bundle) => { if (!signal.aborted && props.current.visible) openPreview(bundle); })
+      .catch((error: unknown) => {
+        if (signal.aborted) return;
+        st.loadError = message(error);
+        if (entry.custom) explainFailure(entry, st.loadError);
+      })
       .finally(() => {
         if (controller.signal.aborted) return;
-        st.loading = null;
+        // An opened bundle keeps the row loading until its stage is in (showPreview).
+        if (!st.bundle) st.loading = null;
         ui.invalidate();
       });
   };
@@ -216,6 +254,22 @@ export default function SongSelect({
     st.loading?.controller.abort();
     st.loading = null;
     props.current.onBack?.();
+  };
+  // An imported song that won't open: another tab may have replaced or removed it since the list
+  // loaded (then the list updates), or it's damaged (Settings → Songs removes it).
+  const explainFailure = (entry: ListedSong, reason: string) => {
+    savedCustomSong(entry.id)
+      .then((saved) => {
+        if (!props.current.visible || st.next !== 'list' || st.loading) return;
+        if (saved && saved.sha256 === entry.sha256 && saved.bundleRevision === entry.bundleRevision) {
+          st.loadError = `“${entry.title}” can't be played: ${reason} You can remove it in Settings.`;
+        } else {
+          st.loadError = `“${entry.title}” has changed since the list loaded.`;
+          fetchCatalog(saved ? entry.key : undefined);
+        }
+      })
+      .catch(() => { /* The saved copy can't be read either: the load error stands. */ })
+      .finally(() => ui.invalidate());
   };
   const dance = () => {
     const { bundle } = st;
@@ -229,13 +283,7 @@ export default function SongSelect({
     active: live,
     keyNav: true,
     widgets: () => {
-      if (st.screen === 'preview') {
-        const list: SongWidget[] = [
-          { id: 'back', circle: BACK },
-          { id: 'dance', rect: DANCE, primary: true },
-        ];
-        return list;
-      }
+      if (st.screen === 'preview') return [{ id: 'back', circle: BACK }, { id: 'dance', rect: DANCE, primary: true }];
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
         if (!st.loading) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
@@ -280,6 +328,11 @@ export default function SongSelect({
         s.invalidate();
       }
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 3 : 6);
+      // A chosen song waits on the list until its stage is prepared (or failed).
+      if (st.bundle && st.loading && st.next === 'list') {
+        const want = resolveStage(st.bundle.song.stage);
+        if (p.stageState.stage === want && (p.stageState.prepared || p.stageState.failed)) showPreview();
+      }
       const c = p.connection;
       const slots = Array.from({ length: p.playerCount }, (_, i) => slotStatus(c, i).label);
       const key = [
@@ -294,6 +347,8 @@ export default function SongSelect({
         songReady: String(live() && st.swap > 0.95),
         catalog: st.catalog.status === 'ready' && !songs().length ? 'empty' : st.catalog.status,
         songCount: String(songs().length),
+        customSongCount: String(songs().filter((song) => song.custom).length),
+        songLoadError: st.loadError,
         playerSlots: slots.join('|'),
         previewState: st.screen === 'preview' ? (st.previewError ? 'error' : st.previewState) : '',
         previewTimeMs: st.routine ? String(Math.round(st.routine.timeMs())) : '',
@@ -336,19 +391,20 @@ export default function SongSelect({
           g.shadowOffsetY = 2;
           paragraph(g, others
             ? 'Re-export these songs from Dance Studio to dance them with three or four players, or pick fewer players.'
-            : 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
+            : CUSTOM_SONGS ? 'No playable songs have been published yet. Import one exported from Dance Studio in Settings → Songs.'
+              : 'No playable songs have been published yet. Each routine needs music and choreography for both players.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
           g.restore();
         } else {
           pageSongs().forEach((song, i) => {
             const rect = rowRect(i);
-            const id = `song-${song.id}`;
-            const loadingThis = st.loading?.id === song.id;
+            const id = `song-${song.key}`;
+            const loadingThis = st.loading?.id === song.key;
             g.font = `700 ${Math.round(rect.h * 0.34)}px ${FONT}`;
             const label = ellipsize(g, song.title, rect.w - rect.h - 44);
-            const best = bestScore(song.id, p.playerCount, SCORER_VERSION);
+            const best = bestScore(song.key, p.playerCount, SCORER_VERSION);
             // Catalog difficulty is free-form display text.
             const difficulty = typeof song.difficulty === 'string' || typeof song.difficulty === 'number' ? String(song.difficulty) : 'Routine';
-            const sub = loadingThis ? `Loading bundle${dots}` : [song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
+            const sub = loadingThis ? `Loading${dots}` : [song.custom ? 'Custom' : null, song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
               best ? `Best ${best.score.toLocaleString('en-US')} ${best.grade}` : null].filter(Boolean).join(' · ');
             g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
             drawPill(g, rect, {
@@ -371,10 +427,13 @@ export default function SongSelect({
             }
             drawShadowText(g, `${st.page + 1}/${pages()}`, PAGE_UP.x, (PAGE_UP.y + PAGE_DOWN.y) / 2, { size: 22, weight: 700, align: 'center' });
           }
-          if (st.loadError) {
-            g.font = `700 24px ${FONT}`;
-            drawShadowText(g, ellipsize(g, st.loadError, ROWS.w + 60), ROWS.x, ROWS.y + ROWS.perPage * (ROWS.h + ROWS.gap) + 14, { size: 24, color: '#ffb38a' });
-          }
+        }
+        // A song that wouldn't load: two lines at most, under the list.
+        if (st.loadError && st.catalog.status === 'ready') {
+          g.font = `700 22px ${FONT}`;
+          const lines = wrapText(g, st.loadError, ROWS.w + 60);
+          const shown = lines.length > 2 ? [lines[0], ellipsize(g, lines.slice(1).join(' '), ROWS.w + 60)] : lines;
+          shown.forEach((line, i) => drawShadowText(g, line, ROWS.x, ROWS.y + ROWS.perPage * (ROWS.h + ROWS.gap) + 6 + i * 28, { size: 22, color: '#ffb38a' }));
         }
       } else if (st.bundle) {
         const { song } = st.bundle;
@@ -398,6 +457,7 @@ export default function SongSelect({
     if (visible) {
       st.screen = st.next = 'list';
       st.swap = 1;
+      st.page = 0;
       st.loadError = '';
       fetchCatalog();
       ui.invalidate();
@@ -413,7 +473,8 @@ export default function SongSelect({
 
   // A hidden tab pauses the song.
   useEffect(() => {
-    const onVisibility = () => { if (document.hidden) st.player?.pause(); else st.player?.play(); };
+    // A song still waiting on its stage stays quiet.
+    const onVisibility = () => { if (document.hidden) st.player?.pause(); else if (st.next === 'preview') st.player?.play(); };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [st]);

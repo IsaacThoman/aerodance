@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
 import PhoneScreen from './PhoneScreen.tsx';
 import { PhoneLink, linkCode } from './PhoneLink.ts';
-import { phoneBuffer, phoneDesign, phoneLayout } from './layout.ts';
+import { phoneDesign, phoneLayout } from './layout.ts';
+import { Background, PhoneRenderResolution } from './pageCanvas.tsx';
 
 /*
  * A phone as the game's camera: open /pair/#<code> (the game's QR code) or type the code.
@@ -17,28 +18,6 @@ import { phoneBuffer, phoneDesign, phoneLayout } from './layout.ts';
  * The one piece of page over the canvas is the camera list: an invisible <select> on the
  * camera button, so a tap opens the phone's own picker.
  */
-
-function PhoneRenderResolution() {
-  const gl = useThree((state) => state.gl);
-  const size = useThree((state) => state.size);
-  useLayoutEffect(() => {
-    // Fiber tracks the displayed size for pointer events; the buffer stays small.
-    const { w, h } = phoneBuffer(size.width, size.height);
-    gl.setSize(w, h, false);
-  }, [gl, size.width, size.height]);
-  return null;
-}
-// The page's background, as in styles.css (.canvas-frame.phone). The frame starts here, before
-// the UI (useFrame priority 1, where the game's world renders).
-const BACKGROUND = '#1f6fd6';
-function Background() {
-  const gl = useThree((state) => state.gl);
-  useFrame(() => {
-    gl.setClearColor(BACKGROUND, 1);
-    gl.clear();
-  }, 1);
-  return null;
-}
 
 export default function PhoneApp() {
   const [link] = useState(() => new PhoneLink());

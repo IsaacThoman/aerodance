@@ -1,7 +1,8 @@
 // The iPhone/iPad app's UI tests in a simulator (AerodanceUITests.swift): it launches, reaches
 // the main menu, is landscape on an iPhone, taps through Let's dance for one player and a song to the song
-// preview, turns both ways on an iPad, and shows the remote when a TV connects (the simulator's
-// TV-out screen, through ../tools/simscreen.m).
+// preview, turns both ways on an iPad, shows the remote when a TV connects (the simulator's
+// TV-out screen, through ../tools/simscreen.m), and imports a song through the Files app's folder
+// and the app's file picker.
 //
 //   node apps/ios/tests/ui.ios.ts --device <simulator UDID> [--port <port>] [--out <dir>] [--only <test>]
 //
@@ -10,7 +11,7 @@
 // a free loopback port: the app reports the game's state there (--report), and the tests' screenshots
 // are saved to --out (default: aerodance-ios-ui in the system's temporary directory).
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
@@ -19,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { menuLayout } from '../../web/src/menu/layout.ts';
 import { gameLayout } from '../../web/src/game/layout.ts';
 import { DISPLAY_MODES } from '../../web/src/display.ts';
+import { makeZip } from '../../../packages/pose/zip.ts';
 
 const args = process.argv.slice(2);
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
@@ -46,6 +48,15 @@ const tv = (on: boolean) => {
   console.log(`TV ${on ? 'on' : 'off'}`);
 };
 
+// The app's song folder (Documents, which the Files app shows), and a song to save there: the
+// published demo song, zipped as Dance Studio exports it.
+const songsFolder = () => {
+  const data = spawnSync('xcrun', ['simctl', 'get_app_container', device, BUNDLE_ID, 'data'], { encoding: 'utf8' }).stdout.trim();
+  return path.join(data, 'Documents');
+};
+const demo = path.join(here, '../../web/public/songs/demo-track-1');
+const demoZip = makeZip(new Map(readdirSync(demo).map((name) => [`demo-track-1/${name}`, readFileSync(path.join(demo, name))])));
+
 // The game's latest state, from the app's reports, and the tests' screenshots.
 let state: Record<string, string> = {};
 const server = http.createServer((req, res) => {
@@ -55,7 +66,17 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     const body = Buffer.concat(chunks);
     if (req.method === 'POST' && url.pathname === '/report') {
-      try { state = (JSON.parse(body.toString()) as { dataset?: Record<string, string> }).dataset ?? state; } catch { /* Not a report. */ }
+      try {
+        // The canvas's data-* state, plus where the game is showing and its frame rate as _display and _fps,
+        // and which way up the device is held and its screens are (the host state's held and screens)
+        // as _held and _screens ("game,phone").
+        const r = JSON.parse(body.toString()) as { dataset?: Record<string, string>; display?: string; fps?: number;
+          host?: { held?: number; screens?: { game?: number; phone?: number} } };
+        if (r.dataset) {
+          state = { ...r.dataset, _display: r.display ?? '', _fps: String(r.fps ?? ''), _held: String(r.host?.held ?? ''),
+            _screens: r.host?.screens ? `${r.host.screens.game},${r.host.screens.phone}` : '' };
+        }
+      } catch { /* Not a report. */ }
     } else if (req.method === 'POST' && url.pathname === '/reset') {
       state = {};
     } else if (req.method === 'POST' && url.pathname === '/shot') {
@@ -68,6 +89,16 @@ const server = http.createServer((req, res) => {
       const name = (url.searchParams.get('name') ?? 'tv').replace(/[^\w-]/g, '_');
       spawnSync('xcrun', ['simctl', 'io', device, 'screenshot', '--display=external', path.join(out, `${name}.png`)], { stdio: 'ignore' });
       console.log(`screenshot ${name}.png (the TV)`);
+    } else if (req.method === 'POST' && url.pathname === '/drop-song') {
+      // As if saved to the app's folder from the Files app.
+      const name = path.basename(url.searchParams.get('name') ?? 'song.zip');
+      writeFileSync(path.join(songsFolder(), name), demoZip);
+      console.log(`saved ${name} to the app's folder`);
+    } else if (req.method === 'POST' && url.pathname === '/clear-songs') {
+      for (const name of readdirSync(songsFolder())) rmSync(path.join(songsFolder(), name), { recursive: true });
+    } else if (url.pathname === '/songs') {
+      res.setHeader('content-type', 'application/json');
+      return res.end(JSON.stringify(readdirSync(songsFolder()).filter((name) => !name.startsWith('.')).sort()));
     } else if (url.pathname === '/state') {
       res.setHeader('content-type', 'application/json');
       return res.end(JSON.stringify(state));
@@ -87,7 +118,9 @@ if (generated.error || generated.status !== 0) throw Error('XcodeGen is needed t
 const layout = Object.fromEntries(Object.entries(DISPLAY_MODES).map(([mode, design]) => {
   const menu = menuLayout(design.w);
   const game = gameLayout(design.w);
-  return [mode, { design: [design.w, design.h], start: menu.START, letsDance: menu.PLAYERS_GO, firstSong: game.rowRect(0), dance: game.DANCE }];
+  const circle = ({ x, y, r }: { x: number; y: number; r: number }) => ({ x: x - r, y: y - r, w: 2 * r, h: 2 * r });
+  return [mode, { design: [design.w, design.h], start: menu.START, letsDance: menu.PLAYERS_GO, firstSong: game.rowRect(0), secondSong: game.rowRect(1),
+    dance: game.DANCE, settings: menu.SETTINGS, back: circle(menu.BACK), songImport: menu.SONG_IMPORT, firstSongTrash: circle(menu.SONG_TRASH(0)) }];
 }));
 const only = option('--only');
 const env = { ...process.env, TEST_RUNNER_AERODANCE_BUNDLE_ID: BUNDLE_ID, TEST_RUNNER_AERODANCE_PORT: port, TEST_RUNNER_AERODANCE_PATH: '/?input=ghost',

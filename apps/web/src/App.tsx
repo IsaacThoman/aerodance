@@ -17,9 +17,9 @@ import { recordResults } from './game/bestScores.ts';
 import { PLAYERS, leadersOf, winnerOf } from './game/results.ts';
 import type { ResultsShow } from './game/results.ts';
 import StageView from './stage/StageView.tsx';
+import StatsOverlay from './stats/StatsOverlay.tsx';
 import { diagnostic } from './diagnostics.ts';
 import type { StageState } from './stage/StageView.tsx';
-import type { LiveDancers } from './stage/LivePanels.tsx';
 import type { LoadedSongBundle } from './songs/loadBundle.ts';
 import { resolveStage } from '../../../packages/stages/catalog.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
@@ -97,7 +97,7 @@ export default function App() {
   const activeSource: PoseSource = replay ?? source;
   // Song Select's preview: the routine to dance, and how its stage is doing.
   const [preview, setPreview] = useState<SongRoutine | null>(null);
-  const [stage, setStage] = useState<StageState>({ showing: false, ready: false, stage: null, failed: false });
+  const [stage, setStage] = useState<StageState>({ showing: false, prepared: false, ready: false, stage: null, failed: false });
   const menuOpen = screen === 'menu';
   const selectedConnection = replay && replayView ? replayView : connection;
   // The song being danced, its phase, and the results screen's reveal (StageView and
@@ -163,14 +163,14 @@ export default function App() {
     if (bundle) startGame(bundle);
   }, [game, endGame, startGame]);
 
-  // The session's phases drive the stage (live characters, results).
+  // The session's phases drive the stage (results).
   useEffect(() => {
     if (!game) return undefined;
     return game.onChange((session) => {
       setGamePhase(session.phase);
       if (session.phase !== 'results' || !session.results) return;
       const results = session.results.map((r, i) => ({ ...PLAYERS[i], ...r }));
-      const best = recordResults(session.bundle.song.songId, session.playerCount, session.results);
+      const best = recordResults(session.bundle.scoreId, session.playerCount, session.results);
       resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), leaders: leadersOf(results), best };
       if (session.recordingBytes) download(`${session.bundle.song.songId}-poses.adpose`, session.recordingBytes);
     });
@@ -190,14 +190,10 @@ export default function App() {
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';
   const gameRoutine = useMemo(() => game?.routine() ?? null, [game]);
+  // Settings → Graphics → Stats, or ?diag=stats for the full set whatever the setting.
+  const statsMode = diagnostic('stats') ? 'full' : graphics.stats;
   // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
-  // The players' own characters, while the song is on.
-  const liveDancers = useMemo((): LiveDancers | null => (game && gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase) ? {
-    playerCount: game.playerCount,
-    livePose: (id, now) => game.livePose(id, now),
-    calibration: (id) => game.live[id]?.calibration ?? null,
-  } : null), [game, gamePhase]);
 
   return (
     <div ref={viewport} className="display-viewport">
@@ -210,12 +206,11 @@ export default function App() {
             orbiting={songsOpen && !!preview}
             stageId={stageId}
             routine={game ? gameRoutine : preview}
-            live={liveDancers}
             results={resultsVisible ? resultsShow : null}
             onState={setStage}
           />
           <MenuDancers
-            visible={(menuOpen || songsOpen) && !stage.showing && !diagnostic('nodancers')}
+            visible={((menuOpen && menuShown !== 'settings') || songsOpen) && !stage.showing && !diagnostic('nodancers')}
             raised={songsOpen}
             // One dancer per player: the dial's count on the players screen, the chosen count on
             // Song Select, and the duet everywhere else.
@@ -256,6 +251,14 @@ export default function App() {
             onQuit={quitGame}
             onRetry={retryGame}
           />
+          {statsMode !== 'off' && (
+            <StatsOverlay
+              mode={statsMode}
+              source={activeSource}
+              game={game}
+              screen={menuOpen ? `menu/${menuShown}` : songsOpen ? 'songs' : `game/${gamePhase ?? 'loading'}`}
+            />
+          )}
         </Canvas>
       </div>
     </div>

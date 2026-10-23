@@ -9,9 +9,12 @@ import XCTest
 //   AERODANCE_PORT        its loopback port (--port)
 //   AERODANCE_PATH        the page it opens (--path, /?input=ghost)
 //   AERODANCE_RUNNER      ui.ios.ts's address: the app reports the game's canvas data-* state there
-//                         (--report), GET /state returns the latest (POST /reset forgets it),
+//                         (--report), GET /state returns the latest (POST /reset forgets it) with
+//                         _display, _fps, _held and _screens from the rest of the report,
 //                         POST /shot?name= keeps a screenshot, POST /tv?on=1|0 turns the simulator's
-//                         TV-out screen on or off, and POST /shot-tv?name= keeps a screenshot of it
+//                         TV-out screen on or off, POST /shot-tv?name= keeps a screenshot of it,
+//                         POST /drop-song?name= saves a song's ZIP to the app's folder (as the Files
+//                         app would), POST /clear-songs empties it and GET /songs lists it
 //   AERODANCE_LAYOUT      JSON from the game's layout.ts: the design size and the rects tapped
 //
 // The game draws its UI on a canvas, so there are no elements to find: taps go to design units
@@ -20,7 +23,7 @@ final class AerodanceUITests: XCTestCase {
   struct Layout: Decodable {
     struct Rect: Decodable { let x, y, w, h: Double }
     let design: [Double]
-    let start, letsDance, firstSong, dance: Rect
+    let start, letsDance, firstSong, secondSong, dance, settings, back, songImport, firstSongTrash: Rect
   }
 
   let env = ProcessInfo.processInfo.environment
@@ -40,10 +43,21 @@ final class AerodanceUITests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
   }
 
+  // The main menu, with its AirPlay bubble in the bottom-right corner of the game and the app's
+  // AirPlay picker over it.
   func test1LaunchReachesMainMenu() throws {
     launch()
     waitFor(["menuScreen": "main", "menuReady": "true"])
+    sleep(1)
     shot("1-main-menu")
+    let picker = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'AirPlay'")).firstMatch
+    XCTAssertTrue(picker.waitForExistence(timeout: 10), "no AirPlay picker over the main menu: \(app.buttons.debugDescription)")
+    let window = app.windows.firstMatch.frame, frame = picker.frame
+    NSLog("aerodance: the AirPlay picker is at \(frame) in a \(window.size) window")
+    XCTAssertTrue(frame.midX > window.midX && frame.midY > window.midY && window.contains(frame), "the AirPlay picker is at \(frame), not in the bottom right of \(window)")
+    // The picker is at least 44 points square; the system's button inside it is a little shorter.
+    XCTAssertTrue(frame.width >= 44 && frame.height >= 40, "the AirPlay picker is too small to tap: \(frame)")
+    // (A tap would open the system's AirPlay menu on a device; the simulator shows none.)
   }
 
   // The iPhone app plays in landscape only, whichever way the phone is held.
@@ -100,9 +114,10 @@ final class AerodanceUITests: XCTestCase {
   }
 
   // A TV connects while the phone is held sideways: the game moves to it and the phone shows the
-  // remote, turned upright on an iPhone (its column doesn't fit sideways); an iPad stays as it is
-  // held. Every control is on screen and clear of the others. When the TV goes, the game comes back
-  // in landscape.
+  // remote (the in-engine /remote/ page), turned upright on an iPhone (its column doesn't fit
+  // sideways); an iPad stays as it is held. Every control is on screen and clear of the others,
+  // found by the labels the page lays over them. The game is told how the phone is held, for turning
+  // its camera's picture, however its screens are. When the TV goes, the game comes back in landscape.
   func test5RemoteOnTheTV() throws {
     XCUIDevice.shared.orientation = .landscapeLeft
     launch()
@@ -110,14 +125,15 @@ final class AerodanceUITests: XCTestCase {
     tv(true)
     let ok = app.buttons["OK"]
     XCTAssertTrue(ok.waitForExistence(timeout: 20), "the remote didn't show")
+    XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 10), "the remote's Back is missing")
     // The phone's window: the TV's is one of the app's windows too.
     let window = app.windows.containing(NSPredicate(format: "label == 'OK'")).firstMatch
     if !isPad { XCTAssertTrue(waitUntil { window.frame.height > window.frame.width }, "the remote is \(window.frame.size): not upright") }
     sleep(1)
     shot("5-remote")
     send("shot-tv?name=5-tv")
-    let controls = [app.staticTexts["aerodance"], app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Playing on the TV'")).firstMatch,
-                    app.buttons["ArrowUp"], app.buttons["ArrowLeft"], ok, app.buttons["ArrowRight"], app.buttons["ArrowDown"], app.buttons["Back"]]
+    let controls = [app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'On the TV'")).firstMatch,
+                    app.buttons["Up"], app.buttons["Left"], ok, app.buttons["Right"], app.buttons["Down"], app.buttons["Back"]]
     let screen = window.frame
     for (i, control) in controls.enumerated() {
       XCTAssertTrue(control.exists, "control \(i) of the remote is missing")
@@ -125,6 +141,13 @@ final class AerodanceUITests: XCTestCase {
       XCTAssertTrue(screen.contains(frame) && frame.width > 20 && frame.height > 10, "control \(i) (\(control.label)) is at \(frame) in a \(screen) window")
       for other in controls[..<i] { XCTAssertFalse(frame.intersects(other.frame), "\(control.label) at \(frame) overlaps \(other.label) at \(other.frame)") }
     }
+    // Held sideways with its bottom on the right (90): the TV's screen is upright (0), and so is the
+    // iPhone's remote, while the iPad's turns with it.
+    waitFor(["_held": "90", "_screens": isPad ? "0,90" : "0,0"], timeout: 20)
+    XCUIDevice.shared.orientation = .portrait
+    waitFor(["_held": "0", "_screens": "0,0"], timeout: 20)
+    XCUIDevice.shared.orientation = .landscapeRight
+    waitFor(["_held": "-90", "_screens": isPad ? "0,-90" : "0,0"], timeout: 20)
     tv(false)
     XCTAssertTrue(waitUntil { !ok.exists }, "the remote is still showing")
     if !isPad { XCTAssertTrue(waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }, "the game came back \(app.windows.firstMatch.frame.size): not landscape") }
@@ -133,7 +156,191 @@ final class AerodanceUITests: XCTestCase {
     shot("5-back-on-the-phone")
   }
 
+  // A whole song on the TV, played with the remote's buttons only: the menus, the players dial,
+  // Back, a song, Pause and Resume, the TV going and coming back mid-song, and the results.
+  func test6PlaysASongOnTheTVWithTheRemote() throws {
+    XCUIDevice.shared.orientation = .landscapeLeft
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    tv(true)
+    let ok = app.buttons["OK"], back = app.buttons["Back"], left = app.buttons["Left"]
+    let pause = app.buttons["Pause"], resume = app.buttons["Resume"]
+    XCTAssertTrue(ok.waitForExistence(timeout: 20), "the remote didn't show")
+    waitForDisplay(tv: true)
+    sleep(1)
+    send("shot-tv?name=6-tv-menu")
+
+    press(ok)
+    waitFor(["menuScreen": "players", "menuReady": "true"])
+    // The cursor starts on Let's dance; Left goes to plus, then minus, which OK presses.
+    let players = Int(state()["menuPlayers"] ?? "") ?? 0
+    press(left)
+    press(ok)
+    XCTAssertTrue(waitUntil { Int(self.state()["menuPlayers"] ?? "") == players + 1 }, "plus didn't raise the players dial from \(players)")
+    send("shot-tv?name=6-tv-players-plus")
+    press(left)
+    press(ok)
+    XCTAssertTrue(waitUntil { Int(self.state()["menuPlayers"] ?? "") == players }, "minus didn't lower the players dial back to \(players)")
+    press(back)
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    press(ok)
+    waitFor(["menuScreen": "players", "menuReady": "true"])
+    press(ok)
+    waitFor(["songScreen": "list", "songReady": "true", "catalog": "ready"])
+    sleep(1)
+    send("shot-tv?name=6-tv-song-list")
+    press(ok)
+    waitFor(["songScreen": "preview", "previewState": "playing", "stageReady": "true"])
+    send("shot-tv?name=6-tv-preview")
+    press(ok)
+    waitFor(["gamePhase": "playing"], timeout: 60)
+    sleep(3)
+    send("shot-tv?name=6-tv-playing")
+    shot("6-remote-playing")
+    NSLog("aerodance: playing on the TV at \(state()["_fps"] ?? "?") fps (\(state()["_display"] ?? "?"))")
+
+    XCTAssertTrue(pause.waitForExistence(timeout: 10), "Back didn't turn into Pause during the song")
+    press(pause)
+    waitFor(["gamePhase": "paused"], timeout: 10)
+    send("shot-tv?name=6-tv-paused")
+    XCTAssertTrue(resume.waitForExistence(timeout: 10), "Pause didn't turn into Resume")
+    shot("6-remote-paused")
+    press(resume)
+    waitFor(["gamePhase": "playing"], timeout: 20)
+
+    // The TV goes mid-song: the game comes back to the phone and the song carries on.
+    let before = Int(state()["gameTimeMs"] ?? "") ?? 0
+    tv(false)
+    XCTAssertTrue(waitUntil { !ok.exists }, "the remote is still showing")
+    waitForDisplay(tv: false)
+    sleep(3)
+    let away = state()
+    NSLog("aerodance: TV gone mid-song: \(away["gamePhase"] ?? "?") at \(away["gameTimeMs"] ?? "?") ms (was \(before))")
+    shot("6-phone-tv-gone")
+    XCTAssertEqual(away["gamePhase"], "playing", "the song stopped when the TV went")
+    XCTAssertGreaterThan(Int(away["gameTimeMs"] ?? "") ?? 0, before, "the song's clock didn't move on")
+
+    // ...and goes back to the TV when it's back.
+    tv(true)
+    XCTAssertTrue(ok.waitForExistence(timeout: 20), "the remote didn't come back")
+    waitForDisplay(tv: true)
+    sleep(3)
+    let again = state()
+    NSLog("aerodance: TV back mid-song: \(again["gamePhase"] ?? "?") at \(again["gameTimeMs"] ?? "?") ms, \(again["_fps"] ?? "?") fps")
+    send("shot-tv?name=6-tv-back")
+    XCTAssertEqual(again["gamePhase"], "playing", "the song stopped when the TV came back")
+
+    waitFor(["resultsScreen": "stage"], timeout: 420)
+    sleep(2)
+    send("shot-tv?name=6-tv-results")
+    shot("6-remote-results")
+  }
+
+  // Imported songs. A ZIP saved to the app's folder (as from the Files app) lists in Settings →
+  // Songs. Import song picks one through the system's picker, on the phone: here the same song, so
+  // the page asks (the app's confirm dialog) before replacing it, and it's saved as Dance Studio
+  // names it, in place of the other. It plays from Song Select, after the published songs, and
+  // it's still there after a relaunch that clears the page's website data. Removing it asks, then
+  // deletes its ZIP.
+  func test7ImportsASong() throws {
+    let layouts = try JSONDecoder().decode([String: Layout].self, from: Data((env["AERODANCE_LAYOUT"] ?? "").utf8))
+    XCUIDevice.shared.orientation = .landscapeLeft
+    send("clear-songs")
+    send("drop-song?name=Demo%20from%20Files.zip")
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    let window = app.windows.firstMatch
+    XCTAssertTrue(waitUntil { window.frame.width > window.frame.height }, "the app didn't turn to landscape")
+    sleep(1)
+    let layout = try XCTUnwrap(layouts[state()["displayMode"] ?? "widescreen"])
+    let frame = gameFrame(design: layout.design)
+    let tap = { (rect: Layout.Rect) in self.tap(rect, in: frame, design: layout.design) }
+    tap(layout.settings)
+    waitFor(["menuScreen": "settings", "savedSongs": "1", "damagedSongs": "0"], timeout: 30)
+    shot("7-settings-song-from-files")
+
+    tap(layout.songImport)
+    try pickFile("Demo from Files")
+    let replace = app.alerts.firstMatch
+    XCTAssertTrue(replace.waitForExistence(timeout: 20), "no dialog asking to replace the song")
+    XCTAssertTrue(replace.label.contains("already imported") || replace.staticTexts.allElementsBoundByIndex.contains { $0.label.contains("already imported") },
+                  "the dialog doesn't ask about replacing it: \(replace.debugDescription)")
+    shot("7-replace-dialog")
+    replace.buttons["OK"].tap()
+    waitFor(["songImport": "done", "savedSongs": "1"], timeout: 30)
+    shot("7-imported")
+    let saved = songs()
+    XCTAssertTrue(saved.count == 1 && saved[0].hasPrefix("demo-track-1-r") && saved[0].hasSuffix(".aerodance-song.zip"), "the app's folder holds \(saved)")
+
+    tap(layout.back)
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    tap(layout.start)
+    waitFor(["menuScreen": "players", "menuReady": "true"])
+    tap(layout.letsDance)
+    waitFor(["songScreen": "list", "songReady": "true", "catalog": "ready", "customSongCount": "1"])
+    shot("7-song-list")
+    tap(layout.secondSong)
+    waitFor(["songScreen": "preview", "songReady": "true", "songLoadError": ""])
+    shot("7-imported-song-preview")
+
+    app.terminate()
+    app.launchArguments += ["--clear-website-data"]
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    sleep(1)
+    tap(layout.settings)
+    waitFor(["menuScreen": "settings", "savedSongs": "1", "damagedSongs": "0"], timeout: 30)
+    tap(layout.firstSongTrash)
+    let remove = app.alerts.firstMatch
+    XCTAssertTrue(remove.waitForExistence(timeout: 10), "no dialog asking to remove the song")
+    shot("7-remove-dialog")
+    remove.buttons["OK"].tap()
+    waitFor(["savedSongs": "0"], timeout: 30)
+    shot("7-removed")
+    XCTAssertEqual(songs(), [], "removing the song left its ZIP")
+  }
+
   // MARK: - Helpers
+
+  /// Picks a file in the app's folder (On My iPhone › aerodance) in the system's document picker.
+  func pickFile(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws {
+    // The first element on screen with this in its label (the app's own window is labelled aerodance too).
+    let find = { (text: String) -> XCUIElement? in
+      self.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", text)).allElementsBoundByIndex.first { $0.isHittable }
+    }
+    for place in ["", "Browse", "On My iPhone", "On My iPad", "aerodance"] {
+      if !place.isEmpty, let step = find(place) { step.tap(); sleep(1) }
+      if waitUntil(timeout: 5, { find(name) != nil }), let item = find(name) { item.tap(); return }
+    }
+    shot("7-picker-lost")
+    XCTFail("couldn't find \(name) in the picker: \(app.debugDescription)", file: file, line: line)
+  }
+
+  /// The ZIPs in the app's folder, through ui.ios.ts.
+  func songs() -> [String] {
+    guard let url = URL(string: "\(runner)/songs") else { return [] }
+    let done = DispatchSemaphore(value: 0)
+    var result: [String] = []
+    URLSession.shared.dataTask(with: url) { data, _, _ in
+      if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String] { result = json }
+      done.signal()
+    }.resume()
+    _ = done.wait(timeout: .now() + 5)
+    return result
+  }
+
+
+  /// A touch on a remote button: the page's label for it lets touches through to the canvas under it.
+  func press(_ button: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertTrue(button.waitForExistence(timeout: 10), "\(button) isn't there", file: file, line: line)
+    button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+  }
+
+  /// Waits for the game to report it's showing on the TV, or on the phone.
+  func waitForDisplay(tv: Bool, file: StaticString = #filePath, line: UInt = #line) {
+    let shown = waitUntil(timeout: 20) { (self.state()["_display"] ?? "").hasPrefix(tv ? "tv" : "phone") }
+    XCTAssertTrue(shown, "the game didn't report it's on the \(tv ? "TV" : "phone"): \(state()["_display"] ?? "nothing")", file: file, line: line)
+  }
 
   var tvOn = false
 

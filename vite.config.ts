@@ -57,11 +57,13 @@ export default defineConfig({
   build: {
     outDir: '../../dist',
     emptyOutDir: true,
-    // The game, and the page a phone opens to be its camera (apps/web/src/phone/).
+    // The game, the page a phone opens to be its camera (apps/web/src/phone/), and the TV remote
+    // the iPhone/iPad app shows (apps/web/src/remote/).
     rolldownOptions: {
       input: {
         main: fileURLToPath(new URL('./apps/web/index.html', import.meta.url)),
         pair: fileURLToPath(new URL('./apps/web/pair/index.html', import.meta.url)),
+        remote: fileURLToPath(new URL('./apps/web/remote/index.html', import.meta.url)),
       },
     },
   },

@@ -1,0 +1,4 @@
+services:
+  studio:
+    ports:
+      - "127.0.0.1:${STUDIO_PORT:-8082}:3000"

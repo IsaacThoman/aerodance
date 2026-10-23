@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createAeroWorld, type AeroPart, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
+import { screenOwner } from '../screenOwner.ts';
 
 export interface AeroWorldProps {
   speed?: number;
@@ -23,6 +24,8 @@ export interface AeroWorldProps {
  * Pair it with <Canvas frameloop="demand"> and something that invalidates at that rate.
  *
  * paused stops it updating and rendering (a dance stage has the screen; stage/StageView.tsx).
+ * It also stands down at once whenever a stage holds the renderer (screenOwner.ts), since the
+ * paused prop arrives frames later.
  *
  * <AeroWorld speed={1} fps={15} paused={false} onTelemetry={(t) => ...} />
  */
@@ -83,7 +86,7 @@ export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry,
 
   useFrame((_, delta) => {
     const world = worldRef.current;
-    if (!world || pausedRef.current) return;
+    if (!world || pausedRef.current || screenOwner.stage) return;
     if (!cache) {
       world.update(delta);
       world.render();
