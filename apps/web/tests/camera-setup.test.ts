@@ -11,9 +11,9 @@ const [prev, next] = cameraWidgets({ prev: RECT, next: RECT });
 
 // The camera picker over these cameras (then the phone and No camera, as CameraInput lists them). resolve stands in
 // for a running camera: the default one takes on the id of the camera the browser opened.
-function picker(webcams: CameraInfo[], resolve = (id: string) => id) {
-  const connection = { cameraId: '', cameras: [...webcams, PHONE_CAMERA, NO_CAMERA] } as unknown as CameraInputView;
-  const source = { configure: async ({ cameraId = '' }) => { connection.cameraId = resolve(cameraId); } } as unknown as CameraInput;
+function picker(webcams: CameraInfo[], resolve = (id: string) => id, { webcamSupported = true, cameraId = '' } = {}) {
+  const connection = { cameraId, cameras: [...webcams, PHONE_CAMERA, NO_CAMERA] } as unknown as CameraInputView;
+  const source = { webcamSupported, configure: async ({ cameraId = '' }) => { connection.cameraId = resolve(cameraId); } } as unknown as CameraInput;
   const setup = new CameraSetup(() => ({ source, connection }));
   return (arrow: typeof prev, presses: number) => Array.from({ length: presses }, () => {
     setup.activate(arrow);
@@ -31,6 +31,12 @@ test('the camera arrows go round every camera both ways while the default camera
   const running = (id: string) => id || 'facetime';
   assert.deepEqual(picker(webcams, running)(next, 8), ['facetime', 'desk', 'phone', 'none', 'facetime', 'desk', 'phone', 'none']);
   assert.deepEqual(picker(webcams, running)(prev, 8), ['none', 'phone', 'desk', 'facetime', 'none', 'phone', 'desk', 'facetime']);
+});
+
+test('without a webcam (the Apple TV app) the camera arrows go between the phone and No camera only', () => {
+  const tv = { webcamSupported: false, cameraId: PHONE_CAMERA.deviceId };
+  assert.deepEqual(picker([], undefined, tv)(next, 4), ['none', 'phone', 'none', 'phone']);
+  assert.deepEqual(picker([], undefined, tv)(prev, 4), ['none', 'phone', 'none', 'phone']);
 });
 
 test('cameras the browser lists without an id (before permission) are left out', async () => {
@@ -56,6 +62,7 @@ function autoSetup({ auto = true, fails = false } = {}) {
   const connection = { status: 'disconnected', cameraId: '', cameras: [PHONE_CAMERA, NO_CAMERA], sourceKind: 'webcam' } as unknown as CameraInputView;
   let connects = 0;
   const source = {
+    webcamSupported: true,
     connect: async () => { connects++; connection.status = fails ? 'error' : 'connecting'; },
     configure: async ({ cameraId = '' }) => {
       connection.cameraId = cameraId; connection.status = 'disconnected';
