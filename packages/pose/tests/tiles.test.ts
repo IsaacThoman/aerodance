@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evenTiles, fromTile, hidden, mergeTiles, StripHiding } from '../browser/tiles.ts';
+import { evenTiles, fromTile, hidden, mergeTiles, remnant, StripHiding } from '../browser/tiles.ts';
 
 // Somebody standing with their torso centred at x (a fraction of the strip or picture), arms
 // reaching `reach` to each side.
@@ -93,6 +93,8 @@ test('a strip following somebody another strip keeps, or nobody, has the people 
   assert.deepEqual(hidden([{ points: cut, tile: tiles[0] }], [cut], tiles)[1], []);
 });
 
+// Which strip took over somebody from which, if any.
+const handoff = ({ handoff }: StripHiding) => handoff && [handoff.from, handoff.to];
 // Somebody at x in the whole picture (no strip to map from).
 const at = (x: number, reach = 0.1) => fromTile(person(x, { reach }), { x: 0, width: 1 });
 
@@ -100,7 +102,7 @@ test('a strip that looks and finds nobody takes over somebody it shares, so the 
   const tiles = evenTiles(3)!;
   // Somebody where the second and third strips overlap, kept from the second; the third finds
   // nobody else. Whoever the second could see beside them isn't found.
-  const a = at(0.1), shared = at(0.63), hidden2 = at(0.45);
+  const a = at(0.1), shared = at(0.63, 0.05), hidden2 = at(0.45);
   const setup = () => {
     const hiding = new StripHiding(tiles), players = 2;
     hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }, { points: shared.map(p => ({ ...p })), tile: tiles[2] }], [a, shared], 4 / 3, players);
@@ -117,13 +119,30 @@ test('a strip that looks and finds nobody takes over somebody it shares, so the 
   found.hiding.next([{ points: a, tile: tiles[0] }, { points: hidden2, tile: tiles[1] }, { points: shared, tile: tiles[2] }], [a, hidden2, shared], 4 / 3, found.players);
   assert.equal(found.hiding.handoff, null);
   assert.deepEqual(found.hiding.hide.map(boxes => boxes.length), [0, 0, 0]);
-  // Nobody beside them: after a moment the second strip has them back, and doesn't try again for a while.
+  // Nobody beside them: the second strip sees them again, and the two don't hand them over again,
+  // either way, for a while.
   const nobody = setup();
   for (let i = 0; i < 6; i++) nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[2] }], [a, shared], 4 / 3, nobody.players);
   assert.equal(nobody.hiding.handoff, null);
   assert.equal(nobody.hiding.hide[1].length, 0, 'the second strip sees them again');
-  for (let i = 0; i < 60; i++) nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }], [a, shared], 4 / 3, nobody.players);
-  assert.equal(nobody.hiding.handoff, null, 'no other try for a while');
+  for (let i = 0; i < 280; i++) nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[2] }], [a, shared], 4 / 3, nobody.players);
+  assert.equal(nobody.hiding.handoff, null, 'nor back');
+  // Unless somebody comes or goes.
+  nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[2] }], [a, shared], 4 / 3, 1);
+  assert.deepEqual(handoff(nobody.hiding), [2, 1]);
+  // Nobody is taken over whose torso is near the idle strip's edge.
+  const edgeways = at(0.585, 0.05), cut = new StripHiding(tiles);
+  cut.next([{ points: a, tile: tiles[0] }, { points: edgeways, tile: tiles[1] }, { points: edgeways.map(p => ({ ...p })), tile: tiles[2] }], [a, edgeways], 4 / 3, 2);
+  for (let i = 0; i < 30; i++) cut.next([{ points: a, tile: tiles[0] }, { points: edgeways, tile: tiles[1] }], [a, edgeways], 4 / 3, 2);
+  assert.equal(cut.handoff, null);
+  // An idle strip with nobody to take over doesn't keep another from it: four strips, the first
+  // shown its neighbour's person hidden but seeing them cut off, the last able to take over the
+  // person its neighbour keeps, beside whom somebody nobody follows stands.
+  const four = evenTiles(4)!, edge = at(0.32, 0.05), mid = at(0.8, 0.04), starving = new StripHiding(four);
+  starving.next([{ points: edge, tile: four[1] }, { points: mid, tile: four[2] }, { points: edge.map(p => ({ ...p })), tile: four[0] }, { points: mid.map(p => ({ ...p })), tile: four[3] }], [edge, mid], 4 / 3, 2);
+  assert.ok(starving.hide[0].length && starving.hide[3].length, 'the outer strips are shown them hidden');
+  for (let i = 0; i < 16; i++) starving.next([{ points: edge, tile: four[1] }, { points: mid, tile: four[2] }], [edge, mid], 4 / 3, 2);
+  assert.deepEqual(handoff(starving), [2, 3]);
   // Never with every player found, nor without knowing how many are.
   for (const players of [3, undefined]) {
     const hiding = new StripHiding(tiles);
@@ -132,4 +151,14 @@ test('a strip that looks and finds nobody takes over somebody it shares, so the 
     assert.equal(hiding.handoff, null);
     assert.equal(hiding.hide[1].length, 0);
   }
+});
+
+test('what a strip makes of somebody it was shown hidden isn\'t anybody', () => {
+  const tiles = evenTiles(3)!, them = at(0.5), beside = at(0.62);
+  const [box] = hidden([{ points: them, tile: tiles[0] }], [them], tiles)[1];
+  // A squashed skeleton from their arms, where they were greyed out; and somebody beside them.
+  const squashed = them.map(p => ({ ...p, y: 0.45 + (p.y - 0.45) * 0.2 }));
+  assert.equal(remnant(squashed, [box]), true);
+  assert.equal(remnant(beside, [box]), false);
+  assert.equal(remnant(squashed, []), false);
 });

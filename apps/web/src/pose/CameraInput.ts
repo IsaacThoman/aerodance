@@ -51,8 +51,9 @@ export class CameraInput implements PoseSource {
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
   // In the iPhone/iPad app, a muted camera is iOS holding it for a call: wait for it to come back.
-  // The app also looks for three or four players in the whole picture: strips (tiles.ts) cost a
-  // landmarker each, about 100 MB in Chromium, with the game in the same WebKit process there.
+  // The app also looks for three or four players in the whole picture: strips (tiles.ts) work in
+  // its WebKit, but each costs a landmarker, about 100 MB more in the process the game runs in (and
+  // 160-215 MB in all, measured in the iOS simulator), which hasn't been tried on a device.
   constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource({ interruptedTimeoutMs: inApp() ? Infinity : undefined, tiles: !inApp() }) }), phone = new PhonePoseSource(),
     webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone;

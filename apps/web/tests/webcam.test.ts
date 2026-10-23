@@ -174,6 +174,25 @@ test('three or four players are each looked for in a strip of the picture', asyn
   const wholeInit = whole.messages.find(m => m.type === 'initialize');
   assert.ok(wholeInit?.type === 'initialize' && !wholeInit.tiles);
 });
+test('each frame tells the worker how many players the last result found, for its strips', async t => {
+  // Somebody standing at x, as MediaPipe reports them.
+  const person = (cx: number) => Array.from({ length: 33 }, (_, i) => {
+    const side = i % 2 ? -1 : 1, joint = ({ 11: [0.07, -0.13], 13: [0.085, -0.01], 15: [0.09, 0.1], 23: [0.045, 0.11], 25: [0.05, 0.27], 27: [0.05, 0.43] } as Record<number, number[]>)[i - (i % 2 ? 0 : 1)] ?? [0, -0.25];
+    return { x: cx + (i >= 11 ? joint[0] * side : 0), y: 0.45 + joint[1], z: 0, visibility: 0.95, presence: 0.95 };
+  });
+  const f = fixture(t);
+  await f.source.setPlayerCount(3); await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '', tiled: true });
+  const frames = () => f.messages.filter(m => m.type === 'frame');
+  for (let i = 0; i < 3; i++) {
+    await f.frame(1 + i / 30); f.setTime(1000 + i * 33 + 20);
+    f.deliver({ type: 'result', seq: i + 1, landmarks: [person(0.3), person(0.7)], inferenceMs: 20 });
+  }
+  await f.frame(1.1);
+  assert.deepEqual(frames().map(m => m.type === 'frame' && m.players), [0, 0, 2, 2], 'none until somebody has been seen twice, then two');
+  f.source.disconnect(); await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '', tiled: true });
+  await f.frame(2);
+  assert.equal(frames().at(-1)?.type === 'frame' && frames().at(-1)?.players, 0, 'a new session starts with none');
+});
 test('changing a running model resets the session and records the explicit selection', async t => {
   const f = fixture(t);
   await f.source.connect(); const firstSession = f.source.sessionId;

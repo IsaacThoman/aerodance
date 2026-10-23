@@ -359,13 +359,19 @@ test('players back from a while away are told apart by their looks at once', () 
   assert.deepEqual([...back[1]].sort(), [[0, 0.3], [1, 0.7]]);
 });
 
-test('ghosts, unreliable torsos and broken landmarks are not players', () => {
+test('ghosts, unreliable torsos, squashed copies and broken landmarks are not players', () => {
   const tracker = new PlayerTracker(2);
   const ghost = person(0.31).map(p => ({ ...p, x: p.x + 0.003 }));
   const unreliable = person(0.7); unreliable[23] = { ...unreliable[23], visibility: 0.1 };
   const broken = person(0.5); broken[1] = { ...broken[1], x: NaN };
-  const results = run(tracker, repeat(5, () => ({ people: [person(0.3), ghost, unreliable, broken] })));
+  // Shoulders and hips collapsed together at the waist, the head and feet where they were.
+  const squashed = person(0.85).map((p, i) => [11, 12, 23, 24].includes(i) ? { ...p, x: 0.85 + (p.x - 0.85) * 0.1, y: 0.5 } : p);
+  const results = run(tracker, repeat(5, () => ({ people: [person(0.3), ghost, unreliable, broken, squashed] })));
   assert.deepEqual(results.map(m => m.size), [0, 1, 1, 1, 1], 'one person, after two results');
+  assert.ok(run(new PlayerTracker(1), repeat(5, () => ({ people: [squashed] }))).every(m => m.size === 0), 'nor a squashed copy alone');
+  // Nor a tiny copy inside somebody, while a number is free.
+  const inside = run(new PlayerTracker(2), repeat(5, () => ({ people: [person(0.5), person(0.5, { size: 0.3, cy: 0.6 })] })));
+  assert.ok(inside.every(m => m.size <= 1), 'one person');
 });
 
 test('looks are the clothes\' colours on the chest, waist and thighs', () => {

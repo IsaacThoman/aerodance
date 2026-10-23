@@ -33,9 +33,10 @@ const CUT = 0.2;
 /**
  * While a player is missing: a strip shown people hidden that has found nobody new for IDLE
  * results takes over a person it shares with another strip, which gets TRY results to find
- * somebody else; then no other try for REST results.
+ * somebody else; then no other try for REST results, nor between the same two strips for
+ * AGAIN (unless the number of players found changes first).
  */
-const IDLE = 15, TRY = 6, REST = 90;
+const IDLE = 15, TRY = 6, REST = 90, AGAIN = 300;
 const TORSO = [11, 12, 23, 24];
 const LIMBS = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
 
@@ -122,13 +123,26 @@ export function hidden<P extends Point>(found: readonly { points: P[]; tile: Til
 const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 /**
+ * Whether a strip's result has its torso where the strip was shown somebody hidden: what the
+ * model made of what's left of them (their arms, say), not somebody it saw.
+ */
+export function remnant(points: readonly Point[], hide: readonly Box[]): boolean {
+  const x = TORSO.reduce((sum, i) => sum + points[i].x, 0) / 4, y = TORSO.reduce((sum, i) => sum + points[i].y, 0) / 4;
+  return hide.some(b => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1);
+}
+
+/**
  * Who each strip is shown hidden, from one result to the next:
  * - a strip whose result was somebody another strip keeps, or nobody, the people the others keep
  *   (hidden());
  * - while a player is missing, a strip that has looked for a while and found nobody new takes
- *   over somebody it shares with another strip (one it sees whole), so that strip looks for
- *   whoever else is in it instead: the strip a shared person is kept from may be the only one
- *   that could see somebody else. If it finds nobody, it has them back.
+ *   over somebody it shares with another strip (whose torso is well inside it), so that strip
+ *   looks for whoever else is in it instead: the strip a shared person is kept from may be the
+ *   only one that could see somebody else. If it finds nobody, it sees them again (whichever of
+ *   the two sees them better follows them), and the two don't hand anybody over for a while.
+ *
+ * (The model can make a squashed copy of somebody from what's left of them, which the tracker
+ * drops; one with its torso where the strip was shown them hidden is dropped here, remnant().)
  */
 export class StripHiding {
   readonly tiles: readonly Tile[];
@@ -141,6 +155,10 @@ export class StripHiding {
   results = 0;
   /** No hand-off before this result. */
   rest = 0;
+  /** Hand-offs that found nobody ("from,to"): not again before this result. */
+  tried = new Map<string, number>();
+  /** How many players were found last time. */
+  players: number | undefined;
   constructor(tiles: readonly Tile[]) {
     this.tiles = tiles;
     this.hide = tiles.map(() => []);
@@ -158,23 +176,31 @@ export class StripHiding {
     // Each strip's own person, when kept.
     const own = this.tiles.map(tile => found.find(f => f.tile === tile && kept.includes(f.points))?.points);
     const missing = players !== undefined && players < this.tiles.length;
+    // (Somebody came or went: hand-offs that found nobody may not now.)
+    if (players !== this.players) this.tried.clear();
+    this.players = players;
     this.idle = this.idle.map((count, i) => shown[i].length && !own[i] ? count + 1 : 0);
     if (this.handoff) {
-      const { from, box, at } = this.handoff;
+      const { from, to, box, at } = this.handoff;
       const mine = own[from], centre = mine && torso(mine, aspect);
-      // Found somebody else: they keep them. Nobody: they have the shared person back.
+      // Found somebody else: they keep them. Nobody: they see the shared person again.
       if (centre && !(centre.x / aspect > box.x0 && centre.x / aspect < box.x1)) { this.handoff = null; this.rest = n + REST; }
-      else if (n - at >= TRY) { next[from] = next[from].filter(b => !overlaps(b, box)); this.handoff = null; this.rest = n + REST; }
+      else if (n - at >= TRY) {
+        next[from] = next[from].filter(b => !overlaps(b, box));
+        this.handoff = null; this.rest = n + REST; this.tried.set(`${from},${to}`, n + AGAIN).set(`${to},${from}`, n + AGAIN);
+      }
     } else if (missing && n >= this.rest) {
-      const to = this.idle.findIndex(count => count >= IDLE);
-      const tile = this.tiles[to];
-      // Somebody another strip keeps, whose torso is well inside this one.
-      const shared = to < 0 ? undefined : own.flatMap((points, from) => {
-        if (!points || from === to || !TORSO.every(i => reliable(points[i]))) return [];
+      // Somebody another strip keeps whom an idle strip sees whole (none of their sure joints
+      // beyond its edges), nearest its middle.
+      const shared = this.idle.flatMap((count, to) => count < IDLE ? [] : own.flatMap((points, from) => {
+        const tile = this.tiles[to];
+        if (!points || from === to || (this.tried.get(`${from},${to}`) ?? 0) > n || !TORSO.every(i => reliable(points[i]))) return [];
         const { x, scale } = torso(points, aspect), margin = 0.4 * scale / aspect;
-        return x / aspect > tile.x + margin && x / aspect < tile.x + tile.width - margin ? [{ from, points, off: Math.abs(x / aspect - tile.x - tile.width / 2) }] : [];
-      }).sort((a, b) => a.off - b.off)[0];
+        return x / aspect > tile.x + margin && x / aspect < tile.x + tile.width - margin
+          ? [{ from, to, points, off: Math.abs(x / aspect - tile.x - tile.width / 2) }] : [];
+      })).sort((a, b) => a.off - b.off)[0];
       if (shared) {
+        const { to } = shared;
         const box = outline(shared.points);
         next[shared.from].push(box);
         next[to] = next[to].filter(b => !overlaps(b, box));

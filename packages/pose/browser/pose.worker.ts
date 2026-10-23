@@ -1,7 +1,7 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { fromTile, mergeTiles, StripHiding } from './tiles.ts';
+import { fromTile, mergeTiles, remnant, StripHiding } from './tiles.ts';
 import type { Tile } from './tiles.ts';
 
 // The message protocol between a page (WebcamPoseSource, Studio video import) and this worker.
@@ -31,8 +31,8 @@ interface PoseWorkerScope {
 const scope: PoseWorkerScope = self;
 
 let landmarker: PoseLandmarker | undefined;
-/** With tiles: one landmarker per strip of the picture, the strips, and who each is shown hidden (tiles.ts). */
-let tiled: { landmarkers: PoseLandmarker[]; tiles: Tile[]; hiding: StripHiding } | null = null;
+/** With tiles: one landmarker per strip of the picture, the strips, who each is shown hidden (tiles.ts), and the picture's size. */
+let tiled: { landmarkers: PoseLandmarker[]; tiles: Tile[]; hiding: StripHiding; size: string } | null = null;
 /** Where a strip is drawn with people hidden. */
 let hiding: OffscreenCanvasRenderingContext2D | null = null;
 let sessionId: string | undefined;
@@ -87,7 +87,7 @@ scope.onmessage = async ({ data }) => {
           if (!binary.ok) throw Error(`WASM download failed (HTTP ${binary.status})`);
           wasm = URL.createObjectURL(new Blob([await binary.arrayBuffer()], { type: 'application/wasm' }));
           for (let i = 0; i < data.tiles.length; i++) landmarkers.push(await create(delegate, 1, { ...files, wasmBinaryPath: wasm }));
-          tiled = { landmarkers, tiles: data.tiles, hiding: new StripHiding(data.tiles) };
+          tiled = { landmarkers, tiles: data.tiles, hiding: new StripHiding(data.tiles), size: '' };
         } catch (error) {
           console.warn('pose strips could not start, using the whole picture:', errorMessage(error) || error);
           for (const l of landmarkers) l.close();
@@ -108,6 +108,8 @@ scope.onmessage = async ({ data }) => {
         let landmarks: NormalizedLandmark[][];
         if (tiled) {
           const { width, height } = data.bitmap;
+          // A picture of another size (a phone turned round) starts afresh.
+          if (tiled.size !== `${width}x${height}`) { tiled.size = `${width}x${height}`; tiled.hiding = new StripHiding(tiled.tiles); }
           const found: { points: NormalizedLandmark[]; tile: Tile }[] = [];
           for (const [i, tile] of tiled.tiles.entries()) {
             const sx = Math.round(tile.x * width), sw = Math.max(1, Math.round(tile.width * width));
@@ -124,7 +126,12 @@ scope.onmessage = async ({ data }) => {
             } else strip = await createImageBitmap(data.bitmap, sx, 0, sw, height);
             // The strip as cut, so landmarks map back exactly.
             const cut = { x: sx / width, width: sw / width };
-            try { for (const points of tiled.landmarkers[i].detectForVideo(strip, data.timestampMs).landmarks) found.push({ points: fromTile(points, cut), tile }); }
+            try {
+              for (const points of tiled.landmarkers[i].detectForVideo(strip, data.timestampMs).landmarks) {
+                const mapped = fromTile(points, cut);
+                if (!remnant(mapped, hide)) found.push({ points: mapped, tile });
+              }
+            }
             finally { strip.close(); }
           }
           landmarks = mergeTiles(found, width / height);
