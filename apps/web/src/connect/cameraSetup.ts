@@ -3,17 +3,19 @@ import type { Rect } from '../ui/draw.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import type { WebcamStatus } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import { NO_CAMERA, PHONE_CAMERA } from '../pose/CameraInput.ts';
-import { inApp } from '../host.ts';
+import { client, inApp } from '../host.ts';
 import type { CameraInput, CameraInputView } from '../pose/CameraInput.ts';
 import type { PoseInputView } from '../pose/PoseSource.ts';
 
 /**
  * The calibration screen's camera controls: the camera arrows (this computer's cameras, then
  * the phone and No camera), laid out by CameraLayout. The screen adds cameraWidgets() to its widgets and hands
- * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()).
+ * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()). In the
+ * iPhone/iPad app, which has the camera already, a device camera starts by itself instead
+ * (CameraSetup.update(), every frame on the screen), and the screen lists the device's lenses.
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
- * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg);
+ * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg); update: camera.update();
  * draw: drawCameraPicker(g, LAYOUT, connection, hover);
  */
 
@@ -37,7 +39,9 @@ export const cameraWidgets = ({ prev, next }: CameraLayout): CameraWidget[] => [
 export class CameraSetup {
   error = '';
   target: () => { source: CameraInput; connection: CameraInputView };
-  constructor(target: () => { source: CameraInput; connection: CameraInputView }) { this.target = target; }
+  /** Start a device camera without a press. */
+  auto: boolean;
+  constructor(target: () => { source: CameraInput; connection: CameraInputView }, { auto = client() === 'ios' } = {}) { this.target = target; this.auto = auto; }
 
   /** The camera is on or on its way. */
   active() { return ACTIVE.includes(this.target().connection.status); }
@@ -67,6 +71,16 @@ export class CameraSetup {
     if (this.active()) return;
     this.error = '';
     this.target().source.connect()?.catch((err: unknown) => { this.error = message(err); });
+  }
+
+  /**
+   * Every frame on the screen: with auto, starts a device camera that is off, so the lenses are
+   * listed and picking one starts it. Not the phone (pairing waits for a press) or No camera, and
+   * not a camera that failed: its error stays up until Try again or another camera is picked. A
+   * hidden page stops a camera as it starts, so it waits to be shown again.
+   */
+  update() {
+    if (this.auto && !globalThis.document?.hidden && !this.phone() && !this.none() && !this.failed()) this.start();
   }
 
   /** Handles a camera widget's press; false for any other widget. */
