@@ -32,13 +32,37 @@ test('players are numbered left to right in the mirrored preview once everyone i
   assert.equal(first[0].size, 0, 'two results before a number');
   assert.deepEqual([...first[1]], [[0, 0.7]]);
   // A second person stands shoulder to shoulder on their left in the camera picture (the right
-  // of the mirrored preview): once both are in view they're numbered left to right in the
-  // preview, so P1 is the second person.
-  const both = run(tracker, repeat(3, () => ({ people: [person(0.7), person(0.84, { arms: 0.1 })] })), 100);
-  assert.deepEqual([...both[2]].sort(), [[0, 0.84], [1, 0.7]]);
+  // of the mirrored preview): once both have been in view for a moment they're numbered left to
+  // right in the preview, so P1 is the second person.
+  const both = run(tracker, repeat(12, () => ({ people: [person(0.7), person(0.84, { arms: 0.1 })] })), 100);
+  assert.deepEqual([...both.at(-1)!].sort(), [[0, 0.84], [1, 0.7]]);
   // They walk apart and stay themselves, with no lane edge to lose them at (x = 0.5 was one).
-  const walk = run(tracker, repeat(30, i => ({ people: [person(0.7 - i * 0.012), person(0.84 + i * 0.004, { arms: 0.1 })] })), 200);
+  const walk = run(tracker, repeat(30, i => ({ people: [person(0.7 - i * 0.012), person(0.84 + i * 0.004, { arms: 0.1 })] })), 500);
   assert.ok(walk.every(m => m.size === 2 && m.get(0)! > m.get(1)!), 'both followed throughout');
+});
+
+test('a glitch in the model\'s results isn\'t numbered with the players, nor keeps the last of them out', () => {
+  const tracker = new PlayerTracker(3);
+  const a = () => person(0.25), b = () => person(0.5, { arms: 0.1 });
+  run(tracker, repeat(30, () => ({ people: [a(), b()] })));
+  // For three results the model also reports somebody at the far edge, who isn't there.
+  run(tracker, repeat(3, () => ({ people: [a(), b(), person(0.04, { arms: 0.3 })] })), 1000);
+  // The third player steps in on the other side, and is numbered with the others.
+  const last = run(tracker, repeat(60, () => ({ people: [a(), b(), person(0.78, { arms: 0.2 })] })), 1100);
+  assert.deepEqual([...last.at(-1)!].sort(), [[0, 0.78], [1, 0.5], [2, 0.25]]);
+});
+
+test('a glitch beside a bystander doesn\'t make them somebody new', () => {
+  const tracker = new PlayerTracker(2);
+  const by = () => person(0.92, { size: 0.6, arms: 0.2 });
+  run(tracker, repeat(60, () => ({ people: [person(0.3), person(0.6, { arms: 0.1 }), by()] })));
+  // P1 leaves. Two seconds later, for one result, the model reports somebody just beside the
+  // bystander, first.
+  run(tracker, repeat(60, () => ({ people: [person(0.3), by()] })), 2000);
+  run(tracker, [{ people: [person(0.86, { size: 0.6, arms: 0.4 }), person(0.3), by()] }], 4000);
+  // The bystander is still one, so can't take P1's number until P1 has been gone a while.
+  const after = run(tracker, repeat(25, () => ({ people: [person(0.3), by()] })), 4033);
+  assert.ok(after.every(m => !m.has(0)), 'P1 kept');
 });
 
 test('a player who walks to where a missing player stood keeps their own number', () => {

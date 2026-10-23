@@ -2,7 +2,6 @@ import { MEDIAPIPE_VERSION, ASSET_PATH, isPoseModelId, poseModel } from './model
 import type { PoseModelId } from './models.ts';
 import { PlayerTracker } from './tracker.ts';
 import { evenTiles } from './tiles.ts';
-import type { Tile } from './tiles.ts';
 import { validateWebcamRecord } from '../webcamRecord.ts';
 import type { WebcamRecord } from '../webcamRecord.ts';
 import { isPlayerCount } from '../choreography.ts';
@@ -145,8 +144,6 @@ export class WebcamPoseSource {
   /** When the camera last delivered a new frame (tracked or not). */
   lastFrame = 0;
   tracker = new PlayerTracker(1);
-  /** The strips of the picture the worker looks for a player in each of (three or four players). */
-  tiles: Tile[] | null = null;
   resultTimes: number[] = [];
   startedAt = 0;
   completed = 0;
@@ -298,7 +295,6 @@ export class WebcamPoseSource {
       const model = poseModel(this.view.model);
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
       this.tracker = new PlayerTracker(this.playerCount); this.resultTimes = [];
-      this.tiles = this.tiling ? evenTiles(this.playerCount) : null;
       this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.lastFrame = this.startedAt;
       const worker = this.worker = this.createWorker();
       worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
@@ -314,8 +310,9 @@ export class WebcamPoseSource {
       // Looks tell players apart, so one player doesn't need them. Three or four players are each
       // looked for in a strip of the picture, which finds nearly all of them where the whole
       // picture finds about two (tiles.ts).
+      const tiles = this.tiling && evenTiles(this.playerCount);
       worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount === 1 ? 1 : this.playerCount + 1, looks: this.playerCount > 1,
-        ...(this.tiles ? { tiles: this.tiles } : {}),
+        ...(tiles ? { tiles } : {}),
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }
   }
@@ -352,7 +349,6 @@ export class WebcamPoseSource {
   handleResult(data: PoseWorkerResponse) {
     if (data.type === 'error') { this.fail(Error(data.message)); return; }
     if (data.type === 'ready') {
-      if (!data.tiled) this.tiles = null;
       this.publish({ delegate: data.delegate, modelConfig: this.view.modelConfig && { ...this.view.modelConfig, delegate: data.delegate },
         ...(this.view.interrupted ? {} : { message: data.fallback ? 'GPU unavailable; using CPU. Waiting for the first pose result…' : 'Waiting for the first pose result…' }) });
       this.schedule(); return;
@@ -401,14 +397,14 @@ export class WebcamPoseSource {
     const generation = this.generation;
     if (!video) return;
     if (video.videoWidth !== this.input?.width || video.videoHeight !== this.input.height) {
+      // A picture taken before the resize is the old size.
+      void picture?.then(bitmap => bitmap.close(), () => {});
+      picture = undefined;
       if (!this.adaptToResize || !video.videoWidth || !video.videoHeight) { this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return; }
       // No frame is in flight (one is only sent once the last result is in), so no result mixes
       // the two sizes. Calibration and the live characters start afresh when a record's input size changes.
       this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
       this.tracker = new PlayerTracker(this.playerCount);
-      // A picture taken before the resize is the old size.
-      void picture?.then(bitmap => bitmap.close(), () => {});
-      picture = undefined;
     }
     this.busy = true;
     const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs };

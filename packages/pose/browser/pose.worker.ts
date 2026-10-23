@@ -1,8 +1,8 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { fromTile, mergeTiles } from './tiles.ts';
-import type { Tile } from './tiles.ts';
+import { fromTile, hidden, mergeTiles } from './tiles.ts';
+import type { Box, Tile } from './tiles.ts';
 
 // The message protocol between a page (WebcamPoseSource, Studio video import) and this worker.
 export type PoseRunningMode = 'IMAGE' | 'VIDEO';
@@ -30,8 +30,10 @@ interface PoseWorkerScope {
 const scope: PoseWorkerScope = self;
 
 let landmarker: PoseLandmarker | undefined;
-/** With tiles: one landmarker per strip of the picture, and the strips. */
-let tiled: { landmarkers: PoseLandmarker[]; tiles: Tile[] } | null = null;
+/** With tiles: one landmarker per strip of the picture, the strips, and who to hide from each next time (tiles.ts). */
+let tiled: { landmarkers: PoseLandmarker[]; tiles: Tile[]; hide: Box[][] } | null = null;
+/** Where a strip is drawn with people hidden. */
+let hiding: OffscreenCanvasRenderingContext2D | null = null;
 let sessionId: string | undefined;
 let runningMode: PoseRunningMode = 'VIDEO';
 /** A small copy of each frame to sample looks from, when they're wanted. */
@@ -74,16 +76,21 @@ scope.onmessage = async ({ data }) => {
         outputSegmentationMasks: false,
       });
       // Strips need the GPU (on a CPU, each costs a whole frame's search) and VIDEO mode's following.
+      tiled = null;
       if (data.tiles?.length && delegate === 'GPU' && runningMode === 'VIDEO') {
         const landmarkers: PoseLandmarker[] = [];
         // The WASM binary (13 MB) is fetched once for all of them.
         let wasm = '';
         try {
-          wasm = URL.createObjectURL(new Blob([await (await fetch(files.wasmBinaryPath)).arrayBuffer()], { type: 'application/wasm' }));
+          const binary = await fetch(files.wasmBinaryPath);
+          if (!binary.ok) throw Error(`WASM download failed (HTTP ${binary.status})`);
+          wasm = URL.createObjectURL(new Blob([await binary.arrayBuffer()], { type: 'application/wasm' }));
           for (let i = 0; i < data.tiles.length; i++) landmarkers.push(await create(delegate, 1, { ...files, wasmBinaryPath: wasm }));
-          tiled = { landmarkers, tiles: data.tiles };
-        } catch { for (const l of landmarkers) l.close(); }
-        finally { if (wasm) URL.revokeObjectURL(wasm); }
+          tiled = { landmarkers, tiles: data.tiles, hide: [] };
+        } catch (error) {
+          console.warn('pose strips could not start, using the whole picture:', errorMessage(error) || error);
+          for (const l of landmarkers) l.close();
+        } finally { if (wasm) URL.revokeObjectURL(wasm); }
       }
       if (!tiled) {
         try { landmarker = await create(delegate); }
@@ -103,13 +110,24 @@ scope.onmessage = async ({ data }) => {
           const found: { points: NormalizedLandmark[]; tile: Tile }[] = [];
           for (const [i, tile] of tiled.tiles.entries()) {
             const sx = Math.round(tile.x * width), sw = Math.max(1, Math.round(tile.width * width));
-            const strip = await createImageBitmap(data.bitmap, sx, 0, sw, height);
+            const hide = tiled.hide[i] ?? [];
+            let strip: ImageBitmap;
+            if (hide.length) {
+              hiding ??= new OffscreenCanvas(1, 1).getContext('2d')!;
+              const { canvas } = hiding;
+              if (canvas.width !== sw || canvas.height !== height) { canvas.width = sw; canvas.height = height; }
+              hiding.drawImage(data.bitmap, sx, 0, sw, height, 0, 0, sw, height);
+              hiding.fillStyle = '#808080';
+              for (const b of hide) hiding.fillRect(b.x0 * width - sx, b.y0 * height, (b.x1 - b.x0) * width, (b.y1 - b.y0) * height);
+              strip = canvas.transferToImageBitmap();
+            } else strip = await createImageBitmap(data.bitmap, sx, 0, sw, height);
             // The strip as cut, so landmarks map back exactly.
             const cut = { x: sx / width, width: sw / width };
             try { for (const points of tiled.landmarkers[i].detectForVideo(strip, data.timestampMs).landmarks) found.push({ points: fromTile(points, cut), tile }); }
             finally { strip.close(); }
           }
           landmarks = mergeTiles(found, width / height);
+          tiled.hide = hidden(found, landmarks, tiled.tiles);
         } else {
           landmarks = (runningMode === 'IMAGE' ? landmarker!.detect(data.bitmap) : landmarker!.detectForVideo(data.bitmap, data.timestampMs)).landmarks;
         }

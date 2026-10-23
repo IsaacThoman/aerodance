@@ -135,6 +135,17 @@ test('the newest frame that comes while one is in flight is sent as soon as its 
   assert.equal(sent[1].type === 'frame' && Math.round(sent[1].timestampMs), 1066, 'the newest of the frames that waited');
   assert.equal(f.source.dropped, 1, 'the older one is dropped');
 });
+test('a frame that waited is closed when the camera changes size', async t => {
+  let made = 0, closed = 0;
+  const f = fixture(t, { bitmap: async () => { made++; return { close() { closed++; } } as ImageBitmap; } });
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  await f.frame(1); await f.frame(1.033);
+  Object.assign(f.video, { videoWidth: 480, videoHeight: 640 });
+  f.setTime(1050); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 30 });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.source.view.status, 'error');
+  assert.deepEqual({ made, closed }, { made: 2, closed: 1 }, 'all but the one the worker has (and closes)');
+});
 test('a permission grant after cancellation releases its camera without starting a worker', async t => {
   const f = fixture(t); let grant: ((stream: MediaStream) => void) | undefined;
   assert.ok(f.source.mediaDevices);

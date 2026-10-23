@@ -64,8 +64,10 @@ however many were in view, and the Full and Heavy models found no more than Lite
 its person detector; only the landmark model differs) while Heavy took twice as long. So with
 three or four players, each player was missed in a good share of frames. So three or four
 players are now each looked for in their own strip of the picture, which found nearly everyone
-(3.9 of 4 people per frame on the same footage) for about a quarter more inference
-([player tracking](player-tracking.md)).
+(3.9 of 4 people per frame on the same footage) for up to about twice the inference
+([player tracking](player-tracking.md)). A strip that follows somebody another strip has (or
+nobody) has the others' people greyed out of its next frame, so players standing close
+together in the middle of the picture are all found too.
 
 Speed wasn't measured meaningfully: the headless GPU session's pose rate swung between
 about 1 and 20 poses/s with the stage's GPU load, for two players as much as for three or
@@ -105,7 +107,9 @@ with four.
 - `?record` recordings (`.adpose` kind `recording`) have one slot per player, up to four;
   every other `.adpose` kind still has at most two ([pose binary format](pose-binary-format.md)).
 - Calibration has every player hold still together, as before, with shorter status labels
-  when the columns are narrow.
+  when the columns are narrow. A player the model misses for a moment (up to 0.2 s) is still
+  holding: with three or four, one is missed now and then, and restarting the hold each time
+  meant it could take a long while, or never finish.
 - The players screen's dial picks the count; the dancers on the menu's glass stage show
   it, arriving in a soap bubble and popping when they leave.
 - The live characters and their scores sit in the top corners: P1 and P2 on the left and

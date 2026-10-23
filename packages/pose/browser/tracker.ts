@@ -44,6 +44,8 @@ const GATE = 0.7, GROWTH = 0.4;
 const RETURN = 1.0, RETURN_GROWTH = 2.0;
 /** A player missing this long can be found anywhere, and gives up their number to a new person. */
 const RESERVE_MS = 1500;
+/** Before they're first numbered, everyone must have been in this many results (not a glitch of the model's). */
+const LINE = 10;
 /** A person seen again within this long (near where they were) is the same person (a bystander, BYSTANDER_GAP_MS). */
 const SEEN_GAP_MS = 1000, BYSTANDER_GAP_MS = 5000;
 /** Somebody seen in this many results beside all the players just seen (and NEAR body sizes from any missing player's place) is a bystander... */
@@ -212,15 +214,18 @@ export class PlayerTracker {
     let bodies = detections.map((points, i) => measure(points, looks[i] ?? null, aspect, now)).filter((b): b is Body => b !== null);
     // Two results for one person (the model can add a ghost beside someone): keep the first, its surer one.
     bodies = bodies.filter((b, i) => !bodies.slice(0, i).some(a => same(a, b)));
-    // Who was here before: each person continues the nearest one seen lately, if near enough.
+    // Who was here before: each person continues one seen lately, if near enough, the nearest
+    // pairs first (so somebody new beside a person doesn't take over who they were).
     const recent = this.recent.filter(b => now - b.seen <= (b.extra >= BYSTANDER ? BYSTANDER_GAP_MS : SEEN_GAP_MS));
-    const continued = new Set<Body>();
-    for (const body of bodies) {
-      const before = recent.filter(b => !continued.has(b) && distance(body, b) <= (GATE + 0.8 * Math.min(1, (now - b.seen) / 1000)) * b.scale)
-        .sort((a, b) => distance(body, a) - distance(body, b))[0];
-      if (before) { continued.add(before); body.chain = before.chain; body.hits = before.hits + 1; body.extra = before.extra; body.since = before.since; }
-      else body.chain = ++this.chains;
+    const pairs = bodies.flatMap(body => recent.map(before => ({ body, before, d: distance(body, before) })))
+      .filter(({ before, d }) => d <= (GATE + 0.8 * Math.min(1, (now - before.seen) / 1000)) * before.scale).sort((a, b) => a.d - b.d);
+    const continued = new Set<Body>(), continuing = new Set<Body>();
+    for (const { body, before } of pairs) {
+      if (continued.has(before) || continuing.has(body)) continue;
+      continued.add(before); continuing.add(body);
+      body.chain = before.chain; body.hits = before.hits + 1; body.extra = before.extra; body.since = before.since;
     }
+    for (const body of bodies) if (!continuing.has(body)) body.chain = ++this.chains;
     this.recent = [...bodies, ...recent.filter(b => !continued.has(b))];
 
     const found = this.match(bodies, now);
@@ -228,7 +233,8 @@ export class PlayerTracker {
     this.recognise(found, now);
     this.reclaim(found, bodies, now);
     this.restore(found, bodies, now);
-    this.witness(bodies, found, now);
+    // (Numbers are provisional until the players are numbered, so nobody is kept from one.)
+    if (this.lined) this.witness(bodies, found, now);
     for (const [id, body] of found) this.follow(id, body, now);
     this.tangle(found, now);
     return [...found].map(([playerId, body]) => ({ playerId, landmarks: body.landmarks })).sort((a, b) => a.playerId - b.playerId);
@@ -293,9 +299,10 @@ export class PlayerTracker {
     }));
     // Changing places in the line-up costs ORDER, unless the players were followed through it:
     // passing another found player, or the place of one seen lately. Players their looks tell
-    // apart are told apart by those instead.
+    // apart are told apart by those instead. (There's no line-up until they're numbered.)
     const order = (choice: readonly (number | null)[]) => {
       let total = 0;
+      if (!this.lined) return total;
       for (let a = 0; a < choice.length; a++) for (let b = 0; b < choice.length; b++) {
         const ca = choice[a], cb = choice[b], pa = this.players[a], pb = this.players[b];
         if (a === b || ca === null || (cb !== null && b < a) || !pa.track || !pb.track) continue;
@@ -326,11 +333,11 @@ export class PlayerTracker {
       if (!p.track || now - p.track.seen > FRESH_MS) p.track = { body: bodies[c], vx: 0, vy: 0, seen: now };
     });
     // Until everyone has been in view at once, numbers are provisional: the first time they all
-    // are, in a clear order (none overlapping another), they're numbered left to right (P1 on
-    // the left of the mirrored preview).
+    // are, in a clear order (none overlapping another) and each for a moment, they're numbered
+    // left to right (P1 on the left of the mirrored preview).
     if (!this.lined && found.size === this.playerCount) {
       const all = [...found.values()];
-      if (all.every((a, i) => all.every((b, j) => i === j || Math.abs(a.x - b.x) > CLOSE * Math.max(a.scale, b.scale)))) {
+      if (all.every(b => b.hits >= LINE) && all.every((a, i) => all.every((b, j) => i === j || Math.abs(a.x - b.x) > CLOSE * Math.max(a.scale, b.scale)))) {
         this.lined = true;
         const players = [...found.keys()].sort((a, b) => found.get(b)!.x - found.get(a)!.x).map(id => ({ ...this.players[id], body: found.get(id)! }));
         // Each stands where they are now. Looks learnt while the numbers were provisional may be

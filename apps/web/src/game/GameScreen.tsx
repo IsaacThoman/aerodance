@@ -115,6 +115,8 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, r
 // preview, each player's status along the top and the shared hold along the bottom. With the
 // camera off, the preview is a big Start camera button (or with No camera, a button that plays
 // without one).
+/** Where each player last stood in the calibration preview (mirrored, as a fraction of its width). */
+const lastStood = new WeakMap<GameSession, number[]>();
 function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
   const { GAME_READY_BACK, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PROGRESS } = gameLayout(s.w);
   const h = s.hover;
@@ -146,15 +148,18 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
     g.fillStyle = head;
     g.fillRect(preview.x, preview.y, preview.w, 72);
     // Each player's status under their label, in a column each across the camera picture in the
-    // order they stand (mirrored, as the preview shows them; a player out of view keeps their
-    // number's place), short where the columns are narrow. The preview labels each player over
-    // their head in the same colour.
+    // order they stand (mirrored, as the preview shows them; a player out of view keeps where
+    // they last stood, or their number's place), short where the columns are narrow. The preview
+    // labels each player over their head in the same colour.
     const column = picture.w / session.playerCount;
     const crowd = session.playerCount > 2;
     const size = crowd ? 17 : 20;
+    const stood = lastStood.get(session) ?? Array.from({ length: session.playerCount }, (_, id) => (id + 0.5) / session.playerCount);
+    lastStood.set(session, stood);
     const standing = (id: number) => {
       const pose = connection.snapshot?.poses.find(p => p.playerId === id);
-      return pose ? 1 - (pose.landmarks[23].x + pose.landmarks[24].x) / 2 : (id + 0.5) / session.playerCount;
+      if (pose) stood[id] = 1 - (pose.landmarks[23].x + pose.landmarks[24].x) / 2;
+      return stood[id];
     };
     const columns = calibration.players.map((_, id) => id).sort((a, b) => standing(a) - standing(b));
     calibration.players.forEach((status, id) => {
