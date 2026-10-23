@@ -16,7 +16,7 @@ import { chromium, webkit } from 'playwright';
 import type { FileChooser } from 'playwright';
 import { silentWav } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
-import { gameLayout } from '../src/game/layout.ts';
+import { gameLayout, resultsSongs } from '../src/game/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { validateSong } from '../../../packages/pose/song.ts';
@@ -25,7 +25,7 @@ import { validateSong } from '../../../packages/pose/song.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const { BACK: MENU_BACK, PLAYERS_GO, SETTINGS, SONG_IMPORT, SONG_TRASH, START } = menuLayout(design.w);
-const { BACK, DANCE, RESULTS_SONGS, rowRect } = gameLayout(design.w);
+const { BACK, DANCE, rowRect } = gameLayout(design.w);
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
 
@@ -200,7 +200,7 @@ try {
   const bests = Object.keys(JSON.parse(await page.evaluate(() => localStorage.getItem('aerodance-best-scores') ?? '{}')));
   assert.ok(bests.some((key) => key.startsWith(`custom:${song.songId}|2p|`)), `custom best score saved: ${bests.join(', ')}`);
   assert.ok(!bests.some((key) => key.startsWith(`${song.songId}|`)), 'the published song has no best score');
-  await click(RESULTS_SONGS);
+  await click(resultsSongs(2));
   await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', customSongCount: '1' });
 
   // Settings removes it, asking first.
