@@ -459,7 +459,7 @@ export default function MainMenu({
       const h = s.hover;
       const press = (id: string) => s.press * (h[id] ?? 0);
       if (m.screen === 'main') {
-        // No chevrons on the main screen's buttons.
+        // No chevrons on the title menu's buttons (Let's dance's too).
         drawGlassButton(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start'), style: BUTTONS, chevron: false });
         drawGlassButton(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle, style: BUTTONS, chevron: false });
       } else if (m.screen === 'players') {
@@ -468,7 +468,7 @@ export default function MainMenu({
         drawStep(g, MINUS, false, h.minus ?? 0, press('minus'), n > 1);
         drawCount(g, n, COUNT_X, MINUS.y);
         drawStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
-        drawGlassButton(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go'), style: BUTTONS, chevron: true });
+        drawGlassButton(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go'), style: BUTTONS, chevron: false });
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
         drawSettingsPanel(g, props.current, h, layout);
