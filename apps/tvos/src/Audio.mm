@@ -234,8 +234,8 @@ void Start() {
   os_unfair_lock_unlock(&gLock);
   BuildEngine();
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-  // After an interruption (another app took the audio session) the system recommends resuming;
-  // before tvOS 27 it says so with the interruption's end.
+  // Restart when an interruption (another app took the audio session) ends: tvOS 27 posts a
+  // resumption recommendation for that, and tvOS 26 the interruption's end.
   if (@available(tvOS 27.0, *)) {
     [center addObserverForName:AVAudioSessionResumptionRecommendationNotification object:session queue:nil usingBlock:^(NSNotification *) {
       dispatch_async(gEvents, ^{ Restart(@"an interruption"); });
