@@ -461,6 +461,238 @@ export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, pres
   g.restore();
 }
 
+/** A glass button's corner radius for its height (give the widget `corner` so the focus ring follows it). */
+export const glassCorner = (h: number) => Math.round(h * 0.24);
+
+/**
+ * The title buttons' looks: the five mockups in order, then dark (the players dial's glass
+ * circles' blue). ?buttons=1..6 picks one (menu/MainMenu.tsx).
+ */
+export const GLASS_STYLES = ['tile', 'milk', 'porcelain', 'clear', 'frost', 'dark'] as const;
+export type GlassStyle = typeof GLASS_STYLES[number];
+
+export type GlassButtonOptions = PillOptions & {
+  style?: GlassStyle;
+  /** Show the chevron on the right; the style decides by default. */
+  chevron?: boolean;
+};
+
+type Stops = readonly [top: string, bottom: string];
+interface GlassLook {
+  /** The body's colour at the top and bottom, over the blur, and what is added over it at full hover. */
+  body: Stops;
+  hover: string;
+  /** The white sheen's opacity at the top. */
+  sheen: number;
+  /** A soft white glow just inside the rim. */
+  glow: boolean;
+  /** The rim's colour at the top and bottom, its width, and the white opacity added at full hover. */
+  rim: Stops;
+  rimWidth: number;
+  rimHover: number;
+  /** Label (and chevron) colour, and the label's size as a fraction of the height. */
+  ink: string;
+  size: number;
+  /** A dark drop shadow under white ink: colour, blur, y offset. */
+  shadow: readonly [string, number, number] | null;
+  /** The icon sits on a glossy coloured tile (its colours by icon), else straight on the glass. */
+  tile: ((icon: IconName) => Stops) | null;
+  /** The play triangle filled rather than outlined. */
+  filled: boolean;
+  chevron: boolean;
+}
+const BLUE_TILE: Stops = ['#7fd3ff', '#1f82e2'];
+const INK_SHADOW = ['rgba(0, 40, 60, 0.45)', 6, 2] as const;
+const BIG_INK_SHADOW = ['rgba(0, 30, 50, 0.7)', 8, 3] as const;
+// The mockups' glass: brightening while hovered, a glow inside a bright rim that fades downwards.
+const BRIGHT = {
+  hover: 'rgba(255,255,255,0.1)', glow: true, rim: ['rgba(255,255,255,0.95)', 'rgba(255,255,255,0.5)'], rimWidth: 2.5, rimHover: 0,
+} as const;
+const FROSTED: Stops = ['rgba(240, 255, 250, 0.3)', 'rgba(240, 255, 250, 0.15)'];
+const DIAL_BLUE = 'rgba(20, 90, 160, 0.35)';
+const LOOKS: Record<GlassStyle, GlassLook> = {
+  // 1: frosted, white label, icons on blue tiles.
+  tile: {
+    ...BRIGHT, body: FROSTED, sheen: 0.2, ink: '#ffffff', size: 0.33,
+    shadow: INK_SHADOW, tile: () => BLUE_TILE, filled: false, chevron: false,
+  },
+  // 2: milky white, navy label, blue and teal tiles, grey chevron.
+  milk: {
+    ...BRIGHT, body: ['rgba(246, 255, 252, 0.78)', 'rgba(232, 250, 243, 0.6)'], sheen: 0.35, ink: '#1c3a55', size: 0.33,
+    shadow: null, tile: (icon) => (icon === 'gear' ? ['#86f2de', '#1cb5a3'] : BLUE_TILE), filled: true, chevron: true,
+  },
+  // 3: near-opaque porcelain fading to mint, navy label, blue and sky tiles, grey chevron.
+  porcelain: {
+    ...BRIGHT, body: ['rgba(252, 255, 254, 0.94)', 'rgba(220, 245, 237, 0.86)'], sheen: 0.4, ink: '#1c3a55', size: 0.33,
+    shadow: null, tile: (icon) => (icon === 'gear' ? ['#d2f5ff', '#5cc4ec'] : BLUE_TILE), filled: true, chevron: true,
+  },
+  // 4: frosted, white outline icons and label.
+  clear: {
+    ...BRIGHT, body: FROSTED, sheen: 0.2, ink: '#ffffff', size: 0.33,
+    shadow: INK_SHADOW, tile: null, filled: false, chevron: false,
+  },
+  // 5: frosted, filled play, white chevron; a larger label with a stronger shadow so it reads.
+  frost: {
+    ...BRIGHT, body: FROSTED, sheen: 0.2, ink: '#ffffff', size: 0.37,
+    shadow: BIG_INK_SHADOW, tile: null, filled: true, chevron: true,
+  },
+  // 6: the players dial's glass circles (drawGlassCircle): see-through blue, deepening while
+  // hovered, a faint top highlight and a white rim that brightens; frost's label and icons.
+  dark: {
+    body: [DIAL_BLUE, DIAL_BLUE], hover: 'rgba(20, 90, 160, 0.15)', sheen: 0.16, glow: false,
+    rim: ['rgba(255,255,255,0.65)', 'rgba(255,255,255,0.65)'], rimWidth: 3, rimHover: 0.35,
+    ink: '#ffffff', size: 0.37, shadow: BIG_INK_SHADOW, tile: null, filled: true, chevron: false,
+  },
+};
+
+/** Where a glass button's label starts, in design units (after its icon or tile). */
+export const glassLabelX = ({ x, h }: Rect, style: GlassStyle = 'dark') => x + h * (LOOKS[style].tile ? 1.08 : 1.05);
+
+// A glossy rounded-square tile for a glass button's icon.
+function drawIconTile(g: Ctx, x: number, y: number, s: number, [top, bottom]: Stops) {
+  const r = s * 0.26;
+  g.save();
+  roundRect(g, x, y, s, s, r);
+  const fill = g.createLinearGradient(0, y, 0, y + s);
+  fill.addColorStop(0, top);
+  fill.addColorStop(1, bottom);
+  g.fillStyle = fill;
+  g.fill();
+  g.clip();
+  const gloss = g.createLinearGradient(0, y, 0, y + s * 0.5);
+  gloss.addColorStop(0, 'rgba(255,255,255,0.6)');
+  gloss.addColorStop(1, 'rgba(255,255,255,0.05)');
+  g.fillStyle = gloss;
+  roundRect(g, x + 2, y + 2, s - 4, s * 0.48, r * 0.85);
+  g.fill();
+  g.restore();
+  roundRect(g, x, y, s, s, r);
+  g.lineWidth = 1.5;
+  g.strokeStyle = 'rgba(255,255,255,0.75)';
+  g.stroke();
+}
+
+// Glass button (the title menu) in one of GLASS_STYLES: a rounded slab with a bright rim, its
+// icon, label and maybe a chevron. ui/useGlassBlur.ts blurs the world inside it; nothing
+// outside it is blurred or shadowed. Disabled buttons fade and stay put.
+export function drawGlassButton(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, press = 0, angle, disabled = false, style = 'dark', chevron }: GlassButtonOptions) {
+  if (disabled) {
+    hover = 0;
+    press = 0;
+  }
+  const look = LOOKS[style];
+  const lift = hover * 3 - press * 3;
+  const { x, w, h } = rect;
+  const y = rect.y - lift;
+  const r = glassCorner(h);
+  const shape = () => roundRect(g, x, y, w, h, r);
+
+  g.save();
+  if (disabled) g.globalAlpha *= 0.5;
+
+  // Body over the blur, changing while hovered.
+  shape();
+  const body = g.createLinearGradient(0, y, 0, y + h);
+  body.addColorStop(0, look.body[0]);
+  body.addColorStop(1, look.body[1]);
+  g.fillStyle = body;
+  g.fill();
+  if (hover > 0.01) {
+    g.save();
+    g.globalAlpha *= hover;
+    g.fillStyle = look.hover;
+    g.fill();
+    g.restore();
+  }
+
+  // Sheen over the top half, and maybe a soft glow just inside the rim.
+  g.save();
+  shape();
+  g.clip();
+  const sheen = g.createLinearGradient(0, y, 0, y + h * 0.55);
+  sheen.addColorStop(0, `rgba(255,255,255,${look.sheen})`);
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sheen;
+  g.fillRect(x, y, w, h * 0.55);
+  if (look.glow) {
+    g.shadowColor = 'rgba(255,255,255,0.8)';
+    g.shadowBlur = 14;
+    shape();
+    g.lineWidth = 4;
+    g.strokeStyle = 'rgba(255,255,255,0.35)';
+    g.stroke();
+  }
+  g.restore();
+
+  // The rim, brightening while hovered.
+  shape();
+  const rim = g.createLinearGradient(0, y, 0, y + h);
+  rim.addColorStop(0, look.rim[0]);
+  rim.addColorStop(1, look.rim[1]);
+  g.lineWidth = look.rimWidth;
+  g.strokeStyle = rim;
+  g.stroke();
+  if (look.rimHover && hover > 0.01) {
+    g.strokeStyle = `rgba(255,255,255,${look.rimHover * hover})`;
+    g.stroke();
+  }
+
+  const cy = y + h / 2;
+  g.save();
+  g.strokeStyle = '#ffffff';
+  g.fillStyle = '#ffffff';
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  const glyph = (cx: number, ir: number) => {
+    if (icon === 'gear') ICONS.gear(g, cx, cy, ir, angle);
+    else ICONS[icon](g, cx, cy, ir);
+    if (icon === 'play' && look.filled) g.fill();
+  };
+  if (look.tile) {
+    // The icon in white on its tile.
+    const s = h * 0.66;
+    drawIconTile(g, x + h * 0.2, cy - s / 2, s, look.tile(icon));
+    g.lineWidth = 3.5;
+    glyph(x + h * 0.2 + s / 2, s * 0.5);
+  } else {
+    // White icon straight on the glass, shadowed like the label.
+    if (look.shadow) [g.shadowColor, g.shadowBlur, g.shadowOffsetY] = look.shadow;
+    g.lineWidth = 4;
+    glyph(x + h * 0.55, h * 0.4);
+  }
+  g.restore();
+
+  // Label (and a smaller line under it), shortened to fit before the chevron, then the chevron.
+  const arrow = chevron ?? look.chevron;
+  const lx = glassLabelX(rect, style);
+  const room = x + w - lx - h * (arrow ? 0.62 : 0.3);
+  g.save();
+  if (look.shadow) [g.shadowColor, g.shadowBlur, g.shadowOffsetY] = look.shadow;
+  g.fillStyle = look.ink;
+  g.font = `800 ${Math.round(h * look.size * (sub ? 0.85 : 1))}px ${FONT}`;
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  if ('letterSpacing' in g) g.letterSpacing = '-0.5px';
+  g.fillText(ellipsize(g, label, room), lx, sub ? cy - h * 0.13 : cy + 1);
+  if ('letterSpacing' in g) g.letterSpacing = '0px';
+  if (sub) {
+    g.globalAlpha *= 0.82;
+    g.font = `600 ${Math.round(h * 0.22)}px ${FONT}`;
+    g.fillText(ellipsize(g, sub, room), lx + 1, cy + h * 0.2);
+    g.globalAlpha /= 0.82;
+  }
+  if (arrow) {
+    g.strokeStyle = look.ink;
+    g.globalAlpha *= look.shadow ? 0.85 : 0.45;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.lineWidth = 3.5;
+    ICONS.right(g, x + w - h * 0.42 + hover * 4, cy, h * 0.3);
+  }
+  g.restore();
+  g.restore();
+}
+
 export function drawGlassCircle(g: Ctx, c: Circle, hover: number) {
   g.save();
   g.shadowColor = 'rgba(0, 34, 84, 0.45)';
@@ -542,6 +774,27 @@ export function drawGlassPanel(g: Ctx, { x, y, w, h }: Rect, radius = 34) {
   roundRect(g, x, y, w, h, radius);
   g.lineWidth = 3;
   g.strokeStyle = 'rgba(255,255,255,0.6)';
+  g.stroke();
+}
+
+// The dark glass buttons' panel (Settings): see-through blue with a faint top highlight and a
+// white rim, no shadow. ui/useGlassBlur.ts blurs the world inside it.
+export function drawDarkGlassPanel(g: Ctx, { x, y, w, h }: Rect, radius = 34) {
+  const dark = LOOKS.dark;
+  roundRect(g, x, y, w, h, radius);
+  g.fillStyle = dark.body[0];
+  g.fill();
+  g.save();
+  g.clip();
+  const sheen = g.createLinearGradient(0, y, 0, y + 70);
+  sheen.addColorStop(0, `rgba(255,255,255,${dark.sheen})`);
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sheen;
+  g.fillRect(x, y, w, 70);
+  g.restore();
+  roundRect(g, x, y, w, h, radius);
+  g.lineWidth = dark.rimWidth;
+  g.strokeStyle = dark.rim[0];
   g.stroke();
 }
 

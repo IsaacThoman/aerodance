@@ -1,4 +1,4 @@
-import { FONT, ICONS, drawCaps, drawGlassPanel, drawMarquee, ellipsize, paragraph, pill, wrapText } from '../ui/draw.ts';
+import { FONT, ICONS, drawCaps, drawDarkGlassPanel, drawMarquee, ellipsize, paragraph, pill, wrapText } from '../ui/draw.ts';
 import type { Circle } from '../ui/draw.ts';
 import type { CanvasUI, Widget } from '../ui/useCanvasUI.ts';
 import { customSongsSupported, importSongZip, listSavedSongs, removeCustomSong, savedCustomSong, savedIn } from '../songs/customSongs.ts';
@@ -265,7 +265,7 @@ export function createSongsPanel({ layout, ui, showing }: {
       const { SONGS, SONG_ROW, SONGS_UP, SONGS_DOWN, SONGS_NOTE_Y, SONG_IMPORT } = layout();
       const textX = SONGS.x + 40;
       const textW = SONGS.w - 80;
-      drawGlassPanel(g, SONGS, 34);
+      drawDarkGlassPanel(g, SONGS, 34);
       drawCaps(g, 'SONGS', textX, SONGS.y + 44, { size: 22 });
       const dots = '.'.repeat(1 + (Math.floor(time * 3) % 3));
       g.textBaseline = 'middle';

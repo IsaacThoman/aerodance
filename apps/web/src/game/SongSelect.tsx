@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, drawGlassCircle, drawHeader, drawPill, drawShadowText, ellipsize, paragraph, wrapText,
+  FONT, ICONS, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText, ellipsize, glassCorner, paragraph, wrapText,
 } from '../ui/draw.ts';
 import type { Circle, IconName } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
+import useGlassBlur, { buttonPane } from '../ui/useGlassBlur.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { duckMenuMusic } from '../audio/mixer.ts';
 import { createSongPlayer } from '../audio/songPlayer.ts';
@@ -123,7 +124,7 @@ export default function SongSelect({
   const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
   // The song opened last is the primary one while it's on the page, else the first.
   const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.key === st.chosen));
-  const songWidget = (song: ListedSong, i: number): SongWidget => ({ id: `song-${song.key}`, song, rect: rowRect(i), primary: i === primaryRow() });
+  const songWidget = (song: ListedSong, i: number): SongWidget => ({ id: `song-${song.key}`, song, rect: rowRect(i), corner: glassCorner(rowRect(i).h), primary: i === primaryRow() });
   // The keyboard cursor starts over on the next screen; back on the list (also by Escape), on
   // the song it opened.
   const go = (screen: SongScreen, key = ui.keyboard) => {
@@ -283,14 +284,14 @@ export default function SongSelect({
     active: live,
     keyNav: true,
     widgets: () => {
-      if (st.screen === 'preview') return [{ id: 'back', circle: BACK }, { id: 'dance', rect: DANCE, primary: true }];
+      if (st.screen === 'preview') return [{ id: 'back', circle: BACK }, { id: 'dance', rect: DANCE, corner: glassCorner(DANCE.h), primary: true }];
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
         if (!st.loading) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
         if (st.page > 0) list.push({ id: 'page-up', circle: PAGE_UP });
         if (st.page < pages() - 1) list.push({ id: 'page-down', circle: PAGE_DOWN });
       }
-      if (st.catalog.status === 'error') list.push({ id: 'retry', rect: RETRY, primary: true });
+      if (st.catalog.status === 'error') list.push({ id: 'retry', rect: RETRY, corner: glassCorner(RETRY.h), primary: true });
       return list;
     },
     onActivate: (wdg, s) => {
@@ -376,7 +377,7 @@ export default function SongSelect({
         } else if (st.catalog.status === 'error') {
           g.font = `700 28px ${FONT}`;
           drawShadowText(g, ellipsize(g, st.catalog.error, ROWS.w), ROWS.x, ROWS.y + 46, { size: 28, color: '#ffb38a' });
-          drawPill(g, RETRY, { label: 'Retry', icon: 'replay', hover: h.retry ?? 0, press: press('retry') });
+          drawGlassButton(g, RETRY, { label: 'Retry', icon: 'replay', hover: h.retry ?? 0, press: press('retry') });
         } else if (!list.length) {
           // Songs published before three and four players were supported only list one and two.
           const others = st.catalog.songs.length > 0;
@@ -399,16 +400,14 @@ export default function SongSelect({
             const rect = rowRect(i);
             const id = `song-${song.key}`;
             const loadingThis = st.loading?.id === song.key;
-            g.font = `700 ${Math.round(rect.h * 0.34)}px ${FONT}`;
-            const label = ellipsize(g, song.title, rect.w - rect.h - 44);
             const best = bestScore(song.key, p.playerCount, SCORER_VERSION);
             // Catalog difficulty is free-form display text.
             const difficulty = typeof song.difficulty === 'string' || typeof song.difficulty === 'number' ? String(song.difficulty) : 'Routine';
             const sub = loadingThis ? `Loading${dots}` : [song.custom ? 'Custom' : null, song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
               best ? `Best ${best.score.toLocaleString('en-US')} ${best.grade}` : null].filter(Boolean).join(' · ');
-            g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
-            drawPill(g, rect, {
-              label, sub: ellipsize(g, sub, rect.w - rect.h - 44), icon: 'note',
+            // (The button shortens the title and line under it to fit.)
+            drawGlassButton(g, rect, {
+              label: song.title, sub, icon: 'note',
               hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
             });
           });
@@ -446,10 +445,18 @@ export default function SongSelect({
         const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
         const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');
         if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, DANCE.x - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
-        drawPill(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
+        drawGlassButton(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       }
       g.restore();
     },
+  });
+
+  // Frosted glass inside the buttons drawn above (ui/useGlassBlur.ts), fading and sliding with them.
+  useGlassBlur(() => {
+    const panes = st.screen === 'preview' ? (st.bundle ? [buttonPane(ui, 'dance', DANCE)] : [])
+      : st.catalog.status === 'error' ? [buttonPane(ui, 'retry', RETRY)]
+        : st.catalog.status === 'ready' ? pageSongs().map((song, i) => buttonPane(ui, `song-${song.key}`, rowRect(i))) : [];
+    return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
   });
 
   // Opening Song Select loads the catalog; leaving it stops everything.
