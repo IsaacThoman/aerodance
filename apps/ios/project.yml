@@ -26,7 +26,6 @@ targets:
     dependencies:
       - sdk: WebKit.framework
       - sdk: AVKit.framework
-      - sdk: MediaPlayer.framework
       - sdk: Network.framework
     # XcodeGen writes Info.plist from these properties.
     info:

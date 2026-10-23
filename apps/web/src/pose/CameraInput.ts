@@ -47,6 +47,8 @@ export class CameraInput implements PoseSource {
   webcam: PoseSourceController;
   phone: PhonePoseSource;
   mode: 'webcam' | 'phone' | 'none';
+  /** Whether this host can use a webcam at all: the picker offers only the phone and No camera where it can't (the Apple TV app). */
+  webcamSupported: boolean;
   listeners = new Set<Listener<CameraInputView>>();
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
@@ -56,7 +58,7 @@ export class CameraInput implements PoseSource {
   // 160-215 MB in all, measured in the iOS simulator), which hasn't been tried on a device.
   constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource({ interruptedTimeoutMs: inApp() ? Infinity : undefined, tiles: !inApp() }) }), phone = new PhonePoseSource(),
     webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
-    this.webcam = webcam; this.phone = phone;
+    this.webcam = webcam; this.phone = phone; this.webcamSupported = webcamSupported;
     const choice = saved();
     this.mode = choice === 'phone' || choice === 'none' ? choice : webcamSupported ? 'webcam' : 'phone';
     this.view = this.compose();

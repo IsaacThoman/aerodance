@@ -12,8 +12,6 @@ import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import type { SongRoutine } from '../game/GameSession.ts';
 import type { ResultsShow } from '../game/results.ts';
-import LivePanels from './LivePanels.tsx';
-import type { LiveDancers } from './LivePanels.tsx';
 import ResultsDancers from './ResultsDancers.tsx';
 import { diagnostic } from '../diagnostics.ts';
 import { screenOwner } from '../screenOwner.ts';
@@ -36,7 +34,6 @@ export interface StageViewProps {
   /** The song's stage id (openreef if unset or unknown). */
   stageId?: string | null;
   routine?: SongRoutine | null;
-  live?: LiveDancers | null;
   /** The results reveal: swaps the reference dancers for the celebration. */
   results?: RefObject<ResultsShow | null> | null;
   onState?: (state: StageState) => void;
@@ -63,15 +60,13 @@ interface Fade { value: number; settled: number; }
  * While a stage has the screen it takes the renderer's shadow and tone-mapping settings and the
  * Aero world should pause (onState's `showing`); both are put back when it goes.
  *
- * During a song, `live` adds the players' own characters in the top corners (LivePanels).
  * On the results screen, `results` (a ref of { start, results, winner }) swaps the reference
  * dancers for the celebration (ResultsDancers).
  *
  * With `orbiting` (Song Select's preview) the stage camera slowly circles the dancers, and
  * swings back round to the front when it stops (the song starts).
  *
- * <StageView active orbiting stageId="openreef" routine={{ bundle, playerCount, timeMs, playing }}
- *   live={{ playerCount, livePose(id, now), calibration(id) }} results={showRef}
+ * <StageView active orbiting stageId="openreef" routine={{ bundle, playerCount, timeMs, playing }} results={showRef}
  *   onState={({ showing, prepared, ready, stage, failed, dancersFailed }) => ...} />
  */
 
@@ -320,14 +315,13 @@ interface StageContentProps {
   /** On screen. Until then the stage is built and compiled out of sight while the world shows. */
   onScreen: boolean;
   routine: SongRoutine | null;
-  live: LiveDancers | null;
   results: RefObject<ResultsShow | null> | null;
   onReady: ReadyHandler;
   onDancersFail: () => void;
 }
 
 // Everything inside the portal: the pipeline, the stage and its dancers.
-function StageContent({ id, onScreen, routine, live, results, onReady, onDancersFail }: StageContentProps) {
+function StageContent({ id, onScreen, routine, results, onReady, onDancersFail }: StageContentProps) {
   const gl = useThree((state) => state.gl);
   const { meta, Component: Stage } = stageFor(id);
 
@@ -380,11 +374,10 @@ function StageContent({ id, onScreen, routine, live, results, onReady, onDancers
         </Suspense>
       </StageBoundary>
       {/* A new song or stage gives dancers that failed to load another try. */}
-      <DancerBoundary key={`${id}|${routine?.bundle.song.songId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
+      <DancerBoundary key={`${id}|${routine?.bundle.scoreId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
         {results
           ? hasShow(results) && <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent} />
           : <Dancers routine={routine} {...meta.dancers} />}
-        {live && !results && <LivePanels live={live} />}
       </DancerBoundary>
     </>
   );
@@ -402,7 +395,7 @@ interface StageViewState {
   reported: string;
 }
 
-export default function StageView({ active = false, orbiting = false, stageId, routine, live = null, results = null, onState }: StageViewProps) {
+export default function StageView({ active = false, orbiting = false, stageId, routine, results = null, onState }: StageViewProps) {
   const scene = useMemo(() => new THREE.Scene(), []);
   const [shown, setShown] = useState<StageId | null>(null);
   const [onScreen, setOnScreen] = useState(false);
@@ -519,7 +512,7 @@ export default function StageView({ active = false, orbiting = false, stageId, r
 
   return (
     <>
-      {shown && createPortal(<StageContent id={shown} onScreen={onScreen} routine={routine ?? lastRoutine.current} live={live} results={results} onReady={onReady} onDancersFail={onDancersFail} />, scene)}
+      {shown && createPortal(<StageContent id={shown} onScreen={onScreen} routine={routine ?? lastRoutine.current} results={results} onReady={onReady} onDancersFail={onDancersFail} />, scene)}
       <Veil fade={fade} />
     </>
   );

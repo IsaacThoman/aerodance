@@ -1,17 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { FONT, NAVY, TAU, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
 import type { Circle, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
-import type { Widget } from '../ui/useCanvasUI.ts';
+import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import type { AspectSetting, GraphicsSettings, StatsSetting } from './graphicsSettings.ts';
+import AirPlayButton from './AirPlayButton.tsx';
 import FullscreenButton from './FullscreenButton.tsx';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
+import { createSongsPanel } from './songsPanel.ts';
+import type { SongsPanel, SongsWidget } from './songsPanel.ts';
 
 /**
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in the selected display mode and
@@ -21,9 +24,12 @@ import { displayDesign } from '../display.ts';
  * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
  * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
- * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies).
- * The main screen also shows the fullscreen bubble in the corner. The title rises while the
- * players screen is up and fades out while settings is.
+ * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies;
+ * where the browser can save songs, a Songs panel beside them: the songs imported into it and
+ * Import song, menu/songsPanel.ts).
+ * The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in the
+ * iPhone/iPad app). The title rises while the players screen is up and fades out while settings
+ * is.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
@@ -31,7 +37,7 @@ import { displayDesign } from '../display.ts';
  * The dial is controlled (playerCount / onPlayerCountChange); Start always turns it back to 2
  * (Back from Song Select keeps the count picked last). onScreenChange reports the
  * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players
- * for tests.
+ * (and the Songs panel's, songsPanel.ts) for tests.
  *
  * <MainMenu visible initialScreen="main" playerCount={n} onPlayerCountChange={setN}
  *   onStart={(playerCount) => ...} onScreenChange={setShown} sound={sound} onSoundChange={setSound}
@@ -57,7 +63,7 @@ export interface MainMenuProps {
 type SliderKey = 'master' | 'music' | 'sfx';
 type ToggleKey = 'menuMusic' | 'muted';
 interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
-type MenuWidget = Widget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting };
+type MenuWidget = SongsWidget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting };
 
 const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
@@ -255,6 +261,7 @@ interface MenuState {
   drawnSound: SoundSettings | null;
   drawnGraphics: GraphicsSettings | null;
   drawnCount: PlayerCount | null;
+  drawnSongs: string;
   /** The title's baseline, easing up on the players screen. */
   titleY: number;
   /** The title's opacity, fading out on the settings screen. */
@@ -292,11 +299,13 @@ export default function MainMenu({
     ],
   };
   const menu = useRef<MenuState>({
-    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnCount: null, titleY: TITLE.y, titleAlpha: 1, refocus: null,
+    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
   });
   const props = useRef<MainMenuProps>({ sound, graphics });
   props.current = { visible, playerCount, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
   const count = () => props.current.playerCount ?? 1;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
 
   const m = menu.current;
   // A keyboard cursor starts over on the next screen (on the players screen, on Let's dance), or
@@ -311,6 +320,14 @@ export default function MainMenu({
     m.next = screen;
   };
   const live = () => !!props.current.visible && m.alpha > 0.3 && m.screen === m.next;
+  // ui is assigned below, before the panel first asks for it.
+  const songs = useMemo<SongsPanel>(() => createSongsPanel({
+    layout: () => layoutRef.current,
+    ui: (): CanvasUI<SongsWidget> => ui,
+    showing: () => !!props.current.visible && m.next === 'settings',
+  // One panel for the menu's life: ui is the same object every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [m]);
   const setCount = (n: number) => {
     const next = clampCount(n);
     if (next !== count()) props.current.onPlayerCountChange?.(next);
@@ -325,7 +342,7 @@ export default function MainMenu({
     // Input goes to the visible screen as soon as it is fading in (never mid swap-out).
     active: live,
     keyNav: true,
-    widgets: () => WIDGETS[m.screen],
+    widgets: () => (m.screen === 'settings' ? [...WIDGETS.settings, ...songs.widgets()] : WIDGETS[m.screen]),
     onDrag: (wdg, p) => {
       if (!wdg.slider) return;
       const patch: Partial<SoundSettings> = {};
@@ -341,6 +358,7 @@ export default function MainMenu({
       return true;
     },
     onActivate: (wdg, s) => {
+      if (songs.activate(wdg)) { s.invalidate(); return; }
       if (wdg.toggle) {
         const patch: Partial<SoundSettings> = {};
         patch[wdg.toggle.key] = !wdg.toggle.on(props.current);
@@ -400,8 +418,16 @@ export default function MainMenu({
       m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' ? 0 : 1, 8);
       const { sound: drawSound, graphics: drawGraphics } = props.current;
       if (drawSound !== m.drawnSound || drawGraphics !== m.drawnGraphics || count() !== m.drawnCount) s.invalidate();
-      if (m.screen !== m.reported) { m.reported = m.screen; props.current.onScreenChange?.(m.screen); }
+      if (m.screen !== m.reported) {
+        if (m.screen === 'settings') songs.open();
+        else if (m.reported === 'settings') songs.close();
+        m.reported = m.screen;
+        props.current.onScreenChange?.(m.screen);
+      }
+      const songsKey = songs.key();
+      if (songsKey !== m.drawnSongs || songs.busy()) { m.drawnSongs = songsKey; s.invalidate(); }
       const { dataset } = gl.domElement;
+      Object.assign(dataset, songs.report());
       dataset.menuScreen = m.screen;
       dataset.menuPlayers = String(count());
       dataset.menuReady = String(shown && m.alpha > 0.5 && m.screen === m.next && m.swap > 0.95);
@@ -437,6 +463,7 @@ export default function MainMenu({
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
         drawSettingsPanel(g, props.current, h, layout);
+        songs.draw(g, h, press, s.time);
       }
       g.restore();
     },
@@ -454,5 +481,13 @@ export default function MainMenu({
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 
-  return <FullscreenButton visible={() => !!props.current.visible && m.screen === 'main' && m.next === 'main'} />;
+  useEffect(() => () => songs.dispose(), [songs]);
+
+  const onMain = () => !!props.current.visible && m.screen === 'main' && m.next === 'main';
+  return (
+    <>
+      <FullscreenButton visible={onMain} />
+      <AirPlayButton visible={onMain} />
+    </>
+  );
 }

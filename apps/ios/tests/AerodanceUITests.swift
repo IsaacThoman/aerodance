@@ -40,10 +40,21 @@ final class AerodanceUITests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
   }
 
+  // The main menu, with its AirPlay bubble in the bottom-right corner of the game and the app's
+  // AirPlay picker over it.
   func test1LaunchReachesMainMenu() throws {
     launch()
     waitFor(["menuScreen": "main", "menuReady": "true"])
+    sleep(1)
     shot("1-main-menu")
+    let picker = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'AirPlay'")).firstMatch
+    XCTAssertTrue(picker.waitForExistence(timeout: 10), "no AirPlay picker over the main menu: \(app.buttons.debugDescription)")
+    let window = app.windows.firstMatch.frame, frame = picker.frame
+    NSLog("aerodance: the AirPlay picker is at \(frame) in a \(window.size) window")
+    XCTAssertTrue(frame.midX > window.midX && frame.midY > window.midY && window.contains(frame), "the AirPlay picker is at \(frame), not in the bottom right of \(window)")
+    // The picker is at least 44 points square; the system's button inside it is a little shorter.
+    XCTAssertTrue(frame.width >= 44 && frame.height >= 40, "the AirPlay picker is too small to tap: \(frame)")
+    // (A tap would open the system's AirPlay menu on a device; the simulator shows none.)
   }
 
   // The iPhone app plays in landscape only, whichever way the phone is held.
@@ -100,9 +111,9 @@ final class AerodanceUITests: XCTestCase {
   }
 
   // A TV connects while the phone is held sideways: the game moves to it and the phone shows the
-  // remote, turned upright on an iPhone (its column doesn't fit sideways); an iPad stays as it is
-  // held. Every control is on screen and clear of the others. When the TV goes, the game comes back
-  // in landscape.
+  // remote (the in-engine /remote/ page), turned upright on an iPhone (its column doesn't fit
+  // sideways); an iPad stays as it is held. Every control is on screen and clear of the others,
+  // found by the labels the page lays over them. When the TV goes, the game comes back in landscape.
   func test5RemoteOnTheTV() throws {
     XCUIDevice.shared.orientation = .landscapeLeft
     launch()
@@ -110,14 +121,15 @@ final class AerodanceUITests: XCTestCase {
     tv(true)
     let ok = app.buttons["OK"]
     XCTAssertTrue(ok.waitForExistence(timeout: 20), "the remote didn't show")
+    XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 10), "the remote's Back is missing")
     // The phone's window: the TV's is one of the app's windows too.
     let window = app.windows.containing(NSPredicate(format: "label == 'OK'")).firstMatch
     if !isPad { XCTAssertTrue(waitUntil { window.frame.height > window.frame.width }, "the remote is \(window.frame.size): not upright") }
     sleep(1)
     shot("5-remote")
     send("shot-tv?name=5-tv")
-    let controls = [app.staticTexts["aerodance"], app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Playing on the TV'")).firstMatch,
-                    app.buttons["ArrowUp"], app.buttons["ArrowLeft"], ok, app.buttons["ArrowRight"], app.buttons["ArrowDown"], app.buttons["Back"]]
+    let controls = [app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'On the TV'")).firstMatch,
+                    app.buttons["Up"], app.buttons["Left"], ok, app.buttons["Right"], app.buttons["Down"], app.buttons["Back"]]
     let screen = window.frame
     for (i, control) in controls.enumerated() {
       XCTAssertTrue(control.exists, "control \(i) of the remote is missing")
@@ -133,7 +145,99 @@ final class AerodanceUITests: XCTestCase {
     shot("5-back-on-the-phone")
   }
 
+  // A whole song on the TV, played with the remote's buttons only: the menus, the players dial,
+  // Back, a song, Pause and Resume, the TV going and coming back mid-song, and the results.
+  func test6PlaysASongOnTheTVWithTheRemote() throws {
+    XCUIDevice.shared.orientation = .landscapeLeft
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    tv(true)
+    let ok = app.buttons["OK"], back = app.buttons["Back"], left = app.buttons["Left"]
+    let pause = app.buttons["Pause"], resume = app.buttons["Resume"]
+    XCTAssertTrue(ok.waitForExistence(timeout: 20), "the remote didn't show")
+    waitForDisplay(tv: true)
+    sleep(1)
+    send("shot-tv?name=6-tv-menu")
+
+    press(ok)
+    waitFor(["menuScreen": "players", "menuReady": "true"])
+    // The cursor starts on Let's dance; Left goes to plus, then minus, which OK presses.
+    let players = Int(state()["menuPlayers"] ?? "") ?? 0
+    press(left)
+    press(ok)
+    XCTAssertTrue(waitUntil { Int(self.state()["menuPlayers"] ?? "") == players + 1 }, "plus didn't raise the players dial from \(players)")
+    send("shot-tv?name=6-tv-players-plus")
+    press(left)
+    press(ok)
+    XCTAssertTrue(waitUntil { Int(self.state()["menuPlayers"] ?? "") == players }, "minus didn't lower the players dial back to \(players)")
+    press(back)
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    press(ok)
+    waitFor(["menuScreen": "players", "menuReady": "true"])
+    press(ok)
+    waitFor(["songScreen": "list", "songReady": "true", "catalog": "ready"])
+    sleep(1)
+    send("shot-tv?name=6-tv-song-list")
+    press(ok)
+    waitFor(["songScreen": "preview", "previewState": "playing", "stageReady": "true"])
+    send("shot-tv?name=6-tv-preview")
+    press(ok)
+    waitFor(["gamePhase": "playing"], timeout: 60)
+    sleep(3)
+    send("shot-tv?name=6-tv-playing")
+    shot("6-remote-playing")
+    NSLog("aerodance: playing on the TV at \(state()["_fps"] ?? "?") fps (\(state()["_display"] ?? "?"))")
+
+    XCTAssertTrue(pause.waitForExistence(timeout: 10), "Back didn't turn into Pause during the song")
+    press(pause)
+    waitFor(["gamePhase": "paused"], timeout: 10)
+    send("shot-tv?name=6-tv-paused")
+    XCTAssertTrue(resume.waitForExistence(timeout: 10), "Pause didn't turn into Resume")
+    shot("6-remote-paused")
+    press(resume)
+    waitFor(["gamePhase": "playing"], timeout: 20)
+
+    // The TV goes mid-song: the game comes back to the phone and the song carries on.
+    let before = Int(state()["gameTimeMs"] ?? "") ?? 0
+    tv(false)
+    XCTAssertTrue(waitUntil { !ok.exists }, "the remote is still showing")
+    waitForDisplay(tv: false)
+    sleep(3)
+    let away = state()
+    NSLog("aerodance: TV gone mid-song: \(away["gamePhase"] ?? "?") at \(away["gameTimeMs"] ?? "?") ms (was \(before))")
+    shot("6-phone-tv-gone")
+    XCTAssertEqual(away["gamePhase"], "playing", "the song stopped when the TV went")
+    XCTAssertGreaterThan(Int(away["gameTimeMs"] ?? "") ?? 0, before, "the song's clock didn't move on")
+
+    // ...and goes back to the TV when it's back.
+    tv(true)
+    XCTAssertTrue(ok.waitForExistence(timeout: 20), "the remote didn't come back")
+    waitForDisplay(tv: true)
+    sleep(3)
+    let again = state()
+    NSLog("aerodance: TV back mid-song: \(again["gamePhase"] ?? "?") at \(again["gameTimeMs"] ?? "?") ms, \(again["_fps"] ?? "?") fps")
+    send("shot-tv?name=6-tv-back")
+    XCTAssertEqual(again["gamePhase"], "playing", "the song stopped when the TV came back")
+
+    waitFor(["resultsScreen": "stage"], timeout: 420)
+    sleep(2)
+    send("shot-tv?name=6-tv-results")
+    shot("6-remote-results")
+  }
+
   // MARK: - Helpers
+
+  /// A touch on a remote button: the page's label for it lets touches through to the canvas under it.
+  func press(_ button: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertTrue(button.waitForExistence(timeout: 10), "\(button) isn't there", file: file, line: line)
+    button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+  }
+
+  /// Waits for the game to report it's showing on the TV, or on the phone.
+  func waitForDisplay(tv: Bool, file: StaticString = #filePath, line: UInt = #line) {
+    let shown = waitUntil(timeout: 20) { (self.state()["_display"] ?? "").hasPrefix(tv ? "tv" : "phone") }
+    XCTAssertTrue(shown, "the game didn't report it's on the \(tv ? "TV" : "phone"): \(state()["_display"] ?? "nothing")", file: file, line: line)
+  }
 
   var tvOn = false
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
-import { makeZip, readZip } from "../storage/zip.ts";
+import { makeZip, readZip } from "../../../packages/pose/zip.ts";
 import { makeZip as legacyZip, readZip as legacyRead } from "../server/zip.ts";
 
 function deflated(data: Uint8Array, declaredSize = data.length) {

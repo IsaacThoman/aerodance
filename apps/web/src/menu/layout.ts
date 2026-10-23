@@ -24,6 +24,9 @@ export const PLUS = { x: COUNT_X + 112, y: DIAL_Y, r: 40 };
 // The menu dancers' blue and purple, then green and pink for players three and four.
 export const PLAYER_COLORS = ['#078fff', '#b86bff', '#1fcf72', '#ff5fb4'] as const;
 
+// Imported songs listed a page at a time in Settings → Songs.
+export const SONGS_PER_PAGE = 7;
+
 // Settings rows: the first row's centre below its panel's top, and the spacing.
 const ROWS_TOP = 98;
 const ROW_H = 50;
@@ -45,6 +48,10 @@ export function menuLayout(width = 1600) {
   const options = { x0: x + 240, x1: x + w - 32, gap: 6 };
   const optionW = (options.x1 - options.x0 - 2 * options.gap) / 3;
   const option = (row: number, i: number) => ({ x: options.x0 + i * (optionW + options.gap), y: graphicsRowY(row) - 21, w: optionW, h: 42 });
+  // Songs (where the browser can import them): beside Sound and Graphics and as tall as both,
+  // SONGS_PER_PAGE imported songs a page under the heading, then Import song at the bottom.
+  const SONGS = { x: x + w + 24, y: SOUND.y, w: compact ? 1200 - x - (x + w + 24) : 520, h: GRAPHICS.y + GRAPHICS.h - SOUND.y };
+  const songRow = (i: number) => ({ x: SONGS.x + 28, y: SONGS.y + 74 + i * 46, w: SONGS.w - 56, h: 44 });
   return {
     TITLE: { ...TITLE, x: x - 4, size: compact ? 122 : TITLE.size },
     START: { ...START, x, w: compact ? 400 : START.w },
@@ -64,5 +71,15 @@ export function menuLayout(width = 1600) {
     ASPECT: (i: number) => option(0, i),
     STATS_ROW_Y: graphicsRowY(1),
     STATS: (i: number) => option(1, i),
+    SONGS,
+    SONG_ROW: songRow,
+    /** Each song's remove button, at its row's right end. */
+    SONG_TRASH: (i: number) => { const row = songRow(i); return { x: row.x + row.w - 22, y: row.y + row.h / 2, r: 20 }; },
+    /** Page arrows, right of the heading. */
+    SONGS_UP: { x: SONGS.x + SONGS.w - 96, y: SONGS.y + 44, r: 20 },
+    SONGS_DOWN: { x: SONGS.x + SONGS.w - 50, y: SONGS.y + 44, r: 20 },
+    /** What the last import or removal did: two lines above Import song (the first line's middle). */
+    SONGS_NOTE_Y: songRow(SONGS_PER_PAGE).y + 18,
+    SONG_IMPORT: { x: SONGS.x + 28, y: SONGS.y + SONGS.h - 72, w: SONGS.w - 56, h: 48 },
   };
 }
