@@ -170,7 +170,7 @@ export default function App() {
       setGamePhase(session.phase);
       if (session.phase !== 'results' || !session.results) return;
       const results = session.results.map((r, i) => ({ ...PLAYERS[i], ...r }));
-      const best = recordResults(session.bundle.song.songId, session.playerCount, session.results);
+      const best = recordResults(session.bundle.scoreId, session.playerCount, session.results);
       resultsShow.current = { key: `${session.bundle.song.songId}|${performance.now()}`, start: performance.now() / 1000 + 0.3, results, winner: winnerOf(results), leaders: leadersOf(results), best };
       if (session.recordingBytes) download(`${session.bundle.song.songId}-poses.adpose`, session.recordingBytes);
     });

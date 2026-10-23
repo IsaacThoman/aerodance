@@ -16,7 +16,7 @@ import { isObject } from "../../../packages/pose/choreography.ts";
 import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
 import type { ChecksumManifest, Song, SongChoreography } from "../../../packages/pose/song.ts";
 import { encodePoseFile } from "../../../packages/pose/binary.ts";
-import { readZip } from "./zip.ts";
+import { readZip } from "../../../packages/pose/zip.ts";
 
 /** An error the API answers with this HTTP status. */
 export type HttpError = Error & { status: number };

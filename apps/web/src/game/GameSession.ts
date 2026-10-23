@@ -55,6 +55,7 @@ export type SessionPlayer = Pick<SongPlayer, 'state' | 'ended' | 'endMs' | 'time
 /** A song for the stage's reference dancers to follow (StageView). */
 /** The dancers' routine, plus whether the song is audible (StageView pauses with it). */
 export interface SongRoutine extends DancerRoutine {
+  bundle: LoadedSongBundle;
   playing(): boolean;
 }
 export interface GameSessionOptions {

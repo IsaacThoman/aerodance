@@ -152,7 +152,7 @@ test('webcam capture times drive scored gameplay and recordings through the cont
   const dir = new URL('./fixtures/song-70c63c8e/', import.meta.url);
   const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
   const song = validateSong(read('song.json'));
-  const bundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null };
+  const bundle = { song, choreography: validateSongChoreography(song, readFileSync(new URL('choreography.adpose', dir))), audio: new Blob([]), cover: null, scoreId: song.songId };
   let songStart = 0;
   // Only play and songTimeAt matter here: the test never updates the session.
   const player: SessionPlayer = { state: 'paused', ended: false, endMs: bundle.song.playableEndMs, play() { this.state = 'playing'; songStart = f.now; },
