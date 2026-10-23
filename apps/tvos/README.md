@@ -37,8 +37,8 @@ loader. Fonts are bundled: Inter (as the web build loads it from Google Fonts) a
 
 ## The phone camera
 
-The Apple TV has no camera, so the camera is a phone, paired as on the web (README's Phone
-camera section): Enter on the calibration screen shows a QR code for the deployed site's
+The Apple TV has no camera, so the camera is a phone, paired as on the web ([phone
+camera](../../docs/README.md#phone-camera)): Enter on the calibration screen shows a QR code for the deployed site's
 `/pair/#<code>`. The app has no WebRTC, so the phone's poses and
 its preview pictures come through the pairing server's relay (`packages/pairing/relay.ts`), on
 the runtime's `WebSocket` and `EventSource` (`runtime/net.ts`, `src/Net.mm`, on URLSession).

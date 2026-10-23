@@ -80,7 +80,8 @@ const GradeShader = {
       c.rgb *= mix(1.0, v, uVignette);
       float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
       c.rgb = max(mix(vec3(l), c.rgb, uSaturation), 0.0) * uTint;
-      gl_FragColor = c;
+      // Opaque: the canvas would blend the page behind it into any alpha below 1 a stage left.
+      gl_FragColor = vec4(c.rgb, 1.0);
     }
   `,
 };

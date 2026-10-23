@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import Character from '../../../../packages/character/Character.tsx';
 import type { Pose, TrackCalibration } from '../../../../packages/pose/choreography.ts';
 import { DANCER_LOOKS } from '../../../../packages/stages/shared/Dancers.tsx';
+import { diagnostic } from '../diagnostics.ts';
 import type { Rect } from '../ui/draw.ts';
 import type { GameSession } from './GameSession.ts';
 import { PLAYERS } from './results.ts';
@@ -76,7 +77,7 @@ export default function MirrorDancers({ session, view }: { session: GameSession;
 
   useFrame(() => {
     const v = view.current;
-    if (!v || v.alpha < 0.005) return;
+    if (!v || v.alpha < 0.005 || diagnostic('noui')) return;
     const { rect, w, h } = v;
     // The camera's frame (its size from any calibration), fitted under the strip.
     const input = session.live.find((p) => p.calibration)?.calibration;

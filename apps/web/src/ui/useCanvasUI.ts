@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
 import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
 import { MIN_TOUCH_PX, widgetAt } from './hit.ts';
+import { diagnostic } from '../diagnostics.ts';
 import { displayDesign } from '../display.ts';
 import type { Circle, Point, Rect } from './draw.ts';
 
@@ -494,6 +495,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       s.requestFrame();
     }
 
+    if (diagnostic('noui')) return;
     overlay.material.opacity = alpha;
     const ac = gl.autoClear;
     gl.autoClear = false;
