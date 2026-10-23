@@ -10,6 +10,7 @@ Promotional images for Aerodance.
 | `beach-hero-no-logo.png` | The same frame without the wordmark. |
 | `splash1.png` | A golden glass dancer in a top hat, slumped against the wall of a dark back room, seen from a grainy security camera. 2560×1440 (16:9), no wordmark. |
 | `splash1-logo.png` | The same view slid left, with the wordmark in the dark at the top right. 2560×1440 (16:9). |
+| `banner.gif` | The README's banner: two dancers playing a song on the `openreef` stage, 8 s at 20 fps, 768×384 (2:1). |
 
 Each pair is the shot of the same name from the [thumbnail renderer](../tools/thumbnails), rendered in-engine. To render one again:
 
@@ -23,6 +24,15 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 
 ```sh
 node tools/thumbnails/scripts/render.ts --splashes
+```
+
+## README banner
+
+`banner.gif` is a recording of the game itself: a song played by the autoplay ghost, with the UI left out (`?input=ghost&diag=noui`). The song is a test bundle that isn't in the repo; any song set on `openreef` works. To record one again, start the game with `node scripts/play.ts start --url '/?input=ghost&diag=noui'` ([interactive testing](../docs/interactive-testing.md)) and go to the song's preview. There, start a `MediaRecorder` on `canvas.captureStream(60)` with `node scripts/play.ts eval`, press Dance!, and read the recording back once the song ends. Then cut 8 seconds of the dance from it (this one starts 10 s into the song, 38 s into the recording) with ffmpeg and gifski:
+
+```sh
+ffmpeg -ss 38 -t 8 -i recording.webm -vf "fps=20,scale=1280:720:flags=lanczos,crop=1152:576:56:72,scale=768:384:flags=lanczos" frames/%04d.png
+gifski --quality 65 --lossy-quality 45 --motion-quality 50 --fps 20 -o assets/banner.gif frames/*.png
 ```
 
 ## Top Shelf banners

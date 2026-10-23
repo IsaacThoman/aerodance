@@ -75,7 +75,7 @@ Other findings:
 ## Not done yet
 
 - Real-phone measurements. The phone camera works through the pairing server's relay (the
-  JavaScriptCore app has no WebRTC; see README's Phone camera section), tested with a phone page in
+  JavaScriptCore app has no WebRTC; see [phone camera](README.md#phone-camera)), tested with a phone page in
   Chromium against the app in the simulator and on the Apple TV, through a local server and
   through production (aerodance.party), but not yet with a real iPhone over home Wi-Fi.
 - OpenGL ES is deprecated on tvOS. If it goes, only the JavaScriptCore app's GL replay layer
