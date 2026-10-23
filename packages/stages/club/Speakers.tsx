@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { beat, useDisposable } from '../shared/hooks.ts';
-import { C } from './clock.ts';
+import { C, club } from './clock.ts';
 import { patchClub } from './patch.ts';
 import { mergeAll } from './geometry.ts';
 import { FLOOR } from './layout.ts';
@@ -109,7 +109,7 @@ export default function Speakers() {
       tmp.m.multiplyMatrices(b.m, tmp.pump);
       cm.setMatrixAt(i, tmp.m);
       pm.setMatrixAt(i, tmp.m);
-      const k = b.ring ? 1.1 + beat.pulse * 1.4 : 1.3 + beat.pulse * 2.2;
+      const k = b.ring ? 1.1 + club.uPulse.value * 1.4 : 1.3 + club.uPulse.value * 2.2;
       tm.setColorAt(i, tmp.c.copy(RINGS[b.ring]).multiplyScalar(k));
     }
     cm.instanceMatrix.needsUpdate = true;

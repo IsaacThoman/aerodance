@@ -36,6 +36,10 @@ export interface PoseInputView {
   model: string;
   cameraId?: string;
   cameras?: readonly CameraInfo[];
+  /** How tracking is keeping up, for the stats overlay: the webcam and a paired phone report it. */
+  stats?: { poseHz: number; inferenceMs: number | null; droppedFrames?: number; clockUncertaintyMs?: number } | null;
+  /** Where the tracking model runs (GPU or CPU), once it has loaded. */
+  delegate?: string;
 }
 
 /** The song clock a source can follow while a song plays (GameSession attaches it). */

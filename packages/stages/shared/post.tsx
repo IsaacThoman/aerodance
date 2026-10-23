@@ -87,6 +87,17 @@ const GradeShader = {
 
 type GradeUniforms = typeof GradeShader.uniforms;
 
+// OutputPass's define for each tone mapping (it builds them from the renderer when it renders).
+const OUTPUT_TONE_DEFINES: Partial<Record<THREE.ToneMapping, string>> = {
+  [THREE.LinearToneMapping]: 'LINEAR_TONE_MAPPING',
+  [THREE.ReinhardToneMapping]: 'REINHARD_TONE_MAPPING',
+  [THREE.CineonToneMapping]: 'CINEON_TONE_MAPPING',
+  [THREE.ACESFilmicToneMapping]: 'ACES_FILMIC_TONE_MAPPING',
+  [THREE.AgXToneMapping]: 'AGX_TONE_MAPPING',
+  [THREE.NeutralToneMapping]: 'NEUTRAL_TONE_MAPPING',
+  [THREE.CustomToneMapping]: 'CUSTOM_TONE_MAPPING',
+};
+
 export interface RenderPipelineProps {
   /** Drawn after post-processing, on top. */
   hudScene?: THREE.Scene;
@@ -100,6 +111,8 @@ export interface RenderPipelineProps {
   samples?: number;
   /** false leaves bloom out whatever the stage asks for (cheaper on weak GPUs). */
   bloom?: boolean;
+  /** false draws nothing: the stage is mounted, but something else has the screen. */
+  enabled?: boolean;
 }
 
 /**
@@ -109,7 +122,7 @@ export interface RenderPipelineProps {
  * It renders the scene and camera of the store it is mounted in, so inside a
  * createPortal it draws that portal's stage.
  */
-export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect, samples = 4, bloom: bloomOn = true }: RenderPipelineProps) {
+export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect, samples = 4, bloom: bloomOn = true, enabled = true }: RenderPipelineProps) {
   const gl = useThree((s) => s.gl);
 
   const fx = useMemo(() => {
@@ -148,7 +161,45 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
     [fx],
   );
 
+  // Mounted out of sight (a stage being prepared): start compiling the passes' shaders, so the
+  // first frame on screen doesn't stall on them; with KHR_parallel_shader_compile the GPU finishes
+  // them in the background. Bloom and grade draw into render targets; the output pass draws to the
+  // screen with the stage's tone mapping, and its defines are set the way OutputPass sets them.
+  useEffect(() => {
+    if (enabled) return undefined;
+    const { bloom, grade, output } = fx;
+    // Like the passes' own full-screen quad: positions and uvs only (normals change the program).
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).deleteAttribute('normal'));
+    const scene = new THREE.Scene().add(quad);
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const saved = { target: gl.getRenderTarget(), toneMapping: gl.toneMapping };
+    try {
+      gl.setRenderTarget(fx.composer.renderTarget1);
+      for (const material of [bloom.materialHighPassFilter, ...bloom.separableBlurMaterials, bloom.compositeMaterial, bloom.blendMaterial, grade.material]) {
+        quad.material = material;
+        gl.compile(scene, camera);
+      }
+      gl.setRenderTarget(null);
+      gl.toneMapping = post.toneMapping;
+      const defines: Record<string, string> = {};
+      if (THREE.ColorManagement.getTransfer(gl.outputColorSpace) === THREE.SRGBTransfer) defines.SRGB_TRANSFER = '';
+      const tone = OUTPUT_TONE_DEFINES[post.toneMapping];
+      if (tone) defines[tone] = '';
+      output.material.defines = defines;
+      output.material.needsUpdate = true;
+      quad.material = output.material;
+      gl.compile(scene, camera);
+    } catch (error) {
+      console.warn('[post] precompile failed:', error);
+    } finally {
+      gl.setRenderTarget(saved.target);
+      gl.toneMapping = saved.toneMapping;
+    }
+    return () => quad.geometry.dispose();
+  }, [fx, gl, enabled]);
+
   useFrame((state, delta) => {
+    if (!enabled) return;
     tickBeat(Math.min(delta, 0.1));
     const { composer, render, bloom, gradeUniforms } = fx;
     render.scene = state.scene;

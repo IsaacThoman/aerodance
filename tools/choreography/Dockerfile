@@ -14,7 +14,7 @@ COPY --from=build /app ./
 CMD ["sh", "-c", "node tools/choreography/tests/browser-storage.browser.ts && node tools/choreography/tests/browser.ts && node tools/choreography/tests/video-import.browser.ts && node tools/choreography/tests/solo-workflow.browser.ts && node tools/choreography/tests/video-duet.browser.ts && node tools/choreography/tests/project-loading.browser.ts"]
 
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine AS runtime
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY tools/choreography/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/tools/choreography/dist /usr/share/nginx/html
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1

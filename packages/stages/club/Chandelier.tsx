@@ -96,13 +96,15 @@ void main() {
 
 const haloFragment = /* glsl */ `
 uniform float uPulse;
+uniform float uSteady;
 varying vec2 vUv;
 void main() {
   vec2 d = vUv - 0.5;
   float r = length(d) * 2.0;
   float g = exp(-r * r * 6.0) * 0.45 + exp(-r * 10.0) * 0.4;
   float star = exp(-abs(d.x) * 70.0) * exp(-abs(d.y) * 5.0) + exp(-abs(d.y) * 70.0) * exp(-abs(d.x) * 5.0);
-  float a = (g + star * 0.5) * (0.4 + 0.3 * uPulse) * smoothstep(1.0, 0.6, r);
+  // In the game (preview, song and results) the halo loses its star streaks.
+  float a = (g + star * 0.5 * (1.0 - uSteady)) * (0.4 + 0.3 * uPulse) * smoothstep(1.0, 0.6, r);
   gl_FragColor = vec4(vec3(0.75, 0.92, 1.0) * a, 1.0);
 }
 `;
