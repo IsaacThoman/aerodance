@@ -86,6 +86,8 @@ export interface WebcamPoseSourceOptions {
 }
 export interface WebcamConfigureOptions { modelId?: string; cameraId?: string; facing?: CameraFacing; }
 interface PendingFrame { seq: number; mediaTimeMs: number; frameBrowserTimeMs: number; }
+/** A picture of the camera, turned upright, and its size then. */
+interface Picture { bitmap: Promise<ImageBitmap>; size: { width: number; height: number }; }
 
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
 const saved = (key: string, fallback: string) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
@@ -152,7 +154,7 @@ export class WebcamPoseSource {
   pending: PendingFrame | null = null;
   busy = false;
   /** The newest frame that came while one was in flight (and its picture, taken then): sent as soon as its result is in. */
-  waiting: { mediaTimeMs: number; frameBrowserTimeMs: number; bitmap: Promise<ImageBitmap> } | null = null;
+  waiting: { mediaTimeMs: number; frameBrowserTimeMs: number; picture: Picture } | null = null;
   // Per-session state, reset by connect().
   input: CaptureInput | null = null;
   sessionId = '';
@@ -433,23 +435,30 @@ export class WebcamPoseSource {
     const waiting = this.waiting;
     if (!waiting || this.busy || !this.video) return;
     this.waiting = null;
-    this.sendFrame(waiting.mediaTimeMs, waiting.frameBrowserTimeMs, waiting.bitmap);
+    this.sendFrame(waiting.mediaTimeMs, waiting.frameBrowserTimeMs, waiting.picture);
   }
   /** Forgets the waiting frame (closing its picture). */
   dropWaiting() {
-    void this.waiting?.bitmap.then(bitmap => bitmap.close(), () => {});
+    void this.waiting?.picture.bitmap.then(bitmap => bitmap.close(), () => {});
     this.waiting = null;
   }
-  sendFrame(mediaTimeMs: number, frameBrowserTimeMs: number, picture?: Promise<ImageBitmap>) {
+  /** The camera's current picture, turned upright (createImageBitmap copies a turned one now, before the next is drawn over it). */
+  take(video: HTMLVideoElement): Picture {
+    const bitmap = this.bitmap(this.turned && this.canvas ? this.canvas : video);
+    bitmap.catch(() => {});
+    return { bitmap, size: this.uprightSize(video) };
+  }
+  /** Sends a frame: the picture that waited for the last result, or the camera's current one. */
+  sendFrame(mediaTimeMs: number, frameBrowserTimeMs: number, picture?: Picture) {
     const video = this.video;
     const generation = this.generation;
     if (!video) return;
-    const size = this.uprightSize(video);
+    const { bitmap, size } = picture ?? this.take(video);
     if (size.width !== this.input?.width || size.height !== this.input.height) {
-      // A picture taken before the resize (or the device turning) is the old size.
-      void picture?.then(bitmap => bitmap.close(), () => {});
-      picture = undefined;
-      if (!this.adaptToResize || !size.width || !size.height) { this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return; }
+      if (!this.adaptToResize || !size.width || !size.height) {
+        void bitmap.then(b => b.close(), () => {});
+        this.fail(Error('Camera dimensions changed. Start again to recalibrate.')); return;
+      }
       // No frame is in flight (one is only sent once the last result is in), so no result mixes
       // the two sizes. Calibration and the live characters start afresh when a record's input size changes.
       this.input = { ...size, mirrored: false };
@@ -457,7 +466,7 @@ export class WebcamPoseSource {
     }
     this.busy = true;
     const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs };
-    void (picture ?? this.bitmap(this.turned && this.canvas ? this.canvas : video)).then(bitmap => {
+    void bitmap.then(bitmap => {
       const worker = this.worker;
       if (generation !== this.generation || !worker) { bitmap.close(); return; }
       worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players }, [bitmap]);
@@ -482,10 +491,7 @@ export class WebcamPoseSource {
       // One frame in flight; the newest one that comes meanwhile waits for it (and replaces an older one).
       if (this.busy) {
         if (this.waiting) { this.dropped++; this.dropWaiting(); }
-        // (createImageBitmap copies a turned picture now, before the next one is drawn over it.)
-        const bitmap = this.bitmap(this.turned && this.canvas ? this.canvas : video);
-        bitmap.catch(() => {});
-        this.waiting = { mediaTimeMs, frameBrowserTimeMs: this.now(), bitmap };
+        this.waiting = { mediaTimeMs, frameBrowserTimeMs: this.now(), picture: this.take(video) };
         return;
       }
       this.sendFrame(mediaTimeMs, this.now());

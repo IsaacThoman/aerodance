@@ -26,7 +26,7 @@ const detected = (landmarks: readonly Landmark[]): NormalizedLandmark[] =>
   landmarks.map(({ x, y, z, confidence }) => ({ x, y, z, visibility: confidence ?? 0, presence: confidence ?? undefined }));
 
 const points = (x: number) => Array.from({ length: 33 }, () => ({ x, y: 0.5, z: 0, visibility: 0.95, presence: 0.95 }));
-test('two-player slots require consecutive evidence and clear immediately on ambiguity', () => {
+test('Studio\'s video import lanes: two-player slots require consecutive evidence and clear immediately on ambiguity', () => {
   const slots = new PlayerSlotMapper();
   assert.deepEqual(slots.map([points(0.25)], 2), []);
   assert.deepEqual(slots.map([points(0.25)], 2).map(p => p.playerId), [1]);
@@ -35,7 +35,7 @@ test('two-player slots require consecutive evidence and clear immediately on amb
   assert.deepEqual(slots.map([points(0.75)], 2), []);
   assert.deepEqual(slots.map([points(0.75)], 2).map(p => p.playerId), [0]);
 });
-test('three and four players get one camera lane each, P1 on the left of the mirrored preview', () => {
+test('Studio\'s video import lanes: three and four players get one camera lane each, P1 on the left of the mirrored preview', () => {
   // Unmirrored camera x: P1's lane is on the camera's right.
   assert.deepEqual([0.875, 0.625, 0.375, 0.125].map(x => laneOf(x, 4)), [0, 1, 2, 3]);
   assert.deepEqual([0.85, 0.5, 0.15].map(x => laneOf(x, 3)), [0, 1, 2]);
@@ -49,7 +49,7 @@ test('three and four players get one camera lane each, P1 on the left of the mir
   assert.deepEqual(slots.map(all, 4).map(p => p.playerId), [0, 1, 2, 3]);
   assert.deepEqual(slots.map(all.slice(0, 3), 4).map(p => p.playerId), [0, 1, 2]);
 });
-test('webcam slots use camera regions, preserve missing dancers and reject ambiguity', () => {
+test('Studio\'s video import lanes use camera regions, preserve missing dancers and reject ambiguity', () => {
   assert.deepEqual(assignPlayerSlots([points(0.75), points(0.25)], 2).map(p => [p.playerId, p.landmarks[0].x]), [[0, 0.75], [1, 0.25]]);
   assert.deepEqual(assignPlayerSlots([points(0.75)], 2).map(p => p.playerId), [0]);
   assert.deepEqual(assignPlayerSlots([points(0.5)], 2), []);
@@ -137,16 +137,66 @@ test('the newest frame that comes while one is in flight is sent as soon as its 
   assert.equal(sent[1].type === 'frame' && Math.round(sent[1].timestampMs), 1066, 'the newest of the frames that waited');
   assert.equal(f.source.dropped, 1, 'the older one is dropped');
 });
-test('a frame that waited is closed when the camera changes size', async t => {
+test('a frame that waited is closed when the camera changed size before it came', async t => {
   let made = 0, closed = 0;
   const f = fixture(t, { bitmap: async () => { made++; return { close() { closed++; } } as ImageBitmap; } });
   await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
-  await f.frame(1); await f.frame(1.033);
+  await f.frame(1);
   Object.assign(f.video, { videoWidth: 480, videoHeight: 640 });
+  await f.frame(1.033);
   f.setTime(1050); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 30 });
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(f.source.view.status, 'error');
   assert.deepEqual({ made, closed }, { made: 2, closed: 1 }, 'all but the one the worker has (and closes)');
+});
+
+// A turned camera (the iPhone/iPad app on a TV): a canvas and createImageBitmap that remember which
+// of the camera's pictures, and what size, each copy is of.
+function turned(t: TestContext, turnOf: () => number) {
+  let shown = 0;
+  const canvas = { width: 0, height: 0, content: { frame: 0, w: 0, h: 0 }, getContext: () => g } as unknown as HTMLCanvasElement & { content: { frame: number; w: number; h: number } };
+  const g = { setTransform() {}, rotate() {}, drawImage() { canvas.content = { frame: shown, w: canvas.width, h: canvas.height }; } };
+  const f = fixture(t, { adaptToResize: true, createCanvas: () => canvas, turn: () => turnOf(),
+    bitmap: async picture => {
+      const copy = picture === canvas ? { ...canvas.content } : { frame: shown, w: f.video.videoWidth!, h: f.video.videoHeight! };
+      return { ...copy, width: copy.w, height: copy.h, close() {} } as unknown as ImageBitmap;
+    } });
+  const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  const sent = () => f.messages.flatMap(m => m.type === 'frame' ? [m.bitmap as unknown as { frame: number; width: number; height: number }] : []);
+  return { f, records, sent, show(frame: number) { shown = frame; } };
+}
+const settled = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('a frame that waits on a turned camera goes with its own picture, turned, at its size, though the turn changed meanwhile', async t => {
+  let turn = 0;
+  const { f, records, sent, show } = turned(t, () => turn);
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  show(1); await f.frame(1); await settled();
+  // The device is turned sideways while the first frame is in flight.
+  turn = 90; show(2); await f.frame(1.033); await settled();
+  f.setTime(1060); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 20 }); await settled();
+  f.setTime(1090); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 20 }); await settled();
+  assert.deepEqual(records.map(r => `${r.input.width}x${r.input.height}`), ['640x480', '480x640'], 'each result at its own picture\'s size');
+  assert.deepEqual(sent().map(b => [b.frame, b.width, b.height]), [[1, 640, 480], [2, 480, 640]], 'the second picture is the one that waited, turned');
+});
+
+test('a frame that waits on a turned camera keeps its size when the camera changes before it goes', async t => {
+  // An iPad on a TV held sideways: WebKit turned the camera for the TV (the game turns it back), then
+  // turns it for the iPad's own screen, which needs no turn. Upright, the picture never changes size.
+  let turn = 90;
+  const { f, records, sent, show } = turned(t, () => turn);
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  show(1); await f.frame(1); await settled();
+  show(2); await f.frame(1.033); await settled();
+  // The camera turns before the next picture's callback.
+  Object.assign(f.video, { videoWidth: 480, videoHeight: 640 }); turn = 0;
+  f.setTime(1060); f.deliver({ type: 'result', seq: 1, landmarks: [], inferenceMs: 20 }); await settled();
+  f.setTime(1090); f.deliver({ type: 'result', seq: 2, landmarks: [], inferenceMs: 20 }); await settled();
+  show(3); await f.frame(1.066); await settled();
+  f.setTime(1120); f.deliver({ type: 'result', seq: 3, landmarks: [], inferenceMs: 20 }); await settled();
+  assert.deepEqual(records.map(r => `${r.input.width}x${r.input.height}`), ['480x640', '480x640', '480x640'], 'no change of size, so nothing starts afresh');
+  assert.deepEqual(sent().map(b => [b.frame, b.width, b.height]), [[1, 480, 640], [2, 480, 640], [3, 480, 640]]);
 });
 test('a permission grant after cancellation releases its camera without starting a worker', async t => {
   const f = fixture(t); let grant: ((stream: MediaStream) => void) | undefined;

@@ -4,9 +4,10 @@ What can realistically go from two players to four, and how the game does it.
 
 ## Tracking four people with one webcam
 
-The game tracks players with MediaPipe's PoseLandmarker (tasks-vision 1.1.0) in a worker,
-with `numPoses` set to the player count. Nothing in MediaPipe caps it at two, but each
-extra person costs something:
+The game tracks players with MediaPipe's PoseLandmarker (tasks-vision 1.1.0) in a worker:
+on the whole picture asking for one more person than there are players, or with three or
+four players one person in each strip of the picture ([player tracking](player-tracking.md)).
+Nothing in MediaPipe caps it at two, but each extra person costs something:
 
 - **Speed.** PoseLandmarker runs its person detector on the whole frame, then the landmark
   model once per person it tracks, so inference grows about linearly with players. Four

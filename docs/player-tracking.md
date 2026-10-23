@@ -34,7 +34,7 @@ How the webcam (or a paired phone's camera) turns people into players.
        torso is well inside it), so that strip looks for whoever else is in it: the strip
        somebody is followed in can be the only one that sees a player beside them. If it finds
        nobody, it sees them again (whichever of the two sees them better follows them), and the
-       two don't try again for ten seconds.
+       two don't try again for 300 results (ten seconds at 30 a second).
 
      Somebody two strips both see counts once (unless their joints differ: one may stand partly behind the other; torsos in
      the same place are one person whatever the strips make of their arms); joints beyond a
