@@ -80,14 +80,14 @@ export default function RemoteApp() {
       </Canvas>
       {size.w > 0 && (
         <>
-          <div className="remote-label" role="status" style={{ left: L.status.x * scale, top: (L.status.y - 14) * scale, width: L.status.w * scale, height: 28 * scale }}>
+          <div className="canvas-label" role="status" style={{ left: L.status.x * scale, top: (L.status.y - 14) * scale, width: L.status.w * scale, height: 28 * scale }}>
             {statusLine(page)}
           </div>
           {(['up', 'left', 'ok', 'right', 'down', 'back'] as const).map((id) => (
             <button
               key={id}
               type="button"
-              className="remote-label"
+              className="canvas-label"
               aria-label={id === 'back' ? back : LABELS[id]}
               tabIndex={-1}
               onClick={() => click(KEYS[id])}

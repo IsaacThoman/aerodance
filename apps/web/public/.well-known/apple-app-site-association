@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["PX72AL9366.com.isaacthoman.aerodance"],
+        "components": [
+          { "/": "/pair", "comment": "The phone camera page a game's QR code opens (/pair/#<code>): the iPhone app opens it itself" },
+          { "/": "/pair/" },
+          { "/": "/phone", "comment": "Its old address, which older QR codes may still open" },
+          { "/": "/phone/" }
+        ]
+      }
+    ]
+  }
+}

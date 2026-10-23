@@ -302,6 +302,17 @@ test('the phone names itself and reads its code from the link', () => {
   assert.equal(linkCode(new URL('https://a.test/pair/#12345')), '');
 });
 
+test('in an app, the phone page and the game pair through the app’s site, and elsewhere through their own server', (t) => {
+  const g = globalThis as { __aerodanceSite?: string };
+  t.after(() => { delete g.__aerodanceSite; });
+  const camera = () => new FakeCamera() as unknown as WebcamPoseSource;
+  assert.equal(new PhoneLink({ camera: camera() }).base, '/pair');
+  assert.equal(new PhonePoseSource().base, '/pair');
+  g.__aerodanceSite = 'https://aerodance.test/';
+  assert.equal(new PhoneLink({ camera: camera() }).base, 'https://aerodance.test/pair');
+  assert.equal(new PhonePoseSource().base, 'https://aerodance.test/pair');
+});
+
 test('the phone lists its cameras by name and switches between them', async (t) => {
   const camera = new FakeCamera();
   const phone = new PhoneLink({ camera: camera as unknown as WebcamPoseSource });

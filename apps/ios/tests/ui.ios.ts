@@ -1,7 +1,8 @@
 // The iPhone/iPad app's UI tests in a simulator (AerodanceUITests.swift): it launches, reaches
 // the main menu, is landscape on an iPhone, taps through Let's dance for one player and a song to the song
-// preview, turns both ways on an iPad, and shows the remote when a TV connects (the simulator's
-// TV-out screen, through ../tools/simscreen.m).
+// preview, turns both ways on an iPad, shows the remote when a TV connects (the simulator's
+// TV-out screen, through ../tools/simscreen.m), and opens and closes the phone camera page (from
+// the main menu's camera bubble, and from a game's QR code link).
 //
 //   node apps/ios/tests/ui.ios.ts --device <simulator UDID> [--port <port>] [--out <dir>] [--only <test>]
 //
@@ -16,7 +17,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { menuLayout } from '../../web/src/menu/layout.ts';
+import { leftCornerBubble, menuLayout } from '../../web/src/menu/layout.ts';
 import { gameLayout } from '../../web/src/game/layout.ts';
 import { DISPLAY_MODES } from '../../web/src/display.ts';
 
@@ -56,9 +57,10 @@ const server = http.createServer((req, res) => {
     const body = Buffer.concat(chunks);
     if (req.method === 'POST' && url.pathname === '/report') {
       try {
-        // The canvas's data-* state, plus where the game is showing and its frame rate as _display and _fps.
-        const r = JSON.parse(body.toString()) as { dataset?: Record<string, string>; display?: string; fps?: number };
-        if (r.dataset) state = { ...r.dataset, _display: r.display ?? '', _fps: String(r.fps ?? '') };
+        // The canvas's data-* state, plus where the game is showing and its frame rate as _display and _fps,
+        // and the phone camera page's stage while it's open as _camera.
+        const r = JSON.parse(body.toString()) as { dataset?: Record<string, string>; display?: string; fps?: number; phoneCamera?: { stage?: string } | null };
+        if (r.dataset) state = { ...r.dataset, _display: r.display ?? '', _fps: String(r.fps ?? ''), _camera: r.phoneCamera?.stage ?? '' };
       } catch { /* Not a report. */ }
     } else if (req.method === 'POST' && url.pathname === '/reset') {
       state = {};
@@ -91,7 +93,9 @@ if (generated.error || generated.status !== 0) throw Error('XcodeGen is needed t
 const layout = Object.fromEntries(Object.entries(DISPLAY_MODES).map(([mode, design]) => {
   const menu = menuLayout(design.w);
   const game = gameLayout(design.w);
-  return [mode, { design: [design.w, design.h], start: menu.START, letsDance: menu.PLAYERS_GO, firstSong: game.rowRect(0), dance: game.DANCE }];
+  const camera = leftCornerBubble(design.w);
+  return [mode, { design: [design.w, design.h], start: menu.START, letsDance: menu.PLAYERS_GO, firstSong: game.rowRect(0), dance: game.DANCE,
+    camera: { x: camera.x - camera.r, y: camera.y - camera.r, w: camera.r * 2, h: camera.r * 2 } }];
 }));
 const only = option('--only');
 const env = { ...process.env, TEST_RUNNER_AERODANCE_BUNDLE_ID: BUNDLE_ID, TEST_RUNNER_AERODANCE_PORT: port, TEST_RUNNER_AERODANCE_PATH: '/?input=ghost',

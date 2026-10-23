@@ -70,6 +70,10 @@
     post({ airplay: r });
   };
 
+  // The main menu's camera bubble (menu/PhoneCameraButton.tsx): the app shows the phone camera
+  // page over the game, to be another game's camera.
+  window.__aerodanceOpenCamera = () => post({ camera: true });
+
   // The phone's remote buttons arrive as the key events the canvas UI already understands.
   window.__aerodanceKey = key => {
     const init = { key, code: key, bubbles: true, cancelable: true };
@@ -132,10 +136,12 @@
     const sorted = dts.sort((a, b) => a - b), pct = p => +(sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0).toFixed(1);
     Object.assign(R, { t: Math.round(now), fps: +(frames * 1000 / (now - last)).toFixed(1), frameMs: { p50: pct(0.5), p95: pct(0.95), max: pct(1) },
       display: window.__aerodanceDisplay ?? 'phone', viewport: `${innerWidth}x${innerHeight}@${devicePixelRatio}` });
-    // Heat and Low Power Mode come from the app (main.m tellPage).
+    // Heat and Low Power Mode come from the app (main.m tellPage), and the phone camera page's
+    // state ({ stage, dim }) while it's open over the game.
     const device = window.__aerodanceDevice ?? {};
     Object.assign(R, { jsMsPerFrame: +(jsMs / n).toFixed(2), jsWorstMs: +jsWorst.toFixed(1), drawsPerFrame: Math.round(draws / n),
-      dataset: { ...(canvas()?.dataset ?? {}) }, thermal: device.thermal, lowPower: device.lowPower, host: globalThis.__aerodanceHost });
+      dataset: { ...(canvas()?.dataset ?? {}) }, thermal: device.thermal, lowPower: device.lowPower, host: globalThis.__aerodanceHost,
+      phoneCamera: window.__aerodanceCamera ?? null });
     if (probe) { const c = getComputedStyle(probe); R.safeArea = [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft].map(parseFloat).join(' '); }
     // The saved scores and settings, once a run, to check they survive.
     if (firstReport) { firstReport = false; R.storage = {}; try { for (const k of Object.keys(localStorage).filter(ours)) R.storage[k] = localStorage.getItem(k); } catch { /* storage unavailable */ } } else delete R.storage;

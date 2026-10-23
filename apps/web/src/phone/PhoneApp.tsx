@@ -4,6 +4,7 @@ import PhoneScreen from './PhoneScreen.tsx';
 import { PhoneLink, linkCode } from './PhoneLink.ts';
 import { phoneDesign, phoneLayout } from './layout.ts';
 import { Background, PhoneRenderResolution } from './pageCanvas.tsx';
+import { closeCamera, inApp, reportStage } from './bridge.ts';
 
 /*
  * A phone as the game's camera: open /pair/#<code> (the game's QR code) or type the code.
@@ -17,6 +18,10 @@ import { Background, PhoneRenderResolution } from './pageCanvas.tsx';
  *
  * The one piece of page over the canvas is the camera list: an invisible <select> on the
  * camera button, so a tap opens the phone's own picker.
+ *
+ * The iPhone/iPad app shows this page over its own game (bridge.ts): there the code screen has
+ * a close button back to the game (with a label over it for VoiceOver, and the app's UI tests),
+ * and the app hears the stage.
  */
 
 export default function PhoneApp() {
@@ -68,21 +73,23 @@ export default function PhoneApp() {
 
   const linked = view.stage === 'linked';
   const dimmed = linked && dim;
+  useEffect(() => { reportStage(view.stage, dimmed); }, [view.stage, dimmed]);
   const openList = () => {
     const el = list.current;
     if (!el) return;
     try { el.showPicker(); } catch { el.focus(); }
   };
-  // The camera button, from design units to the page's.
+  // The camera and close buttons, from design units to the page's.
   const design = phoneDesign(size.w || 1, size.h || 1);
-  const button = phoneLayout(design).camera;
+  const { camera: button, leave } = phoneLayout(design);
   const scale = size.w / design.w;
+  const closable = inApp() && view.stage === 'code';
   return (
     <div className="canvas-frame phone" ref={frame}>
       <Canvas dpr={1} flat camera={{ fov: 66, near: 0.3, far: 6500 }}>
         <PhoneRenderResolution />
         <Background />
-        <PhoneScreen link={link} view={view} camera={camera} dim={dimmed} onDim={setDim} onCameraList={openList} />
+        <PhoneScreen link={link} view={view} camera={camera} dim={dimmed} onDim={setDim} onCameraList={openList} onExit={inApp() ? closeCamera : undefined} />
       </Canvas>
       {linked && !dim && (
         <select
@@ -95,6 +102,16 @@ export default function PhoneApp() {
         >
           {link.cameras().map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
+      )}
+      {closable && size.w > 0 && (
+        <button
+          type="button"
+          className="canvas-label"
+          aria-label="Close"
+          tabIndex={-1}
+          onClick={closeCamera}
+          style={{ left: (leave.x - leave.r) * scale, top: (leave.y - leave.r) * scale, width: leave.r * 2 * scale, height: leave.r * 2 * scale }}
+        />
       )}
     </div>
   );

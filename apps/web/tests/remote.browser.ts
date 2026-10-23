@@ -3,14 +3,16 @@
 // is drawn, once even when VoiceOver also clicks its label, held arrows repeat until let go (or
 // the TV goes), Back follows the song, the app is told where its AirPlay picker goes, and the
 // text fits an iPad held sideways. Then the game's own AirPlay bubble: on the main menu in the app, it says
-// where it is, and takes the picker away when the menu moves on or the game goes to the TV.
+// where it is, and takes the picker away when the menu moves on or the game goes to the TV; and its
+// camera bubble, which opens the app's phone camera page. Last, that page in the app: it tells the
+// app its stage, and its code screen's close button (and Escape) closes it, which a browser's doesn't have.
 //
 // REMOTE_BROWSER=webkit runs it in WebKit (the app's engine) instead of Chromium.
 import assert from 'node:assert/strict';
 import express from 'express';
 import { chromium, webkit } from 'playwright';
 import type { Page } from 'playwright';
-import { menuLayout } from '../src/menu/layout.ts';
+import { leftCornerBubble, menuLayout } from '../src/menu/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
 import { MIN_TOUCH_PX } from '../src/ui/hit.ts';
 
@@ -159,10 +161,12 @@ try {
   const game = await browser.newPage({ viewport: { width: 852, height: 393 }, hasTouch: true, isMobile: engine === chromium });
   game.setDefaultTimeout(90000);
   await game.addInitScript(() => {
-    const w = window as typeof window & { placed: unknown[]; __aerodanceHost?: unknown; __aerodanceAirPlayAt?: unknown };
+    const w = window as typeof window & { placed: unknown[]; opened: number; __aerodanceHost?: unknown; __aerodanceAirPlayAt?: unknown; __aerodanceOpenCamera?: unknown };
     w.placed = [];
+    w.opened = 0;
     w.__aerodanceHost = { interrupted: false, tv: false, screen: 'phone' };
     w.__aerodanceAirPlayAt = (rect: unknown) => w.placed.push(rect);
+    w.__aerodanceOpenCamera = () => { w.opened++; };
   });
   await game.goto('http://127.0.0.1:4184/?input=ghost');
   await game.waitForFunction(() => document.querySelector('canvas')?.dataset.menuReady === 'true' && document.querySelector('canvas')?.dataset.menuScreen === 'main');
@@ -174,8 +178,15 @@ try {
   assert.ok(bubble.w >= MIN_TOUCH_PX && bubble.x + bubble.w <= frame.x + frame.width + 0.5 && bubble.y + bubble.h <= frame.y + frame.height + 0.5
     && bubble.x > frame.x + frame.width / 2 && bubble.y > frame.y + frame.height / 2, `the bubble is at ${JSON.stringify(bubble)} in a frame at ${JSON.stringify(frame)}`);
   await game.screenshot({ path: '/tmp/aerodance-airplay-bubble.png' });
-  // Start: the menu moves on, and the picker goes at once.
   const design = DISPLAY_MODES[(await dataset(game)).displayMode === 'standard' ? 'standard' : 'widescreen'];
+  // The camera bubble, bottom left: a tap opens the app's phone camera page.
+  const opened = () => game.evaluate(() => (window as typeof window & { opened: number }).opened);
+  const camera = leftCornerBubble(design.w);
+  const tapCamera = () => game.touchscreen.tap(frame.x + camera.x / design.w * frame.width, frame.y + camera.y / design.h * frame.height);
+  await tapCamera();
+  await game.waitForFunction(() => (window as typeof window & { opened: number }).opened > 0);
+  assert.equal(await opened(), 1, 'the camera bubble opened the camera page more than once');
+  // Start: the menu moves on, and the picker goes at once.
   const { START } = menuLayout(design.w);
   await game.touchscreen.tap(frame.x + (START.x + START.w / 2) / design.w * frame.width, frame.y + (START.y + START.h / 2) / design.h * frame.height);
   await game.waitForFunction(() => document.querySelector('canvas')?.dataset.menuScreen === 'players');
@@ -185,7 +196,43 @@ try {
   await game.waitForFunction(() => !!(window as typeof window & { placed: unknown[] }).placed.at(-1));
   await game.evaluate(() => { (window as typeof window & { __aerodanceHost?: unknown }).__aerodanceHost = { interrupted: false, tv: true, screen: 'tv' }; });
   await game.waitForFunction(() => (window as typeof window & { placed: unknown[] }).placed.at(-1) === null);
+  // On the TV the camera bubble goes too.
+  await game.waitForTimeout(500);
+  await tapCamera();
+  await game.waitForTimeout(300);
+  assert.equal(await opened(), 1, 'the camera bubble opened the camera page with the game on the TV');
   await game.close();
+
+  // The phone camera page in the app, upright.
+  type CameraWindow = typeof window & { said: { stage?: string; dim?: boolean; close?: boolean }[] };
+  const pair = await browser.newPage({ viewport: { width: 402, height: 791 }, hasTouch: true, isMobile: engine === chromium });
+  pair.setDefaultTimeout(30000);
+  await pair.addInitScript(() => {
+    const w = window as CameraWindow & { webkit?: unknown };
+    w.said = [];
+    w.webkit = { messageHandlers: { aerodanceCamera: { postMessage: (message: unknown) => w.said.push(JSON.parse(JSON.stringify(message))) } } };
+  });
+  const said = () => pair.evaluate(() => (window as CameraWindow).said);
+  await pair.goto('http://127.0.0.1:4184/pair/');
+  await pair.waitForFunction(() => document.querySelector('canvas')?.dataset.phoneStage === 'code');
+  assert.deepEqual((await said()).at(-1), { stage: 'code', dim: false }, 'the page didn\'t tell the app its stage');
+  const close = await centre(pair, 'Close');
+  assert.ok(close.x > 402 / 2 && close.y < 120, `the close button is at ${JSON.stringify(close)}, not top right`);
+  await pair.screenshot({ path: '/tmp/aerodance-camera-page-app.png' });
+  await pair.touchscreen.tap(close.x, close.y);
+  await pair.waitForFunction(() => (window as CameraWindow).said.some((m) => m.close));
+  // Escape closes it too.
+  await pair.evaluate(() => { (window as CameraWindow).said = []; });
+  await pair.keyboard.press('Escape');
+  await pair.waitForFunction(() => (window as CameraWindow).said.some((m) => m.close));
+  await pair.close();
+
+  // In a browser it has no close button.
+  const browserPair = await browser.newPage({ viewport: { width: 402, height: 791 } });
+  await browserPair.goto('http://127.0.0.1:4184/pair/');
+  await browserPair.waitForFunction(() => document.querySelector('canvas')?.dataset.phoneStage === 'code');
+  assert.equal(await browserPair.getByRole('button', { name: 'Close', exact: true }).count(), 0, 'a browser\'s camera page has a close button');
+  await browserPair.close();
   console.log(`remote browser test passed (${engine.name()})`);
 } finally {
   await browser.close();

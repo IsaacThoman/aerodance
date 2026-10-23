@@ -3,6 +3,7 @@ import { ICONS, drawGlassCircle, drawShadowText } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import useFullscreen from './useFullscreen.ts';
 import type { Fullscreen } from './useFullscreen.ts';
+import { cornerBubble } from './layout.ts';
 
 /**
  * The main menu's fullscreen bubble, drawn in-engine in the bottom-right corner (priority
@@ -14,8 +15,6 @@ import type { Fullscreen } from './useFullscreen.ts';
  * <FullscreenButton visible={() => isMainScreen} />
  */
 
-/** The bottom-right corner bubble, in design units (the app's AirPlay bubble uses it too). */
-export const cornerBubble = (width: number) => ({ x: width - 84, y: 836, r: 42 });
 const button = cornerBubble;
 export const SLIDE_SECONDS = 0.3;
 

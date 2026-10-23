@@ -33,11 +33,15 @@ Build options:
                                    (NSAllowsLocalNetworking), and the launch options below are
                                    ignored
   --site <origin>                  the deployed game the app pairs phones through (default
-                                   ${SITE}; a PR preview is https://<number>.aerodance.party)
+                                   ${SITE}; a PR preview is https://<number>.aerodance.party),
+                                   whose QR codes open the app's phone camera page (an https
+                                   site's universal links)
 
 Options:
   --device <name>                  the iPhone or iPad (needed when more than one is paired)
   --path <path>                    the page to open (default /)
+  --link <url>                     open as if by this link: a game's QR code
+                                   (https://aerodance.party/pair/#123456) opens the phone camera
   --report                         print the app's frame rate, JavaScript time per frame and
                                    draw calls every two seconds, until Ctrl-C
   --report-to <url>                send those reports to another address instead
@@ -144,6 +148,23 @@ function dropUnusedPoseModels() {
   for (const f of models) if (!f.endsWith('pose_landmarker_lite.task')) rmSync(path.join(www, f));
 }
 
+// Universal links for the site the app pairs through: a game's QR code there (/pair/#<code>) opens the
+// app's phone camera page, once the site serves its apple-app-site-association. Only an https site
+// can (not a development server on the local network).
+function writeEntitlements(site: string) {
+  const url = new URL(site);
+  const domains = url.protocol === 'https:' ? `
+  <key>com.apple.developer.associated-domains</key>
+  <array><string>applinks:${url.hostname}</string></array>` : '';
+  writeFileSync(path.join(appDir, 'Aerodance.entitlements'), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>${domains}
+</dict>
+</plist>
+`);
+}
+
 type BuildOptions ={ release: boolean; site: string; skipWebBuild: boolean };
 
 /** Builds the game into www/ and generates the Xcode project; returns xcodebuild's environment. */
@@ -153,8 +174,8 @@ async function prepareApp({ release, site, skipWebBuild }: BuildOptions) {
   if (!existsSync(path.join(root, 'dist/index.html'))) throw Error('No production build in dist/; run without --skip-web-build');
   rmSync(www, { recursive: true, force: true });
   // Unlike the Apple TV, phones have cameras: pose tracking comes along, with only the Lite model,
-  // the one the game's camera uses (Full and Heavy, 9 and 29 MB, are only offered by the phone page,
-  // which the app doesn't open; inject.js drops a saved choice of them).
+  // the one the game's camera and the phone camera page use (Full and Heavy are 9 and 29 MB;
+  // inject.js drops a saved choice of them).
   cpSync(path.join(root, 'dist'), www, { recursive: true });
   dropUnusedPoseModels();
   await bundleFonts();
@@ -164,6 +185,8 @@ async function prepareApp({ release, site, skipWebBuild }: BuildOptions) {
   if (spawnSync('xcodegen', ['--version']).error) throw Error('XcodeGen is needed to generate the Xcode project: brew install xcodegen');
   const env = { ...process.env, IOS_TEAM_ID: TEAM_ID, IOS_BUNDLE_ID: BUNDLE_ID };
   run('xcodegen', ['generate', '--quiet'], appDir, env);
+  // (After XcodeGen, which writes the file empty.)
+  writeEntitlements(site);
   if (!release) {
     // Development builds report to the Mac over the local network (--report).
     const plist = path.join(appDir, 'Info.plist');
@@ -186,11 +209,11 @@ async function buildApp(destination: string, sdk: 'iphoneos' | 'iphonesimulator'
   return path.join(appDir, `build/Build/Products/Release-${sdk}/aerodance.app`);
 }
 
-type LaunchOptions = { page: string; reportUrl?: string; flow: boolean; drive?: string; clearWebsiteData: boolean; port?: string };
+type LaunchOptions = { page: string; reportUrl?: string; flow: boolean; drive?: string; clearWebsiteData: boolean; port?: string; link?: string };
 
-function appArgs({ page, reportUrl, flow, drive, clearWebsiteData, port }: LaunchOptions) {
+function appArgs({ page, reportUrl, flow, drive, clearWebsiteData, port, link }: LaunchOptions) {
   return ['--path', page, ...(reportUrl ? ['--report', reportUrl] : []), ...(flow ? ['--flow'] : []), ...(drive ? ['--drive', drive] : []),
-    ...(clearWebsiteData ? ['--clear-website-data'] : []), ...(port ? ['--port', port] : [])];
+    ...(clearWebsiteData ? ['--clear-website-data'] : []), ...(port ? ['--port', port] : []), ...(link ? ['--link', link] : [])];
 }
 
 type Report = {
@@ -272,12 +295,14 @@ async function main() {
   const clearWebsiteData = has('--clear-website-data');
   const port = flag('--port');
   if (port !== undefined && !/^\d+$/.test(port)) throw Error(`--port takes a number, not ${port}`);
+  const link = flag('--link');
+  if (link !== undefined && !URL.canParse(link)) throw Error(`--link takes a URL, not ${link}`);
   const skipWebBuild = has('--skip-web-build');
   if (args.length) throw Error(`Unknown option ${args[0]}\n\n${USAGE}`);
   if (report && !reportTo) receiveReports();
   const sim = cmd === 'sim';
   const reportUrl = reportTo || (report ? `http://${sim ? '127.0.0.1' : lanAddress()}:${REPORT_PORT}/report` : undefined);
-  const launch = appArgs({ page, reportUrl, flow, drive, clearWebsiteData, port });
+  const launch = appArgs({ page, reportUrl, flow, drive, clearWebsiteData, port, link });
 
   if (sim) {
     const udid = pickSimulator(device);

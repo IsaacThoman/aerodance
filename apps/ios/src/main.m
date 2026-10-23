@@ -13,6 +13,9 @@
 // When a display connects, iOS gives the app an external-display scene; the web view moves into
 // that scene's window (the page keeps running, nothing reloads) and the phone shows the remote,
 // a second page of the game's own (/remote/), drawn in-engine like the game.
+//
+// The phone can also be another game's camera: the phone camera page (/pair/), in a third web view
+// over the game, opened from the game's main menu or by a game's QR code (a universal link).
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <AVFoundation/AVFoundation.h>
@@ -23,6 +26,8 @@
 #endif
 
 static NSString *const GameHostChanged = @"GameHostChanged";
+// The game's camera bubble was tapped: the phone shows the phone camera page.
+static NSString *const OpenPhoneCamera = @"OpenPhoneCamera";
 
 static NSString *LaunchArg(NSString *name, NSString *fallback) {
 #ifdef AERODANCE_DEV
@@ -207,6 +212,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic, strong) WKUserContentController *scripts;
 @property (nonatomic, copy) NSString *injectSource;
 @property (nonatomic, strong) id drive;  // --drive's steps
+@property (nonatomic, copy, readonly) NSString *site;    // the deployed site phones pair through (scripts/ios.ts --site)
+@property (nonatomic, copy) NSDictionary *cameraState;  // the phone camera page's, for inject.js's reports
+@property (nonatomic) BOOL covered;                     // the phone camera page is over the game on the phone
+@property (nonatomic) BOOL suspended;                   // the game's sound is stopped while it's out of every window
 @end
 
 @implementation GameHost
@@ -220,7 +229,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 - (WKWebView *)web {
   if (_web) return _web;
-  NSString *root = self.root = [[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"www"] stringByStandardizingPath];
+  self.root = [[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"www"] stringByStandardizingPath];
   [self startServer];
 #ifdef AERODANCE_DEV
   // `xcrun simctl spawn <udid> notifyutil -p aerodance.drop-server` cancels the server, as if iOS
@@ -246,11 +255,8 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   NSString *report = LaunchArg(@"--report", @"");
   script = [script stringByReplacingOccurrencesOfString:@"__REPORT_URL__" withString:report];
   script = [script stringByReplacingOccurrencesOfString:@"__FLOW__" withString:LaunchFlag(@"--flow") ? @"1" : @""];
-  // The deployed site phones pair through (scripts/ios.ts --site), as globalThis.__aerodanceSite.
-  NSData *appJSON = [NSData dataWithContentsOfFile:[root stringByAppendingPathComponent:@"app.json"]];
-  NSDictionary *app = appJSON ? [NSJSONSerialization JSONObjectWithData:appJSON options:0 error:nil] : nil;
-  NSString *site = [app isKindOfClass:NSDictionary.class] && [app[@"site"] isKindOfClass:NSString.class] ? app[@"site"] : @"";
-  script = [script stringByReplacingOccurrencesOfString:@"__SITE__" withString:site];
+  // The deployed site phones pair through, as globalThis.__aerodanceSite.
+  script = [script stringByReplacingOccurrencesOfString:@"__SITE__" withString:self.site];
   self.injectSource = script;
   // --drive '<json>': steps for inject.js to play, as the Apple TV app's launch config takes them.
   NSString *drive = LaunchArg(@"--drive", nil);
@@ -289,6 +295,19 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
     [self loadWhenServerReady:url];
   }
   return web;
+}
+
+// From www/app.json, which scripts/ios.ts writes; "" without one.
+- (NSString *)site {
+  static NSString *site;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSString *file = [[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"www"] stringByAppendingPathComponent:@"app.json"];
+    NSData *json = [NSData dataWithContentsOfFile:file];
+    NSDictionary *app = json ? [NSJSONSerialization JSONObjectWithData:json options:0 error:nil] : nil;
+    site = [app isKindOfClass:NSDictionary.class] && [app[@"site"] isKindOfClass:NSString.class] ? app[@"site"] : @"";
+  });
+  return site;
 }
 
 #pragma mark Keeping the local server up
@@ -456,15 +475,26 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 - (BOOL)onTV { return self.tvView != nil; }
 
 // Moves the web view to the TV's window if there is one, else the phone's. The page keeps
-// running across the move; WebKit re-attaches its layers to the new window.
+// running across the move; WebKit re-attaches its layers to the new window. Under the phone camera
+// page it leaves the phone's window: out of every window its page is hidden and stops drawing
+// (hiding the view doesn't tell it), and its sound stops too.
 - (void)place {
   UIView *target = self.tvView ?: self.phoneView;
   if (!target) return;
   WKWebView *web = self.web;
+  if (self.covered && !self.tvView) target = nil;
   if (web.superview != target) {
     [web removeFromSuperview];
-    web.frame = target.bounds;
-    [target addSubview:web];
+    // (Away, it keeps its size: the page isn't to lay itself out for nothing.)
+    if (target) {
+      web.frame = target.bounds;
+      [target addSubview:web];
+    }
+  }
+  BOOL away = !web.superview;
+  if (away != self.suspended) {
+    self.suspended = away;
+    [web setAllMediaPlaybackSuspended:away completionHandler:nil];
   }
   [self updateTV];
   if (self.onTV != self.shownOnTV) {
@@ -486,14 +516,28 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   self.tv = self.onTV && soundOnTV;
 }
 
-// For inject.js's reports: which screen the game is on, and how hot the device is.
+// For inject.js's reports: which screen the game is on, how hot the device is, and the phone
+// camera page's state while it's open.
 - (void)tellPage {
   if (!_web) return;
   NSString *display = self.onTV ? [NSString stringWithFormat:@"tv %@", self.tvDescription] : @"phone";
   NSProcessInfo *info = NSProcessInfo.processInfo;
   NSArray *thermal = @[@"nominal", @"fair", @"serious", @"critical"];
   NSDictionary *device = @{ @"thermal": info.thermalState < thermal.count ? thermal[info.thermalState] : @"unknown", @"lowPower": @(info.lowPowerModeEnabled) };
-  [_web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceDisplay = %@; window.__aerodanceDevice = %@", JSON(display), JSON(device)] completionHandler:nil];
+  [_web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceDisplay = %@; window.__aerodanceDevice = %@; window.__aerodanceCamera = %@",
+                            JSON(display), JSON(device), JSON(self.cameraState ?: NSNull.null)] completionHandler:nil];
+}
+
+- (void)setCovered:(BOOL)covered {
+  if (_covered == covered) return;
+  _covered = covered;
+  [self place];
+}
+
+- (void)setCameraState:(NSDictionary *)state {
+  if ([state isEqual:_cameraState] || (!state && !_cameraState)) return;
+  _cameraState = [state copy];
+  [self tellPage];
 }
 
 - (instancetype)init {
@@ -576,6 +620,8 @@ static CGRect PageRect(id value) {
     NSLog(@"aerodance: restored %@ from the saved copy", [body[@"restored"] componentsJoinedByString:@", "]);
   }
   if (body[@"page"] || body[@"airplay"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+  // The camera bubble (menu/PhoneCameraButton.tsx), drawn only while the game is on the phone.
+  if ([body[@"camera"] isEqual:@YES] && !self.onTV) [NSNotificationCenter.defaultCenter postNotificationName:OpenPhoneCamera object:self];
 }
 
 // The game's own camera tracking (MediaPipe in the page) may use the phone's camera; only the
@@ -657,15 +703,15 @@ static CGRect PageRect(id value) {
 }
 @end
 
-#pragma mark - Phone screen: the game, or the remote while the game is on the TV
+#pragma mark - Phone screen: the game, the remote while the game is on the TV, or the phone camera
 
-// The remote page's messages, passed on without the web view's configuration keeping the view
-// controller alive.
-@interface RemoteMessages : NSObject <WKScriptMessageHandler>
+// A page's messages, passed on without the web view's configuration keeping the view controller
+// alive.
+@interface PageMessages : NSObject <WKScriptMessageHandler>
 @property (nonatomic, weak) id<WKScriptMessageHandler> target;
 @end
 
-@implementation RemoteMessages
+@implementation PageMessages
 - (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
   [self.target userContentController:controller didReceiveScriptMessage:message];
 }
@@ -681,24 +727,168 @@ static AVRoutePickerView *InvisiblePicker(void) {
   return picker;
 }
 
-// The remote page's background (apps/web/src/phone/pageCanvas.tsx), around it too.
-static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255.0 green:0x6f / 255.0 blue:0xd6 / 255.0 alpha:1]; }
+// The phone pages' background (apps/web/src/phone/pageCanvas.tsx), around them too.
+static UIColor *PageBackground(void) { return [UIColor colorWithRed:0x1f / 255.0 green:0x6f / 255.0 blue:0xd6 / 255.0 alpha:1]; }
 
-@interface PhoneViewController : UIViewController <WKScriptMessageHandler, WKNavigationDelegate>
+// One of the game's own pages beside the game, in a web view of its own on the phone's screen: the
+// remote (/remote/) while the game is on a TV, and the phone camera (/pair/). It loads from the
+// game's server once that's ready, and again if it couldn't, as the game does (GameHost): a failed
+// request to our own server replaces a server that only looks ready (anything else, such as the
+// page's process ending, just loads it again), and retries back off from 0.5 s to 8 s. WebKit's
+// memory cache would keep the failed loads, so it goes first. It stays on the game's own pages.
+@interface LocalPage : NSObject <WKNavigationDelegate, WKUIDelegate>
+@property (nonatomic, strong, readonly) WKWebView *web;
+@property (nonatomic, copy, readonly) NSString *name;  // for the log
+@property (nonatomic, copy) NSString *path;            // the page on the game's server
+@property (nonatomic, copy) BOOL (^wanted)(void);       // whether it may load now (nil: whenever)
+@property (nonatomic, copy) void (^lost)(void);         // its page's process ended (it loads again)
+@property (nonatomic) BOOL usesCamera;                  // the page may use the camera, video only
+@property (nonatomic) BOOL loading;                     // asked for the page (a failed load clears it)
+@property (nonatomic) BOOL closed;                      // put away: it loads nothing more
+@property (nonatomic) NSUInteger failures;              // since the page last loaded, for the backoff
+@property (nonatomic) NSUInteger loads;                 // loads asked for, so a retry for an older one does nothing
+@property (nonatomic, strong) nw_listener_t server;     // the server when the page started loading
+@end
+
+@implementation LocalPage
+
+- (instancetype)initWithName:(NSString *)name path:(NSString *)path configuration:(WKWebViewConfiguration *)config {
+  if (!(self = [super init])) return nil;
+  _name = [name copy];
+  _path = [path copy];
+  WKWebView *web = _web = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
+#ifdef AERODANCE_DEV
+  web.inspectable = YES;
+#endif
+  web.navigationDelegate = self;
+  web.UIDelegate = self;
+  // The view it's in shows around it, and before it has drawn.
+  web.opaque = NO;
+  web.backgroundColor = UIColor.clearColor;
+  web.scrollView.backgroundColor = UIColor.clearColor;
+  web.scrollView.scrollEnabled = NO;
+  web.scrollView.bounces = NO;
+  web.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+  web.translatesAutoresizingMaskIntoConstraints = NO;
+  return self;
+}
+
+// Puts the page in `view`, filling its safe area.
+- (void)placeIn:(UIView *)view {
+  [view addSubview:self.web];
+  UILayoutGuide *safe = view.safeAreaLayoutGuide;
+  [NSLayoutConstraint activateConstraints:@[
+    [self.web.topAnchor constraintEqualToAnchor:safe.topAnchor], [self.web.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+    [self.web.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor], [self.web.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+  ]];
+}
+
+// Loads the page, unless it's loading or loaded already, or can't yet (the server isn't ready, or
+// it isn't wanted now).
+- (void)load {
+  if (self.closed || self.loading || !GameHost.shared.serverReady || (self.wanted && !self.wanted())) return;
+  self.loading = YES;
+  self.loads++;
+  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@%@", Port(), self.path]];
+  [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeMemoryCache] modifiedSince:NSDate.distantPast completionHandler:^{
+    if (!self.closed) [self.web loadRequest:[NSURLRequest requestWithURL:url]];
+  }];
+}
+
+// Loads this page afresh, whatever is loading or loaded.
+- (void)loadPath:(NSString *)path {
+  self.path = path;
+  self.loading = NO;
+  [self load];
+}
+
+// Puts the page away for good: it stops, and nothing loads into it again.
+- (void)close {
+  self.closed = YES;
+  [self.web stopLoading];
+  [self.web removeFromSuperview];
+}
+
+- (void)retry:(NSString *)reason {
+  NSTimeInterval delay = MIN(0.5 * pow(2, self.failures++), 8);
+  NSLog(@"aerodance: the %@ %@; loading it again in %.1f s", self.name, reason, delay);
+  NSUInteger load = self.loads;
+  __weak LocalPage *weak = self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    LocalPage *page = weak;
+    if (!page || load != page.loads) return;  // put away, or another load has started since
+    page.loading = NO;
+    [page load];
+  });
+}
+
+- (void)failed:(NSError *)error {
+  BOOL network = [error.domain isEqual:NSURLErrorDomain];
+  if (network && error.code == NSURLErrorCancelled) return;
+  if (network && [GameHost.shared isOurs:error.userInfo[NSURLErrorFailingURLErrorKey]]) [GameHost.shared serverFailedToServe];
+  [self retry:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
+}
+
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self failed:error]; }
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self failed:error]; }
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.server = GameHost.shared.server; }
+
+// A page that finished while the server was down or being replaced may lack its scripts.
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+  GameHost *host = GameHost.shared;
+  if (!host.serverReady || host.server != self.server) { [self retry:@"loaded while the server was down"]; return; }
+  self.failures = 0;
+}
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+  NSLog(@"aerodance: the %@'s web content process ended; reloading", self.name);
+  self.loading = NO;
+  if (self.lost) self.lost();
+  [self load];
+}
+
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+  decisionHandler([GameHost.shared isOurs:action.request.URL] ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+}
+
+// The phone camera page tracks with the phone's camera; only the game's own page may ask.
+- (void)webView:(WKWebView *)webView requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin
+    initiatedByFrame:(WKFrameInfo *)frame type:(WKMediaCaptureType)type decisionHandler:(void (^)(WKPermissionDecision))decisionHandler {
+  BOOL ours = [origin.host isEqual:@"127.0.0.1"] && origin.port == Port().integerValue;
+  decisionHandler(self.usesCamera && ours && type == WKMediaCaptureTypeCamera ? WKPermissionDecisionGrant : WKPermissionDecisionDeny);
+}
+
+@end
+
+// The code a game's QR code carries, /pair/#123456 (or ?code=123456), as the phone page reads it
+// (apps/web/src/phone/PhoneLink.ts linkCode); nil without one.
+static NSString *LinkCode(NSURL *url) {
+  NSURLComponents *parts = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+  NSString *code = parts.fragment.length ? parts.fragment : nil;
+  for (NSURLQueryItem *item in parts.queryItems) if (!code && [item.name isEqual:@"code"]) code = item.value;
+  NSRegularExpression *six = [NSRegularExpression regularExpressionWithPattern:@"^[0-9]{6}$" options:0 error:nil];
+  return code && [six numberOfMatchesInString:code options:0 range:NSMakeRange(0, code.length)] ? code : nil;
+}
+
+// What the phone's screen shows: the game, the remote (the game is on a TV), or the phone camera
+// page (over either).
+typedef NS_ENUM(NSInteger, PhoneShows) { PhoneShowsGame, PhoneShowsRemote, PhoneShowsCamera };
+
+@interface PhoneViewController : UIViewController <WKScriptMessageHandler>
 @property (nonatomic, strong) UIView *gameView;
 @property (nonatomic, strong) AVRoutePickerView *gamePicker;    // over the game's AirPlay bubble (main menu)
 @property (nonatomic, strong) UIView *remote;
-@property (nonatomic, strong) WKWebView *remoteWeb;              // /remote/, made the first time the game goes to a TV
+@property (nonatomic, strong) LocalPage *remotePage;             // /remote/, made the first time the game goes to a TV
 @property (nonatomic, strong) AVRoutePickerView *remotePicker;  // over the remote's AirPlay button
 @property (nonatomic) CGRect remotePickerRect;                  // where the remote page says it goes; null: nowhere
-@property (nonatomic) BOOL remoteLoading;                       // asked for /remote/ (a failed load clears it)
-@property (nonatomic) NSUInteger remoteFailures;                // since the remote last loaded, for the backoff
-@property (nonatomic) NSUInteger remoteLoads;                   // loads asked for, so a retry for an older one does nothing
-@property (nonatomic, strong) nw_listener_t remoteServer;       // the server when the remote started loading
 @property (nonatomic, copy) NSString *remoteSent;               // the last state the remote page was given
+@property (nonatomic, strong) UIView *camera;
+@property (nonatomic, strong) LocalPage *cameraPage;            // /pair/, while the phone camera page is open
+@property (nonatomic, copy) NSString *cameraStage;              // its PhoneLink stage (code, joining, linking, linked, ended)
+@property (nonatomic) BOOL cameraDim;                           // it's dimmed while the phone tracks
 @property (nonatomic, strong) UIImpactFeedbackGenerator *haptics;
 @property (nonatomic, strong) UISceneAccessoryRegistration *tvAccessory API_AVAILABLE(ios(27.0));
-@property (nonatomic) BOOL shownOnTV;  // where the game was at the last refresh
+@property (nonatomic) PhoneShows shown;  // what the phone showed at the last refresh
 @end
 
 @implementation PhoneViewController
@@ -718,14 +908,23 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   // While the game is on the TV: the remote page, inside the safe area, on its own background.
   self.remote = [[UIView alloc] initWithFrame:self.view.bounds];
   self.remote.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-  self.remote.backgroundColor = RemoteBackground();
+  self.remote.backgroundColor = PageBackground();
   self.remote.hidden = YES;
   [self.view addSubview:self.remote];
   self.remotePickerRect = CGRectNull;
 
+  // While it's open: the phone camera page over everything, inside the safe area, on its own
+  // background (black while the page is dimmed).
+  self.camera = [[UIView alloc] initWithFrame:self.view.bounds];
+  self.camera.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  self.camera.backgroundColor = PageBackground();
+  self.camera.hidden = YES;
+  [self.view addSubview:self.camera];
+
   GameHost *host = GameHost.shared;
   host.phoneView = self.gameView;
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refresh) name:GameHostChanged object:host];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(openCameraFromGame) name:OpenPhoneCamera object:host];
   [host place];
 }
 
@@ -751,11 +950,14 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   [self placeRemotePicker];
 }
 
+- (PhoneShows)shows { return self.cameraPage ? PhoneShowsCamera : GameHost.shared.onTV ? PhoneShowsRemote : PhoneShowsGame; }
+
 - (void)refresh {
   GameHost *host = GameHost.shared;
   BOOL tv = host.onTV;
-  if (tv != self.shownOnTV) {
-    self.shownOnTV = tv;
+  PhoneShows shows = self.shows;
+  if (shows != self.shown) {
+    self.shown = shows;
     [self setNeedsUpdateOfSupportedInterfaceOrientations];
     // An iPhone held sideways stays sideways until it's turned unless asked to turn now.
     UIWindowScene *scene = self.view.window.windowScene;
@@ -765,20 +967,28 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
     }
   }
   if (tv) [self makeRemote];
-  self.remote.hidden = !tv;
-  self.remoteWeb.hidden = !tv;  // so the page knows it's away, and lets go of a held arrow
-  self.gameView.hidden = tv;
-  [self loadRemote];
+  self.remote.hidden = shows != PhoneShowsRemote;
+  self.remotePage.web.hidden = shows != PhoneShowsRemote;  // so the page knows it's away, and lets go of a held arrow
+  self.gameView.hidden = shows != PhoneShowsGame;
+  self.camera.hidden = shows != PhoneShowsCamera;
+  self.camera.backgroundColor = self.cameraDim ? UIColor.blackColor : PageBackground();
+  // Under the camera page the game stops (GameHost place); on a TV it carries on.
+  host.covered = shows == PhoneShowsCamera;
+  host.cameraState = self.cameraPage ? @{ @"stage": self.cameraStage ?: @"", @"dim": @(self.cameraDim) } : nil;
+  [self.remotePage load];
+  [self.cameraPage load];
   [self tellRemote:NO];
   [self placeGamePicker];
   NSDictionary *page = host.page ?: @{};
   BOOL inSong = page[@"gamePhase"] != nil;
-  // The phone mustn't lock while players get ready and dance (nobody touches it), nor while it's
-  // the TV's remote; paused, on the results and on the menus it may.
+  // The phone mustn't lock while players get ready and dance (nobody touches it), while it's the
+  // TV's remote, nor while it's another game's camera; paused, on the results and on the menus it may.
   NSArray *awake = @[@"loading", @"calibrating", @"ready", @"countdown", @"playing", @"finishing"];
-  UIApplication.sharedApplication.idleTimerDisabled = tv || (inSong && [awake containsObject:page[@"gamePhase"]]);
+  BOOL camera = self.cameraPage && [@[@"joining", @"linking", @"linked"] containsObject:self.cameraStage ?: @""];
+  UIApplication.sharedApplication.idleTimerDisabled = tv || camera || (inSong && [awake containsObject:page[@"gamePhase"]]);
   [self setNeedsStatusBarAppearanceUpdate];
   [self setNeedsUpdateOfHomeIndicatorAutoHidden];
+  [self setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
 }
 
 // The game's AirPlay bubble shows on its main menu while the game is on the phone; the page says
@@ -786,7 +996,7 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
 - (void)placeGamePicker {
   GameHost *host = GameHost.shared;
   WKWebView *web = host.web;
-  BOOL shown = !host.onTV && !CGRectIsNull(host.airplayRect) && web.superview == self.gameView;
+  BOOL shown = self.shows == PhoneShowsGame && !CGRectIsNull(host.airplayRect) && web.superview == self.gameView;
   self.gamePicker.hidden = !shown;
   if (shown) self.gamePicker.frame = [web convertRect:host.airplayRect toView:self.view];
 }
@@ -794,116 +1004,52 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
 #pragma mark The remote
 
 - (void)makeRemote {
-  if (self.remoteWeb) return;
+  if (self.remotePage) return;
   WKWebViewConfiguration *config = [WKWebViewConfiguration new];
-  RemoteMessages *messages = [RemoteMessages new];
+  PageMessages *messages = [PageMessages new];
   messages.target = self;
   [config.userContentController addScriptMessageHandler:messages name:@"aerodanceRemote"];
-  WKWebView *web = self.remoteWeb = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
-#ifdef AERODANCE_DEV
-  web.inspectable = YES;
-#endif
-  web.navigationDelegate = self;
-  web.opaque = NO;
-  web.backgroundColor = RemoteBackground();
-  web.scrollView.backgroundColor = RemoteBackground();
-  web.scrollView.scrollEnabled = NO;
-  web.scrollView.bounces = NO;
-  web.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
-  web.translatesAutoresizingMaskIntoConstraints = NO;
-  [self.remote addSubview:web];
-  UILayoutGuide *safe = self.remote.safeAreaLayoutGuide;
-  [NSLayoutConstraint activateConstraints:@[
-    [web.topAnchor constraintEqualToAnchor:safe.topAnchor], [web.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
-    [web.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor], [web.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
-  ]];
-  [self.remote addSubview:self.remotePicker = InvisiblePicker()];
-}
-
-// The remote loads from the game's own server once it's ready, and again if it couldn't, as the
-// game does (GameHost): a failure replaces a server that only looks ready, and retries back off
-// from 0.5 s to 8 s. WebKit's memory cache would keep the failed loads, so it goes first.
-- (void)loadRemote {
+  LocalPage *page = self.remotePage = [[LocalPage alloc] initWithName:@"remote" path:@"/remote/" configuration:config];
   // (Only while the game is on a TV: the remote waits for the next one otherwise.)
-  if (!self.remoteWeb || self.remoteLoading || !GameHost.shared.serverReady || !GameHost.shared.onTV) return;
-  self.remoteLoading = YES;
-  self.remoteLoads++;
-  self.remoteSent = nil;
-  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/remote/", Port()]];
-  [WKWebsiteDataStore.defaultDataStore removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeMemoryCache] modifiedSince:NSDate.distantPast completionHandler:^{
-    [self.remoteWeb loadRequest:[NSURLRequest requestWithURL:url]];
-  }];
-}
-
-- (void)retryRemote:(NSString *)reason {
-  NSTimeInterval delay = MIN(0.5 * pow(2, self.remoteFailures++), 8);
-  NSLog(@"aerodance: the remote %@; loading it again in %.1f s", reason, delay);
-  NSUInteger load = self.remoteLoads;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-    if (load != self.remoteLoads) return;  // another load has started since
-    self.remoteLoading = NO;
-    [self loadRemote];
-  });
-}
-
-// Like the game's pages (GameHost pageFailed:), only a failed request to our own server says the
-// server is gone; anything else (the remote's process ending) just loads it again.
-- (void)remoteFailed:(NSError *)error {
-  BOOL network = [error.domain isEqual:NSURLErrorDomain];
-  if (network && error.code == NSURLErrorCancelled) return;
-  if (network && [GameHost.shared isOurs:error.userInfo[NSURLErrorFailingURLErrorKey]]) [GameHost.shared serverFailedToServe];
-  [self retryRemote:[NSString stringWithFormat:@"couldn't load (%@)", error.localizedDescription]];
-}
-
-- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
-- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self remoteFailed:error]; }
-- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.remoteServer = GameHost.shared.server; }
-
-// A remote that finished while the server was down or being replaced may lack its scripts.
-- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-  GameHost *host = GameHost.shared;
-  if (!host.serverReady || host.server != self.remoteServer) { [self retryRemote:@"loaded while the server was down"]; return; }
-  self.remoteFailures = 0;
-}
-
-- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
-  NSLog(@"aerodance: the remote's web content process ended; reloading");
-  self.remoteLoading = NO;
-  self.remotePickerRect = CGRectNull;
-  [self placeRemotePicker];
-  [self loadRemote];
-}
-
-// The remote stays on its own page.
-- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-  decisionHandler([GameHost.shared isOurs:action.request.URL] ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+  page.wanted = ^{ return GameHost.shared.onTV; };
+  __weak PhoneViewController *weak = self;
+  page.lost = ^{
+    weak.remotePickerRect = CGRectNull;
+    [weak placeRemotePicker];
+  };
+  [page placeIn:self.remote];
+  [self.remote addSubview:self.remotePicker = InvisiblePicker()];
 }
 
 // Over the remote's AirPlay button, where the page says it is (in the remote web view's points).
 - (void)placeRemotePicker {
-  BOOL shown = self.remoteWeb && !CGRectIsNull(self.remotePickerRect);
+  BOOL shown = self.remotePage && !CGRectIsNull(self.remotePickerRect);
   self.remotePicker.hidden = !shown;
   if (!shown) return;
   [self.remote layoutIfNeeded];
-  self.remotePicker.frame = [self.remoteWeb convertRect:self.remotePickerRect toView:self.remote];
+  self.remotePicker.frame = [self.remotePage.web convertRect:self.remotePickerRect toView:self.remote];
 }
 
 // The remote shows what the game is showing (the game's reported state), whenever it changes.
 - (void)tellRemote:(BOOL)always {
-  if (!self.remoteWeb) return;
-  NSString *state = JSON(@{ @"page": GameHost.shared.page ?: @{}, @"shown": @(GameHost.shared.onTV) });
+  if (!self.remotePage) return;
+  NSString *state = JSON(@{ @"page": GameHost.shared.page ?: @{}, @"shown": @(self.shows == PhoneShowsRemote) });
   if (!always && [state isEqual:self.remoteSent]) return;
   self.remoteSent = state;
-  [self.remoteWeb evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceRemote && window.__aerodanceRemote(%@)", state] completionHandler:nil];
+  [self.remotePage.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceRemote && window.__aerodanceRemote(%@)", state] completionHandler:nil];
 }
 
-// The remote's buttons (bridge.ts): a key for the game, where the AirPlay picker goes, and ready.
 - (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
   if (!FromOurPage(message)) return;
   NSDictionary *body = message.body;
   if (![body isKindOfClass:NSDictionary.class]) return;
-  // (Only while the game is on the TV: a held arrow can outlast it.)
-  if ([body[@"key"] isKindOfClass:NSString.class] && GameHost.shared.onTV) {
+  if ([message.name isEqual:@"aerodanceCamera"]) {
+    if (self.cameraPage && message.webView == self.cameraPage.web) [self cameraSaid:body];
+    return;
+  }
+  // The remote's buttons (bridge.ts): a key for the game, where the AirPlay picker goes, and ready.
+  // (Keys only while the remote shows: a held arrow can outlast it.)
+  if ([body[@"key"] isKindOfClass:NSString.class] && self.shows == PhoneShowsRemote) {
     // A tap on the glass, not each repeat of a held arrow.
     if (![body[@"repeat"] isEqual:@YES]) [self.haptics impactOccurred];
     [GameHost.shared sendKey:body[@"key"]];
@@ -915,25 +1061,93 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   if ([body[@"ready"] isEqual:@YES]) [self tellRemote:YES];
 }
 
-// iPhone: the 16:9 game only fits sideways, and the remote's column only fits upright, so it's
-// portrait only while the game is on the TV. iPad: any way up, in any window size (Split View,
-// Stage Manager); the page letterboxes itself and the remote fits either way. The app and scene
-// allow the most either needs (AppDelegate, PhoneSceneDelegate).
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-  if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) return UIInterfaceOrientationMaskAll;
-  return GameHost.shared.onTV ? UIInterfaceOrientationMaskPortrait : UIInterfaceOrientationMaskLandscape;
+#pragma mark The phone camera
+
+// The phone as another game's camera: the phone camera page (apps/web/src/phone/), as a phone's
+// browser opens it from the game's QR code, but served by the app over its own game (on the phone,
+// or on a TV, which keeps showing it). The page pairs through the deployed site the game pairs
+// through (scripts/ios.ts --site), and its code screen's close button comes back.
+- (void)openCameraFromGame { [self openCamera:nil]; }
+
+// Opens the page with this game's code (it joins at once), or for one to be typed (nil). With the
+// page already open, a code joins that game instead; without one it stays as it is.
+- (void)openCamera:(NSString *)code {
+  [self loadViewIfNeeded];
+  BOOL open = self.cameraPage != nil;
+  if (!open) [self makeCamera];
+  if (!open || code) [self.cameraPage loadPath:code ? [NSString stringWithFormat:@"/pair/?code=%@", code] : @"/pair/"];
+  NSLog(@"aerodance: phone camera %@", code ? [@"joining " stringByAppendingString:code] : @"open");
+  [self refresh];
 }
 
-- (BOOL)prefersStatusBarHidden { return !GameHost.shared.onTV; }
-- (BOOL)prefersHomeIndicatorAutoHidden { return !GameHost.shared.onTV; }
-- (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return GameHost.shared.onTV ? UIRectEdgeNone : UIRectEdgeAll; }
+- (void)makeCamera {
+  WKWebViewConfiguration *config = [WKWebViewConfiguration new];
+  config.allowsInlineMediaPlayback = YES;  // the camera's picture plays in the page, not full screen
+  config.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+  PageMessages *messages = [PageMessages new];
+  messages.target = self;
+  [config.userContentController addScriptMessageHandler:messages name:@"aerodanceCamera"];
+  // Where it pairs, as the game's own page has it (inject.js).
+  NSString *site = [NSString stringWithFormat:@"globalThis.__aerodanceSite = %@;", JSON(GameHost.shared.site)];
+  [config.userContentController addUserScript:[[WKUserScript alloc] initWithSource:site injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+  LocalPage *page = self.cameraPage = [[LocalPage alloc] initWithName:@"camera page" path:@"/pair/" configuration:config];
+  page.usesCamera = YES;
+  [page placeIn:self.camera];
+}
+
+// Back to the game: the page goes, and its camera stops.
+- (void)closeCamera {
+  if (!self.cameraPage) return;
+  [self.cameraPage close];
+  self.cameraPage = nil;
+  self.cameraStage = nil;
+  self.cameraDim = NO;
+  NSLog(@"aerodance: phone camera closed");
+  [self refresh];
+}
+
+// The page (apps/web/src/phone/bridge.ts): its stage and whether it's dimmed, or close.
+- (void)cameraSaid:(NSDictionary *)body {
+  if ([body[@"close"] isEqual:@YES]) { [self closeCamera]; return; }
+  if ([body[@"stage"] isKindOfClass:NSString.class]) self.cameraStage = body[@"stage"];
+  if ([body[@"dim"] isKindOfClass:NSNumber.class]) self.cameraDim = [body[@"dim"] boolValue];
+  [self refresh];
+}
+
+// A game's QR code, scanned with the app installed (a universal link to the deployed site's
+// /pair/#<code>, apps/web/public/.well-known/apple-app-site-association): the phone becomes that
+// game's camera.
+- (void)openLink:(NSURL *)url {
+  NSString *path = url.path.length ? url.path : @"/";
+  if (![@[@"/pair", @"/phone"] containsObject:path]) { NSLog(@"aerodance: not a link the app opens: %@", url); return; }
+  [self openCamera:LinkCode(url)];
+}
+
+// iPhone: the 16:9 game only fits sideways, and the remote's column only fits upright, so it's
+// portrait only while the game is on the TV; the phone camera page fits either way, as in a browser.
+// iPad: any way up, in any window size (Split View, Stage Manager); the pages fit either way. The
+// app and scene allow the most any of them needs (AppDelegate, PhoneSceneDelegate).
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+  if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) return UIInterfaceOrientationMaskAll;
+  switch (self.shows) {
+    case PhoneShowsCamera: return UIInterfaceOrientationMaskAllButUpsideDown;
+    case PhoneShowsRemote: return UIInterfaceOrientationMaskPortrait;
+    case PhoneShowsGame: return UIInterfaceOrientationMaskLandscape;
+  }
+}
+
+// The game hides the status bar and home indicator; the remote and the camera page show them, as
+// a browser would, except while the camera page is dimmed (as dark as it goes).
+- (BOOL)prefersStatusBarHidden { return self.shows == PhoneShowsGame || (self.shows == PhoneShowsCamera && self.cameraDim); }
+- (BOOL)prefersHomeIndicatorAutoHidden { return self.prefersStatusBarHidden; }
+- (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return self.shows == PhoneShowsGame ? UIRectEdgeAll : UIRectEdgeNone; }
 
 @end
 
 #pragma mark - App
 
 // Everything the app may use: Info.plist only lists landscape for the iPhone, so it launches
-// sideways from a portrait home screen, but the remote can be upright.
+// sideways from a portrait home screen, but the remote and the phone camera page can be upright.
 static UIInterfaceOrientationMask AllowedOrientations(void) {
   return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskAllButUpsideDown;
 }
@@ -945,8 +1159,21 @@ static UIInterfaceOrientationMask AllowedOrientations(void) {
 @implementation PhoneSceneDelegate
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
   self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-  self.window.rootViewController = [PhoneViewController new];
+  PhoneViewController *phone = [PhoneViewController new];
+  self.window.rootViewController = phone;
   [self.window makeKeyAndVisible];
+  // Launched by a game's QR code (a universal link).
+  for (NSUserActivity *activity in options.userActivities) [self scene:scene continueUserActivity:activity];
+  // --link <url>: as if launched by that link.
+  NSString *link = LaunchArg(@"--link", nil);
+  if (link) [phone openLink:[NSURL URLWithString:link]];
+}
+
+// A game's QR code scanned while the app is open (or launched by one).
+- (void)scene:(UIScene *)scene continueUserActivity:(NSUserActivity *)activity {
+  if (![activity.activityType isEqual:NSUserActivityTypeBrowsingWeb] || !activity.webpageURL) return;
+  NSLog(@"aerodance: opened by %@", activity.webpageURL);
+  [(PhoneViewController *)self.window.rootViewController openLink:activity.webpageURL];
 }
 
 // iOS 27 asks the scene; PhoneViewController narrows it to what the game needs now.

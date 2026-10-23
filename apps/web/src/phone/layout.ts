@@ -26,7 +26,7 @@ export interface PhoneLayout {
   w: number; h: number; landscape: boolean;
   /** The wordmark's left end and baseline. */
   title: { x: number; y: number; size: number };
-  /** Top right: leave the game. */
+  /** Top right: leave the game (setup), or close the page (the app's code screen). */
   leave: Circle;
   /** The status line under the wordmark. */
   status: { x: number; y: number; w: number };

@@ -2,7 +2,8 @@
 
 An iPhone and iPad app that runs the production web build in `WKWebView` and shows it on a TV:
 an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
-phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
+phone becomes its remote. With no TV it plays on the phone's own screen, by touch. It can also
+make the phone another game's camera, opened from the main menu or by scanning that game's QR code.
 
 Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network),
 so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
@@ -17,9 +18,8 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   bundles) and `getUserMedia` (the camera) need. The port is fixed because saved scores and
   settings belong to the page's origin. Inter, which the web build loads from Google Fonts, is
   bundled too (`scripts/apple.ts`), so the game looks the same offline. Of the pose-tracking
-  models only Lite comes along: it's the one the game's camera uses (the Full and Heavy choices
-  are on the phone page, which the app doesn't open), and `src/inject.js` drops a saved choice of
-  the others so the camera uses Lite.
+  models only Lite comes along: it's the one the game's camera and the phone camera page use, and
+  `src/inject.js` drops a saved choice of the others so the camera uses Lite.
 - **Keeping the server up.** iOS can take a suspended app's listening socket back, and another app
   can hold the port at launch. The server listens on 127.0.0.1 only; whenever it fails or stops it
   starts again (after 0.25 s, backing off to 8 s), and on returning to the foreground it's
@@ -28,6 +28,19 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
 - **Phone camera.** A phone pairs through the deployed site (`--site`, default
   https://aerodance.party) as with the Apple TV app: the build writes it to `www/app.json` and
   `src/inject.js` sets `globalThis.__aerodanceSite`.
+- **Being another game's camera.** The main menu's camera bubble (bottom left, mirroring the AirPlay
+  bubble, `apps/web/src/menu/PhoneCameraButton.tsx`) shows the phone camera page (`/pair/`, the
+  page a phone's browser opens from a game's QR code) over the game, in a web view of its own
+  inside the safe area. It pairs through the same `--site`, and its code screen has a close
+  button back to the game (`apps/web/src/phone/bridge.ts`). Scanning a game's QR code
+  (`<site>/pair/#<code>`) with the app installed opens the app there and joins that game: a
+  universal link, from the `applinks:` entitlement `scripts/ios.ts` writes for an https `--site`
+  and the site's `/.well-known/apple-app-site-association` (`apps/web/public/`, for the default
+  team and bundle ID). Without the app, the code opens the same page in Safari. Under the page the
+  game leaves the window, so its page is hidden and stops drawing, and its sound stops; on a TV it
+  carries on, and closing the page brings back the remote. The page fits the phone either way up,
+  keeps the screen on while it pairs and tracks, and goes black around itself (with the status bar
+  hidden) while it's dimmed.
 - **One web view, two screens.** When a display connects, iOS gives the app a second window scene
   (role `UIWindowSceneSessionRoleExternalDisplayNonInteractive`, registered with
   `UIViewController.registerSceneAccessory` on iOS 27, which no longer offers it otherwise).
@@ -110,7 +123,7 @@ each its own with `--port <port>` (saved scores and settings belong to the port)
 ## Release builds
 
 Development builds take the launch options above (`--path`, `--report`, `--flow`, `--drive`,
-`--clear-website-data`, `--port`), are
+`--clear-website-data`, `--port`, `--link`), are
 inspectable in Safari's Web Inspector, and add `NSAllowsLocalNetworking` to `Info.plist` so
 `--report` can reach the Mac. (Every build has `NSLocalNetworkUsageDescription`: a paired phone on
 the same Wi-Fi connects to the app directly.) `build --release`
@@ -141,6 +154,12 @@ npm run ios -- sim --path '/?input=ghost' --report --drive '[["wait", {"menuScre
 
 `--clear-website-data` deletes the page's website data before it loads, to check that saved
 scores and settings come back from the app's copy.
+`--link <url>` opens the app as a scanned QR code's universal link would, which simulators
+(unsigned) and builds for a site that doesn't serve the app's association yet can't:
+
+```sh
+npm run ios -- sim --site http://127.0.0.1:4300 --link 'http://127.0.0.1:4300/pair/#123456'   # join a local game's code
+```
 `/bench/aero-bench.html` is the Aero world benchmark (`apps/tvos/bench/`), when it has been built.
 
 ## Playing on an Apple TV
@@ -175,7 +194,9 @@ the device is held sideways shows the remote with every control on screen, uprig
 and the game comes back in landscape when the TV goes. One plays a whole song on the TV with the
 remote's buttons only: the menus, the players dial, Back, Pause and Resume, and the TV going and
 coming back mid-song, which the song plays through. The main menu's AirPlay picker sits over the
-game's AirPlay bubble.
+game's AirPlay bubble. The camera bubble opens the phone camera page, which turns upright on an
+iPhone and closes back to the game in landscape; a link (`--link`) opens it with a code, and a TV
+connecting meanwhile takes the game while the page stays, until closing it shows the remote.
 
 ```sh
 node scripts/ios.ts sim --device <UDID> --port 8423 --path '/?input=ghost'   # build and install

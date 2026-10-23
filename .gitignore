@@ -19,4 +19,5 @@ apps/tvos/src/generated/
 apps/ios/www/
 apps/ios/build/
 apps/ios/Info.plist
+apps/ios/Aerodance.entitlements
 apps/ios/*.xcodeproj/

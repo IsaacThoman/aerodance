@@ -5,7 +5,7 @@ import { Peer } from '../../../../packages/pairing/browser/peer.ts';
 import type { CreatePeerConnection } from '../../../../packages/pairing/browser/peer.ts';
 import { RelayLink, relayUrl } from '../../../../packages/pairing/browser/relay.ts';
 import type { CreateRelaySocket, LinkChannel } from '../../../../packages/pairing/browser/relay.ts';
-import { PAIRING_BASE, SignalChannel, createRoom } from '../../../../packages/pairing/browser/signalChannel.ts';
+import { SignalChannel, appSite, createRoom, pairingBase } from '../../../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../../../packages/pairing/browser/signalChannel.ts';
 import type { CreatedRoom, PairingEvent } from '../../../../packages/pairing/signals.ts';
 import { isPoseModelId, poseModel } from '../../../../packages/pose/browser/models.ts';
@@ -101,8 +101,6 @@ interface Probe {
 }
 type Listener<T> = (value: T) => void;
 
-// An app that bundles the game (the Apple TV app) names the deployed site it pairs through.
-const site = () => ((globalThis as { __aerodanceSite?: string }).__aerodanceSite ?? '').replace(/\/+$/, '');
 const askedTransport = (): Transport => {
   const asked = new URLSearchParams(globalThis.location?.search ?? '').get('transport');
   return asked === 'relay' || asked === 'webrtc' ? asked : 'auto';
@@ -192,8 +190,8 @@ export class PhonePoseSource implements PoseSource {
   checkedAt = -Infinity;
   arrivals: number[] = [];
   offeredAt = -Infinity;
-  constructor({ base = site() ? `${site()}/pair` : PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
-    origin = () => site() || location.origin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
+  constructor({ base = pairingBase(), fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
+    origin = () => appSite() || location.origin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
     decodeFrame = decodeJpeg }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
     this.now = now; this.origin = origin; this.createVideo = createVideo; this.createSocket = createSocket; this.decodeFrame = decodeFrame;

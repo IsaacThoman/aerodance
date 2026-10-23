@@ -13,6 +13,15 @@ import type { CreatedRoom, JoinedRoom, PairingEvent, Signal } from '../signals.t
 
 export const PAIRING_BASE = '/pair';
 
+/**
+ * The deployed site's origin when an app bundles the game or the phone page (the Apple TV and
+ * iPhone/iPad apps set globalThis.__aerodanceSite), else ''. The app's pages pair there.
+ */
+export const appSite = () => ((globalThis as { __aerodanceSite?: string }).__aerodanceSite ?? '').replace(/\/+$/, '');
+
+/** Where pairing's requests go: the app's site, else this page's own server. */
+export const pairingBase = () => (appSite() ? `${appSite()}${PAIRING_BASE}` : PAIRING_BASE);
+
 /** A pairing request the server turned down, with its reason. */
 export class PairingError extends Error {
   status: number;

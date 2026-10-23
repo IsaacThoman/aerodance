@@ -23,6 +23,11 @@ targets:
       - path: www
         type: folder
         buildPhase: resources
+    # Universal links: a game's QR code (<site>/pair/#<code>) opens the app's phone camera page
+    # (main.m openLink), where the site serves apps/web/public/.well-known/apple-app-site-association.
+    # scripts/ios.ts fills this in for the --site it pairs through, after XcodeGen writes it empty.
+    entitlements:
+      path: Aerodance.entitlements
     dependencies:
       - sdk: WebKit.framework
       - sdk: AVKit.framework

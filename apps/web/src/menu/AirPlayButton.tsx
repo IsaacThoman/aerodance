@@ -5,7 +5,8 @@ import useCanvasUI from '../ui/useCanvasUI.ts';
 import { MIN_TOUCH_PX } from '../ui/hit.ts';
 import { canPickAirPlay, hostState, placeAirPlayPicker } from '../host.ts';
 import type { PickerRect } from '../host.ts';
-import { SLIDE_SECONDS, cornerBubble, smooth } from './FullscreenButton.tsx';
+import { SLIDE_SECONDS, smooth } from './FullscreenButton.tsx';
+import { cornerBubble } from './layout.ts';
 
 /**
  * The main menu's AirPlay bubble in the iPhone/iPad app, drawn in-engine in the bottom-right

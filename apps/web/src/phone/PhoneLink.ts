@@ -4,7 +4,7 @@ import { Peer } from '../../../../packages/pairing/browser/peer.ts';
 import type { CreatePeerConnection } from '../../../../packages/pairing/browser/peer.ts';
 import { RelayLink, relayUrl } from '../../../../packages/pairing/browser/relay.ts';
 import type { CreateRelaySocket, LinkChannel } from '../../../../packages/pairing/browser/relay.ts';
-import { PAIRING_BASE, SignalChannel, joinRoom } from '../../../../packages/pairing/browser/signalChannel.ts';
+import { SignalChannel, joinRoom, pairingBase } from '../../../../packages/pairing/browser/signalChannel.ts';
 import type { EventStream } from '../../../../packages/pairing/browser/signalChannel.ts';
 import { isPairingCode } from '../../../../packages/pairing/signals.ts';
 import type { IceCandidate, IceServer, PairingEvent } from '../../../../packages/pairing/signals.ts';
@@ -43,6 +43,9 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
  * WebRTC too relays when WebRTC fails, and between songs offers a probe: a WebRTC connection
  * beside the relayed link, which only answers pings until the relayed link closes (the game
  * closes it once the probe has proved itself), then becomes the link.
+ *
+ * In the iPhone/iPad app, which serves this page itself, it pairs through the deployed site
+ * the app names (pairingBase), like the app's game does.
  *
  * const link = new PhoneLink(); link.subscribe(render); link.join('123456');
  */
@@ -193,7 +196,7 @@ export class PhoneLink {
   frameTimer: ReturnType<typeof setInterval> | undefined;
   capturing = false;
   nextFrameAt = -Infinity;
-  constructor({ camera, base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName(), cameraRetryMs = 2000,
+  constructor({ camera, base = pairingBase(), fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName(), cameraRetryMs = 2000,
     createSocket, captureFrame = captureJpeg }: PhoneLinkOptions = {}) {
     this.camera = camera ?? new WebcamPoseSource({ settingsKey: 'aerodance-phone', adaptToResize: true });
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;

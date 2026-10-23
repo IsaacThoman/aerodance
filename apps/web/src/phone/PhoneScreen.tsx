@@ -16,7 +16,8 @@ import type { WebcamStatus, WebcamView } from '../../../../packages/pose/browser
 /**
  * The phone camera page, drawn in-engine like the game's menus:
  *
- *   code      a keypad for the code on the game's screen (a QR code's link skips it)
+ *   code      a keypad for the code on the game's screen (a QR code's link skips it), and in
+ *             the iPhone/iPad app a close button back to the game (onExit)
  *   joining / linking   what's happening, and Cancel
  *   linked    setup: the preview (the camera's picture with the tracked skeletons), which
  *             camera (front, back, ultra wide…: PhoneApp lays the page's own list over the
@@ -27,7 +28,7 @@ import type { WebcamStatus, WebcamView } from '../../../../packages/pose/browser
  * The canvas reports data-phone-stage / -ready / -camera-status / -camera (the chosen camera's
  * name) / -dim / -video (sending the game its picture) for tests.
  *
- * <PhoneScreen link view camera dim onDim onCameraList />
+ * <PhoneScreen link view camera dim onDim onCameraList onExit? />
  */
 
 export interface PhoneScreenProps {
@@ -39,6 +40,8 @@ export interface PhoneScreenProps {
   onDim: (dim: boolean) => void;
   /** Opens the camera list (the keyboard's way in; a tap lands on the list itself). */
   onCameraList: () => void;
+  /** Back to the game, from the code screen (the app's page only; Escape too). */
+  onExit?: () => void;
 }
 type PhoneWidget = Widget & { key?: string };
 
@@ -110,6 +113,17 @@ function shadowed(g: CanvasRenderingContext2D, draw: () => void) {
   g.restore();
 }
 
+// The close button in the top right: leave the game (setup), or close the page (the app's code screen).
+function drawClose(g: CanvasRenderingContext2D, L: PhoneLayout, hover: number) {
+  drawGlassCircle(g, L.leave, hover);
+  g.save();
+  g.lineWidth = 4;
+  g.lineCap = 'round';
+  g.strokeStyle = '#ffffff';
+  ICONS.close(g, L.leave.x, L.leave.y, L.leave.r * 1.1);
+  g.restore();
+}
+
 function drawHeader(g: CanvasRenderingContext2D, L: PhoneLayout, line: string, status: WebcamStatus | null) {
   drawTitle(g, L.title);
   const { x, y, w } = L.status;
@@ -119,10 +133,10 @@ function drawHeader(g: CanvasRenderingContext2D, L: PhoneLayout, line: string, s
   shadowed(g, () => text(g, ellipsize(g, line, w - (tx - x) - (L.landscape ? 0 : 70)), tx, y, { size: 22, weight: 700, color: '#e6f8ff' }));
 }
 
-export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraList }: PhoneScreenProps) {
+export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraList, onExit }: PhoneScreenProps) {
   const gl = useThree((state) => state.gl);
-  const props = useRef({ link, view, camera, dim, onDim, onCameraList });
-  props.current = { link, view, camera, dim, onDim, onCameraList };
+  const props = useRef({ link, view, camera, dim, onDim, onCameraList, onExit });
+  props.current = { link, view, camera, dim, onDim, onCameraList, onExit };
   const st = useRef({ typed: '', drawn: '', lastPreview: 0, reported: '' }).current;
   const layout = (s: { w: number; h: number }) => phoneLayout(s);
 
@@ -144,7 +158,10 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
       const p = props.current;
       const L = layout(s);
       switch (p.view.stage) {
-        case 'code': return L.keys.map((rect, i) => ({ id: `key-${KEYS[i]}`, rect, key: KEYS[i] }));
+        case 'code': {
+          const keys: PhoneWidget[] = L.keys.map((rect, i) => ({ id: `key-${KEYS[i]}`, rect, key: KEYS[i] }));
+          return p.onExit ? [...keys, { id: 'exit', circle: L.leave }] : keys;
+        }
         case 'joining': case 'linking': case 'ended': return [{ id: 'primary', rect: L.primary }];
         case 'linked':
           if (p.dim) return [{ id: 'wake', rect: { x: 0, y: 0, w: L.w, h: L.h } }];
@@ -162,6 +179,7 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
       else if (wdg.id === 'wake') p.onDim(false);
       else if (wdg.id === 'camera') p.onCameraList();
       else if (wdg.id === 'leave') { st.typed = ''; p.link.leave(); }
+      else if (wdg.id === 'exit') p.onExit?.();
       else if (wdg.id === 'primary') {
         if (stage === 'linked') {
           if (ACTIVE.includes(p.camera.status)) p.onDim(true);
@@ -172,7 +190,8 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
     },
     onKey: (e, s) => {
       if (props.current.view.stage !== 'code' || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (/^\d$/.test(e.key)) typeKey(e.key);
+      if (e.key === 'Escape' && props.current.onExit) props.current.onExit();
+      else if (/^\d$/.test(e.key)) typeKey(e.key);
       else if (e.key === 'Backspace') typeKey('delete');
       else if (e.key === 'Enter') typeKey('join');
       else return;
@@ -226,6 +245,7 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
 
       if (view.stage === 'code') {
         drawTitle(g, L.title);
+        if (p.onExit) drawClose(g, L, h.exit ?? 0);
         // Just over the digits, which sit centred.
         shadowed(g, () => paragraph(g, 'Enter the in-game pairing code', L.digits.x + L.digits.w / 2, L.digits.y - 34, L.digits.w, { size: 26, lineH: 33, color: '#ffffff', align: 'center' }));
         drawDigits(g, L.digits, st.typed);
@@ -256,13 +276,7 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
       // Setup.
       const players = view.playerCount === 1 ? '1 player' : `${view.playerCount} players`;
       drawHeader(g, L, `Connected · ${players}${view.playing ? ' · dancing' : ''}`, camera.status);
-      drawGlassCircle(g, L.leave, h.leave ?? 0);
-      g.save();
-      g.lineWidth = 4;
-      g.lineCap = 'round';
-      g.strokeStyle = '#ffffff';
-      ICONS.close(g, L.leave.x, L.leave.y, L.leave.r * 1.1);
-      g.restore();
+      drawClose(g, L, h.leave ?? 0);
 
       const r = L.preview;
       drawWebcamPreview(g, p.link.camera.video, camera.snapshot, r, view.playerCount, ACTIVE.includes(camera.status) ? 'Starting camera…' : 'Camera off', { mirror: camera.facing === 'user' });

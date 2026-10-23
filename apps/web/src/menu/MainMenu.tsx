@@ -10,6 +10,7 @@ import type { SoundSettings } from './soundSettings.ts';
 import type { AspectSetting, GraphicsSettings, StatsSetting } from './graphicsSettings.ts';
 import AirPlayButton from './AirPlayButton.tsx';
 import FullscreenButton from './FullscreenButton.tsx';
+import PhoneCameraButton from './PhoneCameraButton.tsx';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
@@ -24,7 +25,7 @@ import { displayDesign } from '../display.ts';
  * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
  * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies).
  * The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in the
- * iPhone/iPad app). The title rises while the players screen is up and fades out while settings
+ * iPhone/iPad app, which also has a camera bubble in the other corner). The title rises while the players screen is up and fades out while settings
  * is.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
@@ -461,6 +462,7 @@ export default function MainMenu({
     <>
       <FullscreenButton visible={onMain} />
       <AirPlayButton visible={onMain} />
+      <PhoneCameraButton visible={onMain} />
     </>
   );
 }

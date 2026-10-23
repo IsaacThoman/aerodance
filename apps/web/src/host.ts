@@ -13,7 +13,8 @@
  *              external display, wherever the sound goes).
  *
  * The app also lays an invisible AirPlay picker over the game's AirPlay bubble
- * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker().
+ * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker(). And it can turn the
+ * phone into another game's camera (menu/PhoneCameraButton.tsx): openPhoneCamera().
  *
  * const off = onHostChange((host) => ...); hostState().tv; inApp(); client() === 'tvos'
  */
@@ -59,4 +60,16 @@ export const canPickAirPlay = () => typeof airPlayHook() === 'function';
 export function placeAirPlayPicker(rect: PickerRect | null) {
   const hook = airPlayHook();
   if (typeof hook === 'function') (hook as AirPlayHook)(rect);
+}
+
+type CameraHook = () => void;
+const cameraHook = () => (globalThis as { __aerodanceOpenCamera?: unknown }).__aerodanceOpenCamera;
+
+/** The app can show the phone camera page over the game (the iPhone/iPad app, not a browser). */
+export const canOpenPhoneCamera = () => typeof cameraHook() === 'function';
+
+/** Shows the app's phone camera page (/pair/), where the phone joins another game by its code. */
+export function openPhoneCamera() {
+  const hook = cameraHook();
+  if (typeof hook === 'function') (hook as CameraHook)();
 }

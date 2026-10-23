@@ -6,6 +6,10 @@ export const PLAYERS_TITLE_Y = 210;
 // Main screen.
 export const START = { x: 128, y: 482, w: 440, h: 104 };
 export const SETTINGS = { x: 128, y: 602, w: 440, h: 104 };
+// The main screen's corner bubbles: bottom right the fullscreen bubble (menu/FullscreenButton.tsx;
+// AirPlay in the iPhone/iPad app), bottom left the app's camera bubble (menu/PhoneCameraButton.tsx).
+export const cornerBubble = (width = 1600) => ({ x: width - 84, y: 836, r: 42 });
+export const leftCornerBubble = (width = 1600) => ({ ...cornerBubble(width), x: 84 });
 
 // Settings: back button + small caps heading top left, where Song Select has its own
 // (game/layout.ts); the title fades out to make room for the Sound and Graphics panels.

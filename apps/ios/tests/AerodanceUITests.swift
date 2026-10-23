@@ -9,7 +9,8 @@ import XCTest
 //   AERODANCE_PORT        its loopback port (--port)
 //   AERODANCE_PATH        the page it opens (--path, /?input=ghost)
 //   AERODANCE_RUNNER      ui.ios.ts's address: the app reports the game's canvas data-* state there
-//                         (--report), GET /state returns the latest (POST /reset forgets it),
+//                         (--report), with the phone camera page's stage as _camera ("" while it's
+//                         closed), GET /state returns the latest (POST /reset forgets it),
 //                         POST /shot?name= keeps a screenshot, POST /tv?on=1|0 turns the simulator's
 //                         TV-out screen on or off, and POST /shot-tv?name= keeps a screenshot of it
 //   AERODANCE_LAYOUT      JSON from the game's layout.ts: the design size and the rects tapped
@@ -20,7 +21,7 @@ final class AerodanceUITests: XCTestCase {
   struct Layout: Decodable {
     struct Rect: Decodable { let x, y, w, h: Double }
     let design: [Double]
-    let start, letsDance, firstSong, dance: Rect
+    let start, letsDance, firstSong, dance, camera: Rect
   }
 
   let env = ProcessInfo.processInfo.environment
@@ -223,6 +224,68 @@ final class AerodanceUITests: XCTestCase {
     sleep(2)
     send("shot-tv?name=6-tv-results")
     shot("6-remote-results")
+  }
+
+  // The main menu's camera bubble opens the phone camera page over the game, upright or sideways
+  // on an iPhone as in a browser, and its code screen's close button comes back to the game, in
+  // landscape again.
+  func test7PhoneCameraFromTheMenu() throws {
+    let layouts = try JSONDecoder().decode([String: Layout].self, from: Data((env["AERODANCE_LAYOUT"] ?? "").utf8))
+    XCUIDevice.shared.orientation = .landscapeLeft
+    launch()
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    let window = app.windows.firstMatch
+    XCTAssertTrue(waitUntil { window.frame.width > window.frame.height }, "the app didn't turn to landscape")
+    sleep(1)
+    let layout = try XCTUnwrap(layouts[state()["displayMode"] ?? "widescreen"])
+    tap(layout.camera, in: gameFrame(design: layout.design), design: layout.design)
+    waitFor(["_camera": "code"], timeout: 30)
+    let close = app.buttons["Close"]
+    XCTAssertTrue(close.waitForExistence(timeout: 10), "the camera page has no close button")
+    XCTAssertTrue(window.frame.contains(close.frame) && close.frame.midX > window.frame.midX && close.frame.midY < window.frame.midY,
+                  "the close button is at \(close.frame), not in the top right of \(window.frame)")
+    sleep(1)
+    shot("7-camera-landscape")
+    if !isPad {
+      XCUIDevice.shared.orientation = .portrait
+      XCTAssertTrue(waitUntil { window.frame.height > window.frame.width }, "the camera page didn't turn upright: \(window.frame.size)")
+      sleep(1)
+      shot("7-camera-upright")
+    }
+    press(close)
+    waitFor(["_camera": ""], timeout: 20)
+    XCTAssertTrue(waitUntil { !close.exists }, "the camera page is still showing")
+    if !isPad { XCTAssertTrue(waitUntil { window.frame.width > window.frame.height }, "the game came back \(window.frame.size): not landscape") }
+    waitFor(["menuScreen": "main", "menuReady": "true"])
+    sleep(1)
+    shot("7-back-to-the-game")
+  }
+
+  // A game's QR code (a universal link, here --link) opens the app on the phone camera page, which
+  // joins that game's code: 000000 is no game's, so it comes back to the code screen. A TV
+  // connecting meanwhile gets the game, and the camera page stays; closing it shows the remote.
+  func test8PhoneCameraFromALink() throws {
+    XCUIDevice.shared.orientation = .portrait
+    app.launchArguments += ["--link", "https://aerodance.party/pair/#000000"]
+    launch()
+    waitFor(["_camera": "code"], timeout: 60)
+    let close = app.buttons["Close"]
+    XCTAssertTrue(close.waitForExistence(timeout: 10), "the camera page has no close button")
+    let window = app.windows.containing(NSPredicate(format: "label == 'Close'")).firstMatch
+    if !isPad { XCTAssertTrue(waitUntil { window.frame.height > window.frame.width }, "the camera page isn't upright with the phone upright: \(window.frame.size)") }
+    sleep(1)
+    shot("8-camera-from-link")
+    tv(true)
+    waitForDisplay(tv: true)
+    sleep(1)
+    XCTAssertTrue(close.exists, "the camera page went when the TV came")
+    XCTAssertFalse(app.buttons["OK"].exists, "the remote shows over the camera page")
+    shot("8-camera-with-tv")
+    send("shot-tv?name=8-tv")
+    press(close)
+    XCTAssertTrue(app.buttons["OK"].waitForExistence(timeout: 20), "the remote didn't show once the camera page closed")
+    waitFor(["_camera": ""], timeout: 20)
+    shot("8-remote-after-camera")
   }
 
   // MARK: - Helpers
