@@ -82,3 +82,18 @@ body,
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* The TV remote's labels (apps/web/remote/): over each button the canvas draws, for VoiceOver.
+   Invisible, and touches go through them to the canvas. */
+.remote-label {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
