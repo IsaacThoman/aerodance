@@ -4,7 +4,7 @@ import { MIN_TOUCH_PX, hit, widgetAt } from '../src/ui/hit.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS } from '../src/menu/layout.ts';
 import { BACK, DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_READY_BACK, PAGE_DOWN, PAGE_UP,
-  RESULTS_RETRY, RESULTS_SONGS, rowRect } from '../src/game/layout.ts';
+  resultsRetry, resultsSongs, rowRect } from '../src/game/layout.ts';
 
 // The 1600x900 design on the smallest iPhone the app supports (iPhone SE, 667x375 points), in
 // landscape: a touch target 44 points across is this many design units.
@@ -89,11 +89,16 @@ test('on an iPhone SE, the game’s small targets answer 44 points across, or up
   assert.ok(points(span([{ id: 'pause', circle: GAME_PAUSE }], 'pause', 'y', SE)) >= 44 - 0.5);
   const preview: Shape[] = [{ id: 'back', circle: BACK }, asRect('dance', DANCE)];
   assert.ok(points(span(preview, 'dance', 'y', SE)) >= 44 - 0.5);
-  // Results: two buttons side by side, wide enough already, so the gap between them stays a gap.
-  const results: Shape[] = [asRect('retry', RESULTS_RETRY), asRect('quit', RESULTS_SONGS)];
-  assert.ok(points(span(results, 'retry', 'y', SE)) >= 44 - 0.5);
-  const between = (RESULTS_RETRY.x + RESULTS_RETRY.w + RESULTS_SONGS.x) / 2;
-  assert.equal(widgetAt(results, { x: between - 3, y: RESULTS_RETRY.y + 40 }, SE)?.id, 'retry');
-  assert.equal(widgetAt(results, { x: between, y: RESULTS_RETRY.y + 40 }, SE), undefined);
-  assert.equal(widgetAt(results, { x: between + 3, y: RESULTS_RETRY.y + 40 }, SE)?.id, 'quit');
+  // Results: two buttons side by side under the scoreboard, for every player count, wide enough
+  // already, so the gap between them stays a gap, and on screen.
+  for (const players of [1, 2, 3, 4]) {
+    const retry = resultsRetry(players), songs = resultsSongs(players);
+    const results: Shape[] = [asRect('retry', retry), asRect('quit', songs)];
+    assert.ok(points(span(results, 'retry', 'y', SE)) >= 44 - 0.5);
+    assert.ok(retry.y + retry.h <= 900 - 24, `${players} players: buttons on screen`);
+    const between = (retry.x + retry.w + songs.x) / 2;
+    assert.equal(widgetAt(results, { x: between - 3, y: retry.y + 40 }, SE)?.id, 'retry');
+    assert.equal(widgetAt(results, { x: between, y: retry.y + 40 }, SE), undefined);
+    assert.equal(widgetAt(results, { x: between + 3, y: retry.y + 40 }, SE)?.id, 'quit');
+  }
 });

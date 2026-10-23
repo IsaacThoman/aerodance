@@ -45,6 +45,16 @@ export function winnerOf(results: readonly { score: number }[]) {
   return leaders.length === 1 ? results.indexOf(leaders[0]) : null;
 }
 
+/**
+ * Where the featured dancer (the winner, or the solo dancer) stands on screen, as fractions of
+ * the canvas: ResultsDancers projects their feet each frame and ResultsScreen writes their
+ * name under them. `visible` is false while no one is featured (a tie) or nobody is drawn.
+ */
+export const resultsTag = { x: 0.5, y: 0.8, visible: false };
+
+/** The seats in finishing order: highest score first, ties in seat order. */
+export const ranking = (results: readonly { score: number }[]) => results.map((_, i) => i).sort((a, b) => results[b].score - results[a].score || a - b);
+
 // Reveal timeline (seconds after the screen appears).
 export const COUNT = [0.5, 1.9];
 // The winner is announced the moment the scores finish counting up.

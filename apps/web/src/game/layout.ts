@@ -50,8 +50,24 @@ export const GAME_RESUME = { x: 610, y: 340, w: 380, h: 84 };
 export const GAME_RESTART = { x: 610, y: 444, w: 380, h: 84 };
 export const GAME_QUIT = { x: 610, y: 548, w: 380, h: 84 };
 export const GAME_PROGRESS = { x: 560, y: 852, w: 480, h: 14 };
-export const RESULTS_RETRY = { x: 470, y: 806, w: 320, h: 80 };
-export const RESULTS_SONGS = { x: 810, y: 806, w: 320, h: 80 };
+// Results: the scoreboard down the left (the stage and its winner on the right). The winner
+// large on top, `top` tall, then a `row` per other player and `pad` under them; a solo round
+// has its judgements, `stats` tall, instead. Play again and Song select sit side by side under
+// it, `gap` below and as wide together as the board. Its height, and so the buttons' place,
+// follow the player count: resultsRetry(2) is the two-player Play again.
+export const RESULTS_BOARD = { x: 64, y: 222, w: 600, top: 150, row: 72, pad: 18, stats: 104, gap: 20, buttonH: 80, buttonGap: 20 };
+export const resultsBoard = (players: number): Rect => {
+  const b = RESULTS_BOARD;
+  return { x: b.x, y: b.y, w: b.w, h: b.top + (players <= 1 ? b.stats : (players - 1) * b.row + b.pad) };
+};
+const resultsButton = (players: number, i: number): Rect => {
+  const b = RESULTS_BOARD;
+  const board = resultsBoard(players);
+  const w = (b.w - b.buttonGap) / 2;
+  return { x: b.x + i * (w + b.buttonGap), y: board.y + board.h + b.gap, w, h: b.buttonH };
+};
+export const resultsRetry = (players: number) => resultsButton(players, 0);
+export const resultsSongs = (players: number) => resultsButton(players, 1);
 // Song Select preview: Dance! starts the song for real, bottom right, with Dancers beside it.
 export const DANCE = { x: 1172, y: 770, w: 300, h: 96 };
 export const DANCERS = { x: DANCE.x - 24 - 280, y: DANCE.y, w: 280, h: DANCE.h };
@@ -104,7 +120,5 @@ export function gameLayout(width = 1600) {
     GAME_RESTART: centered(GAME_RESTART),
     GAME_QUIT: centered(GAME_QUIT),
     GAME_PROGRESS: centered(GAME_PROGRESS),
-    RESULTS_RETRY: centered(RESULTS_RETRY),
-    RESULTS_SONGS: centered(RESULTS_SONGS),
   };
 }
