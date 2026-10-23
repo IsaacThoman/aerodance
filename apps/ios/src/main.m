@@ -487,9 +487,10 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 // WebKit turns the camera's picture upright for the screen the web view is on, and on a TV that's
 // upright however the phone is held. So the page is told how the device is held and which way up
-// each screen is, and turns the picture itself (cameraTurner in apps/web/src/host.ts). While the game is on a TV, how the device is held comes from gravity, as Orientation Lock leaves
-// UIDevice upright; without an accelerometer (the simulator), from UIDevice. Flat on a table, the
-// device is still held the way it last was. A turn is only told to the page: the start script
+// each screen is, and turns the picture itself (cameraTurner in apps/web/src/host.ts). While the
+// game is on a TV, how the device is held comes from gravity, as Orientation Lock leaves UIDevice
+// upright; otherwise (and in the simulator, which has no accelerometer), from UIDevice. Flat on a
+// table, the device is still held the way it last was. A turn is only told to the page: the start script
 // (installScripts) isn't rebuilt for one, as that mid-load (an iPhone turning sideways at launch) can
 // leave the page without inject.js, and a page that loads later is told when it finishes.
 - (void)updateOrientation { [self updateOrientationHeld:nil]; }
@@ -504,7 +505,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   if (gravity) {
     self.held = gravity.integerValue;
     self.heldKnown = YES;
-  } else if (!self.motion.accelerometerAvailable && (UIDeviceOrientationIsPortrait(device) || UIDeviceOrientationIsLandscape(device))) {
+  } else if (!self.motion.accelerometerActive && (UIDeviceOrientationIsPortrait(device) || UIDeviceOrientationIsLandscape(device))) {
     self.held = DeviceDegrees(device);
     self.heldKnown = YES;
   } else if (!self.heldKnown) {
