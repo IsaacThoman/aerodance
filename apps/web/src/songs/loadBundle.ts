@@ -5,7 +5,7 @@ import { isArray, isObject } from '../../../../packages/pose/choreography.ts';
 /** A verified bundle, ready to play: its song, choreography and media. */
 export interface LoadedSongBundle extends SongBundle {
   audio: Blob; cover: Blob | null;
-  /** What its best scores are kept under (game/bestScores.ts): the song ID, or custom:<id> for a song imported into this browser. */
+  /** What its best scores are kept under (game/bestScores.ts): the song ID, or custom:<id> for a song imported into this browser or app. */
   scoreId: string;
 }
 /** The part of fetch the loader uses; replaceable in tests. */

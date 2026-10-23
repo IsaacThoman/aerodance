@@ -50,8 +50,10 @@ phone page the QR code opens. The app has no webcam, so the phone is its camera 
 Requirements:
 
 - A Mac with Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
-- An Apple TV on tvOS 27, paired with the Mac. On the Apple TV, open Settings → Remotes and
-  Devices → Remote App and Devices; then pair from Xcode's Devices window, or run
+- An Apple TV 4K of any generation on tvOS 26 or later (the first generation, from 2017, stops at
+  tvOS 26), paired with the Mac. tvOS has no device capability that excludes the Apple TV HD
+  (A8), so it can install the app too, but it isn't supported. On the Apple TV, open Settings →
+  Remotes and Devices → Remote App and Devices; then pair from Xcode's Devices window, or run
   `xcrun devicectl manage pair --device <name>` and type the code the TV shows. The tvOS
   simulator needs none of this.
 - A paid Apple Developer team, signed in to Xcode. Builds use `TVOS_TEAM_ID` (default
@@ -118,12 +120,13 @@ slower; measure without it and read the console through `logUrl`.
 
 ## Performance
 
-On an Apple TV 4K (A15, tvOS 27) the game holds 60 fps on every screen:
+On an Apple TV 4K (3rd generation, A15, tvOS 27) the game holds 60 fps on every screen:
 about 6 ms of JavaScript a frame on the main menu (up to ~12 ms while the city is in view), about
 5.5 ms in gameplay, and the Aero benchmark at 59.9 fps. JavaScript runs interpreted (no JIT on
 tvOS), so frame cost tracks the number of objects and draws. The first visit to a stage stalls
 for about 5 s while it builds. [docs/apple-tv.md](../../docs/apple-tv.md) has the measurements
-and how this compares with the other approaches.
+and how this compares with the other approaches. The 1st (A10X) and 2nd (A12) generations
+haven't been measured on hardware yet.
 
 ## Release builds
 
