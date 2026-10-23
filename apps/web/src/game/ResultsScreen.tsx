@@ -1,10 +1,11 @@
 import { useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawHeadline as headline, drawPill, drawShadowText, ellipsize,
+  FONT, drawCaps, drawGlassButton, drawHeadline as headline, drawShadowText, ellipsize, glassCorner,
 } from '../ui/draw.ts';
 import type { Face, IconName, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
+import useGlassBlur, { buttonPane } from '../ui/useGlassBlur.ts';
 import { PLAYERS, REVEAL, backOut, clamp01, timeline } from './results.ts';
 import type { ResultsShow } from './results.ts';
 import { gameLayout } from './layout.ts';
@@ -106,12 +107,15 @@ export default function ResultsScreen({ visible = false, show, song, onRetry, on
   const st = useRef({ alpha: 0 }).current;
   const live = () => props.current.visible && !!props.current.show.current;
 
-  useCanvasUI({
+  const ui = useCanvasUI({
     priority: 2.5,
     active: live,
     keyNav: true,
     // No primary widget: a stray Enter as the song ends mustn't skip the celebration.
-    widgets: () => [{ id: 'retry', rect: RESULTS_RETRY }, { id: 'quit', rect: RESULTS_SONGS }],
+    widgets: () => [
+      { id: 'retry', rect: RESULTS_RETRY, corner: glassCorner(RESULTS_RETRY.h) },
+      { id: 'quit', rect: RESULTS_SONGS, corner: glassCorner(RESULTS_SONGS.h) },
+    ],
     onActivate: ({ id }) => {
       const p = props.current;
       if (id === 'retry') p.onRetry?.();
@@ -144,12 +148,17 @@ export default function ResultsScreen({ visible = false, show, song, onRetry, on
       const p = props.current;
       if (!p.show.current || !p.song) return;
       drawResults(g, p.show.current, performance.now() / 1000, p.song, s.w);
-      const button = (id: string, rect: Rect, label: string, icon: IconName) => drawPill(g, rect, {
+      const button = (id: string, rect: Rect, label: string, icon: IconName) => drawGlassButton(g, rect, {
         label, icon, hover: s.hover[id] ?? 0, press: s.press * (s.hover[id] ?? 0),
       });
       button('retry', RESULTS_RETRY, 'Play again', 'replay');
       button('quit', RESULTS_SONGS, 'Song select', 'list');
     },
   });
+  // Frosted glass inside the two buttons (ui/useGlassBlur.ts), just before the overlay draws.
+  useGlassBlur(() => ({
+    panes: props.current.show.current && props.current.song ? [buttonPane(ui, 'retry', RESULTS_RETRY), buttonPane(ui, 'quit', RESULTS_SONGS)] : [],
+    alpha: st.alpha,
+  }), { priority: 2.4 });
   return null;
 }

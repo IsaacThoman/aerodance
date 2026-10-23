@@ -12,6 +12,7 @@ import type { BundleFixture } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
 import { gameLayout } from '../src/game/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
+import { glassLabelX } from '../src/ui/draw.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { resolveStage } from '../../../packages/stages/catalog.ts';
 import { validateCatalog, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
@@ -282,11 +283,11 @@ try {
       await page.setViewportSize(other === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 });
       await until({ displayMode: other, songScreen: 'preview', stageReady: 'true' });
       await page.waitForFunction((x) => Math.abs((window as TestWindow).danceLabelX - x) < 1,
-        (otherDance.x + otherDance.h + 14) * 640 / otherDesign.w);
+        glassLabelX(otherDance) * 640 / otherDesign.w);
       await page.setViewportSize(viewport);
       await until({ displayMode: mode, songScreen: 'preview' });
       await page.waitForFunction((x) => Math.abs((window as TestWindow).danceLabelX - x) < 1,
-        (DANCE.x + DANCE.h + 14) * 640 / design.w);
+        glassLabelX(DANCE) * 640 / design.w);
       frame = await frameBox();
     }
     await click(BACK);

@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, dancerWidth, drawDancer, drawGlassCircle, drawHeader, drawPill, drawShadowText, ellipsize, paragraph, roundRect, wrapText,
+  FONT, ICONS, dancerWidth, drawDancer, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText, ellipsize, glassCorner, paragraph,
+  roundRect, wrapText,
 } from '../ui/draw.ts';
 import type { Circle, Face, IconDraw, IconName, Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
+import useGlassBlur, { buttonPane } from '../ui/useGlassBlur.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { duckMenuMusic } from '../audio/mixer.ts';
 import { createSongPlayer } from '../audio/songPlayer.ts';
@@ -111,9 +113,9 @@ const sameCast = (a: Cast, b: Cast) => a.length === b.length && a.every((d, i) =
 const inside = (p: Point, r: Rect) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 // A player's colours, light to dark: their disc, and the dancer they follow.
 const playerFace = (id: number): Face => [PLAYERS[id].light, PLAYERS[id].color, PLAYERS[id].dark];
-// A dancer nobody follows, or on a player's row one they don't: an empty spot.
-const SPARE = 'rgba(12, 47, 82, 0.2)';
-const SPARE_HOVER = 'rgba(12, 47, 82, 0.36)';
+// A dancer nobody follows, or on a player's row one they don't: an empty spot on the glass.
+const SPARE = 'rgba(255, 255, 255, 0.3)';
+const SPARE_HOVER = 'rgba(255, 255, 255, 0.6)';
 
 function faceFill(g: CanvasRenderingContext2D, face: Face, top: number, bottom: number) {
   const fill = g.createLinearGradient(0, top, 0, bottom);
@@ -142,24 +144,33 @@ function castSlots(row: Rect, dancers: number): Rect[] {
   const end = row.x + row.w - row.h * 0.36;
   return Array.from({ length: dancers }, (_, d) => ({ x: end - (dancers - d) * w - (dancers - 1 - d) * 4, y: row.y + 6, w, h }));
 }
-// A player's pick on their row: a lit spot in their colour behind the dancer.
+// A player's pick on their row: a lit spot behind the dancer, rimmed in their colour.
 function drawPicked(g: CanvasRenderingContext2D, slot: Rect, face: Face) {
   g.save();
-  roundRect(g, slot.x, slot.y, slot.w, slot.h, 16);
-  g.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  roundRect(g, slot.x, slot.y, slot.w, slot.h, 14);
+  g.fillStyle = 'rgba(255, 255, 255, 0.2)';
   g.fill();
   g.lineWidth = 3;
-  g.strokeStyle = face[1];
+  g.strokeStyle = face[0];
   g.stroke();
   g.restore();
 }
-// The player's number in their disc.
+// The player's number on a disc in their colour, where a glass button has its icon.
 const playerGlyph = (id: number): IconDraw => (g, cx, cy, r) => {
+  const d = r * 0.9;
+  g.beginPath();
+  g.arc(cx, cy, d, 0, Math.PI * 2);
+  g.fillStyle = faceFill(g, playerFace(id), cy - d, cy + d);
+  g.fill();
+  g.lineWidth = 2;
+  g.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+  g.stroke();
+  g.shadowColor = 'transparent';
   g.fillStyle = '#ffffff';
-  g.font = `800 ${Math.round(r * 1.15)}px ${FONT}`;
+  g.font = `800 ${Math.round(d * 1.25)}px ${FONT}`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(String(id + 1), cx, cy + r * 0.06);
+  g.fillText(String(id + 1), cx, cy + d * 0.06);
 };
 
 // Each player's tracking, from the pose input (reported for tests as data-player-slots).
@@ -198,8 +209,13 @@ export default function SongSelect({
   const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
   // The song opened last is the primary one while it's on the page, else the first.
   const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.key === st.chosen));
-  const songWidget = (song: ListedSong, i: number): SongWidget => ({ id: `song-${song.key}`, song, rect: rowRect(i), primary: i === primaryRow() });
-  const castWidget = (player: number): SongWidget => ({ id: `cast-${player}`, player, rect: castRow(player, props.current.playerCount) });
+  const songWidget = (song: ListedSong, i: number): SongWidget => ({ id: `song-${song.key}`, song, rect: rowRect(i), corner: glassCorner(rowRect(i).h), primary: i === primaryRow() });
+  const castWidget = (player: number): SongWidget => {
+    const rect = castRow(player, props.current.playerCount);
+    return { id: `cast-${player}`, player, rect, corner: glassCorner(rect.h) };
+  };
+  // The preview's and the dancers screen's buttons besides the players'.
+  const button = (id: string, rect: Rect, primary = false): SongWidget => ({ id, rect, corner: glassCorner(rect.h), primary });
   // The open song's dancers.
   const dancers = () => st.bundle?.choreography.tracks.length ?? 1;
   // A listed song's cast: the one picked for it, or the players taking its dancers in turn.
@@ -219,7 +235,7 @@ export default function SongSelect({
     const i = screen === 'list' ? pageSongs().findIndex((song) => song.key === st.chosen) : -1;
     ui.focus(i >= 0 ? songWidget(pageSongs()[i], i)
       : screen === 'dancers' ? castWidget(0)
-        : screen === 'preview' && from === 'dancers' ? { id: 'dancers', rect: DANCERS } : null);
+        : screen === 'preview' && from === 'dancers' ? button('dancers', DANCERS) : null);
   };
   // Picks who follows which dancer: the preview's dancers change colour with it.
   const setCast = (cast: number[]) => {
@@ -392,10 +408,10 @@ export default function SongSelect({
     keyNav: true,
     widgets: () => {
       if (st.screen === 'dancers') {
-        return [{ id: 'back', circle: BACK }, ...st.cast.map((_, i) => castWidget(i)), { id: 'auto', rect: CAST_AUTO }, { id: 'dance', rect: DANCE, primary: true }];
+        return [{ id: 'back', circle: BACK }, ...st.cast.map((_, i) => castWidget(i)), button('auto', CAST_AUTO), button('dance', DANCE, true)];
       }
       if (st.screen === 'preview') {
-        return [{ id: 'back', circle: BACK }, ...(dancers() > 1 ? [{ id: 'dancers', rect: DANCERS }] : []), { id: 'dance', rect: DANCE, primary: true }];
+        return [{ id: 'back', circle: BACK }, ...(dancers() > 1 ? [button('dancers', DANCERS)] : []), button('dance', DANCE, true)];
       }
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
@@ -403,7 +419,7 @@ export default function SongSelect({
         if (st.page > 0) list.push({ id: 'page-up', circle: PAGE_UP });
         if (st.page < pages() - 1) list.push({ id: 'page-down', circle: PAGE_DOWN });
       }
-      if (st.catalog.status === 'error') list.push({ id: 'retry', rect: RETRY, primary: true });
+      if (st.catalog.status === 'error') list.push(button('retry', RETRY, true));
       return list;
     },
     onActivate: (wdg, s) => {
@@ -505,7 +521,7 @@ export default function SongSelect({
         } else if (st.catalog.status === 'error') {
           g.font = `700 28px ${FONT}`;
           drawShadowText(g, ellipsize(g, st.catalog.error, ROWS.w), ROWS.x, ROWS.y + 46, { size: 28, color: '#ffb38a' });
-          drawPill(g, RETRY, { label: 'Retry', icon: 'replay', hover: h.retry ?? 0, press: press('retry') });
+          drawGlassButton(g, RETRY, { label: 'Retry', icon: 'replay', hover: h.retry ?? 0, press: press('retry') });
         } else if (!list.length) {
           // Songs published before three and four players were supported only list one and two.
           const others = st.catalog.songs.length > 0;
@@ -528,20 +544,16 @@ export default function SongSelect({
             const rect = rowRect(i);
             const id = `song-${song.key}`;
             const loadingThis = st.loading?.id === song.key;
-            // Every dancer the song has, at the row's right end; the text stops short of them.
-            const cutout = rowCutout(rect.h), count = dancersOf(song);
-            const room = rect.w - rect.h - 44 - castWidth(cutout.h, count) - 10;
-            g.font = `700 ${Math.round(rect.h * 0.34)}px ${FONT}`;
-            const label = ellipsize(g, song.title, room);
+            // Every dancer the song has, at the row's right end.
+            const cutout = rowCutout(rect.h), count = dancersOf(song), cast = castOf(song);
             const best = bestScore(song.key, p.playerCount, SCORER_VERSION);
             // Catalog difficulty is free-form display text.
             const difficulty = typeof song.difficulty === 'string' || typeof song.difficulty === 'number' ? String(song.difficulty) : 'Routine';
             const sub = loadingThis ? `Loading${dots}` : [song.custom ? 'Custom' : null, song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
               best ? `Best ${best.score.toLocaleString('en-US')} ${best.grade}` : null].filter(Boolean).join(' · ');
-            g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
-            const cast = castOf(song);
-            drawPill(g, rect, {
-              label, sub: ellipsize(g, sub, room), icon: 'note',
+            // (The button shortens the title and line under it to stop short of the dancers.)
+            drawGlassButton(g, rect, {
+              label: song.title, sub, icon: 'note', reserve: cutout.right + castWidth(cutout.h, count) + 10 - rect.h * 0.3,
               hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
               content: (c, r) => drawCast(c, r.x + r.w - cutout.right, r.y + (r.h + cutout.h) / 2, cutout.h, count, cast),
             });
@@ -583,12 +595,11 @@ export default function SongSelect({
           const sharing = st.cast.flatMap((d, other) => (d === dancer && other !== player ? [`P${other + 1}`] : []));
           const row = castRow(player, p.playerCount);
           // The text stops short of the dancers.
-          g.font = `600 ${Math.round(row.h * 0.22)}px ${FONT}`;
-          const room = castSlots(row, count)[0].x - (row.x + row.h + 15) - 10;
-          drawPill(g, row, {
+          drawGlassButton(g, row, {
             label: `Player ${player + 1}`,
-            sub: ellipsize(g, `Dancer ${dancer + 1}${sharing.length ? ` · with ${sharing.join(' & ')}` : ''}`, room),
-            icon: playerGlyph(player), disc: playerFace(player), hover: h[id] ?? 0, press: press(id),
+            sub: `Dancer ${dancer + 1}${sharing.length ? ` · with ${sharing.join(' & ')}` : ''}`,
+            reserve: row.x + row.w - row.h * 0.3 - castSlots(row, count)[0].x + 10,
+            icon: playerGlyph(player), hover: h[id] ?? 0, press: press(id),
             content: (c, r) => castSlots(r, count).forEach((slot, d) => {
               const tall = slot.h * 0.8, floor = slot.y + (slot.h + tall) / 2;
               if (d === dancer) drawPicked(c, slot, playerFace(player));
@@ -597,8 +608,8 @@ export default function SongSelect({
             }),
           });
         });
-        drawPill(g, CAST_AUTO, { label: 'Auto', sub: 'Take turns', icon: 'replay', hover: h.auto ?? 0, press: press('auto') });
-        drawPill(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
+        drawGlassButton(g, CAST_AUTO, { label: 'Auto', sub: 'Take turns', icon: 'replay', hover: h.auto ?? 0, press: press('auto') });
+        drawGlassButton(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       } else if (st.bundle) {
         const { song } = st.bundle;
         drawHeader(g, BACK, 'PREVIEW', h.back ?? 0);
@@ -613,12 +624,22 @@ export default function SongSelect({
         if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, (count > 1 ? DANCERS.x : DANCE.x) - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
         if (count > 1) {
           const custom = !sameCast(st.cast, defaultCast(p.playerCount, count));
-          drawPill(g, DANCERS, { label: 'Dancers', sub: `${count} dancers · ${custom ? 'Picked' : 'Auto'}`, icon: 'dancer', hover: h.dancers ?? 0, press: press('dancers') });
+          drawGlassButton(g, DANCERS, { label: 'Dancers', sub: `${count} dancers · ${custom ? 'Picked' : 'Auto'}`, icon: 'dancer', hover: h.dancers ?? 0, press: press('dancers') });
         }
-        drawPill(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
+        drawGlassButton(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       }
       g.restore();
     },
+  });
+
+  // Frosted glass inside the buttons drawn above (ui/useGlassBlur.ts), fading and sliding with them.
+  useGlassBlur(() => {
+    const pane = (wdg: SongWidget) => buttonPane(ui, wdg.id, wdg.rect ?? DANCE);
+    const panes = st.screen === 'dancers' ? (st.bundle ? [...st.cast.map((_, i) => pane(castWidget(i))), pane(button('auto', CAST_AUTO)), pane(button('dance', DANCE))] : [])
+      : st.screen === 'preview' ? (st.bundle ? [...(dancers() > 1 ? [pane(button('dancers', DANCERS))] : []), pane(button('dance', DANCE))] : [])
+        : st.catalog.status === 'error' ? [buttonPane(ui, 'retry', RETRY)]
+          : st.catalog.status === 'ready' ? pageSongs().map((song, i) => buttonPane(ui, `song-${song.key}`, rowRect(i))) : [];
+    return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
   });
 
   // Opening Song Select loads the catalog; leaving it stops everything.
