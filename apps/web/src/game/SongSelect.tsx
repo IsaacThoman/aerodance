@@ -11,7 +11,7 @@ import { createSongPlayer } from '../audio/songPlayer.ts';
 import type { SongPlayer } from '../audio/songPlayer.ts';
 import { loadSongBundle } from '../songs/loadBundle.ts';
 import type { LoadedSongBundle } from '../songs/loadBundle.ts';
-import { customScoreId, customSongsSupported, importSongZip, listCustomSongs, loadCustomSong, removeCustomSong, savedCustomSong } from '../songs/customSongs.ts';
+import { customScoreId, customSongsSupported, listCustomSongs, loadCustomSong, savedCustomSong } from '../songs/customSongs.ts';
 import { validateCatalog } from '../../../../packages/pose/song.ts';
 import type { CatalogSong } from '../../../../packages/pose/song.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
@@ -28,21 +28,20 @@ import { displayDesign } from '../display.ts';
  * Song Select, drawn in-engine after the player count is picked (menu/MainMenu.tsx).
  *
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
- *            then the songs imported into this browser (songs/customSongs.ts), four to a
- *            page; Import song (where the browser can save songs) takes a Dance Studio
- *            export ZIP
+ *            then the songs imported into this browser (songs/customSongs.ts; Settings →
+ *            Songs imports and removes them), four to a page
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
  *            Studio), the music looping on its own while the stage camera circles them,
  *            and Dance!, which hands the bundle to the game (onDance); the menu music
- *            ducks underneath; an imported song also has Remove
+ *            ducks underneath
  *
  * Choosing a song keeps the list up, its row loading, until the preview can show at once: the
  * bundle loads (fully verified, songs/loadBundle.ts) while the stage's code downloads, then the
  * stage is built and compiled out of sight (StageView's `prepared`) and the preview opens.
  * Back / Escape go from the preview to the list and from the list to the player count.
  * The canvas reports data-song-screen, -song-ready, -catalog, -song-count, -custom-song-count,
- * -song-import, -song-notice, -player-slots, -preview-state and -preview-time-ms for tests.
+ * -song-load-error, -player-slots, -preview-state and -preview-time-ms for tests.
  *
  * <SongSelect visible playerCount={1} connection={view} onBack
  *   stageState={{ showing, prepared, ready, stage, failed }} onPreviewChange onDance />
@@ -73,15 +72,6 @@ interface SongSelectState {
   /** The last song (key) opened, for the keyboard cursor coming back to the list. */
   chosen: string | null;
   loadError: string;
-  /** A song ZIP is being checked and saved. */
-  importing: boolean;
-  /** What the last import or removal did, under the list. */
-  notice: { text: string; error: boolean } | null;
-  /** The notice came while Song Select was closed: it stays for the next visit. */
-  unseen: boolean;
-  picker: HTMLInputElement | null;
-  /** The song previewing, and its bundle. */
-  previewing: ListedSong | null;
   bundle: LoadedSongBundle | null;
   player: SongPlayer | null;
   routine: SongRoutine | null;
@@ -93,7 +83,7 @@ interface SongSelectState {
 
 const CATALOG_URL = () => new URL(`${import.meta.env.BASE_URL}songs/manifest.json`, window.location.href).href;
 const ACTIVE = ['connecting'];
-const CAN_IMPORT = customSongsSupported();
+const CUSTOM_SONGS = customSongsSupported();
 const IMPORTED_TIMEOUT_MS = 5000;
 const listed = (songs: readonly CatalogSong[], custom: boolean): ListedSong[] => songs.map((song) => ({ ...song, custom, key: custom ? customScoreId(song.id) : song.id }));
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
@@ -116,14 +106,14 @@ export default function SongSelect({
 }: SongSelectProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const { BACK, DANCE, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, SONG_IMPORT, SONG_REMOVE, rowRect } = gameLayout(displayDesign(size.width, size.height).w);
+  const { BACK, DANCE, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, rowRect } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance });
   props.current = { visible, playerCount, connection, onBack, stageState, onPreviewChange, onDance };
   const st = useRef<SongSelectState>({
     alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
-    loading: null, chosen: null, loadError: '', importing: false, notice: null, unseen: false, picker: null,
-    previewing: null, bundle: null, player: null, routine: null, previewState: 'loading', previewError: '',
+    loading: null, chosen: null, loadError: '',
+    bundle: null, player: null, routine: null, previewState: 'loading', previewError: '',
     drawn: '', reported: '',
   }).current;
 
@@ -159,7 +149,7 @@ export default function SongSelect({
       .then((data: unknown) => validateCatalog(data).songs);
     // Saved songs that can't be read (or take too long) leave the published songs listed (if
     // those don't load, the list shows the error and Retry).
-    const imported = CAN_IMPORT ? Promise.race([
+    const imported = CUSTOM_SONGS ? Promise.race([
       listCustomSongs(),
       new Promise<never>((_, reject) => setTimeout(() => reject(Error('timed out')), IMPORTED_TIMEOUT_MS)),
     ]).catch((error: unknown) => { console.warn('Imported songs could not load:', error); return []; }) : [];
@@ -178,56 +168,9 @@ export default function SongSelect({
       .finally(() => { if (!ctl.signal.aborted) ui.invalidate(); });
   };
 
-  // Import song: a Dance Studio export ZIP, checked and saved (songs/customSongs.ts). Saving
-  // over a copy of the same or a later revision asks first, or keeps it once Song Select has closed.
-  const importFile = (file: File) => {
-    st.importing = true;
-    st.loadError = '';
-    st.notice = { text: `Importing ${file.name}…`, error: false };
-    ui.invalidate();
-    importSongZip(file, {
-      confirmReplace: (saved, incoming) => props.current.visible && window.confirm(saved.bundleRevision === incoming.bundleRevision
-        ? `“${saved.title}” revision ${saved.bundleRevision} is already imported. Replace it?`
-        : `A later revision of “${saved.title}” (${saved.bundleRevision}) is already imported. Replace it with revision ${incoming.bundleRevision}?`),
-    })
-      .then(({ status, entry }) => {
-        const title = `“${entry.title}”`;
-        const fits = entry.supportedPlayerCounts.includes(props.current.playerCount);
-        const note = fits ? '' : ` It's for up to ${entry.supportedPlayerCounts.length} players.`;
-        const text = status === 'kept' ? `Kept the ${title} already imported.` : status === 'replaced' ? `Updated ${title} to revision ${entry.bundleRevision}.` : `Imported ${title}.`;
-        st.notice = { text: text + note, error: false };
-        if (props.current.visible) fetchCatalog(customScoreId(entry.id));
-      })
-      .catch((error: unknown) => { st.notice = { text: message(error) || "That song couldn't be imported.", error: true }; })
-      .finally(() => {
-        st.importing = false;
-        st.unseen = !props.current.visible;
-        ui.invalidate();
-      });
-  };
-  // The file picker opens from the press itself (browsers only open one from the user's input).
-  const pickSong = () => {
-    if (st.importing) return;
-    if (!st.picker) {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.zip,application/zip';
-      input.hidden = true;
-      input.addEventListener('change', () => {
-        const file = input.files?.[0];
-        input.value = '';
-        if (file) importFile(file);
-      });
-      document.body.append(input);
-      st.picker = input;
-    }
-    st.picker.click();
-  };
-
   const closePreview = () => {
     st.player?.dispose();
     st.player = null;
-    st.previewing = null;
     st.bundle = null;
     st.routine = null;
     duckMenuMusic(false);
@@ -236,9 +179,8 @@ export default function SongSelect({
 
   // The preview's stage is mounted out of sight (StageView) while the list stays up with the
   // song's row loading; showPreview opens the preview once it's built and compiled.
-  const openPreview = (entry: ListedSong, bundle: LoadedSongBundle) => {
+  const openPreview = (bundle: LoadedSongBundle) => {
     const { song } = bundle;
-    st.previewing = entry;
     st.bundle = bundle;
     st.previewState = 'loading';
     st.previewError = '';
@@ -287,16 +229,15 @@ export default function SongSelect({
     st.loading = { id: entry.key, controller };
     st.chosen = entry.key;
     st.loadError = '';
-    st.notice = null;
     const { signal } = controller;
     // The stage's code downloads alongside the bundle.
     preloadStage(resolveStage(entry.stage));
     (entry.custom ? loadCustomSong(entry, { signal }) : loadSongBundle(entry, CATALOG_URL(), { signal }))
-      .then((bundle) => { if (!signal.aborted && props.current.visible) openPreview(entry, bundle); })
+      .then((bundle) => { if (!signal.aborted && props.current.visible) openPreview(bundle); })
       .catch((error: unknown) => {
         if (signal.aborted) return;
         st.loadError = message(error);
-        if (entry.custom) offerRemoval(entry, st.loadError);
+        if (entry.custom) explainFailure(entry, st.loadError);
       })
       .finally(() => {
         if (controller.signal.aborted) return;
@@ -314,52 +255,20 @@ export default function SongSelect({
     st.loading = null;
     props.current.onBack?.();
   };
-  // An imported song that won't open can't reach its preview's Remove: it's offered here, once
-  // the saved copy is the one listed (another tab may have replaced it: then the list updates).
-  const offerRemoval = (entry: ListedSong, reason: string) => {
+  // An imported song that won't open: another tab may have replaced or removed it since the list
+  // loaded (then the list updates), or it's damaged (Settings → Songs removes it).
+  const explainFailure = (entry: ListedSong, reason: string) => {
     savedCustomSong(entry.id)
       .then((saved) => {
-        if (!props.current.visible || st.next !== 'list') return;
-        if (saved?.sha256 !== entry.sha256 || saved?.bundleRevision !== entry.bundleRevision) {
-          st.loadError = '';
-          st.notice = { text: `“${entry.title}” has changed since the list loaded.`, error: false };
+        if (!props.current.visible || st.next !== 'list' || st.loading) return;
+        if (saved && saved.sha256 === entry.sha256 && saved.bundleRevision === entry.bundleRevision) {
+          st.loadError = `“${entry.title}” can't be played: ${reason} You can remove it in Settings.`;
+        } else {
+          st.loadError = `“${entry.title}” has changed since the list loaded.`;
           fetchCatalog(saved ? entry.key : undefined);
-        } else if (window.confirm(`“${entry.title}” can't be opened (${reason}). Remove it from this browser?`)) removeSong(entry);
+        }
       })
       .catch(() => { /* The saved copy can't be read either: the load error stands. */ })
-      .finally(() => ui.invalidate());
-  };
-  // Remove (an imported song's preview) deletes it from this browser; its best scores stay.
-  const remove = () => {
-    const entry = st.previewing;
-    if (entry?.custom && window.confirm(`Remove “${entry.title}” from this browser?`)) removeSong(entry);
-  };
-  const removeSong = (entry: ListedSong) => {
-    removeCustomSong(entry)
-      // Not removed: another tab already did, or put another copy in its place (which stays).
-      .then(async (removed) => removed || !await savedCustomSong(entry.id))
-      .then((gone) => {
-        st.loadError = '';
-        st.notice = gone ? { text: `Removed “${entry.title}”.`, error: false }
-          : { text: `“${entry.title}” has changed since the list loaded, so it wasn't removed.`, error: false };
-        if (st.previewing === entry) {
-          // The keyboard cursor comes back on Import song (or on the copy that replaced the song,
-          // once the list has it).
-          const key = ui.keyboard;
-          closePreview();
-          go('list', false);
-          if (key) ui.focus({ id: 'import', rect: SONG_IMPORT });
-        }
-        if (props.current.visible) fetchCatalog(gone ? undefined : entry.key);
-      })
-      .catch((error: unknown) => {
-        const text = message(error) || "That song couldn't be removed.";
-        if (st.previewing === entry) st.previewError = text;
-        else {
-          st.loadError = '';
-          st.notice = { text, error: true };
-        }
-      })
       .finally(() => ui.invalidate());
   };
   const dance = () => {
@@ -374,23 +283,13 @@ export default function SongSelect({
     active: live,
     keyNav: true,
     widgets: () => {
-      if (st.screen === 'preview') {
-        const list: SongWidget[] = [
-          { id: 'back', circle: BACK },
-          { id: 'dance', rect: DANCE, primary: true },
-        ];
-        if (st.previewing?.custom) list.push({ id: 'remove', rect: SONG_REMOVE });
-        return list;
-      }
+      if (st.screen === 'preview') return [{ id: 'back', circle: BACK }, { id: 'dance', rect: DANCE, primary: true }];
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
-        // An import may yet ask about replacing a song, so none opens until it's done.
-        if (!st.loading && !st.importing) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
+        if (!st.loading) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
         if (st.page > 0) list.push({ id: 'page-up', circle: PAGE_UP });
         if (st.page < pages() - 1) list.push({ id: 'page-down', circle: PAGE_DOWN });
       }
-      // Kept while the list reloads after an import, so the keyboard cursor stays on it.
-      if (CAN_IMPORT && st.catalog.status !== 'error' && !st.loading) list.push({ id: 'import', rect: SONG_IMPORT, primary: st.catalog.status === 'ready' && !pageSongs().length });
       if (st.catalog.status === 'error') list.push({ id: 'retry', rect: RETRY, primary: true });
       return list;
     },
@@ -407,8 +306,6 @@ export default function SongSelect({
         if (s.keyboard && !arrow && row >= 0) s.focus(songWidget(pageSongs()[row], row));
       }
       else if (wdg.id === 'retry') fetchCatalog();
-      else if (wdg.id === 'import') pickSong();
-      else if (wdg.id === 'remove') remove();
       else if (wdg.id === 'dance') dance();
       s.invalidate();
     },
@@ -439,11 +336,11 @@ export default function SongSelect({
       const c = p.connection;
       const slots = Array.from({ length: p.playerCount }, (_, i) => slotStatus(c, i).label);
       const key = [
-        st.screen, st.catalog.status, st.page, st.loading?.id, st.loadError, st.importing, st.notice?.text, st.previewState, st.previewError,
+        st.screen, st.catalog.status, st.page, st.loading?.id, st.loadError, st.previewState, st.previewError,
         p.stageState.stage, p.stageState.ready, p.stageState.failed,
       ].join('~');
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
-      if (st.catalog.status === 'loading' || st.loading || st.importing) s.invalidate();
+      if (st.catalog.status === 'loading' || st.loading) s.invalidate();
 
       const report = {
         songScreen: st.screen,
@@ -451,8 +348,7 @@ export default function SongSelect({
         catalog: st.catalog.status === 'ready' && !songs().length ? 'empty' : st.catalog.status,
         songCount: String(songs().length),
         customSongCount: String(songs().filter((song) => song.custom).length),
-        songImport: st.importing ? 'importing' : st.notice ? (st.notice.error ? 'error' : 'done') : 'idle',
-        songNotice: st.notice?.text ?? '',
+        songLoadError: st.loadError,
         playerSlots: slots.join('|'),
         previewState: st.screen === 'preview' ? (st.previewError ? 'error' : st.previewState) : '',
         previewTimeMs: st.routine ? String(Math.round(st.routine.timeMs())) : '',
@@ -512,7 +408,7 @@ export default function SongSelect({
             g.font = `600 ${Math.round(rect.h * 0.22)}px ${FONT}`;
             drawPill(g, rect, {
               label, sub: ellipsize(g, sub, rect.w - rect.h - 44), icon: 'note',
-              hover: h[id] ?? 0, press: press(id), disabled: (!!st.loading && !loadingThis) || st.importing,
+              hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
             });
           });
           if (pages() > 1) {
@@ -531,20 +427,12 @@ export default function SongSelect({
             drawShadowText(g, `${st.page + 1}/${pages()}`, PAGE_UP.x, (PAGE_UP.y + PAGE_DOWN.y) / 2, { size: 22, weight: 700, align: 'center' });
           }
         }
-        // A song that wouldn't load, or what the last import or removal did.
-        const note = st.loadError && st.catalog.status === 'ready' ? { text: st.loadError, error: true } : st.notice;
-        if (note && st.catalog.status !== 'error') {
-          // Two lines at most, between the list and Import song.
+        // A song that wouldn't load: two lines at most, under the list.
+        if (st.loadError && st.catalog.status === 'ready') {
           g.font = `700 22px ${FONT}`;
-          const lines = wrapText(g, note.text, ROWS.w + 60);
+          const lines = wrapText(g, st.loadError, ROWS.w + 60);
           const shown = lines.length > 2 ? [lines[0], ellipsize(g, lines.slice(1).join(' '), ROWS.w + 60)] : lines;
-          shown.forEach((line, i) => drawShadowText(g, line, ROWS.x, ROWS.y + ROWS.perPage * (ROWS.h + ROWS.gap) + 6 + i * 28, { size: 22, color: note.error ? '#ffb38a' : '#d8f6ff' }));
-        }
-        if (CAN_IMPORT && st.catalog.status !== 'error') {
-          drawPill(g, SONG_IMPORT, {
-            label: st.importing ? `Importing${dots}` : 'Import song', sub: 'Dance Studio ZIP', icon: 'add',
-            hover: h.import ?? 0, press: press('import'), disabled: st.importing || !!st.loading,
-          });
+          shown.forEach((line, i) => drawShadowText(g, line, ROWS.x, ROWS.y + ROWS.perPage * (ROWS.h + ROWS.gap) + 6 + i * 28, { size: 22, color: '#ffb38a' }));
         }
       } else if (st.bundle) {
         const { song } = st.bundle;
@@ -556,9 +444,7 @@ export default function SongSelect({
 
         const stageFailed = p.stageState.failed && p.stageState.stage === resolveStage(song.stage);
         const error = st.previewError || (stageFailed ? "This song's stage couldn't load." : p.stageState.dancersFailed ? 'Character preview could not load.' : '');
-        const custom = !!st.previewing?.custom;
-        if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, (custom ? SONG_REMOVE.x : DANCE.x) - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
-        if (custom) drawPill(g, SONG_REMOVE, { label: 'Remove', sub: 'From this browser', icon: 'trash', hover: h.remove ?? 0, press: press('remove') });
+        if (error) paragraph(g, error, PREVIEW_NOTE.x, PREVIEW_NOTE.y - 42, DANCE.x - PREVIEW_NOTE.x - 40, { size: 26, color: '#ffb38a' });
         drawPill(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       }
       g.restore();
@@ -572,9 +458,6 @@ export default function SongSelect({
       st.swap = 1;
       st.page = 0;
       st.loadError = '';
-      // An import that finished while Song Select was closed still says how it went.
-      if (!st.unseen && !st.importing) st.notice = null;
-      st.unseen = false;
       fetchCatalog();
       ui.invalidate();
       return undefined;
@@ -597,7 +480,6 @@ export default function SongSelect({
 
   useEffect(() => () => {
     st.player?.dispose();
-    st.picker?.remove();
     duckMenuMusic(false);
   }, [st]);
 

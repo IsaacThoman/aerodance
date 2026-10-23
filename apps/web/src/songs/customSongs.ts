@@ -9,11 +9,13 @@ import type { Fetcher } from './loadBundle.ts';
 /*
  * Songs imported into this browser: the ZIPs Dance Studio exports (<songId>-r<n>.aerodance-song.zip,
  * one <songId>/ folder of song.json, checksums.json, choreography, audio and cover), kept in
- * IndexedDB and listed in Song Select after the published songs.
+ * IndexedDB, managed in Settings (menu/songsPanel.ts) and listed in Song Select after the
+ * published songs.
  *
  *   importSongZip(file, { confirmReplace })   checks it fully (catalogEntry, then loadSongBundle),
  *                                             then saves it in one transaction
- *   listCustomSongs()                         the saved songs' catalog entries, checked again
+ *   listSavedSongs()                          every saved song, checked again (damaged or not)
+ *   listCustomSongs()                         the catalog entries of those that check out
  *   loadCustomSong(entry, { signal })         loadSongBundle over the saved files
  *   removeCustomSong(entry)                   unless another tab has replaced it since
  *
@@ -162,14 +164,21 @@ async function keepStorage() {
 const savedFolder = (store: CustomSongStore, record: CustomSongRecord) => folderOf((path) => store.file(record.id, path), record.sizes);
 
 /** The saved songs' catalog entries by title, checked again (a damaged one is left out). */
-export async function listCustomSongs(store: CustomSongStore = indexedDBStore(), warn: (message: string) => void = console.warn): Promise<CatalogSong[]> {
-  const songs: CatalogSong[] = [];
+/** A saved song for Settings: damaged when it no longer checks out (so Song Select leaves it out). */
+export interface SavedSong { entry: CatalogSong; damaged: boolean; }
+export async function listSavedSongs(store: CustomSongStore = indexedDBStore(), warn: (message: string) => void = console.warn): Promise<SavedSong[]> {
+  const songs: SavedSong[] = [];
   for (const record of await store.all()) {
-    try { songs.push(await catalogEntry(record.id, savedFolder(store, record))); }
-    catch (error) { warn(`Skipping imported song ${record.id}: ${errorText(error)}`); }
+    try { songs.push({ entry: await catalogEntry(record.id, savedFolder(store, record)), damaged: false }); }
+    catch (error) {
+      warn(`Imported song ${record.id} is damaged: ${errorText(error)}`);
+      songs.push({ entry: record.entry, damaged: true });
+    }
   }
-  return songs.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  return songs.sort((a, b) => a.entry.title.localeCompare(b.entry.title) || a.entry.id.localeCompare(b.entry.id));
 }
+export const listCustomSongs = async (store: CustomSongStore = indexedDBStore(), warn: (message: string) => void = console.warn) =>
+  (await listSavedSongs(store, warn)).filter((song) => !song.damaged).map((song) => song.entry);
 
 /** A saved song, verified like a published one (loadSongBundle). */
 export function loadCustomSong(entry: CatalogSong, { signal, store = indexedDBStore() }: { signal?: AbortSignal; store?: CustomSongStore } = {}) {

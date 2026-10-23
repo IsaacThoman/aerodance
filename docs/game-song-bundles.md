@@ -32,29 +32,31 @@ brown noise so the bundle carries no licensed music.
 
 ## Import a song in the browser
 
-Players can add a song without rebuilding the game: **Import song**, under the Song
-Select list, takes the ZIP Dance Studio's **Export song** downloads
+Players can add a song without rebuilding the game: **Settings → Songs → Import song**
+takes the ZIP Dance Studio's **Export song** downloads
 (`<songId>-r<revision>.aerodance-song.zip`). A ZIP of the exported folder made by the
 Finder or Explorer works too. The game checks its files as it does before playing any song
-(the music is decoded when it's previewed), then saves it in the browser's IndexedDB, so it's still there next visit. Imported songs list after
-the published ones, marked **Custom**; an imported song's preview has **Remove**, and one
-that can't be opened offers to remove itself.
+(the music is decoded when it's previewed), then saves it in the browser's IndexedDB, so it's
+still there next visit. The Songs panel lists the imported songs, a page at a time, each with a
+remove button. Song Select lists them after the published ones, marked **Custom**; one that
+can't be opened there says to remove it in Settings.
 
 - Importing the same or an older revision of a song already imported asks before replacing it
-  (or keeps the saved copy, if Song Select was closed while it was checked).
+  (or keeps the saved copy, if Settings was closed while it was checked).
 - An imported song can share a published song's ID: both are listed, and the imported one's
   best scores are kept under `custom:<songId>`.
 - Only the files `checksums.json` lists are kept. The folder's name doesn't matter;
   `song.json` names the song. A saved song whose `song.json` or `checksums.json` no longer
-  checks out is left out of the list, with a console warning (importing it again replaces it
-  without asking); damaged music or choreography is reported when the song is opened, as for
-  a published song.
+  checks out is left out of Song Select, with a console warning, and shows in Settings as
+  **Damaged** (importing it again replaces it without asking); damaged music or choreography
+  is reported when the song is opened, as for a published song.
 - Importing is checked on the page itself: a ZIP takes several times its size in memory
   while it's checked.
 - The Apple TV app (no IndexedDB or file picker) and the iPhone/iPad app (WebKit may clear
   its storage) don't offer importing. Browsers that clear site data clear imported songs.
 
 Code: `apps/web/src/songs/customSongs.ts` (import, storage, loading),
+`apps/web/src/menu/songsPanel.ts` (the Settings panel),
 `packages/pose/song.ts` `catalogEntry` (the folder checks shared with
 `scripts/songCatalog.ts`) and `packages/pose/zip.ts` (shared with Dance Studio).
 

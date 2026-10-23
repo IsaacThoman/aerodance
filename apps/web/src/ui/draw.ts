@@ -291,7 +291,7 @@ export const ICONS = {
     g.lineTo(cx - a, cy + a);
     g.stroke();
   },
-  // Plus (import a song).
+  // Plus (Settings → Songs: import a song).
   add(g, cx, cy, r) {
     const a = r * 0.4;
     g.beginPath();
@@ -301,7 +301,7 @@ export const ICONS = {
     g.lineTo(cx, cy + a);
     g.stroke();
   },
-  // Bin (remove a song).
+  // Bin (Settings → Songs: remove a song).
   trash(g, cx, cy, r) {
     const a = r * 0.4;
     g.beginPath();

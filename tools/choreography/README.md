@@ -281,8 +281,8 @@ to `dist/songs/` are detected without a rebuild or server restart. Container
 installations need those files inside the container, through a rebuilt image or
 a mounted songs directory.
 
-To play a song without installing it, choose **Import song** in the game's Song
-Select and pick the exported ZIP. It's saved in that browser only; see
+To play a song without installing it, choose **Import song** in the game's
+Settings → Songs and pick the exported ZIP. It's saved in that browser only; see
 [game song bundles](../../docs/game-song-bundles.md#import-a-song-in-the-browser).
 
 Re-exporting a song preserves its song ID and updates its bundle revision.

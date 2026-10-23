@@ -1,9 +1,10 @@
-// Browser flow for songs imported into the browser (songs/customSongs.ts): Import song takes a
-// ZIP (deflated, with a folder entry and __MACOSX extras, as the Finder makes) through the real
-// file picker; it lists as a custom song beside a published song with the same ID,
-// is still there after a reload (IndexedDB), previews, dances with the autoplay ghost and keeps
-// its best score apart from the published song's. Importing it again asks before replacing, and
-// Remove deletes it. Run after `npm run build`; CUSTOM_SONGS_BROWSER=webkit runs it in WebKit.
+// Browser flow for songs imported into the browser (songs/customSongs.ts): Settings → Songs →
+// Import song takes a ZIP (deflated, with a folder entry and __MACOSX extras, as the Finder makes)
+// through the real file picker; Song Select lists it as a custom song beside a published song with
+// the same ID, it's still there after a reload (IndexedDB), previews, dances with the autoplay ghost
+// and keeps its best score apart from the published song's. Importing it again asks before
+// replacing, and Settings removes it, damaged or not. Run after `npm run build`;
+// CUSTOM_SONGS_BROWSER=webkit runs it in WebKit.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -12,7 +13,7 @@ import path from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 import express from 'express';
 import { chromium, webkit } from 'playwright';
-import type { Dialog, FileChooser } from 'playwright';
+import type { FileChooser } from 'playwright';
 import { silentWav } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
 import { gameLayout } from '../src/game/layout.ts';
@@ -23,8 +24,8 @@ import { validateSong } from '../../../packages/pose/song.ts';
 // UI_ASPECT=standard runs it in a 4:3 window.
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
-const { PLAYERS_GO, START } = menuLayout(design.w);
-const { BACK, DANCE, RESULTS_SONGS, SONG_IMPORT, SONG_REMOVE, rowRect } = gameLayout(design.w);
+const { BACK: MENU_BACK, PLAYERS_GO, SETTINGS, SONG_IMPORT, SONG_TRASH, START } = menuLayout(design.w);
+const { BACK, DANCE, RESULTS_SONGS, rowRect } = gameLayout(design.w);
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
 
@@ -123,14 +124,23 @@ try {
       return d && list.every(([k, m]) => ('re' in m ? new RegExp(m.re).test(d[k] ?? '') : d[k] === m.is));
     }, entries, timeout ? { timeout } : undefined);
   };
-  // The ghost dances (?input=ghost), so every player reads as detected; Start opens the dial on 2.
-  const toSongSelect = async () => {
+  // The ghost dances (?input=ghost), so every player reads as detected.
+  const load = async () => {
     await page.goto('http://127.0.0.1:4174/?input=ghost');
     await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });
     const box = await page.locator('.canvas-frame').boundingBox();
     assert.ok(box);
     frame = box;
     await until({ menuScreen: 'main', menuReady: 'true', displayMode: mode });
+  };
+  const toSettings = async () => {
+    await load();
+    await click(SETTINGS);
+    await until({ menuScreen: 'settings', menuReady: 'true', savedSongs: /^\d+$/ });
+  };
+  // Start opens the dial on 2.
+  const toSongSelect = async () => {
+    await load();
     await click(START);
     await until({ menuScreen: 'players', menuReady: 'true' });
     await click(PLAYERS_GO);
@@ -150,24 +160,34 @@ try {
     await (accept ? dialog.accept() : dialog.dismiss());
   }));
 
-  await toSongSelect();
-  await until({ songCount: '1', customSongCount: '0', songImport: 'idle' });
-  await shot('custom-list');
+  await toSettings();
+  await until({ savedSongs: '0', songImport: 'idle' });
+  await shot('custom-settings');
   await importZip();
-  await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, songCount: '2', customSongCount: '1' });
+  await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, savedSongs: '1', damagedSongs: '0' });
   await shot('custom-imported');
 
-  // Still there after a reload.
+  // Listed after the published song, and still there after a reload.
   await toSongSelect();
   await until({ songCount: '2', customSongCount: '1' });
+  await shot('custom-list');
+  await toSettings();
+  await until({ savedSongs: '1' });
 
   // The same revision again asks first; No keeps the saved copy.
   const replace = answerDialog(false);
   await importZip();
   assert.equal(await replace, `“${song.title}” revision ${song.bundleRevision} is already imported. Replace it?`);
-  await until({ songImport: 'done', songNotice: /^Kept the/, customSongCount: '1' });
+  await until({ songImport: 'done', songNotice: /^Kept the/, savedSongs: '1' });
+  // Leaving Settings clears what the last import did.
+  await click(MENU_BACK);
+  await until({ menuScreen: 'main', menuReady: 'true', songImport: 'idle', songNotice: '' });
 
   // The custom song (after the published one) previews and dances; its best score is its own.
+  await click(START);
+  await until({ menuScreen: 'players', menuReady: 'true' });
+  await click(PLAYERS_GO);
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', customSongCount: '1' });
   await click(rowRect(1));
   await until({ songScreen: 'preview', songReady: 'true', previewState: 'playing' });
   await shot('custom-preview');
@@ -180,39 +200,28 @@ try {
   await click(RESULTS_SONGS);
   await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', customSongCount: '1' });
 
-  // The published song has no Remove; the custom one does, and asks first.
-  await click(rowRect(0));
-  await until({ songScreen: 'preview', songReady: 'true' });
-  let dialogs = 0;
-  const count = (dialog: Dialog) => { dialogs++; void dialog.dismiss(); };
-  page.on('dialog', count);
-  await page.waitForTimeout(300);
-  await click(SONG_REMOVE);
-  await page.waitForTimeout(500);
-  page.off('dialog', count);
-  assert.equal(dialogs, 0, 'Remove is only for imported songs');
-  assert.equal(await page.locator('canvas').evaluate((c) => c.dataset.songScreen), 'preview');
-  await click(BACK);
-  await until({ songScreen: 'list', songReady: 'true' });
-  await click(rowRect(1));
-  await until({ songScreen: 'preview', songReady: 'true' });
+  // Settings removes it, asking first.
+  await toSettings();
   const confirm = answerDialog(true);
-  await click(SONG_REMOVE);
+  await click(SONG_TRASH(0));
   assert.equal(await confirm, `Remove “${song.title}” from this browser?`);
-  await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', songCount: '1', customSongCount: '0', songNotice: /^Removed/ });
+  await until({ savedSongs: '0', songNotice: `Removed “${song.title}”.` });
   await toSongSelect();
   await until({ songCount: '1', customSongCount: '0' });
 
   // Clearing site data closes the page's database connection; the next import opens it again.
+  await toSettings();
   if (engine === chromium) {
     const cdp = await context.newCDPSession(page);
     await cdp.send('Storage.clearDataForOrigin', { origin: 'http://127.0.0.1:4174', storageTypes: 'indexeddb' });
   }
   await importZip();
-  await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, customSongCount: '1' });
+  await until({ songImport: 'done', songNotice: `Imported “${song.title}”.`, savedSongs: '1' });
+  await toSongSelect();
+  await until({ customSongCount: '1' });
 
   // Another tab replacing the song (its next revision, saved as an import saves it) leaves this
-  // list stale: opening it says so and lists the new one, rather than offering to remove it.
+  // list stale: opening it says so and lists the new one.
   const next = { ...song, bundleRevision: song.bundleRevision + 1 };
   const nextSong = Buffer.from(JSON.stringify(next));
   const nextFiles = new Map(files);
@@ -233,35 +242,46 @@ try {
     };
   }), { id: song.songId, entry: nextEntry, songJson: [...nextSong], checksums: [...nextChecksums],
     sizes: [...nextFiles, ['checksums.json', nextChecksums] as const].map(([name, body]): [string, number] => [name, body.length]) });
-  let staleDialogs = 0;
-  const stale = (dialog: Dialog) => { staleDialogs++; void dialog.dismiss(); };
-  page.on('dialog', stale);
   await click(rowRect(1));
-  await until({ songScreen: 'list', catalog: 'ready', customSongCount: '1', songNotice: /has changed since the list loaded/ });
-  page.off('dialog', stale);
-  assert.equal(staleDialogs, 0, 'a replaced song is not offered for removal');
+  await until({ songScreen: 'list', catalog: 'ready', customSongCount: '1', songLoadError: /has changed since the list loaded/ });
   await click(rowRect(1));
   await until({ songScreen: 'preview', songReady: 'true' });
   await click(BACK);
   await until({ songScreen: 'list', songReady: 'true', catalog: 'ready' });
 
-  // A saved song that can't be opened (its audio is gone) offers to remove itself.
-  await page.evaluate((id) => new Promise<void>((resolve, reject) => {
+  // A saved song that can't be opened (its audio is gone) says where to remove it.
+  const idb = (id: string, change: 'audio' | 'sizes') => page.evaluate(({ id, change }) => new Promise<void>((resolve, reject) => {
     const request = indexedDB.open('aerodance-custom-songs');
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
-      const tx = request.result.transaction('files', 'readwrite');
-      tx.objectStore('files').delete([id, 'audio.wav']);
+      const tx = request.result.transaction(['songs', 'files'], 'readwrite');
+      if (change === 'audio') tx.objectStore('files').delete([id, 'audio.wav']);
+      else {
+        const songs = tx.objectStore('songs');
+        const get = songs.get(id);
+        get.onsuccess = () => { get.result.sizes.delete('checksums.json'); songs.put(get.result); };
+      }
       tx.oncomplete = () => { request.result.close(); resolve(); };
       tx.onabort = () => reject(tx.error);
     };
-  }), song.songId);
-  const broken = answerDialog(true);
+  }), { id, change });
+  await idb(song.songId, 'audio');
   await click(rowRect(1));
-  assert.match(await broken, /can't be opened \(Song asset could not load \(404\)\.\)\. Remove it from this browser\?$/);
-  await until({ songScreen: 'list', catalog: 'ready', customSongCount: '0', songNotice: /^Removed/ });
+  await until({ songScreen: 'list', songLoadError: /can't be played: Song asset could not load \(404\)\. You can remove it in Settings\.$/ });
+  // One that no longer checks out at all is left out of Song Select, and shows in Settings as
+  // damaged, to remove.
+  await idb(song.songId, 'sizes');
+  await toSongSelect();
+  await until({ songCount: '1', customSongCount: '0' });
+  await toSettings();
+  await until({ savedSongs: '1', damagedSongs: '1' });
+  await shot('custom-damaged');
+  const removeDamaged = answerDialog(true);
+  await click(SONG_TRASH(0));
+  await removeDamaged;
+  await until({ savedSongs: '0', songNotice: /^Removed/ });
   assert.deepEqual(errors, []);
-  console.log(`Custom songs passed in ${engine.name()}: import through the file picker, listing beside a published song, persistence across a reload, asking before replacing, preview, a scored song with its own best score, Remove, a song replaced in another tab, and removing a song that can't be opened.`);
+  console.log(`Custom songs passed in ${engine.name()}: Settings → Songs importing through the file picker, listing beside a published song in Song Select, persistence across a reload, asking before replacing, preview, a scored song with its own best score, removing, a song replaced in another tab, and a damaged song removed in Settings.`);
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { makeZip, readZip } from '../../../packages/pose/zip.ts';
-import { customScoreId, importSongZip, listCustomSongs, loadCustomSong, readSongZip, removeCustomSong } from '../src/songs/customSongs.ts';
+import { customScoreId, importSongZip, listCustomSongs, listSavedSongs, loadCustomSong, readSongZip, removeCustomSong } from '../src/songs/customSongs.ts';
 import type { CustomSongRecord, CustomSongStore } from '../src/songs/customSongs.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
@@ -154,7 +154,7 @@ test('refuses anything that is not one playable exported song, saving nothing', 
   assert.equal(store.records.size, 0);
 });
 
-test('lists saved songs by title and leaves out damaged ones', async () => {
+test('lists saved songs by title; Song Select leaves out damaged ones, Settings marks them', async () => {
   const store = memoryStore();
   const titled = (songId: string, title: string) => {
     const fixture = bundleFixture();
@@ -170,6 +170,11 @@ test('lists saved songs by title and leaves out damaged ones', async () => {
   const warnings: string[] = [];
   assert.deepEqual((await listCustomSongs(store, (message) => warnings.push(message))).map((song) => song.id), ['apple', 'zebra']);
   assert.match(warnings.join('\n'), /mango/);
+  // Settings lists it still, as damaged, so it can be removed.
+  const saved = await listSavedSongs(store, () => {});
+  assert.deepEqual(saved.map(({ entry, damaged }) => [entry.id, damaged]), [['apple', false], ['mango', true], ['zebra', false]]);
+  assert.equal(await removeCustomSong(saved[1].entry, store), true);
+  assert.deepEqual((await listSavedSongs(store, () => {})).map(({ entry }) => entry.id), ['apple', 'zebra']);
   // A song replaced since it was listed doesn't load as the old revision.
   const [apple] = await listCustomSongs(store, () => {});
   const fixture = bundleFixture();

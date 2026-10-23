@@ -10,8 +10,6 @@ export const rowRect = (i: number): Rect => ({ x: ROWS.x, y: ROWS.y + i * (ROWS.
 export const PAGE_UP = { x: 730, y: ROWS.y + ROWS.h / 2, r: 28 };
 export const PAGE_DOWN = { x: 730, y: ROWS.y + 3 * (ROWS.h + ROWS.gap) + ROWS.h / 2, r: 28 };
 export const RETRY = { x: 128, y: 340, w: 300, h: 80 };
-// Import song, under the list (in browsers that can save songs: songs/customSongs.ts).
-export const SONG_IMPORT = { x: 128, y: 742, w: 320, h: 80 };
 
 // Preview phase: title top left; anything worth saying (a stage or audio that couldn't
 // load) sits bottom left.
@@ -54,17 +52,14 @@ export const GAME_QUIT = { x: 610, y: 548, w: 380, h: 84 };
 export const GAME_PROGRESS = { x: 560, y: 852, w: 480, h: 14 };
 export const RESULTS_RETRY = { x: 470, y: 806, w: 320, h: 80 };
 export const RESULTS_SONGS = { x: 810, y: 806, w: 320, h: 80 };
-// Song Select preview: Dance! starts the song for real, bottom right; an imported song's
-// Remove sits to its left.
+// Song Select preview: Dance! starts the song for real, bottom right.
 export const DANCE = { x: 1172, y: 770, w: 300, h: 96 };
-export const SONG_REMOVE = { x: 852, y: 778, w: 296, h: 80 };
 
 export function gameLayout(width = 1600) {
   const dx = (width - 1600) / 2;
   const compact = width === 1200;
   const centered = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x + dx });
   const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 480 : ROWS.w };
-  const danceX = width - (compact ? 72 : 128) - DANCE.w;
   return {
     BACK: { ...BACK, x: compact ? 110 : BACK.x },
     ROWS: rows,
@@ -72,10 +67,8 @@ export function gameLayout(width = 1600) {
     PAGE_UP: { ...PAGE_UP, x: rows.x + rows.w + 42 },
     PAGE_DOWN: { ...PAGE_DOWN, x: rows.x + rows.w + 42 },
     RETRY: { ...RETRY, x: rows.x },
-    SONG_IMPORT: { ...SONG_IMPORT, x: rows.x },
     PREVIEW_NOTE: { ...PREVIEW_NOTE, x: rows.x },
-    DANCE: { ...DANCE, x: danceX },
-    SONG_REMOVE: { ...SONG_REMOVE, x: danceX - (DANCE.x - SONG_REMOVE.x) },
+    DANCE: { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w },
     GAME_PAUSE: centered(GAME_PAUSE),
     GAME_READY_START: centered(GAME_READY_START),
     GAME_READY_BACK: { ...GAME_READY_BACK, x: compact ? 110 : GAME_READY_BACK.x },
