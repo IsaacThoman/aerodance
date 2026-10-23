@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WebcamCalibration, WEBCAM_STILL_MS, WEBCAM_FRAME_GAP_MS } from '../src/game/webcamCalibration.ts';
+import { WebcamCalibration, WEBCAM_MISS_MS, WEBCAM_STILL_MS, WEBCAM_FRAME_GAP_MS } from '../src/game/webcamCalibration.ts';
 import type { CalibrationRecord } from '../src/game/webcamCalibration.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
 import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
@@ -82,16 +82,29 @@ test('slow drift is measured against the initial stance, not just the previous f
 
 test('missing players, low confidence and feet outside the image reset the hold', () => {
   const partials: ((p: Pose[]) => Pose[])[] = [p => [p[0]], p => { p[1].landmarks[27].confidence = 0.1; return p; }, p => { p[1].landmarks[28].y = 1.1; return p; }];
-  for (const partial of partials) {
+  for (const [i, partial] of partials.entries()) {
     const { calibration, send, hold } = camera();
     hold(0, 1500);
-    send(1600, partial(poses()));
-    assert.equal(calibration.status(1600).progress, 0);
+    // Missing for longer than the model misses somebody for; the rest at once.
+    const until = i === 0 ? 1500 + WEBCAM_MISS_MS + 100 : 1600;
+    for (let time = 1600; time <= until; time += 100) send(time, partial(poses()));
+    assert.equal(calibration.status(until).progress, 0);
     assert.equal(calibration.tracks, null);
-    hold(1700, 4100);
-    assert.equal(calibration.status(4100).complete, false);
-    assert.equal(send(4200), true);
+    hold(until + 100, until + 2500);
+    assert.equal(calibration.status(until + 2500).complete, false);
+    assert.equal(send(until + 2600), true);
   }
+});
+
+test('a player the model misses for a moment is still holding', () => {
+  const { calibration, send, hold } = camera(3);
+  hold(0, 1500);
+  for (let time = 1600; time <= 1500 + WEBCAM_MISS_MS; time += 100) send(time, poses(3).filter(p => p.playerId !== 1));
+  assert.deepEqual(calibration.status(1500 + WEBCAM_MISS_MS).players, ['holding', 'holding', 'holding']);
+  assert.ok(calibration.status(1500 + WEBCAM_MISS_MS).progress > 0.6);
+  hold(1600 + WEBCAM_MISS_MS, 2500);
+  assert.equal(calibration.status(2500).complete, true);
+  assert.equal(calibration.tracks?.length, 3);
 });
 
 test('render ticks, duplicate and old frames cannot advance calibration', () => {

@@ -124,7 +124,7 @@ Headless Chromium has no webcam, so by default (`--camera fixture`) the page get
 synthetic one, as in the webcam browser tests: the MediaPipe fixture photo
 (`apps/web/tests/fixtures/mediapipe-pose.jpg`) drawn once per dancer. Real MediaPipe tracks
 it, so calibration and scoring run for real. `camera 0`–`4` changes how many dancers are
-in shot, one per lane; start with as many as the song has players.
+in shot, side by side; start with as many as the song has players.
 `--camera deny` makes every camera request fail with a permission error, and
 `--camera none` leaves the browser alone (headless has no camera, so requests fail).
 

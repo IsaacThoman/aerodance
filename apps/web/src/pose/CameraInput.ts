@@ -54,9 +54,12 @@ export class CameraInput implements PoseSource {
   view: CameraInputView;
   // In the iPhone/iPad app, a muted camera is iOS holding it for a call: wait for it to come back.
   // Its picture is turned upright the way the device is held (cameraTurner), so turning the device
-  // carries on at the new size, as a phone camera does.
+  // carries on at the new size, as a phone camera does. It also looks for three or four players in
+  // the whole picture: strips (tiles.ts) work in its WebKit, but each costs a landmarker, about
+  // 100 MB more in the process the game runs in (and 160-215 MB in all, measured in the iOS
+  // simulator), which hasn't been tried on a device.
   constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource(inApp()
-    ? { interruptedTimeoutMs: Infinity, adaptToResize: true, turn: cameraTurner() } : {}) }), phone = new PhonePoseSource(),
+    ? { interruptedTimeoutMs: Infinity, adaptToResize: true, turn: cameraTurner(), tiles: false } : {}) }), phone = new PhonePoseSource(),
     webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone; this.webcamSupported = webcamSupported;
     const choice = saved();

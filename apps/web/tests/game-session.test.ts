@@ -509,7 +509,7 @@ test('the ghost replay dances the routine and stands in its halves without a son
   assert.equal(last.captureBrowserTimeMs, 5000);
 });
 
-test('a four-player ghost stands one per lane and doubles the duet', async () => {
+test('a four-player ghost stands side by side and doubles the duet', async () => {
   let now = 0;
   const ghost = new ReplayPoseSource({ now: () => now, noise: 0 });
   const records: PoseRecordEvent<LivePoseRecord>[] = [];

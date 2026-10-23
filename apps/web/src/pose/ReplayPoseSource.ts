@@ -18,7 +18,7 @@ import type { LivePoseRecord, PoseInputView, PoseSource, SongClock } from './Pos
  *   recording   replays a pose recording (createPoseRecorder) made during a real song, at
  *               the song times the poses were captured.
  *
- * Without a song attached (the menus) the players stand still in their camera lanes. The game
+ * Without a song attached (the menus) the players stand still side by side. The game
  * attaches the song while it plays: attachSong({ bundle, songTimeAt(perfMs), perfAtSong(ms),
  * playing() }) and attachSong(null) after.
  */
@@ -161,7 +161,7 @@ export class ReplayPoseSource implements PoseSource {
     return landmarks.map((j) => ({ ...j, x: j.x + gaussian(this.rnd) * this.noise, y: j.y + gaussian(this.rnd) * this.noise }));
   }
   standing(): Pose[] {
-    // One player per lane; the mirrored preview shows P1 on the left, so P1's lane is on the camera's right.
+    // Side by side, evenly spaced; the mirrored preview shows P1 on the left, so P1 stands on the camera's right.
     return Array.from({ length: this.playerCount }, (_, playerId) => ({ playerId, landmarks: this.jitter(standingPose(1 - (playerId + 0.5) / this.playerCount)) }));
   }
   tick() {
