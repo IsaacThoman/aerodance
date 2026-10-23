@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
   FONT, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, drawStatusDot,
-  ellipsize, ICONS, paragraph, text,
+  ellipsize, ICONS, paragraph, roundRect, TAU, text,
 } from '../ui/draw.ts';
-import type { Face } from '../ui/draw.ts';
+import type { Face, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import { CameraSetup, cameraWidgets, drawCameraPicker } from '../connect/cameraSetup.ts';
@@ -15,17 +15,18 @@ import type { GamePhase, GameSession, Readiness } from './GameSession.ts';
 import { WEBCAM_STILL_MS } from './webcamCalibration.ts';
 import type { CalibrationPlayerStatus, CalibrationStatus } from './webcamCalibration.ts';
 import type { JudgementEvent, PlayerResult, WindowJudgement } from '../../../../packages/score/scorer.ts';
+import { CONNECTIONS } from '../../../../packages/pose/choreography.ts';
+import type { Landmark } from '../../../../packages/pose/choreography.ts';
 import { drawWebcamPreview } from '../../../../packages/pose/browser/preview.ts';
 import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
 import { getMixer } from '../audio/mixer.ts';
-import { gameLayout, LIVE_PANEL, livePanelCenterX, livePanelHeight } from './layout.ts';
+import { gameLayout, PLAYER_HUD_TOP, playerHudX } from './layout.ts';
 import { displayDesign } from '../display.ts';
 
 /**
- * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers
- * and the players' live characters):
+ * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers):
  *
  *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
  *              pressed, over the camera picker; every player holds still together for
@@ -34,9 +35,10 @@ import { displayDesign } from '../display.ts';
  *   ready      the countdown starts once everyone has been tracked for a second
  *              (or Start now)
  *   countdown  3, 2, 1 from the song's scheduled start
- *   playing    each player's score, combo and judgements under their live character, the
- *              song's progress, and a pause button (Escape, a hidden tab, or an interruption:
- *              a phone call taking the audio, or iOS taking the camera; interruptions.ts)
+ *   playing    each player's score, combo and judgements in the top corners, the mirror
+ *              (every player's live skeleton, top centre), the song's progress, and a pause
+ *              button (Escape, a hidden tab, or an interruption: a phone call taking the
+ *              audio, or iOS taking the camera; interruptions.ts)
  *   paused     Resume (with a fresh countdown), Restart, Song select, and why the song can't
  *              go on yet: the audio didn't start again, or the camera is muted
  *   results    hands the overlay to ResultsScreen
@@ -85,8 +87,8 @@ const fmt = (ms: number) => {
 
 // Without a camera (tracking false) there is nothing to say about tracking.
 function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean, width: number) {
-  const cx = livePanelCenterX(id, count, width) * width;
-  const top = (LIVE_PANEL.top + livePanelHeight(count)) * 900 + 14;
+  const cx = playerHudX(id, count, width) * width;
+  const top = PLAYER_HUD_TOP;
   const p = PLAYERS[id];
   // Three or four panels share the corners, so their text is smaller.
   const crowd = count > 2;
@@ -94,7 +96,7 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, r
   headline(g, (result?.score ?? 0).toLocaleString('en-US'), cx, top + (crowd ? 66 : 76), crowd ? 36 : 46, ['#ffffff', p.light, p.color], crowd ? 200 : 300);
   if (result && result.combo > 1) drawShadowText(g, `${result.combo} combo`, cx, top + (crowd ? 94 : 108), { size: crowd ? 18 : 22, weight: 800, align: 'center', color: '#bff4ff' });
   if (tracking && readiness === 'missing') drawShadowText(g, crowd ? 'Step back in' : 'Step back into view', cx, top + (crowd ? 120 : 138), { size: crowd ? 17 : 20, weight: 700, align: 'center', color: '#ffe27a' });
-  // The newest judgement pops in over the character's feet and floats up.
+  // The newest judgement pops in over the score and floats up.
   const pop = popups.filter((j) => j.playerId === id && (tracking || j.judgement !== 'lost')).at(-1);
   if (pop) {
     const age = now - pop.at;
@@ -109,6 +111,51 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, r
       g.restore();
     }
   }
+}
+
+// The mirror: a dark glass with each player's smoothed live pose as a skeleton in their colour,
+// mirrored like the setup preview (player 1 on the left), and no camera picture. The camera's
+// frame is fitted inside, so the skeletons stand where the players do.
+function drawMirror(g: CanvasRenderingContext2D, session: GameSession, rect: Rect, now: number) {
+  const { x, y, w, h } = rect;
+  g.save();
+  roundRect(g, x, y, w, h, 18);
+  g.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  g.fill();
+  g.lineWidth = 2;
+  g.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  g.stroke();
+  g.clip();
+  const input = session.live.find((p) => p.calibration)?.calibration;
+  const scale = input ? Math.min(w / input.inputWidth, h / input.inputHeight) : 0;
+  const dw = input ? input.inputWidth * scale : w, dh = input ? input.inputHeight * scale : h;
+  const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+  const at = (j: Landmark) => [dx + (1 - j.x) * dw, dy + j.y * dh] as const;
+  const seen = (j: Landmark) => j.confidence === null || j.confidence >= 0.5;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.lineWidth = 3;
+  for (let id = 0; id < session.playerCount; id++) {
+    const pose = session.livePose(id, now);
+    if (!pose) continue;
+    const j = pose.landmarks;
+    g.strokeStyle = g.fillStyle = PLAYERS[id].light;
+    g.beginPath();
+    for (const [a, b] of CONNECTIONS) {
+      if (!seen(j[a]) || !seen(j[b])) continue;
+      g.moveTo(...at(j[a]));
+      g.lineTo(...at(j[b]));
+    }
+    g.stroke();
+    // A head, sized to the shoulders.
+    if (seen(j[0]) && seen(j[11]) && seen(j[12])) {
+      const [hx, hy] = at(j[0]), [lx, ly] = at(j[11]), [rx, ry] = at(j[12]);
+      g.beginPath();
+      g.arc(hx, hy, Math.max(3, Math.hypot(lx - rx, ly - ry) * 0.28), 0, TAU);
+      g.fill();
+    }
+  }
+  g.restore();
 }
 
 // The webcam setup card, centred: the mirrored preview, then the camera picker. Over the
@@ -204,7 +251,7 @@ function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup,
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
+  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, session, source, onQuit, onRetry });
   props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
@@ -352,6 +399,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
       // Nothing to say about tracking while iOS has the camera either (the pause screen says why).
       const tracking = (!session.withoutCamera || p.source.view.status === 'connected') && !(usesCamera(session) && camera.interrupted());
       for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, session.playerCount, scores[id], readiness[id], st.popups, now, tracking, s.w);
+      if (tracking) drawMirror(g, session, GAME_MIRROR, performance.now());
       if (ph !== 'paused') {
         drawGlassCircle(g, GAME_PAUSE, h.pause ?? 0);
         g.save();
