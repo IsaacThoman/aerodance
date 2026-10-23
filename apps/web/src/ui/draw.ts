@@ -116,7 +116,10 @@ export function titleWidth(g: Ctx, size: number, stacked = false, light = 200) {
   return stacked ? Math.max(aeroW, danceW + size * 0.19) : aeroW + danceW + size * 0.19;
 }
 
-export function drawDisc(g: Ctx, cx: number, cy: number, r: number) {
+// The icon disc's aqua, top to bottom.
+const DISC: Face = ['#5cc2ec', '#1f8fd0', '#0d63a8'];
+
+export function drawDisc(g: Ctx, cx: number, cy: number, r: number, face: Face = DISC) {
   g.save();
   g.shadowColor = 'rgba(0, 60, 120, 0.4)';
   g.shadowBlur = 10;
@@ -124,9 +127,9 @@ export function drawDisc(g: Ctx, cx: number, cy: number, r: number) {
   g.beginPath();
   g.arc(cx, cy, r, 0, TAU);
   const disc = g.createLinearGradient(0, cy - r, 0, cy + r);
-  disc.addColorStop(0, '#5cc2ec');
-  disc.addColorStop(0.5, '#1f8fd0');
-  disc.addColorStop(1, '#0d63a8');
+  disc.addColorStop(0, face[0]);
+  disc.addColorStop(0.5, face[1]);
+  disc.addColorStop(1, face[2]);
   g.fillStyle = disc;
   g.fill();
   g.restore();
@@ -137,7 +140,57 @@ export function drawDisc(g: Ctx, cx: number, cy: number, r: number) {
 }
 
 /** Draws an icon centred on (cx, cy), sized for a disc of radius r. */
-type IconDraw = (g: Ctx, cx: number, cy: number, r: number) => void;
+export type IconDraw = (g: Ctx, cx: number, cy: number, r: number) => void;
+
+// The aero dancer from the front, in its model's units (packages/character/source/build-character.py):
+// x to the right, z up from the floor to the top of its head, its hands the widest part.
+const DANCER_TOP = 3.36;
+const DANCER_HALF_WIDTH = 1.29;
+// The body is lathed from this profile, [height above BODY_BASE, half width].
+const DANCER_BODY = [[0, 0], [0.015, 0.43], [0.045, 0.6], [0.1, 0.66], [0.2, 0.67], [0.38, 0.65], [0.62, 0.6], [0.87, 0.52], [1.1, 0.44], [1.3, 0.34], [1.41, 0.22], [1.45, 0]] as const;
+const BODY_BASE = 0.55;
+// [x, z, radius x, radius z]: the head, the floating hands, the feet and the eyes.
+const DANCER_HEAD = [0, 2.715, 0.645, 0.645] as const;
+const DANCER_ORBS = [DANCER_HEAD, [-0.96, 1.08, 0.33, 0.33], [0.96, 1.08, 0.33, 0.33], [-0.36, 0.3, 0.43, 0.275], [0.36, 0.3, 0.43, 0.275]] as const;
+const DANCER_EYES = [[-0.185, 2.73, 0.082, 0.178], [0.185, 2.73, 0.082, 0.178]] as const;
+
+/** How wide a dancer cutout `height` tall is, hands included. */
+export const dancerWidth = (height: number) => (height * 2 * DANCER_HALF_WIDTH) / DANCER_TOP;
+
+/**
+ * An aero dancer's cutout, like the mirror's: its front silhouette in one flat fill (a colour or
+ * gradient), `height` tall, standing on (cx, floor), with its eyes cut out.
+ */
+export function drawDancer(g: Ctx, cx: number, floor: number, height: number, fill: string | CanvasGradient) {
+  const k = height / DANCER_TOP;
+  const X = (x: number) => cx + x * k;
+  const Y = (z: number) => floor - z * k;
+  g.beginPath();
+  // One path, every part clockwise on screen, so the parts merge where they overlap (a
+  // translucent fill doesn't darken there) and the anticlockwise eyes cut holes. The body goes up
+  // its left side from the bottom and down its right, rounded through the profile's midpoints.
+  const loop = [...DANCER_BODY.map(([z, r]) => [-r, z + BODY_BASE]), ...DANCER_BODY.slice(1, -1).reverse().map(([z, r]) => [r, z + BODY_BASE])];
+  const mid = (i: number) => {
+    const [a, b] = [loop[i % loop.length], loop[(i + 1) % loop.length]];
+    return [X((a[0] + b[0]) / 2), Y((a[1] + b[1]) / 2)];
+  };
+  g.moveTo(...(mid(loop.length - 1) as [number, number]));
+  loop.forEach(([x, z], i) => {
+    const [mx, my] = mid(i);
+    g.quadraticCurveTo(X(x), Y(z), mx, my);
+  });
+  g.closePath();
+  for (const [x, z, rx, rz] of DANCER_ORBS) {
+    g.moveTo(X(x) + rx * k, Y(z));
+    g.ellipse(X(x), Y(z), rx * k, rz * k, 0, 0, TAU);
+  }
+  for (const [x, z, rx, rz] of DANCER_EYES) {
+    g.moveTo(X(x) + rx * k, Y(z));
+    g.ellipse(X(x), Y(z), rx * k, rz * k, 0, 0, TAU, true);
+  }
+  g.fillStyle = fill;
+  g.fill();
+}
 
 // Icons drawn in white on a blue disc of radius r.
 export const ICONS = {
@@ -360,6 +413,10 @@ export const ICONS = {
     g.lineTo(cx - a + a * 0.55, cy + a * 0.55);
     g.stroke();
   },
+  // An aero dancer (choose who follows which dancer).
+  dancer(g, cx, cy, r) {
+    drawDancer(g, cx, cy + r * 0.6, r * 1.24, g.strokeStyle as string);
+  },
   // Chevrons: up / down page a list, left / right step through choices.
   up(g, cx, cy, r) { chevron(g, cx, cy, r, -Math.PI / 2); },
   down(g, cx, cy, r) { chevron(g, cx, cy, r, Math.PI / 2); },
@@ -384,16 +441,21 @@ function chevron(g: Ctx, cx: number, cy: number, r: number, angle: number) {
 export interface PillOptions {
   label: string;
   sub?: string;
-  icon: IconName;
+  /** One of ICONS, or a drawing of its own in the disc. */
+  icon: IconName | IconDraw;
+  /** The disc's colours, top to bottom (aqua by default). */
+  disc?: Face;
   hover?: number;
   press?: number;
   /** The gear icon's rotation. */
   angle?: number;
   disabled?: boolean;
+  /** Draws more inside the pill, given where it is drawn (it lifts under the pointer). */
+  content?: (g: Ctx, rect: Rect) => void;
 }
 
 // Glossy aqua bubble button with an icon disc on the left. Disabled buttons fade and stay put.
-export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, press = 0, angle, disabled = false }: PillOptions) {
+export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, disc, hover = 0, press = 0, angle, disabled = false, content }: PillOptions) {
   if (disabled) {
     hover = 0;
     press = 0;
@@ -438,12 +500,13 @@ export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, pres
   const cx = x + h / 2 + 2;
   const cy = y + h / 2;
   const r = h / 2 - 12;
-  drawDisc(g, cx, cy, r);
+  drawDisc(g, cx, cy, r, disc);
   g.lineJoin = 'round';
   g.lineCap = 'round';
   g.lineWidth = 6;
   g.strokeStyle = '#ffffff';
-  if (icon === 'gear') ICONS.gear(g, cx, cy, r, angle);
+  if (typeof icon === 'function') icon(g, cx, cy, r);
+  else if (icon === 'gear') ICONS.gear(g, cx, cy, r, angle);
   else ICONS[icon](g, cx, cy, r);
 
   g.fillStyle = NAVY;
@@ -458,6 +521,7 @@ export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, pres
     g.font = `600 ${Math.round(h * 0.22)}px ${FONT}`;
     g.fillText(sub, x + h + 15, cy + h * 0.2);
   }
+  if (content) content(g, { x, y, w, h });
   g.restore();
 }
 

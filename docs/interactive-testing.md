@@ -100,7 +100,7 @@ of each control. `click` resolves the layout for the current display mode and cl
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
 - `menu.BACK`, `game.BACK`: a module prefix where names clash
 - `GAME_CALIBRATION_CAMERA.next`: entries inside an export
-- `rowRect.2`: layout functions, called with the number
+- `rowRect.2`: layout functions, called with the number (or numbers: `castRow.0.2`)
 - `800,450`: any point in design units
 
 ### Reading the state
@@ -110,7 +110,7 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen while Settings → Graphics → Aspect ratio is on Auto (`click ASPECT.0`); `ASPECT.1` / `ASPECT.2` hold 4:3 / 16:9 whatever the window, and the choice is saved. Both keep the canvas buffer at 640×480.
 - Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice` (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first)
-- Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`
+- Song Select: `songScreen` (`list`, `preview`, `dancers`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`, `songDancers` (the open song's dancer count), `songCast` (the dancer each player follows, from 0, e.g. `0|1`). From the preview, `click game.DANCERS` opens the dancers screen; `click castRow.<n>.<players>` presses player n's row (from 0, laid out for that many players) and picks their next dancer, and `key ArrowLeft` / `ArrowRight` on a row step it
 - Stage: `stage`, `stageReady`
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
 - Performance, while the stats overlay is on (Settings → Graphics → Stats: `click STATS.1` for Basic, `STATS.2` for Full, `STATS.0` for Off; or open `/?diag=stats`): `statsMode`, `statsFps`, `statsFrameMs`, `statsP99Ms`, `statsMaxMs`, `statsCpuMs`, `statsGpuMs` (Full only, and `--` without timer queries), `statsDrawCalls`, `statsTriangles`, `statsPoseHz`, `statsPoseAgeMs`. They update four times a second, e.g. `wait 'statsFps>55'`.

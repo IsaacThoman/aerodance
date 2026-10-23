@@ -7,7 +7,9 @@ export interface Pose { playerId: number; landmarks: Landmark[]; }
 export type PlayerCount = 1 | 2 | 3 | 4;
 /** The most players a game takes; live pose records carry up to this many poses. */
 export const MAX_PLAYERS = 4;
-/** Choreographies, takes and captures are duets: two dancers. */
+/** A song's choreography has one to four dancers, one track each. */
+export const MAX_DANCERS = MAX_PLAYERS;
+/** A capture, and the take it makes, records two dancers at most. */
 export const DUET = 2;
 export interface Point3 { x: number; y: number; z: number; }
 export interface FrameSize { width: number; height: number; }
@@ -31,12 +33,12 @@ export interface TrackCalibration {
 export interface ChoreographyTrack { playerId: number; calibration: TrackCalibration; }
 export interface ChoreographySample { songTimeMs: number; poses: Pose[]; quality: PoseQuality[]; }
 export interface ChoreographyCoordinates { kind: 'mediapipe-image'; mirrored: false; landmarkCount: 33; }
-/** aerodance.choreography v1: both tracks on the song clock. */
+/** aerodance.choreography v1: every dancer's track on the song clock. */
 export interface Choreography {
   schema: 'aerodance.choreography'; schemaVersion: 1;
   durationMs: number; playableStartMs: number; playableEndMs: number;
   coordinates: ChoreographyCoordinates;
-  /** Exactly two, for players 0 and 1 in order (players 2 and 3 dance them again: partOf). */
+  /** One to four, for dancers 0, 1, … in order. Each player follows one of them (song.ts: Cast). */
   tracks: ChoreographyTrack[];
   samples: ChoreographySample[];
 }
@@ -54,8 +56,6 @@ export const isObject = (value: unknown): value is Record<string, unknown> => ty
 export const isArray = (value: unknown): value is unknown[] => Array.isArray(value);
 export const oneOf = <T>(values: readonly T[], value: unknown): value is T => values.some(v => v === value);
 export const isPlayerCount = (value: unknown): value is PlayerCount => value === 1 || value === 2 || value === 3 || value === 4;
-/** The choreography track a player dances: with three or four players, P3 and P4 dance P1's and P2's parts. */
-export const partOf = (playerId: number, parts = DUET) => playerId % parts;
 function fail(message: string): never { throw Error(message); }
 const unitOrNull = (v: unknown) => v === null || finite(v) && v >= 0 && v <= 1;
 
@@ -145,7 +145,7 @@ export function assertChoreography(data: unknown): asserts data is Choreography 
   if (!finite(durationMs) || durationMs <= 0 || !finite(playableStartMs) || !finite(playableEndMs) || playableStartMs < 0 || playableStartMs >= playableEndMs || playableEndMs > durationMs) fail('Invalid song bounds');
   if (!isObject(data.coordinates) || data.coordinates.kind !== 'mediapipe-image' || data.coordinates.mirrored !== false || data.coordinates.landmarkCount !== 33) fail('Unsupported coordinate convention');
   const tracks = data.tracks;
-  if (!isArray(tracks) || tracks.length !== 2 || !isObject(tracks[0]) || tracks[0].playerId !== 0 || !isObject(tracks[1]) || tracks[1].playerId !== 1) fail('Both tracks are required');
+  if (!isArray(tracks) || tracks.length < 1 || tracks.length > MAX_DANCERS || !tracks.every((t, i) => isObject(t) && t.playerId === i)) fail('One to four ordered dancer tracks are required');
   for (const track of tracks) {
     const c = isObject(track) ? track.calibration : undefined;
     if (!isObject(c) || !positive(c.inputWidth) || !positive(c.inputHeight) || !positive(c.torsoLength) || !finite(c.floorY) || !isObject(c.baseHip) || !finite(c.baseHip.x) || !finite(c.baseHip.y) || !finite(c.baseHip.z)) fail('Invalid track calibration');
@@ -159,7 +159,7 @@ export function assertChoreography(data: unknown): asserts data is Choreography 
     if (!isObject(sample) || !finite(sample.songTimeMs) || sample.songTimeMs <= last || sample.songTimeMs < playableStartMs || sample.songTimeMs > playableEndMs) fail('Invalid sample times');
     last = sample.songTimeMs;
     const poses = sample.poses, quality = sample.quality;
-    assertPoses(poses);
+    assertPoses(poses, tracks.length);
     if (!isArray(quality) || quality.length !== poses.length) fail('Missing pose quality');
     poses.forEach((p,i) => {
       const q = quality[i];

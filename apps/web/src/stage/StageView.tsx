@@ -31,6 +31,8 @@ export interface StageState {
 export interface StageViewProps {
   active?: boolean;
   orbiting?: boolean;
+  /** Raise the stage's picture by this share of its height (Song Select's dancers screen). */
+  lift?: number;
   /** The song's stage id (openreef if unset or unknown). */
   stageId?: string | null;
   routine?: SongRoutine | null;
@@ -64,9 +66,10 @@ interface Fade { value: number; settled: number; }
  * dancers for the celebration (ResultsDancers).
  *
  * With `orbiting` (Song Select's preview) the stage camera slowly circles the dancers, and
- * swings back round to the front when it stops (the song starts).
+ * swings back round to the front when it stops (the song starts). `lift` eases the picture up
+ * (Song Select's dancers screen, so the dancers stand clear of the players' pills) and back.
  *
- * <StageView active orbiting stageId="openreef" routine={{ bundle, playerCount, timeMs, playing }} results={showRef}
+ * <StageView active orbiting stageId="openreef" routine={{ bundle, cast, timeMs, playing }} results={showRef}
  *   onState={({ showing, prepared, ready, stage, failed, dancersFailed }) => ...} />
  */
 
@@ -395,15 +398,15 @@ interface StageViewState {
   reported: string;
 }
 
-export default function StageView({ active = false, orbiting = false, stageId, routine, results = null, onState }: StageViewProps) {
+export default function StageView({ active = false, orbiting = false, lift = 0, stageId, routine, results = null, onState }: StageViewProps) {
   const scene = useMemo(() => new THREE.Scene(), []);
   const [shown, setShown] = useState<StageId | null>(null);
   const [onScreen, setOnScreen] = useState(false);
   const fade = useRef<Fade>({ value: 0, settled: 0 });
   const st = useRef<StageViewState>({ loaded: null, failed: new Set(), dancersFailed: false, routine: null, requested: undefined, onScreen: false, reported: '' }).current;
   const target = active ? resolveStage(stageId) : null;
-  const props = useRef({ target, shown, onState, routine, orbiting, results });
-  props.current = { target, shown, onState, routine, orbiting, results };
+  const props = useRef({ target, shown, onState, routine, orbiting, lift, results });
+  props.current = { target, shown, onState, routine, orbiting, lift, results };
   useEffect(() => () => { Object.assign(stagePlay, { dancing: false, celebrating: false }); }, []);
   const orbit = useRef({ speed: 0, phase: 0, ramp: 0, on: false });
   // Keep dancing the last routine while the veil comes up on the way out.
@@ -430,6 +433,11 @@ export default function StageView({ active = false, orbiting = false, stageId, r
     const playing = have !== null && want === have;
     stagePlay.dancing = playing && !props.current.results;
     stagePlay.celebrating = playing && !!props.current.results;
+    if (have === null || !st.onScreen) stageOrbit.lift = 0;
+    else {
+      const to = props.current.lift, eased = stageOrbit.lift + (to - stageOrbit.lift) * Math.min(1, dt * 5);
+      stageOrbit.lift = Math.abs(to - eased) < 1e-4 ? to : eased;
+    }
     if (have === null || !st.onScreen) {
       Object.assign(o, { speed: 0, phase: 0, ramp: 0, on: false });
       stageOrbit.yaw = 0;

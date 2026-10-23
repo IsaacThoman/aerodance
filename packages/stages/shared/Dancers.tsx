@@ -3,9 +3,10 @@ import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import Character from '../../character/Character.tsx';
 import type { CharacterAppearance } from '../../character/Character.tsx';
-import { sampleSong } from '../../pose/song.ts';
+import { leadOf, sampleDancers } from '../../pose/song.ts';
+import type { Cast } from '../../pose/song.ts';
 import { firstPresentFrame, framesToPoses } from '../../pose/binary.ts';
-import { MAX_PLAYERS, partOf } from '../../pose/choreography.ts';
+import { MAX_DANCERS } from '../../pose/choreography.ts';
 import type { Pose } from '../../pose/choreography.ts';
 import type { MotionTake } from '../../pose/motion.ts';
 import type { DancerPlacement } from '../catalog.ts';
@@ -21,6 +22,16 @@ export type DancerLook = CharacterAppearance;
 // stage backgrounds.
 export const DANCER_LOOKS: readonly DancerLook[] = ['#078fff', '#b86bff', '#1fcf72', '#ff5fb4']
   .map((color) => ({ color, gloss: 85, accessory: 'None', opacity: 0.85 }));
+/** A dancer nobody follows: frosted glass, so the ones the players follow stand out in their colours. */
+export const SPARE_LOOK: DancerLook = { color: '#d8eefa', gloss: 85, accessory: 'None', opacity: 0.55 };
+
+/** A song's dancers dressed for a cast: each in the colour of the first player following them, or spare. */
+export function castLooks(cast: Cast, dancers: number, looks: readonly DancerLook[] = DANCER_LOOKS): DancerLook[] {
+  return Array.from({ length: dancers }, (_, dancer) => {
+    const lead = leadOf(cast, dancer);
+    return lead < 0 ? SPARE_LOOK : looks[lead % looks.length];
+  });
+}
 
 /**
  * Where dancer `i` of `count` stands on the floor (x from the middle) and how big: one in
@@ -34,9 +45,9 @@ export function dancerSpot(i: number, count: number, spacing: number) {
 // The rig's feet rest about this far above the group origin's floor.
 const FOOT_CLEARANCE = 0.015;
 
-// One pose ref per player, sampled from a song's choreography at its current time each frame.
+// One pose ref per dancer, sampled from a song's choreography at its current time each frame.
 function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<Pose | null>[] {
-  const refs = useMemo((): RefObject<Pose | null>[] => Array.from({ length: MAX_PLAYERS }, () => ({ current: null })), []);
+  const refs = useMemo((): RefObject<Pose | null>[] => Array.from({ length: MAX_DANCERS }, () => ({ current: null })), []);
   const opening = useMemo((): ({ time: number; pose: Pose } | null)[] => {
     if (!routine?.entranceTimeMs) return [];
     const { song, choreography } = routine.bundle;
@@ -51,13 +62,13 @@ function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<P
   }, [routine]);
   useFrame(() => {
     if (!routine) return;
-    const { bundle, playerCount } = routine;
+    const { bundle } = routine;
     // Hold the last pose at the very end instead of vanishing.
     const t = Math.min(routine.timeMs(), bundle.song.playableEndMs - 1);
-    const { poses } = sampleSong(bundle, t, playerCount);
+    const { poses } = sampleDancers(bundle, t);
     refs.forEach((ref, id) => {
-      const first = opening[partOf(id, opening.length)];
-      ref.current = id >= playerCount ? null : poses.find((p) => p.playerId === id) ?? (first && t <= first.time ? first.pose : null);
+      const first = opening[id];
+      ref.current = poses.find((p) => p.playerId === id) ?? (first && t <= first.time ? first.pose : null);
     });
   }, -1);
   return refs;
@@ -66,10 +77,10 @@ function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<P
 /**
  * The glass dancers, standing on a stage's dance floor, mirrored like a dance coach.
  *   motion, playback: loop the captured demo (both dancers), or
- *   routine: { bundle, playerCount, timeMs() } dance a song's choreography, one dancer per
- *     player in their colour (one player dances alone in the middle; three or four stand
- *     closer, smaller, and repeat the duet's parts); optional entranceTimeMs() reveals them
- *     at the first beat
+ *   routine: { bundle, cast, timeMs() } dance a song's choreography: every dancer it has, each
+ *     in the colour of the first player following them (cast) and frosted when nobody does
+ *     (one dances alone in the middle; three or four stand closer and smaller); optional
+ *     entranceTimeMs() reveals them at the first beat
  *   position: [x, y, z] of the floor surface between them
  *   rotationY: turn the pair (they face +z by default)
  *   spacing: distance between two dancers
@@ -85,21 +96,23 @@ export interface DancersProps extends Partial<DancerPlacement> {
 
 export default function Dancers({ motion, playback, routine, position = [0, 0, 0], rotationY = 0, spacing = 4, scale = 1, looks = DANCER_LOOKS }: DancersProps) {
   const poses = useRoutinePoses(routine);
-  // The demo motion is a duet.
-  const count = routine?.playerCount ?? 2;
   const tracks = routine?.bundle.choreography.tracks;
+  // The song's dancers; the demo motion is a duet.
+  const count = tracks?.length ?? 2;
+  const cast = routine?.cast;
+  const dressed = useMemo(() => (cast ? castLooks(cast, count, looks) : looks), [cast, count, looks]);
   return (
     <group position={[position[0], position[1] + FOOT_CLEARANCE * scale, position[2]]} rotation={[0, rotationY, 0]} scale={scale}>
       <Suspense fallback={null}>
         {Array.from({ length: count }, (_, person) => {
           const spot = dancerSpot(person, count, spacing);
-          const look = looks[person % looks.length];
+          const look = dressed[person % dressed.length];
           return (
             <group key={person} position={[spot.x, 0, 0]} scale={spot.scale}>
               <DancerEntrance timeMs={routine?.entranceTimeMs} color={look.color} seed={person + 1}>
                 <group scale={[-1, 1, 1]}>
                   {tracks ? (
-                    <Character poseRef={poses[person]} calibration={tracks[partOf(person, tracks.length)].calibration} appearance={look} />
+                    <Character poseRef={poses[person]} calibration={tracks[person].calibration} appearance={look} />
                   ) : (
                     <Character motion={motion} person={person} playback={playback} appearance={look} />
                   )}

@@ -1,6 +1,8 @@
 import { createScorer } from '../../../../packages/score/scorer.ts';
 import type { JudgementEvent, PlayerResult, Scorer } from '../../../../packages/score/scorer.ts';
 import type { PlayerCount, Pose } from '../../../../packages/pose/choreography.ts';
+import { defaultCast, isCast } from '../../../../packages/pose/song.ts';
+import type { Cast } from '../../../../packages/pose/song.ts';
 import { createSongPlayer } from '../audio/songPlayer.ts';
 import type { SongPlayer, SongRange } from '../audio/songPlayer.ts';
 import { createPoseRecorder } from '../pose/ReplayPoseSource.ts';
@@ -31,7 +33,7 @@ import type { CalibrationStatus } from './webcamCalibration.ts';
  * A countdown whose audio doesn't start (a phone call still holds it when Resume is pressed)
  * would wait for it forever, so after AUDIO_START_MS it pauses again (waitingForAudio).
  *
- * const session = new GameSession({ bundle, playerCount, source });
+ * const session = new GameSession({ bundle, playerCount, cast, source });  // cast: who follows which dancer
  * await session.load(); session.update(performance.now()) every frame;
  * session.start(); session.pause(); session.resume(); session.dispose();
  */
@@ -61,6 +63,8 @@ export interface SongRoutine extends DancerRoutine {
 export interface GameSessionOptions {
   bundle: LoadedSongBundle;
   playerCount: PlayerCount;
+  /** The dancer each player follows; players take them in turn without one (defaultCast). */
+  cast?: Cast | null;
   source?: PoseSource | null;
   createPlayer?: (audio: Blob, range: SongRange) => Promise<SessionPlayer>;
   now?: () => number;
@@ -74,6 +78,7 @@ type SessionPatch = Partial<Pick<GameSession, 'error' | 'pausedAtMs' | 'finishAt
 export class GameSession {
   bundle: LoadedSongBundle;
   playerCount: PlayerCount;
+  cast: Cast;
   source: PoseSource | null;
   createPlayer: (audio: Blob, range: SongRange) => Promise<SessionPlayer>;
   now: () => number;
@@ -105,10 +110,12 @@ export class GameSession {
   judgementListeners = new Set<(event: JudgementEvent) => void>();
   offRecords: () => void;
   clock: SongClock;
-  constructor({ bundle, playerCount, source = null, createPlayer = createSongPlayer, now = () => performance.now(), record = false, autoStart = true }: GameSessionOptions) {
+  constructor({ bundle, playerCount, cast = null, source = null, createPlayer = createSongPlayer, now = () => performance.now(), record = false, autoStart = true }: GameSessionOptions) {
+    const dancers = bundle.choreography.tracks.length;
     this.bundle = bundle; this.playerCount = playerCount; this.source = source; this.createPlayer = createPlayer;
+    this.cast = isCast(cast, playerCount, dancers) ? [...cast] : defaultCast(playerCount, dancers);
     this.now = now; this.recordPoses = record; this.autoStart = autoStart;
-    this.scorer = createScorer(bundle, playerCount);
+    this.scorer = createScorer(bundle, playerCount, this.cast);
     // Live cameras calibrate; replays already know where everyone stands.
     this.webcamCalibration = source && source.view.sourceKind !== 'replay' ? new WebcamCalibration(playerCount) : null;
     this.live = Array.from({ length: playerCount }, (_, playerId) => createLivePlayer({ playerId, autoCalibrate: !this.webcamCalibration }));
@@ -118,6 +125,7 @@ export class GameSession {
     this.offRecords = source?.subscribeRecords((e) => this.onRecord(e)) ?? (() => {});
     this.clock = {
       bundle,
+      cast: this.cast,
       songTimeAt: (perf) => this.player?.songTimeAt(perf) ?? bundle.song.playableStartMs,
       perfAtSong: (ms) => { const now = this.now(); return now - ((this.player?.songTimeAt(now) ?? ms) - ms); },
       playing: () => this.player?.state === 'playing',
@@ -303,7 +311,7 @@ export class GameSession {
   routine(): Required<SongRoutine> {
     return {
       bundle: this.bundle,
-      playerCount: this.playerCount,
+      cast: this.cast,
       timeMs: () => this.player?.timeMs() ?? this.bundle.song.playableStartMs,
       playing: () => this.player?.state === 'playing',
       entranceTimeMs: () => this.entranceTimeMs(),

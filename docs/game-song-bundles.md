@@ -21,8 +21,9 @@ The loader still performs full runtime integrity/schema checks when selected.
 
 Builds generate the same catalog in `dist/songs/manifest.json` for static hosting.
 Rebuild/redeploy after changing the source songs directory.
-Exported metadata supplies title, artist, duration, player counts, revision,
-difficulty, stage, optional cover, and a SHA-256 pin for `song.json`. The preview
+Exported metadata supplies title, artist, duration, player counts, dancers (one to four;
+a duet when missing, as in songs exported before it), revision, difficulty, stage,
+optional cover, and a SHA-256 pin for `song.json`. The preview
 opens on the song's stage, or `openreef` when it has none. Re-exported songs
 are discovered with their updated revision. Install the complete directory before
 opening Song Select. The game does not extract ZIP files or publish editor
@@ -71,7 +72,7 @@ Code: `apps/web/src/songs/customSongs.ts` (import, storage, loading),
 Catalog paths resolve relative to the catalog; media paths resolve relative to
 `song.json`. Only safe relative file paths are accepted. The loader checks
 schema/profile support, catalog identity and revision, song/choreography time
-agreement, both tracks, calibration, sample quality, file lengths and SHA-256 for
+agreement, a track for each of `song.json`'s dancers, calibration, sample quality, file lengths and SHA-256 for
 all referenced runtime files. Requests include the selected bundle revision.
 Downloads have per-file and total declared-size limits. Errors appear in Song
 Select and allow retry; leaving the screen cancels the pending request.
@@ -94,9 +95,10 @@ pose recordings (`node tools/pose/migrate-legacy.ts in.ndjson out.adpose`). `?re
 downloads `<songId>-poses.adpose`, which `?input=recording&recording=<url>`
 replays.
 
-One-player preview selects player ID 0 from the same choreography. Two-player
-preview selects IDs 0 and 1, and three or four players dance those two parts again
-(players 3 and 4 copy IDs 0 and 1, `partOf`). The shared finite sampler preserves absence and
+The preview and the song show every dancer the choreography has. Each player follows one
+of them (their cast, picked on the dancers screen or taking them in turn: one player takes
+ID 0, two take IDs 0 and 1, and with more players than dancers they share them;
+`sampleSong`, [three and four players](three-and-four-players.md)). The shared finite sampler preserves absence and
 refuses interpolation over gaps longer than the authored limit (at most 200 ms).
 Authored exclusions clear score eligibility without changing the visual pose.
 Coach reflection is visual only; stored anatomy and player IDs remain unchanged.

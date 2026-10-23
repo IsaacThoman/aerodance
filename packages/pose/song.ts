@@ -1,4 +1,4 @@
-import { MAX_PLAYERS, assertChoreography, copy, finite, isArray, isObject, isPlayerCount, partOf } from './choreography.ts';
+import { MAX_PLAYERS, assertChoreography, copy, finite, isArray, isObject, isPlayerCount } from './choreography.ts';
 import type { Choreography, ChoreographyCoordinates, ChoreographyTrack, PlayerCount, PoseSnapshot, TrackCalibration } from './choreography.ts';
 import { decodePoseFile, framesFromSamples, quantizeConfidence, sampleFrames, sparseSamples } from './binary.ts';
 import type { PoseFrames, PoseMarker, SongHeader, TrackHeader } from './binary.ts';
@@ -11,8 +11,10 @@ export interface Song {
   songId: string; bundleRevision: number;
   title: string; artist: string; songwriters: string[]; choreographers: string[];
   durationMs: number; playableStartMs: number; playableEndMs: number;
-  /** Every count from 1 up: [1, 2], [1, 2, 3] or [1, 2, 3, 4] (players 3 and 4 dance the duet's parts again). */
+  /** Every count from 1 up: [1, 2], [1, 2, 3] or [1, 2, 3, 4]. Players can share a dancer (Cast). */
   supportedPlayerCounts: PlayerCount[];
+  /** How many dancers the choreography has, one track each. Songs published before it are duets (dancersOf). */
+  dancers?: PlayerCount;
   /** A dance stage id (packages/stages); players get openreef for a missing or unknown one. */
   stage?: string;
   coachMode: 'mirror-player'; rigProfile: 'frutiger-seven-bone-v1';
@@ -30,6 +32,8 @@ export interface Song {
 export interface CatalogSong {
   id: string; title: string; artist: string; durationMs: number;
   bundleRevision: number; supportedPlayerCounts: PlayerCount[];
+  /** song.json's dancers: missing for a duet published before it. */
+  dancers?: PlayerCount;
   /** Bundle-relative path of song.json. */
   bundle: string;
   cover?: string; sha256?: string; stage?: string;
@@ -60,6 +64,7 @@ const text = (v: unknown): v is string => typeof v === 'string' && v.trim().leng
 const strings = (v: unknown) => isArray(v) && v.every(text);
 const counts = (v: unknown) => isArray(v) && v.length >= 2 && v.length <= MAX_PLAYERS && v.every((n, i) => n === i + 1);
 const revision = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+const dancerCount = (v: unknown) => v === undefined || isPlayerCount(v);
 const SONG_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 // A dance stage id (packages/stages). Players get openreef for a missing or unknown one.
 const stageId = (v: unknown) => v === undefined || (typeof v === 'string' && /^[a-z0-9-]{1,40}$/.test(v));
@@ -75,7 +80,7 @@ export function assertCatalog(data: unknown): asserts data is SongCatalog {
     require(isObject(song) && typeof song.id === 'string' && SONG_ID.test(song.id) && !ids.has(song.id), 'Invalid or duplicate catalog song ID');
     ids.add(song.id);
     require(text(song.title) && text(song.artist) && finite(song.durationMs) && song.durationMs > 0 &&
-      revision(song.bundleRevision) && counts(song.supportedPlayerCounts), 'Invalid catalog song');
+      revision(song.bundleRevision) && counts(song.supportedPlayerCounts) && dancerCount(song.dancers), 'Invalid catalog song');
     validateBundlePath(song.bundle);
     if (song.cover !== undefined) validateBundlePath(song.cover);
     if (song.sha256 !== undefined) require(typeof song.sha256 === 'string' && /^[a-f0-9]{64}$/.test(song.sha256), 'Invalid catalog song hash');
@@ -128,7 +133,7 @@ export async function catalogEntry(name: string, folder: SongFolder): Promise<Ca
   if (verified.get('song.json') !== hash) throw Error('Song metadata checksum mismatch');
   return {
     id: song.songId, title: song.title, artist: song.artist,
-    durationMs: song.durationMs, supportedPlayerCounts: song.supportedPlayerCounts,
+    durationMs: song.durationMs, supportedPlayerCounts: song.supportedPlayerCounts, dancers: dancersOf(song),
     bundleRevision: song.bundleRevision, bundle: `${song.songId}/song.json`, sha256: hash,
     ...(song.difficulty ? { difficulty: song.difficulty } : {}),
     ...(song.stage ? { stage: song.stage } : {}),
@@ -145,6 +150,7 @@ export function assertSong(song: unknown): asserts song is Song {
   require(finite(durationMs) && durationMs > 0 && finite(playableStartMs) && finite(playableEndMs) &&
     0 <= playableStartMs && playableStartMs < playableEndMs && playableEndMs <= durationMs, 'Invalid playable interval');
   require(counts(song.supportedPlayerCounts), 'Song must support one and two players, and may add three and four');
+  require(dancerCount(song.dancers), 'A song has one to four dancers');
   require(stageId(song.stage), 'Invalid song stage');
   require(song.coachMode === 'mirror-player' && song.rigProfile === 'frutiger-seven-bone-v1', 'Unsupported coach or rig profile');
   const { audio, choreography, cover } = song;
@@ -198,7 +204,7 @@ export function songChoreographyFromTimeline(timeline: SongTimeline, extras: { m
   const { inputWidth: width, inputHeight: height } = timeline.tracks[0].calibration;
   const maxInterpolationGapMs = timeline.sampling.maxInterpolationGapMs;
   return framesFromSamples({
-    kind: 'choreography', playerSlots: 2, input: { width, height }, modelId: null,
+    kind: 'choreography', playerSlots: timeline.tracks.length as PlayerCount, input: { width, height }, modelId: null,
     song: { songId: timeline.songId, durationMs: timeline.durationMs, playableStartMs: timeline.playableStartMs, playableEndMs: timeline.playableEndMs,
       maxInterpolationGapMs, confidenceThreshold: quantizeConfidence(timeline.sampling.confidenceThreshold) },
     tracks: timeline.tracks.map((t, slot) => ({ slot, playerId: t.playerId, label: t.label, calibration: t.calibration, exclusions: t.unscorableIntervals })),
@@ -211,10 +217,12 @@ export function validateSongChoreography(song: unknown, bytes: Uint8Array): Song
   if (song.choreography.schemaVersion === 1) {
     const timeline: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     assertSongTimeline(song, timeline);
+    require(timeline.tracks.length === dancersOf(song), 'Song/choreography dancers mismatch');
     return songChoreographyFromTimeline(timeline);
   }
   const data = decodePoseFile(bytes);
   require(data.kind === 'choreography' && data.song && data.tracks, 'Expected a choreography file');
+  require(data.tracks.length === dancersOf(song), 'Song/choreography dancers mismatch');
   const header = data.song;
   for (const key of ['songId','durationMs','playableStartMs','playableEndMs'] as const) require(song[key] === header[key], `Song/choreography ${key} mismatch`);
   for (const track of data.tracks) {
@@ -223,22 +231,38 @@ export function validateSongChoreography(song: unknown, bytes: Uint8Array): Song
   }
   return data as SongChoreography;
 }
-export function sampleSong(bundle: SongBundle, songTimeMs: number, playerCount: PlayerCount): PoseSnapshot {
-  require(isPlayerCount(playerCount), 'Invalid player count');
+/** A song's dancer count: song.json's dancers, or a duet for a song published before it. */
+export const dancersOf = (song: { dancers?: PlayerCount }): PlayerCount => song.dancers ?? 2;
+/**
+ * Which dancer each player follows: cast[playerId] is a choreography track. Players can share
+ * a dancer, and a dancer nobody follows still dances.
+ */
+export type Cast = readonly number[];
+/** The cast nobody chose: players take the dancers in turn, sharing them when there are more players than dancers. */
+export const defaultCast = (playerCount: number, dancers: number): number[] => Array.from({ length: playerCount }, (_, id) => id % dancers);
+export const isCast = (cast: unknown, playerCount: number, dancers: number): cast is Cast =>
+  isArray(cast) && cast.length === playerCount && cast.every((d) => typeof d === 'number' && Number.isInteger(d) && d >= 0 && d < dancers);
+/** The first player following a dancer (whose colour it wears), or -1 when nobody does. */
+export const leadOf = (cast: Cast, dancer: number) => cast.indexOf(dancer);
+/** Every dancer's pose at songTimeMs (the poses' playerId is the dancer), with their score exclusions applied. */
+export function sampleDancers(bundle: SongBundle, songTimeMs: number): PoseSnapshot {
   const { song, choreography } = bundle;
   if (!finite(songTimeMs) || songTimeMs < song.playableStartMs || songTimeMs >= song.playableEndMs) return { poses:[], quality:[] };
-  const { poses, quality } = sampleFrames(choreography, songTimeMs, choreography.song.maxInterpolationGapMs);
-  // Each player gets their part's pose; with three or four players a part is danced twice.
+  const snapshot = sampleFrames(choreography, songTimeMs, choreography.song.maxInterpolationGapMs);
+  for (const q of snapshot.quality)
+    if (choreography.tracks[q.playerId].exclusions.some(i => songTimeMs >= i.startMs && songTimeMs < i.endMs)) q.scoreEligible.fill(false);
+  return snapshot;
+}
+/** Each player's pose at songTimeMs: a copy of the dancer they follow (cast), as theirs. */
+export function sampleSong(bundle: SongBundle, songTimeMs: number, cast: Cast): PoseSnapshot {
+  require(isPlayerCount(cast.length) && isCast(cast, cast.length, bundle.choreography.tracks.length), 'Invalid cast');
+  const { poses, quality } = sampleDancers(bundle, songTimeMs);
   const snapshot: PoseSnapshot = { poses: [], quality: [] };
-  for (let playerId = 0; playerId < playerCount; playerId++) {
-    const part = partOf(playerId, choreography.tracks.length);
-    const pose = poses.find(p => p.playerId === part), q = quality.find(p => p.playerId === part);
-    if (!pose || !q) continue;
-    const own = playerId === part;
-    snapshot.poses.push(own ? pose : { playerId, landmarks: copy(pose.landmarks) });
-    const mask = own ? q : { ...copy(q), playerId };
-    if (choreography.tracks[part].exclusions.some(i => songTimeMs >= i.startMs && songTimeMs < i.endMs)) mask.scoreEligible.fill(false);
-    snapshot.quality.push(mask);
-  }
+  cast.forEach((dancer, playerId) => {
+    const pose = poses.find(p => p.playerId === dancer), q = quality.find(p => p.playerId === dancer);
+    if (!pose || !q) return;
+    snapshot.poses.push({ playerId, landmarks: copy(pose.landmarks) });
+    snapshot.quality.push({ ...copy(q), playerId });
+  });
   return snapshot;
 }

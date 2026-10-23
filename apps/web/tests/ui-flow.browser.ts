@@ -22,7 +22,7 @@ const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
 const { ASPECT, BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
-const { BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect } = gameLayout(design.w);
+const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, castRow, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
 type Shape = Rect | Circle | { rect: Rect };
@@ -313,6 +313,49 @@ try {
   await click(BACK);
   await until({ songScreen: 'list', stage: '' });
 
+  // A trio: the stage shows all three dancers, and two players take the first two until they
+  // pick on the dancers screen, by pointer (beside a player's dancers: the next one) or the
+  // keyboard (Left/Right on a player's row). Picks last for the song and player count, and Auto
+  // takes turns again.
+  await serveFixture(null, bundleFixture({ dancers: 3 }));
+  await openSong(2, 0);
+  await until({ songScreen: 'preview', songReady: 'true', stageReady: 'true', songDancers: '3', songCast: '0|1' });
+  await click(DANCERS);
+  await until({ songScreen: 'dancers', songReady: 'true', songCast: '0|1' });
+  await click(castRow(0, 2));
+  await until({ songCast: '1|1' });
+  await shot('dancers-trio');
+  await page.mouse.move(frame.x + 2, frame.y + 2);
+  // The cursor starts on Dance!, then goes up past Auto to player 2's row.
+  for (const key of ['ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowRight']) await page.keyboard.press(key);
+  await until({ songCast: '1|2' });
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await until({ songCast: '1|0' });
+  await page.keyboard.press('Escape');
+  await until({ songScreen: 'preview', songReady: 'true', songCast: '1|0' });
+  await page.keyboard.press('Escape');
+  await until({ songScreen: 'list', songReady: 'true' });
+  await click(rowRect(0));
+  await until({ songScreen: 'preview', songReady: 'true', stageReady: 'true', songCast: '1|0' });
+  await click(DANCERS);
+  await until({ songScreen: 'dancers', songReady: 'true' });
+  await click(CAST_AUTO);
+  await until({ songCast: '0|1' });
+  await click(BACK);
+  await until({ songScreen: 'preview', songReady: 'true' });
+  await click(BACK);
+  await until({ songScreen: 'list', songReady: 'true', stage: '' });
+  // A solo: everyone follows its one dancer, and there's nobody to pick.
+  await serveFixture(null, bundleFixture({ dancers: 1 }));
+  await openSong(3, 0);
+  await until({ songScreen: 'preview', songReady: 'true', stageReady: 'true', songDancers: '1', songCast: '0|0|0' });
+  await click(DANCERS);
+  await page.waitForTimeout(500);
+  assert.equal((await data()).songScreen, 'preview', 'a solo has no dancers to pick');
+  await click(BACK);
+  await until({ songScreen: 'list', songReady: 'true', stage: '' });
+
   // Dancing with the webcam calibrates first, and the camera is set up right there: pressing
   // the preview starts it (and reports the denial). Three players calibrate side by side.
   await serveFixture();
@@ -390,14 +433,19 @@ try {
   await until({ songScreen: 'list', songReady: 'true' }, 10000);
   assert.equal((await data()).gamePhase, undefined);
 
-  // Four ghosts: the duet's two parts, each danced twice, all scored.
+  // Four ghosts on the duet's two dancers, all scored: player 3 picks the second dancer, so
+  // three players share it.
   await click(BACK);
   await menuOn('players');
   await pickPlayers(4);
   await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', playerSlots: 'Detected|Detected|Detected|Detected' }, 30000);
   await click(rowRect(0));
-  await until({ songScreen: 'preview', songReady: 'true' }, 30000);
-  await shot('preview-4p-ghost');
+  await until({ songScreen: 'preview', songReady: 'true', songCast: '0|1|0|1' }, 30000);
+  await click(DANCERS);
+  await until({ songScreen: 'dancers', songReady: 'true' });
+  await click(castRow(2, 4));
+  await until({ songCast: '0|1|1|1' });
+  await shot('dancers-4p-ghost');
   await click(DANCE);
   await until({ gamePhase: 'playing' }, 30000);
   await page.waitForTimeout(2000);
@@ -406,11 +454,11 @@ try {
   await shot('game-results-4p');
   const four = ((await data()).gameScores ?? '').split('|').map(Number);
   assert.equal(four.length, 4);
-  for (const score of four) assert.ok(score > 850000, `each of four ghosts copies its part: ${score}`);
+  for (const score of four) assert.ok(score > 850000, `each of four ghosts copies the dancer they picked: ${score}`);
   await click(RESULTS_SONGS);
   await until({ songScreen: 'list', songReady: 'true' }, 10000);
   assert.deepEqual(errors, []);
-  console.log('Browser flow passed: Settings, camera setup and permission denial on the calibration screen, the 1-4 players dial, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit), a scored four-player ghost song and no runtime errors.');
+  console.log('Browser flow passed: Settings, camera setup and permission denial on the calibration screen, the 1-4 players dial, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit), picking dancers for a solo, a trio and a duet, a scored four-player ghost song with three players on one dancer and no runtime errors.');
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));
