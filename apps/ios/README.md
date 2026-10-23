@@ -4,8 +4,8 @@ An iPhone and iPad app that runs the production web build in `WKWebView` and sho
 an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
 phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
 
-Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit,
-MediaPlayer, Network), so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
+Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network),
+so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
 WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows the video.
 
 ## How it works
@@ -33,11 +33,19 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   `UIViewController.registerSceneAccessory` on iOS 27, which no longer offers it otherwise).
   The game's web view moves into that scene's window and keeps running; nothing reloads. The page
   chooses 4:3 or 16:9 letterboxing for the available screen. When the display goes, the web view moves back to the phone.
-- **Remote.** While the game is on the TV, the phone shows arrows, OK and Back (Pause during a
-  song), which `src/inject.js` turns into the key events the canvas UI understands, like the
-  Apple TV app does with the Siri Remote. Arrows repeat while held. Below them are the system
-  volume (the TV's, while AirPlaying) and an AirPlay button. The status line shows the TV's
-  resolution, the current screen and the frame rate.
+- **Remote.** While the game is on the TV, the phone shows the remote: a page of the game's own
+  (`/remote/`, `apps/web/src/remote/`) in a second web view, drawn in-engine like the game and the
+  phone camera page, at the same low resolution. It has arrows around OK, and Back (Pause or
+  Resume while a song is on), which the app turns into the key events the canvas UI understands
+  (`src/inject.js`), like the Apple TV app does with the Siri Remote. Buttons act on touch, with a
+  tap of haptics, and arrows repeat while held. The status line says what the TV shows, and the
+  volume is the phone's volume buttons (the TV's, while AirPlaying). The remote loads from the
+  local server the first time the game goes to a TV, and again if it can't. Invisible labels over
+  the drawn buttons let VoiceOver (and the UI tests) find them; touches go through to the canvas.
+- **AirPlay buttons.** The game's main menu (on the phone) and the remote draw an AirPlay button
+  in-engine; the app lays an invisible `AVRoutePickerView` over each, where the page says it is
+  (`window.__aerodanceAirPlayAt(rect)` from the game, a message from the remote), so a tap opens
+  the system's AirPlay menu.
 - **Audio** uses the playback category (and `navigator.audioSession.type = 'playback'`), so it
   plays with the ring switch on silent and follows the AirPlay route to the TV.
 - **Camera.** The game's own pose tracking (MediaPipe in the page) can use the phone's camera:
@@ -54,9 +62,10 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   and the page letterboxes itself. The web view is edge to edge (`viewport-fit=cover`), so the
   page gets the notch and home indicator as `env(safe-area-inset-*)`; while the game is on the
   phone, the status bar is hidden and the home indicator hides itself.
-- **Host state.** `globalThis.__aerodanceHost` is `{ interrupted, tv }`, set before the game's
+- **Host state.** `globalThis.__aerodanceHost` is `{ interrupted, tv, screen }`, set before the game's
   scripts run, and every change also fires
-  `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { interrupted, tv } }))`.
+  `window.dispatchEvent(new CustomEvent('aerodance-host', { detail: { interrupted, tv, screen } }))`.
+  `screen` is where the game's picture is: `'phone'` or `'tv'` (wherever the sound goes).
   `interrupted` is true from the start to the end of an audio interruption (a call, Siri, an
   alarm); at the end the app reactivates its audio session if iOS says to resume, and the game
   waits for the player's next tap either way. `tv` is true while the game is on an external display and its sound goes
@@ -163,7 +172,10 @@ real touches: it launches and reaches the main menu, an iPhone holds it in lands
 Let's dance (for one player, the dial's starting count) and the first song tapped at their `layout.ts` positions open the song preview, an
 iPad turns portrait, landscape and back, and a TV connected (through `tools/simscreen.m`) while
 the device is held sideways shows the remote with every control on screen, upright on an iPhone,
-and the game comes back in landscape when the TV goes.
+and the game comes back in landscape when the TV goes. One plays a whole song on the TV with the
+remote's buttons only: the menus, the players dial, Back, Pause and Resume, and the TV going and
+coming back mid-song, which the song plays through. The main menu's AirPlay picker sits over the
+game's AirPlay bubble.
 
 ```sh
 node scripts/ios.ts sim --device <UDID> --port 8423 --path '/?input=ghost'   # build and install
