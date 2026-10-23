@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, drawStatusDot,
+  FONT, drawCaps, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, drawStatusDot,
   ellipsize, ICONS, paragraph, roundRect, TAU, text,
 } from '../ui/draw.ts';
 import type { Face, Rect } from '../ui/draw.ts';
@@ -115,17 +115,18 @@ function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, r
 
 // The mirror: a dark glass with each player's smoothed live pose as a skeleton in their colour,
 // mirrored like the setup preview (player 1 on the left), and no camera picture. The camera's
-// frame is fitted inside, so the skeletons stand where the players do.
-function drawMirror(g: CanvasRenderingContext2D, session: GameSession, rect: Rect, now: number) {
-  const { x, y, w, h } = rect;
+// frame is fitted under the strip along its top (the pause icon's), so the skeletons stand
+// where the players do.
+function drawMirror(g: CanvasRenderingContext2D, session: GameSession, mirror: Rect & { top: number }, now: number) {
   g.save();
-  roundRect(g, x, y, w, h, 18);
+  roundRect(g, mirror.x, mirror.y, mirror.w, mirror.h, 18);
   g.fillStyle = 'rgba(0, 0, 0, 0.55)';
   g.fill();
   g.lineWidth = 2;
   g.strokeStyle = 'rgba(255, 255, 255, 0.25)';
   g.stroke();
   g.clip();
+  const { x, w } = mirror, y = mirror.y + mirror.top, h = mirror.h - mirror.top;
   const input = session.live.find((p) => p.calibration)?.calibration;
   const scale = input ? Math.min(w / input.inputWidth, h / input.inputHeight) : 0;
   const dw = input ? input.inputWidth * scale : w, dh = input ? input.inputHeight * scale : h;
@@ -401,12 +402,13 @@ export default function GameScreen({ visible = false, session, camera: source, o
       for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, session.playerCount, scores[id], readiness[id], st.popups, now, tracking, s.w);
       if (tracking) drawMirror(g, session, GAME_MIRROR, performance.now());
       if (ph !== 'paused') {
-        drawGlassCircle(g, GAME_PAUSE, h.pause ?? 0);
+        // Just the icon, light grey at the top of the mirror (white when hovered).
+        const hover = h.pause ?? 0;
         g.save();
-        g.fillStyle = g.strokeStyle = '#ffffff';
+        g.strokeStyle = `rgb(${200 + hover * 55}, ${205 + hover * 50}, ${212 + hover * 43})`;
         g.lineWidth = 4;
         g.lineCap = 'round';
-        ICONS.pause(g, GAME_PAUSE.x, GAME_PAUSE.y, GAME_PAUSE.r * 1.4);
+        ICONS.pause(g, GAME_PAUSE.x, GAME_PAUSE.y, 36);
         g.restore();
       }
       const t = session.loaded().timeMs() - song.playableStartMs;

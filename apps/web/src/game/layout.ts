@@ -29,8 +29,9 @@ export const playerHudX = (id: number, playerCount: number, width = 1600) => {
 
 // Gameplay overlay (GameScreen.jsx).
 // The mirror, top centre between the scores (narrow enough for four in 4:3): every player's
-// skeleton on a dark glass. Pause sits after the song's progress, along the bottom.
-export const GAME_MIRROR = { x: 656, y: 24, w: 288, h: 162 };
+// skeleton on a dark glass, under a strip `top` tall along its top holding the pause icon.
+export const GAME_MIRROR = { x: 656, y: 24, w: 288, h: 196, top: 34 };
+export const GAME_PAUSE = { x: GAME_MIRROR.x + GAME_MIRROR.w / 2, y: GAME_MIRROR.y + 20, r: 30 };
 export const GAME_READY_START = { x: 610, y: 690, w: 380, h: 96 };
 export const GAME_READY_BACK = { x: 166, y: 150, r: 30 };
 // Webcam calibration: one glass card with the setup preview (pressed to start the camera, or
@@ -49,7 +50,6 @@ export const GAME_RESUME = { x: 610, y: 340, w: 380, h: 84 };
 export const GAME_RESTART = { x: 610, y: 444, w: 380, h: 84 };
 export const GAME_QUIT = { x: 610, y: 548, w: 380, h: 84 };
 export const GAME_PROGRESS = { x: 560, y: 852, w: 480, h: 14 };
-export const GAME_PAUSE = { x: GAME_PROGRESS.x + GAME_PROGRESS.w + 56, y: 846, r: 30 };
 export const RESULTS_RETRY = { x: 470, y: 806, w: 320, h: 80 };
 export const RESULTS_SONGS = { x: 810, y: 806, w: 320, h: 80 };
 // Song Select preview: Dance! starts the song for real, bottom right.
