@@ -2,8 +2,9 @@ import { CONNECTIONS } from '../choreography.ts';
 import type { FrameSize, Pose } from '../choreography.ts';
 
 export interface PreviewRect { x: number; y: number; w: number; h: number; }
-// Each player's skeleton: P1 cyan and P2 gold as ever, then green and pink.
-export const SKELETON = ['#7dffff', '#ffdc70', '#8dffb4', '#ff9fd2'];
+// Each player's skeleton: light tints of their colours (P1 blue, P2 purple, P3 green, P4 pink, as on
+// the scores, the mirror and the results), to read over the camera's picture.
+export const SKELETON = ['#7fd0ff', '#dcb8ff', '#a3f5c6', '#ffbfe0'];
 export interface PreviewOptions {
   /** Show the picture as a mirror (a camera facing the viewer); false shows it as the camera sees it. */
   mirror?: boolean;

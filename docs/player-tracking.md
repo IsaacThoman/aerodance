@@ -34,17 +34,16 @@ How the webcam (or a paired phone's camera) turns people into players.
        torso is well inside it), so that strip looks for whoever else is in it: the strip
        somebody is followed in can be the only one that sees a player beside them. If it finds
        nobody, it sees them again (whichever of the two sees them better follows them), and the
-       two don't try again for ten seconds, or until somebody comes or goes.
+       two don't try again for ten seconds.
 
-     What a strip finds where it was shown somebody hidden is what the model made of what's left
-     of them (a squashed person from an arm, say), so it's ignored. Somebody two strips both see
-     counts once (unless their joints differ: one may stand partly behind the other; torsos in
+     Somebody two strips both see counts once (unless their joints differ: one may stand partly behind the other; torsos in
      the same place are one person whatever the strips make of their arms); joints beyond a
      strip's cut edges are marked unsure.
      Without a GPU, if the strips can't be set up, or in the iPhone/iPad app (where each
      strip's extra landmarker, 160-215 MB measured in WebKit, about 100 MB of it in the process
      the game runs in, hasn't been tried against a device's memory limit), the whole
-     picture is used.
+     picture is used. A paired phone's page, which runs nothing but the camera, uses strips;
+     how fast a phone runs three or four of them hasn't been measured.
 
    With two or more players it also samples each person's **looks** (`appearance.ts`): the
    colours of their clothes on the chest, the waist and the thighs, from a 128-pixel-wide copy
@@ -108,9 +107,10 @@ the tracker replaced them.
   eight results running (results the model misses them in aside), while whoever has the number
   is elsewhere and doesn't look more like them, gets it back.
 - **Ghosts.** The model sometimes reports one person twice. A result whose joints mostly fall
-  on another's is dropped, and so are a squashed one (a torso less than a tenth of the height of
-  its head and legs; on real people it's a third or so) and a tiny one (under a third of their
-  size) inside somebody.
+  on another's is dropped, and so are a squashed one (a torso under 6% of the height of its head
+  and legs; on real people it's about a third, and above a tenth even bending deep), which the
+  model can make of what's left of somebody a strip was shown hidden, and a tiny one (under a
+  third of their size) inside somebody.
 - **Who was there before.** Each person in a result continues somebody seen lately (in the
   last second, or five for a bystander) near where they are, the closest pairs first by where
   they are and how big, so a glitch beside somebody, or somebody smaller passing behind them,

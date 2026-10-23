@@ -39,7 +39,7 @@ const RELIABLE = 0.5;
  * is a squashed copy of somebody, not a person; so is one less than TINY the size of somebody
  * whose body its torso is inside.
  */
-const SQUASHED = 0.1, TINY = 0.35;
+const SQUASHED = 0.06, TINY = 0.35;
 /** Velocity decays over this long, so a prediction never runs far. */
 const VELOCITY_MS = 300;
 /** A player seen this recently is followed by motion; after that, found again near their place. */
@@ -143,8 +143,8 @@ function measure(points: readonly DetectedLandmark[], looks: readonly number[] |
   if (![ls, rs, lh, rh].every(reliable)) return null;
   const torso = Math.hypot((ls.x + rs.x - lh.x - rh.x) / 2 * aspect, (ls.y + rs.y - lh.y - rh.y) / 2);
   const shoulders = Math.hypot((ls.x - rs.x) * aspect, ls.y - rs.y);
-  // (On real people it's a third or so; the model can make a collapsed torso of what's left of
-  // somebody hidden from it, with their legs still spread below.)
+  // (On real people it's about a third, and above a tenth even bending deep; the model can make
+  // a collapsed torso of what's left of somebody hidden from it, with their legs spread below.)
   const [top, bottom] = landmarks.filter((p, i) => (i < 13 || i > 22) && reliable(p)).reduce(([lo, hi], p) => [Math.min(lo, p.y), Math.max(hi, p.y)], [Infinity, -Infinity]);
   if (Math.max(torso, shoulders / 0.75) < SQUASHED * (bottom - top)) return null;
   return { landmarks, x: (ls.x + rs.x + lh.x + rh.x) / 4 * aspect, y: (ls.y + rs.y + lh.y + rh.y) / 4, top, bottom,

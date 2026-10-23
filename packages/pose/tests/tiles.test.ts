@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evenTiles, fromTile, hidden, mergeTiles, remnant, StripHiding } from '../browser/tiles.ts';
+import { evenTiles, fromTile, hidden, mergeTiles, StripHiding } from '../browser/tiles.ts';
 
 // Somebody standing with their torso centred at x (a fraction of the strip or picture), arms
 // reaching `reach` to each side.
@@ -126,10 +126,9 @@ test('a strip that looks and finds nobody takes over somebody it shares, so the 
   assert.equal(nobody.hiding.handoff, null);
   assert.equal(nobody.hiding.hide[1].length, 0, 'the second strip sees them again');
   for (let i = 0; i < 280; i++) nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[2] }], [a, shared], 4 / 3, nobody.players);
-  assert.equal(nobody.hiding.handoff, null, 'nor back');
-  // Unless somebody comes or goes.
-  nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[2] }], [a, shared], 4 / 3, 1);
-  assert.deepEqual(handoff(nobody.hiding), [2, 1]);
+  assert.equal(nobody.hiding.handoff, null, 'nor back, for ten seconds');
+  for (let i = 0; i < 20; i++) nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[2] }], [a, shared], 4 / 3, nobody.players);
+  assert.deepEqual(handoff(nobody.hiding), [2, 1], 'then they may');
   // Nobody is taken over whose torso is near the idle strip's edge.
   const edgeways = at(0.585, 0.05), cut = new StripHiding(tiles);
   cut.next([{ points: a, tile: tiles[0] }, { points: edgeways, tile: tiles[1] }, { points: edgeways.map(p => ({ ...p })), tile: tiles[2] }], [a, edgeways], 4 / 3, 2);
@@ -151,14 +150,4 @@ test('a strip that looks and finds nobody takes over somebody it shares, so the 
     assert.equal(hiding.handoff, null);
     assert.equal(hiding.hide[1].length, 0);
   }
-});
-
-test('what a strip makes of somebody it was shown hidden isn\'t anybody', () => {
-  const tiles = evenTiles(3)!, them = at(0.5), beside = at(0.62);
-  const [box] = hidden([{ points: them, tile: tiles[0] }], [them], tiles)[1];
-  // A squashed skeleton from their arms, where they were greyed out; and somebody beside them.
-  const squashed = them.map(p => ({ ...p, y: 0.45 + (p.y - 0.45) * 0.2 }));
-  assert.equal(remnant(squashed, [box]), true);
-  assert.equal(remnant(beside, [box]), false);
-  assert.equal(remnant(squashed, []), false);
 });

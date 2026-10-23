@@ -1,7 +1,7 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { fromTile, mergeTiles, remnant, StripHiding } from './tiles.ts';
+import { fromTile, mergeTiles, StripHiding } from './tiles.ts';
 import type { Tile } from './tiles.ts';
 
 // The message protocol between a page (WebcamPoseSource, Studio video import) and this worker.
@@ -126,12 +126,7 @@ scope.onmessage = async ({ data }) => {
             } else strip = await createImageBitmap(data.bitmap, sx, 0, sw, height);
             // The strip as cut, so landmarks map back exactly.
             const cut = { x: sx / width, width: sw / width };
-            try {
-              for (const points of tiled.landmarkers[i].detectForVideo(strip, data.timestampMs).landmarks) {
-                const mapped = fromTile(points, cut);
-                if (!remnant(mapped, hide)) found.push({ points: mapped, tile });
-              }
-            }
+            try { for (const points of tiled.landmarkers[i].detectForVideo(strip, data.timestampMs).landmarks) found.push({ points: fromTile(points, cut), tile }); }
             finally { strip.close(); }
           }
           landmarks = mergeTiles(found, width / height);

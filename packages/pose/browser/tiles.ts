@@ -4,8 +4,8 @@
  * knock out people it was following, and a search runs every frame while it follows fewer people
  * than it was asked for. So each player gets their own full-height strip of the picture, where
  * the model follows exactly one person and only searches when it loses them. The strips' results
- * are put back into the whole picture; somebody two strips both see counts once, from the strip
- * they're farther inside. Joints beyond a strip's cut edges are the model's guesses, so they're
+ * are put back into the whole picture; somebody two strips both see counts once (the copy with a
+ * sure torso, from the strip they're farther inside). Joints beyond a strip's cut edges are the model's guesses, so they're
  * marked unsure. The strips stay put, evenly spread and covering the whole width: a strip moved
  * onto where a player was can lose them. A strip follows one person and only searches once it
  * loses them, so who it looks for is steered by greying people out of its picture (StripHiding).
@@ -33,8 +33,7 @@ const CUT = 0.2;
 /**
  * While a player is missing: a strip shown people hidden that has found nobody new for IDLE
  * results takes over a person it shares with another strip, which gets TRY results to find
- * somebody else; then no other try for REST results, nor between the same two strips for
- * AGAIN (unless the number of players found changes first).
+ * somebody else; then no other try for REST results, nor between the same two strips for AGAIN.
  */
 const IDLE = 15, TRY = 6, REST = 90, AGAIN = 300;
 const TORSO = [11, 12, 23, 24];
@@ -123,15 +122,6 @@ export function hidden<P extends Point>(found: readonly { points: P[]; tile: Til
 const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 /**
- * Whether a strip's result has its torso where the strip was shown somebody hidden: what the
- * model made of what's left of them (their arms, say), not somebody it saw.
- */
-export function remnant(points: readonly Point[], hide: readonly Box[]): boolean {
-  const x = TORSO.reduce((sum, i) => sum + points[i].x, 0) / 4, y = TORSO.reduce((sum, i) => sum + points[i].y, 0) / 4;
-  return hide.some(b => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1);
-}
-
-/**
  * Who each strip is shown hidden, from one result to the next:
  * - a strip whose result was somebody another strip keeps, or nobody, the people the others keep
  *   (hidden());
@@ -141,8 +131,7 @@ export function remnant(points: readonly Point[], hide: readonly Box[]): boolean
  *   only one that could see somebody else. If it finds nobody, it sees them again (whichever of
  *   the two sees them better follows them), and the two don't hand anybody over for a while.
  *
- * (The model can make a squashed copy of somebody from what's left of them, which the tracker
- * drops; one with its torso where the strip was shown them hidden is dropped here, remnant().)
+ * (The model can make a squashed copy of somebody from what's left of them; the tracker drops it.)
  */
 export class StripHiding {
   readonly tiles: readonly Tile[];
@@ -157,8 +146,6 @@ export class StripHiding {
   rest = 0;
   /** Hand-offs that found nobody ("from,to"): not again before this result. */
   tried = new Map<string, number>();
-  /** How many players were found last time. */
-  players: number | undefined;
   constructor(tiles: readonly Tile[]) {
     this.tiles = tiles;
     this.hide = tiles.map(() => []);
@@ -176,9 +163,6 @@ export class StripHiding {
     // Each strip's own person, when kept.
     const own = this.tiles.map(tile => found.find(f => f.tile === tile && kept.includes(f.points))?.points);
     const missing = players !== undefined && players < this.tiles.length;
-    // (Somebody came or went: hand-offs that found nobody may not now.)
-    if (players !== this.players) this.tried.clear();
-    this.players = players;
     this.idle = this.idle.map((count, i) => shown[i].length && !own[i] ? count + 1 : 0);
     if (this.handoff) {
       const { from, to, box, at } = this.handoff;
