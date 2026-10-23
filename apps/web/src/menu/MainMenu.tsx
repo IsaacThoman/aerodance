@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
-import { FONT, NAVY, TAU, drawCaps, drawGlassCircle, drawGlassPanel, drawHeader, drawPill, drawTitle, pill } from '../ui/draw.ts';
-import type { Circle, Rect } from '../ui/draw.ts';
+import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawGlassButton, drawGlassCircle, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
+import type { Circle, GlassStyle, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
+import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
 import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
@@ -13,7 +14,7 @@ import FullscreenButton from './FullscreenButton.tsx';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
-import { createSongsPanel } from './songsPanel.ts';
+import { CAN_IMPORT, createSongsPanel } from './songsPanel.ts';
 import type { SongsPanel, SongsWidget } from './songsPanel.ts';
 
 /**
@@ -27,6 +28,8 @@ import type { SongsPanel, SongsWidget } from './songsPanel.ts';
  * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies;
  * where the browser or app can save songs, a Songs panel beside them: the songs imported into it and
  * Import song, menu/songsPanel.ts).
+ * Start, Settings and Let's dance are glass buttons (ui/useGlassBlur.ts blurs the world inside
+ * them) in the look ?buttons=1..6 picks; Settings' panels are the dark style's glass.
  * The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in the
  * iPhone/iPad app). The title rises while the players screen is up and fades out while settings
  * is.
@@ -90,6 +93,11 @@ const STATS: readonly { value: StatsSetting; label: string }[] = [
 const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
 const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings: 'settings' };
 
+// ?buttons=1..6 picks the look of Start, Settings and Let's dance (GLASS_STYLES: the mockups in
+// order, then dark); dark, the players dial's blue glass, by default.
+const params = typeof location === 'undefined' ? null : new URLSearchParams(location.search);
+const BUTTONS: GlassStyle = GLASS_STYLES[Number(params?.get('buttons')) - 1] ?? 'dark';
+
 // Left/Right move a slider a twentieth (5) at a time.
 const SLIDER_STEPS = 20;
 const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, n)) as PlayerCount;
@@ -141,7 +149,7 @@ function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover:
   const { sound } = p;
   const { x, w } = SOUND;
   const base = g.globalAlpha;
-  drawGlassPanel(g, SOUND, 34);
+  drawDarkGlassPanel(g, SOUND, 34);
   drawCaps(g, 'SOUND', x + 40, SOUND.y + 44, { size: 22 });
 
   const label = (text: string, cy: number) => {
@@ -213,7 +221,7 @@ function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover:
     g.globalAlpha = base;
   });
 
-  drawGlassPanel(g, GRAPHICS, 34);
+  drawDarkGlassPanel(g, GRAPHICS, 34);
   drawCaps(g, 'GRAPHICS', x + 40, GRAPHICS.y + 44, { size: 22 });
   label('Aspect ratio', ASPECT_ROW_Y);
   drawSegments(g, ASPECTS, ASPECT, p.graphics.aspect, (v) => hover[`aspect-${v}`] ?? 0);
@@ -281,14 +289,14 @@ export default function MainMenu({
   const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
   const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
     main: [
-      { id: 'start', rect: START, primary: true },
-      { id: 'settings', rect: SETTINGS },
+      { id: 'start', rect: START, corner: glassCorner(START.h), primary: true },
+      { id: 'settings', rect: SETTINGS, corner: glassCorner(SETTINGS.h) },
     ],
     players: [
       { id: 'back', circle: PLAYERS_BACK },
       { id: 'minus', circle: MINUS },
       { id: 'plus', circle: PLUS },
-      { id: 'go', rect: PLAYERS_GO, primary: true },
+      { id: 'go', rect: PLAYERS_GO, corner: glassCorner(PLAYERS_GO.h), primary: true },
     ],
     settings: [
       { id: 'back', circle: BACK },
@@ -451,15 +459,16 @@ export default function MainMenu({
       const h = s.hover;
       const press = (id: string) => s.press * (h[id] ?? 0);
       if (m.screen === 'main') {
-        drawPill(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start') });
-        drawPill(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle });
+        // No chevrons on the main screen's buttons.
+        drawGlassButton(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start'), style: BUTTONS, chevron: false });
+        drawGlassButton(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle, style: BUTTONS, chevron: false });
       } else if (m.screen === 'players') {
         const n = count();
         drawHeader(g, PLAYERS_BACK, 'PLAYERS', h.back ?? 0);
         drawStep(g, MINUS, false, h.minus ?? 0, press('minus'), n > 1);
         drawCount(g, n, COUNT_X, MINUS.y);
         drawStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
-        drawPill(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go') });
+        drawGlassButton(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go'), style: BUTTONS, chevron: true });
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
         drawSettingsPanel(g, props.current, h, layout);
@@ -467,6 +476,15 @@ export default function MainMenu({
       }
       g.restore();
     },
+  });
+
+  // Frosted glass: the world blurred inside the glass buttons and Settings' panels only,
+  // lifting, fading and sliding with them (drawn just before the overlay).
+  useGlassBlur(() => {
+    const panes = m.screen === 'main' ? [buttonPane(ui, 'start', START), buttonPane(ui, 'settings', SETTINGS)]
+      : m.screen === 'players' ? [buttonPane(ui, 'go', PLAYERS_GO)]
+        : [panelPane(SOUND), panelPane(layout.GRAPHICS), ...(CAN_IMPORT ? [panelPane(layout.SONGS)] : [])];
+    return { panes, alpha: m.alpha * m.swap, offsetX: (1 - m.swap) * -24 };
   });
 
   // Reopening the menu lands on initialScreen (Back from Song Select returns to players), with

@@ -47,6 +47,8 @@ export type Widget = {
   id: string;
   /** Pressing drags (sliders): onDrag instead of onActivate. */
   drag?: boolean;
+  /** A rect's corner radius, for the focus ring; wide rects default to a pill (h / 2). */
+  corner?: number;
   /** false: keyboard navigation skips it. */
   nav?: boolean;
   /** The screen's main action: the keyboard cursor starts here, and Enter/Space press it while there is no cursor. */
