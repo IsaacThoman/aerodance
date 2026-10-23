@@ -127,11 +127,20 @@ function faceFill(g: CanvasRenderingContext2D, face: Face, top: number, bottom: 
 // (castWidth across): each in the colour of the first player following them, or an empty spot.
 function drawCast(g: CanvasRenderingContext2D, right: number, floor: number, h: number, dancers: number, cast: Cast) {
   const w = dancerWidth(h), step = w * 0.8;
+  g.save();
+  shadowed(g);
   for (let d = 0; d < dancers; d++) {
     const lead = leadOf(cast, d);
     const cx = right - w / 2 - (dancers - 1 - d) * step;
     drawDancer(g, cx, floor, h, lead < 0 ? SPARE : faceFill(g, playerFace(lead), floor - h, floor));
   }
+  g.restore();
+}
+// Cutouts on the glass are shadowed like its icons and labels.
+function shadowed(g: CanvasRenderingContext2D) {
+  g.shadowColor = 'rgba(0, 30, 50, 0.45)';
+  g.shadowBlur = 6;
+  g.shadowOffsetY = 2;
 }
 const castWidth = (h: number, dancers: number) => dancerWidth(h) * (1 + 0.8 * (dancers - 1));
 // The cutouts in a song's row: their height and the gap to the pill's right end.
@@ -604,7 +613,10 @@ export default function SongSelect({
               const tall = slot.h * 0.8, floor = slot.y + (slot.h + tall) / 2;
               if (d === dancer) drawPicked(c, slot, playerFace(player));
               const fill = d === dancer ? faceFill(c, playerFace(player), floor - tall, floor) : d === hovered ? SPARE_HOVER : SPARE;
+              c.save();
+              shadowed(c);
               drawDancer(c, slot.x + slot.w / 2, floor, tall, fill);
+              c.restore();
             }),
           });
         });

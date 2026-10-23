@@ -55,7 +55,7 @@ export const RESULTS_SONGS = { x: 810, y: 806, w: 320, h: 80 };
 // Song Select preview: Dance! starts the song for real, bottom right, with Dancers beside it
 // (a song with more than one dancer), which opens the dancers screen.
 export const DANCE = { x: 1172, y: 770, w: 300, h: 96 };
-export const DANCERS = { x: 852, y: 770, w: 300, h: 96 };
+export const DANCERS = { x: 812, y: 770, w: 340, h: 96 };
 // The dancers screen: the song's title top left and the stage's dancers facing the camera, with
 // a pill per player under them (two to a row, players 1 and 2 first), each picking the dancer
 // they follow, just above Auto (players take the dancers in turn) bottom left and Dance!.
