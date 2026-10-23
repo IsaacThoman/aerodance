@@ -10,7 +10,8 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import type { AspectSetting, GraphicsSettings, StatsSetting } from './graphicsSettings.ts';
 import AirPlayButton from './AirPlayButton.tsx';
-import FullscreenButton from './FullscreenButton.tsx';
+import useFullscreen from './useFullscreen.ts';
+import type { Fullscreen } from './useFullscreen.ts';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
@@ -25,14 +26,15 @@ import type { SongsPanel, SongsWidget } from './songsPanel.ts';
  * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
  * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
- * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies;
+ * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies, then
+ * a Fullscreen switch where the page can go fullscreen (menu/useFullscreen.ts; it isn't there in
+ * iPhone Safari, the tvOS app, the iPhone/iPad app or iframes without allowfullscreen);
  * where the browser or app can save songs, a Songs panel beside them: the songs imported into it and
  * Import song, menu/songsPanel.ts).
  * Start, Settings and Let's dance are glass buttons (ui/useGlassBlur.ts blurs the world inside
  * them) in the look ?buttons=1..6 picks; Settings' panels are the dark style's glass.
- * The main screen also shows the fullscreen bubble in the corner (the AirPlay bubble in the
- * iPhone/iPad app). The title rises while the players screen is up and fades out while settings
- * is.
+ * The main screen also shows the AirPlay bubble in the corner in the iPhone/iPad app. The title
+ * rises while the players screen is up and fades out while settings is.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
@@ -66,7 +68,7 @@ export interface MainMenuProps {
 type SliderKey = 'master' | 'music' | 'sfx';
 type ToggleKey = 'menuMusic' | 'muted';
 interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
-type MenuWidget = SongsWidget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting };
+type MenuWidget = SongsWidget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting; fullscreen?: boolean };
 
 const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
@@ -144,8 +146,24 @@ function drawStep(g: CanvasRenderingContext2D, c: Circle, plus: boolean, hover: 
   g.restore();
 }
 
-function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover: Record<string, number>, layout: ReturnType<typeof menuLayout>) {
-  const { SOUND, GRAPHICS, TRACK, ROW_Y, SWITCH, ASPECT, ASPECT_ROW_Y, STATS: STATS_RECT, STATS_ROW_Y } = layout;
+// A switch, right-aligned in its row and filled when on.
+function drawSwitch(g: CanvasRenderingContext2D, { w: tw, h: th, x: tx }: { w: number; h: number; x: number }, cy: number, on: boolean, hover: number) {
+  pill(g, tx, cy - th / 2, tw, th);
+  g.fillStyle = on ? '#4fd8e8' : 'rgba(0, 30, 70, 0.45)';
+  g.fill();
+  g.lineWidth = 3;
+  g.strokeStyle = `rgba(255,255,255,${0.5 + hover * 0.4})`;
+  g.stroke();
+  const kx = tx + (on ? tw - th / 2 : th / 2);
+  g.beginPath();
+  g.arc(kx, cy, th / 2 - 5, 0, TAU);
+  g.fillStyle = '#ffffff';
+  g.fill();
+}
+
+function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, fs: Fullscreen, hover: Record<string, number>,
+  layout: ReturnType<typeof menuLayout>) {
+  const { SOUND, GRAPHICS, TRACK, ROW_Y, SWITCH, ASPECT, ASPECT_ROW_Y, STATS: STATS_RECT, STATS_ROW_Y, FULLSCREEN } = layout;
   const { sound } = p;
   const { x, w } = SOUND;
   const base = g.globalAlpha;
@@ -203,21 +221,9 @@ function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover:
   // Switches, right-aligned under the slider values.
   TOGGLES.forEach((tg, i) => {
     const cy = ROW_Y(SLIDERS.length + i);
-    const on = tg.on(p);
-    const { w: tw, h: th, x: tx } = SWITCH;
     g.globalAlpha = base * (tg.audio && sound.muted ? 0.45 : 1);
     label(tg.label, cy);
-    pill(g, tx, cy - th / 2, tw, th);
-    g.fillStyle = on ? '#4fd8e8' : 'rgba(0, 30, 70, 0.45)';
-    g.fill();
-    g.lineWidth = 3;
-    g.strokeStyle = `rgba(255,255,255,${0.5 + (hover[tg.key] ?? 0) * 0.4})`;
-    g.stroke();
-    const kx = tx + (on ? tw - th / 2 : th / 2);
-    g.beginPath();
-    g.arc(kx, cy, th / 2 - 5, 0, TAU);
-    g.fillStyle = '#ffffff';
-    g.fill();
+    drawSwitch(g, SWITCH, cy, tg.on(p), hover[tg.key] ?? 0);
     g.globalAlpha = base;
   });
 
@@ -227,6 +233,20 @@ function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, hover:
   drawSegments(g, ASPECTS, ASPECT, p.graphics.aspect, (v) => hover[`aspect-${v}`] ?? 0);
   label('Stats', STATS_ROW_Y);
   drawSegments(g, STATS, STATS_RECT, p.graphics.stats, (v) => hover[`stats-${v}`] ?? 0);
+  if (FULLSCREEN) {
+    const cy = FULLSCREEN.y + FULLSCREEN.h / 2;
+    label('Fullscreen', cy);
+    drawSwitch(g, SWITCH, cy, fs.active, hover.fullscreen ?? 0);
+    // Browsers only go fullscreen from the user's own input on that display: say so beside the
+    // panel's heading.
+    if (fs.error) {
+      g.font = `600 18px ${FONT}`;
+      g.textAlign = 'right';
+      g.fillStyle = 'rgba(255,255,255,0.8)';
+      g.fillText(fs.error, x + w - 40, GRAPHICS.y + 44);
+      g.textAlign = 'left';
+    }
+  }
 }
 
 // A segmented switch: the chosen option filled like a switch that's on.
@@ -268,6 +288,7 @@ interface MenuState {
   screen: MenuScreen; next: MenuScreen; swap: number;
   drawnSound: SoundSettings | null;
   drawnGraphics: GraphicsSettings | null;
+  drawnFullscreen: Fullscreen | null;
   drawnCount: PlayerCount | null;
   drawnSongs: string;
   /** The title's baseline, easing up on the players screen. */
@@ -284,8 +305,9 @@ export default function MainMenu({
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const layout = menuLayout(displayDesign(size.width, size.height).w);
-  const { ASPECT, BACK, COUNT_X, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, SOUND, START, TITLE, TRACK, ROW_Y } = layout;
+  const fullscreen = useFullscreen();
+  const layout = menuLayout(displayDesign(size.width, size.height).w, fullscreen.supported);
+  const { ASPECT, BACK, COUNT_X, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, SOUND, START, TITLE, TRACK, ROW_Y } = layout;
   const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
   const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
     main: [
@@ -304,14 +326,17 @@ export default function MainMenu({
       ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: SOUND.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: SOUND.w - 32, h: 48 } })),
       ...ASPECTS.map((a, i) => ({ id: `aspect-${a.value}`, aspect: a.value, rect: ASPECT(i) })),
       ...STATS.map((a, i) => ({ id: `stats-${a.value}`, stats: a.value, rect: layout.STATS(i) })),
+      ...(FULLSCREEN ? [{ id: 'fullscreen', fullscreen: true, rect: FULLSCREEN }] : []),
     ],
   };
   const menu = useRef<MenuState>({
-    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
+    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnFullscreen: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
   });
   const props = useRef<MainMenuProps>({ sound, graphics });
   props.current = { visible, playerCount, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
   const count = () => props.current.playerCount ?? 1;
+  const fullscreenRef = useRef(fullscreen);
+  fullscreenRef.current = fullscreen;
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
 
@@ -386,6 +411,12 @@ export default function MainMenu({
         s.invalidate();
         return;
       }
+      // Straight from the input handler: browsers only enter fullscreen from the user's input.
+      if (wdg.fullscreen) {
+        fullscreenRef.current.toggle();
+        s.invalidate();
+        return;
+      }
       switch (wdg.id) {
         case 'start': setCount(DEFAULT_PLAYERS); go('players'); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
@@ -425,7 +456,7 @@ export default function MainMenu({
       m.titleY = s.ease(m.titleY, m.next === 'players' ? PLAYERS_TITLE_Y : TITLE.y, 7);
       m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' ? 0 : 1, 8);
       const { sound: drawSound, graphics: drawGraphics } = props.current;
-      if (drawSound !== m.drawnSound || drawGraphics !== m.drawnGraphics || count() !== m.drawnCount) s.invalidate();
+      if (drawSound !== m.drawnSound || drawGraphics !== m.drawnGraphics || fullscreenRef.current !== m.drawnFullscreen || count() !== m.drawnCount) s.invalidate();
       if (m.screen !== m.reported) {
         if (m.screen === 'settings') songs.open();
         else if (m.reported === 'settings') songs.close();
@@ -444,6 +475,7 @@ export default function MainMenu({
     draw: (g, s) => {
       m.drawnSound = props.current.sound;
       m.drawnGraphics = props.current.graphics;
+      m.drawnFullscreen = fullscreenRef.current;
       m.drawnCount = count();
       if (m.titleAlpha > 0) {
         g.save();
@@ -471,7 +503,7 @@ export default function MainMenu({
         drawGlassButton(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go'), style: BUTTONS, chevron: false });
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
-        drawSettingsPanel(g, props.current, h, layout);
+        drawSettingsPanel(g, props.current, fullscreenRef.current, h, layout);
         songs.draw(g, h, press, s.time);
       }
       g.restore();
@@ -502,10 +534,5 @@ export default function MainMenu({
   useEffect(() => () => songs.dispose(), [songs]);
 
   const onMain = () => !!props.current.visible && m.screen === 'main' && m.next === 'main';
-  return (
-    <>
-      <FullscreenButton visible={onMain} />
-      <AirPlayButton visible={onMain} />
-    </>
-  );
+  return <AirPlayButton visible={onMain} />;
 }
