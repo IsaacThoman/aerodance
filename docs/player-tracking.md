@@ -20,12 +20,21 @@ How the webcam (or a paired phone's camera) turns people into players.
      same footage) for up to about twice the inference (measured from a tenth to nine
      tenths more, more with four players than three). The strips are evenly spread and cover
      the whole width, and stay put: moving them onto where the players stood lost a player for
-     a minute in testing. Since a strip that follows one person never searches the rest of
-     it, a strip that follows somebody another strip has (or nobody) gets its next frame with
-     the people the other strips have greyed out, so it looks for whoever else is in it.
-     Without that, somebody standing between two people the strips overlap on was never
-     looked for: with three dancers in the middle half of the picture, all three were found
-     together in 6 of 333 frames, and 226 with it. Somebody two strips both see counts once
+     a minute in testing. A strip that follows one person never searches the rest of it, so
+     who it looks for is steered by greying people out of its next frame (their head, torso
+     and legs: enough for the model to lose them, while whoever their outstretched arms reach
+     over stays in view):
+     - a strip that follows somebody another strip has, or nobody, has the people the other
+       strips have greyed out, so it looks for whoever else is in it. Without that, somebody
+       standing between two people the strips overlap on was never looked for: with three
+       dancers in the middle half of the picture, all three were found together in 6 of 333
+       frames, and 234 with it;
+     - while a player is missing, a strip that has looked for half a second and found nobody
+       takes over somebody it shares with another strip, so that strip looks for whoever else
+       is in it (and has them back if it finds nobody): the strip somebody is followed in can
+       be the only one that sees a player beside them.
+
+     Somebody two strips both see counts once
      (unless their joints differ: one may stand partly behind the other; torsos in the same
      place are one person whatever the strips make of their arms); joints beyond a strip's cut
      edges are marked unsure.
@@ -59,7 +68,8 @@ the tracker replaced them.
   followed through it frame by frame (and isn't counted for players their looks tell apart).
   Until everyone has been in view at once, numbers are provisional, so there's no line-up and
   nobody is a bystander yet; the first time they all are, none overlapping another and each in
-  view for a third of a second (so a glitch of the model's isn't numbered), they're numbered
+  view for ten results (a third of a second at 30 a second, so a glitch of the model's isn't
+  numbered), they're numbered
   left to right (P1 on the left of the mirrored preview). That is during calibration, which
   needs everyone in view; after it, a number only moves to another person through the rules
   below.
@@ -95,9 +105,10 @@ the tracker replaced them.
   is elsewhere and doesn't look more like them, gets it back.
 - **Ghosts.** The model sometimes reports one person twice. A result whose joints mostly fall
   on another's is dropped.
-- **Who was there before.** Each person in a result continues somebody seen in the last
-  second near where they are, nearest first, so a glitch beside somebody doesn't take over
-  how long they've been in view or whether they're a bystander.
+- **Who was there before.** Each person in a result continues somebody seen lately (in the
+  last second, or five for a bystander) near where they are, the closest pairs first by where
+  they are and how big, so a glitch beside somebody, or somebody smaller passing behind them,
+  doesn't take over how long they've been in view or whether they're a bystander.
 
 ## One player and several
 
@@ -129,15 +140,19 @@ strips make it moot.
 - Two people dressed alike who cross over while overlapping can't be told from two people who
   part where they came from: they're put back in their old order.
 - Somebody in view before every player is (a bystander while players step in) can be numbered
-  as a player, unless they're farther back than the players. The preview labels everyone over
-  their head, so they can step out.
+  as a player, unless they're farther back than the players; so can somebody else in view
+  while the model misses a player for a second and a half before then (one standing partly
+  behind another, say). The preview labels everyone over their head, so they can step out.
 - With players dressed alike, somebody who walks to a player's old place and lingers there,
   while that player is back somewhere else and missed by the model, can be given their number.
 - With three or four players, a strip whose player is out of sight may latch onto somebody
-  nobody else is following (a bystander, or something person-shaped in the background) until
-  they come back; arms reaching past a strip's edge (about 1 joint in 100 with four players side by
-  side) are the model's guesses, often with full confidence, so they're marked unsure and count
-  as untracked ([three and four players](three-and-four-players.md)).
+  nobody else is following (a bystander, or something person-shaped in the background), and
+  doesn't look for the player again while that somebody stays in it. (Greying out whoever the
+  tracker doesn't count as a player found them in tests, but on real footage it also hid
+  dancers the tracker had wrongly taken for bystanders, so it isn't done.) Arms reaching past a
+  strip's edge (about 1 joint in 100 with four players side by side) are the model's guesses,
+  often with full confidence, so they're marked unsure and count as untracked
+  ([three and four players](three-and-four-players.md)).
 
 ## Tests
 
@@ -148,7 +163,8 @@ another player; the people in front numbered first; bystanders (kept out, missed
 taking a number after five seconds and giving it back, even when the player keeps being missed,
 dressed like a player); passers-by and lingerers at a player's old place; overlaps and merges
 with and without looks; swaps put right by looks, and clothes that change; one player coming
-back changed; ghosts; glitches (not numbered, keeping nobody out, nor making a bystander
-somebody new); and the looks themselves. `packages/pose/tests/tiles.test.ts` covers the strips:
-mapping back, merging copies, and who each strip has hidden. `apps/web/tests/webcam.browser.ts`
-tracks the fixture photo for real.
+back changed; ghosts; glitches (not numbered with the players, nor making a bystander somebody
+new); somebody smaller passing behind a player; and the looks themselves.
+`packages/pose/tests/tiles.test.ts` covers the strips: mapping back, merging copies, and who each
+strip is shown hidden, and hand-offs. `apps/web/tests/webcam.browser.ts` tracks the
+fixture photo for real (and in strips, with `BROWSER_GPU=metal`).

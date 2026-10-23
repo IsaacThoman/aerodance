@@ -67,7 +67,9 @@ players are now each looked for in their own strip of the picture, which found n
 (3.9 of 4 people per frame on the same footage) for up to about twice the inference
 ([player tracking](player-tracking.md)). A strip that follows somebody another strip has (or
 nobody) has the others' people greyed out of its next frame, so players standing close
-together in the middle of the picture are all found too.
+together in the middle of the picture are all found too; and while a player is missing, a strip
+that keeps finding nobody takes over somebody it shares with a neighbour, so the neighbour looks
+for them instead.
 
 Speed wasn't measured meaningfully: the headless GPU session's pose rate swung between
 about 1 and 20 poses/s with the stage's GPU load, for two players as much as for three or

@@ -1,8 +1,8 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { fromTile, hidden, mergeTiles } from './tiles.ts';
-import type { Box, Tile } from './tiles.ts';
+import { fromTile, mergeTiles, StripHiding } from './tiles.ts';
+import type { Tile } from './tiles.ts';
 
 // The message protocol between a page (WebcamPoseSource, Studio video import) and this worker.
 export type PoseRunningMode = 'IMAGE' | 'VIDEO';
@@ -14,7 +14,8 @@ export type PoseWorkerRequest =
    * (tiles.ts), and playerCount is used only if they can't be set up.
    */
   | { type: 'initialize'; sessionId: string; playerCount: number; modelUrl: string; modelHash: string; wasmUrl: string; runningMode?: PoseRunningMode; looks?: boolean; tiles?: Tile[] }
-  | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number }
+  /** players: how many players were found in the last result, which steers the strips (tiles.ts). */
+  | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number; players?: number }
   | { type: 'close' };
 export type PoseWorkerResponse =
   | { type: 'ready'; sessionId: string; delegate: PoseDelegate; fallback: string; tiled?: boolean }
@@ -30,8 +31,8 @@ interface PoseWorkerScope {
 const scope: PoseWorkerScope = self;
 
 let landmarker: PoseLandmarker | undefined;
-/** With tiles: one landmarker per strip of the picture, the strips, and who to hide from each next time (tiles.ts). */
-let tiled: { landmarkers: PoseLandmarker[]; tiles: Tile[]; hide: Box[][] } | null = null;
+/** With tiles: one landmarker per strip of the picture, the strips, and who each is shown hidden (tiles.ts). */
+let tiled: { landmarkers: PoseLandmarker[]; tiles: Tile[]; hiding: StripHiding } | null = null;
 /** Where a strip is drawn with people hidden. */
 let hiding: OffscreenCanvasRenderingContext2D | null = null;
 let sessionId: string | undefined;
@@ -86,7 +87,7 @@ scope.onmessage = async ({ data }) => {
           if (!binary.ok) throw Error(`WASM download failed (HTTP ${binary.status})`);
           wasm = URL.createObjectURL(new Blob([await binary.arrayBuffer()], { type: 'application/wasm' }));
           for (let i = 0; i < data.tiles.length; i++) landmarkers.push(await create(delegate, 1, { ...files, wasmBinaryPath: wasm }));
-          tiled = { landmarkers, tiles: data.tiles, hide: [] };
+          tiled = { landmarkers, tiles: data.tiles, hiding: new StripHiding(data.tiles) };
         } catch (error) {
           console.warn('pose strips could not start, using the whole picture:', errorMessage(error) || error);
           for (const l of landmarkers) l.close();
@@ -110,7 +111,7 @@ scope.onmessage = async ({ data }) => {
           const found: { points: NormalizedLandmark[]; tile: Tile }[] = [];
           for (const [i, tile] of tiled.tiles.entries()) {
             const sx = Math.round(tile.x * width), sw = Math.max(1, Math.round(tile.width * width));
-            const hide = tiled.hide[i] ?? [];
+            const hide = tiled.hiding.hide[i];
             let strip: ImageBitmap;
             if (hide.length) {
               hiding ??= new OffscreenCanvas(1, 1).getContext('2d')!;
@@ -127,7 +128,7 @@ scope.onmessage = async ({ data }) => {
             finally { strip.close(); }
           }
           landmarks = mergeTiles(found, width / height);
-          tiled.hide = hidden(found, landmarks, tiled.tiles);
+          tiled.hiding.next(found, landmarks, width / height, data.players);
         } else {
           landmarks = (runningMode === 'IMAGE' ? landmarker!.detect(data.bitmap) : landmarker!.detectForVideo(data.bitmap, data.timestampMs)).landmarks;
         }

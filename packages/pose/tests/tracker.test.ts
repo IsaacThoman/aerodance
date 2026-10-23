@@ -65,6 +65,22 @@ test('a glitch beside a bystander doesn\'t make them somebody new', () => {
   assert.ok(after.every(m => !m.has(0)), 'P1 kept');
 });
 
+test('somebody smaller walking behind a player doesn\'t take over who they are', () => {
+  for (const bystanderFirst of [false, true]) {
+    const tracker = new PlayerTracker(2);
+    const sway = (i: number) => person(0.65 + 0.02 * Math.sin(i / 2), { arms: 0.1 });
+    const by = (i: number) => person(i < 90 ? 0.95 : 0.95 - (i - 90) * 0.006, { size: 0.6, arms: 0.3 });
+    const frame = (i: number, behind: boolean) => ({ people: !behind ? [person(0.3), sway(i)] : bystanderFirst ? [by(i), person(0.3), sway(i)] : [person(0.3), sway(i), by(i)] });
+    run(tracker, repeat(60, i => frame(i, false)));
+    // A bystander stands at the edge for a while, then walks across behind the swaying player.
+    const out = run(tracker, repeat(150, i => frame(i + 60, true)), 2000);
+    const held = out.filter((m, i) => [...m.values()].some(x => Math.abs(x - (i + 60 < 90 ? 0.95 : 0.95 - (i + 60 - 90) * 0.006)) < 0.003 && Math.abs(x - 0.65) > 0.025));
+    assert.ok(held.length <= 2, `the bystander had a number in ${held.length} results`);
+    assert.deepEqual([...out.at(-1)!.keys()].sort(), [0, 1]);
+    assert.ok(Math.abs(out.at(-1)!.get(0)! - 0.65) < 0.03 && out.at(-1)!.get(1) === 0.3, 'each still themselves');
+  }
+});
+
 test('a player who walks to where a missing player stood keeps their own number', () => {
   const tracker = new PlayerTracker(2);
   run(tracker, repeat(20, () => ({ people: [person(0.7), person(0.3, { arms: 0.1 })] })));

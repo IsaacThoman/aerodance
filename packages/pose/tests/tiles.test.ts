@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evenTiles, fromTile, hidden, mergeTiles } from '../browser/tiles.ts';
+import { evenTiles, fromTile, hidden, mergeTiles, StripHiding } from '../browser/tiles.ts';
 
 // Somebody standing with their torso centred at x (a fraction of the strip or picture), arms
 // reaching `reach` to each side.
@@ -76,7 +76,7 @@ test('a strip following somebody another strip keeps, or nobody, has the people 
   // The other strip has the person it copied hidden (and not the first strip's, who isn't in it).
   assert.equal(hide[follower].length, 1);
   const box = hide[follower][0], person2 = kept.includes(b) ? b : copy;
-  assert.ok(person2.every(p => p.x > box.x0 && p.x < box.x1 && p.y > box.y0 && p.y < box.y1), 'all of them');
+  assert.ok(person2.every((p, i) => (i > 12 && i < 23) || (p.x > box.x0 && p.x < box.x1 && p.y > box.y0 && p.y < box.y1)), 'their head, torso and legs');
   // A strip that found nobody has everyone the others keep in it hidden.
   const empty = hidden([{ points: a, tile: tiles[0] }, { points: b, tile: tiles[1] }], [a, b], tiles);
   assert.deepEqual(empty[2].length, 1);
@@ -86,4 +86,50 @@ test('a strip following somebody another strip keeps, or nobody, has the people 
   const l = fromTile(person(0.36 / 0.6, { reach: 0.08 }), left), r = fromTile(person((0.64 - 0.4) / 0.6, { reach: 0.08 }), right);
   const both = [{ points: l, tile: left }, { points: r, tile: right }];
   assert.deepEqual(hidden(both, mergeTiles(both, 4 / 3), [left, right]), [[], []]);
+  // Nobody whose torso a strip saw cut off (no use to the tracker) is hidden from a strip that
+  // would see them whole.
+  const cut = fromTile(person(1, { reach: 0.02 }), tiles[0]);
+  assert.ok(cut[11].x > tiles[0].width && cut[11].visibility <= 0.2, 'a shoulder past the cut');
+  assert.deepEqual(hidden([{ points: cut, tile: tiles[0] }], [cut], tiles)[1], []);
+});
+
+// Somebody at x in the whole picture (no strip to map from).
+const at = (x: number, reach = 0.1) => fromTile(person(x, { reach }), { x: 0, width: 1 });
+
+test('a strip that looks and finds nobody takes over somebody it shares, so the other strip looks instead', () => {
+  const tiles = evenTiles(3)!;
+  // Somebody where the second and third strips overlap, kept from the second; the third finds
+  // nobody else. Whoever the second could see beside them isn't found.
+  const a = at(0.1), shared = at(0.63), hidden2 = at(0.45);
+  const setup = () => {
+    const hiding = new StripHiding(tiles), players = 2;
+    hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }, { points: shared.map(p => ({ ...p })), tile: tiles[2] }], [a, shared], 4 / 3, players);
+    assert.equal(hiding.hide[2].length, 1, 'the third strip is shown them hidden');
+    for (let i = 0; i < 14; i++) hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }], [a, shared], 4 / 3, players);
+    assert.equal(hiding.hide[1].length, 0);
+    hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }], [a, shared], 4 / 3, players);
+    assert.equal(hiding.hide[1].length, 1, 'then the second strip is shown them hidden');
+    assert.equal(hiding.hide[2].length, 0, 'and the third sees them');
+    return { hiding, players };
+  };
+  // The second strip finds the person beside them: both strips keep who they have.
+  const found = setup();
+  found.hiding.next([{ points: a, tile: tiles[0] }, { points: hidden2, tile: tiles[1] }, { points: shared, tile: tiles[2] }], [a, hidden2, shared], 4 / 3, found.players);
+  assert.equal(found.hiding.handoff, null);
+  assert.deepEqual(found.hiding.hide.map(boxes => boxes.length), [0, 0, 0]);
+  // Nobody beside them: after a moment the second strip has them back, and doesn't try again for a while.
+  const nobody = setup();
+  for (let i = 0; i < 6; i++) nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[2] }], [a, shared], 4 / 3, nobody.players);
+  assert.equal(nobody.hiding.handoff, null);
+  assert.equal(nobody.hiding.hide[1].length, 0, 'the second strip sees them again');
+  for (let i = 0; i < 60; i++) nobody.hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }], [a, shared], 4 / 3, nobody.players);
+  assert.equal(nobody.hiding.handoff, null, 'no other try for a while');
+  // Never with every player found, nor without knowing how many are.
+  for (const players of [3, undefined]) {
+    const hiding = new StripHiding(tiles);
+    hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }, { points: shared.map(p => ({ ...p })), tile: tiles[2] }], [a, shared], 4 / 3, players);
+    for (let i = 0; i < 30; i++) hiding.next([{ points: a, tile: tiles[0] }, { points: shared, tile: tiles[1] }], [a, shared], 4 / 3, players);
+    assert.equal(hiding.handoff, null);
+    assert.equal(hiding.hide[1].length, 0);
+  }
 });

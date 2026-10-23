@@ -144,6 +144,8 @@ export class WebcamPoseSource {
   /** When the camera last delivered a new frame (tracked or not). */
   lastFrame = 0;
   tracker = new PlayerTracker(1);
+  /** How many players the last result found, for the worker's strips. */
+  players = 0;
   resultTimes: number[] = [];
   startedAt = 0;
   completed = 0;
@@ -294,7 +296,7 @@ export class WebcamPoseSource {
       this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
       const model = poseModel(this.view.model);
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
-      this.tracker = new PlayerTracker(this.playerCount); this.resultTimes = [];
+      this.tracker = new PlayerTracker(this.playerCount); this.players = 0; this.resultTimes = [];
       this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.lastFrame = this.startedAt;
       const worker = this.worker = this.createWorker();
       worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
@@ -368,6 +370,7 @@ export class WebcamPoseSource {
         sessionId: this.sessionId, seq: pending.seq, playerCount: this.playerCount, input: this.input,
         modelId: this.view.model, mediaTimeMs: pending.mediaTimeMs, frameBrowserTimeMs: pending.frameBrowserTimeMs, resultBrowserTimeMs: receivedBrowserTimeMs,
         timingMethod: 'browser-frame-observation', poses: this.input ? this.tracker.update(data.landmarks, this.input, pending.frameBrowserTimeMs, data.looks) : [] });
+      this.players = record.poses.length;
       clearTimeout(this.startupTimeout);
       this.completed++;
       this.emit({ record, receivedBrowserTimeMs, captureBrowserTimeMs: record.frameBrowserTimeMs,
@@ -404,14 +407,14 @@ export class WebcamPoseSource {
       // No frame is in flight (one is only sent once the last result is in), so no result mixes
       // the two sizes. Calibration and the live characters start afresh when a record's input size changes.
       this.input = { width: video.videoWidth, height: video.videoHeight, mirrored: false };
-      this.tracker = new PlayerTracker(this.playerCount);
+      this.tracker = new PlayerTracker(this.playerCount); this.players = 0;
     }
     this.busy = true;
     const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs };
     void (picture ?? this.bitmap(video)).then(bitmap => {
       const worker = this.worker;
       if (generation !== this.generation || !worker) { bitmap.close(); return; }
-      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs }, [bitmap]);
+      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players }, [bitmap]);
     }).catch(error => { if (generation === this.generation) this.fail(error); });
   }
   schedule() {

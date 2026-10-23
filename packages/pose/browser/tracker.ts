@@ -214,11 +214,14 @@ export class PlayerTracker {
     let bodies = detections.map((points, i) => measure(points, looks[i] ?? null, aspect, now)).filter((b): b is Body => b !== null);
     // Two results for one person (the model can add a ghost beside someone): keep the first, its surer one.
     bodies = bodies.filter((b, i) => !bodies.slice(0, i).some(a => same(a, b)));
-    // Who was here before: each person continues one seen lately, if near enough, the nearest
-    // pairs first (so somebody new beside a person doesn't take over who they were).
+    // Who was here before: each person continues one seen lately, if near enough, the closest
+    // pairs first: nearest and most alike in size (so somebody new beside a person, or passing
+    // behind them, doesn't take over who they were).
     const recent = this.recent.filter(b => now - b.seen <= (b.extra >= BYSTANDER ? BYSTANDER_GAP_MS : SEEN_GAP_MS));
     const pairs = bodies.flatMap(body => recent.map(before => ({ body, before, d: distance(body, before) })))
-      .filter(({ before, d }) => d <= (GATE + 0.8 * Math.min(1, (now - before.seen) / 1000)) * before.scale).sort((a, b) => a.d - b.d);
+      .filter(({ before, d }) => d <= (GATE + 0.8 * Math.min(1, (now - before.seen) / 1000)) * before.scale)
+      .map(pair => ({ ...pair, cost: pair.d / pair.before.scale + Math.abs(Math.log(pair.body.scale / pair.before.scale)) }))
+      .sort((a, b) => a.cost - b.cost);
     const continued = new Set<Body>(), continuing = new Set<Body>();
     for (const { body, before } of pairs) {
       if (continued.has(before) || continuing.has(body)) continue;
