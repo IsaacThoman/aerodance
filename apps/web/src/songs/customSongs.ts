@@ -2,7 +2,7 @@ import { catalogEntry, validateBundlePath } from '../../../../packages/pose/song
 import type { CatalogSong, SongFolder } from '../../../../packages/pose/song.ts';
 import { isArray, isObject } from '../../../../packages/pose/choreography.ts';
 import { readZip } from '../../../../packages/pose/zip.ts';
-import { inApp } from '../host.ts';
+import { client } from '../host.ts';
 import { MAX_BUNDLE_BYTES, loadSongBundle } from './loadBundle.ts';
 import type { Fetcher } from './loadBundle.ts';
 
@@ -60,7 +60,7 @@ export const customScoreId = (songId: string) => `custom:${songId}`;
 
 /** Importing needs IndexedDB and a file picker, in a browser rather than one of the apps. */
 export const customSongsSupported = () =>
-  typeof indexedDB !== 'undefined' && typeof HTMLInputElement !== 'undefined' && !inApp();
+  client() === 'web' && typeof indexedDB !== 'undefined' && typeof HTMLInputElement !== 'undefined';
 
 const ZIP_NOISE = (path: string) => path.startsWith('__MACOSX/') || /(^|\/)(\.DS_Store|\._[^/]*)$/.test(path);
 const decodeJson = (bytes: Uint8Array): unknown => JSON.parse(new TextDecoder().decode(bytes));
