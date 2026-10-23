@@ -139,7 +139,7 @@ export function drawDisc(g: Ctx, cx: number, cy: number, r: number) {
 /** Draws an icon centred on (cx, cy), sized for a disc of radius r. */
 type IconDraw = (g: Ctx, cx: number, cy: number, r: number) => void;
 
-// Icons drawn in white on a blue disc of radius r.
+// Icons drawn in the stroke style, sized for a disc of radius r.
 export const ICONS = {
   fullscreen(g, cx, cy, r, collapse = false) {
     const a = r * 0.48;
@@ -168,7 +168,7 @@ export const ICONS = {
   note(g, cx, cy, r) {
     const s = r * 0.5;
     g.save();
-    g.fillStyle = '#ffffff';
+    g.fillStyle = g.strokeStyle;
     g.lineWidth = 5;
     g.beginPath();
     g.moveTo(cx - s * 0.35, cy + s * 0.6);
@@ -203,7 +203,7 @@ export const ICONS = {
     const tx = cx + Math.cos(-Math.PI * 0.35) * a;
     const ty = cy + Math.sin(-Math.PI * 0.35) * a;
     g.save();
-    g.fillStyle = '#ffffff';
+    g.fillStyle = g.strokeStyle;
     g.beginPath();
     g.moveTo(tx + a * 0.62, ty - a * 0.12);
     g.lineTo(tx - a * 0.2, ty - a * 0.62);
@@ -366,7 +366,7 @@ export interface PillOptions {
   disabled?: boolean;
 }
 
-// Glossy aqua bubble button with an icon disc on the left. Disabled buttons fade and stay put.
+// Glossy aqua bubble button with an icon on the left. Disabled buttons fade and stay put.
 export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, press = 0, angle, disabled = false }: PillOptions) {
   if (disabled) {
     hover = 0;
@@ -409,16 +409,20 @@ export function drawPill(g: Ctx, rect: Rect, { label, sub, icon, hover = 0, pres
   g.strokeStyle = 'rgba(255,255,255,0.9)';
   g.stroke();
 
+  // The icon sits straight on the glass in the disc's blue, pressed in with a white lip below it.
   const cx = x + h / 2 + 2;
   const cy = y + h / 2;
-  const r = h / 2 - 12;
-  drawDisc(g, cx, cy, r);
+  const r = h / 2 - 6;
+  g.save();
   g.lineJoin = 'round';
   g.lineCap = 'round';
   g.lineWidth = 6;
-  g.strokeStyle = '#ffffff';
+  g.strokeStyle = '#1679c0';
+  g.shadowColor = 'rgba(255,255,255,0.95)';
+  g.shadowOffsetY = 2;
   if (icon === 'gear') ICONS.gear(g, cx, cy, r, angle);
   else ICONS[icon](g, cx, cy, r);
+  g.restore();
 
   g.fillStyle = NAVY;
   g.font = `700 ${Math.round(h * (sub ? 0.34 : 0.4))}px ${FONT}`;
