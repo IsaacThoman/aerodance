@@ -58,12 +58,12 @@ const server = http.createServer((req, res) => {
       try {
         // The canvas's data-* state, plus where the game is showing and its frame rate as _display and _fps,
         // and which way up the device is held and its screens are (the host state's held and screens)
-        // as _held, _screens ("game,phone") and _latest (the screen that turned last).
+        // as _held and _screens ("game,phone").
         const r = JSON.parse(body.toString()) as { dataset?: Record<string, string>; display?: string; fps?: number;
-          host?: { held?: number; screens?: { game?: number; phone?: number; latest?: string } } };
+          host?: { held?: number; screens?: { game?: number; phone?: number} } };
         if (r.dataset) {
           state = { ...r.dataset, _display: r.display ?? '', _fps: String(r.fps ?? ''), _held: String(r.host?.held ?? ''),
-            _screens: r.host?.screens ? `${r.host.screens.game},${r.host.screens.phone}` : '', _latest: r.host?.screens?.latest ?? '' };
+            _screens: r.host?.screens ? `${r.host.screens.game},${r.host.screens.phone}` : '' };
         }
       } catch { /* Not a report. */ }
     } else if (req.method === 'POST' && url.pathname === '/reset') {

@@ -74,11 +74,12 @@ export interface WebcamPoseSourceOptions {
   interruptedTimeoutMs?: number;
   /**
    * How far to turn the camera's picture so it's upright, clockwise in degrees (0, 90, 180 or
-   * 270), asked on every frame with the picture's size and which way its camera faces. Tracking
-   * and the preview (picture) get the turned picture. The iPhone/iPad app's WebKit turns it
-   * upright for the screen, not the way the device is held (cameraTurn in apps/web/src/host.ts).
+   * 270), asked on every frame with the picture's size, which way its camera faces and which
+   * start of the camera it's from. Tracking and the preview (picture) get the turned picture. The
+   * iPhone/iPad app's WebKit turns it upright for the screen, not the way the device is held
+   * (cameraTurner in apps/web/src/host.ts).
    */
-  turn?: (frame: { width: number; height: number; facing?: string }) => number;
+  turn?: (frame: { width: number; height: number; facing?: string; capture: number }) => number;
 }
 export interface WebcamConfigureOptions { modelId?: string; cameraId?: string; facing?: CameraFacing; }
 interface PendingFrame { seq: number; mediaTimeMs: number; frameBrowserTimeMs: number; }
@@ -123,7 +124,7 @@ export class WebcamPoseSource {
   settingsKey: string;
   adaptToResize: boolean;
   interruptedTimeoutMs: number;
-  turn: (frame: { width: number; height: number; facing?: string }) => number;
+  turn: (frame: { width: number; height: number; facing?: string; capture: number }) => number;
   listeners = new Set<Listener<WebcamView>>();
   recordListeners = new Set<Listener<WebcamRecordEvent>>();
   generation = 0;
@@ -202,7 +203,7 @@ export class WebcamPoseSource {
   }
   /** Asks how far to turn the video's picture, and turns its current one. */
   updateTurn(video: HTMLVideoElement) {
-    this.turned = this.turn({ width: video.videoWidth, height: video.videoHeight, facing: this.facing });
+    this.turned = this.turn({ width: video.videoWidth, height: video.videoHeight, facing: this.facing, capture: this.generation });
     if (this.turned) this.drawTurned(video);
   }
   subscribe(listener: Listener<WebcamView>) { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }

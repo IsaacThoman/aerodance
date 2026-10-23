@@ -115,15 +115,15 @@ test('in the app, the game is told which screen it is on, and says where its Air
   const { context, sent, events } = injected({ tv: false, screen: 'phone' });
   // (Objects from the page's own realm, compared by value.)
   const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
-  const upright = { held: 0, screens: { game: 0, phone: 0, latest: 'game' } };
+  const upright = { held: 0, screens: { game: 0, phone: 0 } };
   assert.deepEqual(plain(context.__aerodanceHost), { interrupted: false, tv: false, screen: 'phone', ...upright });
   const setHost = context.__aerodanceSetHost as (state: object) => void;
   setHost({ tv: false, screen: 'tv' });
   assert.deepEqual(plain(events.map((e) => e.detail)), [{ interrupted: false, tv: false, screen: 'tv', ...upright }], 'moving to the TV is a change');
   setHost({ tv: false, screen: 'tv' });
   assert.equal(events.length, 1, 'the same state again is not');
-  setHost({ tv: false, screen: 'tv', held: 90, screens: { game: 0, phone: 'sideways', latest: 'phone' } });
-  assert.deepEqual(plain(events[1].detail), { interrupted: false, tv: false, screen: 'tv', held: 90, screens: { game: 0, phone: 0, latest: 'phone' } }, 'turning the phone is');
+  setHost({ tv: false, screen: 'tv', held: 90, screens: { game: 0, phone: 'sideways' } });
+  assert.deepEqual(plain(events[1].detail), { interrupted: false, tv: false, screen: 'tv', held: 90, screens: { game: 0, phone: 0 } }, 'turning the phone is');
 
   const at = context.__aerodanceAirPlayAt as (rect: unknown) => void;
   at({ x: 600.5, y: 300, w: 44, h: 44, extra: 1 });

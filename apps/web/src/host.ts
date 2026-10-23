@@ -15,9 +15,9 @@
  *              90 turned counterclockwise (sideways, its bottom on the right), -90 clockwise, 180
  *              upside down. Lying flat, it's the way it was last held. (Kept up to date while the
  *              game is on a TV.)
- * screens:     { game, phone, latest }: which way up the game's screen (a TV's is always upright)
- *              and the phone's own screen are, in the same terms, and which of the two last
- *              turned. With held, these turn the camera's picture upright: cameraTurn().
+ * screens:     { game, phone }: which way up the game's screen (a TV's is always upright) and
+ *              the phone's own screen are, in the same terms. With held, these turn the camera's
+ *              picture upright: cameraTurner().
  *
  * The app also lays an invisible AirPlay picker over the game's AirPlay bubble
  * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker().
@@ -29,7 +29,7 @@
 export type Orientation = 0 | 90 | -90 | 180;
 export interface HostState {
   interrupted: boolean; tv: boolean; screen: 'phone' | 'tv';
-  held: Orientation; screens: { game: Orientation; phone: Orientation; latest: 'game' | 'phone' };
+  held: Orientation; screens: { game: Orientation; phone: Orientation };
 }
 
 const record = (value: unknown) => typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
@@ -37,8 +37,7 @@ const orientation = (value: unknown): Orientation => value === 90 || value === -
 const read = (value: unknown): HostState => {
   const v = record(value), screens = record(v.screens);
   return { interrupted: v.interrupted === true, tv: v.tv === true, screen: v.screen === 'tv' ? 'tv' : 'phone',
-    held: orientation(v.held), screens: { game: orientation(screens.game), phone: orientation(screens.phone),
-      latest: screens.latest === 'phone' ? 'phone' : 'game' } };
+    held: orientation(v.held), screens: { game: orientation(screens.game), phone: orientation(screens.phone) } };
 };
 const host = () => (globalThis as { __aerodanceHost?: unknown }).__aerodanceHost;
 
@@ -63,28 +62,50 @@ export function onHostChange(fn: (state: HostState) => void, target: EventTarget
   return () => target?.removeEventListener('aerodance-host', listener);
 }
 
-/** A camera picture's size, and which way its camera faces (MediaTrackSettings.facingMode). */
-export interface CameraFrame { width: number; height: number; facing?: string; }
+/**
+ * A camera picture's size, which way its camera faces (MediaTrackSettings.facingMode), and which
+ * start of the camera it's from (each start counts up).
+ */
+export interface CameraFrame { width: number; height: number; facing?: string; capture?: number; }
+/** Which screen WebKit last turned the camera for: the game's or the phone's. */
+export type CameraScreen = 'game' | 'phone';
 
 /**
  * How far to turn the app's camera picture while the game is on a TV, clockwise in degrees (0,
  * 90, 180 or 270), so that it's upright the way the device is held. WebKit turns it upright for
  * the screen instead, and a TV's screen stays upright however the phone is turned. It keeps one
- * camera orientation for the whole app, from whichever web view's screen last turned, so on an
- * iPad the remote, on the iPad's screen, can set it too: a picture taller than it's wide is
- * upright for an upright screen and a wider one for a sideways screen, which tells the game's
- * screen and the iPad's apart, and the one that turned last wins a tie (upright and upside down).
- * The front camera faces the other way from the back one, so its picture turns the other way
- * round. Cameras that are neither (one plugged into an iPad) don't turn with it. With the game on
- * the phone, the picture is left as WebKit turns it, upright for the screen the player sees.
+ * camera orientation for the whole app, so on an iPad the remote, on the iPad's screen, can set
+ * it too: a picture taller than it's wide is upright for an upright screen and a wider one for a
+ * sideways screen, which tells the game's screen and the iPad's apart, and `latest`, the screen
+ * WebKit last turned it for, settles a tie (upright and upside down). The front camera faces the
+ * other way from the back one, so its picture turns the other way round. Cameras that are
+ * neither (one plugged into an iPad) don't turn with it. With the game on the phone, the picture
+ * is left as WebKit turns it, upright for the screen the player sees.
  */
-export function cameraTurn({ width, height, facing }: CameraFrame, host = hostState()) {
+export function cameraTurn({ width, height, facing }: CameraFrame, host = hostState(), latest: CameraScreen = 'game') {
   if (host.screen !== 'tv' || (facing !== 'user' && facing !== 'environment')) return 0;
-  const { game, phone, latest } = host.screens, upright = height > width;
+  const { game, phone } = host.screens, upright = height > width;
   const screens = latest === 'phone' ? [phone, game] : [game, phone];
   const screen = screens.find((o) => (o % 180 === 0) === upright) ?? game;
   const turn = facing === 'user' ? host.held - screen : screen - host.held;
   return (turn % 360 + 360) % 360;
+}
+
+/**
+ * cameraTurn for one camera's pictures as they come, keeping track of which screen WebKit last
+ * turned the camera for: the game's whenever a camera starts (WebKit turns it for the page that
+ * asked) or the game's screen turns (it moves to or from the TV), and the phone's when that turns
+ * after (the iPad's remote turning with it).
+ */
+export function cameraTurner(host = hostState) {
+  let capture: number | undefined, seen: HostState['screens'] | undefined, latest: CameraScreen = 'game';
+  return (frame: CameraFrame) => {
+    const state = host(), { screens } = state;
+    if (frame.capture !== capture || !seen || screens.game !== seen.game) latest = 'game';
+    else if (screens.phone !== seen.phone) latest = 'phone';
+    capture = frame.capture; seen = screens;
+    return cameraTurn(frame, state, latest);
+  };
 }
 
 /** Where the app's AirPlay picker goes, in the page's CSS pixels; null takes it away. */

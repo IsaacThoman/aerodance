@@ -1,6 +1,6 @@
 import { PoseSourceController } from '../../../../packages/pose/browser/PoseSourceController.ts';
 import { WebcamPoseSource } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
-import { cameraTurn, inApp } from '../host.ts';
+import { cameraTurner, inApp } from '../host.ts';
 import type { CameraInfo, WebcamConfigureOptions, WebcamStatus } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { FrameSize, PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { PhonePoseSource } from './PhonePoseSource.ts';
@@ -53,10 +53,10 @@ export class CameraInput implements PoseSource {
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
   // In the iPhone/iPad app, a muted camera is iOS holding it for a call: wait for it to come back.
-  // Its picture is turned upright the way the device is held (cameraTurn), so turning the device
+  // Its picture is turned upright the way the device is held (cameraTurner), so turning the device
   // carries on at the new size, as a phone camera does.
   constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource(inApp()
-    ? { interruptedTimeoutMs: Infinity, adaptToResize: true, turn: frame => cameraTurn(frame) } : {}) }), phone = new PhonePoseSource(),
+    ? { interruptedTimeoutMs: Infinity, adaptToResize: true, turn: cameraTurner() } : {}) }), phone = new PhonePoseSource(),
     webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone; this.webcamSupported = webcamSupported;
     const choice = saved();

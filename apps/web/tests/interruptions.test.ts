@@ -97,17 +97,17 @@ test('the client is the browser unless the iOS app or the Apple TV host says oth
   assert.equal(client(), 'web');
 });
 
-const upright = { held: 0, screens: { game: 0, phone: 0, latest: 'game' } };
+const upright = { held: 0, screens: { game: 0, phone: 0 } };
 test('the host state reads only booleans, a known screen and quarter turns, and is all off in a browser', () => {
   assert.deepEqual(hostState(), { interrupted: false, tv: false, screen: 'phone', ...upright });
   assert.equal(inApp(), false);
   const page = globalThis as { __aerodanceHost?: unknown };
-  page.__aerodanceHost = { tv: true, interrupted: 'yes', screen: 'tv', held: 90, screens: { game: 0, phone: -90, latest: 'phone' } };
+  page.__aerodanceHost = { tv: true, interrupted: 'yes', screen: 'tv', held: 90, screens: { game: 0, phone: -90 } };
   try {
-    assert.deepEqual(hostState(), { interrupted: false, tv: true, screen: 'tv', held: 90, screens: { game: 0, phone: -90, latest: 'phone' } });
-    page.__aerodanceHost = { screen: 'watch', held: 45, screens: { game: '180', phone: 180, latest: 'tv' } };
+    assert.deepEqual(hostState(), { interrupted: false, tv: true, screen: 'tv', held: 90, screens: { game: 0, phone: -90 } });
+    page.__aerodanceHost = { screen: 'watch', held: 45, screens: { game: '180', phone: 180 } };
     assert.equal(hostState().screen, 'phone');
-    assert.deepEqual([hostState().held, hostState().screens], [0, { game: 0, phone: 180, latest: 'game' }]);
+    assert.deepEqual([hostState().held, hostState().screens], [0, { game: 0, phone: 180 }]);
     assert.equal(inApp(), true);
   } finally { delete page.__aerodanceHost; }
   const target = new EventTarget();
