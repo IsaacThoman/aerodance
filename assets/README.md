@@ -10,6 +10,7 @@ Promotional images for Aerodance.
 | `beach-hero-no-logo.png` | The same frame without the wordmark. |
 | `splash1.png` | A golden glass dancer in a top hat, slumped against the wall of a dark back room, seen from a grainy security camera. 2560×1440 (16:9), no wordmark. |
 | `splash1-logo.png` | The same view slid left, with the wordmark in the dark at the top right. 2560×1440 (16:9). |
+| `banner.gif` | The README's banner: 13 seconds of the title screen's flight, the players dial turning up to four, a song preview in the club and a two-player run. 640×360, 15 fps. |
 
 Each pair is the shot of the same name from the [thumbnail renderer](../tools/thumbnails), rendered in-engine. To render one again:
 
@@ -23,6 +24,14 @@ cp /tmp/thumbs/no-logo/falls-meadow.png assets/falls-meadow-no-logo.png
 
 ```sh
 node tools/thumbnails/scripts/render.ts --splashes
+```
+
+`banner.gif` is recorded from the running game: `scripts/readmeBanner.ts` drives a [`play.ts`](../docs/interactive-testing.md) session through the menus with the autoplay ghost, records the game canvas, then cuts and crossfades the take with ffmpeg and encodes it with gifski (`brew install ffmpeg gifski`). To record it again:
+
+```sh
+node scripts/play.ts start --size 1280x720
+node scripts/readmeBanner.ts
+node scripts/play.ts stop
 ```
 
 ## Top Shelf banners

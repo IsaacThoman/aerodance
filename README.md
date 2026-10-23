@@ -1,19 +1,99 @@
-# aerodance
+<p align="center">
+  <img src="assets/banner.gif" alt="aerodance: the title screen's flight over the meadow, the players dial turning up to four glass dancers, a song preview in the club, and two players dancing with scores and Perfect pop-ups" width="100%">
+</p>
+
+<p align="center">
+  <b>A Frutiger Aero dance game that plays in your browser.</b><br>
+  Dance in front of a webcam or your phone, and glass dancers on a glossy stage dance with you while every move is scored.
+</p>
+
+<p align="center">
+  <a href="https://aerodance.party"><img src="https://img.shields.io/badge/play-aerodance.party-2fb8ff?style=for-the-badge" alt="Play at aerodance.party"></a>
+  <a href="https://github.com/IsaacThoman/aerodance/actions/workflows/ci.yml?query=branch%3Adev"><img src="https://img.shields.io/github/actions/workflow/status/IsaacThoman/aerodance/ci.yml?branch=dev&style=for-the-badge&label=CI" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/web%20%C2%B7%20iPhone%20%C2%B7%20iPad%20%C2%B7%20Apple%20TV-8a5cf6?style=for-the-badge" alt="Web, iPhone, iPad and Apple TV">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#main-ui-flow">How it plays</a> ·
+  <a href="#phone-camera">Phone camera</a> ·
+  <a href="tools/choreography/README.md">Dance Studio</a> ·
+  <a href="#documentation">Docs</a>
+</p>
+
+## Highlights
+
+- **Your body is the controller.** MediaPipe pose tracking (Lite, Full or Heavy) runs in the browser, and camera frames never leave the device.
+- **One to four players.** Each player is followed from frame to frame and scored against their own part every 100 ms; three or four players dance a song's two parts in turn.
+- **Your phone can be the camera.** Scan a QR code and the phone tracks you itself, sending only poses to the game over WebRTC, with a relay when WebRTC can't connect.
+- **Six procedural stages** of glass, sky and water, rendered like a Wii: a fixed 640×480 buffer in 4:3 or anamorphic 16:9, with bloom and ACES grading.
+- **Make your own songs** in [Dance Studio](tools/choreography/README.md): record or import a routine, edit the poses and export a bundle the game plays.
+- **Plays on everything:** any modern browser, plus experimental [iPhone/iPad](apps/ios/README.md) and [Apple TV](apps/tvos/README.md) apps.
+
+## Stages
+
+<table>
+  <tr>
+    <td width="33%"><img src="tools/thumbnails/no-logo/sanctuary-skyline.png" alt="The sanctuary stage: a rooftop sky-garden over a glass eco-city"></td>
+    <td width="33%"><img src="tools/thumbnails/no-logo/reef-dome.png" alt="The reef stage: a glass dome on a sunlit reef"></td>
+    <td width="33%"><img src="tools/thumbnails/no-logo/openreef-turtle.png" alt="The openreef stage: the dancers on open sand with a sea turtle"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Sanctuary</b><br><sub>Sky garden over a glass eco-city</sub></td>
+    <td align="center"><b>Reef</b><br><sub>Glass dome on a sunlit reef</sub></td>
+    <td align="center"><b>Open reef</b><br><sub>The reef without the dome</sub></td>
+  </tr>
+  <tr>
+    <td><img src="tools/thumbnails/no-logo/falls-valley.png" alt="The falls stage: a clifftop meadow over waterfalls and floating islands"></td>
+    <td><img src="tools/thumbnails/no-logo/club-floor.png" alt="The club stage: an LED dance floor, aquarium walls and a crowd of gel blobs"></td>
+    <td><img src="tools/thumbnails/no-logo/beach-sunset.png" alt="The beach stage at golden hour"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Falls</b><br><sub>Clifftop meadow over eight waterfalls</sub></td>
+    <td align="center"><b>Club</b><br><sub>Beat-driven LED floor and lasers</sub></td>
+    <td align="center"><b>Beach</b><br><sub>Golden hour on the open ocean</sub></td>
+  </tr>
+</table>
+
+Rendered in-engine by the [thumbnail renderer](tools/thumbnails/README.md). [`packages/stages`](packages/stages/README.md) has the full tour.
+
+## Quick start
+
+```sh
+npm install
+npm run dev        # the game at http://localhost:5173
+npm run studio:dev # Dance Studio
+```
+
+No webcam? Open http://localhost:5173/?input=ghost and an autoplay ghost dances each routine. [Local development](#local-development) has the rest, and [Docker Compose](#run-locally-with-docker-compose) runs the production build.
+
+## How it's built
 
 React + three.js (via [@react-three/fiber](https://r3f.docs.pmnd.rs/)) rendered in a full-screen canvas. The game is a static site: pose tracking and scoring run in the browser, and best scores and settings are saved in the browser, so production serves the build with nginx. The one backend is a small pairing service that introduces a phone to the game when the phone is the camera ([phone camera](#phone-camera)).
 
-See [how scores are calculated](docs/scoring.md) and [the plan for finishing the game](docs/game-completion-plan.md).
-
-See [the browser webcam plan](docs/browser-webcam-plan.md) for shared game/editor webcam input and selectable in-browser MediaPipe Lite, Full, and Heavy models.
-
-See [the song and dance authoring workflow](docs/song-dance-authoring-workflow.md) for the proposed Docker-hosted editor, pose format, raw landmark editing, Frutiger playback, and portable song bundle contract.
-
-The editor is implemented as [Dance Studio](tools/choreography/README.md).
+The song editor is [Dance Studio](tools/choreography/README.md).
 Run `docker compose -f tools/choreography/compose.yaml -f tools/choreography/compose.local.yaml up --build -d`
 and open http://localhost:8082 to record/import, edit, preview, save, and export song bundles.
 Dance Studio is also static: projects autosave in browser storage (IndexedDB and
 OPFS). Download project backups to keep or transfer your work; see its README for
 migration from older disk-based deployments.
+
+### Documentation
+
+| Doc | About |
+| --- | --- |
+| [How scores are calculated](docs/scoring.md) | Limb directions, movement and the Perfect / Good / OK / Miss judgements |
+| [Player tracking](docs/player-tracking.md) | Following each player from frame to frame |
+| [Three and four players](docs/three-and-four-players.md) | Dancing a song's two parts in turn |
+| [Browser webcam plan](docs/browser-webcam-plan.md) | Shared game/editor webcam input and the in-browser MediaPipe Lite, Full and Heavy models |
+| [Song and dance authoring workflow](docs/song-dance-authoring-workflow.md) | The editor, pose format, raw landmark editing and portable song bundles |
+| [Game song bundles](docs/game-song-bundles.md) | Installing exported bundles, verifying them and migrating their poses |
+| [Pose binary format](docs/pose-binary-format.md) | The `.adpose` format |
+| [Rasputin pose cleanup](docs/pose-validation-rasputin.md) | Validating pose cleanup on a real routine |
+| [Running on Apple TV](docs/apple-tv.md) | Everything that was tried, with device measurements |
+| [Performance audit](docs/performance-audit.md) | Measured wins across the world, dancers and stages |
+| [Interactive testing](docs/interactive-testing.md) | Driving the game from the command line or a coding agent |
+| [Plan for finishing the game](docs/game-completion-plan.md) | What's left |
 
 ## Aero background
 
@@ -80,6 +160,10 @@ A phone can be the camera instead of a webcam: pick **Phone camera** with the ca
 - **HTTPS.** The phone's camera needs HTTPS, and the phone has to reach the game's address, so a `localhost` game can't pair (the pairing card says so). Test on a deployment (PR previews work), or put the dev server behind an HTTPS tunnel (`npm run dev -- --host` and a tunnel to port 5173).
 
 `apps/web/tests/phone-pairing.test.ts` drives the game's and the phone's ends against the real pairing server with a loopback WebRTC stand-in, and through the relay with Node's own WebSocket. After a build, `node apps/web/tests/phone.browser.ts` pairs a phone page with the game in Chromium over real WebRTC and real MediaPipe tracking, calibrates and plays a song from its poses, and reconnects; `PHONE_TRANSPORT=relay` does the same through the relay, and `PHONE_TRANSPORT=fallback` starts with a WebRTC connection that can't connect, so it falls back to the relay and moves to WebRTC after the song. `apps/tvos/tests/phone.tvos.ts` pairs a phone page with the Apple TV app, in the tvOS simulator or on an Apple TV. Real phones, networks and battery life still need manual testing.
+
+## iPhone and iPad (experimental)
+
+[`apps/ios/`](apps/ios/README.md) is an iPhone and iPad app that runs the production web build in `WKWebView` and shows it on a TV: an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
 
 ## Apple TV (experimental)
 
