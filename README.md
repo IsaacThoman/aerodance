@@ -2,13 +2,13 @@
   
 # aerodance
 
-</div>
+
 
 <p align="center">
   <img src="assets/banner.gif" alt="Two glass dancers dancing on the underwater openreef stage" width="768">
 </p>
 
-
+</div>
 
 
 
