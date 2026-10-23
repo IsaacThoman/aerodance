@@ -22,7 +22,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { ASPECT, BACK: MENU_BACK, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
+const { ASPECT, BACK: MENU_BACK, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
 const { BACK, DANCE, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, RESULTS_RETRY, RESULTS_SONGS, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
@@ -152,6 +152,16 @@ try {
   await shot('settings-stats-full');
   await click(STATS(0));
   await page.waitForFunction(() => !('statsMode' in (document.querySelector('canvas')?.dataset ?? {})));
+  // Graphics → Fullscreen (Chromium can go fullscreen) switches the page into fullscreen and out.
+  assert.ok(FULLSCREEN);
+  await click(FULLSCREEN);
+  await page.waitForFunction(() => !!document.fullscreenElement);
+  await until({ displayMode: mode, menuReady: 'true' });
+  frame = await frameBox();
+  await click(FULLSCREEN);
+  await page.waitForFunction(() => !document.fullscreenElement);
+  await until({ displayMode: mode, menuReady: 'true' });
+  frame = await frameBox();
   await click(MENU_BACK);
   await menuOn('main');
   await shot('main-menu');

@@ -444,7 +444,7 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
   config.allowsInlineMediaPlayback = YES;
   config.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;  // lets Web Audio start without a tap
   config.allowsAirPlayForMediaPlayback = YES;
-  config.preferences.elementFullscreenEnabled = NO;  // the app is already full screen (the game dims its fullscreen button)
+  config.preferences.elementFullscreenEnabled = NO;  // the app is already full screen (the game hides its Fullscreen switch)
   // inject.js gives the app the page's state and, with --report, sends frame stats to a Mac.
   NSString *script = [NSString stringWithContentsOfFile:[NSBundle.mainBundle pathForResource:@"inject" ofType:@"js"] encoding:NSUTF8StringEncoding error:nil];
   NSString *report = LaunchArg(@"--report", @"");
