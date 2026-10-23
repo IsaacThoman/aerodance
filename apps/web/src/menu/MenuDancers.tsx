@@ -253,11 +253,12 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
       spot.scale.setScalar(size);
     });
 
-    // A 4:3 display keeps the stage smaller, in its own area on the right.
+    // A 4:3 display brings the larger puck slightly inward, keeping the whole group
+    // clear of both the menu controls and the right edge (including four dancers).
     const compact = state.size.width / state.size.height < 1.5;
-    rig.current.scale.setScalar(compact ? 0.72 : 1);
+    rig.current.scale.setScalar(compact ? 0.86 : 1);
     rig.current.position.set(
-      (compact ? 3.65 : STAGE.x) + away * away * SLIDE,
+      (compact ? 3.25 : STAGE.x) + away * away * SLIDE,
       STAGE.y + lift.current + (still ? 0 : Math.sin(t * 1.3) * 0.06),
       STAGE.z,
     );
