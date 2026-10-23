@@ -1,5 +1,5 @@
 // CSS fonts for canvas text: parses font shorthands ("800 64px Inter, sans-serif"), matches them
-// against the bundled faces (Inter, Exo 2, Nunito) by family and nearest weight, and falls back to
+// against the bundled faces (Inter, Exo 2, Nunito, Tiny5) by family and nearest weight, and falls back to
 // the system font. Bundled files are named <Family>__<weight>[i].<ext> by scripts/tvos.ts.
 #import "Host.h"
 #import <UIKit/UIKit.h>
