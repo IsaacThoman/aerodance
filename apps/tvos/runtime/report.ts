@@ -17,7 +17,8 @@ const dataset = () => (screenCanvas.current?.dataset ?? {}) as Record<string, st
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
 function post(url: string, body: Record<string, unknown>) {
-  fetch(url, { method: 'POST', body: JSON.stringify(body) }).catch(() => {});
+  if (url === 'file') { native.report(JSON.stringify(body)); return; }
+  fetch(url, { method: 'POST', body: JSON.stringify(body) }).catch((error: unknown) => console.warn('report failed:', String(error)));
 }
 
 function loopBenchmark() {
@@ -83,7 +84,7 @@ export function installGameHooks(config: Config, host: Host) {
       post(url, {
         type: 'game', label, mark, t: Math.round(performance.now()),
         fps: stats.intervalMs.mean ? round(1000 / stats.intervalMs.mean, 1) : 0,
-        frameMs: { p50: stats.intervalMs.p50, p95: stats.intervalMs.p95 }, jsMs: stats.jsMs, execMs: stats.execMs, memMB: stats.memMB, wordsPerFrame: Math.round(stats.wordsPerFrame.mean),
+        frameMs: { p50: stats.intervalMs.p50, p95: stats.intervalMs.p95 }, ...stats, wordsPerFrame: Math.round(stats.wordsPerFrame.mean),
         drawsPerFrame: Math.round((draws - lastDraws) / frames), frames: stats.frames, dataset: { ...dataset() },
         ...(config.profile ? { profile: takeProfile(frames) } : {}),
         perFrame: Object.fromEntries(Object.entries(counters).map(([k, v]) => [k, round((v - last[k as keyof typeof counters]) / frames, 1)])),

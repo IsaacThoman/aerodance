@@ -5,6 +5,7 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } f
 import path from 'node:path';
 import { CANVAS_OPS, GL_OPS, OP } from '../apps/tvos/runtime/ops.ts';
 import { archive, ARCHIVE_USAGE, archiveOptions, checkSite, copyInter, DEFAULT_BUNDLE_ID, DEFAULT_TEAM_ID, root, SITE } from './apple.ts';
+import { writeSceneBenchSongs } from './sceneBenchSongs.ts';
 
 const appDir = path.join(root, 'apps/tvos');
 const www = path.join(appDir, 'www');
@@ -13,7 +14,7 @@ const BUNDLE_ID = process.env.TVOS_BUNDLE_ID || DEFAULT_BUNDLE_ID;
 
 const USAGE = `Usage: node scripts/tvos.ts <command> [options]
 
-  build [--sim] [--game] [--release] [--site <origin>] [--ghost]
+  build [--sim] [--game] [--release] [--site <origin>] [--ghost] [--bench-scenes]
                                    bundle the runtime, the Aero benchmark (and with --game the
                                    game) into apps/tvos/www/, then build the app for the
                                    Apple TV (or the simulator). --release leaves out the local
@@ -158,6 +159,7 @@ async function prepare(game: boolean, release: boolean, site: string, ghost: boo
   cpSync(path.join(root, 'apps/tvos/bench/dist'), path.join(www, 'bench'), { recursive: true });
   run('npx', ['rolldown', './apps/tvos/bench/bridgeBench.ts', '--format', 'iife', '--minify', '--file', 'apps/tvos/www/bench/bridge.js']);
   run('npx', ['rolldown', './apps/tvos/bench/canvasTest.ts', '--format', 'iife', '--minify', '--file', 'apps/tvos/www/bench/canvas-test.js']);
+  run('npx', ['rolldown', './apps/tvos/bench/copyTest.ts', '--format', 'iife', '--minify', '--file', 'apps/tvos/www/bench/copy-test.js']);
   if (game) {
     run('npx', ['vite', 'build', '--config', 'apps/tvos/vite.config.ts']);
     cpSync(path.join(appDir, 'dist'), path.join(www), { recursive: true });
@@ -178,8 +180,10 @@ async function prepare(game: boolean, release: boolean, site: string, ghost: boo
   return env;
 }
 
-async function build(sim: boolean, game: boolean, release: boolean, site = SITE, ghost = false) {
+async function build(sim: boolean, game: boolean, release: boolean, site = SITE, ghost = false, scenes = false) {
+  if (scenes && (!game || release)) throw Error('--bench-scenes requires --game and a development permission build');
   const env = await prepare(game, release, site, ghost);
+  if (scenes) await writeSceneBenchSongs(path.join(www, 'songs'));
   run('xcodebuild', [
     '-project', 'AerodanceJSC.xcodeproj', '-scheme', 'AerodanceJSC', '-configuration', 'Release',
     '-destination', sim ? 'generic/platform=tvOS Simulator' : 'generic/platform=tvOS', '-derivedDataPath', 'build',
@@ -206,7 +210,7 @@ async function main() {
   const flag = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args.splice(i, 2)[1] ?? ''; };
   const has = (name: string) => { const i = args.indexOf(name); if (i >= 0) args.splice(i, 1); return i >= 0; };
   if (!cmd || cmd === 'help' || cmd === '--help') return console.log(USAGE);
-  if (cmd === 'build') { const site = flag('--site'); return build(has('--sim'), has('--game'), has('--release'), site, has('--ghost')); }
+  if (cmd === 'build') { const site = flag('--site'); return build(has('--sim'), has('--game'), has('--release'), site, has('--ghost'), has('--bench-scenes')); }
   if (cmd === 'archive') {
     const options = archiveOptions(flag('--version'), flag('--build-number'), has('--upload'));
     const env = await prepare(true, true, flag('--site') || SITE, false);
