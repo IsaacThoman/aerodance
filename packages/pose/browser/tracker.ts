@@ -88,6 +88,8 @@ const MISS = 4, MOTION = 1, PLACE = 0.3, BACK = 0.3, NEW = 1.5, SMALLER = 2, ORD
 
 interface Body {
   landmarks: Landmark[];
+  /** All four torso joints are sure; otherwise only continuity may keep this body tracked. */
+  sure: boolean;
   /** Torso centre, in picture heights (x scaled by the aspect ratio). */
   x: number; y: number;
   /** Torso length or shoulder width, whichever says more: the body's size in the picture. */
@@ -140,14 +142,15 @@ function measure(points: readonly DetectedLandmark[], looks: readonly number[] |
   const landmarks = points.map(p => ({ x: p.x, y: p.y, z: p.z, confidence: detectedConfidence(p) }));
   try { validatePoses([{ playerId: 0, landmarks }]); } catch { return null; }
   const [ls, rs, lh, rh] = TORSO.map(i => landmarks[i]);
-  if (![ls, rs, lh, rh].every(reliable)) return null;
+  const torsoJoints = [ls, rs, lh, rh].filter(reliable).length;
+  if (torsoJoints < 3) return null;
   const torso = Math.hypot((ls.x + rs.x - lh.x - rh.x) / 2 * aspect, (ls.y + rs.y - lh.y - rh.y) / 2);
   const shoulders = Math.hypot((ls.x - rs.x) * aspect, ls.y - rs.y);
   // (On real people it's about a third, and above a tenth even bending deep; the model can make
   // a collapsed torso of what's left of somebody hidden from it, with their legs spread below.)
   const [top, bottom] = landmarks.filter((p, i) => (i < 13 || i > 22) && reliable(p)).reduce(([lo, hi], p) => [Math.min(lo, p.y), Math.max(hi, p.y)], [Infinity, -Infinity]);
   if (Math.max(torso, shoulders / 0.75) < SQUASHED * (bottom - top)) return null;
-  return { landmarks, x: (ls.x + rs.x + lh.x + rh.x) / 4 * aspect, y: (ls.y + rs.y + lh.y + rh.y) / 4, top, bottom,
+  return { landmarks, sure: torsoJoints === 4, x: (ls.x + rs.x + lh.x + rh.x) / 4 * aspect, y: (ls.y + rs.y + lh.y + rh.y) / 4, top, bottom,
     scale: Math.max(torso, shoulders / 0.75, 0.01), looks, seen: now, chain: 0, hits: 1, extra: 0, since: now,
     limbs: LIMBS.map(i => reliable(landmarks[i]) ? { x: landmarks[i].x * aspect, y: landmarks[i].y } : null) };
 }
@@ -224,6 +227,8 @@ export class PlayerTracker {
     const aspect = input.width / input.height;
     this.players.forEach((p, id) => { if (!p.track) p.place = (this.playerCount - id - 0.5) / this.playerCount * aspect; });
     let bodies = detections.map((points, i) => measure(points, looks[i] ?? null, aspect, now)).filter((b): b is Body => b !== null);
+    // Prefer a fully visible copy to a partial one before removing duplicates.
+    bodies.sort((a, b) => Number(b.sure) - Number(a.sure));
     // Two results for one person (the model can add a ghost beside someone): keep the first, its
     // surer one. And a tiny one inside somebody is a ghost of them.
     bodies = bodies.filter((b, i) => !bodies.slice(0, i).some(a => same(a, b)));
@@ -293,6 +298,9 @@ export class PlayerTracker {
       const track = p.track;
       const away = Math.abs(body.x - p.place) / body.scale;
       let cost: number;
+      // An unsure shoulder or hip shouldn't drop an already followed dancer. Their position
+      // and size still have to pass the motion gate; partial bodies cannot acquire a number.
+      if (!body.sure && (!track || now - track.seen > FRESH_MS)) return Infinity;
       // A bystander isn't a player (unless the player has been gone a while)...
       if (track && body.extra >= BYSTANDER && now - track.seen <= LONG_MS) return Infinity;
       if (track && now - track.seen <= FRESH_MS) cost = MOTION * motion(track, body, now);
@@ -312,7 +320,11 @@ export class PlayerTracker {
       cost += PLACE * away;
       // Looks say which player somebody is, but never stop a free player taking them.
       if (recognisable[i] && body.looks) cost += Math.min(LOOKS_CAP, LOOKS * looksDistance(p.looks!, body.looks));
-      return cost;
+      // Motion, persistence and bystander gates above decide who is eligible. Place and looks
+      // rank eligible people; they must never make a lone eligible person more expensive than
+      // leaving this player missing forever (old places and clothing samples can be wrong).
+      // Keep Infinity for a failed motion gate. Line-up changes still pay ORDER separately.
+      return Number.isFinite(cost) ? Math.min(MISS - 0.5, cost) : cost;
     }));
     // Changing places in the line-up costs ORDER, unless the players were followed through it:
     // passing another found player, or the place of one seen lately. Players their looks tell
@@ -354,7 +366,7 @@ export class PlayerTracker {
     // left to right (P1 on the left of the mirrored preview).
     if (!this.lined && found.size === this.playerCount) {
       const all = [...found.values()];
-      if (all.every(b => b.hits >= LINE) && all.every((a, i) => all.every((b, j) => i === j || Math.abs(a.x - b.x) > CLOSE * Math.max(a.scale, b.scale)))) {
+      if (all.every(b => b.sure && b.hits >= LINE) && all.every((a, i) => all.every((b, j) => i === j || Math.abs(a.x - b.x) > CLOSE * Math.max(a.scale, b.scale)))) {
         this.lined = true;
         const players = [...found.keys()].sort((a, b) => found.get(b)!.x - found.get(a)!.x).map(id => ({ ...this.players[id], body: found.get(id)! }));
         // Each stands where they are now. Looks learnt while the numbers were provisional may be
@@ -417,7 +429,7 @@ export class PlayerTracker {
    * nobody follows does (for a while), takes that somebody instead.
    */
   reclaim(found: Map<number, Body>, bodies: Body[], now: number) {
-    const loose = bodies.filter(b => b.looks && ![...found.values()].includes(b));
+    const loose = bodies.filter(b => b.sure && b.looks && ![...found.values()].includes(b));
     for (const [id, body] of [...found]) {
       const p = this.players[id];
       if (!body.looks || !p.looks || p.samples < LOOKS_SAMPLES) { p.claims.clear(); continue; }
@@ -453,7 +465,7 @@ export class PlayerTracker {
       if (!former) continue;
       if (now - former.at > RESTORE_MS) { p.former = null; continue; }
       const holder = found.get(id);
-      const back = bodies.filter(b => ![...found.values()].includes(b) && b.since > former.at - SEEN_GAP_MS
+      const back = bodies.filter(b => b.sure && ![...found.values()].includes(b) && b.since > former.at - SEEN_GAP_MS
         && Math.abs(b.x - former.place) / b.scale <= RETURN && Math.abs(Math.log(b.scale / former.scale)) <= GROWTH)
         .sort((a, b) => Math.abs(a.x - former.place) - Math.abs(b.x - former.place))[0];
       // Standing there, not walking past (a result the model misses them in doesn't count either way).

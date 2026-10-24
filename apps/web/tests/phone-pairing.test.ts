@@ -23,6 +23,8 @@ class FakeCamera {
   video = null;
   playerCount: PlayerCount = 1;
   configured: WebcamConfigureOptions[] = [];
+  resets = 0;
+  resetTracking() { this.resets++; }
   listeners = new Set<(view: WebcamView) => void>();
   recordListeners = new Set<(event: WebcamRecordEvent) => void>();
   subscribe(fn: (view: WebcamView) => void) { this.listeners.add(fn); fn(this.view); return () => this.listeners.delete(fn); }
@@ -85,6 +87,8 @@ test('a phone pairs with the game, tracks for it on the game’s clock, reconnec
 
   await host.setPlayerCount(2);
   await until(() => camera.playerCount === 2 && phone.view.playerCount === 2, 'the player count');
+  host.resetTracking();
+  await until(() => camera.resets === 1, 'a new song resets the phone tracker over WebRTC');
   // The phone only tracks with Lite, and tells the game so.
   await host.configure({ modelId: 'full' });
   await until(() => host.view.model === 'lite', 'the phone to report its model');
@@ -438,6 +442,7 @@ test('without WebRTC, a phone links through the pairing server’s relay: poses 
   t.after(() => { host.disconnect(); phone.stop(); });
   assert.equal(host.relayed, true);
 
+  host.resetTracking();
   await host.connect();
   const { code } = await until(() => host.view.pairing, 'a pairing code');
   await phone.join(code);
@@ -446,6 +451,7 @@ test('without WebRTC, a phone links through the pairing server’s relay: poses 
   await until(() => host.view.message.startsWith('Relay phone: Lite'), 'the phone’s status');
   await host.setPlayerCount(2);
   await until(() => camera.playerCount === 2, 'the player count');
+  await until(() => camera.resets === 1, 'a reset requested before connecting reaches the phone over the relay');
 
   await until(() => host.clock.ready, 'clock sync over the relay', 4000);
   const sent = phoneRecord(30);

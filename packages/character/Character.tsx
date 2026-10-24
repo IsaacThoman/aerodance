@@ -35,6 +35,8 @@ export interface CharacterProps {
   appearance: CharacterAppearance;
   /** Fades the character (gel and ink) each frame. */
   opacityRef?: RefObject<number>;
+  /** Suspends pose/effect updates while the enclosing scene is off screen. */
+  activeRef?: RefObject<boolean>;
   animation?: string;
   motion?: MotionTake | null;
   person?: number;
@@ -52,6 +54,7 @@ const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
 export default function Character({
   appearance,
   opacityRef,
+  activeRef,
   animation = "Idle",
   motion,
   person = 0,
@@ -177,6 +180,7 @@ export default function Character({
     };
   }, [animation, gltf, mixer, retarget, applyPose]);
   useFrame((_, delta) => {
+    if (activeRef && !activeRef.current) return;
     if (pop && popRef) pop.update(popRef.current);
     if (opacityRef) {
       gel.opacity = (appearance.opacity ?? 0.72) * opacityRef.current;

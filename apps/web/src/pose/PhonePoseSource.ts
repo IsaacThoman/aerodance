@@ -171,6 +171,8 @@ export class PhonePoseSource implements PoseSource {
   videoAt = -Infinity;
   preview = false;
   playerCount: PlayerCount = 1;
+  /** A new song's line-up request waiting for the reliable control channel. */
+  trackingResetPending = false;
   playing = false;
   generation = 0;
   room: CreatedRoom | null = null;
@@ -280,6 +282,16 @@ export class PhonePoseSource implements PoseSource {
     this.playerCount = count;
     this.publish({ snapshot: null });
     this.sendConfig();
+  }
+
+  /** Remember a new song's line-up request if the control channel is still connecting. */
+  resetTracking() {
+    this.trackingResetPending = true;
+    this.publish({ snapshot: null });
+    this.flushTrackingReset();
+  }
+  flushTrackingReset() {
+    if (this.trackingResetPending && this.send({ type: 'reset-tracking' })) this.trackingResetPending = false;
   }
 
   /** Whether a setup preview is on screen: the phone sends its picture only then. */
@@ -578,9 +590,14 @@ export class PhonePoseSource implements PoseSource {
 
   send(message: GameMessage) {
     const channel = message.type === 'ping' ? this.live : this.control;
-    if (channel?.readyState === 'open') channel.send(JSON.stringify(message));
+    if (channel?.readyState !== 'open') return false;
+    channel.send(JSON.stringify(message));
+    return true;
   }
-  sendConfig() { this.send({ type: 'config', playerCount: this.playerCount, modelId: this.view.model }); }
+  sendConfig() {
+    this.send({ type: 'config', playerCount: this.playerCount, modelId: this.view.model });
+    this.flushTrackingReset();
+  }
 
   onMessage(data: unknown) {
     const message = parsePhoneMessage(data);

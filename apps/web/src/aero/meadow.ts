@@ -1,15 +1,16 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AeroContext } from './context.ts';
-import { splitIntoCells } from './instanceCells.ts';
+import { IndexCellBatch, InstanceCellBatch, type IndexCell } from './instanceCells.ts';
 import { freezeMatrices, mergeStatic } from './mergeStatic.ts';
 import type { FlightPath } from './flight.ts';
 import { TAU, canvas2d, col, hexMul } from './util.ts';
 
 // The meadow's grass and flowers are drawn in 100 m cells, so only the cells in view are drawn.
 function addInCells(ctx: AeroContext, mesh: THREE.InstancedMesh) {
-  for (const part of splitIntoCells(mesh, 100)) ctx.root.add(part);
-  mesh.dispose();
+  const batch = new InstanceCellBatch(mesh, 100);
+  ctx.root.add(mesh);
+  return batch;
 }
 
 /* ------------------------------------------------------- meadow grass */
@@ -74,19 +75,22 @@ export function buildMeadowGrass(ctx: AeroContext, path: FlightPath) {
   };
   mat.customProgramCacheKey = () => 'aero-grass';
   const corners = [0, 1, 2, 1, 3, 2, 2, 3, 4];
+  const indexCells: IndexCell[] = [];
   for (const list of cells.values()) {
     const index = new Uint32Array(list.length * 9), box = new THREE.Box3(), p = new THREE.Vector3();
     list.forEach((i, k) => {
       for (let j = 0; j < 9; j++) index[k * 9 + j] = i * 5 + corners[j];
       box.expandByPoint(p.set(data[i * 16 + 3], 0, data[i * 16 + 11]));
     });
-    const g = new THREE.BufferGeometry();
-    g.setIndex(new THREE.BufferAttribute(index, 1));
     // Blades are under 2 m tall and lean a little in the wind.
     box.expandByVector(p.set(2.5, 2.5, 2.5));
-    g.boundingBox = box; g.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
-    ctx.root.add(new THREE.Mesh(g, mat));
+    indexCells.push({ indices: index, sphere: box.getBoundingSphere(new THREE.Sphere()) });
   }
+  const batch = new IndexCellBatch(indexCells);
+  const mesh = new THREE.Mesh(batch.geometry, mat);
+  mesh.frustumCulled = false;
+  ctx.root.add(mesh);
+  return batch;
 }
 
 /* --------------------------------------------------------------- flowers */
@@ -114,6 +118,7 @@ function flowerTex(ctx: AeroContext, kind: FlowerKind) {
 export function buildFlowers(ctx: AeroContext, path: FlightPath) {
   const { R, rnd } = ctx.random;
   const STEMS: number[] = [], geo = new THREE.PlaneGeometry(1, 1), d = new THREE.Object3D();
+  const batches: InstanceCellBatch[] = [];
   const kinds: [kind: FlowerKind, size: number, count: number][] = [['daisy', 0.6, 3000], ['cosmos', 0.8, 2200], ['yellow', 0.75, 2200]];
   for (const [kind, size, n] of kinds) {
     const im = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ map: flowerTex(ctx, kind), alphaTest: 0.5, side: THREE.DoubleSide, color: col('#f4f4f4') }), n);
@@ -123,12 +128,13 @@ export function buildFlowers(ctx: AeroContext, path: FlightPath) {
       const h = R(0.55, 1.45), s = size * R(0.75, 1.25);
       d.position.set(x, h, z); d.rotation.set(-Math.PI / 2 + R(0.35, 1.0), R(0, TAU), 0, 'YXZ'); d.scale.set(s, s, s); d.updateMatrix(); im.setMatrixAt(i, d.matrix); STEMS.push(x, h, z);
     }
-    addInCells(ctx, im);
+    batches.push(addInCells(ctx, im));
   }
   const sg = new THREE.CylinderGeometry(0.022, 0.03, 1, 3); sg.translate(0, 0.5, 0);
   const sm = new THREE.InstancedMesh(sg, new THREE.MeshBasicMaterial({ color: col('#3f9a25') }), STEMS.length / 3);
   for (let i = 0; i < STEMS.length / 3; i++) { d.position.set(STEMS[i * 3], 0, STEMS[i * 3 + 2]); d.rotation.set(0, 0, 0); d.scale.set(1, STEMS[i * 3 + 1], 1); d.updateMatrix(); sm.setMatrixAt(i, d.matrix); }
-  addInCells(ctx, sm);
+  batches.push(addInCells(ctx, sm));
+  return { update: (frustum: THREE.Frustum) => { for (const batch of batches) batch.update(frustum); } };
 }
 
 /* -------------------------------------------------- tulips + windmills */
@@ -149,7 +155,8 @@ export function buildTulips(ctx: AeroContext) {
     d.position.y = h; d.rotation.set(R(-0.15, 0.15), R(0, TAU), R(-0.15, 0.15)); d.scale.set(s, s, s); d.updateMatrix(); cm.setMatrixAt(i, d.matrix);
     c.copy(cols[b]).multiplyScalar(R(0.85, 1.1)); cm.setColorAt(i, c);
   }
-  addInCells(ctx, cm); addInCells(ctx, st);
+  const batches = [addInCells(ctx, cm), addInCells(ctx, st)];
+  return { update: (frustum: THREE.Frustum) => { for (const batch of batches) batch.update(frustum); } };
 }
 
 export function buildWindmills(ctx: AeroContext) {

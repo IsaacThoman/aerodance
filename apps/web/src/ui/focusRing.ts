@@ -36,27 +36,43 @@ const FILM = ['#9ff5e4', '#9fdcff', '#d6c8ff', '#ffffff', '#9ff5e4', '#9fdcff', 
 /** Per-overlay ring state: how far it has faded in, the outline it is drawn on, the last turn step drawn. */
 export interface FocusRing { k: number; shape: Shape | null; step: number; }
 export const createFocusRing = (): FocusRing => ({ k: 0, shape: null, step: -1 });
-// The colours turn in steps of 1/15 s, so the ring alone redraws its overlay 15 times a second.
+// A short row's 8-unit stroke reaches inside the widget (the gap is only 2).
+// Keep its content and ring in one rasterization pass: a bitmap snapshot between them
+// resolves antialias coverage and changes the pixels where their edges overlap.
+export const focusRingOverlapsContent = (ring: FocusRing): boolean => !!ring.shape && ring.shape.h < ROW_H && ring.shape.w > ring.shape.h * 2;
+// The colours turn in steps of 1/15 s, so the ring alone repaints 15 times a second.
 const STEPS_PER_S = 15;
 
-/** Fades the ring in on the keyboard cursor's widget (or out without one). */
-export function updateFocusRing(ring: FocusRing, wdg: Widget | undefined, ui: CanvasUI) {
-  if (wdg) ring.shape = shapeOf(wdg, ui.hover[wdg.id] ?? 0);
-  ring.k = ui.ease(ring.k, wdg ? 1 : 0, wdg ? 14 : 10);
+/** Fades the ring in/out and reports a repaint, without dirtying the UI content. */
+export function updateFocusRing(ring: FocusRing, wdg: Widget | undefined, ui: CanvasUI): boolean {
+  let dirty = false;
+  if (wdg) {
+    const shape = shapeOf(wdg, ui.hover[wdg.id] ?? 0);
+    const prev = ring.shape;
+    dirty = !prev || shape.x !== prev.x || shape.y !== prev.y || shape.w !== prev.w || shape.h !== prev.h || shape.r !== prev.r;
+    ring.shape = shape;
+  }
+  // Match CanvasUI.ease exactly, but keep ring animation separate from content dirtiness.
+  const to = wdg ? 1 : 0;
+  const n = ring.k + (to - ring.k) * Math.min(1, ui.dt * (wdg ? 14 : 10));
+  const moving = Math.abs(n - to) > 1e-3;
+  if (moving || n !== ring.k) dirty = true;
+  ring.k = moving ? n : to;
   if (!wdg && ring.k === 0) ring.shape = null;
   // The colours keep turning: keep redrawing while the ring shows.
   const step = Math.floor(ui.time * STEPS_PER_S);
   if (ring.shape && step !== ring.step) {
     ring.step = step;
-    ui.dirty = true;
+    dirty = true;
   }
   if (ring.shape) ui.requestFrame();
+  return dirty;
 }
 
 export function drawFocusRing(g: Ctx, ring: FocusRing) {
   if (!ring.shape || ring.k < 0.005) return;
   const s = ring.shape;
-  const gap = s.h < ROW_H && s.w > s.h * 2 ? ROW_GAP : GAP;
+  const gap = focusRingOverlapsContent(ring) ? ROW_GAP : GAP;
   const o = { x: s.x - gap, y: s.y - gap, w: s.w + gap * 2, h: s.h + gap * 2, r: s.r + gap };
   const outline = () => { g.beginPath(); g.roundRect(o.x, o.y, o.w, o.h, Math.min(o.r, o.w / 2, o.h / 2)); };
   g.save();

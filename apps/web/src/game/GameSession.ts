@@ -48,6 +48,8 @@ const PRESENT_MS = 400;
 const LEAD_MS = 1000;
 // How long a countdown waits for the audio to start before pausing again.
 export const AUDIO_START_MS = 2000;
+/** Retry a stuck setup line-up; a progressing calibration hold is never interrupted. */
+export const SETUP_TRACKING_REFRESH_MS = 4000;
 
 export type GamePhase = 'loading' | 'calibrating' | 'ready' | 'countdown' | 'playing' | 'paused' | 'finishing' | 'results' | 'error' | 'disposed';
 /** Per player, for the ready check. */
@@ -89,6 +91,7 @@ export class GameSession {
   player: SessionPlayer | null = null;
   scorer: Scorer;
   webcamCalibration: WebcamCalibration | null;
+  trackingRefreshAt: number;
   live: LivePlayer[];
   /** When each player was last in a record. */
   present: number[];
@@ -115,9 +118,11 @@ export class GameSession {
     this.bundle = bundle; this.playerCount = playerCount; this.source = source; this.createPlayer = createPlayer;
     this.cast = isCast(cast, playerCount, dancers) ? [...cast] : defaultCast(playerCount, dancers);
     this.now = now; this.recordPoses = record; this.autoStart = autoStart;
+    this.trackingRefreshAt = now();
     this.scorer = createScorer(bundle, playerCount, this.cast);
     // Live cameras calibrate; replays already know where everyone stands.
     this.webcamCalibration = source && source.view.sourceKind !== 'replay' ? new WebcamCalibration(playerCount) : null;
+    if (this.webcamCalibration) source?.resetTracking?.();
     this.live = Array.from({ length: playerCount }, (_, playerId) => createLivePlayer({ playerId, autoCalibrate: !this.webcamCalibration }));
     this.present = Array<number>(playerCount).fill(-Infinity);
     this.acceptFromMs = bundle.song.playableStartMs - LEAD_MS;
@@ -281,6 +286,12 @@ export class GameSession {
     const { phase, player } = this;
     if (this.webcamCalibration && ['calibrating', 'ready'].includes(phase)) {
       const { complete } = this.webcamCalibration.status(now);
+      if (this.webcamCalibration.anchors) this.trackingRefreshAt = now;
+      else if (phase === 'calibrating' && now - this.trackingRefreshAt >= SETUP_TRACKING_REFRESH_MS) {
+        this.source?.resetTracking?.();
+        this.trackingRefreshAt = now;
+        this.present.fill(-Infinity);
+      }
       if (phase === 'ready' && !complete) {
         this.live.forEach(p => p.setCalibration(null));
         this.set('calibrating');

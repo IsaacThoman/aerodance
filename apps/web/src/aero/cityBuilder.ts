@@ -56,8 +56,18 @@ export class CityBuilder {
   /** Merges everything collected so far into one mesh per material. */
   merge(root: THREE.Object3D, materials: CityMaterials) {
     for (const [k, geos] of this.geo) {
-      const list = geos.map((g) => (g.index ? g.toNonIndexed() : g));
-      const g = mergeGeometries(list);
+      // Keep face normals and UV seams as authored, along with the exact triangle order.
+      // Inputs are owned here and disposed below, so identity indices need no geometry copies.
+      if (geos.some((g) => g.index)) {
+        for (const g of geos) {
+          if (g.index) continue;
+          const count = g.attributes.position.count;
+          const indices = count > 65535 ? new Uint32Array(count) : new Uint16Array(count);
+          for (let i = 0; i < count; i++) indices[i] = i;
+          g.setIndex(new THREE.BufferAttribute(indices, 1));
+        }
+      }
+      const g = mergeGeometries(geos);
       geos.forEach((x) => x.dispose());
       const m = new THREE.Mesh(g, materials[k]);
       m.castShadow = m.receiveShadow = k !== 'red';

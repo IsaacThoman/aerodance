@@ -66,6 +66,11 @@ the tracker replaced them.
   player missing for longer takes a person seen in two results near the place they were last
   seen, if that person is nearer it than any other player (a player gone five seconds, whose
   place another player now stands on, doesn't count).
+  An already followed dancer can have one unsure shoulder or hip while their position and size
+  still pass the motion check; the joint stays unsure for scoring. Acquiring a player needs all
+  four torso joints. Position and clothing penalties rank eligible matches, but are bounded
+  below the cost of leaving a player missing, so an old place or clothing sample cannot keep
+  an otherwise eligible person untracked indefinitely.
 - **The line-up.** Each player has a place: where they last stood clear of everyone else. A
   choice that changes the players' left-to-right order, passing a player found now or the place
   of one seen in the last five seconds, costs extra, so it only happens when the players were
@@ -77,6 +82,9 @@ the tracker replaced them.
   left to right (P1 on the left of the mirrored preview). That is during calibration, which
   needs everyone in view; after it, a number only moves to another person through the rules
   below.
+  Each song's setup starts with fresh assignments, without restarting the camera or model.
+  Setup retries the line-up after four seconds without a calibration hold, on webcams and
+  paired phones. A progressing hold and the song itself keep their assignments.
 - **Overlaps.** Players who come within 0.6 of a body size of each other (or one vanishes
   beside the other) are tangled: the model may merge or swap them there. When they're all found
   and apart again, they're told apart by their looks if those differ clearly, and otherwise put

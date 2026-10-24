@@ -60,6 +60,7 @@ test('a four-player pose message validates and fits a relay frame', () => {
 });
 
 test('messages each way are checked before use', () => {
+  assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'reset-tracking' })), { type: 'reset-tracking' });
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 2, modelId: 'full' })), { type: 'config', playerCount: 2, modelId: 'full' });
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 4, modelId: 'full' })), { type: 'config', playerCount: 4, modelId: 'full' });
   assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 5, modelId: 'full' })), null);
