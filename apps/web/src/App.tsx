@@ -111,14 +111,22 @@ export default function App() {
   const [gamePhase, setGamePhase] = useState<GamePhase | null>(null);
   const resultsShow = useRef<ResultsShow | null>(null);
   const [sound, setSound] = useState(loadSound);
-  // Settings → Graphics → Background, unless ?background=<id> picks one for this visit. Shuffle
-  // picks one per visit, and a new one whenever it's chosen.
+  // Settings → Graphics → Background. ?background=<id> starts the visit on one without saving it,
+  // until the picker moves. Shuffle picks one per visit, and a new one whenever it's chosen.
+  const [pinned, setPinned] = useState(BACKGROUND_PARAM);
   const [shuffled, setShuffled] = useState(() => shuffleBackground());
-  const background = BACKGROUND_PARAM ?? (graphics.background === 'shuffle' ? shuffled : graphics.background);
+  const background = pinned ?? (graphics.background === 'shuffle' ? shuffled : graphics.background);
+  // The picker shows the background on screen, pinned or not.
+  const menuGraphics = useMemo(() => (pinned ? { ...graphics, background: pinned } : graphics), [graphics, pinned]);
   const changeGraphics = useCallback((next: GraphicsSettings) => {
-    if (next.background === 'shuffle' && graphics.background !== 'shuffle') setShuffled(shuffleBackground(background));
+    if (next.background === menuGraphics.background) {
+      setGraphics({ ...next, background: graphics.background });
+      return;
+    }
+    setPinned(null);
+    if (next.background === 'shuffle') setShuffled(shuffleBackground(background));
     setGraphics(next);
-  }, [graphics.background, background]);
+  }, [graphics.background, menuGraphics.background, background]);
 
   useEffect(() => {
     if (!replay) return undefined;
@@ -244,7 +252,7 @@ export default function App() {
             onScreenChange={setMenuShown}
             sound={sound}
             onSoundChange={setSound}
-            graphics={graphics}
+            graphics={menuGraphics}
             onGraphicsChange={changeGraphics}
           />
           <SongSelect
