@@ -30,8 +30,8 @@ function modules(link: string) {
 /**
  * A QR code for `link`, centred in `box` and as large as fits. Every module is a whole number
  * of render-buffer pixels (anything else smears under the pixelated upscale and stops
- * scanning) and square on screen. Returns the rect it took, in design units. Blank, just its
- * place, faint.
+ * scanning) and square on screen. Returns the rect it took, in design units. Blank, just the
+ * white square, sized as the code will be.
  */
 export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect, { blank = false } = {}): Rect {
   const data = modules(link);
@@ -49,7 +49,7 @@ export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect, { b
   const by = Math.round(t.f + (box.y + box.h / 2) * sy - H / 2);
   g.save();
   g.setTransform(1, 0, 0, 1, 0, 0);
-  g.fillStyle = blank ? 'rgba(255, 255, 255, 0.12)' : '#ffffff';
+  g.fillStyle = '#ffffff';
   g.fillRect(bx, by, W, H);
   if (blank) { g.restore(); return { x: (bx - t.e) / sx, y: (by - t.f) / sy, w: W / sx, h: H / sy }; }
   g.fillStyle = DARK;
@@ -69,9 +69,21 @@ function fit(g: CanvasRenderingContext2D, str: string, w: number, max: number, w
   return size;
 }
 
+// The widest six-digit code in this font (its digits needn't be one width), so the card is laid
+// out the same whichever code it shows, or none yet.
+function widestCode(g: CanvasRenderingContext2D) {
+  g.save();
+  g.font = `800 72px ${FONT}`;
+  const digits = [...'0123456789'].map(d => [d, g.measureText(d).width] as const);
+  g.restore();
+  const [digit] = digits.reduce((a, b) => (b[1] > a[1] ? b : a));
+  return spacedCode(digit.repeat(6));
+}
+
 /**
  * The QR code, and beside it Pair phone, the address to open and the code to type, centred in
- * `rect`. Without a pairing yet, laid out the same around a stand-in code that isn't drawn.
+ * `rect`. Without a pairing yet, the same card with a blank QR code and no code: it's laid out
+ * around the widest code and a link as long as a real one, so nothing moves when the code comes.
  */
 export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: PhonePairing | null) {
   const k = Math.min(1.25, Math.max(0.8, rect.h / 260));
@@ -80,17 +92,18 @@ export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: Ph
   const link = pairing?.url ?? `${pairingOrigin()}/pair/#000000`;
   const url = new URL(link);
   const address = `${url.host}/pair`;
-  const code = spacedCode(pairing?.code ?? '000000');
+  const code = pairing ? spacedCode(pairing.code) : '';
+  const widest = widestCode(g);
   // The address and code share a column as wide as the wider of them, up to what's left.
   const room = rect.w - side - gap;
   const urlSize = fit(g, address, room, Math.round(26 * k), 800);
-  const codeSize = fit(g, code, room, Math.round(72 * k), 800, 0.08);
+  const codeSize = fit(g, widest, room, Math.round(72 * k), 800, 0.08);
   g.font = `800 ${urlSize}px ${FONT}`;
   const urlW = g.measureText(address).width;
   g.save();
   g.font = `800 ${codeSize}px ${FONT}`;
   if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
-  const codeW = g.measureText(code).width;
+  const codeW = g.measureText(widest).width;
   g.restore();
   // Over them, the phone icon and Pair phone side by side.
   const iconR = 36 * k;
