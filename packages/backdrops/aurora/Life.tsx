@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { useDisposable } from '../../stages/shared/hooks.ts';
 import { makeRandom } from '../../stages/shared/random.ts';
-import { shaderMaterial, simplex } from '../../stages/shared/glsl.ts';
-import { CABIN, palette, ripple, world } from './world.ts';
+import { shaderMaterial } from '../../stages/shared/glsl.ts';
+import { CABIN, noiseTexture, palette, ripple, world } from './world.ts';
 
 interface Glow {
   anchor: [number, number, number];
@@ -67,7 +67,7 @@ export function Fireflies() {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: world.uTime },
+      uniforms: { uTime: world.uTime, uNoise: world.uNoise },
       vertexShader: /* glsl */ `
         attribute vec3 aAnchor;
         attribute vec4 aLook;
@@ -108,7 +108,7 @@ export function Fireflies() {
         varying float vGlow;
         varying float vWarm;
         varying float vMirror;
-        ${simplex}
+        ${noiseTexture}
         ${palette}
         ${ripple}
         void main() {
@@ -118,7 +118,7 @@ export function Fireflies() {
           light *= 1.0 - smoothstep(0.7, 1.0, r2);
           vec3 col = mix(vec3(0.35, 1.0, 0.7), WARM * 1.2, vWarm) * light * vGlow;
           if (vMirror > 0.5) {
-            vec2 slope = rippleSlope(waterHit(vWorld).xz);
+            vec2 slope = mirrorRipple(waterHit(vWorld).xz);
             col *= 0.5 * (1.0 + slope.y * 30.0);
           }
           gl_FragColor = vec4(col, 1.0);

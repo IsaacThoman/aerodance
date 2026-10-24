@@ -1,9 +1,9 @@
 import { useRef } from 'react';
 import * as THREE from 'three';
 import { useDisposable } from '../../stages/shared/hooks.ts';
-import { noise, shaderMaterial } from '../../stages/shared/glsl.ts';
+import { hash, shaderMaterial } from '../../stages/shared/glsl.ts';
 import { useBackdropFrame } from '../shared/frame.ts';
-import { nightSky, palette, world } from './world.ts';
+import { nightSky, noiseTexture, palette, world } from './world.ts';
 
 /** The night sky dome (world.ts nightSky), following the camera. */
 export function NightSky() {
@@ -12,7 +12,7 @@ export function NightSky() {
     shaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
-      uniforms: { uTime: world.uTime },
+      uniforms: { uTime: world.uTime, uNoise: world.uNoise },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
         void main() {
@@ -24,7 +24,8 @@ export function NightSky() {
       fragmentShader: /* glsl */ `
         uniform float uTime;
         varying vec3 vDir;
-        ${noise}
+        ${hash}
+        ${noiseTexture}
         ${palette}
         ${nightSky}
         void main() {
@@ -39,7 +40,8 @@ export function NightSky() {
   useBackdropFrame((state) => mesh.current?.position.copy(state.camera.position));
   return (
     <mesh ref={mesh} material={material} renderOrder={-1000} frustumCulled={false}>
-      <sphereGeometry args={[100, 48, 24]} />
+      {/* Only down to just below the horizon: the lake covers the rest. */}
+      <sphereGeometry args={[100, 48, 14, 0, Math.PI * 2, 0, Math.PI * 0.56]} />
     </mesh>
   );
 }

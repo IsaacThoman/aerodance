@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial, simplex } from '../../stages/shared/glsl.ts';
-import { palette, ripple, world } from './world.ts';
+import { shaderMaterial } from '../../stages/shared/glsl.ts';
+import { noiseTexture, palette, ripple, world } from './world.ts';
 
 /** One auroral curtain: a vertical sheet hanging from a folding line far beyond the mountains. */
 export interface Curtain {
@@ -19,9 +19,13 @@ export interface Curtain {
   /** Rays along its length. */
   rays: number;
   seed: number;
+  /** Drawn again in the lake: only the bright, low ones, whose reflections show. */
+  reflected: boolean;
 }
 
-const SEGMENTS = 720;
+// Steps along each curtain: enough for smooth folds, few enough that its triangles aren't
+// slivers a pixel wide, which the GPU shades very wastefully.
+const SEGMENTS = 240;
 
 /**
  * Builds every curtain into one strip geometry (a column of two vertices per step along each),
@@ -72,15 +76,17 @@ function curtainMaterial(mirror: boolean) {
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     defines: mirror ? { MIRROR: '' } : {},
-    uniforms: { uTime: world.uTime },
+    uniforms: { uTime: world.uTime, uNoise: world.uNoise },
     vertexShader: /* glsl */ `
       attribute vec4 aLine, aBase, aLook;
       attribute vec2 aFold;
       uniform float uTime;
       varying vec2 vUv;
+      varying vec2 vLook;
+      varying float vStrength;
+      #ifdef MIRROR
       varying vec3 vWorld;
-      varying vec3 vNormal;
-      varying vec4 vLook;
+      #endif
 
       // The hanging line, folded by slow travelling waves and bowed out in the middle.
       vec2 hang(float u) {
@@ -109,21 +115,36 @@ function curtainMaterial(mirror: boolean) {
         vec3 pos = vec3(p.x, bottom + uv.y * height, p.y);
         #ifdef MIRROR
         pos.y = -pos.y;
+        vWorld = pos;
+        #endif
+        // Everything that varies only along the curtain is worked out here, per column, not per
+        // pixel. Brighter where the sheet turns edge-on to us, as a real curtain is, but
+        // softening right at the fold, where a sheet with no thickness would end in a hard line.
+        vec3 normal = vec3(-tangent.y, 0.0, tangent.x);
+        float facing = abs(dot(normal, normalize(cameraPosition - pos)));
+        float edgeOn = 2.0 / (1.0 + facing) * smoothstep(0.02, 0.5, facing);
+        // Slow swells of brightness travelling along it, fading out at its ends.
+        float swell = 0.5 + 0.5 * sin(6.2832 * (u * 1.4 + s) - uTime * 0.16);
+        swell = 0.45 + 0.55 * swell * (0.7 + 0.3 * sin(6.2832 * (u * 3.3 - s) + uTime * 0.21));
+        float ends = smoothstep(0.0, 0.14, u) * (1.0 - smoothstep(0.86, 1.0, u));
+        vStrength = mix(aLook.y, aLook.z, u) * edgeOn * swell * ends;
+        #ifdef MIRROR
+        vStrength *= 0.45;
         #endif
         vUv = uv;
-        vWorld = pos;
-        vNormal = vec3(-tangent.y, 0.0, tangent.x);
-        vLook = aLook;
+        vLook = aLook.xw;
         gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
       uniform float uTime;
       varying vec2 vUv;
+      varying vec2 vLook;
+      varying float vStrength;
+      #ifdef MIRROR
       varying vec3 vWorld;
-      varying vec3 vNormal;
-      varying vec4 vLook;
-      ${simplex}
+      #endif
+      ${noiseTexture}
       ${palette}
       ${ripple}
 
@@ -131,38 +152,26 @@ function curtainMaterial(mirror: boolean) {
         float u = vUv.x;
         float v = vUv.y;
         float seed = vLook.x;
-        float gain = mix(vLook.y, vLook.z, u);
+        float rays = vLook.y;
         #ifdef MIRROR
-        // The ripple where this reflection meets the lake bends the curtain's pattern.
-        vec2 slope = rippleSlope(waterHit(vWorld).xz);
-        u += slope.x * 1.2;
-        v -= slope.y * 9.0;
+        // The ripple where this reflection meets the lake wobbles the curtain up and down. (Not
+        // sideways: bending where the rays' noise is read scatters the reads and costs a lot,
+        // and ripples stretch reflections vertically anyway.)
+        v -= mirrorRipple(waterHit(vWorld).xz).y * 9.0;
         #endif
-        // Brighter where the sheet turns edge-on to us, as a real curtain is, but softening
-        // right at the fold, where a sheet with no thickness would end in a hard line.
-        vec3 view = normalize(cameraPosition - vWorld);
-        float facing = abs(dot(normalize(vNormal), view));
-        float edgeOn = 2.0 / (1.0 + facing) * smoothstep(0.02, 0.5, facing);
-        // Vertical rays drifting along the curtain; the fine ones fade where they would shimmer.
-        float fine = 1.0 - smoothstep(0.25, 0.7, fwidth(u) * vLook.w);
-        float r1 = snoise(vec2(u * vLook.w + seed * 7.0 + uTime * 0.06, uTime * 0.07 + seed));
-        float r2 = snoise(vec2(u * vLook.w * 0.31 + seed * 3.0, uTime * 0.045));
-        float ray = clamp(0.5 + 0.5 * (r2 * 0.7 + r1 * 0.6 * fine), 0.0, 1.0);
+        // Vertical rays drifting along the curtain. The noise is mipmapped, so where a fold
+        // squeezes them into a few pixels they blur instead of shimmering.
+        float r1 = noise4(vec2(u * rays * 1.8 + seed * 7.0 + uTime * 0.1, uTime * 0.12 + seed * 13.0 + u * 3.0)).r;
+        float r2 = noise4(vec2(u * rays * 0.55 + seed * 3.0, uTime * 0.08 + seed * 5.0)).g;
+        float ray = clamp(0.5 + 0.55 * (r2 * 0.7 + r1 * 0.65), 0.0, 1.0);
         // A sharp, bright lower edge, fading upward, with ragged tops where rays are strong.
         float top = 0.35 + 0.65 * smoothstep(0.15, 0.85, ray);
         float profile = smoothstep(0.0, 0.035, v) * (0.22 + 0.78 * exp(-v * 4.0)) * (1.0 - smoothstep(top * 0.45, top, v));
-        // Slow swells of brightness travelling along it.
-        float swell = 0.5 + 0.5 * sin(6.2832 * (u * 1.4 + seed) - uTime * 0.16);
-        swell = 0.45 + 0.55 * swell * (0.7 + 0.3 * sin(6.2832 * (u * 3.3 - seed) + uTime * 0.21));
-        float ends = smoothstep(0.0, 0.14, u) * (1.0 - smoothstep(0.86, 1.0, u));
-        float glow = profile * (0.3 + 0.7 * ray) * swell * ends * edgeOn * gain;
+        float glow = profile * (0.3 + 0.7 * ray) * vStrength;
         glow /= 1.0 + glow * 0.3;
         vec3 col = mix(EMERALD, TEAL, smoothstep(0.12, 0.36, v));
         col = mix(col, VIOLET, smoothstep(0.34, 0.75, v));
         col += vec3(0.5, 1.0, 0.75) * exp(-v * 45.0) * 0.8;
-        #ifdef MIRROR
-        glow *= 0.45;
-        #endif
         gl_FragColor = vec4(col * glow, 1.0);
       }
     `,
@@ -172,11 +181,12 @@ function curtainMaterial(mirror: boolean) {
 /** The curtains, and their reflection in the lake below. */
 export function AuroraCurtains({ curtains }: { curtains: readonly Curtain[] }) {
   const geometry = useDisposable(() => curtainGeometry(curtains), [curtains]);
+  const reflected = useDisposable(() => curtainGeometry(curtains.filter((c) => c.reflected)), [curtains]);
   const sky = useDisposable(() => curtainMaterial(false));
   const reflection = useDisposable(() => curtainMaterial(true));
   return (
     <>
-      <mesh geometry={geometry} material={reflection} frustumCulled={false} renderOrder={10} />
+      <mesh geometry={reflected} material={reflection} frustumCulled={false} renderOrder={10} />
       <mesh geometry={geometry} material={sky} frustumCulled={false} renderOrder={11} />
     </>
   );

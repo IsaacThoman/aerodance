@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { useDisposable } from '../../stages/shared/hooks.ts';
-import { noise, shaderMaterial, simplex } from '../../stages/shared/glsl.ts';
-import { CABIN, nightSky, palette, ripple, world } from './world.ts';
+import { hash, shaderMaterial } from '../../stages/shared/glsl.ts';
+import { CABIN, nightSky, noiseTexture, palette, ripple, world } from './world.ts';
 
 /**
  * The lake: a near-mirror plane at y = 0 that reflects the sky along its rippled reflection ray,
@@ -12,7 +12,7 @@ export function Lake() {
   const material = useDisposable(() =>
     shaderMaterial({
       depthWrite: false,
-      uniforms: { uTime: world.uTime, uLight: { value: new THREE.Vector3(...CABIN.light) } },
+      uniforms: { uTime: world.uTime, uNoise: world.uNoise, uLight: { value: new THREE.Vector3(...CABIN.light) } },
       vertexShader: /* glsl */ `
         varying vec3 vWorld;
         void main() {
@@ -25,7 +25,8 @@ export function Lake() {
         uniform float uTime;
         uniform vec3 uLight;
         varying vec3 vWorld;
-        ${noise}
+        ${hash}
+        ${noiseTexture}
         ${palette}
         ${nightSky}
         ${ripple}
@@ -82,7 +83,7 @@ export function Mist() {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: world.uTime },
+      uniforms: { uTime: world.uTime, uNoise: world.uNoise },
       vertexShader: /* glsl */ `
         attribute vec4 aBand;
         attribute float aSeed;
@@ -102,11 +103,11 @@ export function Mist() {
         varying vec2 vUv;
         varying float vX;
         varying float vSeed;
-        ${simplex}
+        ${noiseTexture}
         void main() {
           float y = vUv.y * 2.0 - 1.0;
-          float n = 0.6 * snoise(vec2(vX * 0.005 + uTime * 0.01 + vSeed * 9.0, vSeed * 3.0 + uTime * 0.003))
-            + 0.4 * snoise(vec2(vX * 0.016 - uTime * 0.018, vSeed * 7.0 + abs(y) * 0.7));
+          float n = 0.6 * noise4(vec2(vX * 0.005 + uTime * 0.01 + vSeed * 9.0, vSeed * 3.0 + uTime * 0.003)).r
+            + 0.4 * noise4(vec2(vX * 0.016 - uTime * 0.018, vSeed * 7.0 + abs(y) * 0.7)).g;
           float density = smoothstep(-0.35, 0.8, n);
           float profile = exp(-abs(y) * 2.6) * (1.0 - smoothstep(0.7, 1.0, abs(y)));
           float ends = smoothstep(0.0, 0.25, vUv.x) * (1.0 - smoothstep(0.75, 1.0, vUv.x));

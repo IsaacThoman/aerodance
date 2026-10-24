@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { useDisposable } from '../../stages/shared/hooks.ts';
 import { makeRandom, smoothstep } from '../../stages/shared/random.ts';
-import { shaderMaterial, simplex } from '../../stages/shared/glsl.ts';
+import { shaderMaterial } from '../../stages/shared/glsl.ts';
 import { fbm2, makeNoise2, ridged2 } from './noise.ts';
-import { CABIN, palette, ripple, world } from './world.ts';
+import { CABIN, noiseTexture, palette, ripple, world } from './world.ts';
 
 // [x, z, height, radius]: the snowy peaks, tallest right of centre above the menu dancers and
 // low and rounded on the left behind the title.
@@ -49,9 +49,7 @@ export function landHeight(x: number, z: number): number {
   return h;
 }
 
-function terrainGeometry(): THREE.BufferGeometry {
-  const cols = 320;
-  const rows = 84;
+function terrainGeometry(cols: number, rows: number): THREE.BufferGeometry {
   const positions = new Float32Array((cols + 1) * (rows + 1) * 3);
   let i = 0;
   for (let r = 0; r <= rows; r++) {
@@ -95,7 +93,7 @@ function terrainMaterial(mirror: boolean) {
   return shaderMaterial({
     side: mirror ? THREE.BackSide : THREE.FrontSide,
     defines: mirror ? { MIRROR: '' } : {},
-    uniforms: { uTime: world.uTime },
+    uniforms: { uTime: world.uTime, uNoise: world.uNoise },
     vertexShader: /* glsl */ `
       varying vec3 vPos;
       varying vec3 vWorld;
@@ -116,7 +114,7 @@ function terrainMaterial(mirror: boolean) {
       varying vec3 vPos;
       varying vec3 vWorld;
       varying vec3 vNormal;
-      ${simplex}
+      ${noiseTexture}
       ${palette}
       ${ripple}
       ${landLight}
@@ -125,7 +123,7 @@ function terrainMaterial(mirror: boolean) {
         vec3 n = normalize(vNormal);
         vec3 view = normalize(cameraPosition - vPos);
         // Snow above a wavering line, sliding off the steepest faces.
-        float line = 62.0 + 26.0 * snoise(vPos.xz * 0.004) + 10.0 * snoise(vPos.xz * 0.02);
+        float line = 62.0 + 26.0 * noise4(vPos.xz * 0.004).b + 10.0 * noise4(vPos.xz * 0.02).a;
         float snow = smoothstep(line - 14.0, line + 14.0, vPos.y) * smoothstep(0.42, 0.68, n.y);
         float key = max(dot(n, KEY), 0.0);
         float fill = max(dot(n, FILL), 0.0);
@@ -139,7 +137,7 @@ function terrainMaterial(mirror: boolean) {
         col += vec3(0.02, 0.2, 0.13) * rim * (0.35 + 0.65 * snow) * smoothstep(20.0, 90.0, vPos.y);
         col = hazed(col, vPos, vPos.y);
         #ifdef MIRROR
-        vec2 slope = rippleSlope(waterHit(vWorld).xz);
+        vec2 slope = mirrorRipple(waterHit(vWorld).xz);
         col = mix(WATER, col, 0.62) * (1.0 + slope.y * 22.0);
         #endif
         gl_FragColor = vec4(col, 1.0);
@@ -150,13 +148,15 @@ function terrainMaterial(mirror: boolean) {
 
 /** The mountains and wooded shore beyond the lake, and their reflection. */
 export function Mountains() {
-  const geometry = useDisposable(terrainGeometry);
+  const geometry = useDisposable(() => terrainGeometry(288, 64));
+  // The reflection, rippled and darker, gets by on a coarser grid.
+  const mirrored = useDisposable(() => terrainGeometry(160, 36));
   const land = useDisposable(() => terrainMaterial(false));
   const reflection = useDisposable(() => terrainMaterial(true));
   return (
     <>
       <mesh geometry={geometry} material={land} frustumCulled={false} renderOrder={1} />
-      <mesh geometry={geometry} material={reflection} frustumCulled={false} renderOrder={2} />
+      <mesh geometry={mirrored} material={reflection} frustumCulled={false} renderOrder={2} />
     </>
   );
 }
@@ -197,7 +197,7 @@ function pineMaterial(mirror: boolean) {
     depthWrite: false,
     side: THREE.DoubleSide,
     defines: mirror ? { MIRROR: '' } : {},
-    uniforms: { uTime: world.uTime },
+    uniforms: { uTime: world.uTime, uNoise: world.uNoise },
     vertexShader: /* glsl */ `
       attribute vec3 aBase;
       attribute vec3 aSize;
@@ -225,14 +225,14 @@ function pineMaterial(mirror: boolean) {
       varying vec3 vBase;
       varying vec3 vWorld;
       varying float vSeed;
-      ${simplex}
+      ${noiseTexture}
       ${palette}
       ${ripple}
       ${landLight}
       void main() {
         float x = vUv.x - 0.5;
         #ifdef MIRROR
-        vec2 slope = rippleSlope(waterHit(vWorld).xz);
+        vec2 slope = mirrorRipple(waterHit(vWorld).xz);
         x += slope.x * 6.0;
         #endif
         float y = vUv.y;
@@ -285,7 +285,7 @@ function cabinMaterial(mirror: boolean) {
   return shaderMaterial({
     side: mirror ? THREE.BackSide : THREE.FrontSide,
     defines: mirror ? { MIRROR: '' } : {},
-    uniforms: { uTime: world.uTime },
+    uniforms: { uTime: world.uTime, uNoise: world.uNoise },
     vertexShader: /* glsl */ `
       varying vec3 vLocal;
       varying vec3 vPos;
@@ -309,7 +309,7 @@ function cabinMaterial(mirror: boolean) {
       varying vec3 vPos;
       varying vec3 vWorld;
       varying vec3 vNormal;
-      ${simplex}
+      ${noiseTexture}
       ${palette}
       ${ripple}
       ${landLight}
@@ -337,7 +337,7 @@ function cabinMaterial(mirror: boolean) {
         }
         col = hazed(col, vPos, 30.0);
         #ifdef MIRROR
-        vec2 slope = rippleSlope(waterHit(vWorld).xz);
+        vec2 slope = mirrorRipple(waterHit(vWorld).xz);
         col = mix(WATER, col, 0.75) * (1.0 + slope.y * 22.0);
         #endif
         gl_FragColor = vec4(col, 1.0);
