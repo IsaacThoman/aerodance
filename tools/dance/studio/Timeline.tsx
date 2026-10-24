@@ -13,6 +13,7 @@ import type { AnyKey, Dance, Dancer } from '../format.ts';
 import { channelNames } from '../ops.ts';
 import type { SongClock } from './clock.ts';
 import { DANCER_COLORS } from './skeleton.ts';
+import { channelLabel } from './labels.ts';
 import type { Selection } from './VideoPane.tsx';
 
 const GUTTER = 138, RULER = 34, DANCER_ROW = 28, CHANNEL_ROW = 17;
@@ -46,7 +47,7 @@ export default function Timeline({ dance, clock, selection, onSelect, keys, onKe
         if (li === 0 && selection.control && !names.includes(selection.control)) names.push(selection.control);
         names.sort((a, b) => CONTROLS.indexOf(a as never) - CONTROLS.indexOf(b as never));
         for (const name of names) {
-          out.push({ kind: 'channel', dancer, index, channel: name, layer: li, y, h: CHANNEL_ROW, label: li ? `${layer.id}: ${name}` : name });
+          out.push({ kind: 'channel', dancer, index, channel: name, layer: li, y, h: CHANNEL_ROW, label: li ? `${layer.label}: ${channelLabel(name)}` : channelLabel(name) });
           y += CHANNEL_ROW;
         }
       });

@@ -8,15 +8,12 @@ import type { AnyKey, Control, Dance, Dancer, Ease, Interp } from '../format.ts'
 import { STAGE_LIST } from '../../../packages/stages/catalog.ts';
 import { beatAt } from '../time.ts';
 import type { SongClock } from './clock.ts';
+import { CONTROL_LABELS, controlLabel } from './labels.ts';
 import type { Selection } from './VideoPane.tsx';
 
 type Apply = (ops: unknown[], label: string) => void;
-const LABELS: Record<Control, string> = {
-  head: 'Head', leftShoulder: 'Left shoulder', rightShoulder: 'Right shoulder', leftElbow: 'Left elbow', rightElbow: 'Right elbow',
-  leftWrist: 'Left hand', rightWrist: 'Right hand', leftHip: 'Left hip', rightHip: 'Right hip', leftKnee: 'Left knee', rightKnee: 'Right knee',
-  leftAnkle: 'Left foot', rightAnkle: 'Right foot', turn: 'Body turn', headYaw: 'Head turn', headPitch: 'Head tilt up', headRoll: 'Head tilt side',
-};
-export const controlLabel = (c: Control) => LABELS[c];
+const LABELS = CONTROL_LABELS;
+export { controlLabel };
 
 /** A number field that applies on Enter or blur, not on every keystroke. */
 function NumberField({ label, value, step = 0.001, digits = 4, onCommit, disabled }: { label: string; value: number; step?: number; digits?: number; onCommit(v: number): void; disabled?: boolean }) {
