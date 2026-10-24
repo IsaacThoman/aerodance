@@ -23,7 +23,10 @@ import {
   isTrackData,
   mirrorTrack,
   recalibrateTrack,
+  setDancers,
 } from "../core.ts";
+import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
+import { encodePoseFile } from "../../../packages/pose/binary.ts";
 import { encodeTake, encodeTrack, decodeTrack, importedPoseFile } from "../poseFiles.ts";
 import { readFileSync } from "node:fs";
 import type { CaptureMetadata, CompiledChoreography, StudioAssets, Take } from "../core.ts";
@@ -582,6 +585,79 @@ test("review coverage combines adjacent and overlapping exclusions", () => {
   assert.ok(!intervalsCover([], 0, 1));
   assert.ok(!intervalsCover([{ startMs: 150, endMs: 500 }], 100, 200), "coverage must start at the step");
   assert.ok(intervalsCover([{ startMs: 56.9, endMs: 525.7969999985098 }], 523.566667, 525.797), "review bounds that differ from the rounded sample grid by float error still cover it");
+});
+test("a song has one to four dancers: duet takes fill the extra tracks, which compile, mirror, swap and undo", () => {
+  const { p: duet, take, takes } = fixture();
+  // Two more dancers start empty; undo takes them away again.
+  let p = setDancers(duet, 4);
+  assert.deepEqual(p.tracks.map((t) => t.playerId), [0, 1, 2, 3]);
+  assert.deepEqual(p.tracks.slice(0, 2), duet.tracks);
+  assert.ok(p.tracks.slice(2).every((t) => t.dataId === null));
+  assert.deepEqual(historyStep(p, -1).tracks, duet.tracks);
+  // The duet take dances the third and fourth dancers too.
+  p = overwriteTracks(p, take, [0, 1], takes, [2, 3]);
+  const third = takes.get(found(p.tracks[2].dataId));
+  assert.ok(isTrackData(third));
+  assert.equal(third.playerId, 2);
+  assert.ok(third.samples.every((s) => s.poses.every((v) => v.playerId === 2) && s.quality.every((q) => q.playerId === 2)));
+  const overwrite = p.operations.at(-1);
+  assert.ok(overwrite?.type === "overwrite");
+  assert.deepEqual(overwrite.playerIds, [2, 3]);
+  const data = compileProject(p, takes);
+  assert.deepEqual(data.tracks.map((t) => t.playerId), [0, 1, 2, 3]);
+  assert.deepEqual(sampleAt(data, 500).poses.map((v) => v.playerId), [0, 1, 2, 3]);
+  validateChoreography(data);
+  // Every dancer's coverage is reviewed (the new tracks reset the alignment review, as any track change does).
+  assert.deepEqual(reviewTimeline(data).blockers, []);
+  assert.deepEqual(reviewReport(p, data).blockers, ["Review and confirm audio alignment"]);
+  assert.deepEqual(reviewTimeline(data).coverage.map((c) => c.playerId), [0, 1, 2, 3]);
+  assert.equal(songChoreographyFromTimeline({ ...data, songId: "crew" }).playerSlots, 4);
+  // Mirroring and swapping reach any other dancer.
+  const mirrored = mirrorTrack(p, takes, 0, 3), reflected = takes.get(found(mirrored.tracks[3].dataId));
+  assert.ok(isTrackData(reflected) && reflected.playerId === 3);
+  assert.deepEqual(mirrored.tracks.slice(0, 3), p.tracks.slice(0, 3));
+  const x = (q: typeof p, id: number) => found(sampleAt(compileProject(q, takes), 500).poses.find((v) => v.playerId === id)).landmarks[0].x;
+  const swapped = appendOperation(p, { type: "swap", playerId: 1, withPlayerId: 2, startMs: 0, endMs: 1000 }, takes);
+  assert.ok(Math.abs(x(swapped, 1) - x(p, 2)) < 1e-6 && Math.abs(x(swapped, 2) - x(p, 1)) < 1e-6);
+  assert.ok(Math.abs(x(swapped, 0) - x(p, 0)) < 1e-6 && Math.abs(x(swapped, 3) - x(p, 3)) < 1e-6);
+  // Swapped into an empty track, the poses keep their camera frame and calibration.
+  const wide = fixture((t) => { t.input = { width: 1280, height: 720, mirrored: false }; });
+  const empty = setDancers(wide.p, 3), filled = appendOperation(empty, { type: "swap", playerId: 0, withPlayerId: 2, startMs: 0, endMs: 1000 }, wide.takes);
+  const moved = wide.takes.get(found(filled.tracks[2].dataId)), first = wide.takes.get(found(wide.p.tracks[0].dataId));
+  assert.ok(isTrackData(moved) && isTrackData(first));
+  assert.deepEqual(moved.input, first.input);
+  assert.deepEqual(moved.calibration, first.calibration);
+  assert.equal(compileProject(filled, wide.takes).tracks[2].calibration.inputWidth, 1280);
+  // P1 and P2's swap still means just those two.
+  const legacy = appendOperation(p, { type: "swap", playerId: null, startMs: 0, endMs: 1000 }, takes);
+  assert.ok(Math.abs(x(legacy, 0) - x(p, 1)) < 1e-6 && Math.abs(x(legacy, 2) - x(p, 2)) < 1e-6);
+  // A solo: one dancer, reviewed and compiled alone.
+  const solo = setDancers(p, 1), alone = compileProject(solo, takes);
+  assert.throws(() => appendOperation(solo, { type: "swap", playerId: null, startMs: 0, endMs: 1000 }, takes), /song's dancers/);
+  assert.equal(alone.tracks.length, 1);
+  assert.deepEqual(reviewTimeline(alone).coverage.map((c) => c.playerId), [0]);
+  assert.deepEqual(historyStep(solo, -1).tracks, p.tracks);
+  assert.deepEqual(validateProject(JSON.parse(JSON.stringify(solo))).tracks, solo.tracks);
+  assert.deepEqual(validateProject(JSON.parse(JSON.stringify(p))).operations.length, p.operations.length);
+  // Only the song's own dancers can be edited or filled.
+  for (const dancers of [0, 5, 2.5]) assert.throws(() => setDancers(p, dancers), /one to four dancers/);
+  assert.throws(() => overwriteTracks(duet, take, [0], takes, [2]), /song's dancers/);
+  assert.throws(() => overwriteTracks(p, take, [0, 1], takes, [2, 2]), /song's dancers/);
+  assert.throws(() => mirrorTrack(p, takes, 1, 1), /another dancer/);
+  assert.throws(() => mirrorTrack(duet, takes, 0, 2), /another dancer/);
+  assert.throws(() => appendOperation(p, { type: "swap", playerId: 1, withPlayerId: 1, startMs: 0, endMs: 1000 }, takes), /two different/);
+  assert.throws(() => appendOperation(duet, { type: "swap", playerId: 0, withPlayerId: 3, startMs: 0, endMs: 1000 }, takes), /song's dancers/);
+  assert.throws(() => appendOperation(duet, { type: "smooth", playerId: 2, windowMs: 120, startMs: 0, endMs: 1000 }, takes), /song's dancers/);
+  for (const op of [() => clearTrack(duet, 2), () => offsetTrack(duet, 3, 0), () => interpolateTrack(duet, takes, 2)]) assert.throws(op);
+  const broken: { tracks: unknown[] } = structuredClone(p);
+  broken.tracks = [...broken.tracks, { ...p.tracks[0], playerId: 4 }];
+  assert.throws(() => validateProject(broken), /One to four ordered dancer tracks/);
+  // A four-dancer song imported back into the library keeps every dancer as a take.
+  const crew = validateTake(importedPoseFile(encodePoseFile(songChoreographyFromTimeline({ ...data, songId: "crew" })), "crew.adpose"));
+  assert.ok(crew.samples.some((s) => s.poses.length === 4));
+  assert.deepEqual(validateTake(importedPoseFile(encodeTake(crew), "again.adpose")).samples.map((s) => s.poses.length), crew.samples.map((s) => s.poses.length));
+  const refilled = overwriteTracks(setDancers(duet, 4), crew, [0, 1, 2, 3], takes);
+  assert.ok(refilled.tracks.every((t) => t.dataId));
 });
 test("the library imports .adpose takes and song choreography", () => {
   const { take } = fixture();

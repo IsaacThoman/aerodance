@@ -30,7 +30,8 @@ export function buttonPane(ui: { hover: Record<string, number>; press: number },
 /** A drawDarkGlassPanel's pane. */
 export const panelPane = (rect: Rect, corner = 34): GlassPane => ({ rect, corner });
 
-const MAX_PANES = 4;
+// Song Select's dancers screen has the most: a pill per player (up to four), Auto and Dance!.
+const MAX_PANES = 6;
 // Blur radius in design units, and the extra copied round the panes so the blur near their
 // edges samples the world there instead of smearing the edge pixel.
 const RADIUS = 24;

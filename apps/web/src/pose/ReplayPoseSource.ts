@@ -12,14 +12,14 @@ import type { LivePoseRecord, PoseInputView, PoseSource, SongClock } from './Pos
  * the webcam source (subscribe, subscribeRecords, setPlayerCount, connect, disconnect), so
  * the game, its tests and demos run without a camera.
  *
- *   ghost       dances the song's own choreography (each player copies their track), with
+ *   ghost       dances the song's own choreography (each player copies their dancer), with
  *               a little tracking noise and an optional lag: an autoplay that should score
  *               near the top, or lower with ?ghostLagMs=400.
  *   recording   replays a pose recording (createPoseRecorder) made during a real song, at
  *               the song times the poses were captured.
  *
  * Without a song attached (the menus) the players stand still side by side. The game
- * attaches the song while it plays: attachSong({ bundle, songTimeAt(perfMs), perfAtSong(ms),
+ * attaches the song while it plays: attachSong({ bundle, cast, songTimeAt(perfMs), perfAtSong(ms),
  * playing() }) and attachSong(null) after.
  */
 
@@ -180,11 +180,11 @@ export class ReplayPoseSource implements PoseSource {
   tickGhost(song: SongClock, now: number) {
     const songNow = song.songTimeAt(now);
     if (this.lastAt !== null && now - this.lastAt < 1000 / RATE_HZ) return;
-    const { bundle } = song;
+    const { bundle, cast } = song;
     const { playableStartMs, playableEndMs } = bundle.song;
     // The ghost dances what the coach did lagMs ago, held at the ends of the song.
     const t = Math.min(Math.max(songNow - this.lagMs, playableStartMs), playableEndMs - 1);
-    const sample = sampleSong(bundle, t, this.playerCount);
+    const sample = cast.length === this.playerCount ? sampleSong(bundle, t, cast) : { poses: [] };
     const poses = sample.poses.length ? sample.poses.map((p) => ({ playerId: p.playerId, landmarks: this.jitter(p.landmarks) })) : this.standing();
     const { inputWidth: width, inputHeight: height } = bundle.choreography.tracks[0].calibration;
     this.emit(poses, now, { width, height, mirrored: false });

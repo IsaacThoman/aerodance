@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { oneOf } from "../../../packages/pose/choreography.ts";
 import { DEFAULT_STAGE, STAGE_LIST, isStageId } from "../../../packages/stages/catalog.ts";
+import { setDancers } from "../core.ts";
 import type { Difficulty, ProjectV3 } from "../core.ts";
 import { timeLabel } from "./format.ts";
 import type { StudioProject } from "./useStudioProject.ts";
@@ -17,6 +18,7 @@ const LIST_FIELDS = [
   ["tags", "Tags"],
 ] as const;
 const DIFFICULTIES: readonly Difficulty[] = ["easy", "normal", "hard"];
+const DANCERS = [[1, "1 — solo"], [2, "2 — duet"], [3, "3 — trio"], [4, "4 — crew"]] as const;
 // Raw text stays local; parsed values are committed immediately for Save and autosave.
 function ListField({ label, values, disabled, onChange }: {
   label: string; values: string[]; disabled: boolean; onChange: (values: string[]) => void;
@@ -32,7 +34,7 @@ function ListField({ label, values, disabled, onChange }: {
 
 // Song details and audio alignment.
 export default function SongDetails({ project, studio, recording }: SongDetailsProps) {
-  const { busy, edit, updateMetadata } = studio;
+  const { busy, edit, updateMetadata, modifyTracks } = studio;
   return (
     <div className="song-fields">
       {TEXT_FIELDS.map(([key, label]) => (
@@ -96,6 +98,24 @@ export default function SongDetails({ project, studio, recording }: SongDetailsP
             </option>
           ))}
         </select>
+      </label>
+      <label>
+        Dancers
+        <select
+          aria-label="Dancers"
+          disabled={recording || busy}
+          value={project.tracks.length}
+          onChange={(e) => {
+            const dancers = Number(e.target.value);
+            // Fewer dancers drops the last tracks, which undo brings back.
+            const dropped = project.tracks.slice(dancers).filter((t) => t.dataId).map((t) => `P${t.playerId + 1}`);
+            if (dropped.length && !window.confirm(`Remove the ${dropped.join(" and ")} track${dropped.length > 1 ? "s" : ""}? Undo brings ${dropped.length > 1 ? "them" : "it"} back.`)) return;
+            modifyTracks((p) => setDancers(p, dancers));
+          }}
+        >
+          {DANCERS.map(([count, label]) => <option key={count} value={count}>{label}</option>)}
+        </select>
+        <small className="muted">One track each, P1 to P{project.tracks.length}. In the game each player picks the dancer they follow, and players can share one.</small>
       </label>
       <label className="check alignment">
         <input

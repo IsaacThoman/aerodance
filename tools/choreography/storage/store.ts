@@ -13,6 +13,7 @@ import {
 import type { CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
 import { concatBytes, decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
+import type { PlayerCount } from "../../../packages/pose/choreography.ts";
 import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
 import type { ChecksumManifest, Song, SongChoreography } from "../../../packages/pose/song.ts";
 import { encodePoseFile } from "../../../packages/pose/binary.ts";
@@ -291,8 +292,9 @@ export class Store {
       durationMs: p.durationMs,
       playableStartMs: p.playableStartMs,
       playableEndMs: p.playableEndMs,
-      // Duets: three or four players dance the two parts again (partOf).
+      // One player per dancer or more: players can share a dancer, and each picks theirs.
       supportedPlayerCounts: [1, 2, 3, 4],
+      dancers: p.tracks.length as PlayerCount,
       audio: { path: filename, mimeType: p.audio.mimeType },
       choreography: { path: "choreography.adpose", schemaVersion: 2 },
       coachMode: "mirror-player",

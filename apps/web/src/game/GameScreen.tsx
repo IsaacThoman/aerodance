@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawDarkGlassPanel, drawGlassButton, drawHeader, drawHeadline as headline, drawProgress, drawShadowText, drawStatusDot,
+  FONT, drawCaps, drawDancer, drawDarkGlassPanel, drawGlassButton, drawHeader, drawHeadline as headline, drawProgress, drawShadowText, drawStatusDot,
   ellipsize, glassCorner, ICONS, paragraph, roundRect, text,
 } from '../ui/draw.ts';
 import type { Face, Rect } from '../ui/draw.ts';
@@ -21,6 +21,7 @@ import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
 import { getMixer } from '../audio/mixer.ts';
+import { leadOf } from '../../../../packages/pose/song.ts';
 import { gameLayout, PLAYER_HUD_TOP, playerHudX } from './layout.ts';
 import { displayDesign } from '../display.ts';
 import MirrorDancers from './MirrorDancers.tsx';
@@ -90,14 +91,28 @@ const fmt = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-// Without a camera (tracking false) there is nothing to say about tracking.
-function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean, width: number) {
+// Without a camera (tracking false) there is nothing to say about tracking. A player sharing
+// a dancer someone before them follows (lead) is shown that dancer's colour beside their name:
+// the one on the stage to follow.
+function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, lead: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean, width: number) {
   const cx = playerHudX(id, count, width) * width;
   const top = PLAYER_HUD_TOP;
   const p = PLAYERS[id];
   // Three or four panels share the corners, so their text is smaller.
   const crowd = count > 2;
   drawCaps(g, `PLAYER ${id + 1}`, cx, top + 19, { size: 18, align: 'center' });
+  if (lead !== id) {
+    g.save();
+    g.font = `800 18px ${FONT}`;
+    const half = (g.measureText(`PLAYER ${id + 1}`).width + 9 * 4) / 2;
+    const followed = PLAYERS[lead], fill = g.createLinearGradient(0, top + 2, 0, top + 34);
+    [followed.light, followed.color, followed.dark].forEach((color, i) => fill.addColorStop(i / 2, color));
+    g.shadowColor = 'rgba(0, 34, 84, 0.7)';
+    g.shadowBlur = 6;
+    g.shadowOffsetY = 2;
+    drawDancer(g, cx - half - 16, top + 34, 32, fill);
+    g.restore();
+  }
   headline(g, (result?.score ?? 0).toLocaleString('en-US'), cx, top + (crowd ? 66 : 76), crowd ? 36 : 46, ['#ffffff', p.light, p.color], crowd ? 200 : 300);
   if (result && result.combo > 1) drawShadowText(g, `${result.combo} combo`, cx, top + (crowd ? 94 : 108), { size: crowd ? 18 : 22, weight: 800, align: 'center', color: '#bff4ff' });
   if (tracking && readiness === 'missing') drawShadowText(g, crowd ? 'Step back in' : 'Step back into view', cx, top + (crowd ? 120 : 138), { size: crowd ? 17 : 20, weight: 700, align: 'center', color: '#ffe27a' });
@@ -402,7 +417,9 @@ export default function GameScreen({ visible = false, session, camera: source, o
       const scores = session.scorer.results();
       const readiness = session.readiness();
       const tracked = tracking(session);
-      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, session.playerCount, scores[id], readiness[id], st.popups, now, tracked, s.w);
+      for (let id = 0; id < session.playerCount; id++) {
+        drawPlayerHud(g, id, session.playerCount, leadOf(session.cast, session.cast[id]), scores[id], readiness[id], st.popups, now, tracked, s.w);
+      }
       if (tracked) drawMirror(g, GAME_MIRROR);
       if (ph !== 'paused') {
         // Just the icon, light grey at the top of the mirror (white when hovered).

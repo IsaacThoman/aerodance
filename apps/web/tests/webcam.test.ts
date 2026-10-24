@@ -318,7 +318,7 @@ test('webcam capture times drive scored gameplay and recordings through the cont
     await f.frame(capture / 1000, capture);
     f.setTime(capture + 300);
     f.deliver({ type: 'result', seq: ++seq,
-      landmarks: sampleSong(bundle, ms, 1).poses.map(p => detected(p.landmarks)), inferenceMs: 300 });
+      landmarks: sampleSong(bundle, ms, [0]).poses.map(p => detected(p.landmarks)), inferenceMs: 300 });
   }
   session.scorer.finish();
   assert.ok(session.scorer.result(0).score > 950000, `webcam score ${session.scorer.result(0).score}`);

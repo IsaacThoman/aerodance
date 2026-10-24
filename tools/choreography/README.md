@@ -74,8 +74,12 @@ are not part of the production image.
 
 1. Create a project, import music, and enter **Song details**. Duration is measured
    by the browser audio decoder. Set the real artist, authors/choreographers, the
-   **Stage** the game shows the routine on (`openreef` by default), and
-   distribution licenses or permissions.
+   **Stage** the game shows the routine on (`openreef` by default), how many
+   **Dancers** it has (1 solo, 2 duet by default, 3 trio, 4 crew: one track each,
+   P1 to P4), and distribution licenses or permissions. In the game every player picks
+   the dancer they follow (or they take them in turn), players can share one, and
+   the stage always shows all of them. Fewer dancers drops the last tracks, after a
+   confirmation if they hold poses; Undo brings them back.
 2. Import a pose JSON, or start the webcam and **Record new take**.
    Choose **Both players**, **P1 only**, or **P2 only**, a camera and
    **Lite / Full / Heavy**, then **Start camera**
@@ -167,16 +171,24 @@ are not part of the production image.
    Take playback also works without music. A completed recording opens its new
    take automatically. Imports and recordings remain in the library until assigned.
    Open its **⋯** menu and choose **Overwrite P1 track**, **Overwrite P2 track**, or
-   **Overwrite both tracks**. Each action copies the corresponding source player
+   **Overwrite both tracks** (**Overwrite P1 and P2 tracks** in a song with more
+   dancers). Each action copies the corresponding source player
    into independent track storage and uses the take's original audio alignment;
-   it replaces the entire destination track, including its edits.
-   To create a two-person dance from one dancer, assign the solo take to its player,
+   it replaces the entire destination track, including its edits. With three or
+   four dancers, a take's P1 or P2 can also fill the P3 and P4 tracks
+   (**Overwrite P3 track with take P1**, **Overwrite P3 and P4 tracks**), so a crew
+   can be recorded as two duets, or four solos, to the same music. Capture records
+   one or two dancers at a time. A song's choreography imported as a take keeps
+   every dancer it has (**Overwrite all tracks**).
+   A solo routine sets **Dancers** to 1. To create a two-person dance from one dancer
+   instead, assign the solo take to its player,
    open that player's **Options**, then choose **Mirror P1 track to P2** or
-   **Mirror P2 track to P1**. This replaces the other track with a reflected copy
+   **Mirror P2 track to P1** (with more dancers, a button for each other one). This
+   replaces that track with a reflected copy
    of the complete edited source, preserving timing and gaps. It is one undo step.
    The tracks are independent afterward; source changes require mirroring again.
-   Review and approve reflected poses before scoring. All exported bundles still
-   contain both player tracks and require coverage for both players.
+   Review and approve reflected poses before scoring. Exported bundles contain every
+   dancer's track and require coverage for each.
    Adjust each track's **Offset (seconds)** independently in Playback. Positive
    offsets delay poses; negative offsets advance them. Poses before song time zero
    are omitted from playback/export but retained for later realignment. Track
@@ -189,12 +201,14 @@ are not part of the production image.
    timing review, long missing references, and empty score coverage.
 
 The Project sidebar opens Import, Configuration, and History as separate panels.
-Select P1/P2 above the preview or from a timeline lane. The selected player expands to show
+Select a dancer (P1 to P4) above the preview or from a timeline lane. The selected player expands to show
 an **Options** button to the right of its label, which opens track tools for that player.
 In Live view, camera setup and recording delay are in Configuration, with Record/Stop beside playback.
 Capture controls are hidden in Playback and Take views.
 The timeline marks the playable bounds separately from the editing selection; use **Set playable range**
-to apply a selection. Export writes `unknown` for both licenses without requiring license entries;
+to apply a selection. **Swap both player tracks** exchanges P1's and P2's poses over the selection; with
+three or four dancers there's a **Swap P1 and P3 tracks** button for each other dancer instead.
+Export writes `unknown` for both licenses without requiring license entries;
 project backups retain any existing rights metadata.
 
 Changes autosave after a short idle interval. **Save** forces persistence.
@@ -287,7 +301,8 @@ Settings → Songs and pick the exported ZIP. It's saved in that browser only; s
 
 Re-exporting a song preserves its song ID and updates its bundle revision.
 Replace its complete folder; discovery reads the new revision from `song.json`.
-The runtime bundle contains both tracks; one-player mode selects track 0. Editor
+The runtime bundle contains every dancer's track, and `song.json` says how many
+(`dancers`); each player follows one of them, picked in the game. Editor
 export does not deploy or publish automatically. The game owns character assets.
 
 ## Checks
@@ -346,7 +361,7 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
   a track. Each independent player track retains its own inference dimensions.
 - Audio decode/write validation uses the local browser's measured duration. Server
   transcoding and format-independent audio inspection are not implemented.
-- Publication requires some eligible poses on both tracks and explicit gap review.
+- Publication requires some eligible poses on every track and explicit gap review.
   Final scoring thresholds/minimum coverage belong to the game's scoring evaluation.
 - Browser storage is local to each profile and origin. Backups are required for
   transfer and recovery after clearing site data. Browser storage regression tests

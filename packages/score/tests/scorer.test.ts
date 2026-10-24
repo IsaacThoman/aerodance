@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mirrorPose } from '../../pose/choreography.ts';
 import type { Landmark, PlayerCount } from '../../pose/choreography.ts';
-import { sampleSong, validateSong, validateSongChoreography } from '../../pose/song.ts';
-import type { SongBundle } from '../../pose/song.ts';
+import { sampleDancers, validateSong, validateSongChoreography } from '../../pose/song.ts';
+import type { Cast, SongBundle } from '../../pose/song.ts';
 import { MAX_SCORE, SCORER_VERSION, createScorer, gradeFor, judge } from '../scorer.ts';
 import type { JudgementEvent } from '../scorer.ts';
 
@@ -18,9 +18,10 @@ const bundle: SongBundle = {
 const ASPECT = 640 / 480;
 
 type PoseAt = (id: number, t: number) => Landmark[] | null;
+/** A dancer's reference pose (where the routine has one). */
 const reference: PoseAt = (id, t) => {
   const clamped = Math.min(Math.max(t, song.playableStartMs), song.playableEndMs - 1);
-  return sampleSong(bundle, clamped, 2).poses.find((p) => p.playerId === id)?.landmarks ?? null;
+  return sampleDancers(bundle, clamped).poses.find((p) => p.playerId === id)?.landmarks ?? null;
 };
 
 /** The reference pose where the routine has one. */
@@ -36,12 +37,12 @@ function random(seed: number) {
 }
 
 interface PlayOptions {
-  players?: PlayerCount; rate?: number; jitter?: number; seed?: number;
+  players?: PlayerCount; cast?: Cast; rate?: number; jitter?: number; seed?: number;
   order?: 'in-order' | 'shuffled'; duplicate?: boolean;
 }
 /** Feed a scorer live poses at `rate` per second with timing jitter, as a camera would. */
-function play(poseAt: PoseAt, { players = 2, rate = 9, jitter = 30, seed = 1, order = 'in-order', duplicate = false }: PlayOptions = {}) {
-  const scorer = createScorer(bundle, players);
+function play(poseAt: PoseAt, { players = 2, cast, rate = 9, jitter = 30, seed = 1, order = 'in-order', duplicate = false }: PlayOptions = {}) {
+  const scorer = createScorer(bundle, players, cast);
   const rnd = random(seed);
   const samples: [id: number, songTimeMs: number, landmarks: Landmark[]][] = [];
   for (let t = song.playableStartMs; t < song.playableEndMs; t += 1000 / rate) {
@@ -155,6 +156,21 @@ test('players 3 and 4 score against parts 1 and 2, the same as players 1 and 2',
   // Player 3 copying part 2 instead of part 1 loses points.
   const swapped = play((id, t) => reference(id === 2 ? 1 : id % 2, t), { players: 4 });
   assert.ok(swapped[2].score < perfect[0].score * 0.9, `swapped part scored ${swapped[2].score}`);
+});
+
+test('players score against the dancer their cast picks, sharing one or swapping', () => {
+  // Both players on the second dancer, copying them.
+  const shared = play((_, t) => reference(1, t), { cast: [1, 1] });
+  for (const id of [0, 1]) assert.equal(shared[id].score, perfect[1].score, `player ${id + 1}`);
+  // Swapped: player 1 dances the second dancer's part, player 2 the first's.
+  const swapped = play((id, t) => reference(1 - id, t), { cast: [1, 0] });
+  assert.equal(swapped[0].score, perfect[1].score);
+  assert.equal(swapped[1].score, perfect[0].score);
+  // Copying a dancer they don't follow loses points.
+  const wrong = play((id, t) => reference(id, t), { cast: [1, 0] });
+  assert.ok(wrong[0].score < perfect[0].score * 0.9, `wrong dancer scored ${wrong[0].score}`);
+  assert.throws(() => createScorer(bundle, 2, [0, 2]), /Invalid cast/);
+  assert.throws(() => createScorer(bundle, 2, [0]), /Invalid cast/);
 });
 
 test('judgements are emitted once per second of song with a running combo', () => {
