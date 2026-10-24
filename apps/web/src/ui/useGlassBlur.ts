@@ -5,6 +5,7 @@ import { diagnostic } from '../diagnostics.ts';
 import { displayDesign } from '../display.ts';
 import { glassCorner } from './draw.ts';
 import type { Rect } from './draw.ts';
+import { glassTextureSize } from './glassTexture.ts';
 
 /**
  * Frosted glass for canvas UI buttons (drawGlassButton): just before the overlay draws, the
@@ -147,13 +148,17 @@ export default function useGlassBlur(frame: () => GlassBlurFrame, { priority = 1
       x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.z); y1 = Math.max(y1, r.w);
     }
     // The region copied: the bounds plus the blur's reach, inside the buffer.
-    const cx0 = Math.max(0, Math.floor(x0) - pad);
-    const cy0 = Math.max(0, Math.floor(y0) - pad);
+    let cx0 = Math.max(0, Math.floor(x0) - pad);
+    let cy0 = Math.max(0, Math.floor(y0) - pad);
     const cx1 = Math.min(buf.x, Math.ceil(x1) + pad);
     const cy1 = Math.min(buf.y, Math.ceil(y1) + pad);
-    const cw = cx1 - cx0;
-    const ch = cy1 - cy0;
-    if (cw <= 0 || ch <= 0) return;
+    const neededW = cx1 - cx0;
+    const neededH = cy1 - cy0;
+    if (neededW <= 0 || neededH <= 0) return;
+    const { w: cw, h: ch } = glassTextureSize(neededW, neededH, buf.x, buf.y, pass.tw, pass.th);
+    // Spare capacity can extend past a viewport edge: shift the copy back inside it.
+    cx0 = Math.min(cx0, buf.x - cw);
+    cy0 = Math.min(cy0, buf.y - ch);
     if (!pass.texture || pass.tw !== cw || pass.th !== ch) {
       pass.texture?.dispose();
       pass.texture = new THREE.FramebufferTexture(cw, ch);
