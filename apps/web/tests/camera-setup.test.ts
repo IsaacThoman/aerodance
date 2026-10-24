@@ -141,3 +141,17 @@ test('arrowing past the phone does not pair it', async () => {
   tick(1); setup.update();
   assert.equal(connects(), 1);
 });
+
+test("the phone's pairing card is up from when it's picked until its code comes, but not once pairing fails", async () => {
+  const { setup, connection, tick } = autoSetup({ auto: false });
+  assert.ok(!setup.awaitingCode(), 'not for a webcam');
+  await setup.target().source.configure({ cameraId: PHONE_CAMERA.deviceId });
+  assert.ok(setup.awaitingCode(), 'about to pair');
+  tick(PHONE_SETTLE_MS); setup.update();
+  assert.ok(setup.awaitingCode(), 'getting a code');
+  connection.pairing = { code: '123456', url: 'https://aerodance.party/pair/#123456' };
+  assert.ok(!setup.awaitingCode(), 'the code is up');
+  connection.pairing = null;
+  connection.status = 'error';
+  assert.ok(!setup.awaitingCode());
+});

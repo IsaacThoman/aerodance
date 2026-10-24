@@ -103,6 +103,8 @@ type Listener<T> = (value: T) => void;
 
 // An app that bundles the game (the Apple TV app) names the deployed site it pairs through.
 const site = () => ((globalThis as { __aerodanceSite?: string }).__aerodanceSite ?? '').replace(/\/+$/, '');
+/** The origin of the phone page a pairing code's link opens. */
+export const pairingOrigin = () => site() || location.origin;
 const askedTransport = (): Transport => {
   const asked = new URLSearchParams(globalThis.location?.search ?? '').get('transport');
   return asked === 'relay' || asked === 'webrtc' ? asked : 'auto';
@@ -193,7 +195,7 @@ export class PhonePoseSource implements PoseSource {
   arrivals: number[] = [];
   offeredAt = -Infinity;
   constructor({ base = site() ? `${site()}/pair` : PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
-    origin = () => site() || location.origin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
+    origin = pairingOrigin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
     decodeFrame = decodeJpeg }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
     this.now = now; this.origin = origin; this.createVideo = createVideo; this.createSocket = createSocket; this.decodeFrame = decodeFrame;

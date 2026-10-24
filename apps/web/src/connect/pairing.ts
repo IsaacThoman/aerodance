@@ -2,13 +2,15 @@ import { encode } from 'uqr';
 import { FONT, ICONS, text } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import { spacedCode } from '../../../../packages/pairing/signals.ts';
+import { pairingOrigin } from '../pose/PhonePoseSource.ts';
 import type { PhonePairing } from '../pose/PhonePoseSource.ts';
 
 /*
  * Pairing a phone, drawn in-engine on the calibration screen: the QR code that opens the
  * phone page with the code, and beside it Pair phone, the page's address and the code to type in.
+ * Until the code comes, the same card with the QR code's place empty and no code.
  *
- * drawPairing(g, rect, { code, url });
+ * drawPairing(g, rect, { code, url });  drawPairing(g, rect, null);
  */
 
 // White modules around the code; scanners need a quiet zone to find it.
@@ -28,9 +30,10 @@ function modules(link: string) {
 /**
  * A QR code for `link`, centred in `box` and as large as fits. Every module is a whole number
  * of render-buffer pixels (anything else smears under the pixelated upscale and stops
- * scanning) and square on screen. Returns the rect it took, in design units.
+ * scanning) and square on screen. Returns the rect it took, in design units. Blank, just its
+ * place, faint.
  */
-export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect): Rect {
+export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect, { blank = false } = {}): Rect {
   const data = modules(link);
   const n = data.length + QUIET * 2;
   const t = g.getTransform();
@@ -46,8 +49,9 @@ export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect): Re
   const by = Math.round(t.f + (box.y + box.h / 2) * sy - H / 2);
   g.save();
   g.setTransform(1, 0, 0, 1, 0, 0);
-  g.fillStyle = '#ffffff';
+  g.fillStyle = blank ? 'rgba(255, 255, 255, 0.12)' : '#ffffff';
   g.fillRect(bx, by, W, H);
+  if (blank) { g.restore(); return { x: (bx - t.e) / sx, y: (by - t.f) / sy, w: W / sx, h: H / sy }; }
   g.fillStyle = DARK;
   data.forEach((row, y) => row.forEach((dark, x) => { if (dark) g.fillRect(bx + (x + QUIET) * mw, by + (y + QUIET) * mh, mw, mh); }));
   g.restore();
@@ -65,14 +69,18 @@ function fit(g: CanvasRenderingContext2D, str: string, w: number, max: number, w
   return size;
 }
 
-/** The QR code, and beside it Pair phone, the address to open and the code to type, centred in `rect`. */
-export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: PhonePairing) {
+/**
+ * The QR code, and beside it Pair phone, the address to open and the code to type, centred in
+ * `rect`. Without a pairing yet, laid out the same around a stand-in code that isn't drawn.
+ */
+export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: PhonePairing | null) {
   const k = Math.min(1.25, Math.max(0.8, rect.h / 260));
   const gap = 44 * k;
   const side = Math.min(rect.h, rect.w * 0.46);
-  const url = new URL(pairing.url);
+  const link = pairing?.url ?? `${pairingOrigin()}/pair/#000000`;
+  const url = new URL(link);
   const address = `${url.host}/pair`;
-  const code = spacedCode(pairing.code);
+  const code = spacedCode(pairing?.code ?? '000000');
   // The address and code share a column as wide as the wider of them, up to what's left.
   const room = rect.w - side - gap;
   const urlSize = fit(g, address, room, Math.round(26 * k), 800);
@@ -91,7 +99,7 @@ export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: Ph
   g.font = `800 ${labelSize}px ${FONT}`;
   const headingW = iconW + 14 * k + g.measureText('Pair phone').width;
   const left = rect.x + (rect.w - side - gap - Math.max(urlW, codeW, headingW)) / 2;
-  const qr = drawQr(g, pairing.url, { x: left, y: rect.y + (rect.h - side) / 2, w: side, h: side });
+  const qr = drawQr(g, link, { x: left, y: rect.y + (rect.h - side) / 2, w: side, h: side }, { blank: !pairing });
   const x = qr.x + qr.w + gap;
   const mid = qr.y + qr.h / 2;
   const block = iconR + 22 * k + urlSize + 12 * k + codeSize;
@@ -106,6 +114,7 @@ export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: Ph
   text(g, 'Pair phone', x + iconW + 14 * k, y + 1, { size: labelSize, weight: 800 });
   y += iconR / 2 + 22 * k + urlSize / 2;
   text(g, address, x, y, { size: urlSize, weight: 800, color: '#bff4ff' });
+  if (!pairing) return;
   y += urlSize / 2 + 12 * k + codeSize / 2;
   g.save();
   if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;

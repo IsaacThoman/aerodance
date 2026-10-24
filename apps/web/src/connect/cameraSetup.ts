@@ -76,6 +76,11 @@ export class CameraSetup {
   failed() { return !!this.error || this.target().connection.status === 'error'; }
   /** The phone is picked and pairs by itself (it waits for Try again once pairing fails). */
   pairsItself() { return this.phone() && !this.failed(); }
+  /** The phone's code is on its way: it is about to pair, or getting a code. */
+  awaitingCode() {
+    const { connection } = this.target();
+    return this.phone() && !connection.pairing && (connection.status === 'connecting' || (!this.active() && this.pairsItself()));
+  }
 
   /** Start camera, unless it is on or on its way. */
   start() {

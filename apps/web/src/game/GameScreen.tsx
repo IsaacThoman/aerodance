@@ -163,7 +163,8 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
 
   const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 66 });
   const pairing = camera.pairing();
-  if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
+  // The pairing card goes up as soon as the phone is picked; its code fills in once it comes.
+  if (pairing || camera.awaitingCode()) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
   drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
 
@@ -216,8 +217,8 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
 }
 
 // Over the empty preview: a camera button while the camera is off (the whole preview presses
-// it, and shows why the last start failed), or a note while it starts (or the phone is about to
-// pair by itself). With No camera, the button continues without one.
+// it, and shows why the last start failed), or a note while it starts. With No camera, the
+// button continues without one.
 function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: CanvasUI) {
   const { GAME_CALIBRATION_PREVIEW } = gameLayout(s.w);
   const preview = GAME_CALIBRATION_PREVIEW;
@@ -225,7 +226,7 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   const cy = preview.y + preview.h / 2;
   const phone = camera.phone();
   const none = camera.none();
-  if (camera.active() || camera.pairsItself()) {
+  if (camera.active()) {
     text(g, phone ? 'Connecting to your phone…' : 'Starting camera…', cx, cy, { size: 24, weight: 700, align: 'center', color: '#e6f8ff' });
     return;
   }
