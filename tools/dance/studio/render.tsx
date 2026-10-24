@@ -97,8 +97,8 @@ async function showScene(request: SceneRequest, dancers: number, revision: numbe
 // ---- Sheets ----
 
 const imageCache = new Map<string, Promise<ImageBitmap>>();
-function frameImage(t: number, width: number): Promise<ImageBitmap> {
-  const url = frameUrl(t, width);
+function frameImage(t: number, width: number, video: Dance['sources']['video']): Promise<ImageBitmap> {
+  const url = frameUrl(t, width, video);
   let found = imageCache.get(url);
   if (!found) {
     found = fetch(url).then(async r => { if (!r.ok) throw Error(`Frame at ${t} ms: HTTP ${r.status}`); return createImageBitmap(await r.blob()); });
@@ -261,7 +261,7 @@ async function render(spec: RenderSpec): Promise<string> {
           g.beginPath(); g.moveTo(x, v.y); g.lineTo(x, v.y + v.h); g.moveTo(v.x, y); g.lineTo(v.x + v.w, y); g.stroke();
         }
       } else if (dance.sources.video) {
-        const image = await frameImage(t, frameWidth);
+        const image = await frameImage(t, frameWidth, dance.sources.video);
         g.drawImage(image, crop.x * image.width, crop.y * image.height, crop.w * image.width, crop.h * image.height, v.x, v.y, v.w, v.h);
       } else { g.fillStyle = '#10242c'; g.fillRect(v.x, v.y, v.w, v.h); drawTag(g, 'no video', v.x + 8, v.y + 8); }
       if (spec.grid) drawGrid(g, v);

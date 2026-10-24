@@ -249,6 +249,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'sample': {
       if (!range) throw Error('--range is required');
       const every = opt(values, 'every') ? parseTime(opt(values, 'every'), dance) : 100;
+      if (!(every >= 1)) throw Error('--every must be at least 1 ms');
       const names = (controls ?? ['leftWrist', 'rightWrist']) as string[];
       const rows: Record<string, unknown>[] = [];
       for (const d of dancers) {
@@ -266,8 +267,9 @@ export async function main(argv: string[]): Promise<number> {
       const request = await readOps(values, rest[0]);
       if (values['dry-run']) {
         const { applyOps } = await import('./ops.ts');
-        await project.loadTracking(dance);
-        const { summary } = applyOps(dance, request.ops, { tracking: id => { throw Error(`dry-run can't read tracking ${id}`); } });
+        const tracking = new Map<string, Awaited<ReturnType<DanceProject['tracking']>>>();
+        for (const t of dance.sources.tracking) tracking.set(t.id, await project.tracking(t.id, dance));
+        const { summary } = applyOps(dance, request.ops, { tracking: id => tracking.get(id) ?? (() => { throw Error(`No tracking ${id}`); })() });
         print(json ? summary : formatApply({ revision: dance.revision, previousRevision: dance.revision, summary, replayed: false }, dance) + '\n(dry run: nothing written)');
         return 0;
       }
@@ -299,6 +301,7 @@ export async function main(argv: string[]): Promise<number> {
       const tracking = new Map<string, Awaited<ReturnType<DanceProject['tracking']>>>();
       for (const t of dance.sources.tracking) tracking.set(t.id, await project.tracking(t.id, dance));
       const windowMs = opt(values, 'every') ? parseTime(opt(values, 'every'), dance) : 500;
+      if (!(windowMs >= 50)) throw Error('--every must be at least 50 ms');
       const result = compareToTracking(dance, id => tracking.get(id) ?? null, { range: range ?? undefined, windowMs })
         .filter(c => !dancersArg || dancers.some(d => d.id === c.dancer));
       if (!result.length) throw Error('No tracking follows these dancers; run `dance track` first');
@@ -338,7 +341,7 @@ export async function main(argv: string[]): Promise<number> {
       const lines = [`Song ${bundle.songId} (revision ${bundle.song.bundleRevision}): ${bundle.compiled.stats.frames} frames from ${bundle.compiled.stats.candidates} samples`, `ZIP ${out}`];
       const folder = opt(values, 'folder');
       if (folder) lines.push(`Folder ${await installBundle(bundle, path.resolve(folder))}`);
-      if (values.install) lines.push(`Installed ${await installBundle(bundle)} (open Song Select to see it; don't commit it)`);
+      if (values.install) lines.push(`Installed ${await installBundle(bundle, undefined, project)} (open Song Select to see it; don't commit it)`);
       print(json ? { songId: bundle.songId, revision: bundle.song.bundleRevision, zip: out, stats: bundle.compiled.stats, entry: bundle.entry } : lines.join('\n'));
       return 0;
     }

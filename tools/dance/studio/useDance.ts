@@ -1,9 +1,11 @@
 // The dance the Studio shows and edits, kept in step with dance.json on disk.
 //
-// Edits are ops (ops.ts), the same ones the CLI applies: the Studio shows the result at once
-// (applied locally), then the bridge applies them to the latest revision. Changes from anywhere
-// else (the CLI, an agent, another window) arrive as revision events and replace what's shown,
-// unless a drag is in progress, which keeps its preview until it's committed.
+// Edits are ops (ops.ts), the same ones the CLI applies. The Studio shows their result at once
+// (applied locally), then sends them to the bridge one batch at a time, in order, each against
+// the latest saved revision, so quick successive edits (typing, a slider) never race each other.
+// Changes from anywhere else (the CLI, an agent, another window, a hand edit) arrive as events
+// and replace what's shown, unless a drag is in progress, which keeps its preview until it's
+// committed.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dance } from '../format.ts';
 import { applyOps as applyLocally } from '../ops.ts';
@@ -18,7 +20,7 @@ const needsTracking = (ops: readonly unknown[]) => ops.some(o => {
 });
 
 export interface DanceStore {
-  /** What to show: a drag's preview, else the latest dance. */
+  /** What to show: a drag's preview or edits still being saved, else the saved dance. */
   dance: Dance | null;
   saved: Dance | null;
   error: string;
@@ -27,7 +29,7 @@ export interface DanceStore {
   history: { undo: { revision: number; label: string }[]; redo: { revision: number; label: string }[] };
   setError(message: string): void;
   setNotice(message: string): void;
-  /** Applies ops; resolves with the change summary, or null if it failed (the error is shown). */
+  /** Applies ops after any still being saved; resolves with the change summary, or null if it failed (the error is shown). */
   apply(ops: unknown[], label?: string): Promise<ChangeSummary | null>;
   /** Shows ops applied locally without saving (a drag in progress); null clears it. */
   preview(ops: unknown[] | null): void;
@@ -41,59 +43,65 @@ export function useDance(): DanceStore {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<DanceStore['history']>({ undo: [], redo: [] });
-  const current = useRef<Dance | null>(null);
-  const dragging = useRef(false);
-  current.current = saved;
+  const current = useRef<Dance | null>(null), shownJson = useRef('');
+  // Edits waiting to be saved: the queue they run in, how many, and what they add up to.
+  const queue = useRef<Promise<unknown>>(Promise.resolve()), waiting = useRef(0), optimistic = useRef<Dance | null>(null);
   const refresh = useCallback(async () => {
     const [next, steps] = await Promise.all([fetchDance(), history()]);
-    if (!current.current || next.revision !== current.current.revision) setSaved(next);
+    const text = JSON.stringify(next);
+    if (text !== shownJson.current) { shownJson.current = text; current.current = next; setSaved(next); }
     setLog(steps);
     return next;
   }, []);
   useEffect(() => {
     refresh().catch(e => setError(String(e instanceof Error ? e.message : e)));
-    return watchRevisions(revision => {
-      if (current.current && revision === current.current.revision) return;
-      refresh().catch(() => {});
-    });
+    // Any change, including a hand edit that kept the revision.
+    return watchRevisions(() => { refresh().catch(() => {}); });
   }, [refresh]);
   const failed = (e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
     return null;
   };
-  const apply = useCallback(async (ops: unknown[], label?: string): Promise<ChangeSummary | null> => {
-    const base = current.current;
-    if (!base) return null;
-    dragging.current = false;
+  const apply = useCallback((ops: unknown[], label?: string): Promise<ChangeSummary | null> => {
+    if (!current.current) return Promise.resolve(null);
     setError('');
-    // Show the result immediately when it can be computed here.
+    // Show the result at once, on top of edits not saved yet, when it can be computed here.
     if (!needsTracking(ops)) {
-      try { setPreview(applyLocally(base, ops).dance); }
-      catch (e) { setPreview(null); return failed(e); }
+      try { optimistic.current = applyLocally(optimistic.current ?? current.current, ops).dance; setPreview(optimistic.current); }
+      catch (e) { return Promise.resolve(failed(e)); }
     }
+    waiting.current++;
     setBusy(true);
-    try {
-      let result;
-      try { result = await applyOps(ops, base.revision, label); }
-      catch (e) {
-        // Someone else saved first: apply the same ops to their revision.
-        if (!(e instanceof ApiError && e.status === 409)) throw e;
-        const latest = await refresh();
-        result = await applyOps(ops, latest.revision, label);
+    const run = queue.current.then(async (): Promise<ChangeSummary | null> => {
+      try {
+        let result;
+        try { result = await applyOps(ops, current.current!.revision, label); }
+        catch (e) {
+          // Someone else saved first: apply the same ops to their revision.
+          if (!(e instanceof ApiError && e.status === 409)) throw e;
+          const latest = await refresh();
+          result = await applyOps(ops, latest.revision, label);
+        }
+        await refresh();
+        return result.summary;
+      } catch (e) {
+        // What's shown can't be trusted any more: show what's saved.
+        optimistic.current = null;
+        return failed(e);
+      } finally {
+        if (--waiting.current === 0) { optimistic.current = null; setPreview(null); setBusy(false); }
       }
-      const next = await refresh();
-      if (next.revision < result.revision) await refresh();
-      return result.summary;
-    } catch (e) { return failed(e); }
-    finally { setPreview(null); setBusy(false); }
+    });
+    queue.current = run.catch(() => {});
+    return run;
   }, [refresh]);
   const showPreview = useCallback((ops: unknown[] | null) => {
-    const base = current.current;
-    if (!ops || !base) { dragging.current = false; setPreview(null); return; }
-    dragging.current = true;
+    const base = optimistic.current ?? current.current;
+    if (!ops || !base) { setPreview(optimistic.current); return; }
     try { setPreview(applyLocally(base, ops).dance); } catch { /* an impossible drag position: keep the last preview */ }
   }, []);
   const step = useCallback(async (direction: 'undo' | 'redo') => {
+    await queue.current;
     setError('');
     setBusy(true);
     try {

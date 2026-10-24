@@ -1,12 +1,13 @@
 // A dance as a game song bundle: <songId>/song.json, choreography.adpose, the audio and
 // checksums.json, exactly as Dance Studio exports them (tools/choreography/storage/store.ts), so
 // the game installs and imports it the same way (docs/game-song-bundles.md).
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bundleSongId } from '../choreography/storage/store.ts';
 import { encodePoseFile } from '../../packages/pose/binary.ts';
-import { catalogEntry, sha256, validateSongChoreography } from '../../packages/pose/song.ts';
+import { catalogEntry, sha256, songChoreographyFromTimeline, validateSongChoreography } from '../../packages/pose/song.ts';
 import type { CatalogSong, ChecksumManifest, Song } from '../../packages/pose/song.ts';
 import type { PlayerCount } from '../../packages/pose/choreography.ts';
 import { makeZip } from '../../packages/pose/zip.ts';
@@ -36,7 +37,9 @@ export async function songBundle(project: DanceProject, dance: Dance): Promise<S
   const audio = new Uint8Array(await readFile(project.resolve(audioRef.path)));
   if (await sha256(audio) !== audioRef.sha256) throw Error(`${audioRef.path} changed since it was added (hash mismatch)`);
   const compiled = compileDance(dance);
-  const songId = await bundleSongId(audioRef.sha256, choreographyOf(compiled, ''));
+  // The id comes from the audio and the motion (and markers), as Dance Studio's does, not the
+  // provenance: a dance whose details change but whose motion doesn't keeps its id.
+  const songId = await bundleSongId(audioRef.sha256, songChoreographyFromTimeline({ ...compiled.timeline, songId: '' }, { markers: compiled.markers }));
   const extension = audioRef.path.split('.').pop()!.toLowerCase(), audioPath = `audio.${extension}`;
   const revision = Math.max(1, dance.revision);
   const now = new Date().toISOString();
@@ -74,11 +77,23 @@ export async function songBundle(project: DanceProject, dance: Dance): Promise<S
 }
 /** The bundle as a ZIP of one <songId>/ folder, as the game's Import song expects. */
 export const bundleZip = (bundle: SongBundle) => makeZip(new Map([...bundle.files].map(([p, b]) => [`${bundle.songId}/${p}`, b])));
-/** Writes the bundle's folder into `songsDir` (the game's apps/web/public/songs by default), replacing an older copy. */
-export async function installBundle(bundle: SongBundle, songsDir = GAME_SONGS): Promise<string> {
+/**
+ * Writes the bundle's folder into `songsDir` (the game's apps/web/public/songs by default),
+ * replacing an older copy. Changing the motion changes the song id, so the folder this project
+ * installed last time (recorded under .dance) is removed rather than left as a second song.
+ */
+export async function installBundle(bundle: SongBundle, songsDir = GAME_SONGS, project?: DanceProject): Promise<string> {
   const folder = path.join(songsDir, bundle.songId);
+  const record = project?.meta('installed.json');
+  if (record) {
+    const previous = await readFile(record, 'utf8').then(t => JSON.parse(t) as { folder?: string }, () => ({ folder: undefined }));
+    // Only a folder this project installed, inside the songs folder, that still holds a song.
+    if (previous.folder && previous.folder !== folder && path.dirname(previous.folder) === path.resolve(songsDir) && existsSync(path.join(previous.folder, 'song.json')))
+      await rm(previous.folder, { recursive: true, force: true });
+  }
   await rm(folder, { recursive: true, force: true });
   await mkdir(folder, { recursive: true });
   for (const [p, bytes] of bundle.files) await writeFile(path.join(folder, p), bytes);
+  if (record) { await mkdir(path.dirname(record), { recursive: true }); await writeFile(record, JSON.stringify({ folder }) + '\n'); }
   return folder;
 }

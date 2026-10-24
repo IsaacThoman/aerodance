@@ -89,6 +89,43 @@ try {
   const times = (await project.read()).dancers[0].layers[0].channels.leftWrist.map(k => k.t);
   assert.ok(!times.includes(400) && times.some(t => t > 420 && t < 520), `the key moved later: ${times.join(', ')}`);
 
+  type Studio = { danceStudio: { jointOnPage(d: string, c: string): { x: number; y: number } } };
+  const joint = (control: string) => page.evaluate(c => (window as unknown as Studio).danceStudio.jointOnPage('P1', c), control);
+  const settled = () => page.waitForSelector('.studio[data-busy="false"]');
+
+  step('a click selects a joint without keying it');
+  const before = await revision();
+  const right = await joint('rightWrist');
+  await page.mouse.click(right.x + 2, right.y + 1);
+  await page.waitForSelector('.studio[data-control="rightWrist"]');
+  await page.waitForTimeout(500);
+  assert.equal(await revision(), before);
+
+  step('a drag keys the dancer\'s own time and drops the joint where the pointer leaves it');
+  await project.apply({ ops: [{ op: 'dancer', dancer: 'P1', timeOffsetMs: 100 }, { op: 'nudge', dancer: 'P1', t: 300, fadeMs: 0, set: { leftWrist: [0.03, 0] } }] });
+  await page.goto(`${bridge.url}?t=500`);
+  await waitRevision(before + 1);
+  const grab = await joint('leftWrist');
+  await page.mouse.move(grab.x + 3, grab.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(grab.x + 23, grab.y - 18, { steps: 6 });
+  await page.mouse.up();
+  await waitRevision(before + 2);
+  const dropped = await joint('leftWrist');
+  assert.ok(Math.hypot(dropped.x - (grab.x + 20), dropped.y - (grab.y - 20)) <= 1.5, `dropped at ${JSON.stringify(dropped)}, grabbed ${JSON.stringify(grab)}`);
+  assert.ok((await project.read()).dancers[0].layers[0].channels.leftWrist.some(k => k.t === 400), 'keyed at dancer time 400 (song 500 minus the offset)');
+
+  step('quick successive edits all land, in order');
+  const slider = page.getByLabel('Fixes weight');
+  await slider.focus();
+  for (let i = 0; i < 5; i++) await slider.press('ArrowLeft');
+  await settled();
+  await page.waitForFunction(() => !document.querySelector('.studio [data-busy="true"]'));
+  await page.waitForTimeout(300);
+  await settled();
+  assert.equal((await project.read()).dancers[0].layers[1].weight, 0.75);
+  assert.equal(await page.locator('.message.error').count(), 0);
+
   step('review checks the dance and exports a song the game accepts');
   await page.getByRole('tab', { name: 'Review' }).click();
   await page.getByRole('button', { name: 'Check' }).click();

@@ -24,7 +24,9 @@ export const applyOps = (ops: unknown[], expectRevision: number, label?: string)
 export const undo = (expectRevision?: number) => post<{ result: { revision: number; label: string } | null }>('/api/undo', { expectRevision });
 export const redo = (expectRevision?: number) => post<{ result: { revision: number; label: string } | null }>('/api/redo', { expectRevision });
 export const history = () => call<{ undo: { revision: number; label: string }[]; redo: { revision: number; label: string }[] }>('/api/history');
-export const frameUrl = (songMs: number, width?: number) => `/api/frame?t=${songMs.toFixed(1)}${width ? `&w=${Math.round(width)}` : ''}`;
+/** The video frame shown at a song time; the URL names the video's alignment too, so realigning it never shows a cached frame. */
+export const frameUrl = (songMs: number, width: number | undefined, video: { startMs: number; rate: number; sha256: string } | null) =>
+  `/api/frame?t=${songMs.toFixed(1)}${width ? `&w=${Math.round(width)}` : ''}${video ? `&v=${video.sha256.slice(0, 12)}:${video.startMs}:${video.rate}` : ''}`;
 const tracking = new Map<string, Promise<TrackingData>>();
 /** A tracking file, decoded once per content hash. */
 export function fetchTracking(dance: Dance, id: string): Promise<TrackingData> {
@@ -37,12 +39,15 @@ export function fetchTracking(dance: Dance, id: string): Promise<TrackingData> {
   }
   return found;
 }
-/** Calls back with each new revision of dance.json, from any editor (CLI, another window). */
-export function watchRevisions(onRevision: (revision: number) => void): () => void {
+/**
+ * Calls back whenever dance.json changes, from any editor (CLI, another window, a hand edit):
+ * with its revision and a stamp of its content.
+ */
+export function watchRevisions(onChange: (revision: number, stamp: string) => void): () => void {
   const events = new EventSource('/api/events');
   events.onmessage = e => {
-    const data = JSON.parse(e.data) as { revision?: number };
-    if (typeof data.revision === 'number') onRevision(data.revision);
+    const data = JSON.parse(e.data) as { revision?: number; stamp?: string };
+    if (typeof data.revision === 'number') onChange(data.revision, data.stamp ?? '');
   };
   return () => events.close();
 }

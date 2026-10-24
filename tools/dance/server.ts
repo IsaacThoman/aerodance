@@ -15,6 +15,7 @@
 //   POST /api/export                { install? } → the song bundle (ZIP under .dance/exports)
 //   POST /api/render                a RenderSpec (studio/renderSpec.ts) → PNG, for CLI previews
 import express from 'express';
+import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { existsSync, watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
@@ -67,7 +68,9 @@ export class Bridge {
       res.status(403).end('Forbidden host');
     });
     const clients = new Set<Response>();
-    let revision = (await project.read()).revision;
+    // Clients hear about every change to dance.json: a new revision, or a hand edit that kept it.
+    const stampOf = async () => createHash('sha1').update(await readFile(project.file)).digest('hex').slice(0, 16);
+    let revision = (await project.read()).revision, stamp = await stampOf();
     const broadcast = (data: unknown) => { for (const c of clients) c.write(`data: ${JSON.stringify(data)}\n\n`); };
     // dance.json is replaced by rename, so watch its folder.
     let timer: NodeJS.Timeout | null = null;
@@ -76,8 +79,8 @@ export class Bridge {
       if (timer) clearTimeout(timer);
       timer = setTimeout(async () => {
         try {
-          const next = (await project.read()).revision;
-          if (next !== revision) { revision = next; broadcast({ revision }); }
+          const next = (await project.read()).revision, nextStamp = await stampOf();
+          if (next !== revision || nextStamp !== stamp) { revision = next; stamp = nextStamp; broadcast({ revision, stamp }); }
         } catch { /* mid-write or invalid: the next change reports it */ }
       }, 40);
     });
@@ -97,19 +100,19 @@ export class Bridge {
     }));
     api.get('/events', (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ revision })}\n\n`);
+      res.write(`data: ${JSON.stringify({ revision, stamp })}\n\n`);
       clients.add(res);
       const ping = setInterval(() => res.write(': ping\n\n'), 15000);
       req.on('close', () => { clearInterval(ping); clients.delete(res); });
     });
     api.post('/apply', handle(async req => {
       const result = await project.apply(req.body);
-      revision = result.revision; broadcast({ revision });
+      revision = result.revision; stamp = await stampOf(); broadcast({ revision, stamp });
       return result;
     }));
     for (const step of ['undo', 'redo'] as const) api.post(`/${step}`, handle(async req => {
       const result = await project.step(step, req.body?.expectRevision);
-      if (result) { revision = result.revision; broadcast({ revision }); }
+      if (result) { revision = result.revision; stamp = await stampOf(); broadcast({ revision, stamp }); }
       return { result };
     }));
     api.get('/history', handle(() => project.log()));
@@ -161,7 +164,7 @@ export class Bridge {
       const zip = project.meta('exports', `${bundle.songId}-r${bundle.song.bundleRevision}.aerodance-song.zip`);
       await mkdir(path.dirname(zip), { recursive: true });
       await writeFile(zip, bundleZip(bundle));
-      const installed = req.body?.install ? await installBundle(bundle) : null;
+      const installed = req.body?.install ? await installBundle(bundle, undefined, project) : null;
       return { songId: bundle.songId, revision: bundle.song.bundleRevision, zip, installed, stats: bundle.compiled.stats };
     }));
     api.get('/export/:file', handle(async (req, res) => {
@@ -310,10 +313,12 @@ export async function runBrowserCommand(command: string, project: DanceProject, 
     if (str(values, 'at')) times = str(values, 'at')!.split(',').map(t => parseTime(t, dance));
     else if (str(values, 'range')) {
       const [a, b] = parseRange(str(values, 'range'), dance), every = str(values, 'every') ? parseTime(str(values, 'every'), dance) : 250;
-      times = [];
-      for (let t = a; t <= b + 1e-6 && times.length < 48; t += every) times.push(Math.round(t * 10) / 10);
+      if (!(every >= 1)) throw Error('--every must be at least 1 ms');
+      const count = Math.floor((b - a) / every + 1e-6) + 1;
+      if (count > 48) throw Error(`That's ${count} frames; a sheet holds at most 48. Use a larger --every (${Math.ceil((b - a) / 47)} ms or more) or a shorter range.`);
+      times = Array.from({ length: count }, (_, i) => Math.round((a + i * every) * 10) / 10);
     } else throw Error('frames needs --at t1,t2,… or --range a:b');
-    if (times.length > 48) throw Error('At most 48 frames per sheet');
+    if (times.length > 48) throw Error(`That's ${times.length} frames; a sheet holds at most 48`);
     const spec: RenderSpec = {
       revision: dance.revision, times, views: viewsOf(values), dancers, focus: dancers?.[0] ?? null,
       zoom: zoomRect(dance, str(values, 'zoom'), times), cellWidth: str(values, 'width') ? Number(str(values, 'width')) : 360,
@@ -409,17 +414,21 @@ async function track(project: DanceProject, dance: Dance, values: Values, json: 
   const aspect = aspectOf(dance);
   const frames: TrackedFrame[] = assignSlots(detections, slots, aspect, { starts: dance.dancers.map(d => d.home) });
   const found = frames.map(f => f.poses.filter(Boolean).length);
-  const id = `t${dance.sources.tracking.length + 1}`;
   const bytes = encodeTracking(frames, { width: video.width, height: video.height, slots,
     provenance: { tool: 'dance track', model: 'lite', fps, videoSha256: video.sha256, rangeMs: [startMs, endMs], createdAt: new Date().toISOString() } });
-  const rel = `sources/tracking-${id}.adpose`;
-  await writeFile(path.join(project.dir, rel), bytes);
   const { sha256 } = await import('../../packages/pose/song.ts');
-  const current = await project.read();
-  const next = structuredClone(current);
-  next.sources.tracking.push({ id, path: rel, sha256: await sha256(bytes), bytes: bytes.length, mimeType: 'application/octet-stream', model: 'lite',
-    createdAt: new Date().toISOString(), fps, dancers: current.dancers.map(d => d.id) });
-  const saved = await project.replace(next, `track ${id}`);
+  const hash = await sha256(bytes);
+  // Named by content, so tracks run at the same time never write the same file.
+  const rel = `sources/tracking-${hash.slice(0, 12)}.adpose`;
+  await writeFile(path.join(project.dir, rel), bytes);
+  let id = '';
+  const saved = await project.update('track', next => {
+    const taken = new Set(next.sources.tracking.map(t => t.id));
+    for (let n = next.sources.tracking.length + 1; ; n++) if (!taken.has(`t${n}`)) { id = `t${n}`; break; }
+    next.sources.tracking.push({ id, path: rel, sha256: hash, bytes: bytes.length, mimeType: 'application/octet-stream', model: 'lite',
+      createdAt: new Date().toISOString(), fps, dancers: next.dancers.slice(0, slots).map(d => d.id) });
+  });
+  const current = saved;
   const coverage = current.dancers.map((d, slot) => `${d.id} ${Math.round(100 * frames.filter(f => f.poses[slot]).length / Math.max(1, frames.length))}%`);
   out(json ? { id, path: rel, frames: frames.length, revision: saved.revision, detectionsPerFrame: found }
     : `Tracking ${id}: ${frames.length} frames at ${fps} fps → ${rel} (revision ${saved.revision}); found ${coverage.join(', ')}`);

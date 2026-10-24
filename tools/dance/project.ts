@@ -43,7 +43,11 @@ export function formatJson(value: unknown, indent = ''): string {
   const simple = (v: unknown): boolean => v === null || typeof v !== 'object' || Array.isArray(v) && v.every(x => x === null || typeof x !== 'object');
   if (inline === undefined) return 'null';
   if (simple(value)) return inline;
-  if (!Array.isArray(value) && Object.values(value as object).every(simple) && inline.length <= 110) return inline.replace(/":/g, '": ').replace(/,"/g, ', "');
+  if (!Array.isArray(value) && Object.values(value as object).every(simple) && inline.length <= 110) {
+    // Spaced key by key: rewriting the serialized text would also change the strings inside it.
+    const entries = Object.entries(value as object).filter(([, v]) => v !== undefined);
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')}}`;
+  }
   const next = indent + '  ';
   if (Array.isArray(value)) return value.length ? `[\n${value.map(v => next + formatJson(v, next)).join(',\n')}\n${indent}]` : '[]';
   const entries = Object.entries(value as object).filter(([, v]) => v !== undefined);
@@ -82,9 +86,10 @@ export class DanceProject {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
         const owner = Number(await readFile(path.join(lock, 'pid'), 'utf8').catch(() => '0'));
         const age = Date.now() - ((await stat(lock).catch(() => null))?.mtimeMs ?? Date.now());
+        // A lock whose process has gone is stale: take it over.
         if ((owner && !alive(owner)) || (!owner && age > 5000)) { await rm(lock, { recursive: true, force: true }); continue; }
-        if (attempt > 200) throw Error(`The project is locked by process ${owner || 'unknown'}; remove ${lock} if nothing is running`, { cause: e });
-        await sleep(25);
+        if (attempt > 1200) throw Error(`The project is busy: process ${owner || '(unknown)'} has been changing it for over a minute. Try again when it finishes.`, { cause: e });
+        await sleep(50);
       }
     }
     try {
@@ -105,9 +110,15 @@ export class DanceProject {
     await writeFile(temporary, text);
     await rename(temporary, file);
   }
+  /**
+   * Keeps a revision for undo. The current file is always written again: someone may have
+   * edited dance.json by hand without changing its revision, and undo must restore what was
+   * really there before the next change.
+   */
   private async snapshot(dance: Dance) {
-    const file = this.meta('revisions', `${dance.revision}.json`);
-    if (!existsSync(file)) await this.writeAtomic(file, JSON.stringify(dance) + '\n');
+    const file = this.meta('revisions', `${dance.revision}.json`), text = JSON.stringify(dance) + '\n';
+    if (existsSync(file) && await readFile(file, 'utf8') === text) return;
+    await this.writeAtomic(file, text);
   }
   /** An earlier revision, as it was saved (the current one included). */
   async revisionAt(n: number): Promise<Dance> {
@@ -142,10 +153,15 @@ export class DanceProject {
       if (Number.isInteger(n) && n < current - HISTORY_LIMIT * 2 && !keep.has(n)) await rm(this.meta('revisions', f), { force: true });
     }
   }
-  /** Writes a whole dance as the next revision (init, and imports that replace it). */
-  async replace(next: Dance, label: string): Promise<Dance> {
+  /**
+   * Changes the dance outside the op set (sources: attach, track) as the next revision. `change`
+   * gets the latest dance, read under the lock, so nothing saved meanwhile is lost: do slow work
+   * (hashing, transcoding, tracking) before calling this, not inside it.
+   */
+  async update(label: string, change: (dance: Dance) => void | Promise<void>): Promise<Dance> {
     return this.locked(async () => {
-      const current = await this.read();
+      const current = await this.read(), next = structuredClone(current);
+      await change(next);
       const saved = await this.commit(current, next);
       const history = await this.history();
       history.undo.push({ revision: current.revision, label, at: saved.updatedAt });
@@ -256,7 +272,8 @@ export interface InitOptions {
 /** Adds or replaces the project's audio (and with `video`, the video and frame) as a new revision. */
 export async function attachSources(project: DanceProject, { audio, video, link = false, proxy, log = () => {} }:
   { audio?: string; video?: string; link?: boolean; proxy?: boolean; log?: (m: string) => void }): Promise<Dance> {
-  const current = await project.read(), next = structuredClone(current);
+  // The slow part first (probing, hashing, copying, transcoding), then the change under the lock.
+  let videoSource: { ref: FileRef; info: Awaited<ReturnType<typeof probeVideo>>; proxy: string | null } | null = null;
   if (video) {
     const info = await probeVideo(video);
     const ref = await project.addSource(video, `video${path.extname(video).toLowerCase()}`, { link });
@@ -266,22 +283,28 @@ export async function attachSources(project: DanceProject, { audio, video, link 
       await makeProxy(video, path.join(project.dir, 'sources/proxy.webm'), info.fps);
       proxyPath = 'sources/proxy.webm';
     }
-    next.sources.video = { ...ref, width: info.width, height: info.height, fps: info.fps, durationMs: info.durationMs,
-      startMs: current.sources.video?.startMs ?? 0, rate: current.sources.video?.rate ?? 1, proxy: proxyPath };
-    if (current.frame.width / current.frame.height !== info.width / info.height && Object.values(current.dancers.flatMap(d => Object.values(d.layers[0].channels))).length)
-      log(`Note: the frame changes from ${current.frame.width}×${current.frame.height} to ${info.width}×${info.height}; existing keys keep their frame coordinates`);
-    next.frame = { width: info.width, height: info.height };
+    videoSource = { ref, info, proxy: proxyPath };
   }
-  if (audio) {
-    const ms = await probeAudioMs(audio);
-    const ref = await project.addSource(audio, `audio${path.extname(audio).toLowerCase()}`, { link });
-    next.sources.audio = { ...ref, durationMs: ms };
-    if (!current.sources.audio) {
-      next.song.durationMs = ms;
-      next.song.playableEndMs = Math.min(ms, Math.max(next.song.playableStartMs + 1, current.song.playableEndMs === current.song.durationMs ? ms : current.song.playableEndMs));
+  let audioSource: { ref: FileRef; ms: number } | null = null;
+  if (audio) audioSource = { ms: await probeAudioMs(audio), ref: await project.addSource(audio, `audio${path.extname(audio).toLowerCase()}`, { link }) };
+  return project.update([audio && 'attach audio', video && 'attach video'].filter(Boolean).join(', '), next => {
+    if (videoSource) {
+      const { ref, info } = videoSource;
+      if (next.frame.width / next.frame.height !== info.width / info.height && next.dancers.some(d => Object.keys(d.layers[0].channels).length))
+        log(`Note: the frame changes from ${next.frame.width}×${next.frame.height} to ${info.width}×${info.height}; existing keys keep their frame coordinates`);
+      next.sources.video = { ...ref, width: info.width, height: info.height, fps: info.fps, durationMs: info.durationMs,
+        startMs: next.sources.video?.startMs ?? 0, rate: next.sources.video?.rate ?? 1, proxy: videoSource.proxy };
+      next.frame = { width: info.width, height: info.height };
     }
-  }
-  return project.replace(next, [audio && 'attach audio', video && 'attach video'].filter(Boolean).join(', '));
+    if (audioSource) {
+      const hadAudio = next.sources.audio !== null, wholeSong = next.song.playableEndMs === next.song.durationMs;
+      next.sources.audio = { ...audioSource.ref, durationMs: audioSource.ms };
+      if (!hadAudio) {
+        next.song.durationMs = audioSource.ms;
+        next.song.playableEndMs = Math.min(audioSource.ms, Math.max(next.song.playableStartMs + 1, wholeSong ? audioSource.ms : next.song.playableEndMs));
+      }
+    }
+  });
 }
 
 /** Creates a dance project folder: the dance, its sources and the .dance folder. */

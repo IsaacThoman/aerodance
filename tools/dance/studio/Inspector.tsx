@@ -164,6 +164,16 @@ export function ContactsPanel({ dancer, time, selection, apply }: { dancer: Danc
   );
 }
 
+/** A 0-1 slider that saves once, when it's let go, rather than on every step. */
+function WeightSlider({ value, label, onCommit }: { value: number; label: string; onCommit(v: number): void }) {
+  const [shown, setShown] = useState(value);
+  const [held, setHeld] = useState(false);
+  useEffect(() => { if (!held) setShown(value); }, [value, held]);
+  const commit = () => { setHeld(false); if (Math.abs(shown - value) > 1e-9) onCommit(shown); };
+  return <input type="range" min={0} max={1} step={0.05} value={shown} aria-label={label}
+    onChange={e => { setHeld(true); setShown(Number(e.target.value)); }}
+    onPointerUp={commit} onKeyUp={commit} onBlur={() => { if (held) commit(); }} />;
+}
 export function LayersPanel({ dancer, apply }: { dancer: Dancer; apply: Apply }) {
   return (
     <Section title="Layers" aside={<button className="link" onClick={() => apply([{ op: 'layer', dancer: dancer.id, action: 'add', label: 'Adjustments' }], 'add layer')}>Add</button>}>
@@ -172,8 +182,8 @@ export function LayersPanel({ dancer, apply }: { dancer: Dancer; apply: Apply })
           <li key={layer.id}>
             <span>{layer.label} <small>{i === 0 ? 'base' : `offsets · ${Object.keys(layer.channels).length} channels`}</small></span>
             {i > 0 && <span className="layer-tools">
-              <input type="range" min={0} max={1} step={0.05} value={layer.weight} aria-label={`${layer.label} weight`}
-                onChange={e => apply([{ op: 'layer', dancer: dancer.id, id: layer.id, weight: Number(e.target.value) }], 'layer weight')} />
+              <WeightSlider value={layer.weight} label={`${layer.label} weight`}
+                onCommit={weight => apply([{ op: 'layer', dancer: dancer.id, id: layer.id, weight }], 'layer weight')} />
               <input type="checkbox" checked={layer.enabled} aria-label={`${layer.label} on`}
                 onChange={e => apply([{ op: 'layer', dancer: dancer.id, id: layer.id, enabled: e.target.checked }], 'toggle layer')} />
               <button className="link danger" onClick={() => apply([{ op: 'layer', dancer: dancer.id, id: layer.id, action: 'remove' }], 'remove layer')}>Remove</button>

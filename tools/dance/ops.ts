@@ -88,11 +88,30 @@ function timeFilter(op: Op, dance: Dance): (t: number) => boolean {
   if (op.t !== undefined) { const at = parseTime(op.t, dance); return t => Math.abs(t - at) < TIME_EPS; }
   return () => true;
 }
-function controlsOf(op: Op): Control[] {
-  if (op.controls === undefined) return [...CONTROLS];
+function controlNames(op: Op): string[] | null {
+  if (op.controls === undefined) return null;
   const list = typeof op.controls === 'string' ? op.controls.split(',').map(s => s.trim()) : op.controls;
   if (!Array.isArray(list) || !list.every(v => typeof v === 'string')) fail('controls must be a list of control or group names');
-  return expandControls(list);
+  expandControls(list);
+  return list;
+}
+function controlsOf(op: Op): Control[] {
+  return expandControls(controlNames(op));
+}
+/**
+ * Which of a layer's channels an op's `controls` select: all without them; a name the layer
+ * has a channel for (a control, or a group an additive layer keys) selects that channel; any
+ * other group selects its members.
+ */
+function channelFilter(op: Op, layer: Layer): (name: string) => boolean {
+  const names = controlNames(op);
+  if (!names) return () => true;
+  const selected = new Set<string>();
+  for (const name of names) {
+    if (layer.channels[name]) selected.add(name);
+    else for (const c of expandControls([name])) selected.add(c);
+  }
+  return name => selected.has(name);
 }
 
 // ---- Values ----
@@ -247,36 +266,86 @@ export function simplifyKeys(keys: AnyKey[], range: readonly [number, number], t
   const point = Array.isArray(keys[0].v), original = asCurve(keys);
   const lo = keys.findIndex(k => inRange(k.t, range)), hi = keys.length - 1 - [...keys].reverse().findIndex(k => inRange(k.t, range));
   if (lo < 0) return keys;
-  const step = 20;
-  let current = [...keys];
-  const errorWithout = (list: AnyKey[], i: number) => {
-    const a = list[i - 1].t, b = list[i + 1].t, trial = asCurve([...list.slice(0, i), ...list.slice(i + 1)]);
+  // A doubly linked list of the keys still kept, by original index.
+  const n = keys.length, prev = Array.from({ length: n }, (_, i) => i - 1), next = Array.from({ length: n }, (_, i) => i + 1);
+  const alive = Array<boolean>(n).fill(true), version = Array<number>(n).fill(0);
+  const removable = (i: number) => i > 0 && i < n - 1 && keys[i].t > keys[lo].t && keys[i].t < keys[hi].t && !pinned(keys[i], boundaries);
+  /** The kept key `steps` kept keys before (prev) or after (next) i, clamped to the ends. */
+  const walk = (i: number, steps: number, dir: number[]) => {
+    for (let k = 0; k < steps; k++) { const j = dir[i]; if (j < 0 || j >= n) break; i = j; }
+    return i;
+  };
+  // Removing key i reshapes the segments out to two kept keys either side (their tangents use
+  // their neighbours), and only those: measure them against the original, using three keys either side.
+  const errorWithout = (i: number) => {
+    const around: AnyKey[] = [];
+    for (let j = walk(i, 3, prev), last = walk(i, 3, next); ; j = next[j]) {
+      if (j !== i) around.push(keys[j]);
+      if (j === last) break;
+    }
+    const local = asCurve(around);
+    const a = walk(i, 2, prev), b = walk(i, 2, next);
     let worst = 0;
-    for (let t = a; t <= b; t += step) worst = Math.max(worst, metricDistance(evaluate(trial, t), evaluate(original, t), aspect, point));
+    for (let s = a * 3; s <= b * 3; s++) worst = Math.max(worst, metricDistance(evaluate(local, sampleTimes[s], scratch), sampleValues[s], aspect, point));
     return worst;
   };
-  for (;;) {
-    let best = -1, bestError = Infinity;
-    for (let i = 1; i < current.length - 1; i++) {
-      const k = current[i];
-      if (k.t <= keys[lo].t || k.t >= keys[hi].t || !inRange(k.t, range) || pinned(k, boundaries)) continue;
-      const e = errorWithout(current, i);
-      if (e < bestError) { bestError = e; best = i; }
-    }
-    if (best < 0 || bestError > tolerance) return current;
-    current = [...current.slice(0, best), ...current.slice(best + 1)];
+  // The original curve at each key and a third and two thirds of the way to the next, once:
+  // sample s is at key floor(s / 3).
+  const sampleTimes: number[] = [], sampleValues: number[][] = [], scratch: number[] = [];
+  for (let k = 0; k < n; k++) for (const f of [0, 1 / 3, 2 / 3]) {
+    const t = k + 1 < n ? keys[k].t + (keys[k + 1].t - keys[k].t) * f : keys[k].t;
+    sampleTimes.push(t); sampleValues.push(evaluate(original, t));
   }
+  // A min-heap of [error, index, version]; entries whose version has moved on are stale.
+  const heap: [number, number, number][] = [];
+  const push = (e: [number, number, number]) => {
+    heap.push(e);
+    for (let c = heap.length - 1; c > 0;) { const p = (c - 1) >> 1; if (heap[p][0] <= heap[c][0]) break; [heap[p], heap[c]] = [heap[c], heap[p]]; c = p; }
+  };
+  const pop = () => {
+    const top = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let p = 0; ;) {
+        const l = 2 * p + 1, r = l + 1;
+        let m = p;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === p) break;
+        [heap[p], heap[m]] = [heap[m], heap[p]]; p = m;
+      }
+    }
+    return top;
+  };
+  const score = (i: number) => { version[i]++; if (removable(i)) { const e = errorWithout(i); if (e <= tolerance) push([e, i, version[i]]); } };
+  for (let i = 0; i < n; i++) score(i);
+  // Greedy: drop the key whose loss changes the curve least, re-measuring only its neighbours.
+  while (heap.length) {
+    const [, i, v] = pop();
+    if (!alive[i] || v !== version[i]) continue;
+    alive[i] = false;
+    next[prev[i]] = next[i];
+    prev[next[i]] = prev[i];
+    for (let j = walk(prev[i], 3, prev), last = walk(next[i], 3, next); ; j = next[j]) {
+      score(j);
+      if (j === last) break;
+    }
+  }
+  return keys.filter((_, i) => alive[i]);
 }
 /** Gaussian-smooths key values over neighbouring keys in the range; pinned keys keep theirs. */
 export function smoothKeys(keys: AnyKey[], range: readonly [number, number], windowMs: number, boundaries: readonly number[] = []): AnyKey[] {
   const sigma = Math.max(1, windowMs / 2);
+  let from = 0;
   return keys.map(k => {
     if (!inRange(k.t, range) || pinned(k, boundaries)) return k;
     let total = 0;
     const sum = (Array.isArray(k.v) ? k.v.map(() => 0) : [0]);
     const hasZ = Array.isArray(k.v) && k.v.length === 3;
-    for (const o of keys) {
-      if (Math.abs(o.t - k.t) > 3 * sigma) continue;
+    // Keys are in time order: only those within three sigmas count.
+    while (keys[from].t < k.t - 3 * sigma) from++;
+    for (let j = from; j < keys.length && keys[j].t <= k.t + 3 * sigma; j++) {
+      const o = keys[j];
       if (hasZ && (!Array.isArray(o.v) || o.v.length !== 3)) continue;
       const w = Math.exp(-0.5 * ((o.t - k.t) / sigma) ** 2);
       total += w;
@@ -331,25 +400,28 @@ const HANDLERS: Record<string, Handler> = {
     } else if (isObject(from)) {
       const source = from.dancer === undefined ? dancer : findDancer(dance, from.dancer);
       pose = basePose(dance, source, parseTime(from.t, dance));
-      if (source !== dancer && op.mirror === undefined) {
-        // Another dancer's pose, moved to this dancer's home.
+      if (op.mirror !== undefined && op.mirror !== 'frame' && op.mirror !== 'self') fail('mirror must be "frame" or "self"');
+      // Reflected about the frame's centre, it lands where a mirrored duet partner stands; about
+      // itself, in place. Either way, from another dancer it then moves to this dancer's home.
+      if (op.mirror === 'self') pose = mirrorRig(pose, source.home[0]);
+      if (op.mirror === 'frame') pose = mirrorRig(pose, 0.5);
+      else if (source !== dancer) {
         const dx = dancer.home[0] - source.home[0], dy = dancer.home[1] - source.home[1];
         for (const c of POINTS) pose.points[c] = [pose.points[c][0] + dx, pose.points[c][1] + dy, pose.points[c][2]];
       }
     } else fail('from must be "current", "neutral", "tracking" or {"t": time, "dancer"?: id}');
-    if (op.mirror !== undefined) pose = mirrorRig(pose, op.mirror === 'frame' ? 0.5 : op.mirror === 'self' ? dancer.home[0]
+    if (op.mirror !== undefined && !isObject(from)) pose = mirrorRig(pose, op.mirror === 'frame' ? 0.5 : op.mirror === 'self' ? dancer.home[0]
       : fail('mirror must be "frame" or "self"'));
     keyPose(dancer, pose, t, controlsOf(op), { depth: op.depth === true, interp: optional(op.interp, interpOf), ease: optional(op.ease, easeOf) });
   },
   delete(dance, op) {
     fields(op, ['dancer', 'layer', 'controls', 't', 'times', 'range']);
     if (op.t === undefined && op.times === undefined && op.range === undefined) fail('delete needs t, times or range');
-    const match = timeFilter(op, dance), controls = new Set<string>(controlsOf(op));
+    const match = timeFilter(op, dance);
     for (const dancer of dancersOf(dance, op)) {
-      const layer = layerOf(dancer, op.layer);
+      const layer = layerOf(dancer, op.layer), selects = channelFilter(op, layer);
       for (const [name, keys] of Object.entries(layer.channels)) {
-        const groupSelected = isGroup(name) && op.controls === undefined;
-        if (!controls.has(name) && !groupSelected) continue;
+        if (!selects(name)) continue;
         const kept = keys.filter(k => !match(k.t));
         if (kept.length) layer.channels[name] = kept; else delete layer.channels[name];
       }
@@ -359,12 +431,12 @@ const HANDLERS: Record<string, Handler> = {
     fields(op, ['dancer', 'layer', 'controls', 't', 'times', 'range', 'interp', 'ease']);
     if (op.interp === undefined && op.ease === undefined) fail('interp needs interp and/or ease');
     const interp = optional(op.interp, interpOf), ease = optional(op.ease, easeOf);
-    const match = timeFilter(op, dance), controls = new Set<string>(controlsOf(op));
+    const match = timeFilter(op, dance);
     let count = 0;
     for (const dancer of dancersOf(dance, op)) {
-      const layer = layerOf(dancer, op.layer);
+      const layer = layerOf(dancer, op.layer), selects = channelFilter(op, layer);
       for (const [name, keys] of Object.entries(layer.channels)) {
-        if (!controls.has(name) && !(isGroup(name) && op.controls === undefined)) continue;
+        if (!selects(name)) continue;
         layer.channels[name] = keys.map(k => {
           if (!match(k.t)) return k;
           count++;
@@ -384,10 +456,10 @@ const HANDLERS: Record<string, Handler> = {
     if (!(scale > 0)) fail('scale must be positive');
     const pivot = op.pivot === undefined ? a : parseTime(op.pivot, dance);
     const map = (t: number) => roundTime(pivot + (t - pivot) * scale + shift);
-    const controls = new Set<string>(controlsOf(op)), all = op.controls === undefined;
+    const all = op.controls === undefined;
     for (const dancer of dancersOf(dance, op)) {
       for (const layer of dancer.layers) for (const [name, keys] of Object.entries(layer.channels)) {
-        if (!controls.has(name) && !(isGroup(name) && all)) continue;
+        if (!channelFilter(op, layer)(name)) continue;
         const moving = keys.filter(k => inRange(k.t, [a, b])), staying = keys.filter(k => !inRange(k.t, [a, b]));
         const moved = moving.map(k => ({ ...k, t: map(k.t) }));
         for (const k of moved) {
@@ -479,15 +551,23 @@ const HANDLERS: Record<string, Handler> = {
     fields(op, ['dancer', 'range', 'about']);
     const dancer = dancerOf(dance, op), [a, b] = op.range === undefined ? [-Infinity, Infinity] : parseRange(op.range, dance);
     const about = op.about === undefined || op.about === 'self' ? dancer.home[0] : op.about === 'frame' ? 0.5 : fail('about must be "frame" or "self"');
-    const layer = baseLayer(dancer), before = structuredClone(layer.channels);
-    for (const c of CONTROLS) {
-      const from = isPointControl(c) ? mirrorControl(c) : c;
-      const outside = (before[c] ?? []).filter(k => !inRange(k.t, [a, b]));
-      const inside = (before[from] ?? []).filter(k => inRange(k.t, [a, b])).map(k => ({ ...k,
-        v: Array.isArray(k.v) ? roundPoint([2 * about - k.v[0], k.v[1], ...(k.v.length === 3 ? [k.v[2]!] : [])]) : c === 'headPitch' ? k.v : -k.v } as AnyKey));
-      const keys = [...outside, ...inside].sort((x, y) => x.t - y.t);
-      if (keys.length) layer.channels[c] = keys; else delete layer.channels[c];
-    }
+    // Every layer: the base's positions reflect about `about`; additive offsets just flip in x.
+    // Left and right swap, and turns and head yaw and roll go the other way (pitch stays).
+    const swapGroup: Record<string, string> = { leftArm: 'rightArm', rightArm: 'leftArm', leftLeg: 'rightLeg', rightLeg: 'leftLeg' };
+    const mirrorName = (n: string) => isPointControl(n) ? mirrorControl(n) : swapGroup[n] ?? n;
+    dancer.layers.forEach((layer, li) => {
+      const before = structuredClone(layer.channels);
+      const names = new Set([...Object.keys(before), ...Object.keys(before).map(mirrorName)]);
+      for (const c of names) {
+        const from = mirrorName(c);
+        const outside = (before[c] ?? []).filter(k => !inRange(k.t, [a, b]));
+        const inside = (before[from] ?? []).filter(k => inRange(k.t, [a, b])).map(k => ({ ...k,
+          v: Array.isArray(k.v) ? roundPoint([li === 0 ? 2 * about - k.v[0] : -k.v[0], k.v[1], ...(k.v.length === 3 ? [k.v[2]!] : [])])
+            : c === 'headPitch' ? k.v : -k.v } as AnyKey));
+        const keys = [...outside, ...inside].sort((x, y) => x.t - y.t);
+        if (keys.length) layer.channels[c] = keys; else delete layer.channels[c];
+      }
+    });
     for (const c of dancer.contacts) if (c.startMs >= a && c.endMs <= b) {
       c.control = mirrorControl(c.control) as Contact['control'];
       if (c.position) c.position = roundPoint([2 * about - c.position[0], ...c.position.slice(1)]);
@@ -554,9 +634,10 @@ const HANDLERS: Record<string, Handler> = {
       keys = smoothKeys(keys, [-Infinity, Infinity], smoothMs);
       if (everyMs) {
         const curve = asCurve(keys), out: AnyKey[] = [];
+        const depthCurve: CurveKey[] = depth && isPointControl(c) ? keys.map(k => ({ t: k.t, v: [(k.v as number[])[2] ?? 0] })) : [];
         for (let t = range[0]; t <= range[1] + TIME_EPS; t += everyMs) {
           const v = evaluate(curve, t);
-          out.push({ t: roundTime(t), v: isPointControl(c) ? roundPoint(depth ? [...v, 0] : v) : round(v[0], 3) } as AnyKey);
+          out.push({ t: roundTime(t), v: isPointControl(c) ? roundPoint(depthCurve.length ? [...v, evaluate(depthCurve, t)[0]] : v) : round(v[0], 3) } as AnyKey);
         }
         keys = out;
       } else keys = simplifyKeys(keys, [-Infinity, Infinity], isScalarControl(c) ? (op.angleTolerance === undefined ? 4 : num(op.angleTolerance, 'angleTolerance'))

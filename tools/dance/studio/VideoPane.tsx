@@ -35,7 +35,13 @@ export default function VideoPane({ dance, clock, selection, onSelect, onPreview
   const [size, setSize] = useState({ w: 640, h: 360 });
   const [view, setView] = useState({ zoom: 1, cx: 0.5, cy: 0.5 });
   const evaluators = useMemo(() => dance.dancers.map(d => createEvaluator(dance, d)), [dance]);
-  const drag = useRef<{ dancer: string; control: PointControl; pointer: number } | { pan: true; x: number; y: number; cx: number; cy: number; pointer: number } | null>(null);
+  /**
+   * A joint being dragged: where the pointer went down, the joint's offset from it (so grabbing
+   * near a joint doesn't snap it to the pointer), the dancer-clock time it keys, and what layers
+   * and contacts add to the base pose there (so the joint lands where it's dropped).
+   */
+  const drag = useRef<{ dancer: string; control: PointControl; x: number; y: number; grab: { x: number; y: number }; t: number; extra: [number, number]; moved: boolean }
+    | { pan: true; x: number; y: number; cx: number; cy: number } | null>(null);
   const latest = useRef({ dance, evaluators, selection, showReference, showGhosts, view, size, soloSelected, tracking });
   latest.current = { dance, evaluators, selection, showReference, showGhosts, view, size, soloSelected, tracking };
   const frameAspect = dance.frame.width / dance.frame.height;
@@ -147,9 +153,10 @@ export default function VideoPane({ dance, clock, selection, onSelect, onPreview
     const r = canvas.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
-  const keyOp = (dancer: string, control: PointControl, px: number, py: number) => {
-    const p = toFrame(viewport(), px, py);
-    return { op: 'key', dancer, t: roundTime(clock.now()), set: { [control]: { x: Math.round(p.x * 1e5) / 1e5, y: Math.round(p.y * 1e5) / 1e5 } } };
+  const keyOp = (d: { dancer: string; control: PointControl; grab: { x: number; y: number }; t: number; extra: [number, number] }, px: number, py: number) => {
+    const p = toFrame(viewport(), px - d.grab.x, py - d.grab.y);
+    const x = p.x - d.extra[0], y = p.y - d.extra[1];
+    return { op: 'key', dancer: d.dancer, t: d.t, set: { [d.control]: { x: Math.round(x * 1e5) / 1e5, y: Math.round(y * 1e5) / 1e5 } } };
   };
   return (
     <div className="video-pane" ref={box} aria-label="Video with the dance's skeletons">
@@ -165,8 +172,13 @@ export default function VideoPane({ dance, clock, selection, onSelect, onPreview
           if (hit) {
             if (clock.playing) clock.pause();
             onSelect({ dancer: hit.dancer, control: hit.control });
-            drag.current = { dancer: hit.dancer, control: hit.control, pointer: e.pointerId };
-          } else drag.current = { pan: true, x: p.x, y: p.y, cx: view.cx, cy: view.cy, pointer: e.pointerId };
+            const i = dance.dancers.findIndex(d => d.id === hit.dancer), dancer = dance.dancers[i], songMs = clock.now();
+            const shown = evaluators[i].rig(songMs).points[hit.control];
+            const base = createEvaluator(dance, dancer, { additive: false, contacts: false }).rig(songMs).points[hit.control];
+            const at = toCanvas(viewport(), { x: shown[0], y: shown[1] });
+            drag.current = { dancer: hit.dancer, control: hit.control, x: p.x, y: p.y, grab: { x: p.x - at.x, y: p.y - at.y },
+              t: roundTime(songMs - dancer.timeOffsetMs), extra: [shown[0] - base[0], shown[1] - base[1]], moved: false };
+          } else drag.current = { pan: true, x: p.x, y: p.y, cx: view.cx, cy: view.cy };
         }}
         onPointerMove={e => {
           const d = drag.current, p = local(e);
@@ -176,15 +188,18 @@ export default function VideoPane({ dance, clock, selection, onSelect, onPreview
             setView(view => ({ ...view, cx: d.cx - (p.x - d.x) / v.w, cy: d.cy - (p.y - d.y) / v.h }));
             return;
           }
+          // A click selects; only a real drag keys.
+          if (!d.moved && Math.hypot(p.x - d.x, p.y - d.y) < 3) return;
+          d.moved = true;
           canvas.current!.style.cursor = 'grabbing';
-          onPreview([keyOp(d.dancer, d.control, p.x, p.y)]);
+          onPreview([keyOp(d, p.x, p.y)]);
         }}
         onPointerUp={e => {
           const d = drag.current;
           drag.current = null;
-          if (!d || 'pan' in d) return;
-          const p = local(e), op = keyOp(d.dancer, d.control, p.x, p.y);
-          onCommit([op], `move ${d.control}`);
+          if (!d || 'pan' in d || !d.moved) return;
+          const p = local(e);
+          onCommit([keyOp(d, p.x, p.y)], `move ${d.control}`);
         }}
         onPointerCancel={() => { drag.current = null; onPreview(null); }}
         onDoubleClick={e => { const p = local(e); if (!pick(p.x, p.y)) setView({ zoom: 1, cx: 0.5, cy: 0.5 }); }}
