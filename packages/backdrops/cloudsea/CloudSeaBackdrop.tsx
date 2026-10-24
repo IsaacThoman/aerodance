@@ -1,12 +1,35 @@
-import { SkyDome } from '../../stages/shared/Sky.tsx';
 import { BackdropCamera } from '../shared/BackdropCamera.tsx';
+import { useBackdropFrame } from '../shared/frame.ts';
+import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET, atmos } from './palette.ts';
+import { SunriseSky } from './Sky.tsx';
+import { CloudSea } from './CloudSea.tsx';
+import { Fleet } from './Fleet.tsx';
+import { CloudBanks } from './CloudBanks.tsx';
+import { Birds } from './Birds.tsx';
+import { SunFlare } from './Flare.tsx';
+import { Motes } from './Motes.tsx';
 
-// Placeholder until the scene is built.
+// One clock for the scene's shared uniforms.
+function Clock() {
+  useBackdropFrame((_state, _delta, time) => {
+    atmos.uTime.value = time;
+  });
+  return null;
+}
+
+/** Sunrise above an endless sea of clouds. */
 export default function CloudSeaBackdrop() {
   return (
     <>
-      <BackdropCamera position={[0, 2, 12]} target={[0, 3, 0]} />
-      <SkyDome top="#6aa8ff" horizon="#ffd2b0" bottom="#fff1e6" sunDisc={0} sunGlow={0} />
+      <Clock />
+      <BackdropCamera position={CAMERA_POSITION} target={CAMERA_TARGET} fov={CAMERA_FOV} near={1} far={9000} sway={[3, 1.2, 0]} parallax={[4, 1.6]} />
+      <SunriseSky />
+      <CloudSea />
+      <CloudBanks />
+      <Fleet />
+      <Birds />
+      <Motes />
+      <SunFlare />
     </>
   );
 }
