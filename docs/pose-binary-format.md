@@ -113,7 +113,7 @@ choreography normally has a single `FRMS` chunk.
 | 4 | u8 | `playerSlots` | `1` to `4`; the number of pose slots per frame. A `track` or `capture` has at most `2` |
 | 5 | u8 | `landmarkSet` | `1` = MediaPipe pose-33 (`landmarkCount` 33) |
 | 6 | u8 | `flags` | bit 0: frames carry joint flags (see [Quality](#quality)); other bits 0 |
-| 7 | u8 | `modelId` | 0 unknown, 1 `lite`, 2 `full`, 3 `heavy` |
+| 7 | u8 | `modelId` | 0 unknown, 1 `lite`; 2 `full` and 3 `heavy` remain readable for historical provenance only |
 | 8 | u16 | `inputWidth` | Capture frame size in pixels |
 | 10 | u16 | `inputHeight` | |
 | 12 | f32 | `positionStep` | Quantization step for positions; default `1/16384` |
@@ -443,7 +443,7 @@ could delta-encode positions per joint and add a compression chunk flag.
 ```ts
 interface PoseFrames {
   kind: PoseFileKind; clock: 'song' | 'take' | 'media';
-  playerSlots: 1 | 2 | 3 | 4; input: FrameSize; modelId: PoseModelId | null;
+  playerSlots: 1 | 2 | 3 | 4; input: FrameSize; modelId: RecordedPoseModelId | null;
   times: Float64Array;          // [frame]
   present: Uint8Array;          // [frame] bitmask
   reviewed: Uint8Array;         // [frame] bitmask

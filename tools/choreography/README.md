@@ -1,6 +1,8 @@
 # Dance Studio
 
-Static song/choreography editor for Aerodance. Projects autosave in the browser;
+Static song/choreography editor for Aerodance. Webcam and video inference use Lite only;
+there is no model selector. Earlier captures retain their original model provenance.
+Projects autosave in the browser;
 reference poses use the game's `{playerId, landmarks}` pose format. No backend,
 account, or game database is needed.
 See the [format/workflow reference](../../docs/song-dance-authoring-workflow.md).
@@ -81,8 +83,7 @@ are not part of the production image.
    the stage always shows all of them. Fewer dancers drops the last tracks, after a
    confirmation if they hold poses; Undo brings them back.
 2. Import a pose JSON, or start the webcam and **Record new take**.
-   Choose **Both players**, **P1 only**, or **P2 only**, a camera and
-   **Lite / Full / Heavy**, then **Start camera**
+   Choose **Both players**, **P1 only**, or **P2 only** and a camera, then **Start camera**
    and allow permission. Recording stays disabled until the first pose result
    arrives, even if neither player is detected. You can start the countdown and
    then step into position. **Cancel connection** stops the wait. Set
@@ -92,7 +93,7 @@ are not part of the production image.
    slots. Solo mode follows one dancer anywhere in the whole frame and labels
    them as the selected player; only that player's calibration is needed.
    Switching player mode restarts tracking and calibration.
-   Camera/model preferences are remembered in this browser. Changes restart
+   Camera preferences are remembered in this browser. Changes restart
    tracking; controls are locked during recording and countdown. Use HTTPS or
    localhost for camera access. Models run in a worker; the status shows GPU/CPU
    and measured pose cadence. Video stays local; recording saves pose records.
@@ -105,8 +106,7 @@ are not part of the production image.
    their original calibration mode. This handles body size in the image, rather
    than correcting optical lens distortion.
    For a prerecorded video, choose **Import video**, choose **Both players** or
-   solo **P1 only / P2 only**, select **Lite / Full / Heavy** (Heavy is the default),
-   and scrub or play the source until you find an upright stance with shoulders,
+   solo **P1 only / P2 only**, then scrub or play the source until you find an upright stance with shoulders,
    hips, and feet clearly visible. Choose **Use current frame for calibration**,
    then **Process video**. The selected frame calibrates every captured dancer;
    detected dancers remain visible in the calibration overlay even when their
@@ -327,7 +327,7 @@ docker run --rm studio-browser-test
 
 To validate local moving footage without adding it to the repository, build the
 Studio and run `node tools/choreography/tests/video-quality.browser.ts "/path/video.mp4" .cache/video-quality`.
-The harness processes the complete source with Heavy at 30 fps in solo P1 mode,
+The harness processes the complete source with Lite at 30 fps in solo P1 mode,
 saves raw/cleaned `.adpose` captures, checks timing and scoring invariants, and
 writes `report.html` with metrics and source overlays. Set `VALIDATION_GPU=1` to
 use an available local GPU; the default uses software graphics and CPU inference.

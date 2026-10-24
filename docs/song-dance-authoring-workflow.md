@@ -10,7 +10,7 @@ and extends the game integration plan.
 The local editor and Docker image are now implemented; see
 [Dance Studio's run guide](../tools/choreography/README.md). It supports project
 persistence, audio/waveform playback, Android/webcam recording, JSON/NDJSON import,
-local video pose inference with Lite/Full/Heavy and a selected calibration frame,
+local video pose inference with Lite and a selected calibration frame,
 Frutiger/skeleton previews, coordinate edits and undo/redo, track swaps, mirroring,
 smoothing, bounded gap repair, phrase replacement, review, backups, and runtime
 bundle export. Video imports create library takes without assigning tracks;
@@ -558,7 +558,7 @@ scoring eligibility, while their origin becomes `edited`. It never promotes an
 ineligible joint. Outlier and gap reconstructions use `gap-repaired`, null
 confidence, and no scoring eligibility until explicitly approved. Unresolved
 unreliable joints are also ineligible. Existing authored exclusions still apply.
-New video imports default to Heavy at 30 fps with cleanup enabled; older captures
+New video imports use Lite at 30 fps with cleanup enabled; older captures
 without cleanup settings remain unprocessed. Raw captures remain available in
 backups, and existing tracks can use the undoable **Clean up selected range** action.
 

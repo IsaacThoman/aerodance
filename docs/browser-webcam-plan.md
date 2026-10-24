@@ -1,6 +1,10 @@
 # Browser webcam support for the game and Dance Studio
 
-> **Historical plan.** The Android client, battles (Solana, iMessage), the phone remote,
+> **Historical plan.** Lite is now the only supported inference model. Model pickers
+> and the Full/Heavy options described below have been removed; their IDs remain
+> readable only as provenance in existing captures.
+>
+> **Earlier design.** The Android client, battles (Solana, iMessage), the phone remote,
 > Flock cameras and the bundled songs it mentions have since been removed; the game and
 > Dance Studio now take poses from the browser webcam only.
 
@@ -9,9 +13,9 @@ game integration plan and
 [authoring workflow](song-dance-authoring-workflow.md).
 
 Implementation now includes the shared source/controller, locally served pinned
-models, worker inference, camera/model controls in both apps, real game readiness,
+Lite model, worker inference, camera controls in both apps, real game readiness,
 Studio live view and webcam capture/finalization, frame/audio alignment, and model
-provenance. Software WebGL selects CPU inference with the chosen model retained.
+provenance. Software WebGL selects CPU inference with Lite.
 Studio also collects reliable full-body stance samples, offers **Recalibrate
 body**, and compensates for apparent body-size changes as a webcam dancer moves
 farther away. Webcam-only tracks export calibration profile 2 with
@@ -19,7 +23,7 @@ farther away. Webcam-only tracks export calibration profile 2 with
 supported. Frame dimensions and image-width depth are accounted for. This is
 body-based framing compensation, not an optical distortion calibration. Zoom
 controls were explicitly excluded by the user.
-Automated checks use the actual models and synthetic camera input; real duet,
+Automated checks use the actual Lite model and synthetic camera input; real duet,
 hardware performance, and the full browser/device matrix remain manual acceptance
 work. The sections below retain the design and acceptance reference.
 
