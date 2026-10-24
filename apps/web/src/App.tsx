@@ -27,7 +27,8 @@ import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
 import { DISPLAY_MODES, RENDER_SIZE, displayModeFor } from './display.ts';
-import { isBackgroundId } from './backdrop/backgrounds.ts';
+import { isBackgroundId, shuffleBackground } from './backdrop/backgrounds.ts';
+import type { GraphicsSettings } from './menu/graphicsSettings.ts';
 import type { DisplayMode } from './display.ts';
 
 function FixedRenderResolution() {
@@ -110,6 +111,14 @@ export default function App() {
   const [gamePhase, setGamePhase] = useState<GamePhase | null>(null);
   const resultsShow = useRef<ResultsShow | null>(null);
   const [sound, setSound] = useState(loadSound);
+  // Settings → Graphics → Background, unless ?background=<id> picks one for this visit. Shuffle
+  // picks one per visit, and a new one whenever it's chosen.
+  const [shuffled, setShuffled] = useState(() => shuffleBackground());
+  const background = BACKGROUND_PARAM ?? (graphics.background === 'shuffle' ? shuffled : graphics.background);
+  const changeGraphics = useCallback((next: GraphicsSettings) => {
+    if (next.background === 'shuffle' && graphics.background !== 'shuffle') setShuffled(shuffleBackground(background));
+    setGraphics(next);
+  }, [graphics.background, background]);
 
   useEffect(() => {
     if (!replay) return undefined;
@@ -201,8 +210,6 @@ export default function App() {
   } : null), [game]);
   // Settings → Graphics → Stats, or ?diag=stats for the full set whatever the setting.
   const statsMode = diagnostic('stats') ? 'full' : graphics.stats;
-  // Settings → Graphics → Background, unless ?background=<id> picks one for this visit.
-  const background = BACKGROUND_PARAM ?? graphics.background;
   // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
 
@@ -238,7 +245,7 @@ export default function App() {
             sound={sound}
             onSoundChange={setSound}
             graphics={graphics}
-            onGraphicsChange={setGraphics}
+            onGraphicsChange={changeGraphics}
           />
           <SongSelect
             visible={songsOpen}

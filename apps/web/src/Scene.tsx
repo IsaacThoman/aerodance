@@ -18,7 +18,8 @@ const SETTLE_FRAMES = 3;
  *
  * The page's first background fades the canvas in once it's built. A change of background
  * happens behind the stages' pale veil: up, swap, wait until the new one is built and has
- * drawn a few frames, down. `paused`: a dance stage has the screen.
+ * drawn a few frames, down. A backdrop that crashes gives way to the Aero world for the rest
+ * of the visit. `paused`: a dance stage has the screen.
  *
  * The canvas reports data-background (the one mounted) and data-background-ready (built, and
  * the veil down) for tests.
@@ -29,8 +30,10 @@ export default function Scene({ paused = false, background }: { paused?: boolean
   const gl = useThree((state) => state.gl);
   const [shown, setShown] = useState(background);
   const fade = useRef<Fade>({ value: 0, settled: 0 });
-  const st = useRef({ want: background, shown: background, ready: null as BackgroundId | null, faded: false, reported: '' }).current;
-  st.want = background;
+  const st = useRef({
+    requested: background, shown: background, ready: null as BackgroundId | null, failed: new Set<BackgroundId>(), faded: false, reported: '',
+  }).current;
+  st.requested = background;
 
   // The canvas stays hidden until the first background is built.
   useLayoutEffect(() => {
@@ -44,20 +47,24 @@ export default function Scene({ paused = false, background }: { paused?: boolean
     st.ready = id;
     if (!st.faded) { st.faded = true; gl.domElement.style.opacity = '1'; }
   }, [gl, st]);
-  const onBackdropReady = useCallback((id: BackgroundId) => onReady(id), [onReady]);
+  const onBackdropReady = useCallback((id: BackgroundId, failed: boolean) => {
+    if (failed) st.failed.add(id);
+    else onReady(id);
+  }, [onReady, st]);
   const onWorldShown = useCallback(() => onReady('skyline'), [onReady]);
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
     const f = fade.current;
-    if (st.want !== st.shown) {
+    const want = st.failed.has(st.requested) ? 'skyline' : st.requested;
+    if (want !== st.shown) {
       // Before the first one is up the canvas is hidden anyway: swap at once.
       f.value = st.faded ? Math.min(1, f.value + dt / FADE_UP) : 1;
       if (f.value >= 1) {
-        st.shown = st.want;
+        st.shown = want;
         st.ready = null;
         f.settled = 0;
-        setShown(st.want);
+        setShown(want);
       }
     } else if (st.ready === st.shown && f.value > 0) {
       if (++f.settled > SETTLE_FRAMES) f.value = Math.max(0, f.value - dt / FADE_DOWN);

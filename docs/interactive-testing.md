@@ -70,6 +70,10 @@ so separate worktrees can run their own at the same time; the server takes the f
 port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's output.
 `status` reports the URL, renderer and current frame rate.
 
+To run several sessions in one checkout (agents working side by side, say), put
+`PLAY_SESSION=<name>` before every command: each named session has its own server, browser
+and Vite dependency cache under `.cache/play/sessions/<name>/`.
+
 ## Commands
 
 | Command | Does |
@@ -109,6 +113,7 @@ Each screen reports what it shows on the canvas's `data-*` attributes, which is 
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen while Settings → Graphics → Aspect ratio is on Auto (`click ASPECT.0`); `ASPECT.1` / `ASPECT.2` hold 4:3 / 16:9 whatever the window, and the choice is saved. Both keep the canvas buffer at 640×480.
+- Background: `background` (`skyline` or a backdrop id), `backgroundReady` (built, and the veil down). Settings → Graphics → Background steps through them with `click BACKGROUND_NEXT` / `BACKGROUND_PREV`; `goto '/?background=koi'` picks one for the visit.
 - Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice` (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first)
 - Song Select: `songScreen` (`list`, `preview`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`
 - Stage: `stage`, `stageReady`
