@@ -13,6 +13,7 @@ import type { SongBundle } from '../../../packages/pose/song.ts';
 import { ASSET_PATH, MODELS } from '../../../packages/pose/browser/models.ts';
 import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { detectedConfidence } from '../../../packages/pose/browser/slots.ts';
+import type { Tile } from '../../../packages/pose/browser/tiles.ts';
 import { compileDance, previewCalibrations } from '../compile.ts';
 import { createEvaluator, keyTimes } from '../evaluate.ts';
 import type { DancerEvaluator } from '../evaluate.ts';
@@ -40,7 +41,7 @@ async function load(revision: number): Promise<Loaded> {
   if (loaded && loaded.dance.revision >= revision) return loaded;
   const dance = await fetchDance();
   const tracking = new Map<string, { data: TrackingData; slot: number }>();
-  for (const source of dance.sources.tracking) for (const [slot, id] of source.dancers.entries())
+  for (const source of [...dance.sources.tracking].reverse()) for (const [slot, id] of source.dancers.entries())
     if (id && !tracking.has(id)) tracking.set(id, { data: await fetchTracking(dance, source.id), slot });
   loaded = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d)), calibrations: previewCalibrations(dance), bundle: null, tracking };
   return loaded;
@@ -303,13 +304,14 @@ async function render(spec: RenderSpec): Promise<string> {
 
 // ---- Tracking ----
 
-let worker: Worker | null = null, lastTimestamp = -Infinity, ready: Promise<void> | null = null, posesWanted = 0;
+let worker: Worker | null = null, lastTimestamp = -Infinity, ready: Promise<void> | null = null, posesWanted = 0, tilesWanted = '';
 const pending = new Map<number, (landmarks: Landmark[][]) => void>();
-function startWorker(numPoses: number) {
+function startWorker(numPoses: number, tiles: Tile[] | null) {
   worker?.terminate();
   pending.clear();
   worker = new Worker(new URL('../../../packages/pose/browser/pose.worker.ts', import.meta.url), { type: 'module' });
   posesWanted = numPoses;
+  tilesWanted = JSON.stringify(tiles);
   lastTimestamp = -Infinity;
   const base = new URL(`/${ASSET_PATH}/`, location.origin), model = MODELS[0];
   ready = new Promise((resolve, reject) => {
@@ -325,12 +327,17 @@ function startWorker(numPoses: number) {
     worker!.onerror = e => reject(Error(e.message || 'The pose worker failed'));
   });
   const init: PoseWorkerRequest = { type: 'initialize', sessionId: 'dance-track', playerCount: numPoses, runningMode: 'VIDEO',
-    modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href };
+    modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href, ...(tiles ? { tiles } : {}) };
   worker.postMessage(init);
 }
 let seq = 0;
-async function detect(frames: { width: number; height: number; timestampMs: number; rgba: string }[], numPoses: number): Promise<Landmark[][][]> {
-  if (!worker || numPoses !== posesWanted || frames[0] && frames[0].timestampMs <= lastTimestamp) startWorker(numPoses);
+/**
+ * Pose landmarks in each frame. With tiles (several dancers, a GPU), each dancer gets a strip of
+ * the picture to follow, as the game does for three and four players: the whole-picture search
+ * finds only some of several people, and small ones seldom.
+ */
+async function detect(frames: { width: number; height: number; timestampMs: number; rgba: string }[], numPoses: number, tiles: Tile[] | null = null): Promise<Landmark[][][]> {
+  if (!worker || numPoses !== posesWanted || JSON.stringify(tiles) !== tilesWanted || frames[0] && frames[0].timestampMs <= lastTimestamp) startWorker(numPoses, tiles);
   await ready;
   const out: Landmark[][][] = [];
   for (const f of frames) {
@@ -341,7 +348,7 @@ async function detect(frames: { width: number; height: number; timestampMs: numb
     lastTimestamp = f.timestampMs;
     out.push(await new Promise<Landmark[][]>(resolve => {
       pending.set(id, resolve);
-      const message: PoseWorkerRequest = { type: 'frame', bitmap, seq: id, timestampMs: f.timestampMs };
+      const message: PoseWorkerRequest = { type: 'frame', bitmap, seq: id, timestampMs: f.timestampMs, ...(tiles ? { players: tiles.length } : {}) };
       worker!.postMessage(message, [bitmap]);
     }));
   }

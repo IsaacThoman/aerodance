@@ -48,7 +48,8 @@ Look (needs Chromium; \`dance studio\` keeps one running)
                [--zoom body|P1|P1:hands|P1:feet|P1:head|x,y,w,h] [--grid] [--reference] [--ghosts] [--mirror]
                [--trails [ms]] [--before <revision>] [--width 360] [--out f.png]
   render <dir> --range a:b [--fps 30] [--views overlay,character] [--no-audio] [--out clip.mp4]
-  track <dir> [--fps 15] [--range a:b]         track the dancers in the video with MediaPipe Lite
+  track <dir> [--fps 15] [--range a:b] [--no-strips]   track the dancers with MediaPipe Lite (several
+                                               dancers each get a strip of the picture around their home)
   studio <dir> [--port 5310] [--dist]          the Studio (and a fast renderer for the CLI)
 
 Review and publish
@@ -74,7 +75,7 @@ const OPTIONS = {
   views: { type: 'string' }, zoom: { type: 'string' }, reference: { type: 'boolean' }, mirror: { type: 'boolean' }, width: { type: 'string' },
   out: { type: 'string' }, fps: { type: 'string' }, 'no-audio': { type: 'boolean' }, port: { type: 'string' }, dist: { type: 'boolean' },
   install: { type: 'boolean' }, folder: { type: 'string' }, open: { type: 'boolean' }, stage: { type: 'string' }, ghosts: { type: 'boolean' }, grid: { type: 'boolean' },
-  trails: { type: 'string' }, before: { type: 'string' },
+  trails: { type: 'string' }, before: { type: 'string' }, 'no-strips': { type: 'boolean' },
 } as const;
 
 const fixed = (v: number, d = 4) => Number(v.toFixed(d));

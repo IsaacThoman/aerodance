@@ -185,9 +185,10 @@ export function checkDance(dance: Dance, { tracking, range, stepMs = 1000 / 60 }
   const order: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
   return findings.sort((a, b) => order[a.severity] - order[b.severity] || a.startMs - b.startMs);
 }
+/** The newest tracking that follows the dancer. */
 function trackingFor(dance: Dance, dancer: Dancer, lookup: CheckOptions['tracking']) {
   if (!lookup) return null;
-  for (const source of dance.sources.tracking) {
+  for (const source of [...dance.sources.tracking].reverse()) {
     const slot = source.dancers.indexOf(dancer.id);
     const data = slot >= 0 ? lookup(source.id) : null;
     if (data) return { data, slot };

@@ -43,7 +43,7 @@ export function gameBundle(dance: Dance, compiled: CompiledDance = compileDance(
 export function scoreAgainstTracking(dance: Dance, tracking: (id: string) => TrackingData, compiled?: CompiledDance): DancerScore[] {
   const pairs: { dancer: number; data: TrackingData; slot: number }[] = [];
   dance.dancers.forEach((d, i) => {
-    for (const source of dance.sources.tracking) {
+    for (const source of [...dance.sources.tracking].reverse()) {
       const slot = source.dancers.indexOf(d.id);
       if (slot >= 0) { pairs.push({ dancer: i, data: tracking(source.id), slot }); return; }
     }

@@ -215,7 +215,8 @@ function keyPose(dancer: Dancer, pose: RigPose, t: number, controls: readonly Co
 function trackingFor(dance: Dance, ctx: OpContext, op: Op, dancer: Dancer): { data: TrackingData; slot: number } {
   const sources = dance.sources.tracking;
   if (!sources.length) fail('This dance has no tracking; run `dance track` first');
-  const source = op.tracking === undefined ? sources.find(s => s.dancers.includes(dancer.id)) ?? sources[sources.length - 1]
+  // The newest tracking that follows this dancer, unless one is named.
+  const source = op.tracking === undefined ? [...sources].reverse().find(s => s.dancers.includes(dancer.id)) ?? sources[sources.length - 1]
     : sources.find(s => s.id === op.tracking) ?? fail(`No tracking "${String(op.tracking)}"; have ${sources.map(s => s.id).join(', ')}`);
   if (!ctx.tracking) fail('Tracking data is not available here');
   const slot = op.slot !== undefined ? num(op.slot, 'slot') : source.dancers.indexOf(dancer.id);

@@ -47,7 +47,7 @@ function useTracking(dance: Dance | null) {
     let live = true;
     (async () => {
       const next = new Map<string, { data: TrackingData; slot: number }>();
-      for (const source of dance.sources.tracking) for (const [slot, id] of source.dancers.entries())
+      for (const source of [...dance.sources.tracking].reverse()) for (const [slot, id] of source.dancers.entries())
         if (id && !next.has(id)) next.set(id, { data: await fetchTracking(dance, source.id), slot });
       if (live) setTracking(next);
     })().catch(() => {});

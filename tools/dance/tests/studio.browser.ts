@@ -130,6 +130,18 @@ try {
   const tracking = await project.tracking('t1', dance);
   const found = Array.from(tracking.times, (_, i) => tracking.poseAtFrame(0, i)).filter(Boolean).length;
   assert.ok(found >= tracking.times.length - 1, `found the dancer in ${found} of ${tracking.times.length} frames`);
+
+  step('tracking keeps two dancers in their own slots');
+  const duet = await initProject(path.join(dir, 'duet'), { video: fileURLToPath(new URL('../../choreography/tests/video-fixture.webm', import.meta.url)),
+    dancers: 2, proxy: false, durationMs: 800 });
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  try { await runBrowserCommand('track', duet, await duet.read(), { fps: '10' }, true); }
+  finally { process.stdout.write = out; }
+  const both = await duet.tracking('t1');
+  const sides = [0, 1].map(slot => Array.from(both.times, (_, i) => both.poseAtFrame(slot, i)).filter(Boolean)
+    .map(l => (l![23].x + l![24].x) / 2));
+  assert.ok(sides.every(s => s.length >= both.times.length - 1), `each slot found: ${sides.map(s => s.length).join(', ')} of ${both.times.length}`);
+  assert.ok(Math.max(...sides[0]) < 0.5 && Math.min(...sides[1]) > 0.5, 'P1 is the dancer on the left, P2 on the right');
   step('passed');
 } finally {
   await browser.close();

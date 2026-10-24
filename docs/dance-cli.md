@@ -124,7 +124,7 @@ To start from tracking instead of from scratch, `draft` turns the tracked video 
 | `log <dir>` | The undo and redo history |
 | `frames <dir> (--at t,… \| --range a:b [--every 250])` | A contact sheet PNG; see [Looking](#looking) |
 | `render <dir> --range a:b [--fps 30] [--views …] [--no-audio] [--out clip.mp4]` | A preview clip with the song audio |
-| `track <dir> [--fps 15] [--range a:b]` | Tracks the video's dancers with MediaPipe Lite into a new tracking source |
+| `track <dir> [--fps 15] [--range a:b] [--no-strips]` | Tracks the video's dancers with MediaPipe Lite into a new tracking source. With several dancers, each gets a strip of the picture centred on its `home` (set homes first), as the game does for three and four players: the whole-picture search misses small or crowded people. Ops, checks and scores use the newest tracking that follows a dancer. |
 | `check <dir> [--range a:b] [--dancer P1]` | Review findings; exits 1 if any is an error |
 | `compare <dir> [--range a:b] [--every 500]` | Degrees between each scored limb and the tracked video, per window |
 | `score <dir>` | The game's scorer with the tracked video as the player, over the tracked span |

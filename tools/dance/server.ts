@@ -35,6 +35,7 @@ import { formatTime, parseRange, parseTime, songToVideo } from './time.ts';
 import { assignSlots, encodeTracking } from './tracking.ts';
 import type { TrackedFrame } from './tracking.ts';
 import type { Landmark } from '../../packages/pose/choreography.ts';
+import type { Tile } from '../../packages/pose/browser/tiles.ts';
 import type { RenderSpec, View } from './studio/renderSpec.ts';
 import { VIEWS } from './studio/renderSpec.ts';
 
@@ -221,13 +222,13 @@ export class Bridge {
     const base64 = await page.evaluate(s => (window as unknown as { danceRender: { render(s: RenderSpec): Promise<string> } }).danceRender.render(s), spec);
     return Buffer.from(base64, 'base64');
   }
-  /** Detects people in video frames (RGBA, w×h) with MediaPipe Lite, numPoses at most. */
-  async detect(frames: { width: number; height: number; rgba: Buffer; timestampMs: number }[], numPoses: number): Promise<Landmark[][][]> {
+  /** Detects people in video frames (RGBA, w×h) with MediaPipe Lite, numPoses at most; tiles give each a strip. */
+  async detect(frames: { width: number; height: number; rgba: Buffer; timestampMs: number }[], numPoses: number, tiles: Tile[] | null = null): Promise<Landmark[][][]> {
     const page = await this.renderPage();
-    return page.evaluate(async ({ frames, numPoses }) => {
-      const r = (window as unknown as { danceRender: { detect(f: unknown, n: number): Promise<Landmark[][][]> } }).danceRender;
-      return r.detect(frames, numPoses);
-    }, { frames: frames.map(f => ({ width: f.width, height: f.height, timestampMs: f.timestampMs, rgba: f.rgba.toString('base64') })), numPoses });
+    return page.evaluate(async ({ frames, numPoses, tiles }) => {
+      const r = (window as unknown as { danceRender: { detect(f: unknown, n: number, t: Tile[] | null): Promise<Landmark[][][]> } }).danceRender;
+      return r.detect(frames, numPoses, tiles);
+    }, { frames: frames.map(f => ({ width: f.width, height: f.height, timestampMs: f.timestampMs, rgba: f.rgba.toString('base64') })), numPoses, tiles });
   }
   async close() {
     await this.browser?.close().catch(() => {});
@@ -380,7 +381,11 @@ async function track(project: DanceProject, dance: Dance, values: Values, json: 
   const [startMs, endMs] = str(values, 'range') ? parseRange(str(values, 'range'), dance).map(t => songToVideo(dance, t)) : [0, video.durationMs];
   const slots = dance.dancers.length;
   // MediaPipe looks at a 256-pixel square; 640 wide keeps the detail without a heavy transfer.
-  const width = Math.min(640, video.width), height = Math.round(width * video.height / video.width / 2) * 2;
+  // Several dancers each get a strip of the picture centred on where they stand (their home).
+  const width = Math.min(1280, video.width), height = Math.round(width * video.height / video.width / 2) * 2;
+  const stripWidth = Math.min(0.55, Math.max(0.3, 1.4 / slots));
+  const tiles: Tile[] | null = slots > 1 && values['no-strips'] !== true
+    ? dance.dancers.map(d => ({ x: Math.min(1 - stripWidth, Math.max(0, d.home[0] - stripWidth / 2)), width: stripWidth })) : null;
   const detections: { videoMs: number; poses: Landmark[][] }[] = [];
   const log = (m: string) => { if (!json) process.stderr.write(m); };
   // Tracking runs in a bridge of its own, even while the Studio runs: it holds the GPU for a while.
@@ -389,7 +394,7 @@ async function track(project: DanceProject, dance: Dance, values: Values, json: 
     let batch: { width: number; height: number; rgba: Buffer; timestampMs: number }[] = [];
     const flush = async () => {
       if (!batch.length) return;
-      const results = await bridge.detect(batch, Math.min(4, slots + 1));
+      const results = await bridge.detect(batch, Math.min(4, slots + 1), tiles);
       results.forEach((poses, i) => detections.push({ videoMs: batch[i].timestampMs, poses }));
       log(`\rTracked ${detections.length} frames (${formatTime(batch[batch.length - 1].timestampMs)})`);
       batch = [];

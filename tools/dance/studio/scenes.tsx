@@ -54,11 +54,11 @@ export function CharacterCamera({ count }: { count: number }) {
   useLayoutEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
     // The character's head tops out about 3.4 units up; leave room for raised hands and a
-    // lifted foot. Three or four dancers stand smaller (dancerSpot), but wider apart.
-    const distance = count === 1 ? 10 : count === 2 ? 12.5 : 12;
+    // lifted foot. Three or four dancers stand closer together and smaller (dancerSpot).
+    const crew = count > 2, distance = count === 1 ? 10 : count === 2 ? 12.5 : 9.2;
     camera.fov = 32;
-    camera.position.set(0, 2.4, distance);
-    camera.lookAt(0, 1.75, 0);
+    camera.position.set(0, crew ? 1.9 : 2.4, distance);
+    camera.lookAt(0, crew ? 1.2 : 1.75, 0);
     camera.updateProjectionMatrix();
   }, [camera, count]);
   return null;
