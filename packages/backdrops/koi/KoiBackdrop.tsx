@@ -1,12 +1,33 @@
-import { SkyDome } from '../../stages/shared/Sky.tsx';
+import { useMemo } from 'react';
 import { BackdropCamera } from '../shared/BackdropCamera.tsx';
+import { useBackdropFrame } from '../shared/frame.ts';
+import { CAMERA } from './layout.ts';
+import { makePondUniforms } from './shaders.ts';
+import { Pond } from './Pond.tsx';
+import { Koi } from './Koi.tsx';
+import { Lilies } from './Lilies.tsx';
+import { Petals } from './Petals.tsx';
 
-// Placeholder until the scene is built.
+/**
+ * koi: looking steeply down into a clear jade pond. Sunlit caustics dance on a pebble floor,
+ * koi loop through it trailing soft shadows, lily pads and pink lotus bob on the surface, drops
+ * ring the water, and cherry petals drift down to float on it, under the sun's glitter.
+ */
 export default function KoiBackdrop() {
+  const shared = useMemo(() => makePondUniforms(), []);
+
+  useBackdropFrame((_state, _delta, time) => {
+    shared.uTime.value = time;
+  });
+
   return (
     <>
-      <BackdropCamera position={[0, 2, 12]} target={[0, 3, 0]} />
-      <SkyDome top="#3fb8a8" horizon="#d8fff4" bottom="#0f5f5a" sunDisc={0} sunGlow={0} />
+      <BackdropCamera {...CAMERA} sway={[0.25, 0.08, 0.15]} parallax={[0.35, 0.2]} />
+      <color attach="background" args={['#0c4a44']} />
+      <Pond shared={shared} />
+      <Koi shared={shared} />
+      <Lilies shared={shared} />
+      <Petals shared={shared} camera={CAMERA.position} />
     </>
   );
 }
