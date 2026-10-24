@@ -29,10 +29,13 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
   const { project, busy, modifyTracks } = studio;
   const { cursor, takeCursor, selection, draftJoint, setDraftJoint, readOnly, showingLive, showingTake, selectedTake } = workspace;
   const [tab, setTab] = useState<InspectorTab>("joint"),
-    [playerId, setPlayerId] = useState(0),
+    [chosenPlayer, setPlayerId] = useState(0),
     [joint, setJoint] = useState(15),
     [pointGroup, setPointGroup] = useState<PointSelection>("single"),
     [reason, setReason] = useState("Reviewed against audio and source pose");
+  // The song's dancers, one track each; the selected one stays among them.
+  const dancers = project?.tracks.length ?? 2;
+  const playerId = chosenPlayer < dancers ? chosenPlayer : 0;
   let snapshot: PreviewSnapshot = showingLive
     ? connection.snapshot || EMPTY
     : showingTake
@@ -58,10 +61,10 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
     selectedJoint = selectedPose?.landmarks[joint];
   /** All track selectors clear any unfinished drag. */
   const selectPlayer = useCallback((id: number) => {
-    if (id !== 0 && id !== 1) return;
+    if (!Number.isInteger(id) || id < 0 || id >= dancers) return;
     setPlayerId(id);
     setDraftJoint(null);
-  }, [setDraftJoint]);
+  }, [setDraftJoint, dancers]);
   /** Selects a joint in the preview. */
   const select = (id: number, index: number) => {
     setPlayerId(id);
@@ -74,13 +77,13 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
     setDraftJoint(null);
     if (!readOnly) setTab("joint");
   };
-  /** Applies an edit to the selected range. */
-  const apply = (type: RangeEditType) => {
+  /** Applies an edit to the selected range; a swap exchanges the selected track with `other` (P1 and P2 without one). */
+  const apply = (type: RangeEditType, other?: number) => {
     if (readOnly || busy) return;
     const range = { startMs: selection[0], endMs: selection[1] };
     const command: EditCommand =
       type === "swap"
-        ? { type, ...range, playerId: null }
+        ? other === undefined ? { type, ...range, playerId: null } : { type, ...range, playerId, withPlayerId: other }
         : type === "smooth"
           ? { type, ...range, playerId, windowMs: 120 }
           : type === "exclude" || type === "approve"
@@ -132,7 +135,7 @@ export function usePoseEditor({ studio, workspace, compiled, connection }: PoseE
     );
   }
   return {
-    tab, setTab, playerId, setPlayerId, selectPlayer, joint, setJoint, pointGroup, setPointGroup, reason, setReason,
+    tab, setTab, playerId, setPlayerId, selectPlayer, dancers, joint, setJoint, pointGroup, setPointGroup, reason, setReason,
     snapshot, selectedPose, selectedJoint, select, apply, jointEdit,
   };
 }

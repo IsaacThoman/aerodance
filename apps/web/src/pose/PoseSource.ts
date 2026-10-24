@@ -1,7 +1,7 @@
 import type { CameraInfo, PoseRecordEvent, SourceStoppedEvent, WebcamStatus } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PreviewPicture } from '../../../../packages/pose/browser/preview.ts';
 import type { CaptureInput, PlayerCount, Pose } from '../../../../packages/pose/choreography.ts';
-import type { SongBundle } from '../../../../packages/pose/song.ts';
+import type { Cast, SongBundle } from '../../../../packages/pose/song.ts';
 
 /*
  * The pose input the game plays with, whatever produces it: the webcam
@@ -45,6 +45,8 @@ export interface PoseInputView {
 /** The song clock a source can follow while a song plays (GameSession attaches it). */
 export interface SongClock {
   bundle: SongBundle;
+  /** The dancer each player follows. */
+  cast: Cast;
   /** The song position audible at a performance.now() time. */
   songTimeAt(perfMs: number): number;
   /** The performance.now() time a song position is (or was) audible. */
@@ -57,6 +59,8 @@ export interface PoseSource {
   /** The camera feed, for the setup preview (a webcam, or a phone's picture while it sends one). */
   readonly video?: PreviewPicture | null;
   subscribeRecords(listener: (event: PoseSourceEvent) => void): () => void;
+  /** Live cameras identify the current line-up afresh before a song's calibration. */
+  resetTracking?(): void;
   /** Sources that play back poses follow the song; the webcam ignores it. */
   attachSong?(song: SongClock | null): void;
 }

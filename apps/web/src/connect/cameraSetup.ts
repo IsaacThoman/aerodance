@@ -10,9 +10,10 @@ import type { PoseInputView } from '../pose/PoseSource.ts';
 /**
  * The calibration screen's camera controls: the camera arrows (this computer's cameras, then
  * the phone and No camera), laid out by CameraLayout. The screen adds cameraWidgets() to its widgets and hands
- * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()). In the
- * iPhone/iPad app, which has the camera already, a device camera starts by itself instead
- * (CameraSetup.update(), every frame on the screen), and the screen lists the device's lenses.
+ * presses to CameraSetup.activate(); the preview starts the camera (CameraSetup.start()). The
+ * phone pairs by itself once it has been picked for a moment (CameraSetup.update(), every frame
+ * on the screen), so the QR code comes up without a press. In the iPhone/iPad app, which has the
+ * camera already, a device camera starts by itself too, and the screen lists the device's lenses.
  *
  * const camera = new CameraSetup(() => ({ source, connection }));
  * widgets: [...cameraWidgets(LAYOUT)]; onActivate: camera.activate(wdg); update: camera.update();
@@ -29,6 +30,9 @@ export type CameraWidget = Widget & { cameraDelta?: number };
 const DEFAULT_CAMERA = { deviceId: '', label: 'Default camera' };
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
+// How long the phone stays picked before it pairs by itself, so arrowing past it to No camera
+// doesn't ask the pairing server for a room (nginx allows a client 10 a minute).
+export const PHONE_SETTLE_MS = 400;
 
 export const cameraWidgets = ({ prev, next }: CameraLayout): CameraWidget[] => [
   { id: 'camera-prev', rect: prev, cameraDelta: -1 },
@@ -41,7 +45,12 @@ export class CameraSetup {
   target: () => { source: CameraInput; connection: CameraInputView };
   /** Start a device camera without a press. */
   auto: boolean;
-  constructor(target: () => { source: CameraInput; connection: CameraInputView }, { auto = client() === 'ios' } = {}) { this.target = target; this.auto = auto; }
+  now: () => number;
+  /** When the phone was picked, while it is. */
+  private phoneSince: number | null = null;
+  constructor(target: () => { source: CameraInput; connection: CameraInputView }, { auto = client() === 'ios', now = () => performance.now() } = {}) {
+    this.target = target; this.auto = auto; this.now = now;
+  }
 
   /** The camera is on or on its way. */
   active() { return ACTIVE.includes(this.target().connection.status); }
@@ -65,6 +74,13 @@ export class CameraSetup {
     return this.error || connection.message || '';
   }
   failed() { return !!this.error || this.target().connection.status === 'error'; }
+  /** The phone is picked and pairs by itself (it waits for Try again once pairing fails). */
+  pairsItself() { return this.phone() && !this.failed(); }
+  /** The phone's code is on its way: it is about to pair, or getting a code. */
+  awaitingCode() {
+    const { connection } = this.target();
+    return this.phone() && !connection.pairing && (connection.status === 'connecting' || (!this.active() && this.pairsItself()));
+  }
 
   /** Start camera, unless it is on or on its way. */
   start() {
@@ -74,13 +90,17 @@ export class CameraSetup {
   }
 
   /**
-   * Every frame on the screen: with auto, starts a device camera that is off, so the lenses are
-   * listed and picking one starts it. Not the phone (pairing waits for a press) or No camera, and
-   * not a camera that failed: its error stays up until Try again or another camera is picked. A
-   * hidden page stops a camera as it starts, so it waits to be shown again.
+   * Every frame on the screen: pairs the phone once it has been picked for PHONE_SETTLE_MS, and
+   * with auto, starts a device camera that is off, so the lenses are listed and picking one
+   * starts it. Not No camera, and not a camera that failed: its error stays up until Try again
+   * or another camera is picked. A hidden page stops a camera as it starts, so it waits to be
+   * shown again.
    */
   update() {
-    if (this.auto && !globalThis.document?.hidden && !this.phone() && !this.none() && !this.failed()) this.start();
+    const now = this.now();
+    this.phoneSince = this.phone() ? this.phoneSince ?? now : null;
+    if (globalThis.document?.hidden || this.none() || this.failed()) return;
+    if (this.phoneSince !== null ? now - this.phoneSince >= PHONE_SETTLE_MS : this.auto) this.start();
   }
 
   /** Handles a camera widget's press; false for any other widget. */

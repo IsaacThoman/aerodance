@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { sampleSong, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
+import { defaultCast, sampleDancers, sampleSong, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
 import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
 import type { PoseRecordEvent } from '../../../packages/pose/browser/WebcamPoseSource.ts';
-import { AUDIO_START_MS, COUNTDOWN_MS, GameSession, LATE_ALLOWANCE_MS, READY_HOLD_MS } from '../src/game/GameSession.ts';
+import { AUDIO_START_MS, COUNTDOWN_MS, GameSession, LATE_ALLOWANCE_MS, READY_HOLD_MS, SETUP_TRACKING_REFRESH_MS } from '../src/game/GameSession.ts';
 import type { GameSessionOptions, SessionPlayer } from '../src/game/GameSession.ts';
 import { ReplayPoseSource, createPoseRecorder, parseRecording, standingPose } from '../src/pose/ReplayPoseSource.ts';
 import type { LivePoseRecord, PoseInputView, PoseSource, PoseSourceEvent, SongClock } from '../src/pose/PoseSource.ts';
@@ -64,6 +64,7 @@ function fakePlayer(clock: Clock): FakePlayer {
 
 type FakeSource = PoseSource & {
   attached: SongClock | null;
+  resets: number;
   send(poses: Pose[], captureBrowserTimeMs: number, playerCount?: PlayerCount): void;
 };
 
@@ -74,6 +75,8 @@ function fakeSource(sourceKind: PoseInputView['sourceKind'] = 'replay'): FakeSou
   return {
     view: { sourceKind, status: 'connected', message: '', snapshot: null, configuring: false, model: 'test' },
     attached: null,
+    resets: 0,
+    resetTracking() { this.resets++; },
     subscribeRecords(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     attachSong(clock) { this.attached = clock; },
     send(poses, captureBrowserTimeMs, playerCount = 1) {
@@ -111,7 +114,7 @@ async function setup(playerCount: PlayerCount = 1, options: SetupOptions = {}) {
 // One player in the middle, two at 0.3 and 0.7, three or four spread evenly.
 const laneX = (playerCount: PlayerCount, id: number) => (playerCount === 1 ? 0.5 : playerCount === 2 ? 0.3 + id * 0.4 : (id + 0.5) / playerCount);
 const standing = (playerCount: PlayerCount): Pose[] => Array.from({ length: playerCount }, (_, playerId) => ({ playerId, landmarks: standingPose(laneX(playerCount, playerId)) }));
-const reference = (t: number, playerCount: PlayerCount) => sampleSong(bundle, Math.min(Math.max(t, 0), song.playableEndMs - 1), playerCount).poses;
+const reference = (t: number, playerCount: PlayerCount) => sampleSong(bundle, Math.min(Math.max(t, 0), song.playableEndMs - 1), defaultCast(playerCount, 2)).poses;
 
 test('the ready check waits for every player, then counts down into the song', async () => {
   const { session, source, step } = await setup(2);
@@ -136,6 +139,35 @@ test('the ready check waits for every player, then counts down into the song', a
 test('a paired phone calibrates like a webcam; only replays skip calibration', async () => {
   assert.equal((await setup(1, { sourceKind: 'phone' })).session.phase, 'calibrating');
   assert.equal((await setup(1, { sourceKind: 'replay' })).session.phase, 'ready');
+});
+
+test('each live-camera song starts a fresh line-up; replay identities are preserved', async () => {
+  for (const kind of ['webcam', 'phone', 'replay'] as const) {
+    const { session, source } = await setup(2, { sourceKind: kind });
+    const expected = kind === 'replay' ? 0 : 1;
+    assert.equal(source.resets, expected);
+    session.dispose();
+    const next = await setup(2, { source });
+    assert.equal(source.resets, 2 * expected, `${kind} resets once per song`);
+    next.session.dispose();
+  }
+});
+
+test('stuck setup refreshes assignments periodically, but a hold and gameplay keep their identities', async () => {
+  for (const sourceKind of ['webcam', 'phone'] as const) {
+    const { session, source, step } = await setup(2, { sourceKind });
+    step(SETUP_TRACKING_REFRESH_MS * 2, now => source.send([standing(2)[0]], now, 2));
+    assert.equal(source.resets, 3, `${sourceKind}: initial line-up and two retries`);
+    // Start holding just before another retry would be due. The hold must complete.
+    step(SETUP_TRACKING_REFRESH_MS - 100, now => source.send([standing(2)[0]], now, 2));
+    step(2600, now => source.send(standing(2), now, 2));
+    assert.equal(session.phase, 'countdown');
+    assert.equal(source.resets, 3, 'no reset through the hold');
+    step(COUNTDOWN_MS + SETUP_TRACKING_REFRESH_MS * 2, now => source.send(standing(2), now, 2));
+    assert.equal(session.phase, 'playing');
+    assert.equal(source.resets, 3, 'no reset during gameplay');
+    session.dispose();
+  }
 });
 
 test('webcam sessions require a shared still hold and start countdown immediately after calibration', async () => {
@@ -499,7 +531,7 @@ test('the ghost replay dances the routine and stands in its halves without a son
   ghost.tick();
   assert.deepEqual(records[0].record.poses.map((p) => p.playerId), [0, 1]);
   assert.ok(records[0].record.poses[0].landmarks[23].x > 0.5 && records[0].record.poses[1].landmarks[23].x < 0.5);
-  ghost.attachSong({ bundle, songTimeAt: (perf) => perf, perfAtSong: (ms) => ms, playing: () => true });
+  ghost.attachSong({ bundle, cast: [0, 1], songTimeAt: (perf) => perf, perfAtSong: (ms) => ms, playing: () => true });
   now = 5000;
   ghost.tick();
   const last = records[records.length - 1];
@@ -519,7 +551,7 @@ test('a four-player ghost stands side by side and doubles the duet', async () =>
   const hips = records[0].record.poses.map((p) => p.landmarks[23].x);
   assert.deepEqual(records[0].record.poses.map((p) => p.playerId), [0, 1, 2, 3]);
   assert.ok(hips.every((x, i) => i === 0 || x < hips[i - 1]), 'P1 stands on the right of the camera, P4 on its left');
-  ghost.attachSong({ bundle, songTimeAt: (perf) => perf, perfAtSong: (ms) => ms, playing: () => true });
+  ghost.attachSong({ bundle, cast: defaultCast(4, 2), songTimeAt: (perf) => perf, perfAtSong: (ms) => ms, playing: () => true });
   now = 5000;
   ghost.tick();
   const last = records[records.length - 1].record;
@@ -527,6 +559,31 @@ test('a four-player ghost stands side by side and doubles the duet', async () =>
   assert.deepEqual(last.poses[2].landmarks, last.poses[0].landmarks);
   assert.deepEqual(last.poses[3].landmarks, last.poses[1].landmarks);
   await assert.rejects(ghost.setPlayerCount(5 as PlayerCount));
+});
+
+test('the session, its dancers and the ghost follow the cast the players picked', async () => {
+  const { session, source } = await setup(2, { cast: [1, 1], autoStart: false });
+  assert.deepEqual(session.cast, [1, 1]);
+  assert.deepEqual(session.routine().cast, [1, 1]);
+  session.start();
+  assert.deepEqual(source.attached?.cast, [1, 1], 'the ghost hears the cast with the song');
+  // A cast that doesn't fit the song or the players falls back to taking turns.
+  for (const cast of [[0, 2], [0], [0, 1, 0]]) assert.deepEqual((await setup(2, { cast })).session.cast, [0, 1]);
+  assert.deepEqual((await setup(3)).session.cast, [0, 1, 0]);
+
+  // The ghost dances each player's pick: player 1 the second dancer, player 2 the first.
+  let now = 0;
+  const ghost = new ReplayPoseSource({ now: () => now, noise: 0 });
+  const records: PoseRecordEvent<LivePoseRecord>[] = [];
+  ghost.subscribeRecords((e) => records.push(e));
+  await ghost.setPlayerCount(2);
+  ghost.attachSong({ bundle, cast: [1, 0], songTimeAt: (perf) => perf, perfAtSong: (ms) => ms, playing: () => true });
+  now = 5000;
+  ghost.tick();
+  const { poses } = records[records.length - 1].record, dancers = sampleDancers(bundle, 5000).poses;
+  assert.deepEqual(poses.map((p) => p.playerId), [0, 1]);
+  assert.deepEqual(poses[0].landmarks, dancers[1].landmarks);
+  assert.deepEqual(poses[1].landmarks, dancers[0].landmarks);
 });
 
 test('a four-player pose recording keeps every player', async () => {
@@ -553,7 +610,7 @@ test('a pose recording replays at the song times it was captured', async () => {
   const replay = new ReplayPoseSource({ now: () => now, mode: 'recording', recording: { header, entries } });
   const out: number[] = [];
   replay.subscribeRecords((e) => out.push(e.captureBrowserTimeMs));
-  replay.attachSong({ bundle, songTimeAt: (perf) => perf - 500, perfAtSong: (ms) => ms + 500, playing: () => true });
+  replay.attachSong({ bundle, cast: [0], songTimeAt: (perf) => perf - 500, perfAtSong: (ms) => ms + 500, playing: () => true });
   now = 1550;
   replay.tick();
   assert.deepEqual(out, [1500]);

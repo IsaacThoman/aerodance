@@ -103,6 +103,8 @@ type Listener<T> = (value: T) => void;
 
 // An app that bundles the game (the Apple TV app) names the deployed site it pairs through.
 const site = () => ((globalThis as { __aerodanceSite?: string }).__aerodanceSite ?? '').replace(/\/+$/, '');
+/** The origin of the phone page a pairing code's link opens. */
+export const pairingOrigin = () => site() || location.origin;
 const askedTransport = (): Transport => {
   const asked = new URLSearchParams(globalThis.location?.search ?? '').get('transport');
   return asked === 'relay' || asked === 'webrtc' ? asked : 'auto';
@@ -169,6 +171,8 @@ export class PhonePoseSource implements PoseSource {
   videoAt = -Infinity;
   preview = false;
   playerCount: PlayerCount = 1;
+  /** A new song's line-up request waiting for the reliable control channel. */
+  trackingResetPending = false;
   playing = false;
   generation = 0;
   room: CreatedRoom | null = null;
@@ -193,7 +197,7 @@ export class PhonePoseSource implements PoseSource {
   arrivals: number[] = [];
   offeredAt = -Infinity;
   constructor({ base = site() ? `${site()}/pair` : PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
-    origin = () => site() || location.origin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
+    origin = pairingOrigin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
     decodeFrame = decodeJpeg }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
     this.now = now; this.origin = origin; this.createVideo = createVideo; this.createSocket = createSocket; this.decodeFrame = decodeFrame;
@@ -278,6 +282,16 @@ export class PhonePoseSource implements PoseSource {
     this.playerCount = count;
     this.publish({ snapshot: null });
     this.sendConfig();
+  }
+
+  /** Remember a new song's line-up request if the control channel is still connecting. */
+  resetTracking() {
+    this.trackingResetPending = true;
+    this.publish({ snapshot: null });
+    this.flushTrackingReset();
+  }
+  flushTrackingReset() {
+    if (this.trackingResetPending && this.send({ type: 'reset-tracking' })) this.trackingResetPending = false;
   }
 
   /** Whether a setup preview is on screen: the phone sends its picture only then. */
@@ -576,9 +590,14 @@ export class PhonePoseSource implements PoseSource {
 
   send(message: GameMessage) {
     const channel = message.type === 'ping' ? this.live : this.control;
-    if (channel?.readyState === 'open') channel.send(JSON.stringify(message));
+    if (channel?.readyState !== 'open') return false;
+    channel.send(JSON.stringify(message));
+    return true;
   }
-  sendConfig() { this.send({ type: 'config', playerCount: this.playerCount, modelId: this.view.model }); }
+  sendConfig() {
+    this.send({ type: 'config', playerCount: this.playerCount, modelId: this.view.model });
+    this.flushTrackingReset();
+  }
 
   onMessage(data: unknown) {
     const message = parsePhoneMessage(data);

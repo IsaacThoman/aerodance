@@ -14,6 +14,8 @@
   --mint: #b4e9c1;
   --cyan: #51daf0;
   --violet: #be9cff;
+  --jade: #62e3a0;
+  --pink: #ff9acb;
 }
 * {
   box-sizing: border-box;
@@ -413,6 +415,12 @@ small {
 .dot.violet {
   background: var(--violet);
 }
+.dot.jade {
+  background: var(--jade);
+}
+.dot.pink {
+  background: var(--pink);
+}
 .dot.green {
   background: #b4e9c1;
   box-shadow: 0 0 7px #b4e9c166;
@@ -705,6 +713,16 @@ small {
   background: #57497a;
   border-color: #796397;
   color: #decdf1;
+}
+.track-2 .clip {
+  background: #2f6b52;
+  border-color: #4c9374;
+  color: #cdf3df;
+}
+.track-3 .clip {
+  background: #7a4a66;
+  border-color: #9d6587;
+  color: #f6d6e8;
 }
 .lane-label {
   position: absolute;
@@ -1334,6 +1352,10 @@ small {
 .take-menu [role="menu"] {
   overflow: visible;
 }
+.take-menu.up [role="menu"] {
+  top: auto;
+  bottom: 100%;
+}
 .webcam-controls canvas { display: block; width: 100%; max-width: 320px; height: auto; border-radius: 12px; margin: 8px 0; }
 .webcam-controls small { display: block; }
 .video-import { width: min(680px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow-y: auto; color: #e2f0ed; background: #142c33; border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
@@ -1385,11 +1407,21 @@ small {
 .player-control .player-options { border-left: 1px solid currentColor; border-radius: 0 4px 4px 0; font-size: 11px; }
 .player-0 { color: #51daf0; }
 .player-1 { color: #be9cff; }
+.player-2 { color: var(--jade); }
+.player-3 { color: var(--pink); }
 .player-0.selected { border-color: #51daf0; background: #174854; }
 .player-1.selected { border-color: #be9cff; background: #42335c; }
+.player-2.selected { border-color: var(--jade); background: #1d4a38; }
+.player-3.selected { border-color: var(--pink); background: #55303f; }
 .track-lane.selected-track { box-shadow: inset 0 0 0 2px #51daf0; background: #1e505e66; }
 .track-lane.track-1.selected-track { box-shadow: inset 0 0 0 2px #be9cff; background: #49385d66; }
+.track-lane.track-2.selected-track { box-shadow: inset 0 0 0 2px var(--jade); background: #1d4a3866; }
+.track-lane.track-3.selected-track { box-shadow: inset 0 0 0 2px var(--pink); background: #55303f66; }
 button.lane-label { top: 4px; font-size: 11px; padding: 3px 6px; z-index: 6; }
+/* Three or four dancers' lanes are slimmer, so the preview keeps its room. */
+.timeline-content.crowded .track-lane { height: 22px; margin-top: 3px; }
+.timeline-content.crowded button.lane-label { top: 1px; padding: 1px 6px; }
+.timeline-content.crowded .clip { top: 2px; bottom: 2px; padding: 2px 25px 0 44px; line-height: 12px; }
 button.lane-label[aria-pressed="true"] { color: white; border-color: currentColor; }
 .playable-overlay { position: absolute; inset: 0 0 24px; pointer-events: none; z-index: 4; overflow: hidden; }
 .outside-playable { position: absolute; top: 0; bottom: 0; background: #050d18a6; }

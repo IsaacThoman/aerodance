@@ -109,8 +109,8 @@ const toCalibration = [
   wait({ menuScreen: 'players', menuReady: 'true' }), ['sleep', 500], ['key', 'Enter'],
   wait({ songScreen: 'list', songReady: 'true', catalog: 'ready' }), ['sleep', 500], ['key', 'Enter'],
   wait({ songScreen: 'preview', previewState: 'playing', stageReady: 'true' }), ['sleep', 3000], ['key', 'Enter'],
-  // The calibration screen: Enter starts the camera, which for the phone is pairing.
-  wait({ gamePhase: 'calibrating', gameReady: 'true' }), ['sleep', 1000], ['key', 'Enter'],
+  // The calibration screen: the phone (the Apple TV's only camera) pairs by itself.
+  wait({ gamePhase: 'calibrating', gameReady: 'true' }),
 ];
 // The simulator leaves the menu's 3D world and the stage's extras out, to keep its software
 // renderer's frames short.

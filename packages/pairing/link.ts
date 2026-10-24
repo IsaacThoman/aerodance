@@ -42,12 +42,14 @@ export interface PhoneStatus {
  *   game    whether a song is on (the phone dims its screen while one plays)
  *   ping    a clock round trip, answered with pong (packages/pairing/clock.ts)
  *   preview whether the game is showing a setup preview: the phone sends its video while on
+ *   reset-tracking a new song's line-up, without restarting the camera
  */
 export type GameMessage =
   | { type: 'config'; playerCount: PlayerCount; modelId: PoseModelId }
   | { type: 'game'; playing: boolean }
   | { type: 'ping'; id: number; t0: number }
-  | { type: 'preview'; on: boolean };
+  | { type: 'preview'; on: boolean }
+  | { type: 'reset-tracking' };
 /** A pose record's times are on the phone's clock. */
 export type PhoneMessage =
   | PhoneStatus
@@ -71,6 +73,7 @@ export function parseGameMessage(data: unknown): GameMessage | null {
   if (m?.type === 'game' && typeof m.playing === 'boolean') return { type: 'game', playing: m.playing };
   if (m?.type === 'ping' && Number.isSafeInteger(m.id) && finite(m.t0)) return { type: 'ping', id: m.id as number, t0: m.t0 };
   if (m?.type === 'preview' && typeof m.on === 'boolean') return { type: 'preview', on: m.on };
+  if (m?.type === 'reset-tracking') return { type: 'reset-tracking' };
   return null;
 }
 

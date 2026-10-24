@@ -165,8 +165,14 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
     if (lake.reflect && (cam.position.z < 280 || cam.position.y > 60) && refresh.shouldRefresh(elapsed, cam)) {
       const shown = lake.unreflected.filter((o) => o.visible);
       for (const o of shown) o.visible = false;
-      reflect.call(water, r, sc, cam, geo, mat, group);
-      for (const o of shown) o.visible = true;
+      // The outer render just updated these matrices. Water moves only its mirror camera;
+      // the nested scene render can reuse the world matrices, including moving objects.
+      const auto = sc.matrixWorldAutoUpdate;
+      sc.matrixWorldAutoUpdate = false;
+      try { reflect.call(water, r, sc, cam, geo, mat, group); } finally {
+        sc.matrixWorldAutoUpdate = auto;
+        for (const o of shown) o.visible = true;
+      }
     }
   };
 

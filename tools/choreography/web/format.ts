@@ -11,7 +11,7 @@ export const OPERATION_NAMES: Readonly<Record<OperationType, string>> = {
   joint: "Joint keyframe",
   swap: "Swap tracks",
   mirror: "Mirror target",
-  'mirror-track': "Mirror track to other player",
+  'mirror-track': "Mirror track to another dancer",
   'recalibrate-body': "Recalibrate body from frame",
   smooth: "Smooth coordinates",
   cleanup: "Clean up poses",
@@ -22,4 +22,5 @@ export const OPERATION_NAMES: Readonly<Record<OperationType, string>> = {
   clear: "Delete track",
   offset: "Track offset",
   interpolate: "Interpolate missing intervals",
+  dancers: "Change dancers",
 };

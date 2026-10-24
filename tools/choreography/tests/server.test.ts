@@ -10,9 +10,11 @@ import { sha } from "../server/store.ts";
 import {
   addTake,
   overwriteTracks,
+  setDancers,
   trackDataIds,
   isTrackData,
 } from "../core.ts";
+import { validateSong, validateSongChoreography } from "../../../packages/pose/song.ts";
 import type { StudioAssets, Take } from "../core.ts";
 import { takeIdOf } from "../web/api.ts";
 import { captureHead, captureHeader } from "../poseFiles.ts";
@@ -185,8 +187,9 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
   assert.match(songId, /^song-[0-9a-f]{16}$/);
   assert.equal(read(zipJson(files, `${songId}/song.json`), "songId"), songId);
   const checks = read(zipJson(files, `${songId}/checksums.json`), "files");
-  // The song carries its stage, so the game opens it on club.
+  // The song carries its stage, so the game opens it on club, and its dancers.
   assert.equal(read(zipJson(files, `${songId}/song.json`), "stage"), "club");
+  assert.equal(read(zipJson(files, `${songId}/song.json`), "dancers"), 2);
   assert.deepEqual(read(zipJson(files, `${songId}/song.json`), "rights"), {
     audio: { license: "unknown", attribution: "" }, choreography: { license: "unknown", attribution: "" },
   });
@@ -232,6 +235,32 @@ test("project revisions, persisted audio, bundle integrity and backup restore su
   assert.equal(await songIdOf(rp.projectId), songId);
   edited = await projectOf(await api(`/api/projects/${rp.projectId}`, { ...edited, playableEndMs: edited.playableEndMs - 100 }, "PUT"));
   assert.notEqual(await songIdOf(edited.projectId), songId);
+});
+test("a trio exports with three dancers, its third danced from a duet take's first", async (t) => {
+  const { api, base, store } = await setup(t);
+  let p = await projectOf(await api("/api/projects", {}));
+  const uploaded = await takeOf(await api(`/api/projects/${p.projectId}/import`, take()));
+  const assets: StudioAssets = new Map();
+  p = setDancers(addTake(p, uploaded), 3);
+  p = overwriteTracks(p, uploaded, [0, 1], assets);
+  p = overwriteTracks(p, uploaded, [0], assets, [2]);
+  for (const dataId of trackDataIds(p)) await store.writeTrack(p.projectId, assets.get(dataId));
+  p.metadata.artist = "Artist";
+  p = await projectOf(await api(`/api/projects/${p.projectId}`, p, "PUT"));
+  p = await projectOf(await fetch(`${base}/api/projects/${p.projectId}/audio?durationMs=1000&revision=${p.revision}`,
+    { method: "POST", headers: { "Content-Type": "audio/wav" }, body: Buffer.from("fixture audio bytes") }));
+  p.alignmentReviewed = true;
+  p = await projectOf(await api(`/api/projects/${p.projectId}`, p, "PUT"));
+  assert.equal(p.tracks.length, 3);
+  const exported = await fetch(`${base}/api/projects/${p.projectId}/export`);
+  assert.equal(exported.status, 200, await exported.clone().text());
+  const files = readZip(Buffer.from(await exported.arrayBuffer()));
+  const songId = songFolder(files);
+  const song = validateSong(zipJson(files, `${songId}/song.json`));
+  assert.equal(song.dancers, 3);
+  const choreography = validateSongChoreography(song, found(files.get(`${songId}/choreography.adpose`)));
+  assert.deepEqual(choreography.tracks.map((t) => t.playerId), [0, 1, 2]);
+  assert.equal(choreography.playerSlots, 3);
 });
 test('stored projects in earlier formats remain listed but cannot be opened or mutated by this editor', async t => {
   const {api,base,store}=await setup(t);

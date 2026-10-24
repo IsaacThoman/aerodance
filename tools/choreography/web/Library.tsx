@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type { PoseSourceController } from "../../../packages/pose/browser/PoseSourceController.ts";
 import { importMotion, validateTake } from "../core.ts";
 import { importedPoseFile } from "../poseFiles.ts";
-import type { ProjectV3 } from "../core.ts";
+import type { ProjectV3, TrackChange } from "../core.ts";
 import { request } from "./api.ts";
 import type { AudioTransport } from "./audio.ts";
 import CapturePanel from "./CapturePanel.tsx";
@@ -40,6 +40,15 @@ const AUDIO_TYPES: Readonly<Record<string, string>> = {
   m4a: "audio/mp4",
   flac: "audio/flac",
 };
+
+// The tracks an edit in the history changed.
+function changedTracks(op: TrackChange, dancers: number) {
+  const list = (ids: readonly number[]) => ids.map(id => `P${id + 1}`).join(" + ");
+  if (op.type === "dancers") return `${op.dancers} dancer${op.dancers === 1 ? "" : "s"}`;
+  if (op.type === "overwrite" && op.playerIds) return list(op.playerIds);
+  if (op.type === "swap") return list(op.playerId === null ? [0, 1] : [op.playerId, op.withPlayerId ?? 0]);
+  return op.playerId === null ? (dancers === 2 ? "Both tracks" : "Every track") : `P${op.playerId + 1}`;
+}
 
 // The project's assets: song audio, imported and recorded takes, and player tracks.
 export default function Library({ project, studio, workspace, live, source, transport, fillable, onImportVideo, panel, setPanel, editor }: LibraryProps) {
@@ -179,7 +188,7 @@ export default function Library({ project, studio, workspace, live, source, tran
         <ol className="history">
           {project.operations.map((op, index) => <li key={op.operationId} className={index >= project.operationCursor ? "undone" : ""}>
             <strong>{OPERATION_NAMES[op.type]}{index >= project.operationCursor ? " (undone)" : ""}</strong>
-            <small>{op.playerId === null ? "Both tracks" : `P${op.playerId + 1}`}
+            <small>{changedTracks(op, project.tracks.length)}
               {"startMs" in op ? ` · ${timeLabel(op.startMs)}–${timeLabel(op.endMs)}` : ""}</small>
           </li>)}
         </ol>
