@@ -28,7 +28,7 @@ my-dance/
   sources/video.webm          the reference video (copied in, or referenced with --link)
   sources/proxy.webm          a browser-playable copy for the Studio, when the original may not play
   sources/audio.wav           the song audio
-  sources/tracking-t1.adpose  poses tracked from the video
+  sources/tracking-3fa9….adpose  poses tracked from the video (named by content)
   .dance/                     undo history, caches and renders; safe to delete (and git-ignored)
 ```
 
@@ -127,7 +127,7 @@ angles are numbers.
       "proxy": null },
     "audio": { "path": "sources/audio.wav", "sha256": "…", "bytes": 12172878, "mimeType": "audio/wav", "durationMs": 63400 },
     "tracking": [
-      { "id": "t1", "path": "sources/tracking-t1.adpose", "sha256": "…", "bytes": 52184, "mimeType": "application/octet-stream",
+      { "id": "t1", "path": "sources/tracking-3fa9c2e1b7d0.adpose", "sha256": "…", "bytes": 52184, "mimeType": "application/octet-stream",
         "model": "lite", "createdAt": "…", "fps": 30, "dancers": ["P1"] }   // the dancer each tracked slot follows
     ]
   },
