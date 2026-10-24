@@ -43,10 +43,11 @@ export function buildBubbles(ctx: AeroContext, path: FlightPath, specs: BubbleSp
   ctx.root.add(mesh);
   // Positions this frame, drawn farthest first as three.js sorted the separate bubbles.
   const pos = new Float64Array(n * 3), order = new DepthOrder(n), fwd = new THREE.Vector3(), m = mesh.instanceMatrix.array as Float32Array;
+  const bounds = new THREE.Sphere();
 
   return {
     /** Needs the camera's matrices for this frame (lit in view space). */
-    update(t: number, dt: number, camera: THREE.Camera) {
+    update(t: number, dt: number, camera: THREE.Camera, frustum: THREE.Frustum) {
       uLight.value.copy(ctx.sun).transformDirection(camera.matrixWorldInverse);
       BUBBLES.forEach((b, i) => {
         if (b.range) { b.y += b.rise * dt; if (b.y > b.y0 + b.range) b.y = b.y0; }
@@ -56,12 +57,21 @@ export function buildBubbles(ctx: AeroContext, path: FlightPath, specs: BubbleSp
       });
       camera.getWorldDirection(fwd);
       order.update(pos, 3, 0, camera.position.x, camera.position.y, camera.position.z, fwd.x, fwd.y, fwd.z);
+      let count = 0;
       for (let k = 0; k < n; k++) {
-        const i = order.order[k], r = BUBBLES[i].r, o = k * 16;
+        const i = order.order[k], r = BUBBLES[i].r;
+        bounds.center.set(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+        // Keep a little slack for Float32 instance transforms at the clip edge. Culled bubbles
+        // still animate and sort, so reappearing ones keep their exact positions and order.
+        bounds.radius = r * 1.000001 + 0.001;
+        if (!frustum.intersectsSphere(bounds)) continue;
+        const o = count++ * 16;
         m[o] = r; m[o + 5] = r; m[o + 10] = r; m[o + 15] = 1;
         m[o + 12] = pos[i * 3]; m[o + 13] = pos[i * 3 + 1]; m[o + 14] = pos[i * 3 + 2];
       }
-      mesh.instanceMatrix.needsUpdate = true;
+      mesh.count = count;
+      mesh.instanceMatrix.clearUpdateRanges();
+      if (count) { mesh.instanceMatrix.addUpdateRange(0, count * 16); mesh.instanceMatrix.needsUpdate = true; }
     },
   };
 }

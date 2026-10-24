@@ -120,6 +120,10 @@ slower; measure without it and read the console through `logUrl`.
 
 ## Performance
 
+[The menu performance investigation](../../docs/menu-performance.md) records the latest
+optimizations, paired hardware measurements and visual checks. The six menu scenarios can be
+measured without attaching a debugger: `node scripts/menu-bench.ts --device <udid> --label <name>`.
+
 On an Apple TV 4K (3rd generation, A15, tvOS 27) the game holds 60 fps on every screen:
 about 6 ms of JavaScript a frame on the main menu (up to ~12 ms while the city is in view), about
 5.5 ms in gameplay, and the Aero benchmark at 59.9 fps. JavaScript runs interpreted (no JIT on
