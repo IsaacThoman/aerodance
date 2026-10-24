@@ -191,7 +191,7 @@ void main() {
   vec2 d = (vNdc - uSun) * vec2(uAspect, 1.0);
   float r = length(d);
   float a = atan(d.y, d.x);
-  vec3 col = vec3(1.0, 0.93, 0.78) * (exp(-r * 2.2) * 0.16 + exp(-r * 5.0) * 0.25);
+  vec3 col = vec3(1.0, 0.93, 0.78) * (exp(-r * 2.0) * 0.2 + exp(-r * 5.0) * 0.28);
   float rays = pow(max(sin(a * 7.0 + uTime * 0.03) * 0.5 + 0.5, 0.0), 6.0) + pow(max(sin(a * 11.0 - uTime * 0.02 + 1.3) * 0.5 + 0.5, 0.0), 8.0) * 0.6;
   col += vec3(1.0, 0.95, 0.85) * rays * exp(-r * 1.3) * 0.12;
   // Bokeh: soft hexagon-free discs drifting about the sun.

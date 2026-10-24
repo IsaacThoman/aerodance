@@ -245,7 +245,8 @@ export function Landscape() {
   return (
     <>
       <mesh geometry={hills} material={hillsMaterial} renderOrder={-800} />
-      <mesh geometry={geometry} material={material} />
+      {/* After the room, which hides most of it. */}
+      <mesh geometry={geometry} material={material} renderOrder={-5} />
     </>
   );
 }
@@ -291,7 +292,7 @@ void main() {
   vec3 albedo = vec3(0.95, 0.96, 0.98);
   albedo = mix(albedo, vec3(0.02, 0.28, 0.78), skirt);
   albedo = mix(albedo, vec3(0.5, 0.9, 0.08), stripe);
-  albedo = mix(albedo, vec3(0.02, 0.08, 0.16), glass);
+  albedo = mix(albedo, vec3(0.05, 0.17, 0.3), glass);
   albedo *= 1.0 - joint * 0.6;
   vec3 col = outdoorLight(albedo, n, v, mix(0.6, 0.45, glass));
   col += vec3(0.3, 0.95, 1.0) * smoothstep(-0.95, -1.1, lp.y) * 3.0;
@@ -315,11 +316,49 @@ function buildTrain(): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * The trains' underglow haze: a ribbon round the ring under each train, facing the atrium, lit by
+ * a soft band (the scene runs without bloom, so the glow is drawn rather than bled).
+ */
+const haloFragment = /* glsl */ `
+varying vec3 vLocal;
+void main() {
+  float halfLen = ${(TRAIN_LEN / 2).toFixed(2)};
+  // A bright core at the skirt and a wide soft spread, like bloom round an emissive strip.
+  float y = vLocal.y + 1.05;
+  float ends = smoothstep(halfLen + 4.0, halfLen - 6.0, abs(vLocal.x));
+  float a = (exp(-y * y * 2.0) * 0.7 + exp(-abs(y) * 0.7) * 0.35) * ends;
+  gl_FragColor = vec4(vec3(0.35, 0.95, 1.0) * a, 1.0);
+}
+`;
+
+const PHASES = [2.0, 2.0 + (Math.PI * 2) / 3, 2.0 + (Math.PI * 4) / 3];
+
 /** Three maglev trains a third of a loop apart, gliding round the guideway. */
 export function Maglev() {
-  const geometry = useDisposable(() => instanced(buildTrain(), 3, { aPhase: [1, new Float32Array([2.0, 2.0 + (Math.PI * 2) / 3, 2.0 + (Math.PI * 4) / 3])] }));
+  const geometry = useDisposable(() => instanced(buildTrain(), 3, { aPhase: [1, new Float32Array(PHASES)] }));
+  const halo = useDisposable(() => {
+    // Facing the atrium (normal -z in the train's frame), just in front of the train.
+    const plane = new THREE.PlaneGeometry(TRAIN_LEN + 8, 9, 24, 1).rotateY(Math.PI).translate(0, -1.05, -2.2);
+    return instanced(plane, 3, { aPhase: [1, new Float32Array(PHASES)] });
+  });
   const material = useDisposable(() =>
     shaderMaterial({ uniforms: { ...atriumUniforms }, vertexShader: trainVertex, fragmentShader: trainFragment }),
   );
-  return <mesh geometry={geometry} material={material} frustumCulled={false} />;
+  const haloMaterial = useDisposable(() =>
+    shaderMaterial({
+      uniforms: { ...atriumUniforms },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: trainVertex,
+      fragmentShader: haloFragment,
+    }),
+  );
+  return (
+    <>
+      <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={-5} />
+      <mesh geometry={halo} material={haloMaterial} frustumCulled={false} renderOrder={5} />
+    </>
+  );
 }

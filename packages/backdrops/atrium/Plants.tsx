@@ -5,7 +5,7 @@ import { shaderMaterial } from '../../stages/shared/glsl.ts';
 import { makeRandom } from '../../stages/shared/random.ts';
 import { fill, mergeAll, sweepArc } from './geometry.ts';
 import type { ProfilePoint } from './geometry.ts';
-import { AXIS, BALCONY_THETA, GLASS_R, GLASS_THETA, LAYOUT_GLSL, LEVELS, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
+import { AXIS, BALCONY_THETA, CAMERA, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
 import type { TreeSpot } from './layout.ts';
 import { COMMON, atriumUniforms } from './shading.ts';
 
@@ -15,17 +15,17 @@ import { COMMON, atriumUniforms } from './shading.ts';
 
 const FOLIAGE = /* glsl */ `
 // w: surface, n: normal, blob: the leaf cluster's centre, crown: the whole crown's centre and
-// radius (radius 0: no crown), tone: 0..1 colour variation.
-vec3 foliage(vec3 w, vec3 n, vec3 blob, vec4 crown, float tone) {
+// radius (radius 0: no crown), tone: 0..1 colour variation. sunAmt (sunLight) and n1 (the leaf
+// clumps' noise) vary slowly, so the vertex shader works them out.
+vec3 foliage(vec3 w, vec3 n, vec3 blob, vec4 crown, float tone, float sunAmt, float n1) {
   vec3 v = normalize(cameraPosition - w);
   vec3 s = normalize(uSunDir);
   vec3 ball = normalize(w - blob);
   float detail = 1.0 - smoothstep(0.03, 0.09, length(fwidth(w)));
-  float n1 = snoise(w * 1.3);
-  float n2 = snoise(w * 4.2 + 5.0) * detail;
+  // Fine leaf detail from 2D noise on a skewed projection: cheaper than 3D, and too small to streak.
+  float n2 = snoise(vec2(w.x + w.z * 0.63, w.y - w.z * 0.77) * 4.2 + 5.0) * detail;
   float clump = n1 * 0.6 + n2 * 0.4;
   vec3 nn = normalize(mix(n, ball, 0.55) + vec3(n1, n2, -n1) * 0.25);
-  float sunAmt = sunLight(w);
   float diff = clamp(dot(nn, s) * 0.8 + 0.2, 0.0, 1.0) * sunAmt;
   // Darker inside the crown and underneath it.
   float ao = 0.6 + 0.4 * smoothstep(-0.9, 0.6, ball.y);
@@ -50,10 +50,12 @@ vec3 foliage(vec3 w, vec3 n, vec3 blob, vec4 crown, float tone) {
 `;
 
 const plantVertex = /* glsl */ `
+${COMMON}
 attribute vec3 aColor;
 attribute vec4 aCenter;
 attribute vec4 aCrown;
-uniform float uTime;
+varying float vSun;
+varying float vN1;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec3 vColor;
@@ -73,6 +75,8 @@ void main() {
   vColor = aColor;
   vCenter = aCenter;
   vCrown = aCrown;
+  vSun = sunLight(w.xyz);
+  vN1 = snoise(w.xyz * 1.3);
   gl_Position = projectionMatrix * viewMatrix * w;
 }
 `;
@@ -85,6 +89,8 @@ varying vec3 vNormal;
 varying vec3 vColor;
 varying vec4 vCenter;
 varying vec4 vCrown;
+varying float vSun;
+varying float vN1;
 void main() {
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;
@@ -92,11 +98,11 @@ void main() {
   if (vColor.r > 0.0) {
     // Bark, with the ringed scars of old fronds on the palms (the paler wood).
     vec3 s = normalize(uSunDir);
-    float sun = max(dot(n, s), 0.0) * sunLight(vWorld);
+    float sun = max(dot(n, s), 0.0) * vSun;
     float rings = vColor.r > 0.5 ? 0.82 + 0.18 * smoothstep(0.2, 0.8, fract(vWorld.y * 1.6)) : 1.0;
     col = vColor * rings * (ambient(n) * 0.8 + SUN * sun * 0.6);
   } else {
-    col = foliage(vWorld, n, vCenter.xyz, vCrown, vColor.g);
+    col = foliage(vWorld, n, vCenter.xyz, vCrown, vColor.g, vSun, vN1);
   }
   gl_FragColor = vec4(haze(col, vWorld), 1.0);
 }
@@ -127,6 +133,16 @@ function lumpy(g: THREE.BufferGeometry, amount: number, seed: number): THREE.Buf
 const leaves = (g: THREE.BufferGeometry, center: THREE.Vector3, tone: number, sway: number, crown = center, crownR = 0) =>
   fill(fill(fill(g, 'aColor', [0, tone, 0]), 'aCenter', [center.x, center.y, center.z, sway]), 'aCrown', [crown.x, crown.y, crown.z, crownR]);
 const wood = (g: THREE.BufferGeometry, color: readonly number[] = BARK) => fill(fill(fill(g, 'aColor', color), 'aCenter', [0, 0, 0, 0]), 'aCrown', [0, 0, 0, 0]);
+
+/** Both faces of a thin sheet, so the mesh can cull back faces (indexed geometry with normals). */
+function twoSided(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const back = g.clone();
+  const index = back.index;
+  if (index) for (let i = 0; i < index.count; i += 3) { const a = index.getX(i + 1); index.setX(i + 1, index.getX(i + 2)); index.setX(i + 2, a); }
+  const n = back.attributes.normal;
+  for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+  return mergeAll([g, back]);
+}
 
 /** A tapered cylinder from p0 (radius r0) to p1 (radius r1). */
 function limb(p0: THREE.Vector3, p1: THREE.Vector3, r0: number, r1: number, segments = 9): THREE.BufferGeometry {
@@ -203,7 +219,7 @@ function palm(spot: TreeSpot, parts: THREE.BufferGeometry[]) {
     g.rotateZ(rand.range(-0.05, 0.25));
     g.rotateY((k / fronds) * Math.PI * 2 + rand.range(-0.2, 0.2));
     g.translate(top.x, top.y, top.z);
-    parts.push(leaves(g, crownCenter, 0.6 + rand.next() * 0.4, 1, crownCenter, 0));
+    parts.push(leaves(twoSided(g), crownCenter, 0.6 + rand.next() * 0.4, 1, crownCenter, 0));
   }
 }
 
@@ -211,7 +227,8 @@ function palm(spot: TreeSpot, parts: THREE.BufferGeometry[]) {
 function hedges(parts: THREE.BufferGeometry[]) {
   const ring = (rc: number, yc: number, w: number, h: number, theta0: number, theta1: number, lumps = 1) => {
     const profile: ProfilePoint[] = [];
-    for (let i = 0; i <= 8; i++) {
+    // Wound so the outside faces the camera (the mesh culls back faces).
+    for (let i = 8; i >= 0; i--) {
       const a = Math.PI * (1.15 - (i / 8) * 1.3);
       profile.push([rc + Math.cos(a) * w, yc + Math.sin(a) * h]);
     }
@@ -254,15 +271,22 @@ function buildPlants(): THREE.BufferGeometry {
     parts.push(leaves(mound, base.clone().setY(0.4), 0.7, 0));
   }
   hedges(parts);
-  return mergeAll(parts);
+  // Nearest first, so leaves behind leaves fail the depth test instead of being shaded twice.
+  const eye = new THREE.Vector3(...CAMERA.position);
+  const distance = (g: THREE.BufferGeometry) => {
+    g.computeBoundingSphere();
+    return g.boundingSphere ? g.boundingSphere.center.distanceTo(eye) - g.boundingSphere.radius * 0.5 : 0;
+  };
+  return mergeAll(parts.map((g) => ({ g, d: distance(g) })).sort((a, b) => a.d - b.d).map(({ g }) => g));
 }
 
 export function Plants() {
   const geometry = useDisposable(buildPlants);
   const material = useDisposable(() =>
-    shaderMaterial({ uniforms: { ...atriumUniforms }, side: THREE.DoubleSide, vertexShader: plantVertex, fragmentShader: plantFragment }),
+    shaderMaterial({ uniforms: { ...atriumUniforms }, vertexShader: plantVertex, fragmentShader: plantFragment }),
   );
-  return <mesh geometry={geometry} material={material} />;
+  // Drawn before the rest of the room: the trees hide much of it.
+  return <mesh geometry={geometry} material={material} renderOrder={-20} />;
 }
 
 /**
@@ -270,13 +294,15 @@ export function Plants() {
  * a ragged, clumpy hem of vines, swaying gently at the tips.
  */
 const curtainVertex = /* glsl */ `
+${COMMON}
 attribute float aTop;
-uniform float uTime;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vUv;
 varying float vTop;
-${LAYOUT_GLSL}
+varying float vClump;
+varying float vSun;
+varying float vN1;
 void main() {
   // The tips hang out from the fascia and swing a little, the more the further down.
   vec3 p = position;
@@ -290,6 +316,10 @@ void main() {
   vNormal = normalize(mat3(modelMatrix) * normal);
   vUv = uv;
   vTop = aTop;
+  // Clumps along the balcony vary slowly enough to work out per vertex.
+  vClump = smoothstep(-0.35, 0.6, snoise(vec2(uv.x * 0.16, aTop * 0.37)));
+  vSun = sunLight(w.xyz);
+  vN1 = snoise(w.xyz * 1.3);
   gl_Position = projectionMatrix * viewMatrix * w;
 }
 `;
@@ -301,25 +331,29 @@ varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vUv;
 varying float vTop;
+varying float vClump;
+varying float vSun;
+varying float vN1;
 void main() {
   float u = vUv.x;
   float drop = vTop - vWorld.y;
-  // Clumps along the balcony, strands within them, each strand its own length.
-  float clump = smoothstep(-0.35, 0.6, snoise(vec2(u * 0.16, vTop * 0.37)));
+  // Clumps along the balcony, strands within them, each strand its own length; one noise
+  // field roughens both the hem and the strands' edges.
   float strand = floor(u / 0.5);
   float fu = fract(u / 0.5);
   float h1 = hash12(vec2(strand, vTop));
-  float len = 0.9 + clump * (0.5 + 3.0 * h1 * h1);
-  float edge = len + 0.3 * snoise(vec2(u * 2.6, vWorld.y * 1.8));
+  float len = 0.9 + vClump * (0.5 + 3.0 * h1 * h1);
+  float rough = snoise(vec2(u * 3.2, vWorld.y * 2.2));
+  float edge = len + 0.3 * rough;
   float sheet = 1.0 - smoothstep(len * 0.35, len * 0.9, drop);
-  float strandMask = 1.0 - smoothstep(0.32, 0.48, abs(fu - 0.5) + 0.1 * snoise(vec2(u * 4.0, vWorld.y * 3.0)));
+  float strandMask = 1.0 - smoothstep(0.32, 0.48, abs(fu - 0.5) + 0.1 * rough);
   float body = max(sheet, strandMask);
   float px = fwidth(drop) * 1.2;
   float alpha = body * (1.0 - smoothstep(edge - px, edge + px, drop));
   if (alpha < 0.01) discard;
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;
-  vec3 col = foliage(vWorld, n, vWorld - n * 0.5 + vec3(0.0, 0.6, 0.0), vec4(0.0), 0.5 + 0.5 * h1);
+  vec3 col = foliage(vWorld, n, vWorld - n * 0.5 + vec3(0.0, 0.6, 0.0), vec4(0.0), 0.5 + 0.5 * h1, vSun, vN1);
   // Deeper shade towards the tips.
   col *= mix(1.0, 0.7, smoothstep(0.0, 3.5, drop));
   gl_FragColor = vec4(haze(col, vWorld) * alpha, alpha);

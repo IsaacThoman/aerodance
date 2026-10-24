@@ -38,7 +38,7 @@ void main() {
   // Caustics on the far glass, drifting down the column.
   float ang = atan(w.x - AXIS.x, w.z - AXIS.z) * TANK_R;
   vec2 p = vec2(ang, w.y) * 0.8;
-  float ca = snoise(vec3(p, uTime * 0.3)) + 0.4 * snoise(vec3(p * 2.1 + 4.0, uTime * 0.45));
+  float ca = snoise(p + vec2(0.07, 0.24) * uTime) + 0.4 * snoise(p * 2.1 + 4.0 + vec2(-0.11, 0.31) * uTime);
   float caustic = pow(max(1.0 - abs(ca), 0.0), 6.0);
   col += vec3(0.6, 1.0, 1.0) * caustic * (0.12 + 0.3 * h);
   // Sun streaming down from the top of the column.
@@ -296,8 +296,9 @@ export function Aquarium() {
   }));
   return (
     <group>
-      <mesh geometry={tube} material={mats.water} />
-      <mesh geometry={fish} material={mats.fish} frustumCulled={false} />
+      {/* The fish before the water behind them; both early among the opaque, in front of the room. */}
+      <mesh geometry={fish} material={mats.fish} frustumCulled={false} renderOrder={-16} />
+      <mesh geometry={tube} material={mats.water} renderOrder={-15} />
       <points geometry={bubbles} material={mats.bubble} frustumCulled={false} renderOrder={6} />
       <mesh geometry={tube} material={mats.glass} renderOrder={7} />
     </group>

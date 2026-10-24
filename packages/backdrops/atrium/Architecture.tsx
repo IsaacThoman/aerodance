@@ -32,8 +32,9 @@ function buildStructure(): THREE.BufferGeometry {
     const end = polar(R + 0.82, t0);
     parts.push(tagged(cap.translate(end.x, 0, end.z), KIND.white));
   }
-  // Shop fronts all the way up behind the balconies.
-  parts.push(tagged(sweepArc([[DOME_R, ROOF_Y], [DOME_R, 0]], t0 - 0.05, t1, segs), KIND.shopfront));
+  // Shop fronts all the way up behind the balconies, and (below) the floor: drawn last, so what
+  // stands in front of them hides them before they're shaded.
+  const behind = [tagged(sweepArc([[DOME_R, ROOF_Y], [DOME_R, 0]], t0 - 0.05, t1, segs), KIND.shopfront)];
   // The ring beam the dome rests on, and a white pier where the balconies end at the glass.
   parts.push(
     tagged(
@@ -76,10 +77,10 @@ function buildStructure(): THREE.BufferGeometry {
     parts.push(tagged(g, KIND.white));
   }
   // Floor: polished stone, with a raised stone rim round the pool.
-  parts.push(tagged(new THREE.CircleGeometry(DOME_R + 8, 96).rotateX(-Math.PI / 2).translate(AXIS.x, 0, AXIS.z), KIND.floor));
+  behind.push(tagged(new THREE.CircleGeometry(DOME_R + 8, 96).rotateX(-Math.PI / 2).translate(AXIS.x, 0, AXIS.z), KIND.floor));
   const rim: ProfilePoint[] = [[POOL_R, WATER_Y - 0.1], [POOL_R, 0.5], [POOL_R + 0.1, 0.58], [POOL_R + 0.62, 0.58], [POOL_R + 0.72, 0.5], [POOL_R + 0.74, 0]];
   parts.push(tagged(sweepArc(rim, 0, Math.PI * 2, 128), KIND.stone));
-  return mergeAll(parts);
+  return mergeAll([...parts, ...behind]);
 }
 
 const structureFragment = /* glsl */ `
@@ -109,9 +110,10 @@ vec3 shopfront(vec3 w, out float gloss) {
   vec3 col = mix(vec3(0.93, 0.94, 0.95), glass, glazed * (1.0 - mullion));
   // Some bays are living walls, floor to ceiling.
   float green = step(rnd, 0.28) * step(0.0, h) * step(h, 4.0);
-  float leaves = snoise(vec2(u, w.y) * 1.3) * 0.5 + snoise(vec2(u, w.y) * 3.1) * 0.25;
-  vec3 leaf = mix(vec3(0.12, 0.36, 0.08), vec3(0.42, 0.72, 0.16), leaves * 0.5 + 0.5);
-  col = mix(col, leaf, green);
+  if (green > 0.0) {
+    float leaves = snoise(vec2(u, w.y) * 1.3) * 0.5 + snoise(vec2(u, w.y) * 3.1) * 0.25;
+    col = mix(vec3(0.12, 0.36, 0.08), vec3(0.42, 0.72, 0.16), leaves * 0.5 + 0.5);
+  }
   gloss = mix(glazed * (1.0 - mullion) * 0.8, 0.0, green);
   return col;
 }
@@ -186,7 +188,8 @@ export function Structure() {
       fragmentShader: structureFragment,
     }),
   );
-  return <mesh geometry={geometry} material={material} />;
+  // After the plants, the aquarium and the pool, which stand in front of it.
+  return <mesh geometry={geometry} material={material} renderOrder={-12} />;
 }
 
 /** The dome: white ribs and glass panes over the whole atrium. */

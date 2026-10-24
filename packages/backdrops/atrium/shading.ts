@@ -78,7 +78,7 @@ float sunLight(vec3 p) {
     vec2 at = p.xz + s.xz * (c.y - p.y) / s.y;
     float d = length(at - c.xz) / c.w;
     if (d > 1.1) continue;
-    float flecks = smoothstep(0.35, 0.75, snoise(at * 1.3 + float(i) * 7.0));
+    float flecks = smoothstep(0.3, 0.8, sin(at.x * 2.3 + float(i) * 7.0) * sin(at.y * 1.9 - at.x * 0.7) * 0.5 + 0.5);
     lit *= mix(mix(0.25, 0.8, flecks), 1.0, smoothstep(0.55, 1.1, d));
   }
   return lit;

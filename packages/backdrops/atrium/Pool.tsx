@@ -79,14 +79,15 @@ void main() {
   g += vec2(0.8, 0.6) * cos(dot(w.xz, vec2(0.8, 0.6)) * 2.2 + uTime * 0.9) * 0.035;
   g += vec2(-0.5, 0.86) * cos(dot(w.xz, vec2(-0.5, 0.86)) * 3.1 - uTime * 0.7) * 0.03;
   g *= detail;
-  g += vec2(snoise(vec3(w.xz * 0.7, uTime * 0.2)), snoise(vec3(w.xz * 0.7 + 7.0, uTime * 0.2))) * 0.05;
+  // Cheap swell: two 2D noise fields drifting different ways rather than one evolving in 3D.
+  g += vec2(snoise(w.xz * 0.7 + vec2(0.13, 0.07) * uTime), snoise(w.xz * 0.7 + 7.0 - vec2(0.09, -0.11) * uTime)) * 0.05;
   vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
   vec3 R = reflect(-v, n);
   vec3 refl = reflection(w, R);
   float fres = 0.03 + 0.97 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
   // The pool floor: aqua tiles under rippling caustics, in sun and shadow.
   vec2 cp = w.xz * 1.1;
-  float ca = snoise(vec3(cp, uTime * 0.4)) + 0.5 * snoise(vec3(cp * 2.0 + 3.0, uTime * 0.55));
+  float ca = snoise(cp + vec2(0.21, 0.13) * uTime) + 0.5 * snoise(cp * 2.0 + 3.0 - vec2(0.17, -0.23) * uTime);
   float caustic = pow(max(1.0 - abs(ca), 0.0), 4.0);
   float sun = sunLight(vec3(w.x, 0.0, w.z));
   // A dark pool floor makes a better mirror: deep teal, caustics where the sun reaches it.
@@ -102,5 +103,5 @@ void main() {
 export function Pool() {
   const geometry = useDisposable(() => new THREE.CircleGeometry(POOL_R + 0.05, 96).rotateX(-Math.PI / 2).translate(AXIS.x, WATER_Y, AXIS.z));
   const material = useDisposable(() => shaderMaterial({ uniforms: { ...atriumUniforms }, vertexShader: WORLD_VERTEX, fragmentShader: poolFragment }));
-  return <mesh geometry={geometry} material={material} />;
+  return <mesh geometry={geometry} material={material} renderOrder={-14} />;
 }

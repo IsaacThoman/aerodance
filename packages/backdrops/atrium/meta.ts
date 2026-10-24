@@ -5,10 +5,10 @@ const meta = {
   id: 'atrium',
   name: 'Atrium',
   subtitle: 'A sunlit glass atrium full of plants',
+  // No bloom: it cost about a third of the frame here for a faint haze, which the scene draws
+  // itself (the sun's glow, the maglev's underglow).
   post: {
-    bloomStrength: 0.32,
-    bloomRadius: 0.5,
-    bloomThreshold: 1.6,
+    bloomStrength: 0,
     exposure: 0.86,
     vignette: 0.22,
     saturation: 1.2,
