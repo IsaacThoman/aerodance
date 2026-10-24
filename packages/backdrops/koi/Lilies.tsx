@@ -182,7 +182,6 @@ void main() {
   float s = sin(turn);
   vec2 lp = position.xz * aPad.z;
   vec2 xz = vec2(c * lp.x - s * lp.y, s * lp.x + c * lp.y) + aPad.xy;
-  xz += vec2(sin(uTime * 0.07 + aTone.y * 9.0), cos(uTime * 0.06 + aTone.y * 7.0)) * 0.05;
   // Riding the swell, with a slow bob of its own.
   vec3 sw = swell(xz);
   float y = 0.02 + position.y * aPad.z + sw.z * 0.8 + sin(uTime * 0.8 + aTone.y * 20.0) * 0.006;

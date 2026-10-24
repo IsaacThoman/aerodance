@@ -3,6 +3,7 @@ import { BackdropCamera } from '../shared/BackdropCamera.tsx';
 import { useBackdropFrame } from '../shared/frame.ts';
 import { CAMERA } from './layout.ts';
 import { makePondUniforms } from './shaders.ts';
+import { usePondMaps } from './bake.ts';
 import { Pond } from './Pond.tsx';
 import { Koi } from './Koi.tsx';
 import { Lilies } from './Lilies.tsx';
@@ -15,6 +16,7 @@ import { Petals } from './Petals.tsx';
  */
 export default function KoiBackdrop() {
   const shared = useMemo(() => makePondUniforms(), []);
+  usePondMaps(shared);
 
   useBackdropFrame((_state, _delta, time) => {
     shared.uTime.value = time;

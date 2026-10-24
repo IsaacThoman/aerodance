@@ -236,8 +236,12 @@ void main() {
   bool fin = vFin.x > 0.5;
   vec3 v = normalize(cameraPosition - vWorld);
   vec3 n = normalize(vN);
-  // Fins are single sheets: light whichever side faces us.
-  if (fin && dot(n, v) < 0.0) n = -n;
+  // The body's silhouette fades over a pixel instead of stair-stepping; its far side is dropped
+  // before any work is done on it. Fins are single sheets: light whichever side faces us.
+  float facing = dot(n, v);
+  float edge = fwidth(facing) * 1.5 + 0.02;
+  if (!fin && facing < 0.0) discard;
+  if (fin && facing < 0.0) n = -n;
 
   // The pattern, laid out in body coordinates seen from above.
   vec2 pc = vec2(vLocal.z * 3.2, vLocal.x * 5.0) + seed * 17.0;
@@ -279,10 +283,6 @@ void main() {
   float eye = 1.0 - smoothstep(0.012, 0.02, length(vec2(abs(vLocal.x) - 0.062, vLocal.z - 0.4)));
   base = mix(base, vec3(0.02), eye * step(0.0, vLocal.y + 0.01) * (fin ? 0.0 : 1.0));
 
-  // The body's silhouette fades over a pixel instead of stair-stepping; its far side is dropped.
-  float facing = dot(n, v);
-  float edge = fwidth(facing) * 1.5 + 0.02;
-  if (!fin && facing < 0.0) discard;
   float alpha = fin ? 1.0 : smoothstep(0.0, edge, facing);
   if (fin) {
     // Translucent fins with fine rays fanning out from their roots.
@@ -313,6 +313,10 @@ void main() {
   col += vec3(0.25, 0.45, 0.45) * pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.35 * (fin ? 0.0 : 1.0);
 
   col = waterColumn(col, 0.85 * depth / max(v.y, 0.3));
+  // And the surface over it.
+  vec3 s = surfacePoint(vWorld);
+  vec3 ring = ripples(s.xz);
+  col = overSurface(col, s, swell(s.xz) + ring, ring.z);
   gl_FragColor = vec4(col, alpha);
 }
 `;

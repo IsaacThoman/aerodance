@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import { hash, simplex } from '../../stages/shared/glsl.ts';
 import { DROP_AREA, FLOOR_DEPTH, KOI, PADS, SUN_DIRECTION } from './layout.ts';
 
+/**
+ * The floor's baked map and the pads' distance field cover this rectangle of the pond (x, z):
+ * all of the floor any frame can show, at 16:9 or 4:3, with the camera's drift.
+ */
+export const MAP_RECT = { min: [-15.5, -15] as const, size: [31, 22] as const };
+
 /** Uniforms every pond material shares (the same objects, so one write updates them all). */
 export interface PondUniforms {
   [name: string]: THREE.IUniform;
@@ -16,6 +22,12 @@ export interface PondUniforms {
   uKoiB: THREE.IUniform<THREE.Vector4[]>;
   /** Per lily pad: centre (x, z), radius, turn. */
   uPads: THREE.IUniform<THREE.Vector4[]>;
+  /** The floor, baked once (bake.ts): rgb sqrt(albedo), a its sunlit share after the pads' shade. */
+  uFloorMap: THREE.IUniform<THREE.Texture | null>;
+  /** Tiling detail (bake.ts): r caustic lines, g and b the surface's chop, a cloud noise. */
+  uDetailMap: THREE.IUniform<THREE.Texture | null>;
+  /** Signed distance to the nearest lily pad's rim (bake.ts). */
+  uPadField: THREE.IUniform<THREE.Texture | null>;
 }
 
 export function makePondUniforms(): PondUniforms {
@@ -32,17 +44,23 @@ export function makePondUniforms(): PondUniforms {
     uKoiA: { value: KOI.map(() => new THREE.Vector4(0, 100, 0, 100)) },
     uKoiB: { value: KOI.map(() => new THREE.Vector4(0, 100, -0.5, 1)) },
     uPads: { value: PADS.map((p) => new THREE.Vector4(p.at[0], p.at[1], p.radius, p.turn)) },
+    uFloorMap: { value: null },
+    uDetailMap: { value: null },
+    uPadField: { value: null },
   };
 }
+
+/** The pad field stores signed distances from PAD_FIELD_RANGE[0] to [1] as 0..1. */
+export const PAD_FIELD_RANGE = [-0.5, 1.5] as const;
 
 const f = (n: number) => n.toFixed(4);
 
 /**
- * The pond's shared GLSL: the surface's swell and ripple rings (as height gradients, so the floor
- * and the koi can wobble with the same refraction the surface shows), caustics, the soft shadows
- * the koi and pads cast, and the jade water column.
+ * GLSL shared by the pond's materials and its bakes: the surface's swell and ripple rings (as
+ * height gradients, so the floor and the koi can wobble with the same refraction the surface
+ * shows) and the floor's depth.
  */
-export const pondGLSL = /* glsl */ `
+export const pondCommonGLSL = /* glsl */ `
 #define KOI_COUNT ${KOI.length}
 #define PAD_COUNT ${PADS.length}
 uniform float uTime;
@@ -94,6 +112,8 @@ vec3 ripples(vec2 p) {
     float front = 0.1 + age * 0.62;
     float x = r - front;
     float width = 0.22 + age * 0.07;
+    // Nearly all of the pond is well clear of the ring.
+    if (abs(x) > width * 3.0) continue;
     float life = age / DROP_LIFE;
     float env = exp(-x * x / (width * width)) * smoothstep(0.0, 0.35, age) * (1.0 - life) * (1.0 - life) / sqrt(1.0 + front * 1.5);
     const float K = 12.0;
@@ -106,36 +126,35 @@ vec3 ripples(vec2 p) {
 }
 
 vec3 surfaceWaves(vec2 p) { return swell(p) + ripples(p); }
+`;
 
-// Distance between the two nearest of a grid of drifting points, small along cell borders.
-float causticCell(vec2 p, float t) {
-  vec2 i = floor(p);
-  vec2 fr = fract(p);
-  float d1 = 8.0;
-  float d2 = 8.0;
-  for (int y = -1; y <= 1; y++) {
-    for (int x = -1; x <= 1; x++) {
-      vec2 g = vec2(float(x), float(y));
-      vec2 o = hash22(i + g);
-      o = 0.5 + 0.42 * sin(t * (0.45 + 0.4 * o.yx) + 6.2831 * o);
-      float d = length(g + o - fr);
-      if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
-    }
-  }
-  return d2 - d1;
-}
+const rect = `vec4(${f(MAP_RECT.min[0])}, ${f(MAP_RECT.min[1])}, ${f(1 / MAP_RECT.size[0])}, ${f(1 / MAP_RECT.size[1])})`;
 
-// The dancing net of sunlight focused by the swell, about 0..1.5. \`blur\` widens the lines
-// where they would get too fine for the buffer.
+/**
+ * The runtime GLSL on top of that: caustics, the soft shadows the koi and pads cast, the jade
+ * water column, and the surface itself (its sky reflection, the sun's glitter, ripple crests and
+ * the pads' meniscus), which the floor and the koi each lay over themselves rather than a
+ * separate full-screen transparent layer drawing over them.
+ */
+export const pondGLSL = /* glsl */ `
+${pondCommonGLSL}
+uniform sampler2D uFloorMap;
+uniform sampler2D uDetailMap;
+uniform sampler2D uPadField;
+const vec4 MAP_RECT = ${rect};
+
+vec2 mapUv(vec2 p) { return (p - MAP_RECT.xy) * MAP_RECT.zw; }
+
+// The dancing net of sunlight focused by the swell, about 0..1.5: two layers of the baked lines,
+// warped and drifting past each other. \`blur\` widens the lines where they would get too fine
+// for the buffer.
 float caustics(vec2 p, float blur) {
   float t = uTime;
   vec2 warp = vec2(sin(p.y * 0.9 + t * 0.35), cos(p.x * 0.8 - t * 0.3)) * 0.22;
-  float a = causticCell(p * 0.95 + warp, t * 0.8);
-  float b = causticCell(p * 1.45 + vec2(3.7, 1.3) - warp * 1.3, t * 1.05);
-  float sa = 7.0 / (1.0 + blur * 6.0);
-  float sb = 9.0 / (1.0 + blur * 9.0);
-  float la = exp(-a * sa);
-  float lb = exp(-b * sb);
+  float a = texture2D(uDetailMap, (p * 0.95 + warp) * 0.0625 + vec2(t * 0.012, t * 0.005)).r;
+  float b = texture2D(uDetailMap, (mat2(0.8, -0.6, 0.6, 0.8) * p * 1.45 - warp * 1.3) * 0.0625 + vec2(0.37 - t * 0.007, 0.21 + t * 0.013)).r;
+  float la = pow(a, 1.15 / (1.0 + blur * 6.0));
+  float lb = pow(b, 1.45 / (1.0 + blur * 9.0));
   return la * 0.55 + lb * 0.35 + la * lb * 1.1;
 }
 
@@ -156,13 +175,15 @@ float koiShadow(vec2 p, float y) {
     float height = b.z - y;
     if (height < 0.05) continue;
     vec2 q = p + toSun * height;
+    float blur = 0.03 + height * 0.09;
+    // Most of the floor is nowhere near this fish's shadow.
+    if (length(q - a.zw) > b.w * 0.75 + blur) continue;
     float h1;
     float h2;
     float d1 = segment(q, a.xy, a.zw, h1) - b.w * mix(0.07, 0.1, h1);
     float d2 = segment(q, a.zw, b.xy, h2) - b.w * mix(0.1, 0.03, h2);
     vec2 back = normalize(b.xy - a.zw + 1e-4);
-    float fin = length((q - b.xy - back * b.w * 0.16) * vec2(1.0)) - b.w * 0.13;
-    float blur = 0.03 + height * 0.09;
+    float fin = length(q - b.xy - back * b.w * 0.16) - b.w * 0.13;
     float body = 1.0 - smoothstep(-blur, blur, min(d1, d2));
     float tail = (1.0 - smoothstep(-blur, blur * 1.5, fin)) * 0.45;
     s = max(s, max(body, tail));
@@ -170,18 +191,16 @@ float koiShadow(vec2 p, float y) {
   return s;
 }
 
+// Signed distance to the nearest lily pad's rim, from the baked field.
+float padDistance(vec2 p) {
+  return mix(${f(PAD_FIELD_RANGE[0])}, ${f(PAD_FIELD_RANGE[1])}, texture2D(uPadField, mapUv(p)).r);
+}
+
 // 0..1: how much the lily pads on the surface shade a point at depth y (< 0).
 float padShadow(vec2 p, float y) {
   float height = -y;
-  vec2 q = p + uSunW.xz / uSunW.y * height;
   float blur = 0.06 + height * 0.12;
-  float s = 0.0;
-  for (int i = 0; i < PAD_COUNT; i++) {
-    vec4 pad = uPads[i];
-    float d = length(q - pad.xy) - pad.z * 0.97;
-    s = max(s, 1.0 - smoothstep(-blur, blur, d));
-  }
-  return s;
+  return 1.0 - smoothstep(-blur, blur, padDistance(p + uSunW.xz / uSunW.y * height) + 0.03);
 }
 
 // Looking through \`path\` units of jade water: red goes first, then blue, and the water's own
@@ -190,5 +209,48 @@ vec3 waterColumn(vec3 col, float path) {
   vec3 keep = exp(-path * vec3(0.62, 0.19, 0.25));
   vec3 glow = vec3(0.006, 0.105, 0.095);
   return col * keep + glow * (1.0 - exp(-path * 0.55));
+}
+
+// Where the line of sight to a point under the water crosses the surface.
+vec3 surfacePoint(vec3 wp) {
+  return wp + (cameraPosition - wp) * (-wp.y / max(cameraPosition.y - wp.y, 1e-3));
+}
+
+// The sky the surface mirrors: deep blue overhead, paling to white, with soft drifting clouds
+// and the sun's glow.
+vec3 skyColor(vec3 r) {
+  float h = clamp(r.y, 0.0, 1.0);
+  vec3 c = mix(vec3(0.72, 0.9, 1.0), vec3(0.16, 0.45, 0.95), pow(h, 0.7));
+  vec2 cp = r.xz / (r.y + 0.3) * 1.4 + vec2(uTime * 0.012, uTime * 0.005);
+  float cl = (texture2D(uDetailMap, cp * 0.0625).a - 0.5) * 2.2;
+  c = mix(c, vec3(1.05), smoothstep(0.05, 0.7, cl) * 0.75);
+  c += SUN_COLOR * pow(max(dot(r, uSun), 0.0), 40.0) * 0.4;
+  return c;
+}
+
+// Lays the surface over what is seen through it at surface point s, given the waves there
+// (w, of which ring came from the ripples).
+vec3 overSurface(vec3 col, vec3 s, vec3 w, float ring) {
+  // A finer, slowly boiling chop on top for the glitter: two fields drifting different ways.
+  vec2 chop = vec2(
+    texture2D(uDetailMap, s.xz * 0.3 + vec2(uTime * 0.038, uTime * 0.022)).g,
+    texture2D(uDetailMap, mat2(0.8, -0.6, 0.6, 0.8) * s.xz * 0.37 + vec2(0.5 - uTime * 0.028, 0.25 + uTime * 0.036)).b) - 0.5;
+  chop *= 0.075;
+  vec3 n = normalize(vec3(-(w.x + chop.x), 1.0, -(w.y + chop.y)));
+  vec3 v = normalize(cameraPosition - s);
+  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  vec3 r = reflect(-v, n);
+  r.y = abs(r.y);
+  float rs = max(dot(r, uSun), 0.0);
+  vec3 glint = SUN_COLOR * (pow(rs, 2600.0) * 3.0 + pow(rs, 500.0) * 0.06);
+  // The ripple rings' crests catch the sky; their troughs shade a little.
+  vec3 crest = vec3(0.55, 0.8, 0.85) * clamp(ring * 30.0, 0.0, 1.0) * 0.35;
+  float trough = clamp(-ring * 30.0, 0.0, 1.0) * 0.1;
+  // Around the pads: a thin bright meniscus where the water climbs their rims, then a soft
+  // shade on the water beside them.
+  float d = max(padDistance(s.xz), 0.0);
+  float a = clamp(fres * 1.8 + 0.02 + exp(-d * 40.0) * 0.12, 0.0, 1.0);
+  float cover = clamp(a + exp(-d * 6.0) * 0.22 + trough, 0.0, 1.0);
+  return col * (1.0 - cover) + skyColor(r) * a + glint + crest;
 }
 `;
