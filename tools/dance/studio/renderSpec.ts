@@ -31,5 +31,9 @@ export interface RenderSpec {
   labels: boolean;
   /** Labelled frame-coordinate gridlines over the video cells, for reading positions off the picture. */
   grid?: boolean;
+  /** The paths the head, wrists and ankles take over this many ms either side of each time. */
+  trails?: number;
+  /** An earlier revision's skeletons, drawn grey and dashed, to compare an edit with what it replaced. */
+  before?: number | null;
   title: string;
 }

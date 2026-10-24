@@ -18,7 +18,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 const post = <T>(url: string, body: unknown) => call<T>(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-export const fetchDance = async () => (await call<{ dance: Dance }>('/api/dance')).dance;
+export const fetchDance = async (revision?: number) => (await call<{ dance: Dance }>(revision === undefined ? '/api/dance' : `/api/dance?revision=${revision}`)).dance;
 export const applyOps = (ops: unknown[], expectRevision: number, label?: string) =>
   post<ApplyResult>('/api/apply', { ops, expectRevision, label, opId: crypto.randomUUID() });
 export const undo = (expectRevision?: number) => post<{ result: { revision: number; label: string } | null }>('/api/undo', { expectRevision });

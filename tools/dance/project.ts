@@ -109,6 +109,14 @@ export class DanceProject {
     const file = this.meta('revisions', `${dance.revision}.json`);
     if (!existsSync(file)) await this.writeAtomic(file, JSON.stringify(dance) + '\n');
   }
+  /** An earlier revision, as it was saved (the current one included). */
+  async revisionAt(n: number): Promise<Dance> {
+    if (!Number.isSafeInteger(n) || n < 0) throw Error(`No revision ${n}`);
+    const current = await this.read();
+    if (n === current.revision) return current;
+    try { return await this.revision(n); }
+    catch { throw Error(`Revision ${n} isn't kept (the history keeps the last ${HISTORY_LIMIT * 2})`); }
+  }
   private async revision(n: number): Promise<Dance> {
     const dance: unknown = JSON.parse(await readFile(this.meta('revisions', `${n}.json`), 'utf8'));
     assertDance(dance);

@@ -193,8 +193,10 @@ change. Keep `revision` as it is: the next `apply` builds on it.
 
 Options: `--zoom body|P1|P1:hands|P1:feet|P1:head|P1:arms|P1:legs|x,y,w,h` (a crop, framed over the
 requested times), `--grid` (labelled coordinates), `--reference` (the tracked pose, dashed),
-`--ghosts` (the neighbouring keys, faint), `--dancer P1,P2` (only these), `--width px` (cell width).
-At most 48 frames per sheet.
+`--ghosts` (the neighbouring keys, faint), `--trails [ms]` (the paths the head, hands and feet
+take either side of each time; white is ahead), `--before <revision>` (an earlier revision's
+skeletons, dashed grey, to see what an edit changed), `--dancer P1,P2` (only these), `--width px`
+(cell width). At most 48 frames per sheet.
 
 Contact sheets are the main way an agent sees its work: read them with an image tool. Use `render`
 for rhythm: a clip shows sliding, late arrivals and floaty transitions that stills hide.

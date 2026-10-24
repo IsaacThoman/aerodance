@@ -58,6 +58,13 @@ export class Bridge {
   static async start(project: DanceProject, { port = 0, host = '127.0.0.1', dist = false, quiet = true }: BridgeOptions = {}): Promise<Bridge> {
     const app = express();
     const server = http.createServer(app);
+    // Only pages served from this machine's own address may use it: a site that rebinds its
+    // name to 127.0.0.1 would otherwise reach the project through the browser.
+    app.use((req, res, next) => {
+      const name = (req.headers.host ?? '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+      if (['127.0.0.1', 'localhost', '::1', host].includes(name)) { next(); return; }
+      res.status(403).end('Forbidden host');
+    });
     const clients = new Set<Response>();
     let revision = (await project.read()).revision;
     const broadcast = (data: unknown) => { for (const c of clients) c.write(`data: ${JSON.stringify(data)}\n\n`); };
@@ -83,7 +90,10 @@ export class Bridge {
       });
     };
     api.get('/ping', (_req, res) => { res.json({ ok: true, dir: project.dir, pid: process.pid }); });
-    api.get('/dance', handle(async () => ({ dance: await project.read() })));
+    api.get('/dance', handle(async req => {
+      if (req.query.revision === undefined) return { dance: await project.read() };
+      return { dance: await project.revisionAt(Number(req.query.revision)) };
+    }));
     api.get('/events', (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify({ revision })}\n\n`);
@@ -307,6 +317,8 @@ export async function runBrowserCommand(command: string, project: DanceProject, 
       revision: dance.revision, times, views: viewsOf(values), dancers, focus: dancers?.[0] ?? null,
       zoom: zoomRect(dance, str(values, 'zoom'), times), cellWidth: str(values, 'width') ? Number(str(values, 'width')) : 360,
       reference: values.reference === true, ghosts: values.ghosts === true, mirror: values.mirror === true, labels: true, grid: values.grid === true,
+      trails: str(values, 'trails') ? parseTime(str(values, 'trails'), dance) : values.trails === true ? 300 : 0,
+      before: str(values, 'before') ? Number(str(values, 'before')) : null,
       title: `${dance.song.title || 'dance'} r${dance.revision}  ${formatTime(times[0], dance)}–${formatTime(times[times.length - 1], dance)}`,
     };
     const file = str(values, 'out') ?? project.meta('renders', `frames-r${dance.revision}-${Math.round(times[0])}-${Math.round(times[times.length - 1])}.png`);

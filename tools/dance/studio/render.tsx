@@ -117,8 +117,22 @@ function eligibleAt(dancer: Dancer, t: number): boolean[] | null {
   }
   return any ? out : null;
 }
-function drawDancers(g: CanvasRenderingContext2D, v: Viewport, data: Loaded, spec: RenderSpec, t: number) {
+const beforeCache = new Map<number, { dance: Dance; evaluators: DancerEvaluator[] }>();
+async function loadBefore(revision: number) {
+  let found = beforeCache.get(revision);
+  if (!found) {
+    const dance = await fetchDance(revision);
+    found = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d)) };
+    beforeCache.set(revision, found);
+  }
+  return found;
+}
+function drawDancers(g: CanvasRenderingContext2D, v: Viewport, data: Loaded, spec: RenderSpec, t: number, before: Awaited<ReturnType<typeof loadBefore>> | null) {
   const { dance } = data;
+  if (before) before.dance.dancers.forEach((dancer, i) => {
+    if (spec.dancers && !spec.dancers.includes(dancer.id)) return;
+    drawSkeleton(g, v, before.evaluators[i].landmarks(t), { color: '#c4ccd0', dashed: true, alpha: 0.85, scale: 0.85 });
+  });
   dance.dancers.forEach((dancer, i) => {
     if (spec.dancers && !spec.dancers.includes(dancer.id)) return;
     const color = DANCER_COLORS[i % DANCER_COLORS.length], faded = spec.focus !== null && spec.focus !== dancer.id;
@@ -134,6 +148,23 @@ function drawDancers(g: CanvasRenderingContext2D, v: Viewport, data: Loaded, spe
       if (live) drawSkeleton(g, v, live, { color: REFERENCE_COLOR, dashed: true, alpha: 0.9, scale: 0.75 });
     }
     const hollow = Object.entries(LANDMARK_OF).filter(([c]) => isMidJoint(c) && !(dancer.layers[0].channels[c]?.length)).map(([, i]) => i);
+    if (spec.trails) {
+      // Where the head, hands and feet travel either side of t: older is fainter.
+      const span = spec.trails, step = Math.max(10, span / 24);
+      for (const control of ['head', 'leftWrist', 'rightWrist', 'leftAnkle', 'rightAnkle'] as const) {
+        let last: { x: number; y: number } | null = null;
+        for (let at = t - span; at <= t + span + 1e-6; at += step) {
+          const p = data.evaluators[i].rig(at).points[control], c = { x: v.x + (p[0] - v.crop.x) / v.crop.w * v.w, y: v.y + (p[1] - v.crop.y) / v.crop.h * v.h };
+          if (last) {
+            g.strokeStyle = at <= t ? color : '#ffffff';
+            g.globalAlpha = 0.25 + 0.6 * (1 - Math.abs(at - t) / span);
+            g.lineWidth = 2; g.beginPath(); g.moveTo(last.x, last.y); g.lineTo(c.x, c.y); g.stroke();
+          }
+          last = c;
+        }
+        g.globalAlpha = 1;
+      }
+    }
     const landmarks = data.evaluators[i].landmarks(t);
     drawSkeleton(g, v, landmarks, { color, alpha: faded ? 0.45 : 1, ineligible: eligibleAt(dancer, t - dancer.timeOffsetMs),
       label: dancer.id, hollow, warn: stretchedBones(landmarks, dancer.body, dance.frame.width / dance.frame.height) });
@@ -181,18 +212,25 @@ async function render(spec: RenderSpec): Promise<string> {
   const labelW = spec.labels && !wrap ? 132 : spec.labels ? gap : 0;
   const lefts = widths.map((_, i) => labelW + widths.slice(0, i).reduce((a, w) => a + w + gap, 0));
   const rows = wrap ? Math.ceil(spec.times.length / columns) : spec.times.length;
+  const names: Record<View, string> = { source: 'video', overlay: 'video + dance', skeleton: 'skeleton (heavy = scored)', character: spec.mirror ? 'character (mirrored, as the game)' : 'character (as filmed)', stage: 'game stage (mirrored)' };
+  const notes = [spec.before !== undefined && spec.before !== null ? `dashed grey: revision ${spec.before}` : '', spec.trails ? `trails ±${spec.trails} ms (white: ahead)` : ''].filter(Boolean);
+  // One view: its name goes in the title line; several: each over its column.
+  const header = [spec.title, ...(wrap ? [names[spec.views[0]]] : []), ...notes].join('  ·  ');
+  await document.fonts.load('700 15px Nunito');
+  const measure = document.createElement('canvas').getContext('2d')!;
+  measure.font = '700 15px Nunito, system-ui, sans-serif';
   const sheet = document.createElement('canvas');
-  sheet.width = wrap ? labelW + columns * (widths[0] + gap) : labelW + widths.reduce((a, w) => a + w + gap, 0) - gap + (spec.labels ? gap : 0);
+  // At least as wide as its header.
+  sheet.width = Math.max(spec.labels ? Math.ceil(measure.measureText(header).width) + 24 : 0,
+    wrap ? labelW + columns * (widths[0] + gap) : labelW + widths.reduce((a, w) => a + w + gap, 0) - gap + (spec.labels ? gap : 0));
   sheet.height = headerH + rows * (cellH + gap) - gap + (spec.labels ? gap : 0);
   const g = sheet.getContext('2d')!;
   g.fillStyle = '#071820';
   g.fillRect(0, 0, sheet.width, sheet.height);
   await document.fonts.load('700 13px Nunito');
   if (spec.labels) {
-    drawTag(g, spec.title, 6, 8, { size: 15 });
-    const names: Record<View, string> = { source: 'video', overlay: 'video + dance', skeleton: 'skeleton (heavy = scored)', character: spec.mirror ? 'character (mirrored, as the game)' : 'character (as filmed)', stage: 'game stage (mirrored)' };
-    if (wrap) drawTag(g, names[spec.views[0]], sheet.width - 6, 10, { size: 12, align: 'right', color: '#9fd8ef' });
-    else spec.views.forEach((view, c) => drawTag(g, names[view], lefts[c] + widths[c] - 4, 10, { size: 12, align: 'right', color: '#9fd8ef' }));
+    drawTag(g, header, 6, 8, { size: 15 });
+    if (!wrap) spec.views.forEach((view, c) => drawTag(g, names[view], lefts[c] + widths[c] - 4, 10, { size: 12, align: 'right', color: '#9fd8ef' }));
   }
   const cell = (i: number, col: number): Viewport => wrap
     ? { x: labelW + (i % columns) * (widths[0] + gap), y: headerH + Math.floor(i / columns) * (cellH + gap), w: widths[0], h: cellH, crop }
@@ -201,6 +239,7 @@ async function render(spec: RenderSpec): Promise<string> {
     const beat = dance.song.bpm ? (t - dance.song.beatOffsetMs) * dance.song.bpm / 60000 + 1 : null;
     return { time: `${(t / 1000).toFixed(3)}s`, beat: beat === null ? null : `beat ${beat.toFixed(2)}` };
   };
+  const before = spec.before !== undefined && spec.before !== null ? await loadBefore(spec.before) : null;
   // 2D views.
   const frameWidth = Math.min(dance.frame.width, Math.round(cellW / crop.w));
   for (const [row, t] of spec.times.entries()) {
@@ -225,7 +264,7 @@ async function render(spec: RenderSpec): Promise<string> {
         g.drawImage(image, crop.x * image.width, crop.y * image.height, crop.w * image.width, crop.h * image.height, v.x, v.y, v.w, v.h);
       } else { g.fillStyle = '#10242c'; g.fillRect(v.x, v.y, v.w, v.h); drawTag(g, 'no video', v.x + 8, v.y + 8); }
       if (spec.grid) drawGrid(g, v);
-      if (view !== 'source') drawDancers(g, v, data, spec, t);
+      if (view !== 'source') drawDancers(g, v, data, spec, t, before);
       if (spec.labels && wrap) { const label = timeLabel(t); drawTag(g, label.beat ? `${label.time} · ${label.beat}` : label.time, v.x + 4, v.y + v.h - 24, { size: 12 }); }
       g.restore();
     }

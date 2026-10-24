@@ -46,7 +46,7 @@ Edit (atomic; prints what changed)
 Look (needs Chromium; \`dance studio\` keeps one running)
   frames <dir> (--at t,… | --range a:b [--every 250]) [--views overlay,character] [--dancer P1]
                [--zoom body|P1|P1:hands|P1:feet|P1:head|x,y,w,h] [--grid] [--reference] [--ghosts] [--mirror]
-               [--width 360] [--out f.png]
+               [--trails [ms]] [--before <revision>] [--width 360] [--out f.png]
   render <dir> --range a:b [--fps 30] [--views overlay,character] [--no-audio] [--out clip.mp4]
   track <dir> [--fps 15] [--range a:b]         track the dancers in the video with MediaPipe Lite
   studio <dir> [--port 5310] [--dist]          the Studio (and a fast renderer for the CLI)
@@ -74,6 +74,7 @@ const OPTIONS = {
   views: { type: 'string' }, zoom: { type: 'string' }, reference: { type: 'boolean' }, mirror: { type: 'boolean' }, width: { type: 'string' },
   out: { type: 'string' }, fps: { type: 'string' }, 'no-audio': { type: 'boolean' }, port: { type: 'string' }, dist: { type: 'boolean' },
   install: { type: 'boolean' }, folder: { type: 'string' }, open: { type: 'boolean' }, stage: { type: 'string' }, ghosts: { type: 'boolean' }, grid: { type: 'boolean' },
+  trails: { type: 'string' }, before: { type: 'string' },
 } as const;
 
 const fixed = (v: number, d = 4) => Number(v.toFixed(d));

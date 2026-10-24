@@ -9,7 +9,7 @@ import { CONTROLS, roundTime } from '../format.ts';
 import type { Control, Dance } from '../format.ts';
 import { keyTimes } from '../evaluate.ts';
 import type { TrackingData } from '../tracking.ts';
-import { beatAt } from '../time.ts';
+import { beatAt, parseTime } from '../time.ts';
 import { SongClock } from './clock.ts';
 import { fetchTracking } from './data.ts';
 import { ContactsPanel, ControlPanel, DancerPanel, LayersPanel, SongPanel, controlLabel } from './Inspector.tsx';
@@ -75,6 +75,15 @@ export default function App() {
   const audioSha = dance?.sources.audio?.sha256;
   useEffect(() => { clock.attach(audioSha ? `/api/media/audio?v=${audioSha.slice(0, 12)}` : null); }, [clock, audioSha]);
   useEffect(() => { if (dance) clock.durationMs = dance.song.durationMs; }, [clock, dance]);
+  // ?t=b23&control=leftWrist opens at a moment (any time form), e.g. from a finding or a note.
+  const opened = dance !== null;
+  useEffect(() => {
+    if (!opened) return;
+    const params = new URLSearchParams(location.search);
+    const at = params.get('t'), control = params.get('control'), who = params.get('dancer');
+    try { if (at) clock.seek(parseTime(at, store.saved ?? undefined)); } catch { /* not a time: ignore it */ }
+    if (who || control) setSelection(s => ({ dancer: who ?? s.dancer, control: (control && (CONTROLS as readonly string[]).includes(control) ? control : s.control) as Selection['control'] }));
+  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => clock.subscribe(() => rerender(n => n + 1)), [clock]);
   useEffect(() => {
     if (dance && !dance.dancers.some(d => d.id === selection.dancer)) setSelection({ dancer: dance.dancers[0].id, control: null });
@@ -148,7 +157,7 @@ export default function App() {
           <div className="panes">
             <section className="pane">
               <header className="pane-head">
-                <h2>Video</h2>
+                <h2>{dance.sources.video ? 'Video' : 'Skeleton'}</h2>
                 <div className="toggles">
                   <label><input type="checkbox" checked={showReference} onChange={e => setShowReference(e.target.checked)} disabled={!tracking.size} /> Tracked</label>
                   <label><input type="checkbox" checked={showGhosts} onChange={e => setShowGhosts(e.target.checked)} /> Neighbouring keys</label>
