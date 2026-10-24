@@ -16,7 +16,10 @@ import * as gameLayout from '../apps/web/src/game/layout.ts';
 import { displayDesign } from '../apps/web/src/display.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const dir = path.join(root, '.cache/play');
+// PLAY_SESSION=<name> runs a separate named session beside the default one (each with its own
+// server, browser and Vite dependency cache), e.g. for agents working side by side.
+const sessionName = process.env.PLAY_SESSION?.replace(/[^\w-]/g, '') || null;
+const dir = path.join(root, '.cache/play', ...(sessionName ? ['sessions', sessionName] : []));
 const sessionFile = path.join(dir, 'session.json');
 const logFile = path.join(dir, 'daemon.log');
 
@@ -55,7 +58,9 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   targets                              list the layout targets click accepts
 
 Targets name layout exports in apps/web/src/{menu,game}/layout.ts, e.g. START,
-menu.BACK, game.BACK, rowRect.0 or GAME_CALIBRATION_CAMERA.next.`;
+menu.BACK, game.BACK, rowRect.0 or GAME_CALIBRATION_CAMERA.next.
+
+PLAY_SESSION=<name> before any command uses a separate named session.`;
 
 // ---- Layout targets ----
 
@@ -185,7 +190,9 @@ async function daemon(options: Options) {
     appUrl = server.resolvedUrls?.local[0] ?? '';
     closeServer = () => server.close();
   } else {
-    const server = await vite.createServer({ configFile, server: { host: '127.0.0.1', port: 5300, strictPort: false } });
+    // Named sessions keep their own dependency cache, so servers starting together don't clash.
+    const cacheDir = sessionName ? path.join(dir, 'vite') : undefined;
+    const server = await vite.createServer({ configFile, cacheDir, server: { host: '127.0.0.1', port: 5300, strictPort: false } });
     await server.listen();
     appUrl = server.resolvedUrls?.local[0] ?? '';
     closeServer = () => server.close();

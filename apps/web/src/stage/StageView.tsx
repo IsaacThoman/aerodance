@@ -13,6 +13,8 @@ import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import type { SongRoutine } from '../game/GameSession.ts';
 import type { ResultsShow } from '../game/results.ts';
 import ResultsDancers from './ResultsDancers.tsx';
+import Veil from './Veil.tsx';
+import type { Fade } from './Veil.tsx';
 import type { ResultsLive } from './ResultsDancers.tsx';
 import { diagnostic } from '../diagnostics.ts';
 import { screenOwner } from '../screenOwner.ts';
@@ -42,8 +44,6 @@ export interface StageViewProps {
   onState?: (state: StageState) => void;
 }
 type ReadyHandler = (id: StageId, failed: boolean) => void;
-/** The veil's opacity, and frames the shown stage has had to settle. */
-interface Fade { value: number; settled: number; }
 
 /**
  * The game's dance stages (packages/stages) inside its canvas, with the routine's dancers.
@@ -269,30 +269,6 @@ function Precompile({ onReady, id }: { onReady: ReadyHandler; id: StageId }) {
       target.dispose();
     };
   }, [gl, get, onReady, id]);
-  return null;
-}
-
-function Veil({ fade }: { fade: RefObject<Fade> }) {
-  const gl = useThree((state) => state.gl);
-  const layer = useMemo(() => {
-    const material = new THREE.MeshBasicMaterial({ color: '#f4fdff', transparent: true, toneMapped: false, depthTest: false, depthWrite: false });
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    quad.frustumCulled = false;
-    const scene = new THREE.Scene();
-    scene.add(quad);
-    return { material, quad, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1) };
-  }, []);
-  useEffect(() => () => { layer.material.dispose(); layer.quad.geometry.dispose(); }, [layer]);
-  useFrame(() => {
-    const v = fade.current.value;
-    if (v < 0.001) return;
-    layer.material.opacity = v;
-    const ac = gl.autoClear;
-    gl.autoClear = false;
-    gl.clearDepth();
-    gl.render(layer.scene, layer.camera);
-    gl.autoClear = ac;
-  }, 1.6);
   return null;
 }
 

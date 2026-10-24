@@ -27,6 +27,7 @@ import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
 import { DISPLAY_MODES, RENDER_SIZE, displayModeFor } from './display.ts';
+import { isBackgroundId } from './backdrop/backgrounds.ts';
 import type { DisplayMode } from './display.ts';
 
 function FixedRenderResolution() {
@@ -57,6 +58,9 @@ function replaySource() {
     .catch((err: unknown) => console.error('pose recording could not load:', err instanceof Error ? err.message : err));
   return source;
 }
+
+const backgroundParam = params.get('background');
+const BACKGROUND_PARAM = isBackgroundId(backgroundParam) ? backgroundParam : null;
 
 type AppScreen = 'menu' | 'songs' | 'game';
 
@@ -197,6 +201,8 @@ export default function App() {
   } : null), [game]);
   // Settings → Graphics → Stats, or ?diag=stats for the full set whatever the setting.
   const statsMode = diagnostic('stats') ? 'full' : graphics.stats;
+  // Settings → Graphics → Background, unless ?background=<id> picks one for this visit.
+  const background = BACKGROUND_PARAM ?? graphics.background;
   // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
 
@@ -205,7 +211,7 @@ export default function App() {
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
         <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
           <FixedRenderResolution />
-          <Scene paused={stage.showing} />
+          <Scene paused={stage.showing} background={background} />
           <StageView
             active={(songsOpen && !!preview) || screen === 'game'}
             orbiting={songsOpen && !!preview}
