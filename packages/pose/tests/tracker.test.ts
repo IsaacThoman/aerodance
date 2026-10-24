@@ -139,6 +139,54 @@ test('one player is found again anywhere, dressed differently', () => {
   assert.deepEqual([...back.at(-1)!], [[0, 0.15]]);
 });
 
+test('clothing changes cannot keep a returning player untracked indefinitely', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(30, () => ({ people: [person(0.6), person(0.2, { arms: 0.1 })], looks: [RED, BLUE] })));
+  run(tracker, repeat(180, () => ({ people: [person(0.6)], looks: [RED] })), 1000);
+  // The second dancer returns on the other side, with a very different clothing sample.
+  // A stale appearance profile must not cost more than leaving their number empty forever.
+  const back = run(tracker, repeat(90, () => ({ people: [person(0.6), person(0.92, { arms: 0.1 })], looks: [RED, GREEN] })), 7000);
+  assert.ok(back.slice(2).every(m => m.size === 2), 'both visible dancers stay tracked');
+  assert.equal(back.at(-1)!.get(1), 0.92);
+});
+
+test('a returning dancer is not rejected for being far from their old place', () => {
+  const tracker = new PlayerTracker(1);
+  run(tracker, repeat(30, () => ({ people: [person(0.1)] })));
+  // A small dancer returns far across the picture. The return radius grows with time,
+  // but the cost of the old place used to grow without a bound as well.
+  const back = run(tracker, repeat(90, () => ({ people: [person(0.9, { size: 0.2, arms: 0.1 })] })), 20000);
+  assert.ok(back.slice(2).every(m => m.size === 1), 'a visible dancer gets a number');
+});
+
+test('an established dancer keeps tracking when one torso joint becomes unsure', () => {
+  for (const joint of [11, 12, 23, 24]) {
+    const tracker = new PlayerTracker(2);
+    run(tracker, repeat(30, () => ({ people: [person(0.7), person(0.3, { arms: 0.1 })] })));
+    const after = run(tracker, repeat(60, i => {
+      const dancer = person(0.7 + 0.015 * Math.sin(i / 5));
+      dancer[joint].visibility = 0.2;
+      return { people: [dancer, person(0.3, { arms: 0.1 })] };
+    }), 1000);
+    assert.ok(after.every(m => m.size === 2), `joint ${joint} does not drop the whole dancer`);
+    const poses = tracker.update([person(0.3, { arms: 0.1 }), person(0.7).map((p, i) => i === joint ? { ...p, visibility: 0.2 } : p)], INPUT, 3000);
+    assert.equal(poses.find(p => p.playerId === 0)!.landmarks[joint].confidence, 0.2, 'joint stays unsure for scoring');
+  }
+});
+
+test('partial torsos cannot acquire a number or continue a distant or badly obscured person', () => {
+  const partial = (x: number, joints: number[]) => person(x).map((p, i) => joints.includes(i) ? { ...p, visibility: 0.2 } : p);
+  assert.ok(run(new PlayerTracker(1), repeat(10, () => ({ people: [partial(0.7, [11])] }))).every(m => m.size === 0));
+  for (const people of [[partial(0.1, [11])], [partial(0.7, [11, 23])]]) {
+    const tracker = new PlayerTracker(1);
+    run(tracker, repeat(30, () => ({ people: [person(0.7)] })));
+    assert.ok(run(tracker, repeat(60, () => ({ people })), 1000).every(m => m.size === 0));
+  }
+  const clear = person(0.7);
+  const acquired = run(new PlayerTracker(1), [{ people: [partial(0.7, [11]), clear] }]);
+  assert.equal(acquired[0].get(0), 0.7, 'a partial duplicate cannot hide the fully visible detection');
+});
+
 test('a player who comes back elsewhere, recognised by their clothes, leaves nothing for somebody lingering at their old place', () => {
   const tracker = new PlayerTracker(2);
   run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 })], looks: [RED, BLUE] })));

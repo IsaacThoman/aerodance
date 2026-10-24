@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { defaultCast, sampleDancers, sampleSong, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
 import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
 import type { PoseRecordEvent } from '../../../packages/pose/browser/WebcamPoseSource.ts';
-import { AUDIO_START_MS, COUNTDOWN_MS, GameSession, LATE_ALLOWANCE_MS, READY_HOLD_MS } from '../src/game/GameSession.ts';
+import { AUDIO_START_MS, COUNTDOWN_MS, GameSession, LATE_ALLOWANCE_MS, READY_HOLD_MS, SETUP_TRACKING_REFRESH_MS } from '../src/game/GameSession.ts';
 import type { GameSessionOptions, SessionPlayer } from '../src/game/GameSession.ts';
 import { ReplayPoseSource, createPoseRecorder, parseRecording, standingPose } from '../src/pose/ReplayPoseSource.ts';
 import type { LivePoseRecord, PoseInputView, PoseSource, PoseSourceEvent, SongClock } from '../src/pose/PoseSource.ts';
@@ -64,6 +64,7 @@ function fakePlayer(clock: Clock): FakePlayer {
 
 type FakeSource = PoseSource & {
   attached: SongClock | null;
+  resets: number;
   send(poses: Pose[], captureBrowserTimeMs: number, playerCount?: PlayerCount): void;
 };
 
@@ -74,6 +75,8 @@ function fakeSource(sourceKind: PoseInputView['sourceKind'] = 'replay'): FakeSou
   return {
     view: { sourceKind, status: 'connected', message: '', snapshot: null, configuring: false, model: 'test' },
     attached: null,
+    resets: 0,
+    resetTracking() { this.resets++; },
     subscribeRecords(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     attachSong(clock) { this.attached = clock; },
     send(poses, captureBrowserTimeMs, playerCount = 1) {
@@ -136,6 +139,35 @@ test('the ready check waits for every player, then counts down into the song', a
 test('a paired phone calibrates like a webcam; only replays skip calibration', async () => {
   assert.equal((await setup(1, { sourceKind: 'phone' })).session.phase, 'calibrating');
   assert.equal((await setup(1, { sourceKind: 'replay' })).session.phase, 'ready');
+});
+
+test('each live-camera song starts a fresh line-up; replay identities are preserved', async () => {
+  for (const kind of ['webcam', 'phone', 'replay'] as const) {
+    const { session, source } = await setup(2, { sourceKind: kind });
+    const expected = kind === 'replay' ? 0 : 1;
+    assert.equal(source.resets, expected);
+    session.dispose();
+    const next = await setup(2, { source });
+    assert.equal(source.resets, 2 * expected, `${kind} resets once per song`);
+    next.session.dispose();
+  }
+});
+
+test('stuck setup refreshes assignments periodically, but a hold and gameplay keep their identities', async () => {
+  for (const sourceKind of ['webcam', 'phone'] as const) {
+    const { session, source, step } = await setup(2, { sourceKind });
+    step(SETUP_TRACKING_REFRESH_MS * 2, now => source.send([standing(2)[0]], now, 2));
+    assert.equal(source.resets, 3, `${sourceKind}: initial line-up and two retries`);
+    // Start holding just before another retry would be due. The hold must complete.
+    step(SETUP_TRACKING_REFRESH_MS - 100, now => source.send([standing(2)[0]], now, 2));
+    step(2600, now => source.send(standing(2), now, 2));
+    assert.equal(session.phase, 'countdown');
+    assert.equal(source.resets, 3, 'no reset through the hold');
+    step(COUNTDOWN_MS + SETUP_TRACKING_REFRESH_MS * 2, now => source.send(standing(2), now, 2));
+    assert.equal(session.phase, 'playing');
+    assert.equal(source.resets, 3, 'no reset during gameplay');
+    session.dispose();
+  }
 });
 
 test('webcam sessions require a shared still hold and start countdown immediately after calibration', async () => {

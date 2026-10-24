@@ -121,6 +121,7 @@ export class CameraInput implements PoseSource {
     return this.webcam.setPlayerCount(count);
   }
   refreshCameras() { return this.webcam.refreshCameras(); }
+  resetTracking() { this.active?.resetTracking(); }
   /** Whether a song is on (a paired phone dims while one plays). */
   setPlaying(playing: boolean) { this.phone.setPlaying(playing); }
   /** Whether a setup preview is on screen (a phone sends its picture only then). */
