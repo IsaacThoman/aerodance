@@ -34,6 +34,11 @@ export const stageOrbit: { yaw: number } = { yaw: 0 };
 // `dancing` during Song Select's preview and the song, `celebrating` on the song's results.
 export const stagePlay: { dancing: boolean; celebrating: boolean } = { dancing: false, celebrating: false };
 
+// How far every stage camera's picture is pushed right, as a fraction of its width (a view
+// offset: the camera itself doesn't move). The game's results screen eases it in so the stage
+// and its winner sit right of its scoreboard.
+export const stageShift: { x: number } = { x: 0 };
+
 export interface StageCameraProps {
   position?: Vec3;
   target?: Vec3;
@@ -90,6 +95,7 @@ export function StageCamera({
   const smooth = useRef(new THREE.Vector2());
   const offset = useRef(new THREE.Vector3());
   const spherical = useRef(new THREE.Spherical());
+  const shifted = useRef(0);
 
   useLayoutEffect(() => {
     // Preserve the wide composition's horizontal field of view on a 4:3 display,
@@ -126,6 +132,11 @@ export function StageCamera({
     camera.position.y += Math.sin(t * 0.17 + 1.3) * sway[1] + smooth.current.y * parallax[1];
     camera.position.z += Math.sin(t * 0.13 + 2.1) * sway[2];
     camera.lookAt(look.current);
+    if (stageShift.x !== shifted.current) {
+      shifted.current = stageShift.x;
+      if (stageShift.x) camera.setViewOffset(1, 1, -stageShift.x, 0, 1, 1);
+      else camera.clearViewOffset();
+    }
     onFrame?.(camera, state, delta);
   });
 

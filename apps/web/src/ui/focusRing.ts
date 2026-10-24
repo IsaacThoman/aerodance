@@ -7,7 +7,8 @@ type Ctx = CanvasRenderingContext2D;
 /** A widget's outline as a rounded rect (a circle is a square with r = w / 2). */
 interface Shape { x: number; y: number; w: number; h: number; r: number; }
 
-// Pills lift 3 units while hovered (drawPill); tall rects are previews, near-square rects discs,
+// Pills and glass buttons lift 3 units while hovered (drawPill, drawGlassButton: widget.corner
+// gives the latter's corners); tall rects are previews, near-square rects discs,
 // short wide ones settings rows (they don't lift).
 const ROW_H = 60;
 function shapeOf(wdg: Widget, hover: number): Shape {
@@ -21,7 +22,7 @@ function shapeOf(wdg: Widget, hover: number): Shape {
     const r = Math.min(w, h) / 2;
     return { x: x + w / 2 - r, y: y + h / 2 - r, w: r * 2, h: r * 2, r };
   }
-  return { x, y: h < ROW_H ? y : y - hover * 3, w, h, r: h / 2 };
+  return { x, y: h < ROW_H ? y : y - hover * 3, w, h, r: wdg.corner ?? h / 2 };
 }
 
 // The ring sits this far outside the widget, closer round short rows (settings) so it

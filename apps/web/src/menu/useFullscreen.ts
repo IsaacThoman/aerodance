@@ -46,7 +46,7 @@ export function toggleFullscreen(doc: FullscreenDocument): Promise<void> | void 
 export default function useFullscreen(): Fullscreen {
   const [state, setState] = useState(() => readFullscreenState(document));
   const [error, setError] = useState<string | null>(null);
-  const failed = useCallback(() => setError('Click fullscreen on this display to retry.'), []);
+  const failed = useCallback(() => setError('Retry fullscreen on this display'), []);
 
   useEffect(() => {
     const changed = () => {

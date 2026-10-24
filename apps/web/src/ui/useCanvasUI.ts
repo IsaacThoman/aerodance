@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
 import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
 import { MIN_TOUCH_PX, widgetAt } from './hit.ts';
+import { diagnostic } from '../diagnostics.ts';
 import { displayDesign } from '../display.ts';
 import type { Circle, Point, Rect } from './draw.ts';
 
@@ -31,7 +32,7 @@ import type { Circle, Point, Rect } from './draw.ts';
  * 'key') to the next widget while the overlay is active, skipping widgets with nav: false;
  * the widget under it gets the focus ring (ui/focusRing.ts) and Enter/Space press it. The
  * cursor is shared by every keyNav overlay, in priority order, so it runs from a screen's
- * buttons on to controls other overlays draw beside them (the fullscreen bubble). It starts
+ * buttons on to controls other overlays draw beside them. It starts
  * on the screen's primary widget, which Enter/Space also press
  * while there is no cursor and the mouse isn't over another; it follows its widget by id and
  * lets go once the widget is gone, the overlay hides or the mouse moves.
@@ -47,6 +48,8 @@ export type Widget = {
   id: string;
   /** Pressing drags (sliders): onDrag instead of onActivate. */
   drag?: boolean;
+  /** A rect's corner radius, for the focus ring; wide rects default to a pill (h / 2). */
+  corner?: number;
   /** false: keyboard navigation skips it. */
   nav?: boolean;
   /** The screen's main action: the keyboard cursor starts here, and Enter/Space press it while there is no cursor. */
@@ -492,6 +495,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       s.requestFrame();
     }
 
+    if (diagnostic('noui')) return;
     overlay.material.opacity = alpha;
     const ac = gl.autoClear;
     gl.autoClear = false;

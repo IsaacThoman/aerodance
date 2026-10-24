@@ -6,13 +6,14 @@ import { STAGES, resolveStage } from '../../../../packages/stages/index.ts';
 import type { DancerPlacement, Stage, StageId, StageMeta } from '../../../../packages/stages/index.ts';
 import { RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
-import { beat, stageOrbit, stagePlay } from '../../../../packages/stages/shared/hooks.ts';
+import { beat, stageOrbit, stagePlay, stageShift } from '../../../../packages/stages/shared/hooks.ts';
 import { loadMotion } from '../../../../packages/character/motion.ts';
 import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import type { SongRoutine } from '../game/GameSession.ts';
 import type { ResultsShow } from '../game/results.ts';
 import ResultsDancers from './ResultsDancers.tsx';
+import type { ResultsLive } from './ResultsDancers.tsx';
 import { diagnostic } from '../diagnostics.ts';
 import { screenOwner } from '../screenOwner.ts';
 
@@ -36,6 +37,8 @@ export interface StageViewProps {
   routine?: SongRoutine | null;
   /** The results reveal: swaps the reference dancers for the celebration. */
   results?: RefObject<ResultsShow | null> | null;
+  /** The players' live poses, for the dancers left on stage after the reveal. */
+  live?: ResultsLive | null;
   onState?: (state: StageState) => void;
 }
 type ReadyHandler = (id: StageId, failed: boolean) => void;
@@ -61,12 +64,13 @@ interface Fade { value: number; settled: number; }
  * Aero world should pause (onState's `showing`); both are put back when it goes.
  *
  * On the results screen, `results` (a ref of { start, results, winner }) swaps the reference
- * dancers for the celebration (ResultsDancers).
+ * dancers for the celebration (ResultsDancers), who copy `live`'s poses, and the stage's
+ * picture eases right (stageShift) to leave the left of the screen to the scoreboard.
  *
  * With `orbiting` (Song Select's preview) the stage camera slowly circles the dancers, and
  * swings back round to the front when it stops (the song starts).
  *
- * <StageView active orbiting stageId="openreef" routine={{ bundle, playerCount, timeMs, playing }} results={showRef}
+ * <StageView active orbiting stageId="openreef" routine={{ bundle, playerCount, timeMs, playing }} results={showRef} live={session}
  *   onState={({ showing, prepared, ready, stage, failed, dancersFailed }) => ...} />
  */
 
@@ -79,6 +83,10 @@ const STAGE_BPM = beat.bpm;
 // front by the shorter way, settling within its countdown.
 const ORBIT_SPEED = (Math.PI * 2) / 60;
 const ORBIT_RETURN = 2.4;
+// The results screen pushes the stage's picture this far right (a fraction of its width), at
+// this rate (per second, eased): the stage's centre lands right of the scoreboard.
+const RESULTS_SHIFT = 0.22;
+const SHIFT_RATE = 3;
 const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 const byId = new Map(STAGES.map((stage) => [stage.meta.id, stage]));
@@ -298,7 +306,7 @@ const loadCelebration = () => {
   return celebration;
 };
 
-function Results({ show, floor, accent }: { show: RefObject<ResultsShow>; floor: DancerPlacement; accent: StageMeta['accent'] }) {
+function Results({ show, floor, accent, live }: { show: RefObject<ResultsShow>; floor: DancerPlacement; accent: StageMeta['accent']; live: ResultsLive | null }) {
   const [motion, setMotion] = useState<MotionTake | null>(null);
   const playback = useRef(0);
   useEffect(() => {
@@ -307,7 +315,7 @@ function Results({ show, floor, accent }: { show: RefObject<ResultsShow>; floor:
     return () => { alive = false; };
   }, []);
   useFrame((_, delta) => { playback.current += Math.min(delta, 0.1); });
-  return motion ? <ResultsDancers motion={motion} playback={playback} show={show} floor={floor} accent={accent} /> : null;
+  return motion ? <ResultsDancers motion={motion} playback={playback} show={show} floor={floor} accent={accent} live={live} /> : null;
 }
 
 interface StageContentProps {
@@ -316,12 +324,13 @@ interface StageContentProps {
   onScreen: boolean;
   routine: SongRoutine | null;
   results: RefObject<ResultsShow | null> | null;
+  live: ResultsLive | null;
   onReady: ReadyHandler;
   onDancersFail: () => void;
 }
 
 // Everything inside the portal: the pipeline, the stage and its dancers.
-function StageContent({ id, onScreen, routine, results, onReady, onDancersFail }: StageContentProps) {
+function StageContent({ id, onScreen, routine, results, live, onReady, onDancersFail }: StageContentProps) {
   const gl = useThree((state) => state.gl);
   const { meta, Component: Stage } = stageFor(id);
 
@@ -376,7 +385,7 @@ function StageContent({ id, onScreen, routine, results, onReady, onDancersFail }
       {/* A new song or stage gives dancers that failed to load another try. */}
       <DancerBoundary key={`${id}|${routine?.bundle.scoreId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
         {results
-          ? hasShow(results) && <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent} />
+          ? hasShow(results) && <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent} live={live} />
           : <Dancers routine={routine} {...meta.dancers} />}
       </DancerBoundary>
     </>
@@ -395,7 +404,7 @@ interface StageViewState {
   reported: string;
 }
 
-export default function StageView({ active = false, orbiting = false, stageId, routine, results = null, onState }: StageViewProps) {
+export default function StageView({ active = false, orbiting = false, stageId, routine, results = null, live = null, onState }: StageViewProps) {
   const scene = useMemo(() => new THREE.Scene(), []);
   const [shown, setShown] = useState<StageId | null>(null);
   const [onScreen, setOnScreen] = useState(false);
@@ -404,7 +413,7 @@ export default function StageView({ active = false, orbiting = false, stageId, r
   const target = active ? resolveStage(stageId) : null;
   const props = useRef({ target, shown, onState, routine, orbiting, results });
   props.current = { target, shown, onState, routine, orbiting, results };
-  useEffect(() => () => { Object.assign(stagePlay, { dancing: false, celebrating: false }); }, []);
+  useEffect(() => () => { Object.assign(stagePlay, { dancing: false, celebrating: false }); stageShift.x = 0; }, []);
   const orbit = useRef({ speed: 0, phase: 0, ramp: 0, on: false });
   // Keep dancing the last routine while the veil comes up on the way out.
   const lastRoutine = useRef<SongRoutine | null>(null);
@@ -430,6 +439,10 @@ export default function StageView({ active = false, orbiting = false, stageId, r
     const playing = have !== null && want === have;
     stagePlay.dancing = playing && !props.current.results;
     stagePlay.celebrating = playing && !!props.current.results;
+    // The results' scoreboard takes the left: the stage eases right, and back after.
+    const shift = stagePlay.celebrating ? RESULTS_SHIFT : 0;
+    stageShift.x += (shift - stageShift.x) * Math.min(1, dt * SHIFT_RATE);
+    if (Math.abs(shift - stageShift.x) < 1e-4) stageShift.x = shift;
     if (have === null || !st.onScreen) {
       Object.assign(o, { speed: 0, phase: 0, ramp: 0, on: false });
       stageOrbit.yaw = 0;
@@ -512,7 +525,7 @@ export default function StageView({ active = false, orbiting = false, stageId, r
 
   return (
     <>
-      {shown && createPortal(<StageContent id={shown} onScreen={onScreen} routine={routine ?? lastRoutine.current} results={results} onReady={onReady} onDancersFail={onDancersFail} />, scene)}
+      {shown && createPortal(<StageContent id={shown} onScreen={onScreen} routine={routine ?? lastRoutine.current} results={results} live={live} onReady={onReady} onDancersFail={onDancersFail} />, scene)}
       <Veil fade={fade} />
     </>
   );

@@ -129,7 +129,7 @@ in shot, side by side; start with as many as the song has players.
 `--camera none` leaves the browser alone (headless has no camera, so requests fail).
 
 For a scored run without any camera, open `/?input=ghost`: an autoplay ghost copies each
-routine (see the main README).
+routine (see the [developer guide](README.md#main-ui-flow)).
 
 ## Examples
 

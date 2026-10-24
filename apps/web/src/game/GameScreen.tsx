@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawGlassPanel, drawHeader, drawHeadline as headline, drawPill, drawProgress, drawShadowText, drawStatusDot,
-  ellipsize, ICONS, paragraph, roundRect, text,
+  FONT, drawCaps, drawDarkGlassPanel, drawGlassButton, drawHeader, drawHeadline as headline, drawProgress, drawShadowText, drawStatusDot,
+  ellipsize, glassCorner, ICONS, paragraph, roundRect, text,
 } from '../ui/draw.ts';
 import type { Face, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
+import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import { CameraSetup, cameraWidgets, drawCameraPicker } from '../connect/cameraSetup.ts';
 import type { CameraWidget } from '../connect/cameraSetup.ts';
@@ -143,7 +144,7 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
   const mid = preview.x + preview.w / 2;
   const live = connection.status === 'connected';
   drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
-  drawGlassPanel(g, GAME_CALIBRATION_CARD, 30);
+  drawDarkGlassPanel(g, GAME_CALIBRATION_CARD, 30);
 
   const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 66 });
   const pairing = camera.pairing();
@@ -243,7 +244,7 @@ function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup,
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
+  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, session, source, onQuit, onRetry });
   props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
@@ -274,11 +275,14 @@ export default function GameScreen({ visible = false, session, camera: source, o
       }
       if (['ready', 'calibrating', 'loading', 'error'].includes(ph)) {
         const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
-        if (ph === 'ready') list.push({ id: 'start', rect: GAME_READY_START, primary: true });
+        if (ph === 'ready') list.push({ id: 'start', rect: GAME_READY_START, corner: glassCorner(GAME_READY_START.h), primary: true });
         return list;
       }
       if (ph === 'countdown' || ph === 'playing') return [{ id: 'pause', circle: GAME_PAUSE, nav: false }];
-      if (ph === 'paused') return [{ id: 'resume', rect: GAME_RESUME, primary: true }, { id: 'restart', rect: GAME_RESTART }, { id: 'quit', rect: GAME_QUIT }];
+      if (ph === 'paused') {
+        const corner = glassCorner(GAME_RESUME.h);
+        return [{ id: 'resume', rect: GAME_RESUME, corner, primary: true }, { id: 'restart', rect: GAME_RESTART, corner }, { id: 'quit', rect: GAME_QUIT, corner }];
+      }
       return [];
     },
     onActivate: (wdg, s) => {
@@ -383,7 +387,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
           const readiness = session.readiness();
           const hold = session.readySince === null ? 0 : clamp01((performance.now() - session.readySince) / READY_HOLD_MS);
           const allReady = readiness.every((r) => r === 'ready');
-          drawPill(g, GAME_READY_START, {
+          drawGlassButton(g, GAME_READY_START, {
             label: allReady ? 'Starting…' : 'Start now', sub: allReady ? '' : 'no tracking :(',
             icon: 'play', hover: h.start ?? 0, press: press('start'),
           });
@@ -440,11 +444,11 @@ export default function GameScreen({ visible = false, session, camera: source, o
         g.fillStyle = `rgba(0, 24, 60, ${VEIL})`;
         g.fillRect(0, 0, s.w, s.h);
         g.restore();
-        drawGlassPanel(g, GAME_PAUSE_PANEL, 34);
+        drawDarkGlassPanel(g, GAME_PAUSE_PANEL, 34);
         drawCaps(g, 'PAUSED', s.w / 2, GAME_PAUSE_PANEL.y + 46, { size: 30, align: 'center' });
-        drawPill(g, GAME_RESUME, { label: 'Resume', icon: 'play', hover: h.resume ?? 0, press: press('resume') });
-        drawPill(g, GAME_RESTART, { label: 'Restart', icon: 'replay', hover: h.restart ?? 0, press: press('restart') });
-        drawPill(g, GAME_QUIT, { label: 'Song select', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
+        drawGlassButton(g, GAME_RESUME, { label: 'Resume', icon: 'play', hover: h.resume ?? 0, press: press('resume') });
+        drawGlassButton(g, GAME_RESTART, { label: 'Restart', icon: 'replay', hover: h.restart ?? 0, press: press('restart') });
+        drawGlassButton(g, GAME_QUIT, { label: 'Song select', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
         // Under it, why the song can't go on yet: a call still has the audio, or iOS the camera.
         let y = GAME_PAUSE_PANEL.y + GAME_PAUSE_PANEL.h + 44;
         if (session.waitingForAudio && getMixer().ctx.state !== 'running') {
@@ -454,6 +458,18 @@ export default function GameScreen({ visible = false, session, camera: source, o
         if (usesCamera(session) && camera.interrupted()) drawCameraInterrupted(g, camera, p.source.view.status, y, s.w);
       }
     },
+  });
+
+  // Frosted glass inside the calibration card, the Start button and the pause panel
+  // (ui/useGlassBlur.ts), drawn as the screen above draws them.
+  useGlassBlur(() => {
+    const p = props.current;
+    const ph = phase();
+    const panes = !p.visible || !p.session ? []
+      : calibrating() ? [panelPane(GAME_CALIBRATION_CARD, 30)]
+        : ph === 'ready' ? [buttonPane(ui, 'start', GAME_READY_START)]
+          : ph === 'paused' ? [panelPane(GAME_PAUSE_PANEL)] : [];
+    return { panes, alpha: st.alpha };
   });
 
   // Judgements pop up under the players' characters.
