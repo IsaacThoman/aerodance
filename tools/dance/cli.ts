@@ -15,7 +15,7 @@ import { compileDance } from './compile.ts';
 import { createEvaluator, keyTimes } from './evaluate.ts';
 import { CONTROLS, GROUPS, POINTS, SCALARS, aspectOf, expandControls, findDancer, isMidJoint } from './format.ts';
 import type { AnyKey, Dance, Dancer } from './format.ts';
-import { OP_NAMES, channelNames } from './ops.ts';
+import { OP_NAMES, channelFilter, channelNames } from './ops.ts';
 import { DanceProject, RevisionConflict, attachSources, initProject } from './project.ts';
 import type { ApplyResult } from './project.ts';
 import { rigToLandmarks } from './rig.ts';
@@ -116,20 +116,24 @@ function showDance(dance: Dance, project: DanceProject): string {
   if (dance.markers.length) lines.push(`markers ${dance.markers.map(m => `${m.timeMs} ${m.kind}${m.label ? ` "${m.label}"` : ''}`).join(', ')}`);
   return lines.join('\n');
 }
+/** A layer's keys, on the dancer's own clock like the ops that make them (song time minus its offset). */
 function keysTable(dance: Dance, dancer: Dancer, layerId: string | undefined, range: [number, number] | null, controls: string[] | null): { text: string; json: unknown } {
   const layer = layerId ? dancer.layers.find(l => l.id === layerId) : dancer.layers[0];
   if (!layer) throw Error(`${dancer.id} has no layer ${layerId}`);
-  const names = channelNames(layer).filter(n => !controls || controls.includes(n));
+  const selects = channelFilter({ op: 'keys', ...(controls ? { controls } : {}) }, layer);
+  const names = channelNames(layer).filter(selects);
   const json: Record<string, AnyKey[]> = {};
-  const lines = [`${dancer.id} layer ${layer.id} (${layer.mode})${range ? ` ${range[0]}–${range[1]} ms` : ''}`];
+  const offset = dancer.timeOffsetMs;
+  const lines = [`${dancer.id} layer ${layer.id} (${layer.mode})${range ? ` ${range[0]}–${range[1]} ms` : ''}` +
+    (offset ? `; times on ${dancer.id}'s clock: each plays ${offset > 0 ? `${offset} ms later` : `${-offset} ms earlier`} in the song` : '')];
   for (const n of names) {
     const keys = layer.channels[n].filter(k => !range || k.t >= range[0] && k.t <= range[1]);
     if (!keys.length) continue;
     json[n] = keys;
     lines.push(`${n} (${keys.length})`);
     for (const k of keys) {
-      const beat = beatAt(dance, k.t + dancer.timeOffsetMs);
-      lines.push(`  ${String(k.t).padStart(8)}${beat === null ? '' : ` b${fixed(beat, 2)}`}  ${Array.isArray(k.v) ? fmtPoint(k.v) : `${k.v}°`}` +
+      const beat = beatAt(dance, k.t);
+      lines.push(`  ${String(k.t).padStart(8)}${beat === null ? '' : ` b${fixed(beat, 2)}`}${offset ? ` (song ${k.t + offset})` : ''}  ${Array.isArray(k.v) ? fmtPoint(k.v) : `${k.v}°`}` +
         `${k.interp ? ` ${k.interp}` : ''}${k.ease ? ` ease:${k.ease}` : ''}`);
     }
   }
@@ -161,6 +165,10 @@ export function formatApply(result: ApplyResult, dance: Dance): string {
     (dancers.length ? `, dancers ${dancers.join(', ')}` : '') + (range ? `, ${formatTime(range[0], dance)}–${formatTime(range[1], dance)}` : ''),
   ...notes.map(n => `  ${n}`)].join('\n');
 }
+function revisionArg(v: string): number {
+  if (!/^\d+$/.test(v)) throw Error(`--expect-revision takes a revision number, not "${v}"`);
+  return Number(v);
+}
 async function readOps(values: Values, file: string | undefined): Promise<{ ops: unknown[]; expectRevision?: number; opId?: string; label?: string }> {
   const ops: unknown[] = [];
   let meta: { expectRevision?: number; opId?: string; label?: string } = {};
@@ -186,7 +194,7 @@ async function readOps(values: Values, file: string | undefined): Promise<{ ops:
   }
   if (!ops.length) throw Error('No ops: pass a patch file, - for stdin, or --op \'{"op":…}\'');
   const expect = opt(values, 'expect-revision');
-  return { ops, expectRevision: expect !== undefined ? Number(expect) : meta.expectRevision, opId: opt(values, 'op-id') ?? meta.opId,
+  return { ops, expectRevision: expect !== undefined ? revisionArg(expect) : meta.expectRevision, opId: opt(values, 'op-id') ?? meta.opId,
     label: opt(values, 'label') ?? meta.label };
 }
 
@@ -213,7 +221,9 @@ export async function main(argv: string[]): Promise<number> {
   const dancersArg = opt(values, 'dancer');
   const dancers = dancersArg ? dancersArg.split(',').map(d => findDancer(dance, d)) : dance.dancers;
   const range = opt(values, 'range') ? parseRange(opt(values, 'range'), dance) : null;
-  const controls = opt(values, 'controls') ? expandControls(opt(values, 'controls')!.split(',')) as string[] : null;
+  // As given (a group can name an additive layer's channel); checked here.
+  const controls = opt(values, 'controls') ? opt(values, 'controls')!.split(',').map(c => c.trim()) : null;
+  if (controls) expandControls(controls);
   switch (command) {
     case 'show': print(json ? dance : showDance(dance, project)); return 0;
     case 'attach': {
@@ -250,7 +260,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!range) throw Error('--range is required');
       const every = opt(values, 'every') ? parseTime(opt(values, 'every'), dance) : 100;
       if (!(every >= 1)) throw Error('--every must be at least 1 ms');
-      const names = (controls ?? ['leftWrist', 'rightWrist']) as string[];
+      const names = controls ? expandControls(controls) as string[] : ['leftWrist', 'rightWrist'];
       const rows: Record<string, unknown>[] = [];
       for (const d of dancers) {
         const e = createEvaluator(dance, d);
@@ -284,9 +294,14 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'undo': case 'redo': {
       const expect = opt(values, 'expect-revision');
-      const result = await project.step(command, expect === undefined ? undefined : Number(expect));
-      print(json ? result : result ? `${command === 'undo' ? 'Undid' : 'Redid'} "${result.label}" → revision ${result.revision}` : `Nothing to ${command}`);
-      return 0;
+      try {
+        const result = await project.step(command, expect === undefined ? undefined : revisionArg(expect));
+        print(json ? result : result ? `${command === 'undo' ? 'Undid' : 'Redid'} "${result.label}" → revision ${result.revision}` : `Nothing to ${command}`);
+        return 0;
+      } catch (e) {
+        if (e instanceof RevisionConflict) { print(json ? { error: e.message, currentRevision: e.current } : e.message); return 3; }
+        throw e;
+      }
     }
     case 'check': {
       await project.loadTracking(dance);

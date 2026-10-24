@@ -11,8 +11,8 @@
 // overwriting someone else's edit. Retrying a request with the same opId returns the first
 // result without applying it twice.
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { copyFile, link, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { constants as fsConstants, existsSync } from 'node:fs';
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { applyOps } from './ops.ts';
 import type { ChangeSummary } from './ops.ts';
@@ -237,14 +237,20 @@ export class DanceProject {
     }
   }
   /** Copies (or hard-links, or with link: references) a file into sources/, returning its ref. */
-  async addSource(file: string, name: string, { link: linkOnly = false }: { link?: boolean } = {}): Promise<FileRef> {
+  /**
+   * Copies a file into sources/ as <kind>-<hash><ext> (or with link, references it where it is),
+   * returning its ref. Named by content, a source is never overwritten: undoing an attach finds
+   * the file it had. Copies are clones where the filesystem allows, never links to the original.
+   */
+  async addSource(file: string, kind: string, { link: linkOnly = false }: { link?: boolean } = {}): Promise<FileRef> {
     const sha256 = await sha256File(file), bytes = (await stat(file)).size;
     if (linkOnly) return { path: path.resolve(file), sha256, bytes, mimeType: mimeOf(file) };
-    const rel = path.join('sources', name), target = path.join(this.dir, rel);
+    const rel = path.join('sources', `${kind}-${sha256.slice(0, 12)}${path.extname(file).toLowerCase()}`), target = path.join(this.dir, rel);
     await mkdir(path.dirname(target), { recursive: true });
-    if (path.resolve(file) !== target) {
-      await rm(target, { force: true });
-      await link(file, target).catch(() => copyFile(file, target));
+    if (path.resolve(file) !== target && !existsSync(target)) {
+      const temporary = `${target}.${process.pid}.tmp`;
+      await copyFile(file, temporary, fsConstants.COPYFILE_FICLONE);
+      await rename(temporary, target);
     }
     return { path: rel.split(path.sep).join('/'), sha256, bytes, mimeType: mimeOf(file) };
   }
@@ -269,6 +275,17 @@ export interface InitOptions {
   durationMs?: number;
   log?: (message: string) => void;
 }
+/** A browser-playable copy of the video for the Studio, made once per video. */
+async function videoProxy(project: DanceProject, video: string, sha256: string, fps: number, log: (m: string) => void): Promise<string> {
+  const rel = `sources/proxy-${sha256.slice(0, 12)}.webm`, file = path.join(project.dir, rel);
+  if (!existsSync(file)) {
+    log(`Making a browser-playable copy for the Studio (${rel})…`);
+    const temporary = `${file}.${process.pid}.tmp.webm`;
+    await makeProxy(video, temporary, fps);
+    await rename(temporary, file);
+  }
+  return rel;
+}
 /** Adds or replaces the project's audio (and with `video`, the video and frame) as a new revision. */
 export async function attachSources(project: DanceProject, { audio, video, link = false, proxy, log = () => {} }:
   { audio?: string; video?: string; link?: boolean; proxy?: boolean; log?: (m: string) => void }): Promise<Dance> {
@@ -276,17 +293,12 @@ export async function attachSources(project: DanceProject, { audio, video, link 
   let videoSource: { ref: FileRef; info: Awaited<ReturnType<typeof probeVideo>>; proxy: string | null } | null = null;
   if (video) {
     const info = await probeVideo(video);
-    const ref = await project.addSource(video, `video${path.extname(video).toLowerCase()}`, { link });
-    let proxyPath: string | null = null;
-    if (proxy ?? !['vp8', 'vp9', 'av1'].includes(info.codec)) {
-      log('Making a browser-playable copy for the Studio (sources/proxy.webm)…');
-      await makeProxy(video, path.join(project.dir, 'sources/proxy.webm'), info.fps);
-      proxyPath = 'sources/proxy.webm';
-    }
+    const ref = await project.addSource(video, 'video', { link });
+    const proxyPath = proxy ?? !['vp8', 'vp9', 'av1'].includes(info.codec) ? await videoProxy(project, video, ref.sha256, info.fps, log) : null;
     videoSource = { ref, info, proxy: proxyPath };
   }
   let audioSource: { ref: FileRef; ms: number } | null = null;
-  if (audio) audioSource = { ms: await probeAudioMs(audio), ref: await project.addSource(audio, `audio${path.extname(audio).toLowerCase()}`, { link }) };
+  if (audio) audioSource = { ms: await probeAudioMs(audio), ref: await project.addSource(audio, 'audio', { link }) };
   return project.update([audio && 'attach audio', video && 'attach video'].filter(Boolean).join(', '), next => {
     if (videoSource) {
       const { ref, info } = videoSource;
@@ -320,26 +332,21 @@ export async function initProject(dir: string, options: InitOptions = {}): Promi
   dance.song.artist = options.artist ?? '';
   if (options.video && video) {
     log(`Video: ${video.width}x${video.height}, ${video.fps} fps, ${(video.durationMs / 1000).toFixed(1)} s (${video.codec})`);
-    const ref = await project.addSource(options.video, `video${path.extname(options.video).toLowerCase()}`, { link: options.link });
-    let proxy: string | null = null;
-    const wantProxy = options.proxy ?? !['vp8', 'vp9', 'av1'].includes(video.codec);
-    if (wantProxy) {
-      log('Making a browser-playable copy for the Studio (sources/proxy.webm)…');
-      await makeProxy(options.video, path.join(project.dir, 'sources/proxy.webm'), video.fps);
-      proxy = 'sources/proxy.webm';
-    }
+    const ref = await project.addSource(options.video, 'video', { link: options.link });
+    const proxy = options.proxy ?? !['vp8', 'vp9', 'av1'].includes(video.codec) ? await videoProxy(project, options.video, ref.sha256, video.fps, log) : null;
     dance.sources.video = { ...ref, width: video.width, height: video.height, fps: video.fps, durationMs: video.durationMs, startMs: 0, rate: 1, proxy };
     durationMs = video.durationMs;
   }
-  let audioFile = options.audio ?? null;
+  let audioFile = options.audio ?? null, extracted: string | null = null;
   if (!audioFile && options.audioFromVideo !== false && options.video && video?.hasAudio) {
-    audioFile = path.join(project.dir, 'sources/audio.wav');
-    log('Extracting the video\'s audio as the song (sources/audio.wav)…');
+    audioFile = extracted = project.meta(`extracted-${process.pid}.wav`);
+    log('Extracting the video\'s audio as the song…');
     await extractAudio(options.video, audioFile);
   }
   if (audioFile) {
     const ms = await probeAudioMs(audioFile);
-    const ref = await project.addSource(audioFile, `audio${path.extname(audioFile).toLowerCase()}`, { link: options.link && audioFile === options.audio });
+    const ref = await project.addSource(audioFile, 'audio', { link: options.link && !extracted });
+    if (extracted) await rm(extracted, { force: true });
     dance.sources.audio = { ...ref, durationMs: ms };
     durationMs = ms;
   }

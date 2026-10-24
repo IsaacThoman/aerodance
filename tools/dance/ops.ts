@@ -103,7 +103,7 @@ function controlsOf(op: Op): Control[] {
  * has a channel for (a control, or a group an additive layer keys) selects that channel; any
  * other group selects its members.
  */
-function channelFilter(op: Op, layer: Layer): (name: string) => boolean {
+export function channelFilter(op: Op, layer: Layer): (name: string) => boolean {
   const names = controlNames(op);
   if (!names) return () => true;
   const selected = new Set<string>();
@@ -285,8 +285,14 @@ export function simplifyKeys(keys: AnyKey[], range: readonly [number, number], t
     }
     const local = asCurve(around);
     const a = walk(i, 2, prev), b = walk(i, 2, next);
+    // Long windows (where many keys have gone, so the curve is simple there) are measured at
+    // most 120 points across, plus every point beside the key itself.
     let worst = 0;
-    for (let s = a * 3; s <= b * 3; s++) worst = Math.max(worst, metricDistance(evaluate(local, sampleTimes[s], scratch), sampleValues[s], aspect, point));
+    const first = a * 3, last = b * 3, stride = Math.max(1, Math.floor((last - first) / 120));
+    const check = (s: number) => { worst = Math.max(worst, metricDistance(evaluate(local, sampleTimes[s], scratch), sampleValues[s], aspect, point)); };
+    for (let s = first; s <= last; s += stride) check(s);
+    if (stride > 1) for (let s = Math.max(first, i * 3 - 6); s <= Math.min(last, i * 3 + 6); s++) check(s);
+    check(last);
     return worst;
   };
   // The original curve at each key and a third and two thirds of the way to the next, once:
@@ -450,7 +456,7 @@ const HANDLERS: Record<string, Handler> = {
     if (!count) fail('No keys matched');
   },
   retime(dance, op) {
-    fields(op, ['dancer', 'controls', 'range', 'shift', 'scale', 'pivot', 'replace']);
+    fields(op, ['dancer', 'layer', 'controls', 'range', 'shift', 'scale', 'pivot', 'replace']);
     const [a, b] = parseRange(op.range, dance);
     const shift = op.shift === undefined ? 0 : parseTime(op.shift, dance), scale = op.scale === undefined ? 1 : num(op.scale, 'scale');
     if (!(scale > 0)) fail('scale must be positive');
@@ -458,7 +464,9 @@ const HANDLERS: Record<string, Handler> = {
     const map = (t: number) => roundTime(pivot + (t - pivot) * scale + shift);
     const all = op.controls === undefined;
     for (const dancer of dancersOf(dance, op)) {
-      for (const layer of dancer.layers) for (const [name, keys] of Object.entries(layer.channels)) {
+      // Every layer, or just the one named.
+      const layers = op.layer === undefined ? dancer.layers : [layerOf(dancer, op.layer)];
+      for (const layer of layers) for (const [name, keys] of Object.entries(layer.channels)) {
         if (!channelFilter(op, layer)(name)) continue;
         const moving = keys.filter(k => inRange(k.t, [a, b])), staying = keys.filter(k => !inRange(k.t, [a, b]));
         const moved = moving.map(k => ({ ...k, t: map(k.t) }));
@@ -578,7 +586,8 @@ const HANDLERS: Record<string, Handler> = {
     const dancer = dancerOf(dance, op), layer = layerOf(dancer, op.layer);
     const range = op.range === undefined ? [-Infinity, Infinity] as [number, number] : parseRange(op.range, dance);
     const windowMs = op.windowMs === undefined ? 120 : num(op.windowMs, 'windowMs');
-    for (const c of controlsOf(op)) if (layer.channels[c]) layer.channels[c] = smoothKeys(layer.channels[c]!, range, windowMs, contactBoundaries(dancer));
+    const selects = channelFilter(op, layer);
+    for (const c of Object.keys(layer.channels)) if (selects(c)) layer.channels[c] = smoothKeys(layer.channels[c], range, windowMs, contactBoundaries(dancer));
   },
   simplify(dance, op, _ctx, notes) {
     fields(op, ['dancer', 'layer', 'range', 'controls', 'tolerance', 'angleTolerance']);
@@ -587,9 +596,10 @@ const HANDLERS: Record<string, Handler> = {
     const tolerance = op.tolerance === undefined ? 0.004 : num(op.tolerance, 'tolerance');
     const angle = op.angleTolerance === undefined ? 3 : num(op.angleTolerance, 'angleTolerance');
     let removed = 0;
-    for (const c of controlsOf(op)) {
+    const selects = channelFilter(op, layer);
+    for (const c of Object.keys(layer.channels)) {
       const keys = layer.channels[c];
-      if (!keys) continue;
+      if (!selects(c)) continue;
       const next = simplifyKeys(keys, range, isScalarControl(c) ? angle : tolerance, aspect, contactBoundaries(dancer));
       removed += keys.length - next.length;
       layer.channels[c] = next;
@@ -622,6 +632,7 @@ const HANDLERS: Record<string, Handler> = {
     const rigs = frames.map(f => ({ t: f.t, rig: landmarksToRig(f.landmarks, dancer.body, aspect), landmarks: f.landmarks }));
     const layer = baseLayer(dancer), depth = op.depth === true;
     const everyMs = op.everyMs === undefined ? null : num(op.everyMs, 'everyMs');
+    if (everyMs !== null && !(everyMs >= 1)) fail('everyMs must be at least 1 ms');
     const smoothMs = op.smoothMs === undefined ? 80 : num(op.smoothMs, 'smoothMs');
     let added = 0;
     for (const c of controls) {

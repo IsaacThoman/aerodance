@@ -36,14 +36,15 @@ interface Loaded {
   bundle: SongBundle | null;
   tracking: Map<string, { data: TrackingData; slot: number }>;
 }
-let loaded: Loaded | null = null;
-async function load(revision: number): Promise<Loaded> {
-  if (loaded && loaded.dance.revision >= revision) return loaded;
+let loaded: (Loaded & { stamp: string }) | null = null;
+/** The dance as the request saw it: reloaded when the revision or the file's content (a hand edit) moved on. */
+async function load(revision: number, stamp: string): Promise<Loaded> {
+  if (loaded && loaded.dance.revision === revision && loaded.stamp === stamp) return loaded;
   const dance = await fetchDance();
   const tracking = new Map<string, { data: TrackingData; slot: number }>();
   for (const source of [...dance.sources.tracking].reverse()) for (const [slot, id] of source.dancers.entries())
     if (id && !tracking.has(id)) tracking.set(id, { data: await fetchTracking(dance, source.id), slot });
-  loaded = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d)), calibrations: previewCalibrations(dance), bundle: null, tracking };
+  loaded = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d)), calibrations: previewCalibrations(dance), bundle: null, tracking, stamp };
   return loaded;
 }
 
@@ -77,15 +78,16 @@ function SceneHost() {
 const nextFrame = () => new Promise<void>(r => requestAnimationFrame(() => r()));
 /** The scene mounted last, kept for the next render that asks for the same one (clip frames). */
 let mounted: { key: string; canvas: HTMLCanvasElement } | null = null;
-const sceneKey = (r: SceneRequest, revision: number) => JSON.stringify({ ...r, bundle: undefined, calibrations: undefined, revision });
+const sceneKey = (r: SceneRequest, revision: string) => JSON.stringify({ ...r, bundle: undefined, calibrations: undefined, revision });
 /** Mounts a scene and waits until it and every dancer's rig have loaded; returns its canvas. */
-async function showScene(request: SceneRequest, dancers: number, revision: number): Promise<HTMLCanvasElement> {
+async function showScene(request: SceneRequest, dancers: number, revision: string): Promise<HTMLCanvasElement> {
   const key = sceneKey(request, revision);
   if (mounted && mounted.key === key && mounted.canvas.isConnected) return mounted.canvas;
   mounted = null;
   sceneRoot = null;
-  await new Promise<void>(resolve => mountScene(request, resolve));
   const deadline = performance.now() + 60000;
+  await Promise.race([new Promise<void>(resolve => mountScene(request, resolve)),
+    new Promise((_, reject) => setTimeout(() => reject(Error('The 3D view did not mount')), 60000))]);
   for (;;) {
     await nextFrame();
     const canvas = document.querySelector('canvas');
@@ -198,8 +200,8 @@ function drawGrid(g: CanvasRenderingContext2D, v: Viewport) {
   }
   g.restore();
 }
-async function render(spec: RenderSpec): Promise<string> {
-  const data = await load(spec.revision), { dance } = data;
+async function renderNow(spec: RenderSpec): Promise<string> {
+  const data = await load(spec.revision, spec.stamp ?? ''), { dance } = data, version = `${dance.revision}:${spec.stamp ?? ''}`;
   const aspect = dance.frame.width / dance.frame.height;
   const crop = spec.zoom ?? { x: 0, y: 0, w: 1, h: 1 };
   const cellW = Math.round(spec.cellWidth), cellH = Math.round(cellW * crop.h / (crop.w * aspect));
@@ -277,10 +279,10 @@ async function render(spec: RenderSpec): Promise<string> {
     if (view === 'character') {
       const focus = spec.focus ? dance.dancers.findIndex(d => d.id === spec.focus) : null;
       canvas = await showScene({ kind: 'character', calibrations: data.calibrations, mirror: spec.mirror, focus: focus !== null && focus >= 0 ? focus : null,
-        width: widths[col], height: cellH }, dance.dancers.length, dance.revision);
+        width: widths[col], height: cellH }, dance.dancers.length, version);
     } else {
       data.bundle ??= gameBundle(dance, compileDance(dance));
-      canvas = await showScene({ kind: 'stage', bundle: data.bundle, stage: dance.song.stage, width: widths[col], height: cellH }, dance.dancers.length, dance.revision);
+      canvas = await showScene({ kind: 'stage', bundle: data.bundle, stage: dance.song.stage, width: widths[col], height: cellH }, dance.dancers.length, version);
     }
     for (const [row, t] of spec.times.entries()) {
       sceneTime = t;
@@ -355,5 +357,15 @@ async function detect(frames: { width: number; height: number; timestampMs: numb
   return out;
 }
 
-Object.assign(window, { danceRender: { render, detect, formatTime } });
+// One request at a time: they share the page's 3D canvas and the pose worker.
+let line: Promise<unknown> = Promise.resolve();
+function queued<A extends unknown[], R>(fn: (...args: A) => Promise<R>) {
+  return (...args: A): Promise<R> => {
+    const run = line.then(() => fn(...args));
+    line = run.catch(() => {});
+    return run;
+  };
+}
+const render = queued(renderNow);
+Object.assign(window, { danceRender: { render, detect: queued(detect), formatTime } });
 createRoot(document.getElementById('root')!).render(<SceneHost />);

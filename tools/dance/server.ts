@@ -258,7 +258,8 @@ async function withRenderer<T>(project: DanceProject, fn: (r: { render(spec: Ren
     return fn({
       bridge: null,
       async render(spec) {
-        const response = await fetch(new URL('api/render', url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(spec) });
+        const response = await fetch(new URL('api/render', url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(spec),
+          signal: AbortSignal.timeout(300000) });
         if (!response.ok) throw Error(((await response.json()) as { error: string }).error);
         return Buffer.from(await response.arrayBuffer());
       },
@@ -304,6 +305,7 @@ function viewsOf(values: Values): View[] {
 const str = (values: Values, name: string) => typeof values[name] === 'string' ? values[name] as string : undefined;
 
 export async function runBrowserCommand(command: string, project: DanceProject, dance: Dance, values: Values, json: boolean): Promise<number> {
+  const stamp = createHash('sha1').update(await readFile(project.file)).digest('hex').slice(0, 16);
   const out = (v: unknown) => process.stdout.write((typeof v === 'string' ? v : JSON.stringify(v, null, 2)) + '\n');
   if (command === 'studio') return studio(project, values, json);
   if (command === 'track') return track(project, dance, values, json, out);
@@ -320,7 +322,7 @@ export async function runBrowserCommand(command: string, project: DanceProject, 
     } else throw Error('frames needs --at t1,t2,… or --range a:b');
     if (times.length > 48) throw Error(`That's ${times.length} frames; a sheet holds at most 48`);
     const spec: RenderSpec = {
-      revision: dance.revision, times, views: viewsOf(values), dancers, focus: dancers?.[0] ?? null,
+      revision: dance.revision, stamp, times, views: viewsOf(values), dancers, focus: dancers?.[0] ?? null,
       zoom: zoomRect(dance, str(values, 'zoom'), times), cellWidth: str(values, 'width') ? Number(str(values, 'width')) : 360,
       reference: values.reference === true, ghosts: values.ghosts === true, mirror: values.mirror === true, labels: true, grid: values.grid === true,
       trails: str(values, 'trails') ? parseTime(str(values, 'trails'), dance) : values.trails === true ? 300 : 0,
@@ -337,6 +339,7 @@ export async function runBrowserCommand(command: string, project: DanceProject, 
   if (command === 'render') {
     const [a, b] = parseRange(str(values, 'range') ?? (() => { throw Error('render needs --range a:b'); })(), dance);
     const fps = str(values, 'fps') ? Number(str(values, 'fps')) : 30;
+    if (!(fps >= 1 && fps <= 60)) throw Error('--fps must be 1 to 60');
     const file = path.resolve(str(values, 'out') ?? project.meta('renders', `clip-r${dance.revision}-${Math.round(a)}-${Math.round(b)}.mp4`));
     const views = viewsOf(values), times: number[] = [];
     for (let t = a; t < b; t += 1000 / fps) times.push(t);
@@ -344,7 +347,7 @@ export async function runBrowserCommand(command: string, project: DanceProject, 
     const zoom = zoomRect(dance, str(values, 'zoom'), times.filter((_, i) => i % 10 === 0));
     await withRenderer(project, async r => {
       async function* frames() {
-        for (const t of times) yield await r.render({ revision: dance.revision, times: [t], views, dancers, focus: dancers?.[0] ?? null, zoom,
+        for (const t of times) yield await r.render({ revision: dance.revision, stamp, times: [t], views, dancers, focus: dancers?.[0] ?? null, zoom,
           cellWidth: str(values, 'width') ? Number(str(values, 'width')) : 480, reference: values.reference === true, ghosts: false,
           mirror: values.mirror === true, labels: false, title: formatTime(t, dance) });
       }

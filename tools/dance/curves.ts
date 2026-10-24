@@ -26,15 +26,16 @@ export function tangent(keys: readonly CurveKey[], i: number, side: 'in' | 'out'
   // hold: motion settles into a held key and starts from rest after one.
   if (left === null || right === null) return 0;
   if ((key.interp ?? 'smooth') === 'hold' || (prev!.interp ?? 'smooth') === 'hold') return 0;
-  // A linear segment on one side: continue its slope so the join is smooth.
-  if (prev && (prev.interp ?? 'smooth') === 'linear' && (key.interp ?? 'smooth') !== 'linear') return left;
-  if ((key.interp ?? 'smooth') === 'linear' && (!prev || (prev.interp ?? 'smooth') !== 'linear')) return right;
   if (left * right <= 0) return 0; // a turning point (or flat on one side): no overshoot
-  const dl = key.t - prev!.t, dr = next!.t - key.t;
-  const m = (left * dr + right * dl) / (dl + dr);
-  // Fritsch-Carlson: keeps each neighbouring segment monotone.
+  // Fritsch-Carlson: a tangent at most three times either slope keeps both segments monotone.
   const limit = 3 * Math.min(Math.abs(left), Math.abs(right));
-  return Math.sign(m) * Math.min(Math.abs(m), limit);
+  const limited = (m: number) => Math.sign(m) * Math.min(Math.abs(m), limit);
+  // A linear segment on one side: continue its slope into the curve on the other, as far as
+  // that stays monotone.
+  if ((prev!.interp ?? 'smooth') === 'linear' && (key.interp ?? 'smooth') !== 'linear') return limited(left);
+  if ((key.interp ?? 'smooth') === 'linear' && (prev!.interp ?? 'smooth') !== 'linear') return limited(right);
+  const dl = key.t - prev!.t, dr = next!.t - key.t;
+  return limited((left * dr + right * dl) / (dl + dr));
 }
 /** The index of the last key at or before t (-1 before the first). */
 export function keyIndexAt(keys: readonly { t: number }[], t: number): number {

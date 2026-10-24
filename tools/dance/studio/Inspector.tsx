@@ -130,7 +130,7 @@ export function ControlPanel({ dance, dancer, control, time, apply }: { dance: D
           <button onClick={() => apply([{ op: 'pose', dancer: dancer.id, t: local, controls: [control] }], `key ${control}`)}>Key current value</button>
         </div>
       )}
-      <p className="hint">{keys.length} keys{prev ? ` · previous ${(prev.t / 1000).toFixed(2)} s` : ''}{next ? ` · next ${(next.t / 1000).toFixed(2)} s` : ''}
+      <p className="hint">{keys.length} keys{prev ? ` · previous ${((prev.t + dancer.timeOffsetMs) / 1000).toFixed(2)} s` : ''}{next ? ` · next ${((next.t + dancer.timeOffsetMs) / 1000).toFixed(2)} s` : ''}
         {isMidJoint(control) && ' · moves with its limb between keys'}</p>
     </Section>
   );
@@ -147,7 +147,7 @@ export function ContactsPanel({ dancer, time, selection, apply }: { dancer: Danc
       {dancer.contacts.length ? (
         <ul className="list">
           {dancer.contacts.map(c => (
-            <li key={c.id}><span>{LABELS[c.control]} {(c.startMs / 1000).toFixed(2)}–{(c.endMs / 1000).toFixed(2)} s</span>
+            <li key={c.id}><span>{LABELS[c.control]} {((c.startMs + dancer.timeOffsetMs) / 1000).toFixed(2)}–{((c.endMs + dancer.timeOffsetMs) / 1000).toFixed(2)} s</span>
               <button className="link danger" aria-label={`Remove contact ${c.id}`} onClick={() => apply([{ op: 'uncontact', dancer: dancer.id, id: c.id }], 'remove contact')}>Remove</button></li>
           ))}
         </ul>

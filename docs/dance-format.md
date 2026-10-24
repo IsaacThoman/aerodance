@@ -24,13 +24,16 @@ forearm wherever it was. The dance format keeps the decisions and derives the po
 
 ```
 my-dance/
-  dance.json                  the dance: the only file an edit changes
-  sources/video.webm          the reference video (copied in, or referenced with --link)
-  sources/proxy.webm          a browser-playable copy for the Studio, when the original may not play
-  sources/audio.wav           the song audio
-  sources/tracking-3fa9….adpose  poses tracked from the video (named by content)
-  .dance/                     undo history, caches and renders; safe to delete (and git-ignored)
+  dance.json                      the dance: the only file an edit changes
+  sources/video-3fa9….webm        the reference video (copied in, or referenced with --link)
+  sources/proxy-3fa9….webm        a browser-playable copy for the Studio, when the original may not play
+  sources/audio-8c21….wav         the song audio
+  sources/tracking-d07e….adpose   poses tracked from the video
+  .dance/                         undo history, caches and renders; safe to delete (and git-ignored)
 ```
+
+Source files are named by their content's hash and never overwritten, so undoing an `attach`
+finds the file the earlier revision used.
 
 `dance.json` is plain, readable JSON, written one key per line so it diffs well. Edits through the
 CLI or the Studio bump its `revision`, keep the previous revision for undo, and are rejected if they
@@ -121,11 +124,11 @@ angles are numbers.
   },
   "frame": { "width": 640, "height": 360 },
   "sources": {
-    "video": { "path": "sources/video.webm", "sha256": "…", "bytes": 2768908, "mimeType": "video/webm",
+    "video": { "path": "sources/video-3fa9c2e1b7d0.webm", "sha256": "…", "bytes": 2768908, "mimeType": "video/webm",
       "width": 640, "height": 360, "fps": 30, "durationMs": 63332,
       "startMs": 0, "rate": 1,                     // song time of the video's first frame; video ms per song ms
       "proxy": null },
-    "audio": { "path": "sources/audio.wav", "sha256": "…", "bytes": 12172878, "mimeType": "audio/wav", "durationMs": 63400 },
+    "audio": { "path": "sources/audio-8c21f04a9e33.wav", "sha256": "…", "bytes": 12172878, "mimeType": "audio/wav", "durationMs": 63400 },
     "tracking": [
       { "id": "t1", "path": "sources/tracking-3fa9c2e1b7d0.adpose", "sha256": "…", "bytes": 52184, "mimeType": "application/octet-stream",
         "model": "lite", "createdAt": "…", "fps": 30, "dancers": ["P1"] }   // the dancer each tracked slot follows

@@ -121,3 +121,64 @@ test('the CLI refuses steps and sheets it can\'t make', async t => {
   await assert.rejects(main(['frames', project, '--range', '0:4000', '--every', '50']), /That's 81 frames; a sheet holds at most 48/);
   void DanceProject;
 });
+
+// ---- The second review ----
+
+test('a linear move into a held value doesn\'t dip past it', () => {
+  const keys = [{ t: 0, v: [0.5], interp: 'linear' as const }, { t: 500, v: [0.3] }, { t: 1000, v: [0.3] }];
+  for (let t = 500; t <= 1000; t += 5) assert.ok(evaluate(keys, t)[0] >= 0.3 - 1e-12, `${t}: ${evaluate(keys, t)[0]}`);
+});
+test('smooth, simplify and retime reach an additive layer\'s group channel, and retime can keep to one layer', () => {
+  const ops: unknown[] = [{ op: 'pose', t: 0, from: 'neutral' }, { op: 'layer', action: 'add', id: 'fix' }];
+  for (let i = 0; i <= 20; i++) ops.push({ op: 'key', layer: 'fix', t: i * 50, set: { body: [0.01 * Math.sin(i), 0] } });
+  ops.push({ op: 'key', t: 1000, set: { leftWrist: { dy: -0.1 } } }, { op: 'key', layer: 'fix', t: 1000, set: { leftWrist: [0.01, 0] } });
+  const dance = danceWith(ops);
+  const smoothed = applyOps(dance, [{ op: 'smooth', layer: 'fix', controls: ['body'], windowMs: 200 }]).dance;
+  assert.notDeepEqual(smoothed.dancers[0].layers[1].channels.body, dance.dancers[0].layers[1].channels.body);
+  const simple = applyOps(dance, [{ op: 'simplify', layer: 'fix', tolerance: 0.5 }]).dance;
+  assert.ok(simple.dancers[0].layers[1].channels.body.length < 21);
+  const moved = applyOps(dance, [{ op: 'retime', layer: 'base', range: '999:1001', controls: ['leftWrist'], shift: 100 }]).dance.dancers[0].layers;
+  assert.ok(moved[0].channels.leftWrist.some(k => k.t === 1100));
+  assert.ok(moved[1].channels.leftWrist.some(k => k.t === 1000), 'the additive key stays put');
+});
+test('draft refuses steps too small to make', () => {
+  const { dance, ctx } = withTracking(danceWith([], { durationMs: 2000 }), trackingOf(danceWith([{ op: 'pose', t: 0, from: 'neutral' }], { durationMs: 2000 })));
+  assert.throws(() => applyOps(dance, [{ op: 'draft', everyMs: -5 }], ctx), /everyMs must be at least 1 ms/);
+  assert.throws(() => applyOps(dance, [{ op: 'draft', everyMs: 0.01 }], ctx), /everyMs must be at least 1 ms/);
+});
+test('sources are copies named by content: undoing an attach can still export', async t => {
+  const dir = await tempDir(t), project = await initProject(path.join(dir, 'p'), { dancers: 1, durationMs: 3000, title: 'T', artist: 'A' });
+  const a = path.join(dir, 'a.wav'), b = path.join(dir, 'b.wav');
+  await writeFile(a, wav(3000)); await writeFile(b, wav(2500));
+  await attachSources(project, { audio: a });
+  const { stat } = await import('node:fs/promises');
+  const first = (await project.read()).sources.audio!;
+  assert.notEqual((await stat(a)).ino, (await stat(project.resolve(first.path))).ino, 'a copy, not a link to the original');
+  await writeFile(a, wav(1000)); // the original changes afterwards; the project's copy doesn't
+  await attachSources(project, { audio: b });
+  await project.step('undo');
+  await project.apply({ ops: [{ op: 'pose', t: 0, from: 'neutral' }] });
+  const bundle = await songBundle(project, await project.read());
+  assert.ok(bundle.songId);
+});
+test('renaming a dancer or adding a phrase keeps the song id', async t => {
+  const dir = await tempDir(t), project = await initProject(path.join(dir, 'p'), { dancers: 1, durationMs: 3000, title: 'T', artist: 'A' });
+  await writeFile(path.join(dir, 'a.wav'), wav(3000));
+  await attachSources(project, { audio: path.join(dir, 'a.wav') });
+  await project.apply({ ops: [{ op: 'pose', t: 0, from: 'neutral' }] });
+  const before = (await songBundle(project, await project.read())).songId;
+  await project.apply({ ops: [{ op: 'dancer', dancer: 'P1', label: 'Lead' }, { op: 'phrase', label: 'Verse', start: 0, end: 1000 }, { op: 'marker', t: 500 }] });
+  assert.equal((await songBundle(project, await project.read())).songId, before);
+});
+test('the CLI\'s revision checks and range errors say what\'s wrong', async t => {
+  const dir = await tempDir(t), project = path.join(dir, 'p');
+  await initProject(project, { dancers: 1, durationMs: 4000 });
+  await new DanceProject(project).apply({ ops: [{ op: 'key', t: 0, set: { headYaw: 1 } }] });
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  try {
+    assert.equal(await main(['undo', project, '--expect-revision', '0']), 3);
+    await assert.rejects(main(['apply', project, '--op', '{"op":"song","set":{"title":"x"}}', '--expect-revision', 'abc']), /takes a revision number, not "abc"/);
+    await assert.rejects(main(['keys', project, '--range', 'b1:b4']), /need the song bpm/);
+  } finally { process.stdout.write = write; }
+});

@@ -16,7 +16,7 @@ import { chromiumPath, gpuFlags } from '../../../scripts/chromium.ts';
 import { readZip } from '../../../packages/pose/zip.ts';
 import { validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
 import { Bridge, runBrowserCommand } from '../server.ts';
-import { initProject } from '../project.ts';
+import { formatJson, initProject } from '../project.ts';
 import type { RenderSpec } from '../studio/renderSpec.ts';
 
 const fixture = fileURLToPath(new URL('../../choreography/tests/solo-video-fixture.webm', import.meta.url));
@@ -126,6 +126,41 @@ try {
   assert.equal((await project.read()).dancers[0].layers[1].weight, 0.75);
   assert.equal(await page.locator('.message.error').count(), 0);
 
+  step('a drag that can\'t apply is undone on screen, and later edits from elsewhere still show');
+  const keyTimesNow = (await project.read()).dancers[0].layers[0].channels.leftWrist.map(k => k.t);
+  const [k1, k2] = keyTimesNow.slice(-2);
+  type Timeline = { danceTimeline: { keyOnPage(d: string, c: string | null, t: number): { x: number; y: number } } };
+  const from = await page.evaluate(([t]) => (window as unknown as Timeline).danceTimeline.keyOnPage('P1', 'leftWrist', t), [k1]);
+  const onto = await page.evaluate(([t]) => (window as unknown as Timeline).danceTimeline.keyOnPage('P1', 'leftWrist', t), [k2]);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(onto.x, onto.y, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForSelector('.message.error');
+  const elsewhere = await project.apply({ ops: [{ op: 'song', set: { title: 'After a failed drag' } }] });
+  await page.waitForSelector(`.studio[data-revision="${elsewhere.revision}"][data-saved-revision="${elsewhere.revision}"]`);
+  assert.equal(await page.locator('.song-title strong').textContent(), 'After a failed drag');
+  await page.locator('.message button').click();
+
+  step('Studio and CLI edits made at the same time all land');
+  // The fixture's song is 0.8 s long: start early enough for six distinct frames.
+  await page.goto(`${bridge.url}?t=100`);
+  await page.waitForSelector('.studio[data-time="100"]');
+  await settled();
+  const headKeys = (await project.read()).dancers[0].layers[0].channels.head.length;
+  const cli = (async () => {
+    for (let i = 0; i < 6; i++) { await project.apply({ ops: [{ op: 'key', dancer: 'P1', t: 2000 + i * 50, set: { headRoll: i } }] }); await new Promise(r => setTimeout(r, 15)); }
+  })();
+  for (let i = 0; i < 6; i++) { await page.keyboard.press('ArrowRight'); await page.keyboard.press('k'); }
+  await cli;
+  await settled();
+  await page.waitForTimeout(500);
+  await settled();
+  const final = await project.read();
+  assert.equal(final.dancers[0].layers[0].channels.headRoll.filter(k => k.t >= 2000 && k.t < 2300).length, 6, 'every CLI key');
+  assert.equal(final.dancers[0].layers[0].channels.head.length, headKeys + 6, 'and every Studio pose key');
+  assert.equal(await page.locator('.message.error').count(), 0);
+
   step('review checks the dance and exports a song the game accepts');
   await page.getByRole('tab', { name: 'Review' }).click();
   await page.getByRole('button', { name: 'Check' }).click();
@@ -156,6 +191,23 @@ try {
   // A label column, the 200 px video cell and a 4:3 character cell, three rows of 300 px each.
   assert.equal(width, 132 + 200 + 6 + 400 + 6);
   assert.equal(height, 40 + 3 * (300 + 6));
+
+  step('renders asked for at once all finish, and follow hand edits that keep the revision');
+  const stampNow = async () => (await import('node:crypto')).createHash('sha1').update(await readFile(project.file)).digest('hex').slice(0, 16);
+  const small = (cellWidth: number, stamp: string): RenderSpec => ({ ...spec, revision: dance.revision, stamp, times: [200], views: ['character'], cellWidth, labels: false });
+  const atOnce = await Promise.race([Promise.all([bridge.render(small(160, await stampNow())), bridge.render(small(200, await stampNow()))]),
+    new Promise<never>((_, reject) => setTimeout(() => reject(Error('concurrent renders hung')), 60000))]);
+  assert.equal(atOnce.length, 2);
+  const overlay = (stamp: string): RenderSpec => ({ ...spec, revision: dance.revision, stamp, times: [200], views: ['skeleton'], cellWidth: 200, labels: false });
+  const plain = await bridge.render(overlay(await stampNow()));
+  const text = await readFile(project.file, 'utf8');
+  // Moved by hand, revision unchanged.
+  const handEdited = JSON.parse(text) as typeof dance;
+  for (const k of handEdited.dancers[0].layers[0].channels.leftWrist) (k.v as number[])[0] += 0.15;
+  await (await import('node:fs/promises')).writeFile(project.file, formatJson(handEdited) + '\n');
+  const edited = await bridge.render(overlay(await stampNow()));
+  assert.notDeepEqual(edited, plain, 'the hand edit shows');
+  await (await import('node:fs/promises')).writeFile(project.file, text);
 
   step('tracking finds the dancer in the video');
   const out = process.stdout.write.bind(process.stdout);

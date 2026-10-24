@@ -8,8 +8,9 @@ export const VIEWS = ['source', 'overlay', 'skeleton', 'character', 'stage'] as 
  */
 export type View = typeof VIEWS[number];
 export interface RenderSpec {
-  /** The dance revision the request was made against; the renderer reloads the dance if it's behind. */
+  /** The dance revision the request was made against, and a stamp of dance.json's content (hand edits keep the revision); the renderer reloads when either differs. */
   revision: number;
+  stamp?: string;
   /** Song times, one row each. */
   times: number[];
   views: View[];

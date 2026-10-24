@@ -68,19 +68,25 @@ export function useDance(): DanceStore {
     // Show the result at once, on top of edits not saved yet, when it can be computed here.
     if (!needsTracking(ops)) {
       try { optimistic.current = applyLocally(optimistic.current ?? current.current, ops).dance; setPreview(optimistic.current); }
-      catch (e) { return Promise.resolve(failed(e)); }
+      catch (e) {
+        // Nothing changes: drop a drag's preview and show what's saved (and edits still saving).
+        setPreview(optimistic.current);
+        return Promise.resolve(failed(e));
+      }
     }
     waiting.current++;
     setBusy(true);
     const run = queue.current.then(async (): Promise<ChangeSummary | null> => {
       try {
+        // Someone else (the CLI, another window) may save first, again and again while they're
+        // busy: apply the same ops to the latest revision each time.
         let result;
-        try { result = await applyOps(ops, current.current!.revision, label); }
-        catch (e) {
-          // Someone else saved first: apply the same ops to their revision.
-          if (!(e instanceof ApiError && e.status === 409)) throw e;
-          const latest = await refresh();
-          result = await applyOps(ops, latest.revision, label);
+        for (let attempt = 0; ; attempt++) {
+          try { result = await applyOps(ops, current.current!.revision, label); break; }
+          catch (e) {
+            if (!(e instanceof ApiError && e.status === 409) || attempt >= 20) throw e;
+            await refresh();
+          }
         }
         await refresh();
         return result.summary;

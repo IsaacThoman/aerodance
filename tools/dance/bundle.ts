@@ -37,9 +37,11 @@ export async function songBundle(project: DanceProject, dance: Dance): Promise<S
   const audio = new Uint8Array(await readFile(project.resolve(audioRef.path)));
   if (await sha256(audio) !== audioRef.sha256) throw Error(`${audioRef.path} changed since it was added (hash mismatch)`);
   const compiled = compileDance(dance);
-  // The id comes from the audio and the motion (and markers), as Dance Studio's does, not the
-  // provenance: a dance whose details change but whose motion doesn't keeps its id.
-  const songId = await bundleSongId(audioRef.sha256, songChoreographyFromTimeline({ ...compiled.timeline, songId: '' }, { markers: compiled.markers }));
+  // The id comes from the audio and what the game plays and scores (the poses, calibration and
+  // unscored intervals), not the names, markers or provenance: renaming a dancer or adding a
+  // phrase keeps it, changing the dance gives a new one.
+  const motion = { ...compiled.timeline, songId: '', tracks: compiled.timeline.tracks.map((t, i) => ({ ...t, label: `Dancer ${i + 1}` })) };
+  const songId = await bundleSongId(audioRef.sha256, songChoreographyFromTimeline(motion));
   const extension = audioRef.path.split('.').pop()!.toLowerCase(), audioPath = `audio.${extension}`;
   const revision = Math.max(1, dance.revision);
   const now = new Date().toISOString();

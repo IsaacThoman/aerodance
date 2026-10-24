@@ -42,6 +42,11 @@ export function parseRange(ref: unknown, dance?: Pick<Dance, 'song'>): [number, 
     const split = colons.map(i => [ref.slice(0, i), ref.slice(i + 1)]).find(([a, b]) => {
       try { parseTime(a, dance); parseTime(b, dance); return true; } catch { return false; }
     });
+    if (!split) {
+      // Name the real problem (a beat without a bpm, say) when the halves are plain to see.
+      const halves = ref.split(':');
+      if (halves.length === 2) for (const h of halves) parseTime(h, dance);
+    }
     parts = split ?? [ref];
   } else parts = [ref];
   if (parts.length !== 2) throw Error(`Expected a range start:end (e.g. 4000:6000 or 4s:6s), got ${JSON.stringify(ref)}`);

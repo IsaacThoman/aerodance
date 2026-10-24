@@ -128,11 +128,17 @@ To start from tracking instead of from scratch, `draft` turns the tracked video 
 | `check <dir> [--range a:b] [--dancer P1]` | Review findings; exits 1 if any is an error |
 | `compare <dir> [--range a:b] [--every 500]` | Degrees between each scored limb and the tracked video, per window |
 | `score <dir>` | The game's scorer with the tracked video as the player, over the tracked span |
-| `export <dir> [--out song.zip] [--install] [--folder dir]` | The song bundle ZIP (default under `.dance/exports/`); `--install` writes it into the game's songs, replacing what this project installed last. The song id comes from the audio and the motion, so it stays the same while only details change. |
+| `export <dir> [--out song.zip] [--install] [--folder dir]` | The song bundle ZIP (default under `.dance/exports/`); `--install` writes it into the game's songs, replacing what this project installed last. The song id comes from the audio and what the game plays and scores (poses, calibration, unscored intervals), so renaming, retitling or adding phrases keeps it. |
 | `studio <dir> [--port 5310] [--dist] [--open]` | The Studio; while it runs, `frames` and `render` use its browser and return in about a second |
 
 Every command takes `--json` for machine-readable output. Times are `4200` (ms), `4.2s`, `1:02.5`
 or `b17` (beat 17, needing the song's bpm); ranges are `a:b` or `a..b`.
+
+Two clocks, the same unless a dancer has a `timeOffsetMs`: the times in a dancer's ops (keys,
+contacts, exclusions) and in `keys` are on **the dancer's clock**, so shifting the dancer moves
+everything it does; everything else (`pose --at`, `sample`, `frames`, `render`, `check`, `score`,
+the Studio's playhead and panels) is **song time**. `keys` notes the song time of each key when
+they differ.
 
 ## Editing
 
@@ -160,7 +166,7 @@ the group selects that channel.
 | `pose` | `dancer`, `t`, `from?`, `controls?`, `mirror?`, `depth?` | Keys a whole pose at `t`: `current` (lock in what's shown; the default), `neutral`, `{"t": …, "dancer"?: …}` (hold or copy a pose; from another dancer it moves to this one's home), or `tracking`. `mirror`: `frame` or `self`. |
 | `delete` | `dancer?`, `t` \| `times` \| `range`, `controls?`, `layer?` | Removes keys (all dancers without `dancer`) |
 | `interp` | `dancer?`, `t` \| `times` \| `range`, `controls?`, `interp?`, `ease?` | Sets the curve shape of keys |
-| `retime` | `range`, `shift?`, `scale?`, `pivot?`, `dancer?`, `controls?`, `replace?` | Moves keys in a range (and, for all controls, contacts and exclusions inside it); landing on another key is an error unless `replace` |
+| `retime` | `range`, `shift?`, `scale?`, `pivot?`, `dancer?`, `layer?`, `controls?`, `replace?` | Moves keys in a range, on every layer or the one named (and, for all controls, contacts and exclusions inside it); landing on another key is an error unless `replace` |
 | `contact` | `dancer`, `control`, `start`, `end`, `blendMs?` (80), `position?`, `id?` | Plants an ankle or wrist |
 | `uncontact` | `dancer`, `id` \| `control?` + `range?` | Removes contacts |
 | `copy` | `from: {dancer, range}`, `to: {dancer, t}`, `mirror?`, `timeScale?`, `repeat?`, `controls?`, `contacts?`, `replace?`, `offset?` | Copies a phrase's base keys (and contacts), optionally mirrored, faster or slower, repeated; to another dancer it moves to that dancer's home unless mirrored about the frame. Additive layers stay with their dancer. |

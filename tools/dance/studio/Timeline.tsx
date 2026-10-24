@@ -124,7 +124,8 @@ export default function Timeline({ dance, clock, selection, onSelect, keys, onKe
   const retimeOps = (sel: KeySelection, shift: number) => {
     const dancer = dance.dancers.find(d => d.id === sel.dancer)!;
     const ordered = [...sel.times].sort((a, b) => shift > 0 ? b - a : a - b);
-    return ordered.map(t => ({ op: 'retime', dancer: dancer.id, range: [t - 0.4, t + 0.4], shift,
+    // Only the layer the keys are on; a dancer row's keys are the base layer's.
+    return ordered.map(t => ({ op: 'retime', dancer: dancer.id, layer: dancer.layers[sel.layer].id, range: [t - 0.4, t + 0.4], shift,
       ...(sel.channel ? { controls: [sel.channel] } : {}) }));
   };
   return (
