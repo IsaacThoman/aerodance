@@ -4,7 +4,7 @@ React + three.js (via [@react-three/fiber](https://r3f.docs.pmnd.rs/)) rendered 
 
 See [how scores are calculated](scoring.md) and [the plan for finishing the game](game-completion-plan.md).
 
-See [the browser webcam plan](browser-webcam-plan.md) for shared game/editor webcam input and selectable in-browser MediaPipe Lite, Full, and Heavy models.
+See [the browser webcam plan](browser-webcam-plan.md) for shared game/editor webcam input using MediaPipe Lite.
 
 See [the song and dance authoring workflow](song-dance-authoring-workflow.md) for the proposed Docker-hosted editor, pose format, raw landmark editing, Frutiger playback, and portable song bundle contract.
 
@@ -14,6 +14,11 @@ and open http://localhost:8082 to record/import, edit, preview, save, and export
 Dance Studio is also static: projects autosave in browser storage (IndexedDB and
 OPFS). Download project backups to keep or transfer your work; see its README for
 migration from older disk-based deployments.
+
+To animate dancers to a video by hand (from scratch or from tracking), use the
+[`dance` CLI and animation Studio](dance-cli.md) in [`tools/dance`](../tools/dance/README.md).
+Its projects ([`aerodance.dance`](dance-format.md)) keep keys, curves, planted feet and timing on
+disk, and export the same song bundles. It is built to be driven by coding agents.
 
 ## Aero background
 
@@ -55,12 +60,12 @@ The browser flow (`apps/web/tests/ui-flow.browser.ts`) clicks the canvas in desi
 Webcam requires **HTTPS or localhost**; a plain HTTP LAN address cannot request
 camera access. Models and the matching WASM runtime are prepared during development
 startup/build and served locally by both apps. The first preparation downloads
-about 46 MB of pinned models; later local builds reuse verified `.cache/` assets.
-Only the chosen model loads in the browser. Frames stay local; Dance Studio saves
+the pinned Lite model (about 5.8 MB); later local builds reuse verified `.cache/` assets.
+Lite is the only supported inference model. Frames stay local; Dance Studio saves
 pose records to browser storage when recording. Stop, switching source, leaving the page, or hiding
 the webcam tab releases the camera. Inference uses a worker and prefers CPU when
 WebGL is rendered in software; the status shows the active model, delegate, and
-tracking rate. Heavy needs more processing capacity; slow results never count as
+tracking rate. Slow results never count as
 fresh player detection.
 
 After both builds, `node apps/web/tests/webcam.browser.ts` (with Playwright installed)

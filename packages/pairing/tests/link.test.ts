@@ -61,10 +61,12 @@ test('a four-player pose message validates and fits a relay frame', () => {
 
 test('messages each way are checked before use', () => {
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'reset-tracking' })), { type: 'reset-tracking' });
-  assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 2, modelId: 'full' })), { type: 'config', playerCount: 2, modelId: 'full' });
-  assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 4, modelId: 'full' })), { type: 'config', playerCount: 4, modelId: 'full' });
-  assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 5, modelId: 'full' })), null);
+  assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 2, modelId: 'lite' })), { type: 'config', playerCount: 2, modelId: 'lite' });
+  assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 4, modelId: 'lite' })), { type: 'config', playerCount: 4, modelId: 'lite' });
+  assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 5, modelId: 'lite' })), null);
   assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 1, modelId: 'huge' })), null);
+  for (const modelId of ['full', 'heavy'])
+    assert.equal(parseGameMessage(JSON.stringify({ type: 'config', playerCount: 2, modelId })), null);
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'ping', id: 4, t0: 12.5 })), { type: 'ping', id: 4, t0: 12.5 });
   assert.deepEqual(parseGameMessage(JSON.stringify({ type: 'preview', on: true })), { type: 'preview', on: true });
   assert.equal(parseGameMessage(JSON.stringify({ type: 'preview', on: 'yes' })), null);

@@ -31,7 +31,7 @@ const pose = (playerId: number, hipY = .6): { playerId: number; landmarks: Landm
 const detected = ({ landmarks }: { landmarks: Landmark[] }): NormalizedLandmark[] =>
   landmarks.map(({ confidence, ...p }) => ({ ...p, visibility: confidence ?? 0, presence: confidence ?? 0 }));
 function fixture() {
-  const model = poseModel('full');
+  const model = poseModel('lite');
   const metadata = { sourceKind: 'video', takeId: 'video-take', name: 'dance.webm',
     createdAt: new Date().toISOString(), calibrationFrame: { mediaTimeMs: 400, poses: [pose(0), pose(1)] },
     status: { modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION, delegate: 'CPU', durationMs: 1000, filename: 'dance.webm' } };
@@ -126,7 +126,7 @@ test('video takes use file timestamps, preserve absences and validate calibratio
   assert.equal(take.source, 'video'); assert.equal(take.offsetMs, 0); assert.equal(take.timeScale, 1);
   assert.deepEqual(take.samples.map(s => s.takeTimeMs), records.map(e => e.record.mediaTimeMs));
   assert.deepEqual(take.samples[3].poses, []);
-  assert.equal(take.provenance?.modelHash, poseModel('full').sha256);
+  assert.equal(take.provenance?.modelHash, poseModel('lite').sha256);
   assert.equal(take.provenance?.calibrationFrameTimeMs, 400);
   const step = (v: number) => Math.round(v * 16384) / 16384;
   assert.equal(takeCalibration(take, 0).torsoLength, step(.6) - step(.4), 'measured on the stored calibration frame');
@@ -136,8 +136,8 @@ test('video takes use file timestamps, preserve absences and validate calibratio
   assert.throws(() => validateTake(weak), /shoulders, hips and feet/);
   const late = structuredClone(take); found(late.calibrationFrame).mediaTimeMs = 1001;
   assert.throws(() => validateTake(late), /calibration frame time/);
-  const lite = records.map(e => ({ ...e, record: { ...e.record, modelId: 'lite' } }));
-  assert.throws(() => takeFromRecords(captureOf(lite, 'video'), metadata), /Invalid video model configuration/);
+  const retired = records.map(e => ({ ...e, record: { ...e.record, modelId: 'full' } }));
+  assert.throws(() => takeFromRecords(captureOf(retired, 'video'), metadata), /Invalid video model configuration/);
   const reversed = structuredClone(records); reversed[1].record.mediaTimeMs = 0;
   assert.throws(() => captureOf(reversed, 'video'), /increasing/);
   const skipped = structuredClone(records); skipped[1].record.seq = 3;
@@ -211,7 +211,7 @@ test('continuous region workers keep separate VIDEO histories and frozen crops, 
       super.postMessage(data);
     }
   }
-  const job = new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'full',projectId:'project',
+  const job = new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'lite',projectId:'project',
     bitmap,decodeFrames:async()=>null,seek:async(_v,time)=>({mediaTimeMs:time*1000,timingMethod:'decoded-frame'}),assetUrl:()=> 'http://localhost/',
     createWorker:()=>{const worker=new TrackedWorker(diagnostics);workers.push(worker);return worker;},request:async()=>({takeId:'continuous'})});
   await job.process('duet.webm');
@@ -236,7 +236,7 @@ test('crop worker failure stops the import and releases every initialized worker
       super.postMessage(data);
     }
   }
-  const job=new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'full',projectId:'project',
+  const job=new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'lite',projectId:'project',
     bitmap,decodeFrames:async()=>null,seek:async(_v,time)=>({mediaTimeMs:time*1000,timingMethod:'decoded-frame'}),assetUrl:()=> 'http://localhost/',
     createWorker:()=>new FailedCrop(diagnostics),request:async()=>({takeId:'failure'})});
   await assert.rejects(job.process('duet.webm'),/Crop inference failed/);
@@ -252,7 +252,7 @@ test('cancelling a running crop tracker releases all workers and does not finali
       super.postMessage(data);
     }
   }
-  const job=new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'full',projectId:'project',
+  const job=new VideoImporter({video:video({duration:.2,videoWidth:640,videoHeight:480}),modelId:'lite',projectId:'project',
     bitmap,decodeFrames:async()=>null,seek:async(_v,time)=>({mediaTimeMs:time*1000,timingMethod:'decoded-frame'}),assetUrl:()=> 'http://localhost/',
     createWorker:()=>new CancelCrop(diagnostics),request:async()=>({takeId:'cancel-crop'})});
   await assert.rejects(job.process('duet.webm'),{name:'AbortError'});

@@ -89,8 +89,8 @@ test('a phone pairs with the game, tracks for it on the game’s clock, reconnec
   await until(() => camera.playerCount === 2 && phone.view.playerCount === 2, 'the player count');
   host.resetTracking();
   await until(() => camera.resets === 1, 'a new song resets the phone tracker over WebRTC');
-  // The phone only tracks with Lite, and tells the game so.
-  await host.configure({ modelId: 'full' });
+  // Retired models cannot interrupt the phone's Lite session.
+  await assert.rejects(host.configure({ modelId: 'full' }), /Only the Lite pose model is supported/);
   await until(() => host.view.model === 'lite', 'the phone to report its model');
   assert.ok(!camera.configured.some((c) => c.modelId === 'full'));
 
@@ -253,9 +253,8 @@ test('the phone comes after the webcams; choosing it switches the game’s input
   phone.emit(event);
   input.webcam.source.emit({ record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'browser-frame-observation' } });
   assert.deepEqual(heard.filter(isPoseRecordEvent).map((e) => e.timing.method), ['remote-clock-sync']);
-  // The phone's model is its own.
-  await input.configure({ modelId: 'heavy' });
-  assert.equal(phone.view.model, 'heavy');
+  await assert.rejects(input.configure({ modelId: 'heavy' }), /Only the Lite pose model is supported/);
+  assert.equal(phone.view.model, 'lite');
   assert.equal(input.webcam.view.model, 'lite');
 
   await input.configure({ cameraId: '' });
@@ -287,10 +286,9 @@ test('No camera is the last camera: nothing runs, no poses reach the game, and i
   phone.emit({ record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'remote-clock-sync' } });
   input.webcam.source.emit({ record, receivedBrowserTimeMs: 1, captureBrowserTimeMs: 1, timing: { method: 'browser-frame-observation' } });
   assert.deepEqual(heard.filter(isPoseRecordEvent), []);
-  // A model chosen meanwhile is the webcam's.
-  await input.configure({ modelId: 'heavy' });
-  assert.equal(input.webcam.view.model, 'heavy');
-  assert.equal(input.view.model, 'heavy');
+  await assert.rejects(input.configure({ modelId: 'heavy' }), /Only the Lite pose model is supported/);
+  assert.equal(input.webcam.view.model, 'lite');
+  assert.equal(input.view.model, 'lite');
 
   await input.configure({ cameraId: '' });
   assert.equal(input.mode, 'webcam');

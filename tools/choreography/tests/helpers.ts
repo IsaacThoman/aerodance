@@ -6,7 +6,7 @@ import { isObject, qualityFor } from "../../../packages/pose/choreography.ts";
 import type { Pose, TimedPoses, TrackCalibration } from "../../../packages/pose/choreography.ts";
 import { DEFAULT_POSITION_STEP, EXTENSION, buildFrames, decodePoseFile, encodePoseFile, framesToPoses } from "../../../packages/pose/binary.ts";
 import type { FrameInput, PoseFrames, PoseHeaderInput } from "../../../packages/pose/binary.ts";
-import { isPoseModelId } from "../../../packages/pose/browser/models.ts";
+import { isRecordedPoseModelId } from "../../../packages/pose/modelMetadata.ts";
 import { validateProject, validateTake } from "../core.ts";
 import type { CalibrationFrame, ProjectV3 } from "../core.ts";
 import { WEBCAM_EXTENSIONS, captureHead, decodeCaptureBatch } from "../poseFiles.ts";
@@ -69,7 +69,7 @@ export interface CaptureRecord {
 /** Capture records as a decoded capture file, as the recorder or video importer would have uploaded them. */
 export function captureOf(records: readonly CaptureRecord[], sourceKind: "webcam" | "video", calibrationFrame?: CalibrationFrame): PoseFrames {
   const first = records[0], r0 = first.record, webcam = sourceKind === "webcam";
-  assert.ok(isPoseModelId(r0.modelId) && (r0.playerCount === 1 || r0.playerCount === 2));
+  assert.ok(isRecordedPoseModelId(r0.modelId) && (r0.playerCount === 1 || r0.playerCount === 2));
   const header: PoseHeaderInput = { kind: "capture", playerSlots: r0.playerCount, input: { width: r0.input.width, height: r0.input.height },
     modelId: r0.modelId, ...(webcam ? { extensionIds: WEBCAM_EXTENSIONS } : {}),
     capture: { sourceKind, sessionId: r0.sessionId, audioPlaybackRate: webcam ? first.audioPlaybackRate ?? 1 : null } };

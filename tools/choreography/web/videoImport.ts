@@ -371,7 +371,7 @@ export class VideoImporter {
       await this.initialize('IMAGE');
       const frame = await this.seek(this.video, time, this.controller.signal);
       const preview = videoCalibrationPreview(await this.detectDancers(frame.mediaTimeMs, true), this.captureMode);
-      if (!preview.detectedPoses.length) throw Error('No dancers detected in this frame. Try another frame or Full / Heavy.');
+      if (!preview.detectedPoses.length) throw Error('No dancers detected in this frame. Try a clearer frame with the dancers\' whole bodies visible.');
       this.calibrationPoses = preview.poses;
       return { mediaTimeMs: frame.mediaTimeMs, ...preview };
     } finally { this.closeWorker(); }

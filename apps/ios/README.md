@@ -16,10 +16,8 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   `http://127.0.0.1:8417`. Loopback makes the page a secure context, which `crypto.subtle` (song
   bundles) and `getUserMedia` (the camera) need. The port is fixed because saved scores and
   settings belong to the page's origin. Inter, which the web build loads from Google Fonts, is
-  bundled too (`scripts/apple.ts`), so the game looks the same offline. Of the pose-tracking
-  models only Lite comes along: it's the one the game's camera uses (the Full and Heavy choices
-  are on the phone page, which the app doesn't open), and `src/inject.js` drops a saved choice of
-  the others so the camera uses Lite.
+  bundled too (`scripts/apple.ts`), so the game looks the same offline. Pose tracking uses Lite,
+  the only supported model. `src/inject.js` drops retired model preferences from older versions.
 - **Keeping the server up.** iOS can take a suspended app's listening socket back, and another app
   can hold the port at launch. The server listens on 127.0.0.1 only; whenever it fails or stops it
   starts again (after 0.25 s, backing off to 8 s), and on returning to the foreground it's

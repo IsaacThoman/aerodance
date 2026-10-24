@@ -298,15 +298,26 @@ test('each frame tells the worker how many players the last result found, for it
   await f.frame(2);
   assert.equal(frames().at(-1)?.type === 'frame' && frames().at(-1)?.players, 0, 'a new session starts with none');
 });
-test('changing a running model resets the session and records the explicit selection', async t => {
+test('changing a running camera resets the session and keeps Lite tracking', async t => {
   const f = fixture(t);
   await f.source.connect(); const firstSession = f.source.sessionId;
-  await f.source.configure({ modelId: 'full' });
+  await f.source.configure({ cameraId: 'other-camera' });
   assert.notEqual(f.source.sessionId, firstSession);
-  assert.equal(f.source.view.model, 'full');
+  assert.equal(f.source.view.model, 'lite');
   assert.equal(f.source.view.snapshot, null);
-  assert.equal(f.messages.filter(m => m.type === 'initialize').at(-1)?.modelUrl, 'https://test.invalid/pose-assets/pose_landmarker_full.task');
+  assert.equal(f.messages.filter(m => m.type === 'initialize').at(-1)?.modelUrl, 'https://test.invalid/pose-assets/pose_landmarker_lite.task');
   assert.equal(f.stopped, 1);
+});
+
+test('retired models are rejected without interrupting a running webcam', async t => {
+  const f = fixture(t);
+  await f.source.connect();
+  const session = f.source.sessionId;
+  for (const modelId of ['full', 'heavy'])
+    await assert.rejects(f.source.configure({ modelId }), /Only the Lite pose model is supported/);
+  assert.equal(f.source.sessionId, session);
+  assert.equal(f.source.view.model, 'lite');
+  assert.equal(f.stopped, 0);
 });
 
 

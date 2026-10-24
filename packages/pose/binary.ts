@@ -2,7 +2,7 @@
 // choreography, Studio takes, tracks and raw captures, and game replay recordings.
 import { DUET, MAX_DANCERS, MAX_PLAYERS, interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
 import type { FrameSize, LandmarkOrigin, PlayerCount, Pose, PoseQuality, PoseSnapshot, TimedPoses, TimeKey, TrackCalibration } from './choreography.ts';
-import type { PoseModelId } from './browser/models.ts';
+import type { RecordedPoseModelId } from './modelMetadata.ts';
 import type { ScoreExclusion } from './song.ts';
 
 export const JOINTS = 33;
@@ -18,7 +18,8 @@ export type PoseClock = 'song' | 'take' | 'media';
 const KINDS: readonly PoseFileKind[] = ['choreography', 'take', 'track', 'capture', 'recording'];
 const CLOCKS: readonly PoseClock[] = ['song', 'take', 'media'];
 export const KIND_CLOCK: Readonly<Record<PoseFileKind, PoseClock>> = { choreography: 'song', take: 'take', track: 'take', capture: 'media', recording: 'song' };
-const MODEL_IDS: readonly PoseModelId[] = ['lite', 'full', 'heavy'];
+// Binary IDs are stable, including provenance from models no longer offered for inference.
+const MODEL_IDS: readonly RecordedPoseModelId[] = ['lite', 'full', 'heavy'];
 /** Per-frame clock fields: i32 microseconds from a per-file base. */
 export const EXTENSION = {
   frameBrowserTimeMs: 1, resultBrowserTimeMs: 2, receivedBrowserTimeMs: 3,
@@ -57,7 +58,7 @@ export interface PoseFileHeader {
   /** Up to four: a song choreography's one per dancer, a game recording's one per player; tracks and captures hold one or two. */
   playerSlots: PlayerCount;
   input: FrameSize;
-  modelId: PoseModelId | null;
+  modelId: RecordedPoseModelId | null;
   positionStep: number;
   extensionIds: number[];
   /** One base time in ms per extension field; each frame stores microseconds from it. */

@@ -113,18 +113,12 @@ try {
   assert.equal(await studio.evaluate(() => (window as TestWindow).cameraRequests), 0);
   await studio.getByRole('button', { name: 'Live view', exact: true }).click();
   await openSidebar(studio, 'Configuration');
-  await studio.getByLabel('Webcam pose model').selectOption('lite');
+  assert.equal(await studio.getByLabel('Webcam pose model').count(), 0);
   await studio.getByRole('button', { name: 'Start camera', exact: true }).click();
   await studio.getByRole('button', { name: 'Disconnect', exact: true }).waitFor();
-  // Each model loads and tracks for real; switching restarts the camera and releases the old one.
-  // Lite last keeps Studio capture responsive in software rendering.
-  for (const [model, label] of [['full', 'Full'], ['heavy', 'Heavy'], ['lite', 'Lite']]) {
-    await studio.getByLabel('Webcam pose model').selectOption(model);
-    const status = studio.locator('.connection-status').filter({ hasText: new RegExp(`^connected · ${label} · .*poses/s`) });
-    await status.waitFor({ timeout: 120_000 });
-    console.log(`Studio actual MediaPipe ${model}:`, await status.textContent());
-  }
-  assert.ok(await studio.evaluate(() => (window as TestWindow).cameraStops >= 3), 'model switches release camera tracks');
+  const status = studio.locator('.connection-status').filter({ hasText: /^connected · Lite · .*poses\/s/ });
+  await status.waitFor({ timeout: 120_000 });
+  console.log('Studio actual MediaPipe Lite:', await status.textContent());
   await studio.getByText('P1 detected', { exact: false }).waitFor();
   await studio.getByText('P2 detected', { exact: false }).waitFor();
   // Calibration needs a run of tracked frames, which arrive slowly with CPU-only inference.
@@ -151,7 +145,7 @@ try {
   await studio.getByLabel('Recording delay (seconds)').fill('0');
   await studio.getByRole('button', { name: 'Record new take', exact: false }).click();
   await studio.getByRole('button', { name: 'Stop recording', exact: false }).waitFor();
-  assert.equal(await studio.getByLabel('Webcam pose model').isDisabled(), true);
+  assert.equal(await studio.getByLabel('Webcam camera').isDisabled(), true);
   assert.equal(await studio.getByRole('button', { name: 'Recalibrate body', exact: true }).isDisabled(), true);
   await studio.getByText(/records captured/).waitFor();
   await studio.waitForTimeout(1700);

@@ -51,11 +51,14 @@ command connects to it, does one thing and prints the result. The page keeps its
 between commands, and with the dev server, edits to the source hot-reload into it.
 
 ```sh
-node scripts/play.ts start [--studio] [--dist] [--headed] [--url /?input=ghost]
+node scripts/play.ts start [--studio | --dance <project>] [--dist] [--headed] [--url /?input=ghost]
                            [--size 1280x800] [--camera fixture|deny|none]
 ```
 
 - `--studio` runs Dance Studio instead of the game.
+- `--dance <project>` runs the animation Studio ([tools/dance](../tools/dance/README.md)) on a
+  dance project. `state` and `wait` read its `.studio` element's `data-*` (`revision`, `time`,
+  `dancer`, `control`, `mode`, `busy`).
 - `--dist` builds and serves the production bundle (`vite build` + `vite preview`),
   for checking what actually ships.
 - `--headed` opens a visible window that you can play in while the commands still work.
@@ -77,6 +80,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 | `state` | Prints the game canvas's `data-*` attributes as JSON (Studio: the URL and title) |
 | `click <target>` | Clicks a layout target or a design point `x,y` (see below) |
 | `click --locator <selector>` | Clicks a DOM element with a [Playwright selector](https://playwright.dev/docs/other-locators), mainly for Studio, e.g. `'role=button[name="Save"]'` |
+| `drag <x,y> <x,y> [--steps n]` | Presses, moves and releases the mouse between two page points (the animation Studio's video and timeline are canvases; `eval "window.danceStudio.jointOnPage('P1','leftWrist')"` finds a joint) |
 | `hover <target>` | Moves the mouse onto a target |
 | `key <key>...` | Presses keys in order: `Enter`, `Escape`, `ArrowDown`, … |
 | `type <text>` | Types into the focused element |

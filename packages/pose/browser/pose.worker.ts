@@ -56,8 +56,8 @@ scope.onmessage = async ({ data }) => {
       if (hash !== data.modelHash) throw Error('Model checksum mismatch');
       let delegate: PoseDelegate = 'GPU';
       let fallback = '';
-      // Software WebGL can initialize successfully but make Heavy unusably slow.
-      // Keep the chosen model and prefer CPU inference on such renderers.
+      // Software WebGL can initialize successfully but make inference unusably slow.
+      // Prefer CPU inference on such renderers.
       const probe = new OffscreenCanvas(1, 1).getContext('webgl2');
       if (probe) {
         const debug = probe.getExtension('WEBGL_debug_renderer_info');

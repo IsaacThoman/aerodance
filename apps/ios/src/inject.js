@@ -37,8 +37,7 @@
   try {
     const saved = start.saved ?? {}, restored = Object.keys(saved).filter(k => ours(k) && localStorage.getItem(k) === null);
     for (const k of restored) localStorage.setItem(k, saved[k]);
-    // The app bundles only the Lite pose model (scripts/ios.ts), so a webcam model saved as Full or
-    // Heavy (which only the phone page offers) goes before the game reads it, and Lite is used.
+    // Drop retired model preferences restored from earlier app versions. Tracking uses Lite.
     const MODEL = 'aerodance-webcam-model', model = localStorage.getItem(MODEL);
     if (model !== null && model !== 'lite') localStorage.removeItem(MODEL);
     const all = model !== null && model !== 'lite' ? { [MODEL]: null } : {};
