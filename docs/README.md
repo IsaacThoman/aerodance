@@ -15,6 +15,11 @@ Dance Studio is also static: projects autosave in browser storage (IndexedDB and
 OPFS). Download project backups to keep or transfer your work; see its README for
 migration from older disk-based deployments.
 
+To animate dancers to a video by hand (from scratch or from tracking), use the
+[`dance` CLI and animation Studio](dance-cli.md) in [`tools/dance`](../tools/dance/README.md).
+Its projects ([`aerodance.dance`](dance-format.md)) keep keys, curves, planted feet and timing on
+disk, and export the same song bundles. It is built to be driven by coding agents.
+
 ## Aero background
 
 The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, hot-air balloons, gulls, flower meadow). The display automatically chooses **Standard (4:3)** or **Widescreen (16:9)**, matching the Wii's display configurations. Both use a fixed **640×480** render buffer: widescreen is anamorphic, with the camera and UI laid out at 16:9 before the image is stretched for display. The canvas scales up with `image-rendering: pixelated`; resizing never increases the rendered pixel count. The mode that fills more of the safe available window is selected (switching at about 1.54:1). Menus, stage cameras, calibration, gameplay and results adapt to the chosen shape; the rest is black bars. Safe-area insets keep the frame clear of phone/tablet cutouts and the status bar, but not the home indicator, which the iPhone/iPad app hides while it plays (`apps/web/src/styles.css`). The paired phone camera page keeps its separate screen-filling layout. See [Nintendo's aspect-ratio settings](https://en-americas-support.nintendo.com/app/answers/detail/a_id/2688/p/50) and [480-line output settings](https://en-americas-support.nintendo.com/app/answers/detail/a_id/2687/~/how-to-adjust-the-tv-resolution).

@@ -28,8 +28,10 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run studio:test
+      - run: npm run dance:test
       - run: npm run build
       - run: npm run studio:build
+      - run: npm run dance:build
 
   browser:
     # The TV remote, the canvas UI flow and imported songs in Chromium; the Dockerfile's ui-test stage brings Playwright.
@@ -55,12 +57,31 @@ jobs:
           node tools/choreography/tests/solo-workflow.browser.ts &&
           node tools/choreography/tests/video-duet.browser.ts"
 
+  dance-browser:
+    # The dance tool in Chromium: the animation Studio, its renderer and MediaPipe tracking of a
+    # fixture video. It needs FFmpeg, which the Playwright images lack, so it runs on the runner.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npx playwright install --with-deps chromium
+      - run: npm run dance:build
+      - run: node tools/dance/tests/studio.browser.ts
+        env:
+          DANCE_DIST: '1'
+          PLAY_BROWSER_ARGS: --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader
+
   release:
     # A push to main that changes the version (release.config.mjs) tags it and creates a GitHub
     # Release, once the checks pass. A run whose commit main has moved past releases nothing;
     # the run for the newer commit does.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [web, browser, studio-browser]
+    needs: [web, browser, studio-browser, dance-browser]
     runs-on: ubuntu-latest
     permissions:
       contents: write

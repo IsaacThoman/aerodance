@@ -6,6 +6,8 @@ Projects autosave in the browser;
 reference poses use the game's `{playerId, landmarks}` pose format. No backend,
 account, or game database is needed.
 See the [format/workflow reference](../../docs/song-dance-authoring-workflow.md).
+To animate dancers by hand (keys, curves, planted feet) rather than record or track them, use the
+[animation tools in `tools/dance`](../dance/README.md); both export the same song bundles.
 
 ## Run
 
@@ -356,9 +358,9 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
 - The editor imports `.adpose` takes and song choreography, legacy JSON, its
   own project backups, and browser-decodable videos. Video import runs the same local models as the webcam; the optional
   Python tracker remains an offline tool.
-- Automatic normalization of different camera placements, articulated IK, and
-  curve/clip transition controls are future work; review poses after overwriting
-  a track. Each independent player track retains its own inference dimensions.
+- Automatic normalization of different camera placements is future work; review poses after
+  overwriting a track. Each independent player track retains its own inference dimensions.
+  Keyframed animation with curves, limb solving and contacts is in [`tools/dance`](../dance/README.md).
 - Audio decode/write validation uses the local browser's measured duration. Server
   transcoding and format-independent audio inspection are not implemented.
 - Publication requires some eligible poses on every track and explicit gap review.
