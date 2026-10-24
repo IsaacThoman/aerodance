@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { loadFonts } from './draw.ts';
-import { createFocusRing, drawFocusRing, updateFocusRing } from './focusRing.ts';
+import { createFocusRing, drawFocusRing, focusRingOverlapsContent, updateFocusRing } from './focusRing.ts';
 import { MIN_TOUCH_PX, widgetAt } from './hit.ts';
 import { diagnostic } from '../diagnostics.ts';
 import { displayDesign } from '../display.ts';
@@ -245,6 +245,9 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
 
   const overlay = useMemo(() => {
     const canvas = document.createElement('canvas');
+    // A native, unscaled snapshot of the content before its animated ring is drawn.
+    // Keep premultiplied canvas pixels intact: no ImageData readback or resampling.
+    const baseCanvas = document.createElement('canvas');
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.NearestFilter;
@@ -259,8 +262,9 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     scene.add(quad);
     // The same context every time the canvas is asked for it, across resizes.
     const g = canvas.getContext('2d');
-    if (!g) throw Error('2D canvas unavailable');
-    return { canvas, g, texture, material, quad, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1) };
+    const baseG = baseCanvas.getContext('2d');
+    if (!g || !baseG) throw Error('2D canvas unavailable');
+    return { canvas, g, baseCanvas, baseG, texture, material, quad, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1) };
   }, []);
 
   const ref = useRef<CanvasUI<W> | null>(null);
@@ -268,6 +272,9 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
   const ui = ref.current;
   ui.requestFrame = requestFrame;
   const focusRing = useRef(createFocusRing()).current;
+  // Retain ring changes until a redraw actually consumes them (including throttled frames).
+  const ringDirty = useRef(false);
+  const baseValid = useRef(false);
   const drawnAt = useRef(-Infinity);
 
   // A CSS resize can reach the frame loop before React has supplied the screen's new
@@ -431,6 +438,8 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     if (overlay.canvas.width !== buf.x || overlay.canvas.height !== buf.y) {
       overlay.canvas.width = buf.x;
       overlay.canvas.height = buf.y;
+      overlay.baseCanvas.width = buf.x;
+      overlay.baseCanvas.height = buf.y;
       overlay.texture.dispose();
       s.dirty = true;
     }
@@ -461,7 +470,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     }
     s.press = s.ease(s.press, 0, 10);
     // The keyboard cursor's widget gets the focus ring (ui/focusRing.ts).
-    updateFocusRing(focusRing, s.keyFocus ? focused : undefined, s);
+    ringDirty.current = updateFocusRing(focusRing, s.keyFocus ? focused : undefined, s) || ringDirty.current;
     o.update?.(s.dt, s);
     if (s.scroll > s.maxScroll) { s.scroll = s.maxScroll; s.dirty = true; }
 
@@ -472,23 +481,48 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       return;
     }
 
-    if (s.dirty && s.time - drawnAt.current < MIN_REDRAW_S - 1e-3) s.requestFrame();
-    else if (s.dirty) {
+    if ((s.dirty || ringDirty.current) && s.time - drawnAt.current < MIN_REDRAW_S - 1e-3) s.requestFrame();
+    else if (s.dirty || ringDirty.current) {
+      const contentDirty = s.dirty;
       s.dirty = false;
+      ringDirty.current = false;
       drawnAt.current = s.time;
       const { g } = overlay;
-      const sx = overlay.canvas.width / s.w;
-      const sy = overlay.canvas.height / s.h;
-      g.setTransform(1, 0, 0, 1, 0, 0);
-      g.clearRect(0, 0, overlay.canvas.width, overlay.canvas.height);
-      // The context outlives each draw: start every redraw from the same state.
-      Object.assign(g, {
-        globalAlpha: 1, textAlign: 'start', textBaseline: 'alphabetic', shadowColor: 'transparent',
-        shadowBlur: 0, shadowOffsetY: 0, lineWidth: 1, lineCap: 'butt', lineJoin: 'miter',
-      });
-      if ('letterSpacing' in g) g.letterSpacing = '0px';
-      g.setTransform(sx, 0, 0, sy, 0, -s.scroll * sy);
-      o.draw(g, s);
+      // A changing button can move into its ring, and short rows' rings overlap their
+      // content even at rest. Rasterize those together to preserve antialiased edges.
+      // Build a cache on the first ring-only repaint after content settles.
+      const cacheContent = !contentDirty && !focusRingOverlapsContent(focusRing);
+      if (contentDirty || !baseValid.current || !cacheContent) {
+        baseValid.current = false;
+        const sx = overlay.canvas.width / s.w;
+        const sy = overlay.canvas.height / s.h;
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, overlay.canvas.width, overlay.canvas.height);
+        // The context outlives each draw: start every redraw from the same state.
+        Object.assign(g, {
+          globalAlpha: 1, textAlign: 'start', textBaseline: 'alphabetic', shadowColor: 'transparent',
+          shadowBlur: 0, shadowOffsetY: 0, lineWidth: 1, lineCap: 'butt', lineJoin: 'miter',
+        });
+        if ('letterSpacing' in g) g.letterSpacing = '0px';
+        g.setTransform(sx, 0, 0, sy, 0, -s.scroll * sy);
+        o.draw(g, s);
+        if (cacheContent) {
+          overlay.baseG.globalCompositeOperation = 'copy';
+          overlay.baseG.drawImage(overlay.canvas, 0, 0);
+          baseValid.current = true;
+        }
+      } else {
+        // Replace the old ring in buffer pixels, then restore the content draw's context
+        // (including its transform and alpha) for exactly the same ring drawing state.
+        g.save();
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.globalAlpha = 1;
+        g.globalCompositeOperation = 'copy';
+        g.shadowColor = 'transparent';
+        g.filter = 'none';
+        g.drawImage(overlay.baseCanvas, 0, 0);
+        g.restore();
+      }
       drawFocusRing(g, focusRing);
       overlay.texture.needsUpdate = true;
       // Still animating (easing, particles): keep frames coming until it settles.

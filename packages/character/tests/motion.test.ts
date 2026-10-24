@@ -11,8 +11,9 @@ import {
   samplePose,
   createRetargeter,
 } from "../motion.ts";
-import { isObject } from "../../pose/choreography.ts";
+import { isObject, qualityFor, sampleSnapshot } from "../../pose/choreography.ts";
 import type { FrameSize, Pose } from "../../pose/choreography.ts";
+import type { MotionTake } from "../../pose/motion.ts";
 
 const bytes = await readFile(new URL("../assets/dance.adpose", import.meta.url));
 const data = loadMotion(bytes);
@@ -53,6 +54,74 @@ function standingPose(): Pose {
     [15,.67,.3],[16,.33,.3],[27,.56,.9],[28,.44,.9]]) Object.assign(landmarks[i], { x, y });
   return { playerId: 0, landmarks };
 }
+
+/** The original menu sampler: keep the shared snapshot path as an independent oracle. */
+function referenceSamplePose(take: MotionTake, person: number, seconds: number): Pose | null {
+  const time = ((seconds * 1000 % take.durationMs) + take.durationMs) % take.durationMs;
+  const last = take.samples[take.samples.length - 1].takeTimeMs;
+  const snapshot = sampleSnapshot(take.samples, Math.min(time, last), 'takeTimeMs', 200);
+  const pose = snapshot.poses.find(p => p.playerId === person);
+  if (!pose) return null;
+  const seam = Math.min(350, take.durationMs / 4);
+  const blend = Math.max(0, Math.min(1, (time - (take.durationMs - seam)) / seam));
+  const smooth = blend * blend * (3 - 2 * blend);
+  const first = take.samples[0].poses.find(p => p.playerId === person);
+  if (first) pose.landmarks.forEach((joint, i) => {
+    for (const axis of ['x', 'y', 'z'] as const) joint[axis] += (first.landmarks[i][axis] - joint[axis]) * smooth;
+  });
+  return pose;
+}
+
+function samplingTimes(take: MotionTake): number[] {
+  const seam = Math.min(350, take.durationMs / 4);
+  const times = new Set([0, -0.0001, take.durationMs - seam, take.durationMs - seam / 2,
+    take.durationMs - 0.0001, take.durationMs, take.durationMs + 0.0001,
+    -take.durationMs, -2 * take.durationMs - 123.456, 3 * take.durationMs + 123.456]);
+  for (let i = 0; i < take.samples.length; i++) {
+    const t = take.samples[i].takeTimeMs;
+    // Both sides of the shared sampler's 1e-5 ms exact-frame tolerance.
+    for (const offset of [-0.00002, -0.000005, 0, 0.000005, 0.00002]) times.add(t + offset);
+    const next = take.samples[i + 1];
+    if (next) for (const alpha of [.25, .5, .75]) times.add(t + (next.takeTimeMs - t) * alpha);
+  }
+  for (let t = 0; t < take.durationMs; t += 1000 / 60) times.add(t);
+  return Array.from(times, t => t / 1000);
+}
+
+function samplingFixture(durationMs: number, frames: readonly (readonly [number, readonly number[]])[]): MotionTake {
+  return {
+    schema: 'aerodance.take', schemaVersion: 1, durationMs,
+    input: { width: 640, height: 480, mirrored: false },
+    samples: frames.map(([takeTimeMs, people], frame) => {
+      const poses = people.map(playerId => {
+        const pose = standingPose();
+        pose.playerId = playerId;
+        pose.landmarks.forEach((joint, i) => {
+          joint.x += Math.sin(frame + i) * .1 + playerId * .15;
+          joint.y += Math.cos(frame + i) * .05;
+          joint.z = Math.sin(frame * .3 + i) * .2;
+          joint.confidence = [null, 0, .49, .5, .85, 1][(frame + i + playerId) % 6];
+        });
+        return pose;
+      });
+      const quality = qualityFor(poses);
+      for (const q of quality) {
+        q.landmarkOrigins[0] = 'edited';
+        q.landmarkOrigins[1] = 'gap-repaired';
+        q.reviewed = true;
+      }
+      return { takeTimeMs, poses, ...(frame % 2 ? { quality } : {}) };
+    }),
+  };
+}
+
+const sparseTake = samplingFixture(1600, [
+  [50, [1]], [100, [0, 1]], [300, [0, 1]], [500.0001, [0, 1]],
+  [550, [1]], [600, [0]], [650, []], [700, [1]], [900, [0, 1]],
+  [1200, [0, 1]], [1300, [0, 1]], [1400, [0]], [1500, [0, 1]],
+]);
+const shortTake = samplingFixture(400, [[0, [0, 1]], [100, [0, 1]], [200, [0, 1]], [300, [0, 1]]]);
+
 test('webcam distance compensation keeps hands, feet and root consistent across framing and aspect ratios', () => {
   const reference = standingPose();
   reference.landmarks.forEach((p,i) => { p.x -= .2; p.z=(i-20)*.003; });
@@ -139,6 +208,86 @@ test("timestamp interpolation, negative time and loop seam remain continuous", (
         (data.samples[30].poses[1].landmarks[15].x + data.samples[31].poses[1].landmarks[15].x) / 2,
     ) < 1e-8,
   );
+});
+
+test('pose-only sampling exactly matches snapshots across full tracks, loop seams, gaps and confidences', () => {
+  for (const take of [data, sparseTake, shortTake]) {
+    const original = structuredClone(take);
+    for (const person of [0, 1, 2]) for (const seconds of samplingTimes(take)) {
+      assert.deepEqual(samplePose(take, person, seconds), referenceSamplePose(take, person, seconds),
+        `person ${person} at ${seconds}s in ${take.durationMs}ms take`);
+    }
+    assert.deepEqual(take, original, 'sampling must not mutate capture poses or quality');
+  }
+  assert.ok(samplePose(sparseTake, 0, .2), 'a 200ms gap is interpolated');
+  assert.equal(samplePose(sparseTake, 0, .4), null, 'a gap over 200ms is not interpolated');
+  assert.equal(samplePose(sparseTake, 0, .525), null, 'a missing right slot is not interpolated');
+  assert.equal(samplePose(sparseTake, 0, .575), null, 'a missing left slot is not interpolated');
+  assert.equal(samplePose(sparseTake, 1, .625), null, 'an empty frame is not bridged');
+  assert.equal(samplePose(sparseTake, 1, 0), null, 'time before the first capture is absent');
+});
+
+test('public sampled poses remain independent of the capture and subsequent samples', () => {
+  for (const seconds of [0, .05, .35, -.0001]) {
+    const a = samplePose(shortTake, 0, seconds), b = samplePose(shortTake, 0, seconds);
+    assert.ok(a && b);
+    assert.notEqual(a, b);
+    assert.notEqual(a.landmarks, b.landmarks);
+    for (let i = 0; i < a.landmarks.length; i++) assert.notEqual(a.landmarks[i], b.landmarks[i]);
+    a.landmarks[0].x += 100;
+    assert.deepEqual(b, referenceSamplePose(shortTake, 0, seconds));
+    assert.deepEqual(samplePose(shortTake, 0, seconds), b);
+  }
+});
+
+test('reused retargeter sampling preserves rig transforms and visibility through playback and seeks', () => {
+  const names = ['Root', 'Body', 'Head', 'ArmL', 'ArmR', 'FootL', 'FootR'];
+  for (const take of [data, sparseTake, shortTake]) {
+    const original = structuredClone(take), times = samplingTimes(take);
+    // Seek backward after advancing through the track and across multiple loops.
+    times.push(...times.slice().reverse().filter((_, i) => i % 17 === 0));
+    for (const person of [0, 1, 2]) {
+      const actual = clone(asset.scene), expected = clone(asset.scene);
+      const apply = createRetargeter(actual, take, person);
+      const referenceApply = createPoseApplier(expected, calibratePoses(
+        take.samples.flatMap(s => s.poses.filter(p => p.playerId === person)), take.input,
+      ));
+      const bones = names.map(name => [node(actual, name), node(expected, name)]);
+      for (const seconds of times) {
+        apply(seconds);
+        referenceApply(referenceSamplePose(take, person, seconds));
+        assert.equal(actual.visible, expected.visible, `visibility for person ${person} at ${seconds}s`);
+        for (const [a, b] of bones) {
+          assert.deepEqual(a.position, b.position, `${a.name} position at ${seconds}s`);
+          assert.deepEqual(a.quaternion.toArray(), b.quaternion.toArray(), `${a.name} rotation at ${seconds}s`);
+          assert.deepEqual(a.matrixWorld, b.matrixWorld, `${a.name} world transform at ${seconds}s`);
+        }
+      }
+    }
+    assert.deepEqual(take, original, 'repeated playback must not blend into the source capture');
+  }
+});
+
+test('single-person playback never reads other dancers landmarks or quality metadata', () => {
+  const take = structuredClone(shortTake);
+  for (const sample of take.samples) {
+    Object.defineProperty(sample, 'quality', { get() { assert.fail('playback does not consume quality'); } });
+    for (const pose of sample.poses) {
+      if (pose.playerId !== 0) Object.defineProperty(pose, 'landmarks', {
+        get() { assert.fail('playback must only sample its own dancer'); },
+      });
+      else {
+        for (const joint of pose.landmarks) Object.freeze(joint);
+        Object.freeze(pose.landmarks);
+        Object.freeze(pose);
+      }
+    }
+  }
+  const model = clone(asset.scene), apply = createRetargeter(model, take, 0);
+  for (const seconds of samplingTimes(take)) {
+    apply(seconds);
+    assert.equal(model.visible, true);
+  }
 });
 
 test("cloned skeletons move independently, remain finite and keep feet above the stage", () => {

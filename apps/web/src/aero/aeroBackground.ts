@@ -76,12 +76,12 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, start = 0.
   });
 
   const lake = part('lake', () => buildLake(ctx, pondNormals, materials.capglass));
-  part('lamps', () => buildStreetLamps(ctx));
+  const lamps = part('lamps', () => buildStreetLamps(ctx));
   const trees = part('trees', () => buildTrees(ctx, path, { city: cityTrees, district: districtTrees }));
   part('traffic', () => buildTraffic(ctx));
-  part('grass', () => buildMeadowGrass(ctx, path));
-  part('flowers', () => buildFlowers(ctx, path));
-  part('tulips', () => buildTulips(ctx));
+  const grass = part('grass', () => buildMeadowGrass(ctx, path));
+  const flowers = part('flowers', () => buildFlowers(ctx, path));
+  const tulips = part('tulips', () => buildTulips(ctx));
   const mills = part('windmills', () => buildWindmills(ctx));
   part('butterflies', () => buildButterflies(ctx, path));
   part('birds', () => buildBirds(ctx));
@@ -123,18 +123,25 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, start = 0.
   let teleT = 0, frameN = 0, elapsed = 0, disposed = false;
   renderer.shadowMap.needsUpdate = true;
 
+  const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
+
   function update(delta: number) {
     if (disposed) return;
     const dt = clamp(delta || 0, 0, 0.05);
     elapsed += dt; const t = elapsed; ctx.time.value = t; frameN++;
 
     const { position: p, progress: u, speed: v } = flight.update(dt, t);
+    frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    if (on('lamps')) lamps.update(frustum, renderer.shadowMap.enabled && renderer.shadowMap.needsUpdate);
+    if (on('grass')) grass.update(frustum);
+    if (on('flowers')) flowers.update(frustum);
+    if (on('tulips')) tulips.update(frustum);
     sky.follow(camera);
     clouds.update(dt, camera);
     lake.update(t, dt, camera);
     if (on('trees')) trees.update(camera);
     if (on('balloons')) balloons.update(t, dt);
-    if (on('bubbles')) bubbles.update(t, dt, camera);
+    if (on('bubbles')) bubbles.update(t, dt, camera, frustum);
     if (on('sparkles')) sparkles.update(t);
     if (on('windmills')) mills.update(dt);
     if (on('jet')) jet.update(t);
