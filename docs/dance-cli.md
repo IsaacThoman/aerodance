@@ -128,7 +128,7 @@ To start from tracking instead of from scratch, `draft` turns the tracked video 
 | `check <dir> [--range a:b] [--dancer P1]` | Review findings; exits 1 if any is an error |
 | `compare <dir> [--range a:b] [--every 500]` | Degrees between each scored limb and the tracked video, per window |
 | `score <dir>` | The game's scorer with the tracked video as the player, over the tracked span |
-| `export <dir> [--out song.zip] [--install] [--folder dir]` | The song bundle ZIP (default under `.dance/exports/`); `--install` writes it into the game's songs |
+| `export <dir> [--out song.zip] [--install] [--folder dir]` | The song bundle ZIP (default under `.dance/exports/`); `--install` writes it into the game's songs, replacing what this project installed last. The song id comes from the audio and the motion, so it stays the same while only details change. |
 | `studio <dir> [--port 5310] [--dist] [--open]` | The Studio; while it runs, `frames` and `render` use its browser and return in about a second |
 
 Every command takes `--json` for machine-readable output. Times are `4200` (ms), `4.2s`, `1:02.5`
@@ -143,13 +143,16 @@ reply says what changed, e.g. `revision 3 → 4: 6 ops, keys +94 ~0 -0, dancers 
 
 - `--expect-revision n` refuses to apply (exit code 3) if someone else changed the dance since you
   read revision `n`. The Studio applies its own edits this way.
+- Edits wait their turn: while another process is changing the project (a long `draft`, say) an
+  `apply` waits for up to a minute.
 - `--op-id id` makes a retry safe: the same id with the same ops returns the first result without
   applying them again.
 - `--dry-run` reports what would change without writing.
 
 Values: a point is `[x, y]` or `[x, y, z]`; `{"x": …}` sets only the given components; `{"dx":
 0.02}` moves it from where it is. An angle is a number of degrees, or `{"d": 15}` to change it.
-`controls` take controls and groups.
+`controls` take controls and groups; on an additive layer that keys a group (e.g. `body`), naming
+the group selects that channel.
 
 | Op | Fields | Does |
 |---|---|---|
@@ -160,8 +163,8 @@ Values: a point is `[x, y]` or `[x, y, z]`; `{"x": …}` sets only the given com
 | `retime` | `range`, `shift?`, `scale?`, `pivot?`, `dancer?`, `controls?`, `replace?` | Moves keys in a range (and, for all controls, contacts and exclusions inside it); landing on another key is an error unless `replace` |
 | `contact` | `dancer`, `control`, `start`, `end`, `blendMs?` (80), `position?`, `id?` | Plants an ankle or wrist |
 | `uncontact` | `dancer`, `id` \| `control?` + `range?` | Removes contacts |
-| `copy` | `from: {dancer, range}`, `to: {dancer, t}`, `mirror?`, `timeScale?`, `repeat?`, `controls?`, `contacts?`, `replace?`, `offset?` | Copies a phrase, optionally mirrored, faster or slower, repeated; to another dancer it moves to that dancer's home unless mirrored about the frame |
-| `mirror` | `dancer`, `range?`, `about?` (`self` or `frame`) | Mirrors keys in place: left and right swap |
+| `copy` | `from: {dancer, range}`, `to: {dancer, t}`, `mirror?`, `timeScale?`, `repeat?`, `controls?`, `contacts?`, `replace?`, `offset?` | Copies a phrase's base keys (and contacts), optionally mirrored, faster or slower, repeated; to another dancer it moves to that dancer's home unless mirrored about the frame. Additive layers stay with their dancer. |
+| `mirror` | `dancer`, `range?`, `about?` (`self` or `frame`) | Mirrors keys in place, on every layer: left and right swap |
 | `smooth` | `dancer`, `range?`, `controls?`, `windowMs?` (120) | Smooths key values; keys with `stop`/`sharp`/`hold` and contact boundaries stay |
 | `simplify` | `dancer`, `range?`, `controls?`, `tolerance?` (0.004), `angleTolerance?` (3°) | Removes keys while the curve stays within tolerance; same keys stay |
 | `draft` | `dancer`, `tracking?`, `slot?`, `range?`, `controls?`, `everyMs?` \| `tolerance?`, `depth?`, `fitBody?`, `smoothMs?` | Keys from the tracked video |
