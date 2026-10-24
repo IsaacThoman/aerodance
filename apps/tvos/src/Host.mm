@@ -30,6 +30,7 @@ double NowMs() {
 static NSString *gLogUrl;
 static NSMutableArray<NSString *> *gLogLines;
 static std::mutex gLogLock;
+static NSFileHandle *gReportFile;
 void HostLog(int level, NSString *text) {
   static const char *tags[] = { "", "warn: ", "error: " };
   fprintf(stderr, "[js %.0f] %s%s\n", NowMs(), tags[std::clamp(level, 0, 2)], text.UTF8String);
@@ -94,11 +95,12 @@ void FrameStats::beginFrame(double start) {
 }
 void FrameStats::js(double ms) { std::lock_guard<std::mutex> g(lock_); if (!records_.empty()) records_[frame_ % kFrameRing].jsMs = ms; }
 void FrameStats::submitted(double ms) { std::lock_guard<std::mutex> g(lock_); if (!records_.empty()) records_[frame_ % kFrameRing].submitMs = ms; }
-void FrameStats::executed(uint64_t frame, double ms, double gpuMs, int words) {
+void FrameStats::executed(uint64_t frame, double ms, double gpuMs, int words, double copyMs, double presentMs) {
   std::lock_guard<std::mutex> g(lock_);
   if (records_.empty() || frame + kFrameRing <= frame_) return;
   FrameRecord &r = records_[frame % kFrameRing];
   r.execMs += ms; r.commands += words;
+  r.copyMs += copyMs; r.presentMs += presentMs;
   if (gpuMs >= 0) r.gpuMs = gpuMs;
 }
 /** The process's memory as jetsam counts it (phys_footprint), in MB. */
@@ -120,18 +122,19 @@ static NSDictionary *Stat(std::vector<double> v) {
 }
 NSString *FrameStats::summary(double fromMs, double toMs) {
   std::lock_guard<std::mutex> g(lock_);
-  std::vector<double> js, submit, exec, gpu, words, interval;
+  std::vector<double> js, submit, exec, gpu, words, interval, copy, present;
   double last = -1;
   for (uint64_t f = frame_ > kFrameRing ? frame_ - kFrameRing + 1 : 1; f <= frame_; f++) {
     const FrameRecord &r = records_[f % kFrameRing];
     if (r.start < fromMs || r.start > toMs) continue;
     js.push_back(r.jsMs); submit.push_back(r.submitMs); exec.push_back(r.execMs); words.push_back(r.commands);
+    copy.push_back(r.copyMs); present.push_back(r.presentMs);
     if (r.gpuMs >= 0) gpu.push_back(r.gpuMs);
     if (last >= 0) interval.push_back(r.start - last);
     last = r.start;
   }
   NSDictionary *d = @{ @"memMB": @(std::round(PhysFootprintMB() * 10) / 10), @"frames": @(js.size()), @"jsMs": Stat(js), @"submitMs": Stat(submit), @"execMs": Stat(exec),
-                       @"gpuFinishMs": gpu.empty() ? [NSNull null] : Stat(gpu), @"wordsPerFrame": Stat(words), @"intervalMs": Stat(interval) };
+                       @"gpuFinishMs": gpu.empty() ? [NSNull null] : Stat(gpu), @"copyMs": Stat(copy), @"presentMs": Stat(present), @"wordsPerFrame": Stat(words), @"intervalMs": Stat(interval) };
   NSData *data = [NSJSONSerialization dataWithJSONObject:d options:0 error:nil];
   return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 }
@@ -333,6 +336,13 @@ NATIVE(N_http) {
 NATIVE(N_wake) { [gHost wakeAfter:Num(ctx, argc, argv, 0)]; return JSValueMakeUndefined(ctx); }
 NATIVE(N_now) { return JSValueMakeNumber(ctx, NowMs()); }
 NATIVE(N_log) { HostLog((int)Num(ctx, argc, argv, 0), ToNS(ctx, argv[1])); return JSValueMakeUndefined(ctx); }
+NATIVE(N_report) {
+  if (gReportFile) {
+    NSData *line = [[ToNS(ctx, argv[0]) stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding];
+    [gReportFile writeData:line];
+  }
+  return JSValueMakeUndefined(ctx);
+}
 
 static NSString *const kStorageKey = @"aerodance.localStorage";
 NATIVE(N_storageGet) {
@@ -520,7 +530,7 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
     { "submit", N_submit }, { "block", N_block }, { "str", N_str }, { "query", N_query }, { "font", N_font },
     { "measureText", N_measureText }, { "decodeImage", N_decodeImage }, { "releaseImage", N_releaseImage },
     { "readFile", N_readFile }, { "http", N_http }, { "wake", N_wake }, { "now", N_now }, { "log", N_log },
-    { "storageGet", N_storageGet }, { "storageSet", N_storageSet }, { "storageKeys", N_storageKeys },
+    { "storageGet", N_storageGet }, { "storageSet", N_storageSet }, { "storageKeys", N_storageKeys }, { "report", N_report },
     { "digest", N_digest }, { "randomBytes", N_randomBytes }, { "setAtRoot", N_setAtRoot }, { "ready", N_ready }, { "audio", N_audio }, { "net", N_net },
     { "noop", N_noop }, { "noop4", N_noop4 },
   };
@@ -553,6 +563,13 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
 
 - (void)threadMain {
   pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+  if ([self.config[@"report"] isEqual:@"file"]) {
+    NSString *dir = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *file = [dir stringByAppendingPathComponent:@"aerodance-bench.ndjson"];
+    [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    [NSFileManager.defaultManager createFileAtPath:file contents:nil attributes:nil];
+    gReportFile = [NSFileHandle fileHandleForWritingAtPath:file];
+  }
   if (gLogUrl) {
     // Off this thread, so logs arrive even while a long script evaluation holds it.
     static dispatch_source_t flush;
@@ -564,7 +581,7 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
   self.runLoop = CFRunLoopGetCurrent();
   NSDictionary *c = self.config;
   int mode = c[@"mode"] ? [c[@"mode"] intValue] : 2;
-  _renderer = std::make_unique<Renderer>(mode, self.display, [c[@"gpuTiming"] boolValue], [c[@"glDebug"] boolValue]);
+  _renderer = std::make_unique<Renderer>(mode, self.display, [c[@"gpuTiming"] boolValue], [c[@"glDebug"] boolValue], c[@"copyBlit"] ? [c[@"copyBlit"] boolValue] : true);
   RegisterBundledFonts([self.wwwRoot stringByAppendingPathComponent:@"fonts"]);
   JSContextGroupRef group = JSContextGroupCreate();
   self.context = JSGlobalContextCreateInGroup(group, nullptr);

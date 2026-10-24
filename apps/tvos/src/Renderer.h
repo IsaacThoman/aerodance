@@ -12,7 +12,7 @@ class Renderer {
   static constexpr int kBuffers = 4;
   static constexpr size_t kBufferBytes = 4 << 20;
 
-  Renderer(int mode, DisplayTarget *display, bool gpuTiming, bool checkErrors);
+  Renderer(int mode, DisplayTarget *display, bool gpuTiming, bool checkErrors, bool copyBlit);
   ~Renderer();
   int mode() const { return mode_; }
   uint8_t *buffer(int i) { return buffers_[i]; }

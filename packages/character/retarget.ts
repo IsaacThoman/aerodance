@@ -25,14 +25,15 @@ export function createPoseApplier(model: Object3D, calibration: TrackCalibration
   const {torsoLength,baseHip,floorY,inputWidth,inputHeight}=calibration;
   const aspect=inputWidth/inputHeight, baseScale=1.05/torsoLength;
   const adaptiveDistance=calibration.cameraScaleMode==='body-relative';
-  const target=new Vector3(),offset=new Vector3(),parentInverse=new Matrix4();
+  const target=new Vector3(),offset=new Vector3();
+  const parentInverses=new Map([ArmL,ArmR,FootL,FootR].map(limb=>[limb.parent,new Matrix4()]));
   let stableDistance: number | null=null;
   function center(bone: Bone,x: number,y: number,z: number,ox: number,oy: number,oz: number) {
     const parent=bone.parent;
     if(!parent) throw Error(`Rig bone has no parent: ${bone.name}`);
     // The rig and its ancestors are current for this pose. Avoid walking and
     // recomposing that same chain twice for every hand and foot.
-    target.set(x,y,z).applyMatrix4(model.matrixWorld).applyMatrix4(parentInverse.copy(parent.matrixWorld).invert());
+    target.set(x,y,z).applyMatrix4(model.matrixWorld).applyMatrix4(parentInverses.get(parent)!);
     offset.set(ox,oy,oz).applyQuaternion(bone.quaternion); bone.position.copy(target.sub(offset)); bone.updateMatrixWorld(true);
   }
   const apply: PoseApplier=Object.assign((pose: Pose | null | undefined,delta=1/60) => {
@@ -69,7 +70,11 @@ export function createPoseApplier(model: Object3D, calibration: TrackCalibration
     Body.rotation.set(0,yaw*.45,roll);
     const ears=mid(p,7,8),headYaw=clamp((p[0].x-ears.x)*aspect*scale*2,-.65,.65);
     const headRoll=clamp(-Math.atan2(p[7].y-p[8].y,Math.abs(p[7].x-p[8].x)*aspect),-.45,.45);
-    Head.rotation.set(0,headYaw-yaw*.45,headRoll-roll); model.updateWorldMatrix(true,true);
+    Head.rotation.set(0,headYaw-yaw*.45,headRoll-roll);
+    // Only the bone hierarchy is needed to place limbs. Its ancestor update also
+    // refreshes model.matrixWorld; the renderer updates the mesh siblings later.
+    Root.updateWorldMatrix(true,true);
+    for(const [parent,inverse] of parentInverses) if(parent) inverse.copy(parent.matrixWorld).invert();
     for(const [arm,foot,wrist,ankle,sign] of [[ArmL,FootL,16,28,-1],[ArmR,FootR,15,27,1]] as const) {
       center(arm,rootX+(p[wrist].x-h.x)*aspect*scale,rootY+1.1+(h.y-p[wrist].y)*scale,clamp(-(p[wrist].z-h.z)*depthAspect*scale*.35,-.7,.9),sign*.26,-.86,0);
       const fx=rootX+(p[ankle].x-h.x)*aspect*scale;

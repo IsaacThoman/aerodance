@@ -1,8 +1,8 @@
 #import "Renderer.h"
 #include <pthread.h>
 
-Renderer::Renderer(int mode, DisplayTarget *display, bool gpuTiming, bool checkErrors)
-    : mode_(mode), executor_(display, gpuTiming, checkErrors) {
+Renderer::Renderer(int mode, DisplayTarget *display, bool gpuTiming, bool checkErrors, bool copyBlit)
+    : mode_(mode), executor_(display, gpuTiming, checkErrors, copyBlit) {
   for (auto &b : buffers_) b = (uint8_t *)calloc(kBufferBytes, 1);
   if (mode_ == 2) {
     thread_ = std::thread([this] {
