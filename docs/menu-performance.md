@@ -149,3 +149,6 @@ in `.cache/`; the report and regression tests are the durable record.
 The next hardware check is a physical first-generation Apple TV 4K. The A15 measurements
 show reduced work but cannot certify 60 FPS, four-player performance or thermal behavior
 on an A10X.
+
+That hardware follow-up is now recorded in [A10X performance](a10x-performance.md),
+including the native framebuffer-copy bottleneck and measurements of every stage.

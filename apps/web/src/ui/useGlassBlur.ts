@@ -6,6 +6,7 @@ import { displayDesign } from '../display.ts';
 import { glassCorner } from './draw.ts';
 import type { Rect } from './draw.ts';
 import { glassTextureSize } from './glassTexture.ts';
+import { glassBlurSamplingGLSL } from './glassBlurKernel.ts';
 
 /**
  * Frosted glass for canvas UI buttons (drawGlassButton): just before the overlay draws, the
@@ -35,7 +36,6 @@ const MAX_PANES = 6;
 // Blur radius in design units, and the extra copied round the panes so the blur near their
 // edges samples the world there instead of smearing the edge pixel.
 const RADIUS = 24;
-const TAPS = 40;
 
 const vertexShader = /* glsl */ `
 void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
@@ -71,14 +71,7 @@ void main() {
   vec2 lo = 0.5 / size;
   vec3 sum = vec3(0.0);
   float wsum = 0.0;
-  for (int i = 0; i < ${TAPS}; i++) {
-    float f = (float(i) + 0.5) / ${TAPS}.0;
-    float a = float(i) * 2.39996323;
-    vec2 o = vec2(cos(a), sin(a)) * sqrt(f) * radius;
-    float w = exp(-2.0 * f);
-    sum += texture2D(map, clamp(uv + o / size, lo, 1.0 - lo)).rgb * w;
-    wsum += w;
-  }
+  ${glassBlurSamplingGLSL}
   gl_FragColor = vec4(sum / wsum, mask * alpha);
 }
 `;

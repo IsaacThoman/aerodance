@@ -5,6 +5,7 @@
 #import <OpenGLES/EAGL.h>
 #import <OpenGLES/ES3/gl.h>
 #import <OpenGLES/ES3/glext.h>
+#include <array>
 
 /** A 2D canvas's pixels: premultiplied RGBA8, rows top to bottom. */
 struct CanvasBitmap {
@@ -17,7 +18,7 @@ class Canvas2D;
 
 class Executor {
  public:
-  Executor(DisplayTarget *display, bool gpuTiming, bool checkErrors);
+  Executor(DisplayTarget *display, bool gpuTiming, bool checkErrors, bool copyBlit);
   ~Executor();
   /** Creates the GL context on first use and makes it current on this thread. */
   void makeCurrent();
@@ -36,6 +37,7 @@ class Executor {
   void present();
   void readPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void *dst);
   void texImage(const int32_t *w);
+  bool blitTextureCopy(const int32_t *w);
   const uint8_t *payload(const int32_t *p, std::vector<uint8_t> &holder, size_t *length);
   GLuint name(int jsId) const { return jsId > 0 && (size_t)jsId < names_.size() ? names_[jsId] : 0; }
   GLuint framebuffer(int jsId) const { return jsId ? name(jsId) : defaultFBO_; }
@@ -46,7 +48,10 @@ class Executor {
 
   DisplayTarget *display_;
   EAGLContext *context_ = nil;
-  bool gpuTiming_, checkErrors_;
+  bool gpuTiming_, checkErrors_, copyBlit_;
+  GLuint copyFBO_ = 0;
+  GLenum defaultReadBuffer_ = GL_COLOR_ATTACHMENT0;
+  std::unordered_map<int, std::array<int, 2>> rgba8Textures_;
   std::vector<GLuint> names_;
   std::unordered_map<int, GLuint> shaderTypes_;
   // The default framebuffer: multisampled (when antialiased) and resolved into the layer's.
@@ -83,6 +88,7 @@ class Executor {
   GLuint stencilMaskFront_ = 0xffffffff, stencilMaskBack_ = 0xffffffff;
   // Frame timing.
   double frameExecMs_ = 0;
+  double frameCopyMs_ = 0, framePresentMs_ = 0;
   int frameWords_ = 0;
   Canvas2D *canvas_;
 };

@@ -40,8 +40,8 @@ static int BytesPerPixel(GLenum format, GLenum type) {
   }
 }
 
-Executor::Executor(DisplayTarget *display, bool gpuTiming, bool checkErrors)
-    : display_(display), gpuTiming_(gpuTiming), checkErrors_(checkErrors), canvas_(new Canvas2D()) {
+Executor::Executor(DisplayTarget *display, bool gpuTiming, bool checkErrors, bool copyBlit)
+    : display_(display), gpuTiming_(gpuTiming), checkErrors_(checkErrors), copyBlit_(copyBlit), canvas_(new Canvas2D()) {
   names_.resize(1024);
 }
 Executor::~Executor() { delete canvas_; }
@@ -73,7 +73,12 @@ void Executor::run(const int32_t *w, int count) {
       break;
     }
     if (op >= 200) canvas_->run(op, w + i, words);
-    else runGL(op, w + i, words);
+    else if (op == OP_COPY_TEX_SUB_IMAGE || op == OP_COPY_TEX_IMAGE_2D || op == OP_PRESENT) {
+      double t = NowMs();
+      runGL(op, w + i, words);
+      if (op == OP_PRESENT) framePresentMs_ += NowMs() - t;
+      else frameCopyMs_ += NowMs() - t;
+    } else runGL(op, w + i, words);
     if (checkErrors_ && op < 200) {
       GLenum e = glGetError();
       if (e) HostLog(2, [NSString stringWithFormat:@"GL error 0x%x after %s", e, op < (int)(sizeof(kOpNames) / sizeof(*kOpNames)) ? kOpNames[op] : "?"]);
@@ -91,8 +96,9 @@ void Executor::endFrame(uint64_t frame) {
     glFinish();
     gpuMs = NowMs() - t;
   }
-  gFrameStats.executed(frame, frameExecMs_, gpuMs, frameWords_);
+  gFrameStats.executed(frame, frameExecMs_, gpuMs, frameWords_, frameCopyMs_, framePresentMs_);
   frameExecMs_ = 0;
+  frameCopyMs_ = framePresentMs_ = 0;
   frameWords_ = 0;
 }
 
@@ -425,6 +431,31 @@ void Executor::readPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format,
   }
 }
 
+// On A10X, copying the drawable with glCopyTexSubImage2D synchronously waits for
+// the source rendering (~10 ms). A same-format GPU blit keeps that dependency on
+// the GPU. Specialize only complete, in-bounds RGBA8 copies of the non-MSAA
+// drawable; all other WebGL copies retain the general implementation below.
+bool Executor::blitTextureCopy(const int32_t *w) {
+  if (!copyBlit_ || readFB_ || msaaFBO_ || !displayFBO_ || defaultReadBuffer_ != GL_COLOR_ATTACHMENT0 ||
+      w[1] != GL_TEXTURE_2D || w[2] != 0 || w[3] != 0 || w[4] != 0 || w[5] >= 0) return false;
+  int texture = boundTexture(GL_TEXTURE_2D);
+  auto found = rgba8Textures_.find(texture);
+  if (found == rgba8Textures_.end() || found->second[0] != w[8] || found->second[1] != w[9] ||
+      w[6] < 0 || w[7] < 0 || w[8] > width_ - w[6] || w[9] > height_ - w[7]) return false;
+  if (!copyFBO_) glGenFramebuffers(1, &copyFBO_);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copyFBO_);
+  glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, name(texture), 0);
+  // CopyTexSubImage ignores scissor, unlike a framebuffer blit.
+  if (scissorTest_) glDisable(GL_SCISSOR_TEST);
+  glBlitFramebuffer(w[6], w[7], w[6] + w[8], w[7] + w[9], 0, 0, w[8], w[9], GL_COLOR_BUFFER_BIT, GL_NEAREST);
+  if (scissorTest_) glEnable(GL_SCISSOR_TEST);
+  // Don't retain the texture in the private FBO after WebGL deletes it.
+  glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer(drawFB_));
+  markFresh(texture, false);
+  return true;
+}
+
 void Executor::runGL(int op, const int32_t *w, int words) {
   if (drawPending_) {
     switch (op) {
@@ -517,7 +548,7 @@ void Executor::runGL(int op, const int32_t *w, int words) {
       if (!n) break;
       switch (w[1]) {
         case K_BUFFER: glDeleteBuffers(1, &n); break;
-        case K_TEXTURE: glDeleteTextures(1, &n); break;
+        case K_TEXTURE: glDeleteTextures(1, &n); rgba8Textures_.erase(w[2]); break;
         case K_PROGRAM: glDeleteProgram(n); break;
         case K_SHADER: glDeleteShader(n); break;
         case K_VAO: glDeleteVertexArrays(1, &n); break;
@@ -663,7 +694,11 @@ void Executor::runGL(int op, const int32_t *w, int words) {
     case OP_SAMPLER_PARAMETERI: glSamplerParameteri(name(w[1]), w[2], w[3]); break;
     case OP_SAMPLER_PARAMETERF: glSamplerParameterf(name(w[1]), w[2], FL(3)); break;
     case OP_GENERATE_MIPMAP: glGenerateMipmap(w[1]); break;
-    case OP_TEX_STORAGE_2D: markFresh(boundTexture(w[1]), true); glTexStorage2D(w[1], w[2], w[3], w[4], w[5]); break;
+    case OP_TEX_STORAGE_2D:
+      markFresh(boundTexture(w[1]), true);
+      if (w[1] == GL_TEXTURE_2D && w[3] == GL_RGBA8) rgba8Textures_[boundTexture(w[1])] = { w[4], w[5] };
+      glTexStorage2D(w[1], w[2], w[3], w[4], w[5]);
+      break;
     case OP_TEX_STORAGE_3D: markFresh(boundTexture(w[1]), true); glTexStorage3D(w[1], w[2], w[3], w[4], w[5], w[6]); break;
     case OP_TEX_IMAGE:
       // Allocating without data leaves the texture fresh; uploading pixels initializes it.
@@ -673,7 +708,7 @@ void Executor::runGL(int op, const int32_t *w, int words) {
       break;
     case OP_COPY_TEX_IMAGE_2D: glCopyTexImage2D(w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8]); break;
     case OP_COPY_TEX_SUB_IMAGE:
-      if (w[5] < 0) glCopyTexSubImage2D(w[1], w[2], w[3], w[4], w[6], w[7], w[8], w[9]);
+      if (w[5] < 0) { if (!blitTextureCopy(w)) glCopyTexSubImage2D(w[1], w[2], w[3], w[4], w[6], w[7], w[8], w[9]); }
       else glCopyTexSubImage3D(w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8], w[9]);
       break;
 
@@ -697,7 +732,10 @@ void Executor::runGL(int op, const int32_t *w, int words) {
       glInvalidateFramebuffer(target, n, atts);
       break;
     }
-    case OP_READ_BUFFER: glReadBuffer(readFB_ ? (GLenum)w[1] : (w[1] == GL_BACK ? GL_COLOR_ATTACHMENT0 : (GLenum)w[1])); break;
+    case OP_READ_BUFFER:
+      if (!readFB_) defaultReadBuffer_ = w[1] == GL_BACK ? GL_COLOR_ATTACHMENT0 : (GLenum)w[1];
+      glReadBuffer(readFB_ ? (GLenum)w[1] : defaultReadBuffer_);
+      break;
     case OP_CLEAR_BUFFERFV: glClearBufferfv(w[1], w[2], (const float *)(w + 3)); break;
     case OP_CLEAR_BUFFERIV: glClearBufferiv(w[1], w[2], (const GLint *)(w + 3)); break;
     case OP_CLEAR_BUFFERUIV: glClearBufferuiv(w[1], w[2], (const GLuint *)(w + 3)); break;
