@@ -59,6 +59,8 @@ struct FrameRecord {
   double submitMs = 0;  // encoding the end of frame and handing it over (includes waiting for a free buffer)
   double execMs = 0;    // executing the frame's commands (GL and 2D)
   double gpuMs = -1;    // glFinish after the frame, when GPU timing is on
+  double copyMs = 0;    // CPU time in framebuffer-to-texture copies (may wait for the GPU)
+  double presentMs = 0; // CPU time presenting the drawable (may wait for the display/GPU)
   int commands = 0;     // command words executed
 };
 class FrameStats {
@@ -66,7 +68,7 @@ class FrameStats {
   void beginFrame(double start);
   void js(double ms);
   void submitted(double ms);
-  void executed(uint64_t frame, double ms, double gpuMs, int words);
+  void executed(uint64_t frame, double ms, double gpuMs, int words, double copyMs, double presentMs);
   uint64_t current() const { return frame_; }
   /** JSON summary of frames that began in [fromMs, toMs]. */
   NSString *summary(double fromMs, double toMs);

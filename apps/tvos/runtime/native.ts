@@ -38,6 +38,8 @@ export interface Native {
   wake(ms: number): void;
   now(): number;
   log(level: number, text: string): void;
+  /** Append a diagnostic report to Library/Caches/aerodance-bench.ndjson. */
+  report(json: string): void;
   /** Persistent key-value storage (localStorage). */
   storageGet(key: string): string | null;
   storageSet(key: string, value: string | null): void;

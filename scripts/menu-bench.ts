@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { STAGE_LIST } from '../packages/stages/catalog.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const USAGE = `Usage: node scripts/menu-bench.ts (--device UDID | --sim UDID) --label NAME [options]
@@ -26,6 +27,10 @@ const USAGE = `Usage: node scripts/menu-bench.ts (--device UDID | --sim UDID) --
   --port N           report/log receiver port (default 4897)
   --profile          enable WebGL/2D method profiling (adds overhead)
   --gpu-timing       glFinish every frame (adds overhead; replay execMs is still not GPU time)
+  --scenes           also play all six stages (build with --game --bench-scenes first)
+  --stages IDS       measure only these stages, comma separated, in catalog order
+  --players N        players in stage runs (1–4, default 2); menu samples stay 2/4
+  --file-report      pull reports over the paired device connection instead of the LAN
 
 Measures main-idle, main-focused, players2, players4, settings and song-list. Installs and
 relaunches the app without --console, then terminates that process on exit. The requested
@@ -42,7 +47,7 @@ type State = Record<string, string>;
 type Step = ['wait', State, number] | ['key', string] | ['sleep', number] | ['report', string];
 type Options = {
   kind: 'device' | 'sim'; udid: string; label: string; out: string; app: string;
-  seconds: number; warmup: number; host: string; port: number; profile: boolean; gpuTiming: boolean;
+  seconds: number; warmup: number; host: string; port: number; profile: boolean; gpuTiming: boolean; scenes: boolean; fileReport: boolean; stages: string[]; players: number;
 };
 type Scenario = { mark: string; expected: State };
 
@@ -61,11 +66,11 @@ function options(args: string[]): Options | null {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return null; }
   const values = new Map<string, string>();
   const flags = new Set<string>();
-  const names = ['--device', '--sim', '--label', '--out', '--app', '--seconds', '--warmup', '--host', '--port'];
+  const names = ['--device', '--sim', '--label', '--out', '--app', '--seconds', '--warmup', '--host', '--port', '--stages', '--players'];
   for (let i = 0; i < args.length; i++) {
     const name = args[i];
     if (values.has(name) || flags.has(name)) throw Error(`Duplicate option ${name}`);
-    if (name === '--profile' || name === '--gpu-timing') { flags.add(name); continue; }
+    if (['--profile', '--gpu-timing', '--scenes', '--file-report'].includes(name)) { flags.add(name); continue; }
     if (!names.includes(name)) throw Error(`Unknown option ${name}; use --help`);
     const value = args[++i];
     if (!value || value.startsWith('--') || value.includes('\0')) throw Error(`${name} needs a value`);
@@ -73,6 +78,7 @@ function options(args: string[]): Options | null {
   }
   if (values.has('--device') === values.has('--sim')) throw Error('Choose exactly one of --device UDID or --sim UDID');
   const kind = values.has('--device') ? 'device' : 'sim';
+  if (flags.has('--file-report') && kind !== 'device') throw Error('--file-report requires --device');
   const udid = values.get(`--${kind}`)!;
   if (!/^[\da-f][\da-f-]{7,63}$/i.test(udid)) throw Error(`--${kind} needs a UDID, not a device name`);
   const label = values.get('--label') ?? '';
@@ -89,10 +95,13 @@ function options(args: string[]): Options | null {
   };
   const seconds = numeric('--seconds', 16, 6, 3600);
   const warmup = numeric('--warmup', 6, 0, 3600);
+  const players = numeric('--players', 2, 1, 4, true);
+  const stages = values.get('--stages')?.split(',') ?? [];
+  if (values.has('--stages') && (!stages.length || new Set(stages).size !== stages.length || stages.some((id) => !STAGE_LIST.some((s) => s.id === id)))) throw Error('--stages must name distinct stage IDs');
   const port = numeric('--port', 4897, 1, 65535, true);
   const lan = () => Object.entries(os.networkInterfaces()).filter(([name]) => name.startsWith('en'))
     .flatMap(([, addresses]) => addresses ?? []).find((a) => a.family === 'IPv4' && !a.internal)?.address;
-  const host = values.get('--host') ?? (kind === 'sim' ? '127.0.0.1' : lan());
+  const host = values.get('--host') ?? (kind === 'sim' || flags.has('--file-report') ? '127.0.0.1' : lan());
   if (!host) throw Error('No LAN IPv4 address on an en* interface; pass --host with this Mac\'s address reachable from the TV');
   if (!isIP(host) && !/^(?=.{1,253}$)[a-z\d](?:[a-z\d.-]*[a-z\d])?$/i.test(host)) {
     throw Error('--host must be a hostname or IP address, without a scheme, path or port');
@@ -109,7 +118,7 @@ function options(args: string[]): Options | null {
     if (!existsSync(path.join(app, file)) || !statSync(path.join(app, file)).isFile()) throw Error(`App is missing ${file}; build the game first`);
   }
   return { kind, udid, label, out: path.resolve(values.get('--out') ?? path.join(root, '.cache/menu-bench', label)),
-    app, seconds, warmup, host, port, profile: flags.has('--profile'), gpuTiming: flags.has('--gpu-timing') };
+    app, seconds, warmup, host, port, profile: flags.has('--profile'), gpuTiming: flags.has('--gpu-timing'), scenes: flags.has('--scenes') || stages.length > 0, fileReport: flags.has('--file-report'), stages, players };
 }
 
 /** The order in MainMenu.WIDGETS is also the arrow-key navigation graph (useCanvasUI). */
@@ -124,6 +133,7 @@ function flow(o: Options) {
   const wait = (state: State) => steps.push(['wait', state, timeout]);
   const key = (value: string) => { steps.push(['key', value], ['sleep', 300]); };
   const measure = (mark: string, expected: State) => {
+    if (o.stages.length && !STAGE_LIST.some(({ id }) => mark.startsWith(`${id}-`))) { wait(expected); return; }
     scenarios.push({ mark, expected });
     wait(expected);
     steps.push(['sleep', o.warmup * 1000]);
@@ -145,8 +155,37 @@ function flow(o: Options) {
   measure('settings', settings); // No settings controls are activated.
   key('Escape'); wait(main); // Restores focus to Settings, not Start.
   key('ArrowUp'); key('Enter'); wait(players(2));
+  if (o.scenes && o.players !== 2) {
+    key('ArrowUp'); // go -> plus
+    if (o.players === 1) { key('ArrowUp'); key('Enter'); key('ArrowDown'); }
+    else for (let n = 2; n < o.players; n++) { key('Enter'); wait(players(n + 1)); }
+    key('ArrowDown'); // plus -> go
+    wait(players(o.players));
+  }
   key('Enter');
   measure('song-list', songs);
+  if (o.scenes) {
+    let selected = 0;
+    for (const [i, { id: stage }] of STAGE_LIST.entries()) {
+      if (o.stages.length && !o.stages.includes(stage)) continue;
+      key('ArrowDown'); // The hidden list dropped its cursor; focus the chosen primary row.
+      for (let j = selected; j < i; j++) {
+        key('ArrowDown');
+        if (j === 3) { key('Enter'); wait(songs); } // next page, focused on its first song
+      }
+      key('Enter');
+      const preview = { songScreen: 'preview', songReady: 'true', stage, stageReady: 'true' };
+      measure(`${stage}-preview`, preview);
+      key('Enter'); // Dance is the preview's primary button.
+      measure(`${stage}-playing`, { stage, stageReady: 'true', gamePhase: 'playing' });
+      wait({ stage, gamePhase: 'results' });
+      measure(`${stage}-results`, { stage, stageReady: 'true', gamePhase: 'results' });
+      key('Escape'); wait(songs);
+      // Reopening Song Select resets pagination. A chosen song off page zero
+      // can't be its primary row, so navigation starts again at the first song.
+      selected = i < 4 ? i : 0;
+    }
+  }
   steps.push(['sleep', 1500]); // Let the host flush its final log batch before "done".
   return { steps, scenarios, timeout };
 }
@@ -232,6 +271,19 @@ async function benchmark(o: Options) {
   const onInt = () => interrupted('SIGINT'), onTerm = () => interrupted('SIGTERM');
   process.on('SIGINT', onInt); process.on('SIGTERM', onTerm);
   const log = (text: string) => console.log(`${((Date.now() - started) / 1000).toFixed(1).padStart(6)} s  ${text}`);
+  const receiveReport = (line: string) => {
+    const r = object(JSON.parse(line));
+    if (typeof r.type !== 'string' || r.label !== o.label) throw Error('Invalid report type or mismatched label');
+    const report = r as Report;
+    appendFileSync(reportFile!, `${JSON.stringify(report)}\n`);
+    reports.push(report); lastReportAt = Date.now();
+    if (report.type === 'error') fail(Error(`App report: ${String(report.message ?? 'unknown error')}`));
+    if (report.type === 'done') { done = true; log('drive finished'); }
+    if (report.type === 'game') {
+      const d = object(report.dataset);
+      log(`${String(report.mark || '(settling)')} · ${String(report.fps ?? '?')} fps · menu=${String(d.menuScreen ?? '?')} stage=${String(d.stage ?? '?')} phase=${String(d.gamePhase ?? '?')}`);
+    }
+  };
 
   /** All native commands have deadlines; no shell, console attachment or debugger. */
   const command = (args: string[], timeoutMs = 120_000, ignoreAbort = false, executable = 'xcrun'): Promise<string> =>
@@ -279,47 +331,47 @@ async function benchmark(o: Options) {
           } else {
             // The host posts one JSON object per request; also accept newline-delimited batches.
             for (const line of body.split(/\r?\n/).filter((line) => line.trim())) {
-              const parsed: unknown = JSON.parse(line);
-              const r = object(parsed);
-              if (typeof r.type !== 'string' || r.label !== o.label) throw Error('Invalid report type or mismatched label');
-              const report = r as Report;
-              appendFileSync(reportFile!, `${JSON.stringify(report)}\n`);
-              reports.push(report); lastReportAt = Date.now();
-              if (report.type === 'error') fail(Error(`App report: ${String(report.message ?? 'unknown error')}`));
-              if (report.type === 'done') { done = true; log('drive finished'); }
-              if (report.type === 'game') {
-                const d = object(report.dataset);
-                log(`${String(report.mark || '(settling)')} · ${String(report.fps ?? '?')} fps · menu=${String(d.menuScreen ?? '?')} players=${String(d.menuPlayers ?? '?')} songs=${String(d.songReady ?? '?')}`);
-              }
+              receiveReport(line);
             }
           }
           res.writeHead(204).end();
         } catch (error) { fail(Error(`Receiver: ${message(error)}`)); res.writeHead(400).end(); }
       });
     });
-    receiver.requestTimeout = 15_000;
-    receiver.headersTimeout = 10_000;
-    await new Promise<void>((resolve, reject) => {
-      const server = receiver!;
-      server.once('error', reject);
-      server.listen(o.port, o.kind === 'device' || o.host !== '127.0.0.1' ? '::' : '127.0.0.1', () => {
-        server.off('error', reject); server.on('error', fail); resolve();
+    if (o.fileReport) receiver = undefined;
+    else {
+      receiver.requestTimeout = 15_000;
+      receiver.headersTimeout = 10_000;
+      await new Promise<void>((resolve, reject) => {
+        const server = receiver!;
+        server.once('error', reject);
+        server.listen(o.port, o.kind === 'device' || o.host !== '127.0.0.1' ? '::' : '127.0.0.1', () => {
+          server.off('error', reject); server.on('error', fail); resolve();
+        });
       });
-    });
+    }
     const here = `http://${isIP(o.host) === 6 ? `[${o.host}]` : o.host}:${o.port}`;
-    log(`receiver ${here}; output ${o.out}`);
+    log(`${o.fileReport ? 'paired file reports' : `receiver ${here}`}; output ${o.out}`);
 
     const info = object(JSON.parse(await command(['-convert', 'json', '-o', '-', path.join(o.app, 'Info.plist')], 10_000, false, 'plutil')));
     if (typeof info.CFBundleIdentifier !== 'string' || !/^[a-z\d.-]+$/i.test(info.CFBundleIdentifier)) throw Error('App has no valid CFBundleIdentifier');
     bundleId = info.CFBundleIdentifier;
     if (process.env.TVOS_BUNDLE_ID && process.env.TVOS_BUNDLE_ID !== bundleId) throw Error('TVOS_BUNDLE_ID does not match the app\'s CFBundleIdentifier');
-    if (!object(info.NSAppTransportSecurity).NSAllowsLocalNetworking || !info.NSLocalNetworkUsageDescription) {
+    if (!o.fileReport && (!object(info.NSAppTransportSecurity).NSAllowsLocalNetworking || !info.NSLocalNetworkUsageDescription)) {
       throw Error('App lacks local network reporting permission; build with --game without --release');
     }
     const bundled = object(JSON.parse(readFileSync(path.join(o.app, 'www/config.json'), 'utf8')));
-    const config = { script: 'game.js', url: 'http://aerodance.local/',
+    if (o.scenes) {
+      const catalog = object(JSON.parse(readFileSync(path.join(o.app, 'www/songs/manifest.json'), 'utf8')));
+      const entries = Array.isArray(catalog.songs) ? catalog.songs.map(object) : [];
+      for (const [i, { id }] of STAGE_LIST.entries()) {
+        if (entries[i]?.id !== `bench-${i}-${id}`) throw Error('--scenes needs an app built with --game --bench-scenes');
+      }
+      if (o.seconds + o.warmup > 24) throw Error('--scenes needs --seconds + --warmup <= 24 to measure within the 30-second song');
+    }
+    const config = { script: 'game.js', url: `http://aerodance.local/${o.scenes ? '?input=ghost' : ''}`,
       ...(typeof bundled.site === 'string' ? { site: bundled.site } : {}), fit: 'fill', pixelated: true,
-      label: o.label, report: `${here}/__report`, logUrl: `${here}/__log`, drive: steps,
+      label: o.label, report: o.fileReport ? 'file' : `${here}/__report`, ...(o.fileReport ? {} : { logUrl: `${here}/__log` }), drive: steps,
       profile: o.profile, gpuTiming: o.gpuTiming };
     writeFileSync(path.join(o.out, 'run.json'), JSON.stringify({ startedAt, ...o, bundleId, config }, null, 2) + '\n', { flag: 'wx' });
 
@@ -361,8 +413,29 @@ async function benchmark(o: Options) {
     }
     log(`launched ${bundleId}, PID ${appPid}; no console/debugger attached`);
     lastReportAt = Date.now();
+    let readLines = 0, pullAt = Date.now() + 4000;
     const deadline = Date.now() + steps.reduce((ms, step) => ms + (step[0] === 'wait' ? step[2] : step[0] === 'sleep' ? step[1] : 0), 0) + 30_000;
     while (!done) {
+      if (o.fileReport && Date.now() >= pullAt) {
+        const pulled = path.join(o.out, 'device-reports.ndjson');
+        if (o.kind !== 'device') throw Error('--file-report currently requires --device');
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await command(['devicectl', 'device', 'copy', 'from', '--device', o.udid, '--domain-type', 'appDataContainer',
+              '--domain-identifier', bundleId, '--source', 'Library/Caches/aerodance-bench.ndjson', '--destination', pulled, '--quiet', '--timeout', '20'], 25_000);
+            break;
+          } catch (error) {
+            if (attempt >= 2 || abort.signal.aborted) throw error;
+            log(`report transfer failed; retrying (${attempt + 1}/2): ${message(error).split('\n')[0]}`);
+            await sleep(1000, undefined, { signal: abort.signal });
+          }
+        }
+        const lines = readFileSync(pulled, 'utf8').split('\n');
+        lines.pop(); // A concurrent append may leave an incomplete final line.
+        for (const line of lines.slice(readLines)) receiveReport(line);
+        readLines = lines.length;
+        pullAt = Date.now() + 4000;
+      }
       if (Date.now() - lastReportAt > timeout) throw Error(`No app reports for ${timeout / 1000}s; check --host, LAN access and the app's local network permission`);
       if (Date.now() > deadline) throw Error('Timed out waiting for drive completion');
       await sleep(200, undefined, { signal: abort.signal });
@@ -398,7 +471,7 @@ async function benchmark(o: Options) {
         const summary = { label: o.label, target: { kind: o.kind, udid: o.udid }, app: o.app, bundleId,
           appPid, startedAt, finishedAt: new Date().toISOString(), status: failure ? 'failed' : 'complete',
           ...(failure ? { error: failure.message } : {}), seconds: o.seconds, warmup: o.warmup,
-          profile: o.profile, gpuTiming: o.gpuTiming, done, reportCount: reports.length,
+          profile: o.profile, gpuTiming: o.gpuTiming, scenes: o.scenes, done, reportCount: reports.length,
           modes: [...new Set(reports.filter((r) => r.type === 'start').map((r) => r.mode))],
           methodology: {
             windowMs: 2000, boundaries: 'Drop first report in each mark before filtering expected state; clear mark before transitions.',

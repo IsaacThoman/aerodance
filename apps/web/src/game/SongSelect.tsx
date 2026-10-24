@@ -21,7 +21,7 @@ import { SCORER_VERSION } from '../../../../packages/score/scorer.ts';
 import { bestScore } from './bestScores.ts';
 import { PLAYERS } from './results.ts';
 import type { SongRoutine } from './GameSession.ts';
-import type { PoseInputView } from '../pose/PoseSource.ts';
+import type { PoseInputView, PoseSource } from '../pose/PoseSource.ts';
 import { preloadStage, resolveStage } from '../../../../packages/stages/index.ts';
 import type { StageState } from '../stage/StageView.tsx';
 import { gameLayout } from './layout.ts';
@@ -52,14 +52,14 @@ import { displayDesign } from '../display.ts';
  * -song-load-error, -player-slots, -preview-state, -preview-time-ms, -song-dancers and
  * -song-cast (the dancer each player follows, from 0) for tests.
  *
- * <SongSelect visible playerCount={1} connection={view} onBack
+ * <SongSelect visible playerCount={1} source={source} onBack
  *   stageState={{ showing, prepared, ready, stage, failed }} onPreviewChange onScreenChange onDance />
  */
 
 export interface SongSelectProps {
   visible?: boolean;
   playerCount?: PlayerCount;
-  connection: PoseInputView;
+  source: Pick<PoseSource, 'view'>;
   onBack?: () => void;
   stageState?: Partial<StageState>;
   /** The routine to preview on its stage, or null when the preview closes. */
@@ -193,7 +193,7 @@ function slotStatus(connection: PoseInputView, id: number): { label: string; kin
 }
 
 export default function SongSelect({
-  visible = false, playerCount = 1, connection, onBack,
+  visible = false, playerCount = 1, source, onBack,
   stageState = {}, onPreviewChange, onScreenChange, onDance,
 }: SongSelectProps) {
   const gl = useThree((state) => state.gl);
@@ -201,8 +201,8 @@ export default function SongSelect({
   const {
     BACK, CAST_AUTO, DANCE, DANCERS, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, castRow, rowRect,
   } = gameLayout(displayDesign(size.width, size.height).w);
-  const props = useRef({ visible, playerCount, connection, onBack, stageState, onPreviewChange, onScreenChange, onDance });
-  props.current = { visible, playerCount, connection, onBack, stageState, onPreviewChange, onScreenChange, onDance };
+  const props = useRef({ visible, playerCount, source, onBack, stageState, onPreviewChange, onScreenChange, onDance });
+  props.current = { visible, playerCount, source, onBack, stageState, onPreviewChange, onScreenChange, onDance };
   const st = useRef<SongSelectState>({
     alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
@@ -483,7 +483,9 @@ export default function SongSelect({
         const want = resolveStage(st.bundle.song.stage);
         if (p.stageState.stage === want && (p.stageState.prepared || p.stageState.failed)) showPreview();
       }
-      const c = p.connection;
+      // Pose packets arrive far more often than the React tree needs to change.
+      // Read the current view alongside the rest of the canvas's live state.
+      const c = p.source.view;
       const slots = Array.from({ length: p.playerCount }, (_, i) => slotStatus(c, i).label);
       // The dancer under the pointer lights up on its player's row.
       const hovering = st.screen === 'dancers' ? st.cast.map((_, i) => slotAt(castWidget(i), s)).join() : '';

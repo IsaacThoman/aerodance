@@ -109,14 +109,16 @@ The launch config (JSON):
 | `fit`, `pixelated` | `fill` stretches the canvas to the screen (the game), `contain` letterboxes it |
 | `bench` | Runs the Aero benchmark with this `__benchConfig`; reports gain host timings |
 | `report` | URL that benchmark results, or the game's frame stats every 2 s, are POSTed to |
+| `report: "file"` | Append game reports to `Library/Caches/aerodance-bench.ndjson`, pulled over the paired connection by `menu-bench.ts --file-report` |
 | `drive` | Remote key presses for unattended runs, waiting on the canvas's `data-*` state: `[["wait", {"menuReady": "true"}], ["key", "Enter"], ...]` |
 | `logUrl` | URL that console output is POSTed to |
 | `fps` | Caps the frame rate (default 60); 30 paces evenly when frames take 20–40 ms |
 | `gpuTiming` | `glFinish` after every frame, to time the GPU |
 | `glDebug` | Check `glGetError` after every GL command |
+| `copyBlit` | Use GPU blits for complete RGBA8 drawable copies (default true); false restores `glCopyTexSubImage2D` for comparison |
 
 `launch` with `devicectl ... --console` attaches a debugger, which makes JavaScript about 1.5x
-slower; measure without it and read the console through `logUrl`.
+slower; measure without it and read the console through `logUrl` (or pull file reports).
 
 ## Performance
 
@@ -124,13 +126,24 @@ slower; measure without it and read the console through `logUrl`.
 optimizations, paired hardware measurements and visual checks. The six menu scenarios can be
 measured without attaching a debugger: `node scripts/menu-bench.ts --device <udid> --label <name>`.
 
+To exercise all six dance stages through preview, a scored ghost song and results, build with
+`node scripts/tvos.ts build --game --bench-scenes`, then run
+`node scripts/menu-bench.ts --device <udid> --label <name> --scenes --file-report`.
+This uses development-only copies of the demo song, each assigned to a different stage; the
+source songs stay unchanged, and a normal build removes the fixtures. `--stages reef,club`
+measures only selected stages; `--players 4` exercises their four-player game and results UI.
+`--file-report` avoids a LAN report server and still runs without a debugger. Reports include
+native framebuffer copy and presentation CPU timings; these can include GPU/display waits.
+
 On an Apple TV 4K (3rd generation, A15, tvOS 27) the game holds 60 fps on every screen:
 about 6 ms of JavaScript a frame on the main menu (up to ~12 ms while the city is in view), about
 5.5 ms in gameplay, and the Aero benchmark at 59.9 fps. JavaScript runs interpreted (no JIT on
 tvOS), so frame cost tracks the number of objects and draws. The first visit to a stage stalls
 for about 5 s while it builds. [docs/apple-tv.md](../../docs/apple-tv.md) has the measurements
-and how this compares with the other approaches. The 1st (A10X) and 2nd (A12) generations
-haven't been measured on hardware yet.
+and how this compares with the other approaches. The [first-generation A10X hardware
+follow-up](../../docs/a10x-performance.md) records all six stages, the menu, four-player
+limits and the native framebuffer-copy optimization. The second generation (A12) has
+not been measured on hardware yet.
 
 ## Release builds
 
