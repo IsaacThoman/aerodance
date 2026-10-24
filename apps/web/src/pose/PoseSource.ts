@@ -59,6 +59,8 @@ export interface PoseSource {
   /** The camera feed, for the setup preview (a webcam, or a phone's picture while it sends one). */
   readonly video?: PreviewPicture | null;
   subscribeRecords(listener: (event: PoseSourceEvent) => void): () => void;
+  /** Live cameras identify the current line-up afresh before a song's calibration. */
+  resetTracking?(): void;
   /** Sources that play back poses follow the song; the webcam ignores it. */
   attachSong?(song: SongClock | null): void;
 }
