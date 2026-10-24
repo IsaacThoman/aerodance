@@ -82,7 +82,7 @@ function widestCode(g: CanvasRenderingContext2D) {
 
 /**
  * The QR code, and beside it Pair phone, the address to open and the code to type, centred in
- * `rect`. Without a pairing yet, the same card with a blank QR code and no code: it's laid out
+ * `rect`. Without a pairing yet, the same card with a blank QR code and a dash for each digit: it's laid out
  * around the widest code and a link as long as a real one, so nothing moves when the code comes.
  */
 export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: PhonePairing | null) {
@@ -127,10 +127,27 @@ export function drawPairing(g: CanvasRenderingContext2D, rect: Rect, pairing: Ph
   text(g, 'Pair phone', x + iconW + 14 * k, y + 1, { size: labelSize, weight: 800 });
   y += iconR / 2 + 22 * k + urlSize / 2;
   text(g, address, x, y, { size: urlSize, weight: 800, color: '#bff4ff' });
-  if (!pairing) return;
   y += urlSize / 2 + 12 * k + codeSize / 2;
   g.save();
-  if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
-  text(g, code, x, y, { size: codeSize, weight: 800 });
+  if (pairing) {
+    if ('letterSpacing' in g) g.letterSpacing = `${codeSize * 0.08}px`;
+    text(g, code, x, y, { size: codeSize, weight: 800 });
+  } else {
+    // A dash where each digit will be, three and three as the code is.
+    g.font = `800 ${codeSize}px ${FONT}`;
+    const spacing = codeSize * 0.08;
+    const digitW = g.measureText('0').width + spacing;
+    const spaceW = g.measureText(' ').width + spacing;
+    g.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+    g.lineWidth = codeSize * 0.1;
+    g.lineCap = 'round';
+    g.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const cx = x + i * digitW + (i >= 3 ? spaceW : 0) + (digitW - spacing) / 2;
+      g.moveTo(cx - digitW * 0.28, y);
+      g.lineTo(cx + digitW * 0.28, y);
+    }
+    g.stroke();
+  }
   g.restore();
 }
