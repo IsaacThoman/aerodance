@@ -30,8 +30,8 @@ import type { MirrorView } from './MirrorDancers.tsx';
 /**
  * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers):
  *
- *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
- *              pressed, over the camera picker; every player holds still together for
+ *   calibrating camera setup: the preview, which starts the camera when pressed (the phone
+ *              pairs by itself), over the camera picker; every player holds still together for
  *              2.5 seconds. With No camera picked, the preview is a No camera button that
  *              starts the song straight away
  *   ready      the countdown starts once everyone has been tracked for a second
@@ -163,7 +163,8 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
 
   const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 66 });
   const pairing = camera.pairing();
-  if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
+  // The pairing card goes up as soon as the phone is picked; its code fills in once it comes.
+  if (pairing || camera.awaitingCode()) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
   drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
 
@@ -242,7 +243,7 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.lineJoin = 'round';
   (none ? ICONS.noCamera : phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
   g.restore();
-  text(g, failed ? 'Try again' : none ? 'No camera' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
+  text(g, failed ? 'Try again' : none ? 'No camera' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
 }
 
@@ -285,7 +286,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
         // Top to bottom: back, the preview (start camera, or continue without one), the camera picker.
         const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
         if (camera.none()) list.push({ id: 'skip', rect: GAME_CALIBRATION_PREVIEW, primary: true });
-        else if (!camera.active()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW, primary: true });
+        else if (!camera.active() && !camera.pairsItself()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW, primary: true });
         return [...list, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
       }
       if (['ready', 'calibrating', 'loading', 'error'].includes(ph)) {

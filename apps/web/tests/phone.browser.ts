@@ -18,7 +18,7 @@ import { chromium, webkit } from 'playwright';
 import type { Browser, Page } from 'playwright';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import { MINUS, START, PLAYERS_GO } from '../src/menu/layout.ts';
-import { DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, rowRect } from '../src/game/layout.ts';
+import { DANCE, GAME_CALIBRATION_CAMERA, rowRect } from '../src/game/layout.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { createPairingServer } from '../../../packages/pairing/server.ts';
 
@@ -138,11 +138,10 @@ try {
   await until(game, 'previewState', 'playing'); await until(game, 'stageReady', 'true');
 
   // Calibration: the phone is two back from the default camera (after it, No camera wraps
-  // round); pressing the preview starts pairing.
+  // round); picking it shows the pairing code without a press.
   await click(DANCE); await until(game, 'gamePhase', 'calibrating'); await until(game, 'gameReady', 'true');
   await click(GAME_CALIBRATION_CAMERA.prev);
   await click(GAME_CALIBRATION_CAMERA.prev);
-  await click(GAME_CALIBRATION_PREVIEW);
   await until(game, 'gamePairing', /^\d{6}$/);
   const code = await data(game, 'gamePairing');
   assert.equal(await data(game, 'gameCameraStatus'), 'connecting');
