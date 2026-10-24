@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CameraSetup, cameraWidgets } from '../src/connect/cameraSetup.ts';
+import { CameraSetup, PHONE_SETTLE_MS, cameraWidgets } from '../src/connect/cameraSetup.ts';
 import { NO_CAMERA, PHONE_CAMERA } from '../src/pose/CameraInput.ts';
 import type { CameraInput, CameraInputView } from '../src/pose/CameraInput.ts';
 import type { CameraInfo } from '../../../packages/pose/browser/WebcamPoseSource.ts';
@@ -58,6 +58,7 @@ test("iOS's multi-lens cameras are left out, its real lenses kept", async () => 
 });
 
 // A camera setup over a fake camera: connect() opens it (status connecting) unless it fails, configure() picks another.
+// tick() moves its clock on.
 function autoSetup({ auto = true, fails = false } = {}) {
   const connection = { status: 'disconnected', cameraId: '', cameras: [PHONE_CAMERA, NO_CAMERA], sourceKind: 'webcam' } as unknown as CameraInputView;
   let connects = 0;
@@ -69,8 +70,9 @@ function autoSetup({ auto = true, fails = false } = {}) {
       connection.sourceKind = cameraId === PHONE_CAMERA.deviceId ? 'phone' : 'webcam';
     },
   } as unknown as CameraInput;
-  const setup = new CameraSetup(() => ({ source, connection }), { auto });
-  return { setup, connection, connects: () => connects };
+  let time = 0;
+  const setup = new CameraSetup(() => ({ source, connection }), { auto, now: () => time });
+  return { setup, connection, connects: () => connects, tick: (ms: number) => { time += ms; } };
 }
 
 test('in the app a device camera starts by itself, once, and again after picking another lens', async () => {
@@ -86,22 +88,19 @@ test('in the app a device camera starts by itself, once, and again after picking
   assert.equal(connects(), 2);
 });
 
-test('the phone and No camera wait for a press, and a camera that failed shows its error until another is picked', async () => {
-  const phone = autoSetup();
-  await phone.setup.target().source.configure({ cameraId: PHONE_CAMERA.deviceId });
-  phone.setup.update();
+test('No camera waits for a press, and a camera that failed shows its error until another is picked', async () => {
   const none = autoSetup();
   await none.setup.target().source.configure({ cameraId: NO_CAMERA.deviceId });
-  none.setup.update();
-  assert.equal(phone.connects() + none.connects(), 0);
+  none.setup.update(); none.tick(PHONE_SETTLE_MS); none.setup.update();
+  assert.equal(none.connects(), 0);
   const failing = autoSetup({ fails: true });
   failing.setup.update(); failing.setup.update();
   assert.equal(failing.connects(), 1);
-  failing.setup.activate(next);
+  failing.setup.activate(prev);
   await Promise.resolve();
   failing.setup.update();
-  assert.equal(failing.connects(), 1, 'Phone camera is next: it waits for a press');
-  failing.setup.activate(prev);
+  assert.equal(failing.connects(), 1, 'No camera is before it: it waits for a press');
+  failing.setup.activate(next);
   await Promise.resolve();
   failing.setup.update();
   assert.equal(failing.connects(), 2);
@@ -111,4 +110,34 @@ test('a browser waits for Start camera', () => {
   const { setup, connects } = autoSetup({ auto: false });
   setup.update();
   assert.equal(connects(), 0);
+});
+
+for (const auto of [false, true]) {
+  test(`the phone pairs by itself once it has been picked for a moment (${auto ? 'app' : 'browser'})`, async () => {
+    const { setup, connection, connects, tick } = autoSetup({ auto });
+    await setup.target().source.configure({ cameraId: PHONE_CAMERA.deviceId });
+    assert.ok(setup.pairsItself());
+    setup.update(); tick(PHONE_SETTLE_MS - 1); setup.update();
+    assert.equal(connects(), 0, 'not straight away');
+    tick(1); setup.update(); setup.update();
+    assert.equal(connects(), 1);
+    // Pairing that fails waits for Try again.
+    connection.status = 'error';
+    assert.ok(!setup.pairsItself());
+    tick(PHONE_SETTLE_MS); setup.update();
+    assert.equal(connects(), 1);
+  });
+}
+
+test('arrowing past the phone does not pair it', async () => {
+  const { setup, connects, tick } = autoSetup({ auto: false });
+  await setup.target().source.configure({ cameraId: PHONE_CAMERA.deviceId });
+  setup.update(); tick(PHONE_SETTLE_MS - 1); setup.update();
+  await setup.target().source.configure({ cameraId: NO_CAMERA.deviceId });
+  setup.update(); tick(1); setup.update();
+  await setup.target().source.configure({ cameraId: PHONE_CAMERA.deviceId });
+  setup.update(); tick(PHONE_SETTLE_MS - 1); setup.update();
+  assert.equal(connects(), 0, 'the wait starts again each time the phone is picked');
+  tick(1); setup.update();
+  assert.equal(connects(), 1);
 });
