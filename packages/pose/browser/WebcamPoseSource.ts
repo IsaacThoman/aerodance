@@ -244,6 +244,12 @@ export class WebcamPoseSource {
     this.disconnect(); this.playerCount = count;
     if (active) await this.connect();
   }
+  /** A new song starts with a fresh line-up, without restarting the camera or model. */
+  resetTracking() {
+    this.tracker = new PlayerTracker(this.playerCount);
+    this.players = 0;
+    this.publish({ snapshot: null });
+  }
   disconnect(message = 'Camera stopped. Start camera to resume.') {
     this.generation++;
     this.controller?.abort();

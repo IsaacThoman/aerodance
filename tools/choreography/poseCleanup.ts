@@ -18,8 +18,9 @@ export function cleanupPoses<T extends CleanupSample>(input: readonly T[], size:
   const distance = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot((a.x-b.x)*aspect,a.y-b.y);
   const selected = (i: number) => samples[i].takeTimeMs >= (options.startMs ?? -Infinity) && samples[i].takeTimeMs < (options.endMs ?? Infinity);
   samples.forEach(s => { s.quality ??= qualityFor(s.poses); });
-  for (const id of [0,1]) {
-    if (options.playerId != null && options.playerId !== id) continue;
+  // Every dancer the samples hold (a song has up to four), or just the one asked for.
+  const ids = options.playerId != null ? [options.playerId] : [...new Set(input.flatMap(s => s.poses.map(p => p.playerId)))].sort((a, b) => a - b);
+  for (const id of ids) {
     const original = input.map(s => s.poses.find(p => p.playerId === id));
     const hasOriginal = original.some(Boolean);
     const lengths = original.flatMap(p => p && [11,12,23,24].every(j => reliable(p.landmarks[j]))

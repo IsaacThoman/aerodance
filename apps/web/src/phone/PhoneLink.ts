@@ -567,6 +567,7 @@ export class PhoneLink {
     if (message.type === 'ping') this.send(replyTo, { type: 'pong', id: message.id, t0: message.t0, t1: this.now() });
     else if (message.type === 'game') this.publish({ playing: message.playing });
     else if (message.type === 'preview') { this.previewWanted = message.on; this.updateVideo(); }
+    else if (message.type === 'reset-tracking') this.camera.resetTracking();
     else {
       this.publish({ playerCount: message.playerCount });
       void this.camera.setPlayerCount(message.playerCount).catch(() => {});

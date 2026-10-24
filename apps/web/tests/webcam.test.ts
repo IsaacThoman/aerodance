@@ -124,6 +124,33 @@ test('webcam backpressure, empty detections, freshness and cleanup', async t => 
   assert.equal(f.source.view.status, 'disconnected');
   assert.equal(f.stopped, 1); assert.equal(f.terminated, 1);
 });
+
+test('a fresh setup line-up renumbers two dancers without restarting the camera or model', async t => {
+  const f = fixture(t);
+  await f.source.setPlayerCount(2);
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  const controller = new PoseSourceController({ webcam: f.source });
+  const feed = async (start: number, xs: number[]) => {
+    for (let i = 0; i < 12; i++) {
+      await f.frame(start + i * 0.033);
+      f.deliver({ type: 'result', seq: f.source.seq, landmarks: xs.map(x => detected(standingPose(x))), inferenceMs: 10 });
+    }
+  };
+  await feed(1, [0.3, 0.7]);
+  assert.equal(f.source.tracker.lined, true);
+  const before = f.source.tracker;
+  controller.resetTracking();
+  assert.equal(controller.view.snapshot, null);
+  assert.notEqual(f.source.tracker, before);
+  assert.equal(f.source.tracker.lined, false);
+  // A different line-up on the same camera is numbered afresh, even in detector order.
+  await feed(1.4, [0.4, 0.2]);
+  assert.equal(f.source.tracker.lined, true);
+  assert.deepEqual(f.source.view.snapshot!.poses.map(p => [p.playerId, p.landmarks[0].x]), [[0, 0.4], [1, 0.2]]);
+  assert.equal(f.opened, 1, 'camera stays open');
+  assert.equal(f.terminated, 0, 'worker stays running');
+  assert.equal(f.messages.filter(m => m.type === 'initialize').length, 1, 'model stays loaded');
+});
 test('the newest frame that comes while one is in flight is sent as soon as its result is in', async t => {
   const f = fixture(t);
   await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
@@ -318,7 +345,7 @@ test('webcam capture times drive scored gameplay and recordings through the cont
     await f.frame(capture / 1000, capture);
     f.setTime(capture + 300);
     f.deliver({ type: 'result', seq: ++seq,
-      landmarks: sampleSong(bundle, ms, 1).poses.map(p => detected(p.landmarks)), inferenceMs: 300 });
+      landmarks: sampleSong(bundle, ms, [0]).poses.map(p => detected(p.landmarks)), inferenceMs: 300 });
   }
   session.scorer.finish();
   assert.ok(session.scorer.result(0).score > 950000, `webcam score ${session.scorer.result(0).score}`);

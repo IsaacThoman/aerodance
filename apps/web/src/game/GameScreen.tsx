@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawDarkGlassPanel, drawGlassButton, drawHeader, drawHeadline as headline, drawProgress, drawShadowText, drawStatusDot,
+  FONT, drawCaps, drawDancer, drawDarkGlassPanel, drawGlassButton, drawHeader, drawHeadline as headline, drawProgress, drawShadowText, drawStatusDot,
   ellipsize, glassCorner, ICONS, paragraph, roundRect, text,
 } from '../ui/draw.ts';
 import type { Face, Rect } from '../ui/draw.ts';
@@ -21,6 +21,7 @@ import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
 import { getMixer } from '../audio/mixer.ts';
+import { leadOf } from '../../../../packages/pose/song.ts';
 import { gameLayout, PLAYER_HUD_TOP, playerHudX } from './layout.ts';
 import { displayDesign } from '../display.ts';
 import MirrorDancers from './MirrorDancers.tsx';
@@ -29,8 +30,8 @@ import type { MirrorView } from './MirrorDancers.tsx';
 /**
  * The gameplay overlay, drawn in-engine over the song's stage (StageView draws the dancers):
  *
- *   calibrating camera setup: the preview, which starts the camera (or pairs the phone) when
- *              pressed, over the camera picker; every player holds still together for
+ *   calibrating camera setup: the preview, which starts the camera when pressed (the phone
+ *              pairs by itself), over the camera picker; every player holds still together for
  *              2.5 seconds. With No camera picked, the preview is a No camera button that
  *              starts the song straight away
  *   ready      the countdown starts once everyone has been tracked for a second
@@ -90,14 +91,28 @@ const fmt = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-// Without a camera (tracking false) there is nothing to say about tracking.
-function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean, width: number) {
+// Without a camera (tracking false) there is nothing to say about tracking. A player sharing
+// a dancer someone before them follows (lead) is shown that dancer's colour beside their name:
+// the one on the stage to follow.
+function drawPlayerHud(g: CanvasRenderingContext2D, id: number, count: number, lead: number, result: PlayerResult | undefined, readiness: Readiness | undefined, popups: readonly Popup[], now: number, tracking: boolean, width: number) {
   const cx = playerHudX(id, count, width) * width;
   const top = PLAYER_HUD_TOP;
   const p = PLAYERS[id];
   // Three or four panels share the corners, so their text is smaller.
   const crowd = count > 2;
   drawCaps(g, `PLAYER ${id + 1}`, cx, top + 19, { size: 18, align: 'center' });
+  if (lead !== id) {
+    g.save();
+    g.font = `800 18px ${FONT}`;
+    const half = (g.measureText(`PLAYER ${id + 1}`).width + 9 * 4) / 2;
+    const followed = PLAYERS[lead], fill = g.createLinearGradient(0, top + 2, 0, top + 34);
+    [followed.light, followed.color, followed.dark].forEach((color, i) => fill.addColorStop(i / 2, color));
+    g.shadowColor = 'rgba(0, 34, 84, 0.7)';
+    g.shadowBlur = 6;
+    g.shadowOffsetY = 2;
+    drawDancer(g, cx - half - 16, top + 34, 32, fill);
+    g.restore();
+  }
   headline(g, (result?.score ?? 0).toLocaleString('en-US'), cx, top + (crowd ? 66 : 76), crowd ? 36 : 46, ['#ffffff', p.light, p.color], crowd ? 200 : 300);
   if (result && result.combo > 1) drawShadowText(g, `${result.combo} combo`, cx, top + (crowd ? 94 : 108), { size: crowd ? 18 : 22, weight: 800, align: 'center', color: '#bff4ff' });
   if (tracking && readiness === 'missing') drawShadowText(g, crowd ? 'Step back in' : 'Step back into view', cx, top + (crowd ? 120 : 138), { size: crowd ? 17 : 20, weight: 700, align: 'center', color: '#ffe27a' });
@@ -148,7 +163,8 @@ function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, cali
 
   const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 66 });
   const pairing = camera.pairing();
-  if (pairing) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
+  // The pairing card goes up as soon as the phone is picked; its code fills in once it comes.
+  if (pairing || camera.awaitingCode()) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
   else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
   drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
 
@@ -227,7 +243,7 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.lineJoin = 'round';
   (none ? ICONS.noCamera : phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
   g.restore();
-  text(g, failed ? 'Try again' : none ? 'No camera' : phone ? 'Pair phone' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
+  text(g, failed ? 'Try again' : none ? 'No camera' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
 }
 
@@ -270,7 +286,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
         // Top to bottom: back, the preview (start camera, or continue without one), the camera picker.
         const list: CameraWidget[] = [{ id: 'quit', circle: GAME_READY_BACK }];
         if (camera.none()) list.push({ id: 'skip', rect: GAME_CALIBRATION_PREVIEW, primary: true });
-        else if (!camera.active()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW, primary: true });
+        else if (!camera.active() && !camera.pairsItself()) list.push({ id: 'start-camera', rect: GAME_CALIBRATION_PREVIEW, primary: true });
         return [...list, ...cameraWidgets(GAME_CALIBRATION_CAMERA)];
       }
       if (['ready', 'calibrating', 'loading', 'error'].includes(ph)) {
@@ -402,7 +418,9 @@ export default function GameScreen({ visible = false, session, camera: source, o
       const scores = session.scorer.results();
       const readiness = session.readiness();
       const tracked = tracking(session);
-      for (let id = 0; id < session.playerCount; id++) drawPlayerHud(g, id, session.playerCount, scores[id], readiness[id], st.popups, now, tracked, s.w);
+      for (let id = 0; id < session.playerCount; id++) {
+        drawPlayerHud(g, id, session.playerCount, leadOf(session.cast, session.cast[id]), scores[id], readiness[id], st.popups, now, tracked, s.w);
+      }
       if (tracked) drawMirror(g, GAME_MIRROR);
       if (ph !== 'paused') {
         // Just the icon, light grey at the top of the mirror (white when hovered).

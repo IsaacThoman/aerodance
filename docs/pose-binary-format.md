@@ -110,7 +110,7 @@ choreography normally has a single `FRMS` chunk.
 | 0 | u16 | `formatVersion` | `1` |
 | 2 | u8 | `kind` | 1 `choreography`, 2 `take`, 3 `track`, 4 `capture`, 5 `recording` |
 | 3 | u8 | `clock` | Meaning of frame time: 1 song, 2 take, 3 media |
-| 4 | u8 | `playerSlots` | `1` to `4`; the number of pose slots per frame. Only a `recording` has more than `2` |
+| 4 | u8 | `playerSlots` | `1` to `4`; the number of pose slots per frame. A `track` or `capture` has at most `2` |
 | 5 | u8 | `landmarkSet` | `1` = MediaPipe pose-33 (`landmarkCount` 33) |
 | 6 | u8 | `flags` | bit 0: frames carry joint flags (see [Quality](#quality)); other bits 0 |
 | 7 | u8 | `modelId` | 0 unknown, 1 `lite`, 2 `full`, 3 `heavy` |
@@ -123,11 +123,11 @@ choreography normally has a single `FRMS` chunk.
 | … | f64[] | `extensionBases` | One base time in ms per extension field, in the same order |
 
 `playerSlots` is the slot count, not the number of dancers present. A slot can
-be empty in any frame. A `track` file has one slot; the player it holds is named
-in `TRAK`. A game `recording` has one per player, up to four (three and four
-players dance a duet's parts again; see
-[three and four players](three-and-four-players.md)); every other kind is a duet
-at most.
+be empty in any frame. A `choreography` has one per dancer, one to four (each player
+follows one of them; see [three and four players](three-and-four-players.md)). A
+`track` file has one slot; the dancer it holds is named in `TRAK`. A game `recording`
+has one per player, up to four. A `take` has two, or up to four for a song's
+choreography imported into Studio; a `capture` is a duet at most.
 
 ### Frame extension fields
 
@@ -310,7 +310,7 @@ The game still cross-checks `songId` and the three times against `song.json`.
 | Type | Field |
 |---|---|
 | u8 | `slot` |
-| u8 | `playerId`: `0` or `1` |
+| u8 | `playerId`: the dancer, `0` to `3` |
 | str | `label` |
 | u8 | `calibrationProfile`: 0 none, 1 or 2 matching `profileVersion` |
 | f32 ×6 | `torsoLength`, `baseHip.x`, `baseHip.y`, `baseHip.z`, `floorY`, `bodyTorsoLength` (NaN when absent) |
@@ -318,9 +318,8 @@ The game still cross-checks `songId` and the three times against `song.json`.
 | u16 | `exclusionCount` |
 | (f64, f64, str)[] | `startMs`, `endMs`, `reason` for each exclusion |
 
-The calibration's input size is `HEAD.inputWidth`/`inputHeight`. In a
-choreography, `TRAK` slot 0 must be player 0 and slot 1 must be player 1, the
-same as the current "both tracks" rule.
+The calibration's input size is `HEAD.inputWidth`/`inputHeight`. A choreography
+has a `TRAK` for every slot, in order: slot `n` holds dancer `n`.
 
 ### `MARK`: optional, `choreography` only
 

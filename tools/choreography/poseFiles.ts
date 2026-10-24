@@ -12,7 +12,7 @@ import {
 } from "../../packages/pose/binary.ts";
 import type { PoseFrames, PoseHeaderInput } from "../../packages/pose/binary.ts";
 import { finite, isArray, isObject } from "../../packages/pose/choreography.ts";
-import type { FrameSize } from "../../packages/pose/choreography.ts";
+import type { FrameSize, PlayerCount } from "../../packages/pose/choreography.ts";
 import { isPoseModelId } from "../../packages/pose/browser/models.ts";
 import type { PoseModelId } from "../../packages/pose/browser/models.ts";
 import type { CalibrationFrame, SourceRef, Take, TakeSummary, TrackData } from "./core.ts";
@@ -42,10 +42,16 @@ function decodeKind(bytes: Uint8Array, kind: PoseFrames["kind"]): PoseFrames {
   return f;
 }
 
+/** A take's dancer slots: a capture's two, or every dancer of a song imported as a take. */
+export function takeSlots(take: Pick<Take, "samples">): PlayerCount {
+  let slots = 2;
+  for (const s of take.samples) for (const p of s.poses) slots = Math.max(slots, p.playerId + 1);
+  return slots as PlayerCount;
+}
 export function encodeTake(take: Take): Uint8Array<ArrayBuffer> {
   const frame = take.calibrationFrame;
   return encodePoseFile(framesFromSamples({
-    kind: "take", playerSlots: 2, input: frameSize(take.input), modelId: modelOf(take.provenance),
+    kind: "take", playerSlots: takeSlots(take), input: frameSize(take.input), modelId: modelOf(take.provenance),
     ...(take.provenance == null ? {} : { provenance: take.provenance }),
   }, take.samples, "takeTimeMs", frame ? { calibrationFrame: { timeMs: frame.mediaTimeMs, poses: frame.poses } } : {}));
 }

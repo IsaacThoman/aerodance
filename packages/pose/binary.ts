@@ -1,6 +1,6 @@
 // .adpose, the chunked binary pose container (docs/pose-binary-format.md): one format for song
 // choreography, Studio takes, tracks and raw captures, and game replay recordings.
-import { DUET, MAX_PLAYERS, interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
+import { DUET, MAX_DANCERS, MAX_PLAYERS, interpolatePoses, interpolatedOrigin, qualityFor } from './choreography.ts';
 import type { FrameSize, LandmarkOrigin, PlayerCount, Pose, PoseQuality, PoseSnapshot, TimedPoses, TimeKey, TrackCalibration } from './choreography.ts';
 import type { PoseModelId } from './browser/models.ts';
 import type { ScoreExclusion } from './song.ts';
@@ -54,7 +54,7 @@ export type FileCaptureEvent = TimedCaptureEvent & { frameIndex: number };
 /** Everything in a file except its frames. */
 export interface PoseFileHeader {
   kind: PoseFileKind;
-  /** Up to two, except a game recording's one per player (up to four). */
+  /** Up to four: a song choreography's one per dancer, a game recording's one per player; tracks and captures hold one or two. */
   playerSlots: PlayerCount;
   input: FrameSize;
   modelId: PoseModelId | null;
@@ -99,10 +99,12 @@ export type PoseHeaderInput = Omit<PoseFileHeader, 'positionStep' | 'extensionId
 
 function fail(message: string): never { throw Error(`Invalid pose file: ${message}`); }
 function check(condition: unknown, message: string): asserts condition { if (!condition) fail(message); }
-// Only a game recording holds three or four players; everything Studio makes is a duet.
+// A song's choreography (one slot per dancer), a take (which can be a song's choreography
+// imported into Studio) and a game recording (one per player) hold up to four; tracks and
+// captures are duets at most.
 function checkSlots(kind: PoseFileKind, playerSlots: number) {
   check(Number.isInteger(playerSlots) && playerSlots >= 1 && playerSlots <= MAX_PLAYERS, `player slots must be 1 to ${MAX_PLAYERS}`);
-  if (kind !== 'recording') check(playerSlots <= DUET, `a ${kind} holds at most two slots`);
+  if (kind === 'track' || kind === 'capture') check(playerSlots <= DUET, `a ${kind} holds at most two slots`);
 }
 const encoder = new TextEncoder();
 const pad8 = (n: number) => (8 - n % 8) % 8;
@@ -401,7 +403,7 @@ function readTrack(payload: Uint8Array, input: FrameSize): TrackHeader {
   const slot = r.u8(), playerId = r.u8(), label = r.str(), profile = r.u8();
   const [torsoLength, x, y, z, floorY, bodyTorsoLength] = Array.from({ length: 6 }, () => r.f32());
   const scaleMode = r.u8();
-  check(playerId <= 1 && profile <= 2 && scaleMode <= 1, 'invalid track header');
+  check(playerId < MAX_DANCERS && profile <= 2 && scaleMode <= 1, 'invalid track header');
   const exclusions = Array.from({ length: r.u16() }, () => ({ startMs: r.f64(), endMs: r.f64(), reason: r.str() }));
   r.end();
   let calibration: TrackCalibration | null = null;
@@ -562,7 +564,7 @@ export function decodePoseFile(bytes: Uint8Array, { allowTruncated = false }: De
 function checkKind(h: PoseFileHeader, tracks: TrackHeader[]) {
   if (h.kind === 'choreography' || h.kind === 'take' || h.kind === 'track') check(!h.extensionIds.length, `a ${h.kind} has no extension fields`);
   if (h.kind === 'choreography') {
-    check(h.playerSlots === 2 && tracks.length === 2 && tracks.every((t, i) => t.slot === i && t.playerId === i), 'both tracks are required');
+    check(tracks.length === h.playerSlots && tracks.every((t, i) => t.slot === i && t.playerId === i), 'every dancer needs its track, in order');
     const s = h.song!;
     check(Number.isFinite(s.durationMs) && s.durationMs > 0 && s.playableStartMs >= 0 && s.playableStartMs < s.playableEndMs && s.playableEndMs <= s.durationMs, 'invalid song bounds');
     check(s.maxInterpolationGapMs >= 1 && s.maxInterpolationGapMs <= 200 && s.confidenceThreshold <= 254, 'invalid sampling policy');

@@ -39,6 +39,7 @@ export class PoseSourceController {
   connect() { return this.source.connect(); }
   disconnect() { this.source.disconnect(); }
   setPlayerCount(count: PlayerCount) { this.playerCount = count; return this.source.setPlayerCount(count); }
+  resetTracking() { this.source.resetTracking(); }
   configure(options?: WebcamConfigureOptions) { return this.source.configure(options); }
   refreshCameras() { return this.source.refreshCameras(); }
 }

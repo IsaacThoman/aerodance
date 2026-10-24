@@ -70,7 +70,7 @@ const isShape = (v: unknown): v is Shape =>
   typeof v === 'object' && v !== null && typeof Reflect.get(v, 'x') === 'number' && typeof Reflect.get(v, 'y') === 'number';
 const centre = (s: Shape) => ({ x: s.x + (s.w ?? 0) / 2, y: s.y + (s.h ?? 0) / 2 });
 
-/** The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the key as an argument). */
+/** The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the numbers after them as arguments). */
 function resolveTarget(target: string, width = 1600) {
   const layouts: Record<string, Record<string, unknown>> = {
     menu: { ...menuLayout, ...menuLayout.menuLayout(width) },
@@ -85,8 +85,12 @@ function resolveTarget(target: string, width = 1600) {
   if (found.length > 1) throw Error(`${target} is in ${found.join(' and ')}; use ${found.map((m) => `${m}.${target}`).join(' or ')}`);
   if (!found.length) throw Error(`Unknown target ${target}; see \`node scripts/play.ts targets\``);
   let value: unknown = layouts[found[0]];
-  for (const part of parts) {
-    value = typeof value === 'function' ? value(Number(part)) : (value as Record<string, unknown> | undefined)?.[part];
+  for (let i = 0; i < parts.length; i++) {
+    if (typeof value !== 'function') { value = (value as Record<string, unknown> | undefined)?.[parts[i]]; continue; }
+    const args: number[] = [];
+    while (i < parts.length && /^\d+$/.test(parts[i])) args.push(Number(parts[i++]));
+    i--;
+    value = value(...args);
   }
   if (typeof value === 'function') value = value(0);
   const shape = isShape(value) ? value : (value as { rect?: unknown } | undefined)?.rect;

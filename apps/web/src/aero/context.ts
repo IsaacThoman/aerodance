@@ -53,12 +53,17 @@ export function createAeroContext({ renderer, scene, camera }: ContextOptions): 
     autoClear: renderer.autoClear, toneMapping: renderer.toneMapping,
     shadow: renderer.shadowMap.enabled, shadowType: renderer.shadowMap.type, shadowAuto: renderer.shadowMap.autoUpdate,
     fog: scene.fog, environment: scene.environment, background: scene.background,
+    sceneMatrixAutoUpdate: scene.matrixAutoUpdate,
     fov: camera.fov, near: camera.near, far: camera.far,
   };
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.shadowMap.autoUpdate = false;
+  // The scene itself stays still. Recomposing it on every render forces every descendant's
+  // world matrix to be multiplied again, even the frozen meshes and hidden shadow trees.
+  if (scene.matrixAutoUpdate) scene.updateMatrix();
+  scene.matrixAutoUpdate = false;
   const ANISO = renderer.capabilities.getMaxAnisotropy();
   const root = new THREE.Group();
   root.name = 'aero-world';
@@ -118,7 +123,7 @@ export function createAeroContext({ renderer, scene, camera }: ContextOptions): 
     disposables.forEach(free);
     Object.assign(renderer, { autoClear: prev.autoClear, toneMapping: prev.toneMapping });
     Object.assign(renderer.shadowMap, { enabled: prev.shadow, type: prev.shadowType, autoUpdate: prev.shadowAuto });
-    Object.assign(scene, { fog: prev.fog, environment: prev.environment, background: prev.background });
+    Object.assign(scene, { fog: prev.fog, environment: prev.environment, background: prev.background, matrixAutoUpdate: prev.sceneMatrixAutoUpdate });
     Object.assign(camera, { fov: prev.fov, near: prev.near, far: prev.far }); camera.updateProjectionMatrix();
   }
 

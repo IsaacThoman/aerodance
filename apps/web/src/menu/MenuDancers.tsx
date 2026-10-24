@@ -140,6 +140,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
   const rig = useRef<THREE.Group>(null);
   const clock = useRef(0);
   const shown = useRef(0);
+  const active = useRef(true);
   const lift = useRef(0);
   const n = clampCount(count);
   const spots = useRef<(THREE.Group | null)[]>([]);
@@ -173,7 +174,8 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
     shown.current += ((visible ? 1 : 0) - shown.current) * Math.min(1, dt * (visible ? 2.5 : 5));
-    if (!motion || !rig.current || shown.current < 0.005) return;
+    active.current = !!motion && !!rig.current && shown.current >= 0.005;
+    if (!active.current || !rig.current) return;
 
     const t = state.clock.elapsedTime;
     const away = 1 - shown.current;
@@ -311,6 +313,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
                       motion={motion}
                       person={i % 2}
                       playback={playback[i]}
+                      activeRef={active}
                       appearance={appearance}
                       // Player 1 never leaves, so it keeps the solid (depth-writing) outline.
                       opacityRef={i ? opacity[i] : undefined}

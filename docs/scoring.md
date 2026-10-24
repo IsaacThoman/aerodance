@@ -6,9 +6,10 @@ scores must bump that version; best scores are saved per version.
 
 ## In one paragraph
 
-Every 100 ms of song time, each player's live pose is compared with their own
-choreography track (player 1 with track 0, player 2 with track 1; players 3 and 4 dance
-the two parts again, with tracks 0 and 1). The comparison uses
+Every 100 ms of song time, each player's live pose is compared with the choreography
+track of the dancer they follow (their cast: player 1 with track 0 and player 2 with track
+1 unless they pick others, and players sharing a dancer are each compared with its track;
+see [three and four players](three-and-four-players.md)). The comparison uses
 the directions of their limbs as seen by the camera, plus how those limbs are moving.
 The player gets the best match within ±150 ms of the beat, with a small penalty beyond
 ±50 ms. Each 100 ms interval is worth an equal share of 1,000,000 points. Every second

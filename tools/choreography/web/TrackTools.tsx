@@ -26,6 +26,8 @@ export default function TrackTools({ project, studio, workspace, fillable, edito
   const rangeValid = workspace.selection[1] > workspace.selection[0];
   const sourceData = studio.takes.get(project.tracks[playerId].dataId ?? '');
   const hasPoses = isTrackData(sourceData) && sourceData.samples.some(s => s.poses.length);
+  // The song's other dancers, which this track can be mirrored onto or swapped with.
+  const others = project.tracks.map(t => t.playerId).filter(id => id !== playerId);
   return (
     <>
       <h3>P{playerId + 1} track</h3>
@@ -86,22 +88,23 @@ export default function TrackTools({ project, studio, workspace, fillable, edito
             >
               Interpolate P{t.playerId + 1} missing intervals
             </button>
-            <button
+            {others.map(other => <button
+              key={other}
               disabled={readOnly || busy || !hasPoses}
               onClick={() => void execute(async () => {
                 pause();
-                modifyTracks((p, assets) => mirrorTrack(p, assets, playerId));
-                setNotice(`Mirrored P${playerId + 1} to P${2 - playerId}. The destination was replaced. Review reflected poses before scoring; Undo restores the previous track.`);
+                modifyTracks((p, assets) => mirrorTrack(p, assets, playerId, other));
+                setNotice(`Mirrored P${playerId + 1} to P${other + 1}. The destination was replaced. Review reflected poses before scoring; Undo restores the previous track.`);
               })}
-            >Mirror P{playerId + 1} track to P{2 - playerId}</button>
-            <small className="muted">Mirroring replaces the other track with a reflected copy. Undo restores it.</small>
+            >Mirror P{playerId + 1} track to P{other + 1}</button>)}
+            {others.length > 0 && <small className="muted">Mirroring replaces the other track with a reflected copy. Undo restores it.</small>}
             <button
               className="danger"
               disabled={recording || busy || !t.dataId}
               onClick={() => {
                 if (
                   window.confirm(
-                    `Delete P${t.playerId + 1} track data? Its poses and edits will be cleared. Library takes and the other track will remain.`,
+                    `Delete P${t.playerId + 1} track data? Its poses and edits will be cleared. Library takes and the other tracks will remain.`,
                   )
                 ) {
                   pause();
@@ -128,7 +131,9 @@ export default function TrackTools({ project, studio, workspace, fillable, edito
         <button disabled={readOnly || busy || !rangeValid} onClick={() => apply("smooth")}>Smooth P{playerId + 1}</button>
         <button disabled={readOnly || busy || !rangeValid || workspace.selection[1] - workspace.selection[0] > 1000}
           onClick={() => apply("repair")}>Repair P{playerId + 1} short gap</button>
-        <button disabled={readOnly || busy || !rangeValid} onClick={() => apply("swap")}>Swap both player tracks</button>
+        {project.tracks.length === 2
+          ? <button disabled={readOnly || busy || !rangeValid} onClick={() => apply("swap")}>Swap both player tracks</button>
+          : others.map(other => <button key={other} disabled={readOnly || busy || !rangeValid} onClick={() => apply("swap", other)}>Swap P{playerId + 1} and P{other + 1} tracks</button>)}
       </div>
     </>
   );

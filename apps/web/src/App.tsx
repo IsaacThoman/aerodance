@@ -9,6 +9,8 @@ import { loadSound, saveSound } from './menu/soundSettings.ts';
 import { loadGraphics, saveGraphics } from './menu/graphicsSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import SongSelect from './game/SongSelect.tsx';
+import type { SongScreen } from './game/SongSelect.tsx';
+import { castLift } from './game/layout.ts';
 import GameScreen from './game/GameScreen.tsx';
 import ResultsScreen from './game/ResultsScreen.tsx';
 import { GameSession } from './game/GameSession.ts';
@@ -23,6 +25,7 @@ import type { StageState } from './stage/StageView.tsx';
 import type { LoadedSongBundle } from './songs/loadBundle.ts';
 import { resolveStage } from '../../../packages/stages/catalog.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
+import type { Cast } from '../../../packages/pose/song.ts';
 import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
@@ -100,8 +103,10 @@ export default function App() {
   const [connection, setConnection] = useState(source.view);
   const [replayView, setReplayView] = useState(replay?.view ?? null);
   const activeSource: PoseSource = replay ?? source;
-  // Song Select's preview: the routine to dance, and how its stage is doing.
+  // Song Select's preview: the routine to dance, and how its stage is doing. On the dancers
+  // screen the stage camera faces the dancers instead of circling them, raised above the pills.
   const [preview, setPreview] = useState<SongRoutine | null>(null);
+  const [songScreen, setSongScreen] = useState<SongScreen>('list');
   const [stage, setStage] = useState<StageState>({ showing: false, prepared: false, ready: false, stage: null, failed: false });
   const menuOpen = screen === 'menu';
   const selectedConnection = replay && replayView ? replayView : connection;
@@ -159,9 +164,10 @@ export default function App() {
     setScreen('menu');
   }, []);
 
-  // Dance! on Song Select: a new GameSession for the bundle, on the song's stage.
-  const startGame = useCallback((bundle: LoadedSongBundle) => {
-    const session = new GameSession({ bundle, playerCount, source: activeSource, record: params.has('record') });
+  // Dance! on Song Select: a new GameSession for the bundle and the dancers the players follow,
+  // on the song's stage.
+  const startGame = useCallback((bundle: LoadedSongBundle, cast: Cast) => {
+    const session = new GameSession({ bundle, playerCount, cast, source: activeSource, record: params.has('record') });
     resultsShow.current = null;
     setGame(session);
     setGamePhase(session.phase);
@@ -179,9 +185,9 @@ export default function App() {
     setScreen('songs');
   }, [endGame]);
   const retryGame = useCallback(() => {
-    const bundle = game?.bundle;
+    const bundle = game?.bundle, cast = game?.cast;
     endGame();
-    if (bundle) startGame(bundle);
+    if (bundle && cast) startGame(bundle, cast);
   }, [game, endGame, startGame]);
 
   // The session's phases drive the stage (results).
@@ -229,7 +235,8 @@ export default function App() {
           <Scene paused={stage.showing} background={background} />
           <StageView
             active={(songsOpen && !!preview) || screen === 'game'}
-            orbiting={songsOpen && !!preview}
+            orbiting={songsOpen && !!preview && songScreen !== 'dancers'}
+            lift={songsOpen && !!preview && songScreen === 'dancers' ? castLift(playerCount) : 0}
             stageId={stageId}
             routine={game ? gameRoutine : preview}
             results={resultsVisible ? resultsShow : null}
@@ -262,6 +269,7 @@ export default function App() {
             onBack={leaveSongs}
             stageState={stage}
             onPreviewChange={setPreview}
+            onScreenChange={setSongScreen}
             onDance={startGame}
           />
           <GameScreen

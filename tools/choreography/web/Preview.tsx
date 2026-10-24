@@ -14,6 +14,12 @@ import type { PreviewMode } from "./useWorkspace.ts";
 
 /** A dancer to draw as a character: its calibration maps poses onto the rig. */
 export interface PreviewTrack { playerId: number; calibration: TrackCalibration; }
+// Each dancer's character and skeleton colours: P1 cyan, P2 violet, P3 green, P4 pink.
+const CHARACTER_COLORS = ["#32c6ea", "#b79bff", "#4fd98f", "#ff86c4"];
+export const SKELETON_COLORS = ["#51daf0", "#be9cff", "#62e3a0", "#ff9acb"];
+const SKELETON_NAMES = ["cyan", "violet", "jade", "pink"];
+// Side by side, closer together the more there are.
+const SPACING = [0, 3.6, 3.6, 2.6, 2.2];
 export interface PreviewProps {
   snapshot: { poses: Pose[] };
   /** Unedited poses drawn faintly behind the skeleton. */
@@ -33,7 +39,7 @@ export interface PreviewProps {
   emptyMessage?: string;
   emptyHint?: string;
 }
-interface ActorProps { pose: Pose | undefined; calibration: TrackCalibration; id: number; mirrored: boolean; live: boolean; }
+interface ActorProps { pose: Pose | undefined; calibration: TrackCalibration; id: number; count: number; mirrored: boolean; live: boolean; }
 function Environment() {
   const { gl, scene, camera } = useThree();
   useEffect(() => {
@@ -51,22 +57,23 @@ function Environment() {
   }, [gl, scene, camera]);
   return null;
 }
-function Actor({ pose, calibration, id, mirrored, live }: ActorProps) {
+function Actor({ pose, calibration, id, count, mirrored, live }: ActorProps) {
   const invalidate = useThree((state) => state.invalidate);
   const poseRef = useRef<Pose | null>(null);
   poseRef.current = pose ?? null;
   useEffect(() => invalidate(), [pose, calibration, invalidate]);
   const appearance = useMemo(
     (): CharacterAppearance => ({
-      color: id === 0 ? "#32c6ea" : "#b79bff",
+      color: CHARACTER_COLORS[id % CHARACTER_COLORS.length],
       gloss: 85,
       accessory: "None",
     }),
     [id],
   );
+  const x = ((Math.max(count, 2) - 1) / 2 - id) * SPACING[Math.min(Math.max(count, 2), 4)];
   return (
     <group
-      position={[(id === 0 ? 1.8 : -1.8) * (mirrored ? -1 : 1), 0, 0]}
+      position={[x * (mirrored ? -1 : 1), 0, 0]}
       scale={[mirrored ? -1 : 1, 1, 1]}
     >
       <Character
@@ -182,6 +189,7 @@ export default function Preview({
                 <Actor
                   key={t.playerId}
                   id={t.playerId}
+                  count={tracks.length}
                   calibration={t.calibration}
                   mirrored={mirrored}
                   live={readOnly}
@@ -244,7 +252,7 @@ export default function Preview({
           {snapshot.poses.map((p) => (
             <g
               key={p.playerId}
-              style={{ color: p.playerId === 0 ? "#51daf0" : "#be9cff" }}
+              style={{ color: SKELETON_COLORS[p.playerId % SKELETON_COLORS.length] }}
             >
               {CONNECTIONS.map(([a, b]) => (
                 <line
@@ -293,14 +301,12 @@ export default function Preview({
         className="stage-label"
         style={{ flexDirection: mirrored ? "row" : "row-reverse" }}
       >
-        <span>
-          <i className="dot cyan" />
-          PLAYER 1
-        </span>
-        <span>
-          <i className="dot violet" />
-          PLAYER 2
-        </span>
+        {Array.from({ length: tracks.length || 2 }, (_, id) => (
+          <span key={id}>
+            <i className={`dot ${SKELETON_NAMES[id % SKELETON_NAMES.length]}`} />
+            PLAYER {id + 1}
+          </span>
+        ))}
       </div>
       {!snapshot.poses.length && (
         <div className="empty-stage">

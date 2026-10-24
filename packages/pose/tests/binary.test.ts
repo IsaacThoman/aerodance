@@ -168,7 +168,7 @@ test('a replay recording keeps the capture clock beside song time', () => {
   assert.ok(Math.abs(capture[1] - 98798.8) <= .0005);
 });
 
-test('a game recording holds up to four players; every other kind at most two', () => {
+test('a game recording holds up to four players, a song one to four dancers; every other kind at most two', () => {
   const header: PoseHeaderInput = { kind: 'recording', playerSlots: 4, input: { width: 640, height: 480 }, modelId: null, extensionIds: [EXTENSION.captureBrowserTimeMs], provenance: { songId: 'demo' } };
   const four = [0, 1, 2, 3].map(id => pose(id, 0));
   const bytes = encodePoseFile(buildFrames(header, [{ timeMs: 0, poses: four, extensions: { 6: 1 } }, { timeMs: 10, poses: [four[3]], extensions: { 6: 2 } }]));
@@ -176,15 +176,26 @@ test('a game recording holds up to four players; every other kind at most two', 
   assert.equal(decoded.playerSlots, 4);
   assertClose(framesToSamples(decoded, 'songTimeMs')[0], { poses: four, quality: qualityFor(four) }, 0);
   assert.deepEqual(framesToSamples(decoded, 'songTimeMs')[1].poses.map(p => p.playerId), [3]);
-  // Five slots, or three in anything but a recording, are refused when writing and reading.
+  // Five slots, or three in a track or capture, are refused when writing and reading.
   const five = bytes.slice(); five[chunkAt(five, 'HEAD') + 4] = 5;
   assert.throws(() => decodePoseFile(five), /player slots must be 1 to 4/);
   assert.throws(() => buildFrames({ ...header, playerSlots: 5 as PlayerCount }, []), /player slots must be 1 to 4/);
-  for (const kind of ['capture', 'take', 'track', 'choreography'] as const)
+  for (const kind of ['capture', 'track'] as const)
     assert.throws(() => buildFrames({ ...header, kind, playerSlots: 3, extensionIds: [] }, []), /at most two slots/, kind);
   assert.throws(() => new PoseFileWriter({ kind: 'capture', playerSlots: 3, input: { width: 640, height: 480 }, modelId: 'lite', capture: { sourceKind: 'webcam', sessionId: 's', audioPlaybackRate: 1 } }), /at most two slots/);
+  // A song's choreography has a slot and a track for each of its dancers, in order.
+  for (const dancers of [1, 3, 4] as const) {
+    const ids = Array.from({ length: dancers }, (_, id) => id);
+    const crew: PoseHeaderInput = { ...choreographyHeader, playerSlots: dancers, tracks: ids.map(id => ({ ...choreographyHeader.tracks![id % 2], slot: id, playerId: id, label: `Player ${id + 1}` })) };
+    const samples = [0, 1000, 2000].map(songTimeMs => ({ songTimeMs, poses: ids.map(id => pose(id, songTimeMs)) }));
+    const decoded = decodePoseFile(encodePoseFile(framesFromSamples(crew, samples, 'songTimeMs')));
+    assert.equal(decoded.playerSlots, dancers);
+    assert.deepEqual(decoded.tracks?.map(t => t.playerId), ids);
+    assertClose(sampleFrames(decoded, 1000), { poses: samples[1].poses, quality: qualityFor(samples[1].poses) }, 1000);
+    if (dancers > 1) assert.throws(() => decodePoseFile(encodePoseFile(framesFromSamples({ ...crew, tracks: crew.tracks!.slice(1) }, samples, 'songTimeMs'))), /every dancer needs its track/);
+  }
   const valid3 = valid(); valid3[chunkAt(valid3, 'HEAD') + 4] = 3;
-  assert.throws(() => decodePoseFile(valid3), /a choreography holds at most two slots/);
+  assert.throws(() => decodePoseFile(valid3));
 });
 
 const valid = () => encodePoseFile(framesFromSamples(choreographyHeader, [0, 1000, 2000].map(songTimeMs => ({ songTimeMs, poses: [pose(0, songTimeMs), pose(1, songTimeMs)] })), 'songTimeMs'));

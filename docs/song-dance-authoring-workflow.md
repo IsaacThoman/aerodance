@@ -49,10 +49,11 @@ samples. These describe capture, not song playback. Android `protocolVersion: 2`
 the old demo's `version: 1`, and the new schemas' `schemaVersion: 1` are independent
 version namespaces. Sharing pose objects does not make the file a live stream.
 
-One bundle contains two choreography tracks, IDs **0 and 1**. One-player mode
-loads track 0 from that same bundle; two-player mode loads both. Initial publication
-requires both tracks to pass review. Keep authoring drafts outside the public game
-assets.
+One bundle contains a choreography track for each of the song's one to four dancers,
+IDs **0** up (`song.json`'s `dancers`; a duet's are 0 and 1). Every player count plays
+the same bundle: each player follows one dancer, picked before the song or taken in
+turn, and the stage shows all of them. Publication requires every track to pass
+review. Keep authoring drafts outside the public game assets.
 
 ## Existing code to reuse
 
@@ -415,6 +416,7 @@ Example `song.json` (illustrative metadata, not a playable committed song):
   "stage": "openreef",
   "tags": ["aero", "duet"],
   "supportedPlayerCounts": [1, 2, 3, 4],
+  "dancers": 2,
   "audio": { "path": "audio.mp3", "mimeType": "audio/mpeg" },
   "choreography": { "path": "choreography.json", "schemaVersion": 1 },
   "cover": { "path": "cover.webp", "mimeType": "image/webp" },
@@ -433,7 +435,9 @@ Example `song.json` (illustrative metadata, not a playable committed song):
 Required: schema/version, ID/revision, title, artist, songwriter/choreographer lists
 (possibly empty), measured duration, playable bounds, supported player counts,
 audio/choreography references, coach/rig profiles, rights metadata, timestamps,
-and build identity. Optional: description, cover, BPM, tags, difficulty, stage. Use null
+and build identity. Optional: description, cover, BPM, tags, difficulty, stage, and
+`dancers`, the number of choreography tracks (1 to 4; a duet when missing, as in songs
+exported before it, and the loader checks it against the choreography). Use null
 for unknown BPM and an explicit `unknown` rights license when unresolved; never
 infer permission from a file upload. Publication requires an author to resolve
 distribution rights. Musical authorship is distinct from performing artist and
@@ -601,6 +605,7 @@ Example catalog entry compatible with the existing outer version:
       "durationMs": 183420,
       "difficulty": "normal",
       "supportedPlayerCounts": [1, 2, 3, 4],
+      "dancers": 2,
       "bundleRevision": 1,
       "bundle": "glass-sky/song.json",
       "cover": "glass-sky/cover.webp"
