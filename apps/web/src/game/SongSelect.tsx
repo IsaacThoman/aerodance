@@ -86,6 +86,8 @@ interface SongSelectState {
   listDrag: { id: number; y: number; scroll: number; moved: boolean; velocity: number; at: number } | null;
   /** The keyboard cursor's widget the list last scrolled to. */
   followed: string | null;
+  /** While the scrollbar's thumb is dragged: where on it (from its top) it's held. */
+  thumbGrab: number | null;
   catalog: { status: CatalogStatus; songs: ListedSong[]; error: string };
   catalogCtl: AbortController | null;
   /** The song (key) whose bundle is loading. */
@@ -218,7 +220,7 @@ export default function SongSelect({
   const props = useRef({ visible, playerCount, source, onBack, stageState, onPreviewChange, onScreenChange, onDance });
   props.current = { visible, playerCount, source, onBack, stageState, onPreviewChange, onScreenChange, onDance };
   const st = useRef<SongSelectState>({
-    alpha: 0, screen: 'list', next: 'list', swap: 1, top: 0, scroll: 0, wheel: 0, listDrag: null, followed: null,
+    alpha: 0, screen: 'list', next: 'list', swap: 1, top: 0, scroll: 0, wheel: 0, listDrag: null, followed: null, thumbGrab: null,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
     loading: null, chosen: null, loadError: '',
     bundle: null, player: null, routine: null, previewState: 'loading', previewError: '',
@@ -243,6 +245,14 @@ export default function SongSelect({
   };
   // The songs with any of their row in view.
   const viewRange = () => [Math.max(0, Math.floor(st.scroll)), Math.min(songs().length, Math.ceil(st.scroll) + ROWS.shown)] as const;
+  // The scrollbar's thumb: as long as the share of the songs in view, and as far down as the list.
+  const thumb = () => {
+    const bar = SCROLLBAR, h = Math.max(bar.w * 5, (bar.h * ROWS.shown) / Math.max(1, songs().length));
+    return { y: bar.y + ((bar.h - h) * st.scroll) / Math.max(1, lastTop()), h };
+  };
+  // Dragged by its thumb, or pressed on its track to bring the thumb there; the hit area is wider
+  // than the bar.
+  const scrollbarWidget = (): SongWidget => ({ id: 'scrollbar', rect: { ...SCROLLBAR, x: SCROLLBAR.x - 12, w: SCROLLBAR.w + 24 }, drag: true, nav: false });
   const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
   // The song opened last is the primary one while it's in view, else the first in view.
   const primaryRow = () => {
@@ -463,6 +473,7 @@ export default function SongSelect({
       if (st.catalog.status === 'ready') {
         const primary = primaryRow();
         if (!st.loading) songs().forEach((song, i) => list.push(songWidget(song, i, primary)));
+        if (!st.loading && lastTop() > 0) list.push(scrollbarWidget());
       }
       if (st.catalog.status === 'error') list.push(button('retry', RETRY, true));
       return list;
@@ -478,6 +489,16 @@ export default function SongSelect({
       else if (wdg.id === 'back') back();
       else if (wdg.id === 'retry') fetchCatalog();
       else if (wdg.id === 'dance') dance();
+      s.invalidate();
+    },
+    // The scrollbar's thumb follows the pointer, held where it was pressed (or by its middle, from
+    // the track); the list settles on a whole row when it's let go (update).
+    onDrag: (wdg, p, s) => {
+      if (wdg.id !== 'scrollbar') return;
+      const t = thumb();
+      st.thumbGrab ??= p.y >= t.y && p.y <= t.y + t.h ? p.y - t.y : t.h / 2;
+      const room = SCROLLBAR.h - t.h;
+      st.scroll = Math.min(lastTop(), Math.max(0, room > 0 ? ((p.y - st.thumbGrab - SCROLLBAR.y) / room) * lastTop() : 0));
       s.invalidate();
     },
     // Left / Right on a player's row step through the dancers.
@@ -512,8 +533,12 @@ export default function SongSelect({
         const i = songs().findIndex((song) => `song-${song.key}` === s.keyFocus);
         if (i >= 0) reveal(i);
       }
+      if (st.thumbGrab !== null && s.drag?.id !== 'scrollbar') {
+        st.thumbGrab = null;
+        scrollTo(st.scroll);
+      }
       st.top = Math.min(st.top, lastTop());
-      if (!st.listDrag?.moved) st.scroll = s.ease(st.scroll, st.top, 14);
+      if (!st.listDrag?.moved && st.thumbGrab === null) st.scroll = s.ease(st.scroll, st.top, 14);
       // A chosen song waits on the list until its stage is prepared (or failed).
       if (st.bundle && st.loading && st.next === 'list') {
         const want = resolveStage(st.bundle.song.stage);
@@ -612,9 +637,11 @@ export default function SongSelect({
             });
             g.restore();
           }
-          // More songs than fit: a scrollbar beside them, its thumb the share in view.
+          // More songs than fit: a scrollbar beside them. Its thumb widens under the pointer and
+          // while it's dragged.
           if (list.length > ROWS.shown) {
-            const bar = SCROLLBAR, thumb = Math.max(bar.w * 5, (bar.h * ROWS.shown) / list.length);
+            const bar = SCROLLBAR, t = thumb();
+            const wide = 6 * Math.max(h.scrollbar ?? 0, st.thumbGrab === null ? 0 : 1);
             g.save();
             roundRect(g, bar.x, bar.y, bar.w, bar.h, bar.w / 2);
             g.fillStyle = 'rgba(0, 30, 60, 0.3)';
@@ -623,7 +650,7 @@ export default function SongSelect({
             g.strokeStyle = 'rgba(255, 255, 255, 0.45)';
             g.stroke();
             shadowed(g);
-            roundRect(g, bar.x, bar.y + ((bar.h - thumb) * st.scroll) / lastTop(), bar.w, thumb, bar.w / 2);
+            roundRect(g, bar.x - wide / 2, t.y, bar.w + wide, t.h, (bar.w + wide) / 2);
             g.fillStyle = '#ffffff';
             g.fill();
             g.restore();
