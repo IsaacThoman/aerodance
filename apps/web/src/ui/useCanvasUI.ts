@@ -16,7 +16,7 @@ import type { Circle, Point, Rect } from './draw.ts';
  * const ui = useCanvasUI({
  *   priority: 2,                          // useFrame priority (the world renders at 1)
  *   design: (cssW, cssH) => ({ w, h }),   // default 1600x900 (16:9) or 1200x900 (4:3)
- *   widgets: (ui) => [{ id, rect | circle, drag?, nav?, primary? }],  // current hit areas, in content units
+ *   widgets: (ui) => [{ id, rect | circle, drag?, nav?, hit?, primary? }],  // current hit areas, in content units
  *   active: (ui) => bool,                 // input and hover go to widgets only while true
  *   onActivate: (wdg, ui) => {},          // press and release on the same widget
  *   onDrag: (wdg, point, ui) => {},       // widgets with drag: true (sliders)
@@ -52,6 +52,8 @@ export type Widget = {
   corner?: number;
   /** false: keyboard navigation skips it. */
   nav?: boolean;
+  /** false: the pointer passes through it (a row scrolled out of view); the keyboard can still visit it. */
+  hit?: boolean;
   /** The screen's main action: the keyboard cursor starts here, and Enter/Space press it while there is no cursor. */
   primary?: boolean;
 } & ({ rect: Rect; circle?: undefined } | { circle: Circle; rect?: undefined });
@@ -127,6 +129,8 @@ function wantCursor(el: HTMLElement, key: object, want: boolean) {
   el.style.cursor = wants.size ? 'pointer' : '';
 }
 
+// The widgets the pointer can land on.
+const hittable = <W extends Widget>(widgets: readonly W[]) => widgets.filter((wdg) => wdg.hit !== false);
 const center = (wdg: Widget): Point => (wdg.rect ? { x: wdg.rect.x + wdg.rect.w / 2, y: wdg.rect.y + wdg.rect.h / 2 } : { x: wdg.circle.x, y: wdg.circle.y });
 
 /** An overlay taking part in keyboard navigation. */
@@ -290,7 +294,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       return { x: ((e.clientX - rect.left) / rect.width) * s.w, y: ((e.clientY - rect.top) / rect.height) * s.h + s.scroll };
     };
     const active = () => opts.current.active?.(s) ?? true;
-    const widgetUnder = (p: Point | null) => (active() ? widgetAt(opts.current.widgets?.(s) ?? [], p, reach(s, el)) : undefined);
+    const widgetUnder = (p: Point | null) => (active() ? widgetAt(hittable(opts.current.widgets?.(s) ?? []), p, reach(s, el)) : undefined);
     let down: { y: number; scroll: number } | null = null; // for drag-to-scroll
 
     const onMove = (e: PointerEvent) => {
@@ -464,7 +468,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
       const c = center(focused);
       if (c.x !== s.pointer?.x || c.y !== s.pointer.y) { s.pointer = c; s.dirty = true; }
     }
-    const hovered = live && (s.drag?.id ?? widgetAt(widgets, s.pointer, reach(s, gl.domElement))?.id);
+    const hovered = live && (s.drag?.id ?? widgetAt(hittable(widgets), s.pointer, reach(s, gl.domElement))?.id);
     for (const id of new Set([...Object.keys(s.hover), ...widgets.map((wdg) => wdg.id)])) {
       s.hover[id] = s.ease(s.hover[id] ?? 0, id === hovered ? 1 : 0, 12);
     }

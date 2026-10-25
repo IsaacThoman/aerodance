@@ -240,6 +240,36 @@ try {
   await page.waitForTimeout(300);
   frame = await frameBox();
 
+  // More songs than fit scroll: the keyboard cursor brings the next one into view, a wheel
+  // notch moves a row (no further than the last song), and a drag scrolls without choosing
+  // the song under it.
+  const many = Array.from({ length: 12 }, (_, i) => ({ ...bundleFixture().entry, id: `scroll-${i}`, title: `Song ${i + 1}`, bundle: `scroll-${i}/song.json` }));
+  await page.unroute('**/songs/manifest.json');
+  await page.route('**/songs/manifest.json', (route) => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ version: 1, songs: many }),
+  }));
+  await click(BACK);
+  await menuOn('players');
+  await pickPlayers(2);
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', songCount: '12', songListTop: '0' });
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown');
+  await until({ songListTop: '2' });
+  const toPage = (x: number, y: number) => [frame.x + (x / design.w) * frame.width, frame.y + (y / design.h) * frame.height] as const;
+  await page.mouse.move(...toPage(rowRect(2).x + 100, rowRect(2).y + 40));
+  await page.mouse.wheel(0, 100);
+  await until({ songListTop: '3' });
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 100);
+  await until({ songListTop: '7' });
+  await page.mouse.down();
+  await page.mouse.move(...toPage(rowRect(2).x + 100, rowRect(4).y + 40), { steps: 10 });
+  await page.waitForTimeout(200);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const dragged = await data();
+  assert.equal(dragged.songScreen, 'list');
+  assert.equal(dragged.songLoadError, '');
+  assert.ok(Number(dragged.songListTop) === 5, `a two-row drag scrolls two rows, at ${dragged.songListTop}`);
+
   // Installed exports through the built catalog and the real HTTP assets, at every player
   // count they support, each opening on its own stage.
   await page.unroute('**/songs/manifest.json');
