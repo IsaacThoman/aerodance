@@ -4,6 +4,7 @@ The glass dancer shared by the game, Dance Studio and the thumbnail renderer.
 
 - `Character.tsx`: the character component.
 - `retarget.ts`: `createPoseApplier`, one pose applier for recorded, edited and live poses.
+- `skinBounds.ts`: keeps each glass part's bounding sphere on its bone, so the parts sort and cull where they are.
 - `calibration.ts`, `liveCalibration.ts`: per-player body calibration for recorded and live (webcam) sessions.
 - `livePoseFilter.ts`: display-only smoothing of live poses.
 - `balloonPop.ts`: the character popping like a balloon, its skin tearing open, drawn in its own shaders (`Character`'s `popRef`). The menu dancers pop this way when a player leaves.
@@ -20,8 +21,9 @@ This is stylized camera-space 2.5D retargeting of MediaPipe's 33 landmarks, not 
 
 - Each actor has its own skeleton clone, so one character's pose never overwrites another's.
 - A median torso length sets each actor's scale; the image aspect corrects horizontal coordinates.
-- Hips drive lateral movement and bounce, shoulders drive torso lean and limited yaw, face landmarks drive head yaw and roll, wrists drive floating hand centers, and ankles drive the feet above a stage-height floor. Bone-pivot offsets and parent transforms are accounted for.
+- Hips drive lateral movement, bounce and depth (MediaPipe measures depth from the hips, so only authored poses step toward or away from the camera). Shoulders and hips drive the torso's lean (any way when their landmarks are confident, otherwise at most 37°), its tip toward the camera (from how short the torso looks against its calibrated length; never for body-relative calibration, whose scale comes from that same length), and its yaw, round to facing away when the shoulders cross over and the nose is behind the ears. Face landmarks drive head yaw, nod and tilt, wrists drive floating hand centers, and ankles drive the feet above a stage-height floor. The body rises to clear the floor however it turns. Bone-pivot offsets and parent transforms are accounted for.
 - MediaPipe's relative depth is damped and clamped for stable hand and foot depth. There is no inferred room trajectory, finger animation, elbow/knee rig, or solved foot contact; the model only has a body, a detached head, two hands and two feet.
+- The gel is blended without writing depth, so three.js draws its parts in the order of their bounding spheres. `skinBounds.ts` keeps each part's sphere on its bone, so a hand held in front of the body draws in front of it.
 - Anatomical right maps to the asset's screen-left limb for a frontal recording.
 
 ## The menu capture (`assets/dance.adpose`)

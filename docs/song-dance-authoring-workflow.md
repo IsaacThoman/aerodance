@@ -634,7 +634,9 @@ The seven-bone asset maps hips, shoulders, face, wrists, and ankles to stylized
 root/body/head/hands/feet. It cannot show articulated elbows/knees. The skeleton
 editor still exposes those joints because they matter for choreography and scoring.
 Relative depth remains damped/clamped for appearance, not converted into room-scale
-3D. Keep visual smoothing separate from edited/scoring coordinates.
+3D, except that authored hips can step toward or away from the camera (tracked depth is
+measured from the hips). The character's tip, lean, turn-around and nod are listed in
+[dance-format.md](dance-format.md#what-the-games-character-shows). Keep visual smoothing separate from edited/scoring coordinates.
 
 The game samples at the audible song position using bounded interpolation, stops
 at `playableEndMs`, and does not use the demo's modulo clock or final 0.35-second
