@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { MIN_TOUCH_PX, hit, widgetAt } from '../src/ui/hit.ts';
 import type { Rect } from '../src/ui/draw.ts';
 import { MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS } from '../src/menu/layout.ts';
-import { BACK, DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_READY_BACK, PAGE_DOWN, PAGE_UP,
+import { BACK, DANCE, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_READY_BACK,
   resultsRetry, resultsSongs, rowRect } from '../src/game/layout.ts';
 
 // The 1600x900 design on the smallest iPhone the app supports (iPhone SE, 667x375 points), in
@@ -65,15 +65,11 @@ test('where grown areas overlap, the widget drawn nearest the tap wins', () => {
 
 test('on an iPhone SE, the game’s small targets answer 44 points across, or up to their neighbours', () => {
   const asRect = (id: string, rect: Rect) => ({ id, rect });
-  // Song Select: back, the songs and the page arrows.
-  const list: Shape[] = [{ id: 'back', circle: BACK }, ...[0, 1, 2, 3].map((i) => asRect(`row-${i}`, rowRect(i))),
-    { id: 'page-up', circle: PAGE_UP }, { id: 'page-down', circle: PAGE_DOWN }];
+  // Song Select: back and the songs in view.
+  const list: Shape[] = [{ id: 'back', circle: BACK }, ...[0, 1, 2, 3, 4].map((i) => asRect(`row-${i}`, rowRect(i)))];
   assert.ok(points(span(list, 'back', 'x', SE)) >= 44 - 0.5);
-  assert.ok(points(span(list, 'page-up', 'y', SE)) >= 44 - 0.5);
   // Rows are 104 units apart: they answer every tap between them, 43.4 points each.
   near(span(list, 'row-1', 'y', SE), 104);
-  // The page arrows give way to the songs beside them, halfway across the gap.
-  assert.equal(widgetAt(list, { x: PAGE_UP.x - PAGE_UP.r - 8, y: PAGE_UP.y }, SE)?.id, 'row-0');
 
   const players: Shape[] = [{ id: 'back', circle: PLAYERS_BACK }, { id: 'minus', circle: MINUS }, { id: 'plus', circle: PLUS }, asRect('go', PLAYERS_GO)];
   for (const id of ['back', 'minus', 'plus']) {
