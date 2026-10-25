@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
   FONT, dancerWidth, drawDancer, drawGlassButton, drawHeader, drawShadowText, ellipsize, glassCorner, paragraph, roundRect, wrapText,
@@ -18,6 +18,7 @@ import type { Cast, CatalogSong } from '../../../../packages/pose/song.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { SCORER_VERSION } from '../../../../packages/score/scorer.ts';
 import { bestScore } from './bestScores.ts';
+import { createCastSprites } from './castSprites.ts';
 import { PLAYERS } from './results.ts';
 import type { SongRoutine } from './GameSession.ts';
 import type { PoseInputView, PoseSource } from '../pose/PoseSource.ts';
@@ -31,8 +32,9 @@ import { displayDesign } from '../display.ts';
  *
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
  *            then the songs imported into this browser or app (songs/customSongs.ts; Settings →
- *            Songs imports and removes them), each with a cutout of every dancer it has in
- *            the colour of the player following them. Five are in view at a time; the wheel,
+ *            Songs imports and removes them), each with a pixel sprite of every dancer it has
+ *            in the colour of the player following them (castSprites.ts). Five are in view at
+ *            a time; the wheel,
  *            a drag (or swipe) and the keyboard cursor scroll the rest in, a row at a time
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
@@ -138,7 +140,8 @@ function faceFill(g: CanvasRenderingContext2D, face: Face, top: number, bottom: 
   return fill;
 }
 
-// A song's dancers side by side, ending at `right`, each `h` tall on `floor`, hands overlapping
+// Until the sprites are rendered (or if they can't be), the dancers' vector cutouts instead:
+// side by side, ending at `right`, each `h` tall on `floor`, hands overlapping
 // (castWidth across): each in the colour of the first player following them, or an empty spot.
 function drawCast(g: CanvasRenderingContext2D, right: number, floor: number, h: number, dancers: number, cast: Cast) {
   const w = dancerWidth(h), step = w * 0.8;
@@ -631,9 +634,17 @@ export default function SongSelect({
             g.save();
             g.globalAlpha *= shown;
             drawGlassButton(g, rect, {
-              label: song.title, sub, icon: 'note', reserve: cutout.right + castWidth(cutout.h, count) + 10 - rect.h * 0.3,
+              label: song.title, sub, icon: 'note',
+              reserve: cutout.right + (sprites.width(g, cutout.h, count) ?? castWidth(cutout.h, count)) + 10 - rect.h * 0.3,
               hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
-              content: (c, r) => drawCast(c, r.x + r.w - cutout.right, r.y + (r.h + cutout.h) / 2, cutout.h, count, cast),
+              content: (c, r) => {
+                const right = r.x + r.w - cutout.right, floor = r.y + (r.h + cutout.h) / 2;
+                c.save();
+                shadowed(c);
+                const drawn = sprites.draw(c, right, floor, cutout.h, count, cast);
+                c.restore();
+                if (!drawn) drawCast(c, right, floor, cutout.h, count, cast);
+              },
             });
             g.restore();
           }
@@ -716,6 +727,9 @@ export default function SongSelect({
       g.restore();
     },
   });
+  // The rows' dancers, rendered in-engine on the first draw (see the rows' content above).
+  const sprites = useMemo(() => createCastSprites(gl, () => ui.invalidate()), [gl, ui]);
+  useEffect(() => { void sprites.preload(); }, [sprites]);
 
   // The songs in view, fading with their rows.
   const songPanes = () => {
