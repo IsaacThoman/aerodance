@@ -75,6 +75,25 @@ the heel and toes from the ankle and the body's turn. Points without a keyed `z`
 Groups name sets of controls in ops: `all`, `body`, `headAngles`, `torso`, `shoulders`, `hips`,
 `arms`, `leftArm`, `rightArm`, `legs`, `leftLeg`, `rightLeg`, `hands`, `feet`, `elbows`, `knees`.
 
+## What the game's character shows
+
+The glass character has a body, a head, two floating hands and two floating feet, and no elbows or
+knees. The game reads it from the exported landmarks (`packages/character/retarget.ts`):
+
+| The character | From |
+|---|---|
+| Steps across, bobs and sinks (down to a crouch) | The hips' position on screen |
+| Steps toward or away from the camera | The hips' depth (`z`): tracked depth is measured from the hips, so only a keyed depth moves it, e.g. one dancer passing in front of another |
+| Leans any way, as far as upside down | The torso (shoulders to hips) on screen |
+| Tips toward the camera, as far as lying down | How short the torso looks against its length: past about 30° of foreshortening it tips, and an end-on torso lies flat. Shoulders keyed well behind the hips tip it back instead |
+| Turns, and turns around | The shoulders' depth. Facing the camera the body turns about half as far as the shoulders; with the shoulders crossed over and the nose behind the ears (`turn` and `headYaw` both past about 105°), it turns round to face away |
+| Turns, nods and tilts its head | The face: `headYaw`, `headPitch` (up to about 35°) and `headRoll`, the tilt within about 35° of the body's lean |
+| Hands and feet | Wrists and ankles, with their depth toward the camera; feet stop at the floor |
+
+The body never goes through the floor: tipped, leaning or upside down, it rises to clear it. To lay a
+dancer down, key the shoulders close to the hips' height (a crawl) or below them (bent double);
+to turn one around, key `turn` and `headYaw` together.
+
 ## How a pose is evaluated
 
 `evaluate.ts` turns a dancer's data into a pose at any time, the same way in the CLI, the Studio and

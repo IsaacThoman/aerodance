@@ -114,11 +114,6 @@ export function checkDance(dance: Dance, { tracking, range, stepMs = 1000 / 60 }
         if (ratio < 0.2) slow.flag(`short-${s.name}`, t, ratio, '', make('end-on-limb', 'info', s.b,
           () => `${dancer.id}'s ${s.name} points almost straight at the camera; its scoring direction is unstable there`, null));
       }
-      // The character leans its body at most 0.65 rad; its head turns and tilts within limits too.
-      const hip = mid(P.leftHip, P.rightHip), sh = mid(P.leftShoulder, P.rightShoulder);
-      const roll = Math.abs(Math.atan2((sh[0] - hip[0]) * aspect, hip[1] - sh[1]));
-      if (roll > 0.65) slow.flag('lean', t, roll * DEG, '', make('character-limit', 'info', 'torso',
-        w => `${dancer.id} leans ${w.toFixed(0)}° from upright; the character leans at most 37°`, null));
       for (const side of ['leftAnkle', 'rightAnkle'] as const)
         if (P[side][1] > floorY + 0.04) slow.flag(`below-${side}`, t, P[side][1] - floorY, '', make('character-limit', 'info', side,
           w => `${dancer.id}'s ${side} is ${w.toFixed(3)} frame heights below the floor line; the character's foot stops at the floor`, null));
@@ -196,7 +191,6 @@ function trackingFor(dance: Dance, dancer: Dancer, lookup: CheckOptions['trackin
   return null;
 }
 const median = (v: number[]) => [...v].sort((a, b) => a - b)[v.length >> 1] ?? 0;
-const mid = (a: readonly number[], b: readonly number[]) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 
 export interface Comparison {
   dancer: string;

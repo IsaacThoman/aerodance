@@ -8,6 +8,7 @@ import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { cloneCharacter } from '../cloneCharacter.ts';
 import { hasRigidSkinning, patchRigidSkinning } from '../rigidSkinning.ts';
 import { createAccessorySelector } from '../accessories.ts';
+import { createSkinBounds } from '../skinBounds.ts';
 
 const bytes = await readFile(
   new URL("../assets/aero-character.glb", import.meta.url),
@@ -181,4 +182,28 @@ test("four usable clips animate the actual exported skeleton", () => {
       assert.equal((asset.scene.getObjectByName(track.name.split('.')[0]) as Bone).isBone, true, 'the shipped clips only animate bones');
     }
   }
+});
+
+test('each glass part sorts and culls where its bone has moved it', () => {
+  const model = cloneCharacter(asset.scene), parent = new Group();
+  parent.add(model);
+  parent.position.set(2, 0, 0); parent.scale.set(-1, 1, 1);
+  parent.updateMatrixWorld(true);
+  const update = createSkinBounds(model);
+  const part = (name: string) => model.getObjectByName(name) as SkinnedMesh;
+  const world = (mesh: SkinnedMesh) => mesh.boundingSphere!.center.clone().applyMatrix4(mesh.matrixWorld);
+  update();
+  const hand = part('ArmL_1'), body = part('Body_1');
+  assert.ok(hand.isSkinnedMesh && body.isSkinnedMesh);
+  const rest = world(hand);
+  // Rests beside the body, in its plane.
+  assert.ok(Math.abs(rest.z - world(body).z) < 0.05);
+  // The hand held out in front of the chest: its part sorts nearer the camera (+z) than the body's.
+  const bone = model.getObjectByName('ArmL')!, start = new Vector3().setFromMatrixPosition(bone.matrixWorld);
+  bone.position.add(new Vector3(0.4, 0.3, 0.8));
+  model.updateMatrixWorld(true);
+  update();
+  const moved = new Vector3().setFromMatrixPosition(bone.matrixWorld).sub(start);
+  assert.ok(world(hand).sub(rest).distanceTo(moved) < 1e-6, 'the sphere moves with the bone, through the mirrored parent');
+  assert.ok(world(hand).z > world(body).z + 0.7);
 });

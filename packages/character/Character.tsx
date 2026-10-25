@@ -17,6 +17,7 @@ import { LivePoseFilter } from './livePoseFilter.ts';
 import { cloneCharacter } from './cloneCharacter.ts';
 import { hasRigidSkinning, patchRigidSkinning } from './rigidSkinning.ts';
 import { createAccessorySelector } from './accessories.ts';
+import { createSkinBounds } from './skinBounds.ts';
 import modelUrl from "./assets/aero-character.glb?url";
 import type { MotionTake } from "../pose/motion.ts";
 import type { Pose, TrackCalibration } from "../pose/choreography.ts";
@@ -80,6 +81,7 @@ export default function Character({
   // Custom models can animate accessory nodes; retain their animation bindings.
   const accessories = useMemo(() => createAccessorySelector(model, { detach: url === modelUrl }), [model, url]);
   const rigid = useMemo(() => hasRigidSkinning(gltf.scene), [gltf]);
+  const updateBounds = useMemo(() => createSkinBounds(model), [model]);
   const retarget = useMemo(
     () => (motion ? createRetargeter(model, motion, person) : null),
     [model, motion, person],
@@ -207,8 +209,13 @@ export default function Character({
       applyPose(live ? poseFilter.update(pose,delta) : pose,delta);
       if(live && (poseFilter.settling || applyPose.settling)) invalidate();
     }
-    else if (retarget) retarget(playback?.current ?? 0);
-    else mixer.update(Math.min(delta, 0.05));
+    else {
+      if (retarget) retarget(playback?.current ?? 0);
+      else mixer.update(Math.min(delta, 0.05));
+      // Posing updates the bones' world matrices; clips and takes leave them to the render.
+      model.updateMatrixWorld();
+    }
+    updateBounds();
   }, opacityRef ? 1 : 0);
   return <primitive object={model} dispose={null} />;
 }
