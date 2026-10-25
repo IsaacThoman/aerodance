@@ -1,5 +1,5 @@
 /** What covers a cutout's pixel. */
-export const CUTOUT = { none: 0, body: 1, eye: 2 } as const;
+export const CUTOUT = { none: 0, body: 1, head: 2, hand: 3, eye: 4 } as const;
 
 /** A moment of the menu capture (packages/character/assets/dance.adpose): its dancer and time. */
 export interface CutoutPose { take: number; seconds: number; }

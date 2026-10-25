@@ -11,7 +11,8 @@ import { CUTOUT, clearShift, type Cutout, type CutoutPose } from './cutout.ts';
 /*
  * Thresholded cutouts of the aero dancer, rendered in-engine: the real model, held in a moment
  * of the menu capture, drawn flat by the game's renderer into a render target and read back as
- * a hard-edged mask (no antialiasing, so every pixel is the dancer, its eyes or nothing). A hand
+ * a hard-edged mask (no antialiasing, so every pixel is its body, head, a hand, an eye or
+ * nothing: each is drawn in its own shade). A hand
  * the pose holds against the body or head would vanish into the silhouette, so it's slid out
  * sideways, away from the body's middle, until there's a pixel clear between them.
  *
@@ -25,8 +26,9 @@ const THRESHOLD = 127;
 const REACH = 2.5;
 // Hands are slid out at most this far (character units).
 const HAND_SLIDE = 1.5;
-const BODY = new THREE.Color(1, 1, 1);
-const EYES = new THREE.Color(0, 0, 0);
+// Each part's shade (red, 0-255), and the part a read-back shade is: the nearest.
+const SHADES = [[CUTOUT.body, 255], [CUTOUT.head, 170], [CUTOUT.hand, 85], [CUTOUT.eye, 0]] as const;
+const partOf = (red: number) => SHADES.reduce((best, s) => Math.abs(s[1] - red) < Math.abs(best[1] - red) ? s : best)[0];
 
 let assets: Promise<{ scene: THREE.Object3D; motion: MotionTake }> | null = null;
 /** Starts loading the model and the capture, once. */
@@ -49,8 +51,7 @@ export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly Cutou
   const { scene: source, motion } = await loadCutoutAssets();
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera();
-  const body = new THREE.MeshBasicMaterial({ color: BODY, toneMapped: false });
-  const eyes = new THREE.MeshBasicMaterial({ color: EYES, toneMapped: false });
+  const shades = new Map(SHADES.map(([part, red]) => [part, new THREE.MeshBasicMaterial({ color: new THREE.Color(red / 255, 0, 0), toneMapped: false })]));
   const target = new THREE.WebGLRenderTarget(1, 1, { samples: 0 });
   const previous = { target: gl.getRenderTarget(), color: gl.getClearColor(new THREE.Color()), alpha: gl.getClearAlpha() };
   const results: Cutout[] = [];
@@ -65,16 +66,17 @@ export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly Cutou
       model.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh || Array.isArray(mesh.material) || !mesh.visible) return;
-        // The gel is the dancer; its ink is the eyes.
-        mesh.material = mesh.material.name === 'Ink' ? eyes : body;
         mesh.frustumCulled = false;
         meshes.push(mesh);
+        // The ink is the eyes; of the gel, the parts skinned to the arm bones are the hands and
+        // the one skinned to the head bone is the head.
         const skinned = mesh as THREE.SkinnedMesh;
-        if (!skinned.isSkinnedMesh) return;
-        skeletons.add(skinned.skeleton);
-        // The hands are the parts skinned to the arm bones.
-        const bone = skinned.skeleton.bones[skinned.geometry.getAttribute('skinIndex')?.getX(0) ?? -1];
-        if (bone?.name === 'ArmL' || bone?.name === 'ArmR') hands.push({ mesh, bone });
+        const bone = skinned.isSkinnedMesh ? skinned.skeleton.bones[skinned.geometry.getAttribute('skinIndex')?.getX(0) ?? -1] : undefined;
+        if (skinned.isSkinnedMesh) skeletons.add(skinned.skeleton);
+        const hand = bone?.name === 'ArmL' || bone?.name === 'ArmR';
+        if (hand) hands.push({ mesh, bone });
+        const part = mesh.material.name === 'Ink' ? CUTOUT.eye : hand ? CUTOUT.hand : bone?.name === 'Head' ? CUTOUT.head : CUTOUT.body;
+        mesh.material = shades.get(part)!;
       });
       scene.clear();
       scene.add(model);
@@ -155,7 +157,7 @@ export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly Cutou
       const w = x1 - x0 + 1, h = y1 - y0 + 1, part = new Uint8Array(w * h);
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         if (!covered(x + x0, y + y0)) continue;
-        part[y * w + x] = pixels[((H - 1 - y - y0) * W + x + x0) * 4] > THRESHOLD ? CUTOUT.body : CUTOUT.eye;
+        part[y * w + x] = partOf(pixels[((H - 1 - y - y0) * W + x + x0) * 4]);
       }
       // It stands on its spot by its body's middle.
       results.push({ w, h, cx: Math.round((mid - left) * ppuX) - x0, part });
@@ -166,8 +168,7 @@ export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly Cutou
     scene.clear();
     skeletons.forEach((skeleton) => skeleton.dispose());
     target.dispose();
-    body.dispose();
-    eyes.dispose();
+    shades.forEach((material) => material.dispose());
   }
   return results;
 }

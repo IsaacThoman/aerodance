@@ -37,19 +37,42 @@ test('each player\'s sprite is in their own colours', () => {
   assert.equal(spriteInk(-1), null);
 });
 
-test('the cast stands side by side on one floor, each a pixel clear of the ones before', () => {
-  // A 2x4 dancer with a hand out to the right on its second row.
-  const reach: Cutout = { w: 3, h: 4, cx: 0, part: new Uint8Array([B, B, 0, B, B, B, B, B, 0, B, B, 0]) };
-  const { x, width } = layoutCast([reach, reach, reach]);
-  // Columns 0-2, 4-6 and 8-10: the hand at column 2 keeps column 3 clear of the next body.
-  assert.deepEqual(x, [0, 4, 8]);
-  assert.equal(width, 12);
-  // A short dancer tucks in under the one before's hand.
-  const short: Cutout = { w: 1, h: 1, cx: 0, part: new Uint8Array([B]) };
-  assert.deepEqual(layoutCast([reach, short]).x, [0, 3]);
-  // Already a pixel clear, it doesn't move further: middles one apart if they can be.
-  assert.deepEqual(layoutCast([short, short]).x, [0, 2]);
+test('the cast stands close, bodies overlapping, with every face and hand in view', () => {
+  const { body: B, head: D, hand: N } = CUTOUT;
+  // Bodies alone may overlap: each the step after the one before.
+  const trunk: Cutout = { w: 2, h: 2, cx: 0, part: new Uint8Array([B, B, B, B]) };
+  assert.deepEqual(layoutCast([trunk, trunk, trunk], 1).x, [0, 1, 2]);
+  assert.deepEqual(layoutCast([trunk, trunk], 3).x, [0, 3]);
+  // Nothing comes within a pixel of a head: a head over a body, two wide.
+  const headed: Cutout = { w: 2, h: 2, cx: 0, part: new Uint8Array([D, D, B, B]) };
+  assert.deepEqual(layoutCast([headed, headed], 1).x, [0, 3]);
+  // A hand may cover under half of another, and lie over a body (hands are drawn on top).
+  const reach: Cutout = { w: 4, h: 2, cx: 0, part: new Uint8Array([B, B, N, N, B, B, N, N]) };
+  const { x, width } = layoutCast([reach, reach], 1);
+  // One step over would cover half the first hand; two leaves it whole, under the second body.
+  assert.deepEqual(x, [0, 2]);
+  assert.equal(width, 7);
+  // A hand never covers a head, but may come right up to one: a one-wide dancer with its head
+  // on top, then one with a hand held up two to the left of its middle.
+  const tall: Cutout = { w: 1, h: 3, cx: 0, part: new Uint8Array([D, B, B]) };
+  const raised: Cutout = { w: 3, h: 3, cx: 2, part: new Uint8Array([N, 0, 0, 0, 0, 0, 0, 0, B]) };
+  // Two along, the hand would be on the head; three along, it's beside it.
+  assert.deepEqual(layoutCast([tall, raised], 2).x, [0, 1]);
   assert.deepEqual(layoutCast([cut]), { x: [0], width: 4 });
+});
+
+test('a sprite\'s hands are their own layer, drawn over every body', () => {
+  const { body: B, hand: N } = CUTOUT;
+  const withHand: Cutout = { w: 2, h: 1, cx: 0, part: new Uint8Array([B, N]) };
+  const ink = spriteInk(0)!;
+  const body = paintSprite(withHand, 0, 'body'), hands = paintSprite(withHand, 0, 'hands');
+  assert.deepEqual(pixel(body, 0, 0), [...ink.fill, 255]);
+  assert.deepEqual(pixel(body, 1, 0), [0, 0, 0, 0]);
+  assert.deepEqual(pixel(hands, 0, 0), [0, 0, 0, 0]);
+  assert.deepEqual(pixel(hands, 1, 0), [...ink.fill, 255]);
+  // Each layer casts its own shadow.
+  assert.deepEqual(pixel(body, 1, 1), [...ink.shadow, 255]);
+  assert.deepEqual(pixel(hands, 2, 1), [...ink.shadow, 255]);
 });
 
 test('cutouts render at the overlay\'s resolution: 4:3-wide pixels in widescreen, square in 4:3', () => {

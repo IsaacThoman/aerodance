@@ -1,5 +1,5 @@
 import type { WebGLRenderer } from 'three';
-import { DANCER_TOP } from '../ui/draw.ts';
+import { DANCER_TOP, dancerWidth } from '../ui/draw.ts';
 import { CUTOUT } from '../ui/cutout.ts';
 import type { Cutout, CutoutPose } from '../ui/cutout.ts';
 import { leadOf } from '../../../../packages/pose/song.ts';
@@ -9,8 +9,8 @@ import { PLAYERS } from './results.ts';
 /*
  * Song Select's cast: each of a song's dancers as a pixel sprite, in a different moment of the
  * menu capture, in the colour of the first player following it with a one-pixel shadow down and
- * to the right, or a faint white silhouette if nobody follows it, side by side with a pixel
- * clear between them. The sprites are the dancer
+ * to the right, or a faint white silhouette if nobody follows it, close together: their bodies
+ * overlap, but every face and hand stays in view (layoutCast). The sprites are the dancer
  * rendered in-engine and thresholded (ui/dancerCutouts.ts) at the overlay's own resolution and
  * drawn on its pixel grid, one sprite pixel to a buffer pixel, so they line up with the canvas
  * (and the world under it) exactly. The 640x480 buffer's pixels are 4:3 wide in widescreen and
@@ -27,6 +27,9 @@ export const CREW: readonly CutoutPose[] = [
   { take: 1, seconds: 3 },
   { take: 1, seconds: 10 },
 ];
+// The closest the dancers stand, in dancer widths between their middles (hands included, so they
+// overlap); further if that would hide a face or a hand.
+const STEP = 0.7;
 // A dancer nobody follows: an empty spot on the glass.
 export const SPARE_ALPHA = 0.3;
 
@@ -45,52 +48,96 @@ export function spriteInk(lead: number) {
 }
 
 /**
- * A dancer's sprite (RGBA, one pixel wider and taller for the shadow) for the player leading it,
- * or a white silhouette with its eyes cut out for nobody (-1).
+ * One layer of a dancer's sprite (RGBA, one pixel wider and taller for the shadow), for the
+ * player leading it or, as a white silhouette with its eyes cut out, for nobody (-1): its body
+ * (with its head and eyes), or its hands, which go over every dancer's body.
  */
-export function paintSprite(cut: Cutout, lead: number) {
+export function paintSprite(cut: Cutout, lead: number, layer: 'body' | 'hands' = 'body') {
   const width = cut.w + 1, height = cut.h + 1, data = new Uint8ClampedArray(width * height * 4);
   const ink = spriteInk(lead);
-  const part = (x: number, y: number) => x < 0 || y < 0 || x >= cut.w || y >= cut.h ? CUTOUT.none : cut.part[y * cut.w + x];
+  const raw = (x: number, y: number) => x < 0 || y < 0 || x >= cut.w || y >= cut.h ? CUTOUT.none : cut.part[y * cut.w + x];
+  // The layer's own parts; the rest is empty.
+  const part = (x: number, y: number) => {
+    const p = raw(x, y);
+    return (p === CUTOUT.hand) === (layer === 'hands') ? p : CUTOUT.none;
+  };
   const put = (x: number, y: number, [r, g, b]: RGB) => data.set([r, g, b, 255], (y * width + x) * 4);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const p = part(x, y);
-    if (!ink) { if (p === CUTOUT.body) put(x, y, WHITE); }
-    else if (p === CUTOUT.body) put(x, y, ink.fill);
+    const solid = p !== CUTOUT.none && p !== CUTOUT.eye;
+    if (!ink) { if (solid) put(x, y, WHITE); }
+    else if (solid) put(x, y, ink.fill);
     else if (p === CUTOUT.eye) put(x, y, ink.eyes);
     else if (part(x - 1, y - 1) !== CUTOUT.none) put(x, y, ink.shadow);
   }
   return { width, height, data };
 }
 
+// A hand drawn over another may cover at most this much of it.
+const HAND_COVER = 0.4;
+
 /**
- * Where each sprite goes, left to right, standing on one floor: each as close after the one
- * before as it can be with `gap` pixels clear of every sprite before it, so no dancer hides
- * another's hands. Returns each one's left edge in pixels from the group's, and the group's
- * width (shadows included).
+ * Where each sprite goes, left to right, standing on one floor: each body's middle `step` pixels
+ * after the one before's, or as little further as keeps every face and hand in view.
+ * Bodies are drawn left to right and all the hands over them, so bodies may overlap each other
+ * and a hand may lie over a body; but no body comes within `gap` pixels of a head, no hand covers
+ * a head, and a hand covers at most HAND_COVER of another. Returns each one's
+ * left edge in pixels from the group's, and the group's width (shadows included).
  */
-export function layoutCast(cuts: readonly Cutout[], gap = 1) {
-  // Taken pixels (and their margins), by row up from the floor and column.
-  const taken = new Set<number>();
+export function layoutCast(cuts: readonly Cutout[], step = 1, gap = 1) {
   const at = (x: number, row: number) => row * 65536 + x + 32768;
-  const pixels = (cut: Cutout) => {
-    const out: [number, number][] = [];
-    for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) if (cut.part[y * cut.w + x] !== CUTOUT.none) out.push([x, cut.h - 1 - y]);
-    return out;
-  };
-  const xs: number[] = [];
-  cuts.forEach((cut, d) => {
-    const own = pixels(cut);
-    // Its body's middle right of the one before's, then on until it's clear.
-    let x = d ? xs[d - 1] + cuts[d - 1].cx - cut.cx + 1 : 0;
-    while (own.some(([px, row]) => taken.has(at(x + px, row)))) x++;
-    xs.push(x);
-    for (const [px, row] of own) {
-      for (let dy = -gap; dy <= gap; dy++) for (let dx = -gap; dx <= gap; dx++) taken.add(at(x + px + dx, row + dy));
+  // Each dancer's pixels, by column from its body's middle and row up from the floor, and its
+  // hands' (each as its own set: they're apart).
+  const dancers = cuts.map((cut) => {
+    const own: { x: number; row: number; hand: boolean; head: boolean }[] = [];
+    for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) {
+      const p = cut.part[y * cut.w + x];
+      if (p !== CUTOUT.none) own.push({ x: x - cut.cx, row: cut.h - 1 - y, hand: p === CUTOUT.hand, head: p === CUTOUT.head || p === CUTOUT.eye });
+    }
+    // Hand pixels in groups of touching ones.
+    const left = new Map(own.filter((p) => p.hand).map((p) => [at(p.x, p.row), p]));
+    const hands: { x: number; row: number }[][] = [];
+    for (const start of [...left.values()]) {
+      if (!left.delete(at(start.x, start.row))) continue;
+      const group = [start], queue = [start];
+      while (queue.length) {
+        const { x, row } = queue.pop()!;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const next = left.get(at(x + dx, row + dy));
+          if (next && left.delete(at(next.x, next.row))) { group.push(next); queue.push(next); }
+        }
+      }
+      hands.push(group);
+    }
+    return { own, hands };
+  });
+  // Heads, and heads with their margins (a hand may come right up to a head), and hands.
+  const heads = new Set<number>(), margins = new Set<number>(), anyHand = new Set<number>();
+  const hands: { pixels: Set<number>; size: number }[] = [];
+  const middles: number[] = [];
+  dancers.forEach(({ own, hands: mine }, d) => {
+    const clashes = (m: number) => {
+      if (own.some(({ x, row, hand, head }) => (hand ? heads : margins).has(at(m + x, row)) || (head && anyHand.has(at(m + x, row))))) return true;
+      const covering = own.filter((p) => p.hand).map((p) => at(m + p.x, p.row));
+      return hands.some(({ pixels, size }) => covering.filter((k) => pixels.has(k)).length > HAND_COVER * size);
+    };
+    let m = d ? middles[d - 1] + Math.max(1, step) : 0;
+    while (clashes(m)) m++;
+    middles.push(m);
+    for (const { x, row, head } of own) {
+      if (!head) continue;
+      heads.add(at(m + x, row));
+      for (let dy = -gap; dy <= gap; dy++) for (let dx = -gap; dx <= gap; dx++) margins.add(at(m + x + dx, row + dy));
+    }
+    for (const hand of mine) {
+      const pixels = new Set(hand.map((p) => at(m + p.x, p.row)));
+      pixels.forEach((k) => anyHand.add(k));
+      hands.push({ pixels, size: pixels.size });
     }
   });
-  const min = Math.min(...xs), max = Math.max(...cuts.map((cut, d) => xs[d] + cut.w + 1));
-  return { x: xs.map((x) => x - min), width: max - min };
+  const lefts = cuts.map((cut, d) => middles[d] - cut.cx);
+  const min = Math.min(...lefts), max = Math.max(...cuts.map((cut, d) => lefts[d] + cut.w + 1));
+  return { x: lefts.map((x) => x - min), width: max - min };
 }
 
 /** The cutouts' resolution for dancers `h` design units tall under transform `t`: buffer pixels per character unit. */
@@ -117,11 +164,11 @@ export function createCastSprites(gl: WebGLRenderer, onReady: () => void) {
     }
     return Array.isArray(set) ? { key, cuts: set } : null;
   };
-  const sprite = (key: string, cut: Cutout, pose: number, lead: number) => {
-    const id = `${key}|${pose}|${lead}`;
+  const sprite = (key: string, cut: Cutout, pose: number, lead: number, layer: 'body' | 'hands') => {
+    const id = `${key}|${pose}|${lead}|${layer}`;
     let canvas = sprites.get(id);
     if (!canvas) {
-      const { width, height, data } = paintSprite(cut, lead);
+      const { width, height, data } = paintSprite(cut, lead, layer);
       canvas = Object.assign(document.createElement('canvas'), { width, height });
       canvas.getContext('2d')!.putImageData(new ImageData(data, width, height), 0, 0);
       sprites.set(id, canvas);
@@ -134,7 +181,7 @@ export function createCastSprites(gl: WebGLRenderer, onReady: () => void) {
     if (!set) return null;
     const poses = Array.from({ length: dancers }, (_, d) => d % set.cuts.length);
     const cuts = poses.map((pose) => set.cuts[pose]);
-    return { t, key: set.key, poses, cuts, ...layoutCast(cuts) };
+    return { t, key: set.key, poses, cuts, ...layoutCast(cuts, Math.round(dancerWidth(h) * STEP * t.a)) };
   };
 
   return {
@@ -158,10 +205,11 @@ export function createCastSprites(gl: WebGLRenderer, onReady: () => void) {
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.imageSmoothingEnabled = false;
       const alpha = g.globalAlpha;
-      at.cuts.forEach((cut, d) => {
+      // The bodies, then the hands over them.
+      for (const layer of ['body', 'hands'] as const) at.cuts.forEach((cut, d) => {
         const lead = leadOf(cast, d);
         g.globalAlpha = alpha * (lead < 0 ? SPARE_ALPHA : 1);
-        g.drawImage(sprite(at.key, cut, at.poses[d], lead), left + at.x[d], bottom - cut.h);
+        g.drawImage(sprite(at.key, cut, at.poses[d], lead, layer), left + at.x[d], bottom - cut.h);
       });
       g.restore();
       return true;
