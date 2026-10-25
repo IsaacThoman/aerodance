@@ -1,25 +1,29 @@
-import { FONT, ICONS, drawCaps, drawDarkGlassPanel, drawMarquee, ellipsize, paragraph, pill, wrapText } from '../ui/draw.ts';
-import type { Circle } from '../ui/draw.ts';
+import { FONT, ICONS, drawCaps, drawDarkGlassPanel, drawMarquee, ellipsize, paragraph, pill, roundRect, wrapText } from '../ui/draw.ts';
+import type { Circle, Point } from '../ui/draw.ts';
 import type { CanvasUI, Widget } from '../ui/useCanvasUI.ts';
 import { customSongsSupported, importSongZip, listSavedSongs, removeCustomSong, savedCustomSong, savedIn } from '../songs/customSongs.ts';
-import { pickAppSong } from '../songs/appSongs.ts';
+import { pickAppSongs } from '../songs/appSongs.ts';
 import { appSongs } from '../host.ts';
-import type { SavedSong } from '../songs/customSongs.ts';
+import type { ImportResult, SavedSong } from '../songs/customSongs.ts';
+import type { CatalogSong } from '../../../../packages/pose/song.ts';
+import type { SongFile } from '../songs/appSongs.ts';
 import { SONGS_PER_PAGE } from './layout.ts';
 import type { menuLayout } from './layout.ts';
 
 /**
  * Settings → Songs: the songs imported into this browser or app (songs/customSongs.ts), a dense list
  * SONGS_PER_PAGE to a page, each with a remove button (a title too long for its row scrolls:
- * drawMarquee), and Import song at the bottom, which takes a Dance Studio export ZIP. Song Select lists the imported songs that check out; the
- * damaged ones are only here, to remove. Only where the browser or app can save songs
- * (customSongsSupported): elsewhere Settings has no Songs panel. In the iPhone/iPad app the
- * app's own picker picks the ZIP (pickAppSong), and a ZIP saved to its folder in the Files
- * app lists too.
+ * drawMarquee), and Import song at the bottom, which takes Dance Studio export ZIPs, as many as
+ * are picked or dragged onto the panel, one after another. Song Select lists the imported songs
+ * that check out; the damaged ones are only here, to remove. Only where the browser or app can
+ * save songs (customSongsSupported): elsewhere Settings has no Songs panel. In the iPhone/iPad
+ * app the app's own picker picks the ZIPs (pickAppSongs), and a ZIP saved to its folder in the
+ * Files app lists too.
  *
  * MainMenu draws it beside Sound and Graphics and passes its widgets and presses on: open()
  * and close() as Settings shows and hides. report() is data-saved-songs and -damaged-songs (the
- * counts, once listed), -song-import (idle / importing / done / error) and -song-notice for tests.
+ * counts, once listed), -song-import (idle / importing / done / error), -song-notice and
+ * -song-drop (near / over while files are dragged over Settings) for tests.
  */
 
 type Layout = ReturnType<typeof menuLayout>;
@@ -44,12 +48,37 @@ const IN_APP = appSongs() !== null;
 const LIST_TIMEOUT_MS = 5000;
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 const trashId = (saved: SavedSong) => `remove-${saved.entry.id}`;
+const songFile = (file: File): SongFile => ({ name: file.name, read: async () => file });
+const songCount = (n: number) => `${n} song${n === 1 ? '' : 's'}`;
 
-export function createSongsPanel({ layout, ui, showing }: {
+/** How the files imported in one go went (those that failed: why). */
+interface Batch { total: number; imported: number; replaced: number; kept: number; failed: { name: string; text: string }[]; }
+
+// How one import went.
+function imported({ status, entry }: ImportResult) {
+  const title = `“${entry.title}”`;
+  // Song Select only lists it for the player counts it has.
+  const most = Math.max(...entry.supportedPlayerCounts);
+  const note = most < 4 ? ` It's for up to ${most} player${most === 1 ? '' : 's'}.` : '';
+  return (status === 'kept' ? `Kept the ${title} already imported.` : status === 'replaced' ? `Updated ${title} to revision ${entry.bundleRevision}.` : `Imported ${title}.`) + note;
+}
+// How several went: "Imported 3 songs and updated 1 song. 2 files couldn't be imported: a.zip, b.zip."
+function summary({ imported: added, replaced, kept, failed }: Batch) {
+  const done = [added && `imported ${songCount(added)}`, replaced && `updated ${songCount(replaced)}`, kept && `kept ${songCount(kept)} already imported`].filter((part) => !!part);
+  const said = done.length ? `${done.slice(0, -1).join(', ')}${done.length > 1 ? ' and ' : ''}${done.at(-1)}.` : '';
+  const ok = said.charAt(0).toUpperCase() + said.slice(1);
+  if (!failed.length) return { text: ok, error: false };
+  const bad = failed.length === 1 ? `${failed[0].name}: ${failed[0].text}` : `${failed.length} files couldn't be imported: ${failed.map((f) => f.name).join(', ')}.`;
+  return { text: ok ? `${ok} ${bad}` : bad, error: true };
+}
+
+export function createSongsPanel({ layout, ui, showing, toDesign }: {
   layout: () => Layout;
   ui: () => CanvasUI<SongsWidget>;
   /** Settings is the screen showing (an import only asks before replacing a song then). */
   showing: () => boolean;
+  /** A point on the page (clientX, clientY) in the layout's units, for drops. */
+  toDesign: (x: number, y: number) => Point;
 }): SongsPanel {
   const st = {
     status: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
@@ -61,6 +90,15 @@ export function createSongsPanel({ layout, ui, showing }: {
     /** A listing is on its way (the songs listed already stay up meanwhile). */
     listing: false,
     importing: false,
+    /** Files still to import, after the one importing. */
+    queue: [] as SongFile[],
+    /** How the files imported since the importing started went (what the notice sums up). */
+    batch: { total: 0, imported: 0, replaced: 0, kept: 0, failed: [] } as Batch,
+    /** Files are dragged over Settings: 'over' the panel, which takes them, or 'near' it. */
+    dragging: null as 'near' | 'over' | null,
+    /** The drop highlight, eased: shown at all, and over the panel. */
+    near: 0,
+    over: 0,
     /** The app's file picker is open. */
     picking: false,
     notice: null as { text: string; error: boolean } | null,
@@ -119,33 +157,42 @@ export function createSongsPanel({ layout, ui, showing }: {
       });
   };
 
-  // A Dance Studio export ZIP, checked and saved. Saving over a copy of the same or a later
-  // revision asks first, or keeps it once Settings has closed.
-  const importFile = (file: File) => {
+  // Dance Studio export ZIPs, checked and saved one after another (more picked or dropped
+  // meanwhile join the queue). Saving over a copy of the same or a later revision asks first, or
+  // keeps it once Settings has closed. The notice says how one went, or sums up several.
+  const confirmReplace = (saved: CatalogSong, incoming: CatalogSong) => showing() && window.confirm(saved.bundleRevision === incoming.bundleRevision
+    ? `“${saved.title}” revision ${saved.bundleRevision} is already imported. Replace it?`
+    : `A later revision of “${saved.title}” (${saved.bundleRevision}) is already imported. Replace it with revision ${incoming.bundleRevision}?`);
+  const importFiles = (files: SongFile[]) => {
+    if (!files.length) return;
+    if (!st.importing) st.batch = { total: 0, imported: 0, replaced: 0, kept: 0, failed: [] };
+    st.batch.total += files.length;
+    st.queue.push(...files);
+    if (!st.importing) void importQueue();
+  };
+  const importQueue = async () => {
     st.importing = true;
-    st.notice = { text: `Importing ${file.name}…`, error: false };
+    const batch = st.batch;
+    let last = st.notice;
+    for (let file = st.queue.shift(); file; file = st.queue.shift()) {
+      const at = batch.total - st.queue.length;
+      st.notice = { text: batch.total > 1 ? `Importing ${file.name} (${at} of ${batch.total})…` : `Importing ${file.name}…`, error: false };
+      ui().invalidate();
+      try {
+        const result = await importSongZip(await file.read(), { confirmReplace });
+        batch[result.status]++;
+        last = { text: imported(result), error: false };
+        refresh({ show: result.entry.id });
+      } catch (error) {
+        const text = message(error) || "That song couldn't be imported.";
+        if (batch.total > 1) console.warn(`${file.name} couldn't be imported: ${text}`);
+        batch.failed.push({ name: file.name, text });
+        last = { text, error: true };
+      }
+    }
+    st.notice = batch.total > 1 ? summary(batch) : last;
+    st.importing = false;
     ui().invalidate();
-    importSongZip(file, {
-      confirmReplace: (saved, incoming) => showing() && window.confirm(saved.bundleRevision === incoming.bundleRevision
-        ? `“${saved.title}” revision ${saved.bundleRevision} is already imported. Replace it?`
-        : `A later revision of “${saved.title}” (${saved.bundleRevision}) is already imported. Replace it with revision ${incoming.bundleRevision}?`),
-    })
-      .then(({ status, entry }) => {
-        const title = `“${entry.title}”`;
-        // Song Select only lists it for the player counts it has.
-        const most = Math.max(...entry.supportedPlayerCounts);
-        const note = most < 4 ? ` It's for up to ${most} player${most === 1 ? '' : 's'}.` : '';
-        st.notice = {
-          text: (status === 'kept' ? `Kept the ${title} already imported.` : status === 'replaced' ? `Updated ${title} to revision ${entry.bundleRevision}.` : `Imported ${title}.`) + note,
-          error: false,
-        };
-        refresh({ show: entry.id });
-      })
-      .catch((error: unknown) => { st.notice = { text: message(error) || "That song couldn't be imported.", error: true }; })
-      .finally(() => {
-        st.importing = false;
-        ui().invalidate();
-      });
   };
   // The file picker opens from the press itself (browsers only open one from the user's input).
   // In the app, the app's picker opens on the phone's screen.
@@ -153,8 +200,8 @@ export function createSongsPanel({ layout, ui, showing }: {
     if (st.importing || st.picking) return;
     if (IN_APP) {
       st.picking = true;
-      pickAppSong()
-        .then((file) => { st.picking = false; if (file) importFile(file); })
+      pickAppSongs()
+        .then((files) => { st.picking = false; importFiles(files); })
         .catch((error: unknown) => {
           st.picking = false;
           st.notice = { text: message(error) || "That file couldn't be opened.", error: true };
@@ -166,16 +213,65 @@ export function createSongsPanel({ layout, ui, showing }: {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.zip,application/zip';
+      input.multiple = true;
       input.hidden = true;
       input.addEventListener('change', () => {
-        const file = input.files?.[0];
+        const files = [...input.files ?? []];
         input.value = '';
-        if (file) importFile(file);
+        importFiles(files.map(songFile));
       });
       document.body.append(input);
       st.picker = input;
     }
     st.picker.click();
+  };
+
+  // Files dragged onto the panel import as picked ones do. While files are dragged over
+  // Settings, the panel shows it takes them, and the rest of the page turns them away (the browser
+  // would open a file dropped there in place of the game). dragenter and dragleave come in pairs
+  // as the drag crosses the page's elements, so the drag has left the page once they balance.
+  let depth = 0;
+  const takesDrops = (e: DragEvent) => showing() && st.status !== 'error' && !!e.dataTransfer?.types.includes('Files');
+  const overPanel = (e: DragEvent) => {
+    const p = toDesign(e.clientX, e.clientY), { SONGS } = layout();
+    return p.x >= SONGS.x && p.x <= SONGS.x + SONGS.w && p.y >= SONGS.y && p.y <= SONGS.y + SONGS.h;
+  };
+  const drag = (to: typeof st.dragging) => {
+    if (st.dragging !== to) { st.dragging = to; ui().invalidate(); }
+  };
+  const onDragEnter = (e: DragEvent) => {
+    if (!takesDrops(e)) return;
+    e.preventDefault();
+    depth++;
+    drag(overPanel(e) ? 'over' : 'near');
+  };
+  const onDragOver = (e: DragEvent) => {
+    if (!takesDrops(e)) { drag(null); return; }
+    e.preventDefault();
+    const over = overPanel(e);
+    if (e.dataTransfer) e.dataTransfer.dropEffect = over ? 'copy' : 'none';
+    drag(over ? 'over' : 'near');
+  };
+  const onDragLeave = () => {
+    depth = Math.max(0, depth - 1);
+    if (!depth) drag(null);
+  };
+  const onDrop = (e: DragEvent) => {
+    depth = 0;
+    drag(null);
+    if (!takesDrops(e)) return;
+    e.preventDefault();
+    if (overPanel(e)) importFiles([...e.dataTransfer?.files ?? []].map(songFile));
+  };
+  // Only while Settings is up.
+  const dragEvents = Object.entries({ dragenter: onDragEnter, dragover: onDragOver, dragleave: onDragLeave, drop: onDrop }) as [string, EventListener][];
+  const takeDrags = (on: boolean) => {
+    for (const [type, fn] of dragEvents) {
+      if (on) window.addEventListener(type, fn);
+      else window.removeEventListener(type, fn);
+    }
+    depth = 0;
+    st.dragging = null;
   };
 
   // Deletes a song from this browser or app (its best scores stay), unless another tab has put
@@ -232,6 +328,7 @@ export function createSongsPanel({ layout, ui, showing }: {
     open() {
       st.page = 0;
       refresh();
+      if (CAN_IMPORT) takeDrags(true);
     },
     close() {
       // A listing on its way is dropped; the next visit lists them again.
@@ -239,6 +336,7 @@ export function createSongsPanel({ layout, ui, showing }: {
       st.listing = false;
       if (st.status === 'loading') st.status = 'idle';
       stopMarquees();
+      takeDrags(false);
       // An import still going says how it went next time.
       if (!st.importing) st.notice = null;
     },
@@ -363,9 +461,40 @@ export function createSongsPanel({ layout, ui, showing }: {
         g.fillText(' · Dance Studio ZIP', x + w, cy + 2);
         g.restore();
       }
+
+      // Files dragged over Settings: a dashed edge says the panel takes them, and over it, the
+      // panel dims under Drop to import.
+      st.near = ui().ease(st.near, st.dragging ? 1 : 0, 14);
+      st.over = ui().ease(st.over, st.dragging === 'over' ? 1 : 0, 14);
+      if (st.near > 0.01) {
+        g.save();
+        roundRect(g, SONGS.x, SONGS.y, SONGS.w, SONGS.h, 34);
+        g.fillStyle = `rgba(0, 30, 70, ${0.6 * st.over})`;
+        g.fill();
+        roundRect(g, SONGS.x + 12, SONGS.y + 12, SONGS.w - 24, SONGS.h - 24, 24);
+        g.setLineDash([14, 10]);
+        g.lineWidth = 3;
+        g.strokeStyle = `rgba(184, 255, 240, ${st.near * (0.55 + 0.45 * st.over)})`;
+        g.stroke();
+        g.setLineDash([]);
+        if (st.over > 0.01) {
+          g.globalAlpha *= st.over;
+          const cx = SONGS.x + SONGS.w / 2, cy = SONGS.y + SONGS.h / 2;
+          drawButton(g, { x: cx, y: cy - 30, r: 28 }, 'add', 1, 0);
+          g.font = `700 28px ${FONT}`;
+          g.textAlign = 'center';
+          g.fillStyle = '#b8fff0';
+          g.fillText('Drop to import', cx, cy + 32);
+          g.font = `600 19px ${FONT}`;
+          g.fillStyle = '#d8f6ff';
+          g.fillText('Dance Studio ZIPs', cx, cy + 64);
+        }
+        g.restore();
+      }
     },
-    key: () => [st.status, st.songs.map((saved) => `${saved.entry.id}:${saved.entry.bundleRevision}:${saved.damaged}`).join(','), st.page, st.importing, st.notice?.text, st.error].join('~'),
-    busy: () => st.importing || st.status === 'loading' || st.nextMotion === 0,
+    key: () => [st.status, st.songs.map((saved) => `${saved.entry.id}:${saved.entry.bundleRevision}:${saved.damaged}`).join(','), st.page, st.importing, st.notice?.text, st.error, st.dragging].join('~'),
+    busy: () => st.importing || st.status === 'loading' || st.nextMotion === 0 ||
+      st.near !== (st.dragging ? 1 : 0) || st.over !== (st.dragging === 'over' ? 1 : 0),
     report(): Record<string, string> {
       if (!CAN_IMPORT) return {};
       return {
@@ -374,11 +503,13 @@ export function createSongsPanel({ layout, ui, showing }: {
         damagedSongs: st.status === 'ready' && !st.listing ? String(st.songs.filter((saved) => saved.damaged).length) : '',
         songImport: st.importing ? 'importing' : st.notice ? (st.notice.error ? 'error' : 'done') : 'idle',
         songNotice: st.notice?.text ?? '',
+        songDrop: st.dragging ?? '',
       };
     },
     dispose() {
       st.loads++;
       stopMarquees();
+      takeDrags(false);
       st.picker?.remove();
     },
   };

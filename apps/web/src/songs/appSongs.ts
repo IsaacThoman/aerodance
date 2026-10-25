@@ -15,7 +15,7 @@ import { MAX_BUNDLE_BYTES } from './loadBundle.ts';
  * /app/songs/ (main.m), for requests with its key (host.ts appSongs).
  *
  *   appSongsStore({ key })   a CustomSongStore (customSongs.ts) over the folder
- *   pickAppSong()            a ZIP from the app's file picker, as a File (null if cancelled)
+ *   pickAppSongs()           the ZIPs picked in the app's file picker, each to read (none if cancelled)
  *
  * The store has songs by songId, like the browser's IndexedDB store:
  * - Each ZIP is read once: what it holds (its songId, catalog entry, files' sizes, and
@@ -239,16 +239,25 @@ export function appSongsStore({ key, fetcher = fetch, cache = globalThis.localSt
   };
 }
 
-/** A ZIP from the app's file picker, or null if it was cancelled. */
-export async function pickAppSong(songs: AppSongs | null = appSongs(), fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<File | null> {
-  if (!songs) return null;
-  const picked = await songs.pick();
-  if (!picked) return null;
+/** A song ZIP picked to import: its file name, and its bytes when they're wanted. */
+export interface SongFile { name: string; read(): Promise<Blob>; }
+
+/**
+ * The ZIPs picked in the app's file picker (none if it was cancelled), each read when it's
+ * imported: the app's copy is deleted once it's been read.
+ */
+export async function pickAppSongs(songs: AppSongs | null = appSongs(), fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<SongFile[]> {
+  if (!songs) return [];
   const headers = { 'X-Aerodance-Key': songs.key };
-  const response = await fetcher(picked.url, { headers });
-  if (!response.ok) throw Error(`${picked.name} couldn't be opened.`);
-  const file = new File([await response.blob()], picked.name, { type: 'application/zip' });
-  // The app's copy is only for this.
-  fetcher(picked.url, { method: 'DELETE', headers }).catch(() => {});
-  return file;
+  return (await songs.pick()).map((picked) => ({
+    name: picked.name,
+    read: async () => {
+      const response = await fetcher(picked.url, { headers });
+      if (!response.ok) throw Error(`${picked.name} couldn't be opened.`);
+      const file = new File([await response.blob()], picked.name, { type: 'application/zip' });
+      // The app's copy is only for this.
+      fetcher(picked.url, { method: 'DELETE', headers }).catch(() => {});
+      return file;
+    },
+  }));
 }
