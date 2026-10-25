@@ -1,5 +1,5 @@
 import type { WebGLRenderer } from 'three';
-import { DANCER_TOP, dancerWidth } from '../ui/draw.ts';
+import { DANCER_TOP } from '../ui/draw.ts';
 import { CUTOUT } from '../ui/cutout.ts';
 import type { Cutout, CutoutPose } from '../ui/cutout.ts';
 import { leadOf } from '../../../../packages/pose/song.ts';
@@ -9,7 +9,8 @@ import { PLAYERS } from './results.ts';
 /*
  * Song Select's cast: each of a song's dancers as a pixel sprite, in a different moment of the
  * menu capture, in the colour of the first player following it with a one-pixel shadow down and
- * to the right, or a faint white silhouette if nobody follows it. The sprites are the dancer
+ * to the right, or a faint white silhouette if nobody follows it, side by side with a pixel
+ * clear between them. The sprites are the dancer
  * rendered in-engine and thresholded (ui/dancerCutouts.ts) at the overlay's own resolution and
  * drawn on its pixel grid, one sprite pixel to a buffer pixel, so they line up with the canvas
  * (and the world under it) exactly. The 640x480 buffer's pixels are 4:3 wide in widescreen and
@@ -26,8 +27,6 @@ export const CREW: readonly CutoutPose[] = [
   { take: 1, seconds: 3 },
   { take: 1, seconds: 10 },
 ];
-// Each dancer stands this many dancer widths right of the one before, hands overlapping.
-const STEP = 0.8;
 // A dancer nobody follows: an empty spot on the glass.
 export const SPARE_ALPHA = 0.3;
 
@@ -65,13 +64,33 @@ export function paintSprite(cut: Cutout, lead: number) {
 }
 
 /**
- * Where each sprite goes, `step` pixels between their bodies' middles: its left edge in pixels
- * from the group's, and the group's width (shadows included).
+ * Where each sprite goes, left to right, standing on one floor: each as close after the one
+ * before as it can be with `gap` pixels clear of every sprite before it, so no dancer hides
+ * another's hands. Returns each one's left edge in pixels from the group's, and the group's
+ * width (shadows included).
  */
-export function layoutCast(cuts: readonly Cutout[], step: number) {
-  const lefts = cuts.map((cut, d) => d * step - cut.cx);
-  const min = Math.min(...lefts), max = Math.max(...cuts.map((cut, d) => lefts[d] + cut.w + 1));
-  return { x: lefts.map((left) => left - min), width: max - min };
+export function layoutCast(cuts: readonly Cutout[], gap = 1) {
+  // Taken pixels (and their margins), by row up from the floor and column.
+  const taken = new Set<number>();
+  const at = (x: number, row: number) => row * 65536 + x + 32768;
+  const pixels = (cut: Cutout) => {
+    const out: [number, number][] = [];
+    for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) if (cut.part[y * cut.w + x] !== CUTOUT.none) out.push([x, cut.h - 1 - y]);
+    return out;
+  };
+  const xs: number[] = [];
+  cuts.forEach((cut, d) => {
+    const own = pixels(cut);
+    // Its body's middle right of the one before's, then on until it's clear.
+    let x = d ? xs[d - 1] + cuts[d - 1].cx - cut.cx + 1 : 0;
+    while (own.some(([px, row]) => taken.has(at(x + px, row)))) x++;
+    xs.push(x);
+    for (const [px, row] of own) {
+      for (let dy = -gap; dy <= gap; dy++) for (let dx = -gap; dx <= gap; dx++) taken.add(at(x + px + dx, row + dy));
+    }
+  });
+  const min = Math.min(...xs), max = Math.max(...cuts.map((cut, d) => xs[d] + cut.w + 1));
+  return { x: xs.map((x) => x - min), width: max - min };
 }
 
 /** The cutouts' resolution for dancers `h` design units tall under transform `t`: buffer pixels per character unit. */
@@ -115,7 +134,7 @@ export function createCastSprites(gl: WebGLRenderer, onReady: () => void) {
     if (!set) return null;
     const poses = Array.from({ length: dancers }, (_, d) => d % set.cuts.length);
     const cuts = poses.map((pose) => set.cuts[pose]);
-    return { t, key: set.key, poses, cuts, ...layoutCast(cuts, Math.round(dancerWidth(h) * STEP * t.a)) };
+    return { t, key: set.key, poses, cuts, ...layoutCast(cuts) };
   };
 
   return {

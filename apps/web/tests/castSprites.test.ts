@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CREW, layoutCast, paintSprite, spriteGrid, spriteInk } from '../src/game/castSprites.ts';
-import { CUTOUT } from '../src/ui/cutout.ts';
+import { CUTOUT, clearShift } from '../src/ui/cutout.ts';
 import type { Cutout } from '../src/ui/cutout.ts';
 
 const { body: B, eye: E } = CUTOUT;
@@ -37,15 +37,19 @@ test('each player\'s sprite is in their own colours', () => {
   assert.equal(spriteInk(-1), null);
 });
 
-test('the cast lays out on whole pixels, step apart by their bodies\' middles', () => {
-  const wide: Cutout = { w: 9, h: 2, cx: 6, part: new Uint8Array(18) };
-  const { x, width } = layoutCast([cut, wide, cut], 5);
-  // Middles at 0, 5 and 10 from the first's: left edges at -1, -1 and 9.
-  assert.deepEqual(x, [0, 0, 10]);
-  for (const n of x) assert.ok(Number.isInteger(n));
-  // From the first two's left edges (-1) to the last's right edge (12) and its shadow.
-  assert.equal(width, 14);
-  assert.deepEqual(layoutCast([cut], 5), { x: [0], width: 4 });
+test('the cast stands side by side on one floor, each a pixel clear of the ones before', () => {
+  // A 2x4 dancer with a hand out to the right on its second row.
+  const reach: Cutout = { w: 3, h: 4, cx: 0, part: new Uint8Array([B, B, 0, B, B, B, B, B, 0, B, B, 0]) };
+  const { x, width } = layoutCast([reach, reach, reach]);
+  // Columns 0-2, 4-6 and 8-10: the hand at column 2 keeps column 3 clear of the next body.
+  assert.deepEqual(x, [0, 4, 8]);
+  assert.equal(width, 12);
+  // A short dancer tucks in under the one before's hand.
+  const short: Cutout = { w: 1, h: 1, cx: 0, part: new Uint8Array([B]) };
+  assert.deepEqual(layoutCast([reach, short]).x, [0, 3]);
+  // Already a pixel clear, it doesn't move further: middles one apart if they can be.
+  assert.deepEqual(layoutCast([short, short]).x, [0, 2]);
+  assert.deepEqual(layoutCast([cut]), { x: [0], width: 4 });
 });
 
 test('cutouts render at the overlay\'s resolution: 4:3-wide pixels in widescreen, square in 4:3', () => {
@@ -59,4 +63,24 @@ test('cutouts render at the overlay\'s resolution: 4:3-wide pixels in widescreen
 test('the crew has a moment for each of up to four dancers', () => {
   assert.equal(CREW.length, 4);
   assert.equal(new Set(CREW.map((p) => `${p.take}:${p.seconds}`)).size, 4);
+});
+
+test('a hand held against the body slides out sideways until a pixel is clear between them', () => {
+  // A 3-wide body in columns 3-5 of a 12x3 frame, and a hand overlapping its right edge.
+  const W = 12, H = 3, mask = (cols: number[]) => {
+    const m = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (const x of cols) m[y * W + x] = 1;
+    return m;
+  };
+  const body = mask([3, 4, 5]), hand = mask([5, 6]);
+  // To the right: from column 5 to 7, leaving column 6 clear.
+  assert.equal(clearShift(body, hand, W, H, 1), 2);
+  // To the left: past the body to columns 0-1, leaving column 2 clear.
+  assert.equal(clearShift(body, hand, W, H, -1), 5);
+  // Already clear: it stays.
+  assert.equal(clearShift(body, mask([8, 9]), W, H, 1), 0);
+  // Touching (no clear pixel) counts as held.
+  assert.equal(clearShift(body, mask([6]), W, H, 1), 1);
+  // No room within the limit.
+  assert.equal(clearShift(body, hand, W, H, 1, 1, 1), null);
 });
