@@ -6,7 +6,7 @@ import { createRetargeter, loadMotion } from '../../../../packages/character/mot
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import modelUrl from '../../../../packages/character/assets/aero-character.glb?url';
 import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
-import { CUTOUT, clearShift, type Cutout, type CutoutPose } from './cutout.ts';
+import { CUTOUT, clearShift, faceFront, type Cutout, type CutoutPose } from './cutout.ts';
 
 /*
  * Thresholded cutouts of the aero dancer, rendered in-engine: the real model, held in a moment
@@ -14,7 +14,8 @@ import { CUTOUT, clearShift, type Cutout, type CutoutPose } from './cutout.ts';
  * a hard-edged mask (no antialiasing, so every pixel is its body, head, a hand, an eye or
  * nothing: each is drawn in its own shade). A hand
  * the pose holds against the body or head would vanish into the silhouette, so it's slid out
- * sideways, away from the body's middle, until there's a pixel clear between them.
+ * sideways, away from the body's middle, until there's a pixel clear between them. The eyes are
+ * redrawn facing front (cutout.ts's faceFront), as the pose's head turns would squash them.
  *
  * const [cutout] = await bakeCutouts(gl, [{ take: 1, seconds: 5 }], 9.5, 7.1);
  */
@@ -160,7 +161,8 @@ export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly Cutou
         part[y * w + x] = partOf(pixels[((H - 1 - y - y0) * W + x + x0) * 4]);
       }
       // It stands on its spot by its body's middle.
-      results.push({ w, h, cx: Math.round((mid - left) * ppuX) - x0, part });
+      // Its eyes facing front, alike on every dancer, however the pose turns its head.
+      results.push(faceFront({ w, h, cx: Math.round((mid - left) * ppuX) - x0, part }, ppu, ppuX));
     }
   } finally {
     gl.setRenderTarget(previous.target);

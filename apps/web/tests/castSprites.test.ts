@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CREW, layoutCast, paintSprite, spriteGrid, spriteInk } from '../src/game/castSprites.ts';
-import { CUTOUT, clearShift } from '../src/ui/cutout.ts';
+import { CUTOUT, clearShift, faceFront } from '../src/ui/cutout.ts';
 import type { Cutout } from '../src/ui/cutout.ts';
 
 const { body: B, eye: E } = CUTOUT;
@@ -106,4 +106,22 @@ test('a hand held against the body slides out sideways until a pixel is clear be
   assert.equal(clearShift(body, mask([6]), W, H, 1), 1);
   // No room within the limit.
   assert.equal(clearShift(body, hand, W, H, 1, 1, 1), null);
+});
+
+test('every head gets the same front-facing eyes: two upright lines in its middle', () => {
+  const { head: D, eye: E } = CUTOUT;
+  // A 9x12 head with a squashed eye where a turn left it, at the 16:9 grid.
+  const cut: Cutout = { w: 9, h: 12, cx: 4, part: new Uint8Array(9 * 12).fill(D) };
+  cut.part[5 * 9 + 7] = E;
+  faceFront(cut, 9.52, 7.14);
+  const eyes: string[] = [];
+  for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) if (cut.part[y * cut.w + x] === E) eyes.push(`${x},${y}`);
+  // Columns 3 and 6, rows 5-7: one pixel wide and three tall, 0.37 units (3 pixels) apart.
+  assert.deepEqual(eyes, ['3,5', '6,5', '3,6', '6,6', '3,7', '6,7']);
+  // Square pixels (4:3) set them further apart, at the same height.
+  const square: Cutout = { w: 12, h: 12, cx: 6, part: new Uint8Array(144).fill(D) };
+  faceFront(square, 9.52, 9.52);
+  const columns = new Set<number>();
+  square.part.forEach((p, i) => { if (p === E) columns.add(i % 12); });
+  assert.deepEqual([...columns].sort((a, b) => a - b), [4, 8]);
 });

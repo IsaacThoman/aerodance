@@ -41,3 +41,31 @@ export function clearShift(fixed: Uint8Array, moving: Uint8Array, W: number, H: 
   }
   return null;
 }
+
+// The dancer's eyes, in its model's units: their middles this far apart, and this tall
+// (packages/character/source/build-character.py).
+const EYE_SPACING = 0.37;
+const EYE_HEIGHT = 0.356;
+
+/**
+ * Gives `cut` (in place) the eyes it has facing front, whichever way its head is turned: two
+ * one-pixel-wide upright lines, the model's eye spacing apart and its eye height tall, in the
+ * middle of the head, at `ppu` pixels per unit down and `ppuX` across. The head's outline is the
+ * same however it's turned (it's a ball), so every dancer's eyes come out alike.
+ */
+export function faceFront(cut: Cutout, ppu: number, ppuX = ppu) {
+  let x0 = cut.w, x1 = -1, y0 = cut.h, y1 = -1;
+  for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) {
+    const i = y * cut.w + x;
+    if (cut.part[i] === CUTOUT.eye) cut.part[i] = CUTOUT.head;
+    if (cut.part[i] !== CUTOUT.head) continue;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  if (x1 < 0) return cut;
+  const spacing = Math.max(2, Math.round(EYE_SPACING * ppuX)), height = Math.max(1, Math.round(EYE_HEIGHT * ppu));
+  const left = Math.round((x0 + x1) / 2 - spacing / 2), top = Math.round((y0 + y1) / 2 - (height - 1) / 2);
+  for (const x of [left, left + spacing]) for (let y = top; y < top + height; y++) {
+    if (cut.part[y * cut.w + x] === CUTOUT.head) cut.part[y * cut.w + x] = CUTOUT.eye;
+  }
+  return cut;
+}
