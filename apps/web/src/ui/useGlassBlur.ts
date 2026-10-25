@@ -6,6 +6,7 @@ import { displayDesign } from '../display.ts';
 import { glassCorner } from './draw.ts';
 import type { Rect } from './draw.ts';
 import { glassTextureSize } from './glassTexture.ts';
+import { glassBlurSamplingGLSL } from './glassBlurKernel.ts';
 
 /**
  * Frosted glass for canvas UI buttons (drawGlassButton): just before the overlay draws, the
@@ -16,10 +17,11 @@ import { glassTextureSize } from './glassTexture.ts';
  * useGlassBlur(() => ({ panes: [{ rect, corner }], alpha, offsetX }), { priority: 1.9 });
  *
  * Panes are in the overlay's design units (1600x900 or 1200x900). alpha fades the blur with the
- * overlay; offsetX follows a sliding screen. Up to MAX_PANES panes.
+ * overlay; offsetX follows a sliding screen. A pane's own alpha fades it alone (a row scrolling
+ * out of a list). Up to MAX_PANES panes.
  */
 
-export interface GlassPane { rect: Rect; corner: number; }
+export interface GlassPane { rect: Rect; corner: number; alpha?: number; }
 export interface GlassBlurFrame { panes: readonly GlassPane[]; alpha: number; offsetX?: number; }
 
 /** A drawGlassButton's pane: lifted as it is hovered and pressed, as the button is drawn. */
@@ -30,18 +32,18 @@ export function buttonPane(ui: { hover: Record<string, number>; press: number },
 /** A drawDarkGlassPanel's pane. */
 export const panelPane = (rect: Rect, corner = 34): GlassPane => ({ rect, corner });
 
-// Song Select's dancers screen has the most: a pill per player (up to four), Auto and Dance!.
+// Song Select has the most: on its dancers screen a pill per player (up to four), Auto and Dance!,
+// and on its list five songs with a sixth scrolling in.
 const MAX_PANES = 6;
 // Blur radius in design units, and the extra copied round the panes so the blur near their
 // edges samples the world there instead of smearing the edge pixel.
 const RADIUS = 24;
-const TAPS = 40;
 
 const vertexShader = /* glsl */ `
 void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `;
 // A Vogel-disk blur (golden-angle spiral of taps, weighted towards the middle), masked by the
-// panes' rounded rects with a one-pixel soft edge.
+// panes' rounded rects with a one-pixel soft edge, each at its own alpha.
 const fragmentShader = /* glsl */ `
 uniform sampler2D map;
 uniform vec2 origin;
@@ -49,6 +51,7 @@ uniform vec2 size;
 uniform float radius;
 uniform vec4 rects[${MAX_PANES}];
 uniform float corners[${MAX_PANES}];
+uniform float alphas[${MAX_PANES}];
 uniform int count;
 uniform float alpha;
 
@@ -60,25 +63,17 @@ float roundBox(vec2 p, vec4 r, float c) {
 
 void main() {
   vec2 p = gl_FragCoord.xy;
-  float d = 1e5;
+  float mask = 0.0;
   for (int i = 0; i < ${MAX_PANES}; i++) {
     if (i >= count) break;
-    d = min(d, roundBox(p, rects[i], corners[i]));
+    mask = max(mask, clamp(0.5 - roundBox(p, rects[i], corners[i]), 0.0, 1.0) * alphas[i]);
   }
-  float mask = clamp(0.5 - d, 0.0, 1.0);
   if (mask <= 0.0) discard;
   vec2 uv = (p - origin) / size;
   vec2 lo = 0.5 / size;
   vec3 sum = vec3(0.0);
   float wsum = 0.0;
-  for (int i = 0; i < ${TAPS}; i++) {
-    float f = (float(i) + 0.5) / ${TAPS}.0;
-    float a = float(i) * 2.39996323;
-    vec2 o = vec2(cos(a), sin(a)) * sqrt(f) * radius;
-    float w = exp(-2.0 * f);
-    sum += texture2D(map, clamp(uv + o / size, lo, 1.0 - lo)).rgb * w;
-    wsum += w;
-  }
+  ${glassBlurSamplingGLSL}
   gl_FragColor = vec4(sum / wsum, mask * alpha);
 }
 `;
@@ -99,6 +94,7 @@ export default function useGlassBlur(frame: () => GlassBlurFrame, { priority = 1
         radius: { value: 1 },
         rects: { value: Array.from({ length: MAX_PANES }, () => new THREE.Vector4()) },
         corners: { value: new Array<number>(MAX_PANES).fill(0) },
+        alphas: { value: new Array<number>(MAX_PANES).fill(1) },
         count: { value: 0 },
         alpha: { value: 1 },
       },
@@ -141,10 +137,11 @@ export default function useGlassBlur(frame: () => GlassBlurFrame, { priority = 1
     // Pane rects in buffer pixels, bottom-up like gl_FragCoord, and their bounds.
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let i = 0; i < count; i++) {
-      const { rect: { x, y, w, h }, corner } = panes[i];
+      const { rect: { x, y, w, h }, corner, alpha: paneAlpha = 1 } = panes[i];
       const r = u.rects.value[i] as THREE.Vector4;
       r.set((x + offsetX) * sx, buf.y - (y + h) * sy, (x + offsetX + w) * sx, buf.y - y * sy);
       u.corners.value[i] = corner * Math.min(sx, sy);
+      u.alphas.value[i] = paneAlpha;
       x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.z); y1 = Math.max(y1, r.w);
     }
     // The region copied: the bounds plus the blur's reach, inside the buffer.

@@ -186,7 +186,7 @@ export class WebcamPoseSource {
     const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
     const facing = saved(`${settingsKey}-facing`, '');
     this.view = { status: 'disconnected', sourceKind: 'webcam', snapshot: null, configuring: false,
-      message: 'Choose a camera and model, then Start camera.', interrupted: false, model: modelId,
+      message: 'Choose a camera, then Start camera.', interrupted: false, model: modelId,
       cameraId: saved(`${settingsKey}-camera`, ''), cameras: [], stats: null,
       ...(facing === 'user' || facing === 'environment' ? { facing } : {}) };
   }
@@ -431,7 +431,7 @@ export class WebcamPoseSource {
       const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
       this.publish({ status: 'connected', snapshot: { ...record, sourceKind: 'webcam', frameId: record.seq },
         stats: { poseHz, inferenceMs: data.inferenceMs, frameAgeMs, droppedFrames: this.dropped },
-        message: `${poseModel(this.view.model).label} · ${this.view.delegate} · ${this.resultTimes.length > 1 ? `${poseHz.toFixed(1)} poses/s` : 'Measuring tracking speed…'}${poseHz < 15 && this.completed > 30 ? this.view.model === 'lite' ? ' · Slow tracking; close other apps.' : ' · Slow tracking; try Lite.' : ' · Step into view.'}` });
+        message: `${poseModel(this.view.model).label} · ${this.view.delegate} · ${this.resultTimes.length > 1 ? `${poseHz.toFixed(1)} poses/s` : 'Measuring tracking speed…'}${poseHz < 15 && this.completed > 30 ? ' · Slow tracking; close other apps.' : ' · Step into view.'}` });
     } catch (error) { this.fail(error); }
   }
   /** Sends the frame that waited for the last result, if any. */

@@ -4,6 +4,9 @@ How the game gets onto an Apple TV, what was tried, and what was measured. All n
 an Apple TV 4K (3rd generation, A15) on tvOS 27.0, rendering the game's 640×480 frame, collected
 in October 2026.
 
+The [first-generation A10X follow-up](a10x-performance.md) covers the physical 2017 model,
+all six stages and four-player limits. The historical tables below remain A15 measurements.
+
 ## What ships
 
 [`apps/tvos/`](../apps/tvos/README.md) runs the production game's own JavaScript in

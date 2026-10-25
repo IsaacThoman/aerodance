@@ -8,6 +8,12 @@ body,
   font-family: system-ui, sans-serif;
 }
 
+/* The page never scrolls: a trackpad or finger shouldn't rubber-band it past its edges. */
+html,
+body {
+  overscroll-behavior: none;
+}
+
 #root {
   display: grid;
   place-items: center;
@@ -52,6 +58,8 @@ body,
   width: 100% !important;
   height: 100% !important;
   image-rendering: pixelated;
+  /* Drags on the canvas are the game's (Song Select's list scrolls), not the page's. */
+  touch-action: none;
 }
 
 /* The phone camera page (apps/web/pair/) fills the phone's screen, either way up. */

@@ -152,9 +152,8 @@ async function prepareApp({ release, site, skipWebBuild }: BuildOptions) {
   if (!skipWebBuild) run('npm', ['run', 'build']);
   if (!existsSync(path.join(root, 'dist/index.html'))) throw Error('No production build in dist/; run without --skip-web-build');
   rmSync(www, { recursive: true, force: true });
-  // Unlike the Apple TV, phones have cameras: pose tracking comes along, with only the Lite model,
-  // the one the game's camera uses (Full and Heavy, 9 and 29 MB, are only offered by the phone page,
-  // which the app doesn't open; inject.js drops a saved choice of them).
+  // Unlike the Apple TV, phones have cameras: Lite pose tracking comes along.
+  // Also prune retired assets when packaging an older build with --skip-web-build.
   cpSync(path.join(root, 'dist'), www, { recursive: true });
   dropUnusedPoseModels();
   await bundleFonts();

@@ -37,8 +37,7 @@
   try {
     const saved = start.saved ?? {}, restored = Object.keys(saved).filter(k => ours(k) && localStorage.getItem(k) === null);
     for (const k of restored) localStorage.setItem(k, saved[k]);
-    // The app bundles only the Lite pose model (scripts/ios.ts), so a webcam model saved as Full or
-    // Heavy (which only the phone page offers) goes before the game reads it, and Lite is used.
+    // Drop retired model preferences restored from earlier app versions. Tracking uses Lite.
     const MODEL = 'aerodance-webcam-model', model = localStorage.getItem(MODEL);
     if (model !== null && model !== 'lite') localStorage.removeItem(MODEL);
     const all = model !== null && model !== 'lite' ? { [MODEL]: null } : {};
@@ -75,12 +74,14 @@
   };
 
   // Imported songs are ZIPs the app keeps (main.m, songs/appSongs.ts): the key its /app/ routes
-  // need, and its file picker, which answers with where it put the ZIP ({ url, name }) or null.
+  // need, and its file picker, which answers with where it put each ZIP picked ([{ url, name }],
+  // empty when it was cancelled).
   let picking = null;
-  window.__aerodanceSongPicked = file => {
+  window.__aerodanceSongPicked = files => {
     const done = picking?.done;
     picking = null;
-    done?.(file && typeof file.url === 'string' ? { url: file.url, name: String(file.name) } : null);
+    const list = Array.isArray(files) ? files : files ? [files] : [];
+    done?.(list.filter(file => file && typeof file.url === 'string').map(file => ({ url: file.url, name: String(file.name) })));
   };
   globalThis.__aerodanceSongs = {
     key: '__SONGS_KEY__',

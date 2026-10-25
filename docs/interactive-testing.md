@@ -51,11 +51,14 @@ command connects to it, does one thing and prints the result. The page keeps its
 between commands, and with the dev server, edits to the source hot-reload into it.
 
 ```sh
-node scripts/play.ts start [--studio] [--dist] [--headed] [--url /?input=ghost]
+node scripts/play.ts start [--studio | --dance <project>] [--dist] [--headed] [--url /?input=ghost]
                            [--size 1280x800] [--camera fixture|deny|none]
 ```
 
 - `--studio` runs Dance Studio instead of the game.
+- `--dance <project>` runs the animation Studio ([tools/dance](../tools/dance/README.md)) on a
+  dance project. `state` and `wait` read its `.studio` element's `data-*` (`revision`, `time`,
+  `dancer`, `control`, `mode`, `busy`).
 - `--dist` builds and serves the production bundle (`vite build` + `vite preview`),
   for checking what actually ships.
 - `--headed` opens a visible window that you can play in while the commands still work.
@@ -81,6 +84,7 @@ and Vite dependency cache under `.cache/play/sessions/<name>/`.
 | `state` | Prints the game canvas's `data-*` attributes as JSON (Studio: the URL and title) |
 | `click <target>` | Clicks a layout target or a design point `x,y` (see below) |
 | `click --locator <selector>` | Clicks a DOM element with a [Playwright selector](https://playwright.dev/docs/other-locators), mainly for Studio, e.g. `'role=button[name="Save"]'` |
+| `drag <x,y> <x,y> [--steps n]` | Presses, moves and releases the mouse between two page points (the animation Studio's video and timeline are canvases; `eval "window.danceStudio.jointOnPage('P1','leftWrist')"` finds a joint) |
 | `hover <target>` | Moves the mouse onto a target |
 | `key <key>...` | Presses keys in order: `Enter`, `Escape`, `ArrowDown`, … |
 | `type <text>` | Types into the focused element |
@@ -114,7 +118,7 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen while Settings → Graphics → Aspect ratio is on Auto (`click ASPECT.0`); `ASPECT.1` / `ASPECT.2` hold 4:3 / 16:9 whatever the window, and the choice is saved. Both keep the canvas buffer at 640×480.
 - Background: `background` (`skyline` or a backdrop id), `backgroundReady` (built, and the veil down). Settings → Graphics → Background steps through them with `click BACKGROUND_NEXT` / `BACKGROUND_PREV`; `goto '/?background=koi'` picks one for the visit.
-- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice` (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first)
+- Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice`, `songDrop` (`near` / `over` while files are dragged over Settings / the Songs panel) (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first)
 - Song Select: `songScreen` (`list`, `preview`, `dancers`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`, `songDancers` (the open song's dancer count), `songCast` (the dancer each player follows, from 0, e.g. `0|1`). From the preview, `click game.DANCERS` opens the dancers screen; `click castRow.<n>.<players>` presses player n's row (from 0, laid out for that many players) and picks their next dancer, and `key ArrowLeft` / `ArrowRight` on a row step it
 - Stage: `stage`, `stageReady`
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`

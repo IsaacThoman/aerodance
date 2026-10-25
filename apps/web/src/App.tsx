@@ -100,8 +100,6 @@ export default function App() {
   // The live camera (this computer's webcam or a paired phone), with optional URL replay.
   const [source] = useState(() => new CameraInput());
   const [replay] = useState(replaySource);
-  const [connection, setConnection] = useState(source.view);
-  const [replayView, setReplayView] = useState(replay?.view ?? null);
   const activeSource: PoseSource = replay ?? source;
   // Song Select's preview: the routine to dance, and how its stage is doing. On the dancers
   // screen the stage camera faces the dancers instead of circling them, raised above the pills.
@@ -109,7 +107,6 @@ export default function App() {
   const [songScreen, setSongScreen] = useState<SongScreen>('list');
   const [stage, setStage] = useState<StageState>({ showing: false, prepared: false, ready: false, stage: null, failed: false });
   const menuOpen = screen === 'menu';
-  const selectedConnection = replay && replayView ? replayView : connection;
   // The song being danced, its phase, and the results screen's reveal (StageView and
   // GameScreen both read it).
   const [game, setGame] = useState<GameSession | null>(null);
@@ -135,19 +132,16 @@ export default function App() {
 
   useEffect(() => {
     if (!replay) return undefined;
-    const unsubscribe = replay.subscribe(setReplayView);
     replay.connect();
-    return () => { unsubscribe(); replay.disconnect(); };
+    return () => replay.disconnect();
   }, [replay]);
 
   useEffect(() => {
-    const unsubscribe = source.subscribe(setConnection);
     // Leaving the page releases the camera.
     const disconnect = () => source.disconnect();
     window.addEventListener('pagehide', disconnect);
     return () => {
       window.removeEventListener('pagehide', disconnect);
-      unsubscribe();
       source.disconnect();
     };
   }, [source]);
@@ -265,7 +259,7 @@ export default function App() {
           <SongSelect
             visible={songsOpen}
             playerCount={playerCount}
-            connection={selectedConnection}
+            source={activeSource}
             onBack={leaveSongs}
             stageState={stage}
             onPreviewChange={setPreview}

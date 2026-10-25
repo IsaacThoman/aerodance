@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile, copyFile, readdir, cp, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, copyFile, readdir, cp, rename, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import express from 'express';
@@ -17,6 +17,10 @@ export function preparePoseAssets() {
     const pkg: unknown = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
     if (!isObject(pkg) || pkg.version !== MEDIAPIPE_VERSION) throw Error('MediaPipe JS/WASM version mismatch');
     await mkdir(path.join(directory, 'wasm'), { recursive: true });
+    // An existing checkout may have cached retired models. Never serve or copy them into builds.
+    for (const file of await readdir(directory))
+      if (/^pose_landmarker_.*\.task$/.test(file) && !MODELS.some(model => model.file === file))
+        await rm(path.join(directory, file));
     for (const file of await readdir(path.join(packageRoot, 'wasm')))
       await copyFile(path.join(packageRoot, 'wasm', file), path.join(directory, 'wasm', file));
     await Promise.all(MODELS.map(async model => {

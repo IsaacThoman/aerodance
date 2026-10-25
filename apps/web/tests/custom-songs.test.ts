@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { makeZip, readZip } from '../../../packages/pose/zip.ts';
 import { customScoreId, importSongZip, listCustomSongs, listSavedSongs, loadCustomSong, readSongZip, removeCustomSong } from '../src/songs/customSongs.ts';
 import type { CustomSongRecord, CustomSongStore } from '../src/songs/customSongs.ts';
-import { appSongsStore, pickAppSong } from '../src/songs/appSongs.ts';
+import { appSongsStore, pickAppSongs } from '../src/songs/appSongs.ts';
 import type { AppSongsOptions } from '../src/songs/appSongs.ts';
 import type { PickedSong } from '../src/host.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
@@ -282,17 +282,27 @@ test('in the app, two ZIPs of one song list as the later revision, and removing 
   assert.deepEqual([...folder.files.keys()], []);
 });
 
-test("in the app, the picker's ZIP is read with the key, and the app's copy deleted", async () => {
+test("in the app, the picker's ZIPs are read with the key when they're imported, and the app's copies deleted", async () => {
   const requests: string[] = [];
   const zip = exportZip();
   const fetcher = async (url: string, init: RequestInit = {}) => {
     requests.push(`${init.method ?? 'GET'} ${url} ${new Headers(init.headers).get('x-aerodance-key')}`);
+    if (url.endsWith('/gone.zip')) return new Response(null, { status: 404 });
     return new Response(init.method === 'DELETE' ? null : zip);
   };
-  const songs = (picked: PickedSong | null) => ({ key: 'k', pick: async () => picked });
-  assert.equal(await pickAppSong(songs(null), fetcher), null);
-  const file = await pickAppSong(songs({ url: '/app/incoming/1.zip', name: 'fixture-r1.aerodance-song.zip' }), fetcher);
-  assert.equal(file?.name, 'fixture-r1.aerodance-song.zip');
-  assert.equal(file?.size, zip.size);
-  assert.deepEqual(requests, ['GET /app/incoming/1.zip k', 'DELETE /app/incoming/1.zip k']);
+  const songs = (picked: PickedSong[]) => ({ key: 'k', pick: async () => picked });
+  assert.deepEqual(await pickAppSongs(songs([]), fetcher), []);
+  const files = await pickAppSongs(songs([
+    { url: '/app/incoming/1.zip', name: 'fixture-r1.aerodance-song.zip' },
+    { url: '/app/incoming/gone.zip', name: 'gone.aerodance-song.zip' },
+    { url: '/app/incoming/2.zip', name: 'other-r1.aerodance-song.zip' },
+  ]), fetcher);
+  assert.deepEqual(files.map((file) => file.name), ['fixture-r1.aerodance-song.zip', 'gone.aerodance-song.zip', 'other-r1.aerodance-song.zip']);
+  assert.deepEqual(requests, []);
+  const first = await files[0].read();
+  assert.equal(first.size, zip.size);
+  await assert.rejects(files[1].read(), /gone\.aerodance-song\.zip couldn't be opened/);
+  assert.equal((await files[2].read()).size, zip.size);
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.deepEqual(requests.sort(), ['DELETE /app/incoming/1.zip k', 'DELETE /app/incoming/2.zip k', 'GET /app/incoming/1.zip k', 'GET /app/incoming/2.zip k', 'GET /app/incoming/gone.zip k']);
 });

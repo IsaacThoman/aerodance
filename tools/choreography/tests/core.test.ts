@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { poseModel, MEDIAPIPE_VERSION } from '../../../packages/pose/browser/models.ts';
+import { RECORDED_MODEL_HASHES } from '../../../packages/pose/modelMetadata.ts';
 import {
   intervalsCover,
   newProject,
@@ -49,7 +50,7 @@ const pose = (playerId: number, x = 0.2): Pose => ({
   })),
 });
 test('webcam take timing follows frames despite variable inference latency and retains model provenance', () => {
-  const model = poseModel('full');
+  const model = poseModel('lite');
   const metadata: CaptureMetadata = { sourceKind: 'webcam', takeId: 'webcam-take', status: {
     modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION, delegate: 'CPU',
   } };
@@ -58,7 +59,7 @@ test('webcam take timing follows frames despite variable inference latency and r
     audioPositionAtReceiptMs: 2000 + i * 100 + delay,
     audioPositionAtFrameMs: 2000 + i * 100, audioPlaybackRate: 1,
     record: { schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 'webcam', seq: i + 1,
-      playerCount: 2, input: { width: 640, height: 480, mirrored: false }, modelId: 'full',
+      playerCount: 2, input: { width: 640, height: 480, mirrored: false }, modelId: 'lite',
       frameBrowserTimeMs: 1000 + i * 100, resultBrowserTimeMs: 1000 + i * 100 + delay,
       mediaTimeMs: i * 100, timingMethod: 'browser-frame-observation', poses: [pose(0), pose(1)] },
   }));
@@ -67,8 +68,15 @@ test('webcam take timing follows frames despite variable inference latency and r
   assert.deepEqual(take.samples.map(s => s.takeTimeMs), [0, 100, 200]);
   assert.deepEqual(take.samples.map(s => s.sourceSeq), [1, 2, 3]);
   assert.equal(take.provenance?.modelHash, model.sha256);
-  const lite = structuredClone(records).map(r => ({ ...r, record: { ...r.record, modelId: 'lite' } }));
-  assert.throws(() => takeFromRecords(captureOf(lite, 'webcam'), metadata), /Invalid webcam model configuration/);
+  const retired = structuredClone(records).map(r => ({ ...r, record: { ...r.record, modelId: 'full' } }));
+  const capture = captureOf(retired, 'webcam');
+  assert.throws(() => takeFromRecords(capture, metadata), /Invalid webcam model configuration/);
+  const historical = takeFromRecords(capture, { ...metadata, status: {
+    modelId: 'full', modelHash: RECORDED_MODEL_HASHES.full, packageVersion: MEDIAPIPE_VERSION, delegate: 'CPU',
+  } });
+  assert.equal(historical.provenance?.modelId, 'full');
+  assert.equal(historical.provenance?.modelHash, RECORDED_MODEL_HASHES.full);
+  assert.equal(importedPoseFile(encodeTake(historical), 'historical.adpose').provenance?.modelId, 'full');
   const early = structuredClone(records); early[1].receivedBrowserTimeMs = early[1].record.resultBrowserTimeMs - 1;
   assert.throws(() => takeFromRecords(captureOf(early, 'webcam'), metadata), /timing/);
 });
@@ -310,7 +318,7 @@ test("captures need a webcam or video source", () => {
   const capture = captureOf([0, 1].map((i) => ({
     receivedBrowserTimeMs: i * 100 + 30, audioPositionAtReceiptMs: i * 100 + 30, audioPositionAtFrameMs: i * 100, audioPlaybackRate: 1,
     record: { schema: "aerodance.webcam-record", schemaVersion: 1, type: "pose", sessionId: "s", seq: i + 1, playerCount: 2,
-      input: { width: 640, height: 480, mirrored: false }, modelId: "full", frameBrowserTimeMs: i * 100,
+      input: { width: 640, height: 480, mirrored: false }, modelId: "lite", frameBrowserTimeMs: i * 100,
       resultBrowserTimeMs: i * 100 + 20, mediaTimeMs: i * 100, timingMethod: "browser-frame-observation", poses: [pose(0), pose(1)] },
   })), "webcam");
   for (const sourceKind of [undefined, "android", "bogus"])

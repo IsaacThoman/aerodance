@@ -8,13 +8,16 @@ import {
   Color,
   BufferAttribute,
 } from "three";
-import type { BufferGeometry, ColorRepresentation, Mesh, Object3D } from "three";
+import type { BufferGeometry, ColorRepresentation, Mesh, Object3D, Skeleton, SkinnedMesh } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createRetargeter } from "./motion.ts";
 import { createPoseApplier } from "./retarget.ts";
 import { BalloonPop } from "./balloonPop.ts";
 import { LivePoseFilter } from './livePoseFilter.ts';
-import { clone } from "three/addons/utils/SkeletonUtils.js";
+import { cloneCharacter } from './cloneCharacter.ts';
+import { hasRigidSkinning, patchRigidSkinning } from './rigidSkinning.ts';
+import { createAccessorySelector } from './accessories.ts';
+import { createSkinBounds } from './skinBounds.ts';
 import modelUrl from "./assets/aero-character.glb?url";
 import type { MotionTake } from "../pose/motion.ts";
 import type { Pose, TrackCalibration } from "../pose/choreography.ts";
@@ -66,7 +69,19 @@ export default function Character({
   url = modelUrl,
 }: CharacterProps) {
   const gltf = useLoader(GLTFLoader, url);
-  const model = useMemo(() => clone(gltf.scene), [gltf]);
+  const model = useMemo(() => {
+    const cloned = cloneCharacter(gltf.scene);
+    // The shipped clips animate bones; mesh-local transforms are authored once.
+    // World matrices still follow moving parents and the current skin as usual.
+    if (url === modelUrl) cloned.traverse((object) => {
+      if (isMesh(object)) { object.updateMatrix(); object.matrixAutoUpdate = false; }
+    });
+    return cloned;
+  }, [gltf, url]);
+  // Custom models can animate accessory nodes; retain their animation bindings.
+  const accessories = useMemo(() => createAccessorySelector(model, { detach: url === modelUrl }), [model, url]);
+  const rigid = useMemo(() => hasRigidSkinning(gltf.scene), [gltf]);
+  const updateBounds = useMemo(() => createSkinBounds(model), [model]);
   const retarget = useMemo(
     () => (motion ? createRetargeter(model, motion, person) : null),
     [model, motion, person],
@@ -82,9 +97,10 @@ export default function Character({
     const material = new MeshBasicMaterial({
       color: "#020611", transparent: !!opacityRef, depthWrite: !opacityRef,
     });
+    if (rigid) patchRigidSkinning(material);
     pop?.extend(material, false);
     return material;
-  }, [opacityRef, pop]);
+  }, [opacityRef, pop, rigid]);
   const gel = useMemo(() => {
     const material = new MeshPhysicalMaterial({
       name: "AquaGel",
@@ -114,13 +130,16 @@ export default function Character({
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * exp(-pow((vGelHeight - 0.19) / 0.16, 2.0)) * pow(max(dot(normal, normalize(vViewPosition)), 0.0), 5.0) * 4.5;",
       );
     };
+    if (rigid) patchRigidSkinning(material);
     pop?.extend(material, true);
     return material;
-  }, [pop]);
+  }, [pop, rigid]);
   useEffect(() => {
     const ownedGeometries: BufferGeometry[] = [];
+    const skeletons = new Set<Skeleton>();
     model.traverse((obj) => {
       if (isMesh(obj)) {
+        if ((obj as SkinnedMesh).isSkinnedMesh) skeletons.add((obj as SkinnedMesh).skeleton);
         obj.castShadow = true;
         obj.receiveShadow = true;
         if (!Array.isArray(obj.material) && obj.material.name === "AquaGel") {
@@ -152,6 +171,7 @@ export default function Character({
     });
     return () => {
       ownedGeometries.forEach((geo) => geo.dispose());
+      skeletons.forEach((skeleton) => skeleton.dispose());
       mixer.stopAllAction();
       mixer.uncacheRoot(model);
       gel.dispose();
@@ -163,13 +183,9 @@ export default function Character({
     gel.roughness = 0.36 - appearance.gloss * 0.0029;
     gel.clearcoat = 0.4 + appearance.gloss * 0.006;
     gel.opacity = appearance.opacity ?? 0.72;
-    model.traverse((obj) => {
-      if (obj.name.startsWith("acc_"))
-        obj.visible = obj.name.startsWith(
-          `acc_${appearance.accessory.toLowerCase()}_`,
-        );
-    });
-  }, [appearance, model, gel]);
+    accessories.select(appearance.accessory);
+    return () => accessories.restore();
+  }, [appearance, accessories, gel]);
   useEffect(() => {
     if (retarget || applyPose) return;
     const clip = gltf.animations.find((c) => c.name === animation);
@@ -193,8 +209,13 @@ export default function Character({
       applyPose(live ? poseFilter.update(pose,delta) : pose,delta);
       if(live && (poseFilter.settling || applyPose.settling)) invalidate();
     }
-    else if (retarget) retarget(playback?.current ?? 0);
-    else mixer.update(Math.min(delta, 0.05));
+    else {
+      if (retarget) retarget(playback?.current ?? 0);
+      else mixer.update(Math.min(delta, 0.05));
+      // Posing updates the bones' world matrices; clips and takes leave them to the render.
+      model.updateMatrixWorld();
+    }
+    updateBounds();
   }, opacityRef ? 1 : 0);
   return <primitive object={model} dispose={null} />;
 }

@@ -13,8 +13,8 @@ import {
 import type { PoseFrames, PoseHeaderInput } from "../../packages/pose/binary.ts";
 import { finite, isArray, isObject } from "../../packages/pose/choreography.ts";
 import type { FrameSize, PlayerCount } from "../../packages/pose/choreography.ts";
-import { isPoseModelId } from "../../packages/pose/browser/models.ts";
-import type { PoseModelId } from "../../packages/pose/browser/models.ts";
+import { isRecordedPoseModelId } from "../../packages/pose/modelMetadata.ts";
+import type { RecordedPoseModelId } from "../../packages/pose/modelMetadata.ts";
 import type { CalibrationFrame, SourceRef, Take, TakeSummary, TrackData } from "./core.ts";
 
 /** Track snapshots drop interpolable frames no further apart than the sampler bridges. */
@@ -34,8 +34,8 @@ export function concatBytes(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffe
 }
 const frameSize = (input: FrameSize) => ({ width: input.width, height: input.height });
 const captureInput = (f: PoseFrames) => ({ width: f.input.width, height: f.input.height, mirrored: false as const });
-const modelOf = (provenance: unknown): PoseModelId | null =>
-  isObject(provenance) && isPoseModelId(provenance.modelId) ? provenance.modelId : null;
+const modelOf = (provenance: unknown): RecordedPoseModelId | null =>
+  isObject(provenance) && isRecordedPoseModelId(provenance.modelId) ? provenance.modelId : null;
 function decodeKind(bytes: Uint8Array, kind: PoseFrames["kind"]): PoseFrames {
   const f = decodePoseFile(bytes);
   if (f.kind !== kind) throw Error(`Expected a ${kind} file, not a ${f.kind}`);
@@ -102,7 +102,7 @@ export interface CaptureStart {
   sessionId: string;
   input: FrameSize;
   playerCount: 1 | 2;
-  modelId: PoseModelId;
+  modelId: RecordedPoseModelId;
   /** Webcam: the song playback rate. */
   audioPlaybackRate: number | null;
   /** Webcam: the clock values the extension fields count from, in WEBCAM_EXTENSIONS order. */
@@ -114,7 +114,7 @@ export function captureHeader(start: unknown): PoseHeaderInput {
   if (!isObject(start) || (start.sourceKind !== "webcam" && start.sourceKind !== "video") ||
     typeof start.sessionId !== "string" || !start.sessionId.trim() || start.sessionId.length > 200 ||
     !isObject(start.input) || !dimension(start.input.width) || !dimension(start.input.height) ||
-    !isPoseModelId(start.modelId)) throw Error("Invalid capture header");
+    !isRecordedPoseModelId(start.modelId)) throw Error("Invalid capture header");
   const webcam = start.sourceKind === "webcam", bases = start.extensionBases;
   if (webcam
     ? !(start.playerCount === 1 || start.playerCount === 2) || !finite(start.audioPlaybackRate) || start.audioPlaybackRate <= 0 ||

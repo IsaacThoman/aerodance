@@ -34,7 +34,6 @@ try {
   // A silent source reports an error before processing poses or replacing music.
   await openSidebar(page, 'Import');
   await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
-  await page.getByLabel('Video pose model').selectOption('full');
   await page.getByLabel('Use video audio as song audio').check();
   await page.waitForFunction(() => (document.querySelector<HTMLVideoElement>('dialog video')?.readyState ?? 0) >= 2);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).click();
@@ -50,7 +49,6 @@ try {
   await panel.waitFor();
   assert.equal(await page.getByLabel('Use video audio as song audio').isChecked(), false);
   await page.getByLabel('Video players').selectOption('p2');
-  await page.getByLabel('Video pose model').selectOption('full');
   await page.getByLabel('Use video audio as song audio').check();
   await page.waitForFunction(() => (document.querySelector<HTMLVideoElement>('dialog video')?.readyState ?? 0) >= 2);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).click();

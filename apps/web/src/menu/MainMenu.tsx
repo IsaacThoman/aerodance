@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawGlassButton, drawGlassCircle, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
-import type { Circle, GlassStyle, Rect } from '../ui/draw.ts';
+import type { Circle, GlassStyle, Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
@@ -413,6 +413,10 @@ export default function MainMenu({
     layout: () => layoutRef.current,
     ui: (): CanvasUI<SongsWidget> => ui,
     showing: () => !!props.current.visible && m.next === 'settings',
+    toDesign: (x, y): Point => {
+      const rect = gl.domElement.getBoundingClientRect();
+      return { x: ((x - rect.left) / rect.width) * ui.w, y: ((y - rect.top) / rect.height) * ui.h + ui.scroll };
+    },
   // One panel for the menu's life: ui is the same object every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [m]);
