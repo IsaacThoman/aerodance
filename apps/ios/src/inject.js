@@ -74,12 +74,14 @@
   };
 
   // Imported songs are ZIPs the app keeps (main.m, songs/appSongs.ts): the key its /app/ routes
-  // need, and its file picker, which answers with where it put the ZIP ({ url, name }) or null.
+  // need, and its file picker, which answers with where it put each ZIP picked ([{ url, name }],
+  // empty when it was cancelled).
   let picking = null;
-  window.__aerodanceSongPicked = file => {
+  window.__aerodanceSongPicked = files => {
     const done = picking?.done;
     picking = null;
-    done?.(file && typeof file.url === 'string' ? { url: file.url, name: String(file.name) } : null);
+    const list = Array.isArray(files) ? files : files ? [files] : [];
+    done?.(list.filter(file => file && typeof file.url === 'string').map(file => ({ url: file.url, name: String(file.name) })));
   };
   globalThis.__aerodanceSongs = {
     key: '__SONGS_KEY__',

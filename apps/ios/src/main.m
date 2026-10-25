@@ -848,38 +848,40 @@ static CGRect PageRect(id value) {
   return controller;
 }
 
-// Import song (apps/web/src/songs/appSongs.ts pickAppSong): a ZIP from the Files app, copied
-// for the page to read under /app/incoming/ and answered with { url, name }, or null.
+// Import song (apps/web/src/songs/appSongs.ts pickAppSongs): ZIPs from the Files app, as many as
+// are picked, each copied for the page to read under /app/incoming/ and answered with
+// [{ url, name }] (empty when cancelled).
 - (void)pickSong {
   if (self.songPicker) return;
   UIViewController *controller = self.phoneController;
-  if (!controller) { [self songPicked:nil name:nil]; return; }
+  if (!controller) { [self songsPicked:@[]]; return; }
   UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeZIP] asCopy:YES];
   picker.delegate = self;
-  picker.allowsMultipleSelection = NO;
+  picker.allowsMultipleSelection = YES;
   self.songPicker = picker;
   [controller presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-  NSURL *url = urls.firstObject;
-  NSString *name = [NSUUID.UUID.UUIDString stringByAppendingPathExtension:@"zip"];
-  NSString *incoming = [IncomingFolder() stringByAppendingPathComponent:name];
-  NSError *error;
+  NSMutableArray *files = [NSMutableArray array];
   [NSFileManager.defaultManager createDirectoryAtPath:IncomingFolder() withIntermediateDirectories:YES attributes:nil error:nil];
-  if (!url || ![NSFileManager.defaultManager moveItemAtPath:url.path toPath:incoming error:&error]) {
-    NSLog(@"aerodance: couldn't take the picked file %@: %@", url, error);
-    [self songPicked:nil name:nil];
-    return;
+  for (NSURL *url in urls) {
+    NSString *name = [NSUUID.UUID.UUIDString stringByAppendingPathExtension:@"zip"];
+    NSString *incoming = [IncomingFolder() stringByAppendingPathComponent:name];
+    NSError *error;
+    if (![NSFileManager.defaultManager moveItemAtPath:url.path toPath:incoming error:&error]) {
+      NSLog(@"aerodance: couldn't take the picked file %@: %@", url, error);
+      continue;
+    }
+    [files addObject:@{ @"url": [@"/app/incoming/" stringByAppendingString:name], @"name": url.lastPathComponent ?: @"song.zip" }];
   }
-  [self songPicked:[@"/app/incoming/" stringByAppendingString:name] name:url.lastPathComponent];
+  [self songsPicked:files];
 }
 
-- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller { [self songPicked:nil name:nil]; }
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller { [self songsPicked:@[]]; }
 
-- (void)songPicked:(NSString *)url name:(NSString *)name {
-  id file = url ? @{ @"url": url, @"name": name ?: @"song.zip" } : NSNull.null;
-  [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceSongPicked && window.__aerodanceSongPicked(%@)", JSON(file)] completionHandler:nil];
+- (void)songsPicked:(NSArray *)files {
+  [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.__aerodanceSongPicked && window.__aerodanceSongPicked(%@)", JSON(files)] completionHandler:nil];
 }
 
 // The page's alert() and confirm() (Settings → Songs asks before replacing or removing a song),

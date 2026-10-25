@@ -91,8 +91,9 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   (`globalThis.__aerodanceSongs`): other apps on the device can reach 127.0.0.1 too. The page
   checks every song itself (`apps/web/src/songs/appSongs.ts`). Import song posts
   `{ pickSong: true }` and the app opens the system's file picker on the phone (over the remote
-  while the game is on a TV), copies the ZIP for the page to read from `/app/incoming/`, and
-  answers with `window.__aerodanceSongPicked({ url, name })` (or `null`). The page's `confirm()`
+  while the game is on a TV), which picks any number of ZIPs, copies them for the page to read
+  from `/app/incoming/`, and answers with `window.__aerodanceSongPicked([{ url, name }, …])`
+  (empty when cancelled). The page's `confirm()`
   and `alert()` (replacing or removing a song) show as the app's alerts, on the phone too.
 - **Saved data.** Scores and settings live in the page's `localStorage`. The app also keeps a copy
   of every key starting with `aerodance` in `NSUserDefaults` (per port), updated whenever the page

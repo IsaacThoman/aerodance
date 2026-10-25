@@ -128,9 +128,10 @@ export interface PickedSong { url: string; name: string; }
 /**
  * The app's song folder (the iPhone/iPad app, apps/ios/): the key every /app/ request needs
  * (other apps on the device can reach its loopback server too), and its file picker, which
- * shows on the phone's own screen even while the game is on a TV. null in a browser.
+ * shows on the phone's own screen even while the game is on a TV and picks any number of ZIPs
+ * (none when it's cancelled). null in a browser.
  */
-export interface AppSongs { key: string; pick(): Promise<PickedSong | null>; }
+export interface AppSongs { key: string; pick(): Promise<PickedSong[]>; }
 export function appSongs(): AppSongs | null {
   const songs = record((globalThis as { __aerodanceSongs?: unknown }).__aerodanceSongs);
   return typeof songs.key === 'string' && songs.key && typeof songs.pick === 'function' ? songs as unknown as AppSongs : null;
