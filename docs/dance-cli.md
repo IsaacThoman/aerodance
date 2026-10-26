@@ -15,6 +15,10 @@ chromium`) for previews and tracking. The project format is in [dance-format.md]
 
 ## The workflow
 
+For the complete process combining authored movement, tracked secondary motion, contact and
+staging constraints, geometric validation, and export, see
+[converting dance videos into expressive Aerodance songs](video-dance-conversion.md).
+
 For an authored character performance, use the video to identify the moves and musical accents,
 then choose poses that read on the glass character. Block the important silhouettes first, add
 anticipation and held accents, and review the transitions in a rendered clip. Judge the result at

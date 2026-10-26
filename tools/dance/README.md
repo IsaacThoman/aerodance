@@ -6,6 +6,7 @@ view can be rendered to an image, and the checks and the game's own scorer say w
 and the video disagree.
 
 - [docs/dance-cli.md](../../docs/dance-cli.md): the workflow, the commands, the ops and the Studio.
+- [docs/video-dance-conversion.md](../../docs/video-dance-conversion.md): the full conversion process, combining authored choreography, tracked detail, constraints, and review.
 - [docs/dance-format.md](../../docs/dance-format.md): the `aerodance.dance` project format.
 
 ```sh
