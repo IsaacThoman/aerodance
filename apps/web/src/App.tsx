@@ -10,7 +10,7 @@ import { loadGraphics, saveGraphics } from './menu/graphicsSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import SongSelect from './game/SongSelect.tsx';
 import type { SongScreen } from './game/SongSelect.tsx';
-import { castLift } from './game/layout.ts';
+import { CAST_LIFT, CAST_SHIFT } from './game/layout.ts';
 import GameScreen from './game/GameScreen.tsx';
 import ResultsScreen from './game/ResultsScreen.tsx';
 import { GameSession } from './game/GameSession.ts';
@@ -218,7 +218,8 @@ export default function App() {
           <StageView
             active={(songsOpen && !!preview) || screen === 'game'}
             orbiting={songsOpen && !!preview && songScreen !== 'dancers'}
-            lift={songsOpen && !!preview && songScreen === 'dancers' ? castLift(playerCount) : 0}
+            lift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_LIFT : 0}
+            shift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_SHIFT : 0}
             stageId={stageId}
             routine={game ? gameRoutine : preview}
             results={resultsVisible ? resultsShow : null}
