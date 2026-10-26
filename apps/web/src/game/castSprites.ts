@@ -9,7 +9,7 @@ import { PLAYERS } from './results.ts';
 /*
  * Song Select's cast: each of a song's dancers as a cutout in a different move, shaded light to
  * dark down it in the colour of the first player following it, or white (drawn faint) if nobody
- * follows it, with its eyes and the seams between its parts cut out, side by side. The cutouts
+ * follows it, with the seams between its parts cut out, close together. The cutouts
  * are the dancer model rendered in-engine and thresholded (ui/dancerCutouts.ts), once, large,
  * and drawn down to the row's size.
  *
@@ -43,8 +43,9 @@ export const CREW: readonly CutoutPose[] = [
     Root: [-0.2449, 0.1054, 0, 0, 0, 0, 1],
     Body: [0, 1.1, 0, -0.002, 0.0184, -0.1068, 0.9941],
     Head: [0, 1, 0, 0.0007, 0.0082, 0.0817, 0.9966],
-    ArmL: [0.2656, 1.3427, 0.389, 0, 0, 0, 1],
-    ArmR: [-0.3628, 1.2113, 0.3141, 0, 0, 0, 1],
+    // Its hands out either side of its body, clear of it.
+    ArmL: [1.2215, 1.5503, 0.4658, 0, 0, 0, 1],
+    ArmR: [-1.4583, 0.9719, 0.3159, 0, 0, 0, 1],
     FootL: [-0.7058, 0.1946, -0.127, 0, 0, 0, 1],
     FootR: [0.3989, 0.2725, -0.1744, 0, 0, 0, 1],
   },
@@ -62,7 +63,7 @@ export const CREW: readonly CutoutPose[] = [
 const PPU = 72;
 const SEAM = 6;
 // The dancers' middles this many dancer widths apart.
-const STEP = 0.8;
+const STEP = 0.7;
 // A dancer nobody follows: an empty spot on the glass.
 export const SPARE_ALPHA = 0.3;
 // Clear pixels round each sprite, so it scales down without clipping its edges.
@@ -86,7 +87,7 @@ export function paintSprite(cut: Cutout, lead: number) {
   const [light, color, dark] = spriteInk(lead), seam = seams(cut, SEAM);
   for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) {
     const i = y * cut.w + x, p = cut.part[i];
-    if (p === CUTOUT.none || p === CUTOUT.eye || seam[i]) continue;
+    if (p === CUTOUT.none || seam[i]) continue;
     // Light to dark down the dancer, as the vector cutouts are.
     const t = y / cut.h, [r, g, b] = t < 0.5 ? mix(light, color, t * 2) : mix(color, dark, t * 2 - 1);
     data.set([r, g, b, 255], ((y + PAD) * width + x + PAD) * 4);

@@ -13,12 +13,12 @@ const pixel = (s: ReturnType<typeof paintSprite>, x: number, y: number, pad = 4)
   return [...s.data.slice(i, i + 4)];
 };
 
-test('a dancer is shaded from the player\'s light colour at the top to their dark at the bottom, its eyes cut out', () => {
+test('a dancer is shaded from the player\'s light colour at the top to their dark at the bottom, eyes and all', () => {
   // A column of four pixels, the second an eye.
   const s = paintSprite(cutout(1, [H, E, B, B]), 0), [light, color] = spriteInk(0);
   assert.deepEqual([s.width, s.height], [9, 12]);
   assert.deepEqual(pixel(s, 0, 0), [...light, 255]);
-  assert.deepEqual(pixel(s, 0, 1), [0, 0, 0, 0]);
+  assert.deepEqual(pixel(s, 0, 1).slice(3), [255]);
   assert.deepEqual(pixel(s, 0, 2), [...color, 255]);
   // Three quarters of the way down: halfway from its colour to its dark.
   const [, , dark] = spriteInk(0);
@@ -50,7 +50,7 @@ test('the cast stands side by side, as tall as the vector dancers', () => {
   // Short poses are drawn as tall as the dancer stands; their pixels a character unit each.
   const at = layoutCast([a, b], DANCER_TOP);
   assert.deepEqual(at.scale, [1, 1]);
-  assert.deepEqual(at.x, [0, dancerWidth(DANCER_TOP) * 0.8]);
+  assert.deepEqual(at.x, [0, dancerWidth(DANCER_TOP) * 0.7]);
   assert.equal(at.left, -1);
   assert.equal(at.right, at.x[1] + 3);
   // A taller pose in the crew shrinks every dancer to fit it.
