@@ -4,6 +4,7 @@ The glass dancer shared by the game, Dance Studio and the thumbnail renderer.
 
 - `Character.tsx`: the character component.
 - `retarget.ts`: `createPoseApplier`, one pose applier for recorded, edited and live poses.
+- `performance.ts`: direct authored body, head, hand and foot poses. It supports squash and independent part placement, and restores the rig when a clip ends.
 - `skinBounds.ts`: keeps each glass part's bounding sphere on its bone, so the parts sort and cull where they are.
 - `calibration.ts`, `liveCalibration.ts`: per-player body calibration for recorded and live (webcam) sessions.
 - `livePoseFilter.ts`: display-only smoothing of live poses.

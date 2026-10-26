@@ -94,6 +94,59 @@ The body never goes through the floor: tipped, leaning or upside down, it rises 
 dancer down, key the shoulders close to the hips' height (a crawl) or below them (bent double);
 to turn one around, key `turn` and `headYaw` together.
 
+## Direct character performance
+
+A dancer can also have `performance: PerformanceClip[]`. These clips animate the visible character
+parts directly. Human landmark keys continue to define scoring and overlays; a performance clip
+defines the character's acting. Outside a clip, the character follows the human pose as before.
+An animator can therefore choose a clear silhouette, squash a crouch, place the head independently,
+stage a passing dancer in depth, and hold a gesture without distorting the scoring skeleton.
+
+Each clip has `id`, `startMs`, `endMs` and `keys: [{t, pose, interp?, ease?}]`. Times use the dancer's
+clock. Clips are sorted and cannot overlap. The first and last keys must be at the clip boundaries;
+match the surrounding animation there to avoid a jump. Keys contain complete poses, interpolated
+with the same `smooth`, `linear`, `hold`, `auto`, `stop` and `sharp` curves as the landmark keys.
+Edit these clips with the `performance` op; landmark editing ops operate on the human controls.
+Changing a dancer's `timeOffsetMs` shifts both kinds of animation.
+
+Positions are **character model units**, before the coach reflection: x right, y up, z toward the
+camera. Each dancer's stage spot is its origin. The Studio character view uses spots -2 and +2 for
+a duet; the stage can use different spacing. A neutral pose has a body pivot at `[0,1.1,0]`, a head
+centre at `[0,2.7,0]`, and foot centres at y 0.3. All positions are absolute in that model frame,
+including hands and feet; moving the body does not drag them. Review the stage view as well.
+
+| Control | Meaning |
+|---|---|
+| `body` | Body pivot position |
+| `bodyRotation`, `headRotation` | Absolute XYZ Euler angles in degrees; positive pitch bows toward the camera |
+| `bodyScale` | XYZ scale, allowing a squashed or stretched body |
+| `head` | Head centre, independent of the body's transform |
+| `leftHand`, `rightHand`, `leftFoot`, `rightFoot` | Part centres; anatomical left is x positive when facing front |
+| `headScale`, `handScale`, `footScale` | Uniform scales for those parts, independent of body squash |
+
+Use `neutralCharacterPose()` from `packages/pose/performance.ts` to construct complete poses. For
+example, a script can write this patch to a JSON file outside the repository, then apply it with
+`dance apply <project> <patch.json>`:
+
+```js
+const rest = neutralCharacterPose();
+const point = { ...rest, leftHand: [1.2, 3.7, 0.6], headRotation: [-12, 15, -5] };
+const patch = { ops: [{
+  op: 'performance', dancer: 'P1', id: 'point', start: 'b17', end: 'b21',
+  keys: [
+    { t: 'b17', pose: rest, ease: 'stop' },
+    { t: 'b18', pose: point, ease: 'sharp' },
+    { t: 'b19', pose: point, ease: 'stop' },
+    { t: 'b21', pose: rest, ease: 'stop' }
+  ]
+}] };
+```
+
+`pose --performance --at b18` reads the evaluated character pose, and `keys --performance` reads
+the clips. The Studio and `frames`/`render` use the same poses. Export writes an optional
+`performance.json` asset referenced from `song.json`, checked by the bundle's checksums and
+validated by the loader. A change to the performance changes the exported song id.
+
 ## How a pose is evaluated
 
 `evaluate.ts` turns a dancer's data into a pose at any time, the same way in the CLI, the Studio and
@@ -115,6 +168,24 @@ export:
    direction is unstable, so the joint blends into a bone turning with the torso. Unkeyed, elbows
    and knees bend naturally from `body`'s lengths, partly on screen and partly toward the camera.
 6. **Depths** without keys follow the `turn`.
+7. **Style.** A dancer's `style` exaggerates the finished pose for the game's character, which has
+   no elbows or knees and reads a move only through its hands, feet, hips, lean, turn and head (see
+   [above](#what-the-games-character-shows)). The
+   keys stay as filmed: overlays on the video draw the keyed pose, while the characters, the scorer
+   and the export play the styled one. Each factor is 1 to leave its part alone:
+
+   | Factor | Range | Does |
+   |---|---|---|
+   | `reach` | 0.5–2 | Scales each arm about its shoulder, so the hands travel further in the same directions |
+   | `bounce` | 0–4 | Deepens the hips' dips below their average height over about a beat; the whole body moves |
+   | `sway` | 0–4 | Grows the hips' side-to-side motion within about a beat; the knees bend over the feet |
+   | `lean` | 0–3 | Grows the torso's lean, fading back to as keyed past about 35° (bent over, on the floor) |
+   | `turn` | 0–3 | Grows the body turn, in depth only, up to side-on (80°; a key past that stays as keyed) |
+   | `head` | 0–3 | Grows head yaw, pitch and roll about the head's resting angles (its keys' medians), up to 80° |
+   | `lift` | 0–4 | Raises a foot off the floor it stood on nearby, and a stepping foot with its speed |
+
+   Only `lean` and `sway` change a scored limb direction (the torso, and the legs as the hips move
+   over the feet); the rest move or scale whole limbs, so the score barely moves.
 
 ### Curves
 
@@ -161,6 +232,7 @@ angles are numbers.
       "body": { "shoulderWidth": 0.13, "hipWidth": 0.07, "torso": 0.17, "neck": 0.07, "head": 0.06,
                 "upperArm": 0.11, "forearm": 0.11, "thigh": 0.18, "shin": 0.12, "hand": 0.04, "foot": 0.1 },
       "calibration": null,                          // or { torsoLength, baseHip: [x, y, z], floorY } (see Export)
+      "style": { "reach": 1.6, "bounce": 2.5, "sway": 1.6, "lean": 1.5, "turn": 1.6, "head": 1.7, "lift": 2 },  // optional
       "layers": [
         { "id": "base", "label": "Base", "mode": "absolute", "enabled": true, "weight": 1, "channels": {
           "leftWrist": [

@@ -9,15 +9,19 @@ import type { AppSongsOptions } from '../src/songs/appSongs.ts';
 import type { PickedSong } from '../src/host.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
+import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
+import type { Performance } from '../../../packages/pose/performance.ts';
 
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
 /** A song's export files (song.json, choreography, audio, checksums.json) by bundle path. */
-function bundleFiles(fixture: BundleFixture = bundleFixture()) {
+function bundleFiles(fixture: BundleFixture = bundleFixture(), performance?: Performance) {
+  if (performance) fixture.song.performance = { path: 'performance.json', schemaVersion: 1 };
   const files = new Map<string, Uint8Array>([
     ['song.json', encode(fixture.song)], ['choreography.adpose', choreographyBytes(fixture)], ['audio.wav', fixture.audio],
   ]);
+  if (performance) files.set('performance.json', encode(performance));
   files.set('checksums.json', encode({ schema: 'aerodance.checksums', schemaVersion: 1, files: [...files].map(([path, bytes]) => ({ path, bytes: bytes.length, sha256: sha(bytes) })) }));
   return files;
 }
@@ -74,6 +78,21 @@ test('imports a Dance Studio export, lists it and loads it with its own best-sco
   assert.equal(await removeCustomSong(entry, store), true);
   assert.deepEqual(await listCustomSongs(store), []);
   assert.equal(await removeCustomSong(entry, store), false);
+});
+
+test('an imported ZIP retains authored character motion when the saved song is loaded again', async () => {
+  const performance: Performance = { schema: 'aerodance.performance', schemaVersion: 1, tracks: [{ clips: [
+    { id: 'reach', startMs: 100, endMs: 700, keys: [
+      { t: 100, pose: neutralCharacterPose() },
+      { t: 700, pose: { ...neutralCharacterPose(), leftHand: [1.2, 3.7, .6] } },
+    ] },
+  ] }] };
+  const store = memoryStore();
+  const imported = await importSongZip(exportZip(bundleFiles(bundleFixture({ dancers: 1 }), performance)), { store });
+  assert.equal(imported.status, 'imported');
+  assert.ok(store.files.get(imported.entry.id)?.has('performance.json'));
+  const [saved] = await listCustomSongs(store);
+  assert.deepEqual((await loadCustomSong(saved, { store })).performance, performance);
 });
 
 test('replacing asks first unless the import is a later revision', async () => {

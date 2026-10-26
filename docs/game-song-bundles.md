@@ -19,6 +19,13 @@ exported folders on each catalog request. Reopen Song Select to see changes. Inv
 and invalid metadata checksums cause a folder to be skipped with a warning.
 The loader still performs full runtime integrity/schema checks when selected.
 
+Hand-authored character motion can add `performance.json`, referenced by
+`song.json` as `"performance": {"path":"performance.json","schemaVersion":1}`.
+It contains one track per dancer, each with non-overlapping clips of direct character poses
+([format](dance-format.md#direct-character-performance)). It is checksummed and validated like
+the other runtime assets. The coach samples it on the audio clock; scoring still uses the
+choreography's human landmarks. Older bundles without it play as before.
+
 Builds generate the same catalog in `dist/songs/manifest.json` for static hosting.
 Rebuild/redeploy after changing the source songs directory.
 Exported metadata supplies title, artist, duration, player counts, dancers (one to four;

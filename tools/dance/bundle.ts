@@ -15,6 +15,7 @@ import { DANCE_COMPILER_VERSION, choreographyOf, compileDance } from './compile.
 import type { CompiledDance } from './compile.ts';
 import type { Dance } from './format.ts';
 import type { DanceProject } from './project.ts';
+import { performanceOf } from './performance.ts';
 
 export const GAME_SONGS = fileURLToPath(new URL('../../apps/web/public/songs/', import.meta.url));
 const AUDIO_EXTENSIONS = ['wav', 'mp3', 'ogg', 'm4a', 'flac'];
@@ -41,7 +42,9 @@ export async function songBundle(project: DanceProject, dance: Dance): Promise<S
   // unscored intervals), not the names, markers or provenance: renaming a dancer or adding a
   // phrase keeps it, changing the dance gives a new one.
   const motion = { ...compiled.timeline, songId: '', tracks: compiled.timeline.tracks.map((t, i) => ({ ...t, label: `Dancer ${i + 1}` })) };
-  const songId = await bundleSongId(audioRef.sha256, songChoreographyFromTimeline(motion));
+  const performance = performanceOf(dance);
+  const performanceBytes = performance ? new TextEncoder().encode(JSON.stringify(performance)) : undefined;
+  const songId = await bundleSongId(audioRef.sha256, songChoreographyFromTimeline(motion), performanceBytes);
   const extension = audioRef.path.split('.').pop()!.toLowerCase(), audioPath = `audio.${extension}`;
   const revision = Math.max(1, dance.revision);
   const now = new Date().toISOString();
@@ -55,6 +58,7 @@ export async function songBundle(project: DanceProject, dance: Dance): Promise<S
     coachMode: 'mirror-player', rigProfile: 'frutiger-seven-bone-v1',
     audio: { path: audioPath, mimeType: audioRef.mimeType },
     choreography: { path: 'choreography.adpose', schemaVersion: 2 },
+    ...(performance ? { performance: { path: 'performance.json', schemaVersion: 1 as const } } : {}),
     rights: { audio: { license: 'unknown', attribution: '' }, choreography: { license: 'unknown', attribution: '' } },
     createdAt: dance.createdAt, publishedAt: now,
     build: { compilerVersion: `dance-${DANCE_COMPILER_VERSION}`, projectRevision: dance.revision },
@@ -65,6 +69,7 @@ export async function songBundle(project: DanceProject, dance: Dance): Promise<S
     ['choreography.adpose', encodePoseFile(choreographyOf(compiled, songId))],
     [audioPath, audio],
   ]);
+  if (performanceBytes) files.set('performance.json', performanceBytes);
   const checksums: ChecksumManifest = { schema: 'aerodance.checksums', schemaVersion: 1,
     files: await Promise.all([...files].map(async ([p, bytes]) => ({ path: p, bytes: bytes.length, sha256: await sha256(bytes) }))) };
   files.set('checksums.json', json(checksums));
