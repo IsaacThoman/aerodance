@@ -1,5 +1,5 @@
 import { parsePairingEvent } from '../signals.ts';
-import type { CreatedRoom, JoinedRoom, PairingEvent, Signal } from '../signals.ts';
+import type { CreatedRoom, JoinedRoom, PairingEvent, RoomKind, Signal } from '../signals.ts';
 
 /*
  * The browser end of the pairing server (packages/pairing/server.ts): create or join a room,
@@ -50,9 +50,9 @@ async function post<T>(path: string, body: unknown, fetchFn: Fetch = fetch): Pro
   return data as T;
 }
 
-/** A new room for the game: its code and the game's token. */
-export async function createRoom(base = PAIRING_BASE, fetchFn?: Fetch): Promise<CreatedRoom> {
-  const room = await post<CreatedRoom>(`${base}/rooms`, {}, fetchFn);
+/** A new room for the game (or, kind 'transfer', for sending songs): its code and the game's token. */
+export async function createRoom(base = PAIRING_BASE, fetchFn?: Fetch, kind: RoomKind = 'pair'): Promise<CreatedRoom> {
+  const room = await post<CreatedRoom>(`${base}/rooms`, kind === 'pair' ? {} : { kind }, fetchFn);
   if (!room || typeof room.code !== 'string' || typeof room.token !== 'string' || !Array.isArray(room.iceServers)) throw new PairingError(0, 'Phone pairing is not available on this server.');
   return room;
 }
@@ -61,8 +61,8 @@ export async function createRoom(base = PAIRING_BASE, fetchFn?: Fetch): Promise<
  * The phone's place in the room with this code (pass the token from an earlier join to keep
  * it). session names this join, so closing it can't end a later join's place.
  */
-export async function joinRoom(code: string, token: string | null, session = '', base = PAIRING_BASE, fetchFn?: Fetch): Promise<JoinedRoom> {
-  const joined = await post<JoinedRoom>(`${base}/rooms/${code}/join`, { token, session }, fetchFn);
+export async function joinRoom(code: string, token: string | null, session = '', base = PAIRING_BASE, fetchFn?: Fetch, kind: RoomKind = 'pair'): Promise<JoinedRoom> {
+  const joined = await post<JoinedRoom>(`${base}/rooms/${code}/join`, kind === 'pair' ? { token, session } : { token, session, kind }, fetchFn);
   if (!joined || typeof joined.token !== 'string' || !Array.isArray(joined.iceServers)) throw new PairingError(0, 'Pairing failed. Try again.');
   return joined;
 }

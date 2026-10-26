@@ -2,8 +2,9 @@ import { catalogEntry, validateBundlePath } from '../../../../packages/pose/song
 import type { CatalogSong, SongFolder } from '../../../../packages/pose/song.ts';
 import { isArray, isObject } from '../../../../packages/pose/choreography.ts';
 import { readZip } from '../../../../packages/pose/zip.ts';
-import { appSongs, client } from '../host.ts';
+import { appFiles, appSongs, client } from '../host.ts';
 import { appSongsStore } from './appSongs.ts';
+import { folderSongsStore } from './folderSongs.ts';
 import { MAX_BUNDLE_BYTES, loadSongBundle } from './loadBundle.ts';
 import type { Fetcher } from './loadBundle.ts';
 
@@ -11,8 +12,9 @@ import type { Fetcher } from './loadBundle.ts';
  * Songs imported into this browser or the iPhone/iPad app: the ZIPs Dance Studio exports
  * (<songId>-r<n>.aerodance-song.zip, one <songId>/ folder of song.json, checksums.json,
  * choreography, audio and cover), kept in IndexedDB (in the app, as ZIPs in its folder in the
- * Files app: appSongs.ts), managed in Settings (menu/songsPanel.ts) and listed in Song Select
- * after the published songs.
+ * Files app: appSongs.ts; in the Apple TV app, in its own files: folderSongs.ts), managed in
+ * Settings (menu/songsPanel.ts) and listed in Song Select after the published songs. Songs also
+ * arrive from another device (Transfer songs: songTransfer.ts), saved as importSongZip saves them.
  *
  *   importSongZip(file, { confirmReplace })   checks it fully (catalogEntry, then loadSongBundle),
  *                                             then saves it in one transaction
@@ -26,8 +28,8 @@ import type { Fetcher } from './loadBundle.ts';
  * lists are kept, as bytes rather than Blobs (WebKit won't store Blobs in a private window), one
  * record each so the list doesn't read every song's audio. The iPhone/iPad app keeps them
  * itself (WebKit may clear the page's storage) and picks the files (its picker shows on the
- * phone while the game is on a TV). The Apple TV app (no storage or file picker for the page)
- * doesn't offer importing (customSongsSupported).
+ * phone while the game is on a TV). The Apple TV app has no file picker: songs reach it only
+ * from another device (canPickSongs).
  */
 
 /** Which copy of a song: its revision and song.json hash. */
@@ -61,11 +63,13 @@ export interface ImportOptions {
 export const CUSTOM_CATALOG_URL = 'https://custom-songs.invalid/songs/manifest.json';
 export const customScoreId = (songId: string) => `custom:${songId}`;
 
-/** Importing needs somewhere to keep songs and a file picker: a browser's, or the iPhone/iPad app's. */
-export const customSongsSupported = () => appSongs() !== null ||
+/** Somewhere to keep songs: a browser's IndexedDB, the iPhone/iPad app's folder or the Apple TV app's files. */
+export const customSongsSupported = () => appSongs() !== null || appFiles() !== null ||
   (client() === 'web' && typeof indexedDB !== 'undefined' && typeof HTMLInputElement !== 'undefined');
-/** Where songs are imported to, for messages: "in this browser" or "in this app". */
-export const savedIn = () => (appSongs() ? 'in this app' : 'in this browser');
+/** Importing a ZIP also needs a file picker (not on Apple TV, where songs come from another device). */
+export const canPickSongs = () => customSongsSupported() && appFiles() === null;
+/** Where songs are saved, for messages: "in this browser", "in this app" or "on this Apple TV". */
+export const savedIn = () => (appSongs() ? 'in this app' : appFiles() ? 'on this Apple TV' : 'in this browser');
 
 const ZIP_NOISE = (path: string) => path.startsWith('__MACOSX/') || /(^|\/)(\.DS_Store|\._[^/]*)$/.test(path);
 const decodeJson = (bytes: Uint8Array): unknown => JSON.parse(new TextDecoder().decode(bytes));
@@ -206,10 +210,12 @@ export const savedCustomSong = async (id: string, store: CustomSongStore = songS
 const quotaMessage = "There isn't enough storage space in this browser for that song.";
 
 let app: CustomSongStore | null = null;
-/** Where this page keeps imported songs: the app's folder in the iPhone/iPad app, else IndexedDB. */
+/** Where this page keeps imported songs: the app's folder in the iPhone/iPad app, its files in the Apple TV app, else IndexedDB. */
 export function songStore(): CustomSongStore {
-  const songs = appSongs();
-  return songs ? (app ??= appSongsStore({ key: songs.key })) : indexedDBStore();
+  const songs = appSongs(), files = appFiles();
+  if (songs) return app ??= appSongsStore({ key: songs.key });
+  if (files) return app ??= folderSongsStore(files);
+  return indexedDBStore();
 }
 
 const DB_NAME = 'aerodance-custom-songs', SONGS = 'songs', FILES = 'files';

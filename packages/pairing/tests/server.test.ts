@@ -521,3 +521,58 @@ test('a refused relay upgrade whose client resets doesn’t take the server down
   const ended = await new Promise<boolean>((resolve) => { socket.once('close', () => resolve(true)); setTimeout(() => resolve(false), 2000); });
   assert.ok(ended, 'the server closes a refused socket');
 });
+
+async function transferRoom(t: TestContext, options: PairingServerOptions = {}) {
+  const served = await serve(t, options);
+  const room = await (await served.post('/rooms', { kind: 'transfer' })).json();
+  const joined = await (await served.post(`/rooms/${room.code}/join`, { kind: 'transfer' })).json();
+  return { ...served, code: room.code as string, host: room.token as string, phone: joined.token as string };
+}
+
+test('a transfer room’s code only joins as a transfer, and a phone pairing code only as a phone', async (t) => {
+  const { post } = await serve(t);
+  const transfer = await (await post('/rooms', { kind: 'transfer' })).json();
+  const pairing = await (await post('/rooms')).json();
+  const asPhone = await post(`/rooms/${transfer.code}/join`);
+  assert.equal(asPhone.status, 404);
+  assert.match((await asPhone.json()).error, /sending songs/);
+  const asTransfer = await post(`/rooms/${pairing.code}/join`, { kind: 'transfer' });
+  assert.equal(asTransfer.status, 404);
+  assert.match((await asTransfer.json()).error, /pairing a phone/);
+  assert.equal((await post(`/rooms/${transfer.code}/join`, { kind: 'transfer' })).status, 200);
+  assert.equal((await post(`/rooms/${pairing.code}/join`, { kind: 'pair' })).status, 200);
+  assert.equal((await post('/rooms', { kind: 'other' })).status, 400);
+});
+
+test('a transfer room relays pieces of songs both ways, every one of them, pausing a side that sends too fast', async (t) => {
+  const { base, code, host, phone } = await transferRoom(t, { transferBytesPerS: 1024 * 1024 });
+  const game = await relaySocket(t, base, code, host, 1);
+  const other = await relaySocket(t, base, code, phone, 1);
+  await game.until(1);
+  await other.until(1);
+  const piece = Buffer.alloc(60 * 1024, 3);
+  const started = performance.now();
+  // 3 MB from the host: 2 MB of burst, then a second's worth at 1 MB/s.
+  for (let i = 0; i < 50; i++) game.ws.send(piece);
+  for (let i = 0; i < 4; i++) other.ws.send(Buffer.alloc(1000, i));
+  const received = await (async () => {
+    for (let i = 0; i < 500 && other.frames.filter((f) => Buffer.isBuffer(f)).length < 50; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    return other.frames.filter((f) => Buffer.isBuffer(f));
+  })();
+  const elapsed = performance.now() - started;
+  assert.equal(received.length, 50, 'none were dropped');
+  assert.ok(elapsed > 600, `paced: ${elapsed.toFixed(0)} ms`);
+  assert.equal((await game.until(1 + 4)).filter((f) => Buffer.isBuffer(f)).length, 4);
+  assert.equal(game.ws.readyState, WebSocket.OPEN);
+});
+
+test('a transfer room relays at most its byte limit', async (t) => {
+  const { base, code, host, phone } = await transferRoom(t, { transferMaxBytes: 200 * 1024 });
+  const game = await relaySocket(t, base, code, host, 1);
+  const other = await relaySocket(t, base, code, phone, 1);
+  await game.until(1);
+  for (let i = 0; i < 5 && game.ws.readyState === WebSocket.OPEN; i++) game.ws.send(Buffer.alloc(60 * 1024));
+  assert.equal(await game.closed, 4003);
+  assert.equal(await other.closed, 4000);
+  assert.equal(other.frames.filter((f) => Buffer.isBuffer(f)).length, 3);
+});

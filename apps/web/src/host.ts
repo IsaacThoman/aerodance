@@ -21,7 +21,8 @@
  *
  * The app also lays an invisible AirPlay picker over the game's AirPlay bubble
  * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker(). And it keeps the
- * imported songs, as ZIPs in its folder in the Files app: appSongs() (songs/appSongs.ts).
+ * imported songs, as ZIPs in its folder in the Files app: appSongs() (songs/appSongs.ts). The Apple
+ * TV app keeps the songs it's sent in its own files: appFiles() (songs/folderSongs.ts).
  *
  * const off = onHostChange((host) => ...); hostState().tv; inApp(); client() === 'tvos'
  */
@@ -121,6 +122,24 @@ export const canPickAirPlay = () => typeof airPlayHook() === 'function';
 export function placeAirPlayPicker(rect: PickerRect | null) {
   const hook = airPlayHook();
   if (typeof hook === 'function') (hook as AirPlayHook)(rect);
+}
+
+/**
+ * Files the Apple TV app keeps for the page (apps/tvos/runtime/web.ts appFilesShim), where it keeps
+ * the songs it's sent (songs/folderSongs.ts). tvOS may delete them when it runs short of space.
+ * Paths are relative and '/'-separated; write throws a QuotaExceededError when there's no room.
+ * null elsewhere.
+ */
+export interface AppFiles {
+  read(path: string): ArrayBuffer | null;
+  write(path: string, bytes: Uint8Array): void;
+  list(path: string): { name: string; size: number; dir: boolean }[];
+  remove(path: string): void;
+  move(from: string, to: string): void;
+}
+export function appFiles(): AppFiles | null {
+  const files = record((globalThis as { __aerodanceFiles?: unknown }).__aerodanceFiles);
+  return typeof files.read === 'function' && typeof files.write === 'function' ? files as unknown as AppFiles : null;
 }
 
 /** A song ZIP the app's file picker gave the page: where the app serves it, and its file name. */

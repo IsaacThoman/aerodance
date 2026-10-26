@@ -11,6 +11,8 @@ export const codeDigits = (input: string) => input.replace(/\D/g, '').slice(0, C
 export const spacedCode = (code: string) => `${code.slice(0, 3)} ${code.slice(3)}`;
 
 export type PairingRole = 'host' | 'phone';
+/** What a room is for: pairing a phone as the game's camera, or sending songs between two games (songs/songTransfer.ts). */
+export type RoomKind = 'pair' | 'transfer';
 export interface IceServer { urls: string | string[]; username?: string; credential?: string; }
 /** POST /rooms: the game's new room. */
 export interface CreatedRoom { code: string; token: string; iceServers: IceServer[]; }

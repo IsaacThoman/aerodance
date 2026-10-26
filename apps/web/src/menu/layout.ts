@@ -57,6 +57,14 @@ export function menuLayout(width = 1600, fullscreen = true) {
   // SONGS_PER_PAGE imported songs a page under the heading, then Import song at the bottom.
   const SONGS = { x: x + w + 24, y: SOUND.y, w: compact ? 1200 - x - (x + w + 24) : 520, h: GRAPHICS.y + GRAPHICS.h - SOUND.y };
   const songRow = (i: number) => ({ x: SONGS.x + 28, y: SONGS.y + 74 + i * 46, w: SONGS.w - 56, h: 44 });
+  // Import song and Transfer songs side by side at the bottom (Transfer songs alone, across the
+  // row, where there's no file picker: SONG_ACTIONS).
+  const SONG_ACTIONS = { x: SONGS.x + 28, y: SONGS.y + SONGS.h - 72, w: SONGS.w - 56, h: 48 };
+  const importW = 200;
+  // Transfer songs: where the other device connects (left, where Sound and Graphics are), and
+  // this device's songs to send (right, where Songs is), each song's send button at its row's end.
+  const CONNECT = { x, y: SOUND.y, w, h: SONGS.h };
+  const keyW = (CONNECT.w - 80 - 24) / 3;
   return {
     TITLE: { ...TITLE, x: x - 4, size: compact ? 122 : TITLE.size },
     START: { ...START, x, w: compact ? 400 : START.w },
@@ -87,6 +95,15 @@ export function menuLayout(width = 1600, fullscreen = true) {
     SONGS_DOWN: { x: SONGS.x + SONGS.w - 50, y: SONGS.y + 44, r: 20 },
     /** What the last import or removal did: two lines above Import song (the first line's middle). */
     SONGS_NOTE_Y: songRow(SONGS_PER_PAGE).y + 18,
-    SONG_IMPORT: { x: SONGS.x + 28, y: SONGS.y + SONGS.h - 72, w: SONGS.w - 56, h: 48 },
+    SONG_ACTIONS,
+    SONG_IMPORT: { ...SONG_ACTIONS, w: importW },
+    SONG_TRANSFER: { ...SONG_ACTIONS, x: SONG_ACTIONS.x + importW + 16, w: SONG_ACTIONS.w - importW - 16 },
+    TRANSFER_CONNECT: CONNECT,
+    /** The code or QR code's box, the code's digits typed so far, and the keypad (1-9, delete, 0, join). */
+    TRANSFER_QR: { x: CONNECT.x + 40, y: CONNECT.y + 84, w: 236, h: 236 },
+    TRANSFER_DIGITS: { x: CONNECT.x + 40, y: CONNECT.y + 84, w: CONNECT.w - 80, h: 72 },
+    TRANSFER_KEY: (i: number) => ({ x: CONNECT.x + 40 + (i % 3) * (keyW + 12), y: CONNECT.y + 180 + Math.floor(i / 3) * 70, w: keyW, h: 58 }),
+    /** A link at the bottom: enter a code instead, show this device's code, try again or disconnect. */
+    TRANSFER_LINK: { x: CONNECT.x + 28, y: CONNECT.y + CONNECT.h - 72, w: CONNECT.w - 56, h: 48 },
   };
 }

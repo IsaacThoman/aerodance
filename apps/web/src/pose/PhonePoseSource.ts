@@ -105,6 +105,8 @@ type Listener<T> = (value: T) => void;
 const site = () => ((globalThis as { __aerodanceSite?: string }).__aerodanceSite ?? '').replace(/\/+$/, '');
 /** The origin of the phone page a pairing code's link opens. */
 export const pairingOrigin = () => site() || location.origin;
+/** Where the pairing server's API is: the deployed site's for an app that names one, else this page's. */
+export const pairingBase = () => (site() ? `${site()}/pair` : PAIRING_BASE);
 const askedTransport = (): Transport => {
   const asked = new URLSearchParams(globalThis.location?.search ?? '').get('transport');
   return asked === 'relay' || asked === 'webrtc' ? asked : 'auto';
@@ -196,7 +198,7 @@ export class PhonePoseSource implements PoseSource {
   checkedAt = -Infinity;
   arrivals: number[] = [];
   offeredAt = -Infinity;
-  constructor({ base = site() ? `${site()}/pair` : PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
+  constructor({ base = pairingBase(), fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
     origin = pairingOrigin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
     decodeFrame = decodeJpeg }: PhonePoseSourceOptions = {}) {
     this.base = base; this.fetch = fetchFn; this.createStream = createStream; this.createConnection = createConnection;
