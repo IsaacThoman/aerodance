@@ -395,6 +395,42 @@ export const ICONS = {
     g.lineTo(cx - a + a * 0.55, cy + a * 0.55);
     g.stroke();
   },
+  // An arrow pointing right (Transfer songs: send a song to the other device).
+  send(g, cx, cy, r) {
+    const a = r * 0.4;
+    g.beginPath();
+    g.moveTo(cx - a, cy);
+    g.lineTo(cx + a, cy);
+    g.moveTo(cx + a - a * 0.55, cy - a * 0.55);
+    g.lineTo(cx + a, cy);
+    g.lineTo(cx + a - a * 0.55, cy + a * 0.55);
+    g.stroke();
+  },
+  // Two arrows passing each other, right above and left below (Settings → Songs: transfer songs).
+  transfer(g, cx, cy, r) {
+    const a = r * 0.4, h = a * 0.42, tip = a * 0.42;
+    g.beginPath();
+    g.moveTo(cx - a, cy - h);
+    g.lineTo(cx + a, cy - h);
+    g.moveTo(cx + a - tip, cy - h - tip);
+    g.lineTo(cx + a, cy - h);
+    g.lineTo(cx + a - tip, cy - h + tip);
+    g.moveTo(cx + a, cy + h);
+    g.lineTo(cx - a, cy + h);
+    g.moveTo(cx - a + tip, cy + h - tip);
+    g.lineTo(cx - a, cy + h);
+    g.lineTo(cx - a + tip, cy + h + tip);
+    g.stroke();
+  },
+  // A tick (Transfer songs: the other device has this song).
+  check(g, cx, cy, r) {
+    const a = r * 0.4;
+    g.beginPath();
+    g.moveTo(cx - a, cy + a * 0.05);
+    g.lineTo(cx - a * 0.25, cy + a * 0.7);
+    g.lineTo(cx + a, cy - a * 0.6);
+    g.stroke();
+  },
   // An aero dancer (choose who follows which dancer).
   dancer(g, cx, cy, r) {
     drawDancer(g, cx, cy + r * 0.6, r * 1.24, g.strokeStyle as string);
