@@ -4,15 +4,18 @@ import { makeZip } from '../../../../packages/pose/zip.ts';
 import type { CustomSongRecord, CustomSongStore } from '../../src/songs/customSongs.ts';
 import { bundleFixture, choreographyBytes } from '../fixtures/songBundle.ts';
 import type { BundleFixture } from '../fixtures/songBundle.ts';
+import type { Performance } from '../../../../packages/pose/performance.ts';
 
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 export const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
 /** A song's export files (song.json, choreography, audio, checksums.json) by bundle path. */
-export function bundleFiles(fixture: BundleFixture = bundleFixture()) {
+export function bundleFiles(fixture: BundleFixture = bundleFixture(), performance?: Performance) {
+  if (performance) fixture.song.performance = { path: 'performance.json', schemaVersion: 1 };
   const files = new Map<string, Uint8Array>([
     ['song.json', encode(fixture.song)], ['choreography.adpose', choreographyBytes(fixture)], ['audio.wav', fixture.audio],
   ]);
+  if (performance) files.set('performance.json', encode(performance));
   files.set('checksums.json', encode({ schema: 'aerodance.checksums', schemaVersion: 1, files: [...files].map(([path, bytes]) => ({ path, bytes: bytes.length, sha256: sha(bytes) })) }));
   return files;
 }

@@ -7,12 +7,12 @@
 import { evaluate } from './curves.ts';
 import type { CurveKey } from './curves.ts';
 import {
-  BODY_FIELDS, CONTACT_CONTROLS, CONTROLS, GROUPS, MID_JOINTS, POINTS, SCALARS, aspectOf, assertDance, baseLayer, expandControls,
-  findDancer, isGroup, isMidJoint, isPointControl, isScalarControl, newDancer, round, roundTime,
+  BODY_FIELDS, CONTACT_CONTROLS, CONTROLS, GROUPS, MID_JOINTS, POINTS, SCALARS, STYLE_FIELDS, aspectOf, assertDance, baseLayer, expandControls,
+  findDancer, isGroup, isMidJoint, isPointControl, isScalarControl, newDancer, neutralStyle, round, roundTime,
 } from './format.ts';
 import type {
   AnyKey, Body, Calibration, Contact, Control, Dance, Dancer, Ease, Interp, Layer, Marker, MarkerKind, PointControl, PointKey, PointValue,
-  ScalarKey, SongInfo,
+  ScalarKey, SongInfo, Style,
 } from './format.ts';
 import { createEvaluator } from './evaluate.ts';
 import { fitBody, landmarksToRig, limbIK, limbRel, mirrorControl, mirrorRig, neutralPose } from './rig.ts';
@@ -420,6 +420,22 @@ const HANDLERS: Record<string, Handler> = {
       : fail('mirror must be "frame" or "self"'));
     keyPose(dancer, pose, t, controlsOf(op), { depth: op.depth === true, interp: optional(op.interp, interpOf), ease: optional(op.ease, easeOf) });
   },
+  performance(dance, op) {
+    fields(op, ['dancer', 'id', 'start', 'end', 'keys', 'action']);
+    const dancer = dancerOf(dance, op);
+    if (typeof op.id !== 'string') fail('performance needs an id');
+    if (op.action === 'remove') { dancer.performance = (dancer.performance ?? []).filter(c => c.id !== op.id); return; }
+    if (op.action !== undefined && op.action !== 'set') fail('action must be set or remove');
+    if (!Array.isArray(op.keys)) fail('performance needs keys');
+    const clip = { id: op.id, startMs: roundTime(parseTime(op.start, dance)), endMs: roundTime(parseTime(op.end, dance)),
+      keys: op.keys.map(k => {
+        if (!isObject(k)) fail('each performance key needs t and pose');
+        for (const field of Object.keys(k)) if (!['t', 'pose', 'interp', 'ease'].includes(field)) fail(`unknown performance key field ${field}`);
+        return { ...structuredClone(k), t: roundTime(parseTime(k.t, dance)) };
+      }) };
+    // The final project validation checks every pose, time and clip overlap atomically.
+    dancer.performance = [...(dancer.performance ?? []).filter(c => c.id !== op.id), clip as NonNullable<Dancer['performance']>[number]].sort((a, b) => a.startMs - b.startMs);
+  },
   delete(dance, op) {
     fields(op, ['dancer', 'layer', 'controls', 't', 'times', 'range']);
     if (op.t === undefined && op.times === undefined && op.range === undefined) fail('delete needs t, times or range');
@@ -712,7 +728,7 @@ const HANDLERS: Record<string, Handler> = {
     } else fail('action must be add, update or remove');
   },
   dancer(dance, op) {
-    fields(op, ['action', 'dancer', 'id', 'label', 'timeOffsetMs', 'home', 'body', 'calibration']);
+    fields(op, ['action', 'dancer', 'id', 'label', 'timeOffsetMs', 'home', 'body', 'calibration', 'style']);
     const action = op.action ?? 'update';
     if (action === 'add') {
       if (dance.dancers.length >= 4) fail('A dance has at most four dancers');
@@ -743,6 +759,17 @@ const HANDLERS: Record<string, Handler> = {
       }
     }
     if (op.calibration !== undefined) dancer.calibration = op.calibration === null ? null : op.calibration as Calibration;
+    if (op.style === null) delete dancer.style;
+    else if (op.style !== undefined) {
+      // Given factors change; the rest keep their value (1 for a new style).
+      if (!isObject(op.style)) fail('style must be null or an object of factors');
+      const style = { ...neutralStyle(), ...dancer.style };
+      for (const [k, v] of Object.entries(op.style)) {
+        if (!(STYLE_FIELDS as readonly string[]).includes(k)) fail(`style has no factor ${k}; factors are ${STYLE_FIELDS.join(', ')}`);
+        style[k as keyof Style] = round(num(v, `style.${k}`), 3);
+      }
+      dancer.style = style;
+    }
   },
   'fit-body'(dance, op, ctx, notes) {
     fields(op, ['dancer', 'from', 't', 'range', 'tracking', 'slot', 'home']);
@@ -844,6 +871,8 @@ function indexKeys(dance: Dance): KeyIndex {
   const index: KeyIndex = new Map();
   for (const d of dance.dancers) for (const l of d.layers) for (const [name, keys] of Object.entries(l.channels))
     for (const k of keys) index.set(`${d.id}|${l.id}|${name}|${k.t}`, JSON.stringify(k));
+  for (const d of dance.dancers) for (const c of d.performance ?? []) for (const k of c.keys)
+    index.set(`${d.id}|performance-${c.id}|pose|${k.t}`, JSON.stringify(k));
   return index;
 }
 function summarize(before: Dance, after: Dance, ops: number, notes: string[]): ChangeSummary {

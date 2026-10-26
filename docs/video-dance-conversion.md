@@ -4,9 +4,9 @@ The process that produced the reviewed animation combines three kinds of work: a
 
 The artistic input is a movement score: what each dancer does, when the accents land, where they move, and which body parts carry the action. An agent creates this by inspecting the video and the rendered characters. Repeating the process for a new video requires a new movement score and visual review. Once those decisions, source files, settings, and code are saved, the bake can be reproduced.
 
-**Implementation status at publication (2026-10-26):** the reference conversion used local extensions to [`tools/dance`](../tools/dance/README.md) that have not yet been merged into `dev`. Direct character performances, their shared sampler and character applier, and the optional performance bundle asset require those extensions. The `performance` op and native playback examples below will not work in a stock `dev` checkout. The tracking cleanup, movement generators, detail blending, and geometric validation are project-local scripts, rather than distributed tools. There is currently no general `dance convert` or `dance blend` command.
+The reusable support is implemented in [`tools/dance`](../tools/dance/README.md): direct character performances, their shared sampler and character applier, and the optional performance bundle asset. The tracking cleanup, movement generators, detail blending, and geometric validation used for the reference conversion are project-local scripts, rather than distributed tools. There is currently no general `dance convert` or `dance blend` command.
 
-This is a record of the reviewed process and its implementation requirements. The general acquisition, human-pose editing, inspection, and export commands are available through the existing CLI. Replaying the complete native performance also requires the saved extension code, private helpers, artistic inputs, and media described below; this guide alone is not a runnable conversion pipeline.
+This is a record of the reviewed process and its implementation requirements. Acquisition, human-pose editing, native posing, inspection, and export are available through the CLI and external acquisition tools described below. Replaying a complete conversion also requires a pinned code version, the project-local helpers, artistic inputs, and media; this guide alone is not a runnable conversion pipeline.
 
 ## Keep three representations
 
@@ -20,12 +20,12 @@ Native performance takes precedence over landmark retargeting. Its positions and
 
 `check`, `compare`, and `score` inspect the human choreography. A good tracking score does not establish that a native character performance is readable, natural, or clear of the floor. Review and validate that performance separately.
 
-In the reference implementation, the following files share the native performance across editing, preview, and playback. Paths for files not yet in `dev` are listed as code rather than repository links:
+The implementation is shared across editing, preview, and playback:
 
-- `packages/pose/performance.ts` defines and validates native clips and compiles their curves for seeking and playback.
-- `packages/character/performance.ts` applies them to the rig; [`Character.tsx`](../packages/character/Character.tsx) selects native or human-pose playback when extended.
+- [`packages/pose/performance.ts`](../packages/pose/performance.ts) defines and validates native clips and compiles their curves for seeking and playback.
+- [`packages/character/performance.ts`](../packages/character/performance.ts) applies them to the rig; [`Character.tsx`](../packages/character/Character.tsx) selects native or human-pose playback.
 - [`tools/dance/format.ts`](../tools/dance/format.ts) and [`ops.ts`](../tools/dance/ops.ts) store and edit clips atomically. The Studio and headless renderer sample the same performance.
-- `tools/dance/performance.ts` maps dancer clocks to song time; the extended [`bundle.ts`](../tools/dance/bundle.ts) writes the performance asset and includes it in song identity and checksums.
+- [`tools/dance/performance.ts`](../tools/dance/performance.ts) maps dancer clocks to song time; [`bundle.ts`](../tools/dance/bundle.ts) writes the performance asset and includes it in song identity and checksums.
 - [`loadBundle.ts`](../apps/web/src/songs/loadBundle.ts) verifies the asset, and [`Dancers.tsx`](../packages/stages/shared/Dancers.tsx) samples it on the game's song clock.
 
 ## Capture the inputs and environment
@@ -154,7 +154,7 @@ The reviewed routine used 52 authored movement phrases plus a separately authore
 
 The glass character has a root and six visible parts. It has no visible elbows or knees. Communicate an action through hand and foot placement, body lean and travel, head placement, and silhouette. A copied human knee bend may need a clearer foot lift and weight shift to read on this character.
 
-With the reference extensions installed, use native pose controls. Positions are absolute model-space part centres before coach reflection: x right, y up, z toward the camera. Neutral body pivot is `[0,1.1,0]`, head centre is `[0,2.7,0]`, and foot centres are around y `0.3`. Anatomical left is x positive when facing front. Body and head rotations are absolute XYZ degrees.
+Use the [native pose controls](dance-format.md#direct-character-performance). Positions are absolute model-space part centres before coach reflection: x right, y up, z toward the camera. Neutral body pivot is `[0,1.1,0]`, head centre is `[0,2.7,0]`, and foot centres are around y `0.3`. Anatomical left is x positive when facing front. Body and head rotations are absolute XYZ degrees.
 
 Moving the body alone does not carry independently positioned hands, feet, or head. Author coherent relationships explicitly. Let grounded feet remain planted while the torso shifts; carry the neck with the torso; let the head orient independently where the action calls for it. The hands and feet currently have position and scale controls, without independently authored rotation controls.
 
@@ -259,7 +259,7 @@ mesh.getVertexPosition(index, point).applyMatrix4(mesh.matrixWorld);
 
 `SkinnedMesh.updateMatrixWorld` refreshes its inverse bind transform. Substituting a generic `updateWorldMatrix` traversal can skip that override and give incorrect bounds, especially beneath mirrored stage parents. Validate the validation code against known poses.
 
-Some visual errors also required game support. Independent head/hand placement beneath a squashed and rotated body needed exact local matrices, including shear, to cancel the parent transform. Transparent rigidly skinned parts needed moving bounding-sphere centres so depth sorting followed the pose. Restoring ordinary retargeted playback after a native clip required restoring bone transforms. The reference extension implements and tests these changes in `packages/character/performance.ts` and `packages/character/tests/performance.test.ts`; the shared [skin bounds helper](../packages/character/skinBounds.ts) is already in `dev`.
+Some visual errors also required game support. Independent head/hand placement beneath a squashed and rotated body needed exact local matrices, including shear, to cancel the parent transform. Transparent rigidly skinned parts needed moving bounding-sphere centres so depth sorting followed the pose. Restoring ordinary retargeted playback after a native clip required restoring bone transforms. See [the performance applier](../packages/character/performance.ts), [skin bounds](../packages/character/skinBounds.ts), and [their tests](../packages/character/tests/performance.test.ts).
 
 The final review combined full-routine overviews, detailed motion sheets, short comparisons, stage frames, and loader checks. Each found a different class of problem. Earlier centre-height and head-only checks missed issues that the rendered sequence exposed. Geometric validity remains one acceptance condition alongside choreography, rhythm, readability, and the user's review.
 

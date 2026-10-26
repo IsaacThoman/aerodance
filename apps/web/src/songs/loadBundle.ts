@@ -1,6 +1,7 @@
-import { sha256, validateBundlePath, validateSong, validateSongChoreography } from '../../../../packages/pose/song.ts';
+import { dancersOf, sha256, validateBundlePath, validateSong, validateSongChoreography } from '../../../../packages/pose/song.ts';
 import type { CatalogSong, ChecksumEntry, ChecksumManifest, SongBundle } from '../../../../packages/pose/song.ts';
 import { isArray, isObject } from '../../../../packages/pose/choreography.ts';
+import { validatePerformance } from '../../../../packages/pose/performance.ts';
 
 /** A verified bundle, ready to play: its song, choreography and media. */
 export interface LoadedSongBundle extends SongBundle {
@@ -69,7 +70,7 @@ export async function loadSongBundle(entry: CatalogSong, catalogUrl: string | UR
   }
   if (total > MAX_BUNDLE_BYTES) throw Error('Song bundle exceeds size limit');
   const songPath = songUrl.pathname.slice(root.pathname.length);
-  const required = [songPath, song.audio.path, song.choreography.path, ...(song.cover ? [song.cover.path] : [])];
+  const required = [songPath, song.audio.path, song.choreography.path, ...(song.performance ? [song.performance.path] : []), ...(song.cover ? [song.cover.path] : [])];
   if (new Set(required).size !== required.length || required.some(p => !files.has(p))) throw Error('Missing or conflicting bundle checksums');
   async function verified(path: string, bytes?: Uint8Array<ArrayBuffer>) {
     const file = files.get(path);
@@ -79,11 +80,13 @@ export async function loadSongBundle(entry: CatalogSong, catalogUrl: string | UR
     return bytes;
   }
   await verified(songPath, songBytes);
-  const [choreographyBytes, audioBytes, coverBytes] = await Promise.all([
+  const [choreographyBytes, audioBytes, coverBytes, performanceBytes] = await Promise.all([
     verified(song.choreography.path), verified(song.audio.path),
     song.cover ? verified(song.cover.path) : undefined,
+    song.performance ? verified(song.performance.path) : undefined,
   ]);
   const choreography = validateSongChoreography(song, choreographyBytes);
-  return { song, choreography, scoreId, audio: new Blob([audioBytes], { type:song.audio.mimeType }),
+  const performance = performanceBytes ? validatePerformance(decode(performanceBytes), dancersOf(song)) : undefined;
+  return { song, choreography, ...(performance ? { performance } : {}), scoreId, audio: new Blob([audioBytes], { type:song.audio.mimeType }),
     cover: song.cover && coverBytes ? new Blob([coverBytes], { type:song.cover.mimeType }) : null };
 }
