@@ -4,6 +4,10 @@
 > Flock cameras and the bundled songs it mentions have since been removed; the game and
 > Dance Studio now take poses from the browser webcam only.
 
+For the video-to-animation process and the reference implementation requirements, use the
+[video conversion guide](video-dance-conversion.md) and [dance CLI](dance-cli.md).
+The design below remains a historical reference.
+
 Design reference prepared 2026-10-10. This specifies authoring and game contracts
 and extends the game integration plan.
 

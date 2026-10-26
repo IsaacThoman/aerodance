@@ -5,7 +5,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
 import { CONTROL_PREFIX, LIVE_PREFIX, MAX_RELAY_FRAME, RELAY_CLOSE, SERVER_PREFIX } from './relay.ts';
 import { MAX_SIGNAL_BYTES, isPairingCode } from './signals.ts';
-import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.ts';
+import type { CreatedRoom, IceServer, JoinedRoom, PairingRole, RoomKind } from './signals.ts';
 
 /*
  * The pairing server: it introduces a game (the host) to a phone so they can open a WebRTC
@@ -13,7 +13,9 @@ import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.
  * here. Rooms live in memory.
  *
  *   POST /rooms                     the game: a new six-digit code    → { code, token, iceServers }
+ *                                   ({ kind: 'transfer' }: a room for sending songs, below)
  *   POST /rooms/:code/join          the phone, with the code          → { token, iceServers }
+ *                                   (and the room's kind, which must match)
  *   GET  /rooms/:code/events?token  either side: server-sent events, the other side's signals
  *   GET  /rooms/:code?token         either side: is this pairing still on? (204, or 404)
  *   POST /rooms/:code/messages      { token, message }: a signal for the other side
@@ -40,6 +42,13 @@ import type { CreatedRoom, IceServer, JoinedRoom, PairingRole } from './signals.
  * as they are, live ones (poses, pings, preview pictures) dropped when the other side is behind
  * or the link sends faster than RELAY_BYTES_PER_S, and a side whose control frames keep going
  * past that rate loses its link, so a room can't be used as a free pipe.
+ *
+ * A transfer room (songs/songTransfer.ts in the game) pairs two copies of the game so either can
+ * send the other its imported songs: the one showing the code is the host, the one that typed
+ * it the phone. Its relay carries binary frames (pieces of a song) both ways, never dropped; a
+ * side sending faster than TRANSFER_BYTES_PER_S is paused (its socket stops being read) until
+ * its budget refills, rather than losing its link, and a room relays at most
+ * TRANSFER_MAX_BYTES and lasts TRANSFER_MAX_AGE_MS. Each kind's codes only join that kind.
  *
  * The iPhone/iPad app's game runs at a loopback origin (http://127.0.0.1:8417, other ports in
  * development builds) and pairs through the deployed site, so its requests are cross-origin:
@@ -76,6 +85,10 @@ const HEARTBEAT_MS = 15_000;
 const LIVE_BACKLOG = 64 * 1024;
 const MAX_BACKLOG = 1024 * 1024;
 const RELAY_BYTES_PER_S: Record<PairingRole, number> = { phone: 512 * 1024, host: 64 * 1024 };
+// Transfer rooms (above): each way's rate, every byte relayed in the room's life, and its life.
+export const TRANSFER_BYTES_PER_S = 2 * 1024 * 1024;
+export const TRANSFER_MAX_BYTES = 1024 * 1024 * 1024;
+const TRANSFER_MAX_AGE_MS = 60 * 60_000;
 const SWEEP_MS = 5_000;
 // Origins whose pages may read the answers: the apps' loopback servers, on any port.
 const APP_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/;
@@ -101,13 +114,18 @@ interface Relay {
   /** Bytes each side may still send now (refilled at RELAY_BYTES_PER_S), and when last refilled. */
   budget: Record<PairingRole, number>;
   refilled: number;
+  /** Transfer rooms: a side paused until its budget refills. */
+  resume: Record<PairingRole, ReturnType<typeof setTimeout> | undefined>;
 }
-interface Room { code: string; created: number; host: Side; phone: Side; relay: Relay | null; }
+interface Room { code: string; kind: RoomKind; created: number; host: Side; phone: Side; relay: Relay | null; relayed: number; }
 
 export interface PairingServerOptions {
   iceServers?: IceServer[];
   maxRooms?: number;
   now?: () => number;
+  /** Transfer rooms' rate each way and most bytes relayed (TRANSFER_BYTES_PER_S, TRANSFER_MAX_BYTES). */
+  transferBytesPerS?: number;
+  transferMaxBytes?: number;
 }
 
 class HttpError extends Error {
@@ -119,6 +137,17 @@ const token = () => randomBytes(18).toString('base64url');
 const side = (now: number, owner: string | null): Side => ({ token: owner, stream: null, seen: now, session: '', queue: [], queued: 0, released: false, helloAt: -Infinity });
 // Wrong room or wrong token: the same answer, so neither can be told apart from outside.
 const GONE = 'This pairing has ended. Pair again.';
+// A code of the other kind (signals.ts RoomKind), by the kind the joiner wanted.
+const WRONG_KIND: Record<RoomKind, string> = {
+  pair: 'That code is for sending songs. Enter it in Settings → Songs → Transfer songs instead.',
+  transfer: 'That code is for pairing a phone as the camera, not for sending songs.',
+};
+// A socket paused for its rate (transfer rooms) is read again, so its closing handshake can finish.
+const closeSocket = (ws: WebSocket, code: number) => {
+  if (ws.isPaused) ws.resume();
+  ws.close(code);
+};
+const isRoomKind = (value: unknown): value is RoomKind => value === 'pair' || value === 'transfer';
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 function json(res: ServerResponse, status: number, body?: unknown) {
@@ -142,13 +171,15 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   return body as Record<string, unknown>;
 }
 
-export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms = 500, now = Date.now }: PairingServerOptions = {}) {
+export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms = 500, now = Date.now, transferBytesPerS = TRANSFER_BYTES_PER_S,
+  transferMaxBytes = TRANSFER_MAX_BYTES }: PairingServerOptions = {}) {
   const rooms = new Map<string, Room>();
   let misses: number[] = [];
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_RELAY_FRAME, perMessageDeflate: false });
   // Sockets that answered the last heartbeat's ping.
   const alive = new WeakSet<WebSocket>();
 
+  const rateOf = (room: Room, role: PairingRole) => (room.kind === 'transfer' ? transferBytesPerS : RELAY_BYTES_PER_S[role]);
   const roomFor = (code: string, missing = GONE) => {
     const room = isPairingCode(code) ? rooms.get(code) : undefined;
     if (!room) throw new HttpError(404, missing);
@@ -203,7 +234,9 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     const relay = room.relay;
     if (!relay) return;
     room.relay = null;
-    for (const ws of [relay.host, relay.phone]) ws?.close(code);
+    clearTimeout(relay.resume.host);
+    clearTimeout(relay.resume.phone);
+    for (const ws of [relay.host, relay.phone]) if (ws) closeSocket(ws, code);
   };
   const remove = (room: Room, reason: string) => {
     endRelay(room, RELAY_CLOSE.ended);
@@ -214,21 +247,24 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     }
   };
 
-  function create(res: ServerResponse) {
+  function create(body: Record<string, unknown>, res: ServerResponse) {
     if (rooms.size >= maxRooms) throw new HttpError(503, 'Too many games are pairing right now. Try again soon.');
+    if (body.kind !== undefined && !isRoomKind(body.kind)) throw new HttpError(400, 'Unknown kind of room');
     let code: string;
     do code = String(randomInt(0, 1_000_000)).padStart(6, '0'); while (rooms.has(code));
     const t = now();
     const owner = token();
-    rooms.set(code, { code, created: t, host: side(t, owner), phone: side(t, null), relay: null });
+    rooms.set(code, { code, kind: body.kind ?? 'pair', created: t, host: side(t, owner), phone: side(t, null), relay: null, relayed: 0 });
     json(res, 201, { code, token: owner, iceServers } satisfies CreatedRoom);
   }
 
   function join(room: Room, body: Record<string, unknown>, res: ServerResponse) {
+    const wanted = isRoomKind(body.kind) ? body.kind : 'pair';
+    if (room.kind !== wanted) throw new HttpError(404, WRONG_KIND[wanted]);
     const { phone } = room;
     let owner = phone.token;
     if (!owner || body.token !== owner) {
-      if (phonePresent(room)) throw new HttpError(409, 'Another phone is already connected to that game.');
+      if (phonePresent(room)) throw new HttpError(409, room.kind === 'transfer' ? 'Another device is already connected to that code.' : 'Another phone is already connected to that game.');
       endStream(phone);
       // A new phone: the one before it loses any relayed link.
       if (room.relay?.phone) endRelay(room, RELAY_CLOSE.replaced);
@@ -332,24 +368,27 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
       if (relay && relay.epoch !== epoch) { endRelay(room, RELAY_CLOSE.replaced); relay = null; }
       if (!relay) {
         const t = now();
-        relay = room.relay = { epoch, host: null, phone: null, open: false, budget: { host: 2 * RELAY_BYTES_PER_S.host, phone: 2 * RELAY_BYTES_PER_S.phone }, refilled: t };
+        relay = room.relay = { epoch, host: null, phone: null, open: false, budget: { host: 2 * rateOf(room, 'host'), phone: 2 * rateOf(room, 'phone') }, refilled: t,
+          resume: { host: undefined, phone: undefined } };
       }
     } else if (!relay || relay.epoch !== epoch || !relay.host) { ws.close(RELAY_CLOSE.replaced); return; }
     const mine = relay;
-    mine[role]?.close(RELAY_CLOSE.replaced);
+    const old = mine[role];
+    if (old) closeSocket(old, RELAY_CLOSE.replaced);
     mine[role] = ws;
     alive.add(ws);
     if (role === 'phone') room.phone.seen = now();
-    ws.on('message', (data, isBinary) => forward(mine, role, ws, data, isBinary));
+    ws.on('message', (data, isBinary) => forward(room, mine, role, ws, data, isBinary));
     ws.on('pong', () => alive.add(ws));
     ws.on('error', () => ws.terminate());
     ws.on('close', () => {
       if (mine[role] !== ws) return;
       mine[role] = null;
       mine.open = false;
+      clearTimeout(mine.resume[role]);
       // Either side going ends the link, as a closed data channel ends a WebRTC one.
       const other = mine[role === 'host' ? 'phone' : 'host'];
-      if (other) { mine[role === 'host' ? 'phone' : 'host'] = null; other.close(RELAY_CLOSE.peerGone); }
+      if (other) { mine[role === 'host' ? 'phone' : 'host'] = null; closeSocket(other, RELAY_CLOSE.peerGone); }
       if (room.relay === mine) room.relay = null;
     });
     if (mine.host && mine.phone) {
@@ -360,23 +399,52 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     }
   }
 
-  function forward(relay: Relay, from: PairingRole, ws: WebSocket, data: RawData, isBinary: boolean) {
+  // Each side's budget, refilled at its rate since last time, up to twice that.
+  function refill(room: Room, relay: Relay) {
+    const t = now();
+    for (const r of ['host', 'phone'] as const) relay.budget[r] = Math.min(2 * rateOf(room, r), relay.budget[r] + (t - relay.refilled) / 1000 * rateOf(room, r));
+    relay.refilled = t;
+  }
+
+  function forward(room: Room, relay: Relay, from: PairingRole, ws: WebSocket, data: RawData, isBinary: boolean) {
     if (relay[from] !== ws) return;
     const buffer = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
     const kind = isBinary ? '' : String.fromCharCode(buffer[0] ?? 0);
-    // Pictures come only from the phone, and text only as live or control frames.
-    if (isBinary ? from !== 'phone' : kind !== LIVE_PREFIX && kind !== CONTROL_PREFIX) { ws.close(RELAY_CLOSE.refused); return; }
+    const transfer = room.kind === 'transfer';
+    // Pictures come only from the phone (pieces of songs either way, in a transfer room), and text
+    // only as live or control frames.
+    if (isBinary ? from !== 'phone' && !transfer : kind !== LIVE_PREFIX && kind !== CONTROL_PREFIX) { closeSocket(ws, RELAY_CLOSE.refused); return; }
     const to = relay[from === 'host' ? 'phone' : 'host'];
     if (!relay.open || !to || to.readyState !== WebSocket.OPEN) return;
-    const t = now();
-    for (const r of ['host', 'phone'] as const) relay.budget[r] = Math.min(2 * RELAY_BYTES_PER_S[r], relay.budget[r] + (t - relay.refilled) / 1000 * RELAY_BYTES_PER_S[r]);
-    relay.refilled = t;
+    refill(room, relay);
+    if (transfer) {
+      room.relayed += buffer.length;
+      if (room.relayed > transferMaxBytes) { closeSocket(ws, RELAY_CLOSE.refused); return; }
+      relay.budget[from] -= buffer.length;
+      if (to.bufferedAmount > MAX_BACKLOG) { to.terminate(); return; }
+      to.send(buffer, { binary: isBinary });
+      // Faster than its rate: stop reading this side until it's back in budget (frames already
+      // read may still arrive meanwhile, deepening the wait). One that keeps going regardless loses its link.
+      if (relay.budget[from] < -8 * rateOf(room, from)) { closeSocket(ws, RELAY_CLOSE.refused); return; }
+      if (relay.budget[from] < 0 && !relay.resume[from]) {
+        ws.pause();
+        const wait = () => {
+          relay.resume[from] = undefined;
+          if (relay[from] !== ws) return;
+          refill(room, relay);
+          if (relay.budget[from] < 0) relay.resume[from] = setTimeout(wait, Math.ceil(-relay.budget[from] / rateOf(room, from) * 1000));
+          else ws.resume();
+        };
+        relay.resume[from] = setTimeout(wait, Math.ceil(-relay.budget[from] / rateOf(room, from) * 1000));
+      }
+      return;
+    }
     const live = isBinary || kind === LIVE_PREFIX;
     if (live && (to.bufferedAmount > LIVE_BACKLOG || relay.budget[from] < buffer.length)) return;
     relay.budget[from] -= buffer.length;
     // Control frames aren't dropped (they're settings and status, a few small ones a second), but
     // they count: a side that sends them past its rate's own burst again loses the link.
-    if (relay.budget[from] < -2 * RELAY_BYTES_PER_S[from]) { ws.close(RELAY_CLOSE.refused); return; }
+    if (relay.budget[from] < -2 * rateOf(room, from)) { ws.close(RELAY_CLOSE.refused); return; }
     // A side that stopped reading (or sends control frames without end): the link goes.
     if (to.bufferedAmount > MAX_BACKLOG) { to.terminate(); return; }
     to.send(buffer, { binary: isBinary });
@@ -407,7 +475,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
     }
     try {
       if (route === 'GET health') json(res, 200, { rooms: rooms.size });
-      else if (route === 'POST rooms') create(res);
+      else if (route === 'POST rooms') create(await readBody(req), res);
       else if (route === 'GET rooms/:code') { roleOf(roomFor(parts[1]), url.searchParams.get('token')); json(res, 204); }
       else if (route === 'GET rooms/:code/events') events(roomFor(parts[1]), url.searchParams.get('token'), req, res);
       else {
@@ -429,7 +497,7 @@ export function createPairingServer({ iceServers = DEFAULT_ICE_SERVERS, maxRooms
   function sweep() {
     const t = now();
     for (const room of rooms.values()) {
-      if (t - room.created > MAX_AGE_MS) remove(room, 'This pairing expired. Pair again.');
+      if (t - room.created > (room.kind === 'transfer' ? TRANSFER_MAX_AGE_MS : MAX_AGE_MS)) remove(room, 'This pairing expired. Pair again.');
       else if (!room.host.stream && t - room.host.seen > HOST_GRACE_MS) remove(room, 'The game closed the pairing.');
     }
   }
