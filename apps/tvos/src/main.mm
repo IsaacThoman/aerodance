@@ -5,6 +5,7 @@
 // (Executor, Canvas2D) runs on OpenGL ES 3.0 and CoreGraphics. This file is the app around it:
 // the scene, the layer frames are shown in, and the Siri Remote.
 #import <UIKit/UIKit.h>
+#import <MediaPlayer/MediaPlayer.h>
 #import "JSHost.h"
 
 static NSDictionary *LaunchConfig() {
@@ -67,6 +68,19 @@ static NSDictionary *LaunchConfig() {
     swipe.direction = dir.unsignedIntegerValue;
     [self.view addGestureRecognizer:swipe];
   }
+
+  // The Now Playing app (src/Audio.mm plays long-form audio): with AirPlay speakers, the remote's
+  // volume buttons and Control Center's volume act on the Now Playing app's audio, which needs Now
+  // Playing info and a remote command. Control Center's play/pause is the remote's Play/Pause.
+  MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = @{
+    MPMediaItemPropertyTitle: @"aerodance", MPNowPlayingInfoPropertyMediaType: @(MPNowPlayingInfoMediaTypeAudio),
+    MPNowPlayingInfoPropertyIsLiveStream: @YES, MPNowPlayingInfoPropertyPlaybackRate: @1,
+  };
+  __weak GameViewController *weakSelf = self;
+  [MPRemoteCommandCenter.sharedCommandCenter.togglePlayPauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *) {
+    [weakSelf tap:@"Escape"];
+    return MPRemoteCommandHandlerStatusSuccess;
+  }];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
