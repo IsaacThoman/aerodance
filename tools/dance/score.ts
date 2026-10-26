@@ -13,6 +13,7 @@ import { aspectOf } from './format.ts';
 import type { Dance } from './format.ts';
 import { videoToSong } from './time.ts';
 import type { TrackingData } from './tracking.ts';
+import { performanceOf } from './performance.ts';
 
 export interface DancerScore {
   dancer: string;
@@ -33,7 +34,8 @@ export function gameBundle(dance: Dance, compiled: CompiledDance = compileDance(
     rights: { audio: { license: 'unknown', attribution: '' }, choreography: { license: 'unknown', attribution: '' } },
     createdAt: dance.createdAt, publishedAt: dance.updatedAt, build: { compilerVersion: 'preview', projectRevision: dance.revision },
   } satisfies Song;
-  return { song, choreography };
+  const performance = performanceOf(dance);
+  return { song, choreography, ...(performance ? { performance } : {}) };
 }
 /**
  * Scores each dancer that a tracking source follows: the tracked person is the player and the

@@ -19,6 +19,13 @@ exported folders on each catalog request. Reopen Song Select to see changes. Inv
 and invalid metadata checksums cause a folder to be skipped with a warning.
 The loader still performs full runtime integrity/schema checks when selected.
 
+Hand-authored character motion can add `performance.json`, referenced by
+`song.json` as `"performance": {"path":"performance.json","schemaVersion":1}`.
+It contains one track per dancer, each with non-overlapping clips of direct character poses
+([format](dance-format.md#direct-character-performance)). It is checksummed and validated like
+the other runtime assets. The coach samples it on the audio clock; scoring still uses the
+choreography's human landmarks. Older bundles without it play as before.
+
 Builds generate the same catalog in `dist/songs/manifest.json` for static hosting.
 Rebuild/redeploy after changing the source songs directory.
 Exported metadata supplies title, artist, duration, player counts, dancers (one to four;
@@ -61,7 +68,8 @@ can't be opened there says to remove it in Settings.
   time Settings or Song Select opens; one that isn't a playable song shows in Settings as
   **Damaged** under its file name. Of two ZIPs of one song, the later revision lists; removing
   or importing it replaces both. Deleting a ZIP in Files removes the song.
-- The Apple TV app (no storage or file picker for the page) doesn't offer importing.
+- The Apple TV app has no file picker, so it doesn't offer importing: songs reach it from
+  another device (Transfer songs, below).
 
 Code: `apps/web/src/songs/customSongs.ts` (import, storage, loading),
 `apps/web/src/songs/appSongs.ts` and `apps/ios/src/main.m` (the iPhone/iPad app's folder),
@@ -76,6 +84,37 @@ agreement, a track for each of `song.json`'s dancers, calibration, sample qualit
 all referenced runtime files. Requests include the selected bundle revision.
 Downloads have per-file and total declared-size limits. Errors appear in Song
 Select and allow retry; leaving the screen cancels the pending request.
+
+## Transfer songs between devices
+
+**Settings → Songs → Transfer songs** sends imported songs from one copy of the game to another:
+from a phone, tablet or computer to the Apple TV, from the Apple TV back, or between two
+browsers. On the Apple TV it's the Songs panel's only button.
+
+- The screen shows a six-digit code and a QR code. On the other device, open Transfer songs and
+  choose **Enter a code from another device**, or scan the QR code, which opens the game there
+  (`/?transfer=<code>`) and joins. The Apple TV only ever shows a code; it has no keypad.
+- Once connected, each side lists its songs with a send button, or a tick where the other side
+  already has that copy or a later revision, and **Send all**. Either side can send.
+- The receiver saves each song as Import song would, after the same checks, without asking. A
+  copy of the same revision is replaced unless it's the same copy (the same `song.json`), and a
+  later revision is kept.
+- Leaving the screen ends the transfer. The device that showed the code waits on the same code
+  for another device until then.
+- Songs go device to device over WebRTC where both have it, and through the pairing server's
+  relay otherwise (the Apple TV app has no WebRTC) or when WebRTC doesn't connect within 8 s.
+  The relay passes them on unread at up to 2 MB/s each way and at most 1 GB per code, and a code
+  lasts an hour. `?transport=relay` makes the web game relay too, for testing.
+
+The Apple TV app keeps the songs it's sent in `Library/Caches/aerodance/songs/` (tvOS gives apps
+no lasting storage beyond a little in `NSUserDefaults`). tvOS may delete them when it runs short of
+space, though never while the app runs; send them again then.
+
+Code: `apps/web/src/menu/transferPanel.ts` (the screen), `apps/web/src/songs/transferLink.ts`
+(the connection), `apps/web/src/songs/songTransfer.ts` (what the two sides say: songs go as the
+ZIP Dance Studio exports, in 48 KB pieces, at most 384 KB unacknowledged),
+`apps/web/src/songs/folderSongs.ts` (the Apple TV app's saved songs), and transfer rooms in
+`packages/pairing/server.ts`.
 
 ### Choreography files
 
@@ -140,6 +179,8 @@ npm test
 npm run build
 node apps/web/tests/ui-flow.browser.ts # requires Playwright and Chromium
 node apps/web/tests/custom-songs.browser.ts # CUSTOM_SONGS_BROWSER=webkit for WebKit
+node apps/web/tests/transfer-songs.browser.ts # TRANSFER_TRANSPORT=relay through the relay
+node apps/tvos/tests/transfer.tvos.ts # with the Apple TV app (after scripts/tvos.ts build --game --sim)
 ```
 
 Tests cover migration, wire-payload compatibility, integrity failures, revision

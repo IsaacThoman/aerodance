@@ -15,11 +15,14 @@ the Siri Remote.
   `runtime.js` and then the app's script, calls `requestAnimationFrame` callbacks from a
   `CADisplayLink`, runs timers, and exposes the natives in `runtime/native.ts` as JSC C API
   callbacks: command submission, image decoding (ImageIO), bundled files and HTTP, storage
-  (`NSUserDefaults`), digests (CommonCrypto), fonts and text measuring (CoreText).
+  (`NSUserDefaults`), files the page keeps (`Library/Caches/aerodance/`: the songs it's sent),
+  digests (CommonCrypto), fonts and text measuring (CoreText).
 - **`runtime/`**: a small browser. `dom.ts` is enough of the DOM for React DOM and R3F's
-  `<Canvas>`; `web.ts` has timers, `fetch`, `URL`, `Blob`, `TextEncoder`, storage and crypto;
+  `<Canvas>`; `web.ts` has timers, `fetch`, `URL`, `Blob`, `TextEncoder`, storage, the page's
+  files (`__aerodanceFiles`) and crypto;
   `audio.ts` is the Web Audio the game uses (gain automation, buffer sources, `decodeAudioData`)
-  over the mixer in `src/Audio.mm`.
+  over the mixer in `src/Audio.mm`. It plays as long-form audio and the app is the Now Playing
+  app, so it follows the speakers chosen in Control Center (AirPlay, HomePod) and their volume.
 - **WebGL 2** (`runtime/webgl.ts`): calls that return nothing are encoded into a command buffer
   in shared memory (`runtime/ops.ts` lists the commands); object handles are numbered in
   JavaScript, so creating a buffer or texture doesn't wait. The buffer is handed over once a
@@ -144,6 +147,19 @@ and how this compares with the other approaches. The [first-generation A10X hard
 follow-up](../../docs/a10x-performance.md) records all six stages, the menu, four-player
 limits and the native framebuffer-copy optimization. The second generation (A12) has
 not been measured on hardware yet.
+
+## Songs
+
+The app has no file picker, so Settings → Songs offers only **Transfer songs**: it shows a code
+and a QR code, and another device (a phone, tablet or computer running the game) joins it and
+sends its imported songs, through the pairing server's relay; the app can send them back
+([game-song-bundles.md](../../docs/game-song-bundles.md#transfer-songs-between-devices)). It
+keeps them in `Library/Caches/aerodance/songs/`, one folder each (`apps/web/src/songs/folderSongs.ts`),
+since tvOS gives apps no lasting storage beyond a little in `NSUserDefaults`: tvOS may delete
+them when it runs short of space. Removing a song there takes a second press (there are no
+dialogs). `node apps/tvos/tests/transfer.tvos.ts` (after `npm run build` and `build --game --sim`)
+sends a song from the game in Chromium to the app in a tvOS simulator, and back; `--device <udid>`
+runs it on an Apple TV.
 
 ## Release builds
 

@@ -107,7 +107,9 @@ export function checkDance(dance: Dance, { tracking, range, stepMs = 1000 / 60 }
     for (const { t, rig } of samples) {
       const P = rig.points;
       for (const s of SEGMENTS) {
-        const ratio = screenLength(P[s.a], P[s.b], aspect) / body[s.length];
+        // A style's reach lengthens the arms on purpose.
+        const reach = s.length === 'upperArm' || s.length === 'forearm' ? dancer.style?.reach ?? 1 : 1;
+        const ratio = screenLength(P[s.a], P[s.b], aspect) / (body[s.length] * reach);
         if (ratio > 1.15) runs.flag(`stretch-${s.name}`, t, ratio, '', make('stretched-limb', 'warning', s.b,
           w => `${dancer.id}'s ${s.name} is ${w.toFixed(2)}× its length on screen: a limb can't stretch. Key ${s.b} (or ${s.a}) closer, or refit the body if it's measured too short`,
           `{"op":"key","dancer":"${dancer.id}","t":…,"set":{"${s.b}":[x, y]}}`));

@@ -16,10 +16,13 @@
 //      the joint blends into a bone turning with the torso instead (rig.ts ikTrust). Unkeyed,
 //      they bend naturally (rig.ts autoLimb).
 //   6. Depths without keys follow the dancer's turn.
+//   7. The dancer's style, if any, exaggerates the finished pose for the character (format.ts
+//      Style): longer reach, deeper bounce and sway, more lean, turn and head motion, higher
+//      feet. Base-only evaluators (additive: false), which ops key from, leave it out.
 import { evaluate } from './curves.ts';
 import type { CurveKey } from './curves.ts';
 import { CONTACT_CONTROLS, GROUPS, MID_JOINTS, POINTS, SCALARS, aspectOf, baseLayer, isGroup, isMidJoint, isPointControl, isScalarControl } from './format.ts';
-import type { AnyKey, Contact, Dance, Dancer, MidJoint, PointControl, PointKey, ScalarControl, ScalarKey } from './format.ts';
+import type { AnyKey, Body, Contact, Dance, Dancer, MidJoint, PointControl, PointKey, ScalarControl, ScalarKey, Style } from './format.ts';
 import { autoLimb, boneEnd, ikTrust, lerp3, limbBone, limbIK, limbRel, neutralPose, rigToLandmarks, torsoAngle, turnDepth } from './rig.ts';
 import type { LimbRel, RigPose, Vec3 } from './rig.ts';
 import type { Landmark } from '../../packages/pose/choreography.ts';
@@ -33,6 +36,8 @@ export interface EvaluatorOptions {
   additive?: boolean;
   /** Apply contacts (default true). */
   contacts?: boolean;
+  /** Apply the dancer's style (default: with the additive layers). Off: the pose as keyed, to compare with the video. */
+  style?: boolean;
 }
 export interface DancerEvaluator {
   readonly dancer: Dancer;
@@ -66,7 +71,7 @@ export function contactWeight(c: Contact, t: number): number {
 
 interface Additive { weight: number; points: Map<PointControl, PointCurves[]>; scalars: Map<ScalarControl, CurveKey[][]>; }
 
-export function createEvaluator(dance: Dance, dancer: Dancer, { additive = true, contacts = true }: EvaluatorOptions = {}): DancerEvaluator {
+export function createEvaluator(dance: Dance, dancer: Dancer, { additive = true, contacts = true, style = additive }: EvaluatorOptions = {}): DancerEvaluator {
   const aspect = aspectOf(dance), body = dancer.body;
   const neutral = neutralPose(body, dancer.home, aspect);
   const base = baseLayer(dancer).channels;
@@ -205,13 +210,135 @@ export function createEvaluator(dance: Dance, dancer: Dancer, { additive = true,
       const d = offsetOf(joint, t);
       points[joint] = [j[0] + d[0], j[1] + d[1], j[2] + d[2]];
     }
-    return { points, turn, headYaw: scalarAt('headYaw', t), headPitch: scalarAt('headPitch', t), headRoll: scalarAt('headRoll', t) };
+    const pose = { points, turn, headYaw: scalarAt('headYaw', t), headPitch: scalarAt('headPitch', t), headRoll: scalarAt('headRoll', t) };
+    return styler ? styler(pose, t) : pose;
   }
+  // The head's resting angles: its keys' medians. Style grows the head's motion about them.
+  const rest = (c: ScalarControl) => { const v = (baseScalars.get(c) ?? []).map(k => k.v[0]).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 0; };
+  const styler = style && dancer.style ? createStyler(dancer.style, dance.song.bpm, body, aspect, t => primary(t, true).points,
+    { headYaw: rest('headYaw'), headPitch: rest('headPitch'), headRoll: rest('headRoll') }) : null;
   return {
     dancer, aspect,
     rigAt,
     rig: (songMs) => rigAt(songMs - dancer.timeOffsetMs),
     landmarks: (songMs) => rigToLandmarks(rigAt(songMs - dancer.timeOffsetMs), body, aspect),
+  };
+}
+
+const STYLE_EPS = 1e-6;
+/** Foot heights up to this (frame heights) are left alone by lift. */
+const LIFT_DEAD_ZONE = 0.012;
+/** Seconds: a step at 1 frame height/s rises this many frame heights per unit of lift above 1. */
+const STEP_LIFT = 0.05;
+/** Radians: lean is exaggerated fully up to the first, not at all past the second. */
+const LEAN_FADE = [0.6, 1.2] as const;
+/**
+ * Step 7: exaggerates a finished pose (format.ts Style). `context` gives the primary points at
+ * other times on the dancer's clock: bounce and sway are measured against the hips' average over
+ * about a beat either side, and lift against the floor the feet stood on over 1.5 s either side.
+ * Everything but lean and sway keeps the scored limb directions as keyed.
+ */
+// Grown turns and head angles stop short of side-on (degrees), so a style never turns a dancer
+// round; a key already past it stays as keyed.
+const STYLE_TURN_LIMIT = 80;
+const grow = (v: number, k: number, rest = 0) =>
+  Math.abs(v) >= STYLE_TURN_LIMIT ? v : Math.max(-STYLE_TURN_LIMIT, Math.min(STYLE_TURN_LIMIT, rest + (v - rest) * k));
+function createStyler(style: Style, bpm: number | null, body: Body, aspect: number, context: (t: number) => Record<PointControl, Vec3>,
+  rest: { headYaw: number; headPitch: number; headRoll: number }) {
+  const on = (k: keyof Style) => Math.abs(style[k] - 1) > STYLE_EPS;
+  const beat = bpm ? 60000 / bpm : 500;
+  const M = (p: readonly number[]): Vec3 => [p[0] * aspect, p[1], (p[2] ?? 0) * aspect];
+  const F = (m: readonly number[]): Vec3 => [m[0] / aspect, m[1], m[2] / aspect];
+  const hipsOf = (p: Record<PointControl, Vec3>) => mid(p.leftHip, p.rightHip);
+  const UPPER: readonly PointControl[] = ['head', 'leftShoulder', 'rightShoulder', 'leftElbow', 'rightElbow', 'leftWrist', 'rightWrist', 'leftHip', 'rightHip'];
+  const ARMS = [['leftShoulder', 'leftElbow', 'leftWrist'], ['rightShoulder', 'rightElbow', 'rightWrist']] as const;
+  const LEGS = [['leftHip', 'leftKnee', 'leftAnkle'], ['rightHip', 'rightKnee', 'rightAnkle']] as const;
+  return (pose: RigPose, t: number): RigPose => {
+    const P = Object.fromEntries(Object.entries(pose.points).map(([k, v]) => [k, [...v]])) as Record<PointControl, Vec3>;
+    // Turn: depth only; arms follow their shoulder and legs their hip.
+    let turn = pose.turn;
+    if (on('turn')) {
+      turn = grow(pose.turn, style.turn);
+      const dz = {} as Record<PointControl, number>;
+      for (const c of ['leftShoulder', 'rightShoulder', 'leftHip', 'rightHip'] as const) dz[c] = turnDepth(c, turn, body, aspect, P) - turnDepth(c, pose.turn, body, aspect, P);
+      for (const [s, e, w] of ARMS) for (const c of [s, e, w]) P[c][2] += dz[s];
+      for (const [h, k, a] of LEGS) for (const c of [h, k, a]) P[c][2] += dz[h];
+      P.head[2] += (dz.leftShoulder + dz.rightShoulder) / 2;
+    }
+    // Lift: a foot's height above the floor it stood on nearby, past a small dead zone (tracking
+    // noise and feet set back in perspective stay as they are), and more as it steps. The leg shortens toward its hip,
+    // so the thigh and shin keep their directions: the character shows only the foot.
+    if (on('lift')) {
+      let floor = -Infinity;
+      for (let i = -6; i <= 6; i++) {
+        const c = context(t + i * 250);
+        floor = Math.max(floor, c.leftAnkle[1], c.rightAnkle[1]);
+      }
+      const before = context(t - 40), after = context(t + 40);
+      for (const [h, k, a] of LEGS) {
+        const height = floor - P[a][1], drop = P[a][1] - P[h][1];
+        // A foot travelling fast near the floor is stepping: it rises with its speed.
+        const speed = Math.abs(after[a][0] - before[a][0]) * aspect / 0.08;
+        const extra = Math.max(0, height - LIFT_DEAD_ZONE) + STEP_LIFT * Math.max(0, speed - 0.3);
+        if (extra <= 0 || drop <= 1e-6) continue;
+        const raised = P[a][1] - extra * (style.lift - 1);
+        const f = Math.max(0.55, Math.min(1.25, (raised - P[h][1]) / drop));
+        for (const j of [k, a]) for (let i = 0; i < 3; i++) P[j][i] = P[h][i] + (P[j][i] - P[h][i]) * f;
+      }
+    }
+    // Bounce and sway: the hips' departure from their average over about a beat either side.
+    // Bounce deepens the low points by moving the whole body, legs and all, so no direction
+    // changes; the character's feet stop at the floor. Sway moves the body above planted feet,
+    // and the knees bend to keep each leg whole.
+    if (on('bounce') || on('sway')) {
+      let wx = 0, wy = 0, sum = 0;
+      for (let i = -4; i <= 4; i++) {
+        const w = 5 - Math.abs(i), h = hipsOf(context(t + i * beat / 4));
+        wx += h[0] * w; wy += h[1] * w; sum += w;
+      }
+      const h = hipsOf(P);
+      const down = Math.max(0, h[1] - wy / sum) * (style.bounce - 1);
+      for (const c of POINTS) P[c][1] += down;
+      if (on('sway')) {
+        const legRel = LEGS.map(([hip, knee, ankle]) => limbRel(P[hip], P[knee], P[ankle], aspect));
+        const dx = (h[0] - wx / sum) * (style.sway - 1);
+        for (const c of UPPER) P[c][0] += dx;
+        LEGS.forEach(([hip, knee, ankle], i) => {
+          const rel = legRel[i], H = M(P[hip]), A = M(P[ankle]);
+          const d = Math.hypot(A[0] - H[0], A[1] - H[1]), reach = (rel.l1 + rel.l2) * 0.999;
+          // A leg that can't reach brings its foot along.
+          if (d > reach) P[ankle] = F([H[0] + (A[0] - H[0]) * reach / d, H[1] + (A[1] - H[1]) * reach / d, A[2]]);
+          P[knee] = limbIK(P[hip], P[ankle], rel, aspect);
+        });
+      }
+    }
+    // Lean: the shoulders and head turn about the hips; each arm moves with its shoulder.
+    if (on('lean')) {
+      const h = M(hipsOf(P)), sh = M(mid(P.leftShoulder, P.rightShoulder));
+      const lean = Math.atan2(sh[0] - h[0], h[1] - sh[1]);
+      // Upright leans grow; past LEAN_FADE the gain fades back to 1, so a body bent over or on the
+      // floor (where the angle flips as the shoulders pass the hips) stays as keyed.
+      const gain = style.lean - (style.lean - 1) * smoothstep((Math.abs(lean) - LEAN_FADE[0]) / (LEAN_FADE[1] - LEAN_FADE[0]));
+      const by = lean * (gain - 1), c = Math.cos(by), sn = Math.sin(by);
+      const turnAbout = (p: Vec3) => {
+        const m = M(p), x = m[0] - h[0], y = m[1] - h[1];
+        return F([h[0] + x * c - y * sn, h[1] + x * sn + y * c, m[2]]);
+      };
+      for (const [s, e, w] of ARMS) {
+        const moved = turnAbout(P[s]), dx = moved[0] - P[s][0], dy = moved[1] - P[s][1];
+        P[s] = moved;
+        for (const j of [e, w]) { P[j][0] += dx; P[j][1] += dy; }
+      }
+      P.head = turnAbout(P.head);
+    }
+    // Reach: the whole arm scales about its shoulder, so its directions stay as keyed.
+    if (on('reach')) for (const [s, e, w] of ARMS) for (const j of [e, w])
+      for (let i = 0; i < 3; i++) P[j][i] = P[s][i] + (P[j][i] - P[s][i]) * style.reach;
+    return {
+      points: P, turn,
+      headYaw: grow(pose.headYaw, style.head, rest.headYaw), headPitch: grow(pose.headPitch, style.head, rest.headPitch),
+      headRoll: grow(pose.headRoll, style.head, rest.headRoll),
+    };
   };
 }
 

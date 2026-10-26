@@ -20,9 +20,13 @@ export function audioEnded(id: number) {
   const node = ended.get(id);
   if (!node) return;
   ended.delete(id);
+  // A source that has played out is no longer kept by the nodes it feeds, as in Web Audio.
+  for (const out of node._outputs) out._inputs.delete(node);
   node.dispatchEvent(new EventShim('ended'));
 }
-// Native nodes go when their JavaScript node is collected.
+// Native nodes go when their JavaScript node is collected. A connected node is kept by the
+// nodes it feeds (_inputs), as in Web Audio, so one that's only reachable through the graph
+// (the mixer's limiter, connected inline) keeps playing.
 const freeNode = new FinalizationRegistry<number>((id) => { N.audio(A.release, id); });
 
 type Event = { type: number; value: number; time: number; tc: number };
@@ -82,11 +86,20 @@ export class AudioNodeShim extends EventTargetShim {
     this.context = ctx; this._id = id;
     if (type !== NODE.destination) { N.audio(A.create, id, type); freeNode.register(this, id); }
   }
+  _inputs = new Set<AudioNodeShim>();
+  _outputs = new Set<AudioNodeShim>();
   connect<T extends AudioNodeShim | AudioParamShim>(dest: T) {
-    if (dest instanceof AudioNodeShim) N.audio(A.connect, this._id, dest._id);
+    if (dest instanceof AudioNodeShim) {
+      N.audio(A.connect, this._id, dest._id);
+      dest._inputs.add(this);
+      this._outputs.add(dest);
+    }
     return dest;
   }
-  disconnect(dest?: AudioNodeShim) { N.audio(A.disconnect, this._id, dest ? dest._id : -1); }
+  disconnect(dest?: AudioNodeShim) {
+    N.audio(A.disconnect, this._id, dest ? dest._id : -1);
+    for (const out of dest ? [dest] : [...this._outputs]) { out._inputs.delete(this); this._outputs.delete(out); }
+  }
 }
 export class GainNodeShim extends AudioNodeShim {
   readonly gain: AudioParamShim;

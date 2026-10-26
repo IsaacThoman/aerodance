@@ -2,6 +2,7 @@ import { MAX_PLAYERS, assertChoreography, copy, finite, isArray, isObject, isPla
 import type { Choreography, ChoreographyCoordinates, ChoreographyTrack, PlayerCount, PoseSnapshot, TrackCalibration } from './choreography.ts';
 import { decodePoseFile, framesFromSamples, quantizeConfidence, sampleFrames, sparseSamples } from './binary.ts';
 import type { PoseFrames, PoseMarker, SongHeader, TrackHeader } from './binary.ts';
+import type { Performance } from './performance.ts';
 
 export interface MediaReference { path: string; mimeType: string; }
 export interface RightsStatement { license: string; attribution: string; }
@@ -21,6 +22,8 @@ export interface Song {
   audio: MediaReference;
   /** Schema 2 is a binary .adpose choreography; schema 1 JSON is still read for one release. */
   choreography: { path: string; schemaVersion: 1 | 2 };
+  /** Optional authored character motion, separate from scoring landmarks. */
+  performance?: { path: string; schemaVersion: 1 };
   cover?: MediaReference | null;
   rights: { audio: RightsStatement; choreography: RightsStatement };
   createdAt: string; publishedAt: string;
@@ -57,7 +60,7 @@ export interface SongTrackHeader extends TrackHeader { calibration: TrackCalibra
 /** A bundle's decoded choreography, checked against its song.json. */
 export interface SongChoreography extends PoseFrames { kind: 'choreography'; song: SongHeader; tracks: SongTrackHeader[]; }
 /** A loaded, validated song: what the scorer, the sampler and the replay source consume. */
-export interface SongBundle { song: Song; choreography: SongChoreography; }
+export interface SongBundle { song: Song; choreography: SongChoreography; performance?: Performance; }
 
 function require(condition: unknown, message: string): asserts condition { if (!condition) throw Error(message); }
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
@@ -119,7 +122,7 @@ export async function catalogEntry(name: string, folder: SongFolder): Promise<Ca
   const checksums: unknown = JSON.parse(new TextDecoder().decode(await json('checksums.json')));
   if (!isObject(checksums) || checksums.schema !== 'aerodance.checksums' || checksums.schemaVersion !== 1 || !isArray(checksums.files) || !checksums.files.every(isObject)) throw Error('Invalid checksums manifest');
   const entries = checksums.files;
-  const required = ['song.json', song.audio.path, song.choreography.path, ...(song.cover ? [song.cover.path] : [])];
+  const required = ['song.json', song.audio.path, song.choreography.path, ...(song.performance ? [song.performance.path] : []), ...(song.cover ? [song.cover.path] : [])];
   if (new Set(required).size !== required.length) throw Error('Conflicting media paths');
   const verified = new Map<string, string>();
   for (const path of required) {
@@ -156,6 +159,10 @@ export function assertSong(song: unknown): asserts song is Song {
   const { audio, choreography, cover } = song;
   require(isObject(audio) && text(audio.mimeType) && isObject(choreography) && (choreography.schemaVersion === 1 || choreography.schemaVersion === 2), 'Invalid media references');
   validateBundlePath(audio.path); validateBundlePath(choreography.path);
+  if (song.performance !== undefined) {
+    require(isObject(song.performance) && song.performance.schemaVersion === 1, 'Invalid performance reference');
+    validateBundlePath(song.performance.path);
+  }
   if (cover) {
     const fields: Record<string, unknown> = isObject(cover) ? cover : {};
     validateBundlePath(fields.path); require(text(fields.mimeType), 'Invalid cover type');

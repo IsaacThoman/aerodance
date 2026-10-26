@@ -9,6 +9,8 @@ import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
 import { encodePoseFile } from '../../../packages/pose/binary.ts';
 import { songChoreographyFromTimeline } from '../../../packages/pose/song.ts';
+import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
+import type { Performance } from '../../../packages/pose/performance.ts';
 // Players taking a duet's dancers in turn.
 const turns = (players: number) => defaultCast(players, 2);
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
@@ -17,8 +19,10 @@ const file = (files: Map<string, Uint8Array<ArrayBuffer>>, name: string) => {
   assert.ok(data, `fixture file ${name}`);
   return data;
 };
-async function server(fixture = bundleFixture()) {
+async function server(fixture = bundleFixture(), performance?: Performance) {
+  if (performance) fixture.song.performance = { path: 'performance.json', schemaVersion: 1 };
   const files = new Map([['song.json',bytes(fixture.song)],['choreography.adpose',choreographyBytes(fixture)],['audio.wav',fixture.audio]]);
+  if (performance) files.set('performance.json', bytes(performance));
   const checksums = {schema:'aerodance.checksums',schemaVersion:1,files:await Promise.all([...files].map(async ([path,data])=>({path,bytes:data.length,sha256:await sha256(data)})))};
   files.set('checksums.json',bytes(checksums));
   const requests: URL[] = [];
@@ -29,6 +33,20 @@ async function server(fixture = bundleFixture()) {
   };
   return {files,fetcher,requests,fixture};
 }
+test('loads authored character motion with verified bytes while scoring samples remain independent', async () => {
+  const performance: Performance = { schema: 'aerodance.performance', schemaVersion: 1, tracks: [
+    { clips: [{ id: 'point', startMs: 100, endMs: 500, keys: [{ t: 100, pose: neutralCharacterPose() }, { t: 500, pose: { ...neutralCharacterPose(), leftHand: [1, 4, 1] } }] }] },
+    { clips: [] },
+  ] };
+  const s = await server(bundleFixture(), performance);
+  const loaded = await loadSongBundle(s.fixture.entry, 'https://game.test/songs/manifest.json', { fetcher: s.fetcher });
+  assert.deepEqual(loaded.performance, performance);
+  assert.deepEqual(sampleSong(loaded, 200, [0, 1]), sampleSong(decoded(bundleFixture()), 200, [0, 1]));
+  file(s.files, 'performance.json')[20] ^= 1;
+  await assert.rejects(loadSongBundle(s.fixture.entry, 'https://game.test/songs/manifest.json', { fetcher: s.fetcher }), /integrity/);
+  const invalid = await server(bundleFixture(), { ...performance, tracks: [performance.tracks[0]] });
+  await assert.rejects(loadSongBundle(invalid.fixture.entry, 'https://game.test/songs/manifest.json', { fetcher: invalid.fetcher }), /dancer count/);
+});
 test('loads pinned bundle bytes, verifies integrity and selects track 0 in one player mode',async()=>{
   const {fixture,fetcher,requests} = await server();
   validateCatalog({version:1,songs:[fixture.entry]});

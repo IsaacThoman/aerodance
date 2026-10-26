@@ -10,6 +10,8 @@ import { Canvas, advance } from '@react-three/fiber';
 import { PCFShadowMap } from 'three';
 import type { Landmark, Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
 import type { SongBundle } from '../../../packages/pose/song.ts';
+import { createPerformanceSampler } from '../../../packages/pose/performance.ts';
+import type { CharacterPose } from '../../../packages/pose/performance.ts';
 import { ASSET_PATH, MODELS } from '../../../packages/pose/browser/models.ts';
 import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { detectedConfidence } from '../../../packages/pose/browser/slots.ts';
@@ -32,7 +34,10 @@ import type { Viewport } from './skeleton.ts';
 interface Loaded {
   dance: Dance;
   evaluators: DancerEvaluator[];
+  /** Without the dancers' styles: what was keyed, drawn over the video. */
+  keyed: DancerEvaluator[];
   calibrations: TrackCalibration[];
+  performances: ReturnType<typeof createPerformanceSampler>[];
   bundle: SongBundle | null;
   tracking: Map<string, { data: TrackingData; slot: number }>;
 }
@@ -44,7 +49,7 @@ async function load(revision: number, stamp: string): Promise<Loaded> {
   const tracking = new Map<string, { data: TrackingData; slot: number }>();
   for (const source of [...dance.sources.tracking].reverse()) for (const [slot, id] of source.dancers.entries())
     if (id && !tracking.has(id)) tracking.set(id, { data: await fetchTracking(dance, source.id), slot });
-  loaded = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d)), calibrations: previewCalibrations(dance), bundle: null, tracking, stamp };
+  loaded = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d)), keyed: dance.dancers.map(d => createEvaluator(dance, d, { style: false })), calibrations: previewCalibrations(dance), performances: dance.dancers.map(d => createPerformanceSampler(d.performance ?? [])), bundle: null, tracking, stamp };
   return loaded;
 }
 
@@ -53,6 +58,7 @@ type SceneRequest =
   | { kind: 'character'; calibrations: TrackCalibration[]; mirror: boolean; focus: number | null; width: number; height: number }
   | { kind: 'stage'; bundle: SongBundle; stage: Dance['song']['stage']; width: number; height: number };
 const poses: { current: (Pose | null)[] } = { current: [] };
+const performances: { current: (CharacterPose | null)[] } = { current: [] };
 let sceneTime = 0;
 let sceneRoot: import('three').Scene | null = null;
 const rigCount = () => sceneRoot?.getObjectsByProperty('name', 'Root').filter(o => 'isBone' in o).length ?? 0;
@@ -69,7 +75,7 @@ function SceneHost() {
         onCreated={({ scene }) => { sceneRoot = scene; }}
         gl={{ antialias: true, preserveDrawingBuffer: true, alpha: false }}>
         {r.kind === 'character'
-          ? <CharacterScene poses={poses} calibrations={r.calibrations} mirror={r.mirror} focus={r.focus} onReady={onReady} />
+          ? <CharacterScene poses={poses} performances={performances} calibrations={r.calibrations} mirror={r.mirror} focus={r.focus} onReady={onReady} />
           : <GameScene stage={r.stage} bundle={r.bundle} timeMs={() => sceneTime} width={r.width} height={r.height} onReady={onReady} />}
       </Canvas>
     </div>
@@ -125,7 +131,7 @@ async function loadBefore(revision: number) {
   let found = beforeCache.get(revision);
   if (!found) {
     const dance = await fetchDance(revision);
-    found = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d)) };
+    found = { dance, evaluators: dance.dancers.map(d => createEvaluator(dance, d, { style: false })) };
     beforeCache.set(revision, found);
   }
   return found;
@@ -143,7 +149,7 @@ function drawDancers(g: CanvasRenderingContext2D, v: Viewport, data: Loaded, spe
       const times = keyTimes(dancer), local = t - dancer.timeOffsetMs;
       const prev = [...times].reverse().find(k => k < local - 1), next = times.find(k => k > local + 1);
       for (const k of [prev, next]) if (k !== undefined)
-        drawSkeleton(g, v, data.evaluators[i].landmarks(k + dancer.timeOffsetMs), { color, alpha: 0.22, scale: 0.8 });
+        drawSkeleton(g, v, data.keyed[i].landmarks(k + dancer.timeOffsetMs), { color, alpha: 0.22, scale: 0.8 });
     }
     const reference = spec.reference ? data.tracking.get(dancer.id) : undefined;
     if (reference) {
@@ -157,7 +163,7 @@ function drawDancers(g: CanvasRenderingContext2D, v: Viewport, data: Loaded, spe
       for (const control of ['head', 'leftWrist', 'rightWrist', 'leftAnkle', 'rightAnkle'] as const) {
         let last: { x: number; y: number } | null = null;
         for (let at = t - span; at <= t + span + 1e-6; at += step) {
-          const p = data.evaluators[i].rig(at).points[control], c = { x: v.x + (p[0] - v.crop.x) / v.crop.w * v.w, y: v.y + (p[1] - v.crop.y) / v.crop.h * v.h };
+          const p = data.keyed[i].rig(at).points[control], c = { x: v.x + (p[0] - v.crop.x) / v.crop.w * v.w, y: v.y + (p[1] - v.crop.y) / v.crop.h * v.h };
           if (last) {
             g.strokeStyle = at <= t ? color : '#ffffff';
             g.globalAlpha = 0.25 + 0.6 * (1 - Math.abs(at - t) / span);
@@ -168,7 +174,7 @@ function drawDancers(g: CanvasRenderingContext2D, v: Viewport, data: Loaded, spe
         g.globalAlpha = 1;
       }
     }
-    const landmarks = data.evaluators[i].landmarks(t);
+    const landmarks = data.keyed[i].landmarks(t);
     drawSkeleton(g, v, landmarks, { color, alpha: faded ? 0.45 : 1, ineligible: eligibleAt(dancer, t - dancer.timeOffsetMs),
       label: dancer.id, hollow, warn: stretchedBones(landmarks, dancer.body, dance.frame.width / dance.frame.height) });
   });
@@ -286,6 +292,8 @@ async function renderNow(spec: RenderSpec): Promise<string> {
     }
     for (const [row, t] of spec.times.entries()) {
       sceneTime = t;
+      performances.current = data.performances.map((sample, i) => spec.dancers && !spec.dancers.includes(dance.dancers[i].id)
+        ? null : sample(t - dance.dancers[i].timeOffsetMs));
       poses.current = data.evaluators.map((e, i) => ({ playerId: i, landmarks: e.landmarks(t) }) as Pose)
         .map((p, i) => spec.dancers && !spec.dancers.includes(dance.dancers[i].id) ? null : p);
       // A couple of steps, so smoothing that depends on the last frame settles.
