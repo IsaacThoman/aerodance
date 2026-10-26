@@ -86,11 +86,6 @@ const SONG_PHASES: readonly GamePhase[] = ['countdown', 'playing', 'paused', 'fi
 // The pause screen's veil over the song.
 const VEIL = 0.35;
 
-const fmt = (ms: number) => {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-};
-
 // Without a camera (tracking false) there is nothing to say about tracking. A player sharing
 // a dancer someone before them follows (lead) is shown that dancer's colour beside their name:
 // the one on the stage to follow.
@@ -436,8 +431,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
       const total = song.playableEndMs - song.playableStartMs;
       drawProgress(g, GAME_PROGRESS, t / total);
       g.font = `700 22px ${FONT}`;
-      drawShadowText(g, ellipsize(g, song.title, 420), GAME_PROGRESS.x, GAME_PROGRESS.y - 22, { size: 22 });
-      drawShadowText(g, `${fmt(t)} / ${fmt(total)}`, GAME_PROGRESS.x + GAME_PROGRESS.w, GAME_PROGRESS.y - 22, { size: 22, align: 'right' });
+      drawShadowText(g, ellipsize(g, song.title, GAME_PROGRESS.w), GAME_PROGRESS.x, GAME_PROGRESS.y - 22, { size: 22 });
 
       if (ph === 'countdown') {
         const left = session.countdownMs();
