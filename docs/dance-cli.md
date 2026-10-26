@@ -15,6 +15,10 @@ chromium`) for previews and tracking. The project format is in [dance-format.md]
 
 ## The workflow
 
+For the complete process combining authored movement, tracked secondary motion, contact and
+staging constraints, geometric validation, and export, see
+[converting dance videos into expressive Aerodance songs](video-dance-conversion.md).
+
 This is how the 5-second phrase in the PR that added the tool was animated, from scratch, from a
 video of one dancer.
 
