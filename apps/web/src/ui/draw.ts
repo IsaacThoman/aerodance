@@ -141,7 +141,8 @@ export type IconDraw = (g: Ctx, cx: number, cy: number, r: number) => void;
 
 // The aero dancer from the front, in its model's units (packages/character/source/build-character.py):
 // x to the right, z up from the floor to the top of its head, its hands the widest part.
-const DANCER_TOP = 3.36;
+/** How tall the dancer stands, in its model's units. */
+export const DANCER_TOP = 3.36;
 const DANCER_HALF_WIDTH = 1.29;
 // The body is lathed from this profile, [height above BODY_BASE, half width].
 const DANCER_BODY = [[0, 0], [0.015, 0.43], [0.045, 0.6], [0.1, 0.66], [0.2, 0.67], [0.38, 0.65], [0.62, 0.6], [0.87, 0.52], [1.1, 0.44], [1.3, 0.34], [1.41, 0.22], [1.45, 0]] as const;
