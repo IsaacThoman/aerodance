@@ -4,13 +4,17 @@
 > Flock cameras and the bundled songs it mentions have since been removed; the game and
 > Dance Studio now take poses from the browser webcam only.
 
+For the video-to-animation process and the reference implementation requirements, use the
+[video conversion guide](video-dance-conversion.md) and [dance CLI](dance-cli.md).
+The design below remains a historical reference.
+
 Design reference prepared 2026-10-10. This specifies authoring and game contracts
 and extends the game integration plan.
 
 The local editor and Docker image are now implemented; see
 [Dance Studio's run guide](../tools/choreography/README.md). It supports project
 persistence, audio/waveform playback, Android/webcam recording, JSON/NDJSON import,
-local video pose inference with Lite/Full/Heavy and a selected calibration frame,
+local video pose inference with Lite and a selected calibration frame,
 Frutiger/skeleton previews, coordinate edits and undo/redo, track swaps, mirroring,
 smoothing, bounded gap repair, phrase replacement, review, backups, and runtime
 bundle export. Video imports create library takes without assigning tracks;
@@ -558,7 +562,7 @@ scoring eligibility, while their origin becomes `edited`. It never promotes an
 ineligible joint. Outlier and gap reconstructions use `gap-repaired`, null
 confidence, and no scoring eligibility until explicitly approved. Unresolved
 unreliable joints are also ineligible. Existing authored exclusions still apply.
-New video imports default to Heavy at 30 fps with cleanup enabled; older captures
+New video imports use Lite at 30 fps with cleanup enabled; older captures
 without cleanup settings remain unprocessed. Raw captures remain available in
 backups, and existing tracks can use the undoable **Clean up selected range** action.
 
@@ -634,7 +638,9 @@ The seven-bone asset maps hips, shoulders, face, wrists, and ankles to stylized
 root/body/head/hands/feet. It cannot show articulated elbows/knees. The skeleton
 editor still exposes those joints because they matter for choreography and scoring.
 Relative depth remains damped/clamped for appearance, not converted into room-scale
-3D. Keep visual smoothing separate from edited/scoring coordinates.
+3D, except that authored hips can step toward or away from the camera (tracked depth is
+measured from the hips). The character's tip, lean, turn-around and nod are listed in
+[dance-format.md](dance-format.md#what-the-games-character-shows). Keep visual smoothing separate from edited/scoring coordinates.
 
 The game samples at the audible song position using bounded interpolation, stops
 at `playableEndMs`, and does not use the demo's modulo clock or final 0.35-second

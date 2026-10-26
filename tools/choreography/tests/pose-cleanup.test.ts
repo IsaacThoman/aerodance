@@ -140,7 +140,7 @@ test('editor cleanup survives quantization, preserves exclusions and calibration
 });
 
 test('video finalization opts in to cleanup, retains raw samples and legacy captures remain unprocessed',()=>{
-  const model=poseModel('full'),samples=frames();joint(samples[10]).x=1.2;
+  const model=poseModel('lite'),samples=frames();joint(samples[10]).x=1.2;
   const records=samples.map((s,i)=>({ordinal:i,record:{seq:i+1,mediaTimeMs:s.takeTimeMs,poses:s.poses,
     sessionId:'cleanup',playerCount:2,input:size,modelId:model.id,timingMethod:'decoded-frame'}}));
   const capture=captureOf(records,'video',{mediaTimeMs:0,poses:[pose()]});

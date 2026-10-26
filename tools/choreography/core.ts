@@ -32,7 +32,8 @@ import { DEFAULT_STAGE, isStageId } from "../../packages/stages/catalog.ts";
 import type { StageId } from "../../packages/stages/catalog.ts";
 import { EXTENSION, SEEK_TIME, framesToPoses, framesToSamples } from '../../packages/pose/binary.ts';
 import type { PoseFrames } from '../../packages/pose/binary.ts';
-import { poseModel, MEDIAPIPE_VERSION } from '../../packages/pose/browser/models.ts';
+import { MEDIAPIPE_VERSION } from '../../packages/pose/browser/models.ts';
+import { isRecordedPoseModelId, RECORDED_MODEL_HASHES } from '../../packages/pose/modelMetadata.ts';
 import { storedTrack } from './poseFiles.ts';
 import { cleanupPoses, CLEANUP_SETTINGS } from './poseCleanup.ts';
 import type { CleanupCounts } from './poseCleanup.ts';
@@ -549,7 +550,8 @@ export function takeFromRecords(capture: PoseFrames, metadata: CaptureMetadata):
   return metadata.sourceKind === 'video' ? videoTakeFromRecords(capture, metadata) : webcamTakeFromRecords(capture, metadata);
 }
 function captureConfig(capture: PoseFrames, metadata: CaptureMetadata, kind: string) {
-  const model = poseModel(capture.modelId), config = metadata.status;
+  assert(isRecordedPoseModelId(capture.modelId), `Invalid ${kind} model identity`);
+  const model = { id: capture.modelId, sha256: RECORDED_MODEL_HASHES[capture.modelId] }, config = metadata.status;
   assert(isObject(config) && config.modelId === model.id && config.modelHash === model.sha256 &&
     config.packageVersion === MEDIAPIPE_VERSION && oneOf(DELEGATES, config.delegate), `Invalid ${kind} model configuration`);
   return { model, config };

@@ -8,6 +8,8 @@ import type { Cast } from '../../pose/song.ts';
 import { firstPresentFrame, framesToPoses } from '../../pose/binary.ts';
 import { MAX_DANCERS } from '../../pose/choreography.ts';
 import type { Pose } from '../../pose/choreography.ts';
+import { createPerformanceSampler } from '../../pose/performance.ts';
+import type { CharacterPose } from '../../pose/performance.ts';
 import type { MotionTake } from '../../pose/motion.ts';
 import type { DancerPlacement } from '../catalog.ts';
 import DancerEntrance from './DancerEntrance.tsx';
@@ -46,8 +48,10 @@ export function dancerSpot(i: number, count: number, spacing: number) {
 const FOOT_CLEARANCE = 0.015;
 
 // One pose ref per dancer, sampled from a song's choreography at its current time each frame.
-function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<Pose | null>[] {
+function useRoutinePoses(routine: DancerRoutine | null | undefined) {
   const refs = useMemo((): RefObject<Pose | null>[] => Array.from({ length: MAX_DANCERS }, () => ({ current: null })), []);
+  const performances = useMemo((): RefObject<CharacterPose | null>[] => Array.from({ length: MAX_DANCERS }, () => ({ current: null })), []);
+  const performers = useMemo(() => routine?.bundle.performance?.tracks.map(t => createPerformanceSampler(t.clips)) ?? [], [routine?.bundle.performance]);
   const opening = useMemo((): ({ time: number; pose: Pose } | null)[] => {
     if (!routine?.entranceTimeMs) return [];
     const { song, choreography } = routine.bundle;
@@ -61,7 +65,7 @@ function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<P
     });
   }, [routine]);
   useFrame(() => {
-    if (!routine) return;
+    if (!routine) { performances.forEach(r => { r.current = null; }); return; }
     const { bundle } = routine;
     // Hold the last pose at the very end instead of vanishing.
     const t = Math.min(routine.timeMs(), bundle.song.playableEndMs - 1);
@@ -69,9 +73,10 @@ function useRoutinePoses(routine: DancerRoutine | null | undefined): RefObject<P
     refs.forEach((ref, id) => {
       const first = opening[id];
       ref.current = poses.find((p) => p.playerId === id) ?? (first && t <= first.time ? first.pose : null);
+      performances[id].current = performers[id]?.(t) ?? null;
     });
   }, -1);
-  return refs;
+  return { poses: refs, performances };
 }
 
 /**
@@ -95,7 +100,7 @@ export interface DancersProps extends Partial<DancerPlacement> {
 }
 
 export default function Dancers({ motion, playback, routine, position = [0, 0, 0], rotationY = 0, spacing = 4, scale = 1, looks = DANCER_LOOKS }: DancersProps) {
-  const poses = useRoutinePoses(routine);
+  const { poses, performances } = useRoutinePoses(routine);
   const tracks = routine?.bundle.choreography.tracks;
   // The song's dancers; the demo motion is a duet.
   const count = tracks?.length ?? 2;
@@ -112,7 +117,7 @@ export default function Dancers({ motion, playback, routine, position = [0, 0, 0
               <DancerEntrance timeMs={routine?.entranceTimeMs} color={look.color} seed={person + 1}>
                 <group scale={[-1, 1, 1]}>
                   {tracks ? (
-                    <Character poseRef={poses[person]} calibration={tracks[person].calibration} appearance={look} />
+                    <Character poseRef={poses[person]} performanceRef={performances[person]} calibration={tracks[person].calibration} appearance={look} />
                   ) : (
                     <Character motion={motion} person={person} playback={playback} appearance={look} />
                   )}

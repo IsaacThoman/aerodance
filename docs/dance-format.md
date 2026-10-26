@@ -1,0 +1,297 @@
+# Dance projects (`aerodance.dance`), v1
+
+> **Status: implemented** in [`tools/dance`](../tools/dance/README.md). The CLI is documented in
+> [dance-cli.md](dance-cli.md).
+
+A dance project is the editable animation behind a song's choreography: the keys, curves, holds,
+planted feet, phrases and timing an animator chose, and the video, audio and tracked poses they were
+chosen against. The game never reads it. `dance export` compiles it into the game's sampled
+[`.adpose` choreography](pose-binary-format.md), which can't be turned back into keys.
+
+The Studio's capture projects ([`tools/choreography`](../tools/choreography/README.md), project
+format 3) stay as they are: they hold recorded takes and corrections to them. A dance project holds
+animation made from scratch or drafted from tracking, and both export the same song bundles.
+
+## Why a new format
+
+`.adpose` stores what to play: a pose every few dozen milliseconds. An animator works with intent
+instead: "the left hand arrives here on beat 17 and holds for half a beat", "the right foot stays
+planted from 4 s to 6 s", "shift this phrase 80 ms earlier", "the second dancer mirrors the first".
+Sampled poses lose all of it, and they hold every joint independently, so moving a hand leaves its
+forearm wherever it was. The dance format keeps the decisions and derives the poses from them.
+
+## A project on disk
+
+```
+my-dance/
+  dance.json                      the dance: the only file an edit changes
+  sources/video-3fa9….webm        the reference video (copied in, or referenced with --link)
+  sources/proxy-3fa9….webm        a browser-playable copy for the Studio, when the original may not play
+  sources/audio-8c21….wav         the song audio
+  sources/tracking-d07e….adpose   poses tracked from the video
+  .dance/                         undo history, caches and renders; safe to delete (and git-ignored)
+```
+
+Source files are named by their content's hash and never overwritten, so undoing an `attach`
+finds the file the earlier revision used.
+
+`dance.json` is plain, readable JSON, written one key per line so it diffs well. Edits through the
+CLI or the Studio bump its `revision`, keep the previous revision for undo, and are rejected if they
+were made against an older revision (see [Editing](dance-cli.md#editing)).
+
+## Coordinates and units
+
+Everything uses the game's coordinates, so tracked poses, keys and exported frames line up:
+
+- **Positions** are MediaPipe image coordinates of `frame` (the video's pixel size): `x` from 0 at
+  the left edge to 1 at the right, `y` from 0 at the top to 1 at the bottom, `z` away from the
+  camera, in frame widths, with 0 at the hips. Stored data is never mirrored: **the dancer's left
+  is image right** in a frontal video.
+- **Lengths** (`body`) are in frame heights, measured with `x` scaled by the aspect
+  (`width / height`), so a limb has the same length whichever way it points.
+- **Angles** are degrees.
+- **Times** are milliseconds. A dancer's keys, contacts and exclusions are on its own clock: song
+  time minus its `timeOffsetMs`. Song-level times (playable range, phrases, markers) are song time.
+
+## The rig
+
+Each dancer is animated with 13 points and 4 angles (`format.ts` `POINTS`, `SCALARS`):
+
+| Control | What it is |
+|---|---|
+| `head` | Between the ears |
+| `leftShoulder`, `rightShoulder`, `leftHip`, `rightHip` | The torso |
+| `leftElbow`, `rightElbow`, `leftKnee`, `rightKnee` | Mid joints (see below) |
+| `leftWrist`, `rightWrist`, `leftAnkle`, `rightAnkle` | Hands and feet |
+| `turn` | Body facing; positive turns toward the dancer's left (their right shoulder comes forward) |
+| `headYaw`, `headPitch`, `headRoll` | Head turn (positive: to the dancer's left), tilt up, tilt toward the left shoulder |
+
+These are the joints the scorer compares (shoulders, elbows, wrists, hips, knees, ankles; see
+[scoring](scoring.md)) plus the head the character's head follows. The other 20 MediaPipe landmarks
+are derived (`rig.ts`): the face from the head point and angles, the hand knuckles along the forearm,
+the heel and toes from the ankle and the body's turn. Points without a keyed `z` take depth from the
+`turn`: shoulders and hips rotate with it, and limbs follow their shoulder or hip.
+
+Groups name sets of controls in ops: `all`, `body`, `headAngles`, `torso`, `shoulders`, `hips`,
+`arms`, `leftArm`, `rightArm`, `legs`, `leftLeg`, `rightLeg`, `hands`, `feet`, `elbows`, `knees`.
+
+## What the game's character shows
+
+The glass character has a body, a head, two floating hands and two floating feet, and no elbows or
+knees. The game reads it from the exported landmarks (`packages/character/retarget.ts`):
+
+| The character | From |
+|---|---|
+| Steps across, bobs and sinks (down to a crouch) | The hips' position on screen |
+| Steps toward or away from the camera | The hips' depth (`z`): tracked depth is measured from the hips, so only a keyed depth moves it, e.g. one dancer passing in front of another |
+| Leans any way, as far as upside down | The torso (shoulders to hips) on screen |
+| Tips toward the camera, as far as lying down | How short the torso looks against its length: past about 30° of foreshortening it tips, and an end-on torso lies flat. Shoulders keyed well behind the hips tip it back instead |
+| Turns, and turns around | The shoulders' depth. Facing the camera the body turns about half as far as the shoulders; with the shoulders crossed over and the nose behind the ears (`turn` and `headYaw` both past about 105°), it turns round to face away |
+| Turns, nods and tilts its head | The face: `headYaw`, `headPitch` (up to about 35°) and `headRoll`, the tilt within about 35° of the body's lean |
+| Hands and feet | Wrists and ankles, with their depth toward the camera; feet stop at the floor |
+
+The body never goes through the floor: tipped, leaning or upside down, it rises to clear it. To lay a
+dancer down, key the shoulders close to the hips' height (a crawl) or below them (bent double);
+to turn one around, key `turn` and `headYaw` together.
+
+## Direct character performance
+
+A dancer can also have `performance: PerformanceClip[]`. These clips animate the visible character
+parts directly. Human landmark keys continue to define scoring and overlays; a performance clip
+defines the character's acting. Outside a clip, the character follows the human pose as before.
+An animator can therefore choose a clear silhouette, squash a crouch, place the head independently,
+stage a passing dancer in depth, and hold a gesture without distorting the scoring skeleton.
+
+Each clip has `id`, `startMs`, `endMs` and `keys: [{t, pose, interp?, ease?}]`. Times use the dancer's
+clock. Clips are sorted and cannot overlap. The first and last keys must be at the clip boundaries;
+match the surrounding animation there to avoid a jump. Keys contain complete poses, interpolated
+with the same `smooth`, `linear`, `hold`, `auto`, `stop` and `sharp` curves as the landmark keys.
+Edit these clips with the `performance` op; landmark editing ops operate on the human controls.
+Changing a dancer's `timeOffsetMs` shifts both kinds of animation.
+
+Positions are **character model units**, before the coach reflection: x right, y up, z toward the
+camera. Each dancer's stage spot is its origin. The Studio character view uses spots -2 and +2 for
+a duet; the stage can use different spacing. A neutral pose has a body pivot at `[0,1.1,0]`, a head
+centre at `[0,2.7,0]`, and foot centres at y 0.3. All positions are absolute in that model frame,
+including hands and feet; moving the body does not drag them. Review the stage view as well.
+
+| Control | Meaning |
+|---|---|
+| `body` | Body pivot position |
+| `bodyRotation`, `headRotation` | Absolute XYZ Euler angles in degrees; positive pitch bows toward the camera |
+| `bodyScale` | XYZ scale, allowing a squashed or stretched body |
+| `head` | Head centre, independent of the body's transform |
+| `leftHand`, `rightHand`, `leftFoot`, `rightFoot` | Part centres; anatomical left is x positive when facing front |
+| `headScale`, `handScale`, `footScale` | Uniform scales for those parts, independent of body squash |
+
+Use `neutralCharacterPose()` from `packages/pose/performance.ts` to construct complete poses. For
+example, a script can write this patch to a JSON file outside the repository, then apply it with
+`dance apply <project> <patch.json>`:
+
+```js
+const rest = neutralCharacterPose();
+const point = { ...rest, leftHand: [1.2, 3.7, 0.6], headRotation: [-12, 15, -5] };
+const patch = { ops: [{
+  op: 'performance', dancer: 'P1', id: 'point', start: 'b17', end: 'b21',
+  keys: [
+    { t: 'b17', pose: rest, ease: 'stop' },
+    { t: 'b18', pose: point, ease: 'sharp' },
+    { t: 'b19', pose: point, ease: 'stop' },
+    { t: 'b21', pose: rest, ease: 'stop' }
+  ]
+}] };
+```
+
+`pose --performance --at b18` reads the evaluated character pose, and `keys --performance` reads
+the clips. The Studio and `frames`/`render` use the same poses. Export writes an optional
+`performance.json` asset referenced from `song.json`, checked by the bundle's checksums and
+validated by the loader. A change to the performance changes the exported song id.
+
+## How a pose is evaluated
+
+`evaluate.ts` turns a dancer's data into a pose at any time, the same way in the CLI, the Studio and
+export:
+
+1. **Base layer.** Shoulders, hips, wrists, ankles and the angles come from their keys. A control
+   with no keys stays in the neutral stance (`neutralPose`) at the dancer's `home`.
+2. **Additive layers** add their weighted offsets. A group offset such as `body` moves the group's
+   shoulders, hips, wrists and ankles; the elbows, knees and head follow them.
+3. **Contacts** plant a wrist or ankle where it was at the contact's start (or at `position`), easing
+   on and off over `blendMs`.
+4. **The head** rides on the shoulders: its keys are stored as absolute positions but interpolated
+   as offsets from the shoulder midpoint, so moving the torso carries it. Without keys it sits a
+   neck's length up the torso.
+5. **Elbows and knees** are interpolated against their limb. At each key the joint is measured as
+   two on-screen segment lengths and a bend side relative to the shoulder→wrist (hip→ankle) line,
+   and those are interpolated, so a keyed elbow is exactly where it was keyed at its key and the arm
+   stays whole while the wrist moves. Where the limb folds (wrist close to the shoulder) that line's
+   direction is unstable, so the joint blends into a bone turning with the torso. Unkeyed, elbows
+   and knees bend naturally from `body`'s lengths, partly on screen and partly toward the camera.
+6. **Depths** without keys follow the `turn`.
+7. **Style.** A dancer's `style` exaggerates the finished pose for the game's character, which has
+   no elbows or knees and reads a move only through its hands, feet, hips, lean, turn and head (see
+   [above](#what-the-games-character-shows)). The
+   keys stay as filmed: overlays on the video draw the keyed pose, while the characters, the scorer
+   and the export play the styled one. Each factor is 1 to leave its part alone:
+
+   | Factor | Range | Does |
+   |---|---|---|
+   | `reach` | 0.5–2 | Scales each arm about its shoulder, so the hands travel further in the same directions |
+   | `bounce` | 0–4 | Deepens the hips' dips below their average height over about a beat; the whole body moves |
+   | `sway` | 0–4 | Grows the hips' side-to-side motion within about a beat; the knees bend over the feet |
+   | `lean` | 0–3 | Grows the torso's lean, fading back to as keyed past about 35° (bent over, on the floor) |
+   | `turn` | 0–3 | Grows the body turn, in depth only, up to side-on (80°; a key past that stays as keyed) |
+   | `head` | 0–3 | Grows head yaw, pitch and roll about the head's resting angles (its keys' medians), up to 80° |
+   | `lift` | 0–4 | Raises a foot off the floor it stood on nearby, and a stepping foot with its speed |
+
+   Only `lean` and `sway` change a scored limb direction (the torso, and the legs as the hips move
+   over the feet); the rest move or scale whole limbs, so the score barely moves.
+
+### Curves
+
+A key is `{ "t": ms, "v": value, "interp"?: …, "ease"?: … }`. Points are `[x, y]` or `[x, y, z]`;
+angles are numbers.
+
+- `interp` shapes the segment after the key: `smooth` (the default, a cubic), `linear`, or `hold`
+  (a step at the next key).
+- `ease` sets the velocity at the key: `auto` (the default) flows through it but goes flat at a
+  turning point and never overshoots; `stop` settles into the key and leaves from rest; `sharp` hits
+  it, arriving and leaving with each side's own velocity.
+- Before its first key and after its last, a channel holds. The first and last keys start and end
+  at rest, and so do keys next to a `hold`.
+
+## `dance.json`
+
+```jsonc
+{
+  "schema": "aerodance.dance", "schemaVersion": 1,
+  "revision": 12, "createdAt": "…", "updatedAt": "…",
+  "song": {
+    "title": "Dare", "artist": "Gorillaz", "songwriters": [], "choreographers": [],
+    "difficulty": "normal", "stage": "club", "tags": [], "description": "",
+    "bpm": 120, "beatOffsetMs": 250,              // beat 1 is at 250 ms ("b1" in times)
+    "durationMs": 63400, "playableStartMs": 9750, "playableEndMs": 15750
+  },
+  "frame": { "width": 640, "height": 360 },
+  "sources": {
+    "video": { "path": "sources/video-3fa9c2e1b7d0.webm", "sha256": "…", "bytes": 2768908, "mimeType": "video/webm",
+      "width": 640, "height": 360, "fps": 30, "durationMs": 63332,
+      "startMs": 0, "rate": 1,                     // song time of the video's first frame; video ms per song ms
+      "proxy": null },
+    "audio": { "path": "sources/audio-8c21f04a9e33.wav", "sha256": "…", "bytes": 12172878, "mimeType": "audio/wav", "durationMs": 63400 },
+    "tracking": [
+      { "id": "t1", "path": "sources/tracking-3fa9c2e1b7d0.adpose", "sha256": "…", "bytes": 52184, "mimeType": "application/octet-stream",
+        "model": "lite", "createdAt": "…", "fps": 30, "dancers": ["P1"] }   // the dancer each tracked slot follows
+    ]
+  },
+  "dancers": [
+    {
+      "id": "P1", "label": "Dancer 1",
+      "timeOffsetMs": 0,
+      "home": [0.5, 0.53],                          // hip midpoint of the neutral stance
+      "body": { "shoulderWidth": 0.13, "hipWidth": 0.07, "torso": 0.17, "neck": 0.07, "head": 0.06,
+                "upperArm": 0.11, "forearm": 0.11, "thigh": 0.18, "shin": 0.12, "hand": 0.04, "foot": 0.1 },
+      "calibration": null,                          // or { torsoLength, baseHip: [x, y, z], floorY } (see Export)
+      "style": { "reach": 1.6, "bounce": 2.5, "sway": 1.6, "lean": 1.5, "turn": 1.6, "head": 1.7, "lift": 2 },  // optional
+      "layers": [
+        { "id": "base", "label": "Base", "mode": "absolute", "enabled": true, "weight": 1, "channels": {
+          "leftWrist": [
+            {"t": 10250, "v": [0.544, 0.5]},
+            {"t": 10750, "v": [0.647, 0.405]},
+            {"t": 11000, "v": [0.647, 0.405], "interp": "hold"}
+          ],
+          "headRoll": [{"t": 11750, "v": 10}]
+        } },
+        { "id": "fix", "label": "Fixes", "mode": "additive", "enabled": true, "weight": 1, "channels": {
+          "body": [{"t": 4000, "v": [0, 0]}, {"t": 4150, "v": [0.01, 0]}, {"t": 4300, "v": [0, 0]}]
+        } }
+      ],
+      "contacts": [ { "id": "c1", "control": "rightAnkle", "startMs": 10250, "endMs": 15250, "blendMs": 100, "position": null } ],
+      "exclusions": [ { "id": "x1", "startMs": 2000, "endMs": 3000, "reason": "legs out of frame", "controls": ["legs"] } ]
+    }
+  ],
+  "phrases": [ { "id": "ph1", "label": "Chorus", "startMs": 10250, "endMs": 15250, "dancer": null } ],
+  "markers": [ { "id": "m1", "timeMs": 10250, "kind": "beat", "label": "" } ]
+}
+```
+
+Validation (`format.ts` `assertDance`) names the first bad field: keys in strictly increasing time,
+values of the right shape, layer 0 absolute and the rest additive, unique IDs, contacts on the same
+control that don't overlap (their blends may), one to four dancers, a known stage.
+
+Field notes:
+
+- **`song.bpm`, `beatOffsetMs`** make beat times (`b17`) available everywhere a time is taken, and
+  draw the beat grid in the Studio and on contact sheets.
+- **`dancers[].layers`**: an additive layer's channels may be controls or point groups, and hold
+  offsets rather than positions. `weight` scales them; `enabled: false` mutes the layer.
+- **`dancers[].exclusions`**: with `controls: null` the whole dancer goes unscored over the
+  interval; with controls, only their landmarks (e.g. `legs` while the legs are out of frame).
+- **`sources.tracking`** files are `take` [.adpose](pose-binary-format.md) files on the video's clock,
+  one pose slot per tracked person.
+
+## Export
+
+`compile.ts` evaluates every dancer on a 60 Hz grid, plus every key, contact and exclusion boundary,
+over the playable range. It keeps a frame only where the game's straight-line interpolation between
+the frames kept around it would be more than 0.0015 frame units off for any joint (about a pixel at
+640 wide), and never leaves more than 150 ms between frames, because the game treats gaps over 200 ms
+as missing poses. A 5-second phrase of quick arm moves keeps about 150 frames.
+
+Every exported joint is marked `edited`, reviewed and eligible for scoring, except where an
+exclusion says otherwise: whole-dancer exclusions become the track's unscored intervals, partial ones
+clear the joints' eligibility flags.
+
+Each track's calibration (how the game's character retargets the poses) is `dancers[].calibration`
+when set, otherwise measured from the compiled poses: the median torso length and floor as
+`calibratePoses` measures them, and the median hip position, so a dancer who travels stays centred on
+their spot on stage.
+
+`bundle.ts` writes the same song bundle Dance Studio exports (`song.json`, `choreography.adpose`, the
+audio and `checksums.json`), with the song ID derived the same way from the audio and motion, and
+checks it with the game's own catalog and choreography validators before writing it.
+
+## Versioning
+
+`schemaVersion` is 1. A change that older tools would misread gets a new version; tools reject
+versions they don't know rather than guess.

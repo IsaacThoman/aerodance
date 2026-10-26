@@ -286,6 +286,25 @@ export class BlobShim {
   text() { return Promise.resolve(new TextDecoderShim().decode(this._bytes)); }
   slice(start = 0, end = this.size, type = '') { const b = new BlobShim([], { type }); b._bytes = this._bytes.slice(start, end); return b; }
 }
+
+/**
+ * Files the page keeps (globalThis.__aerodanceFiles; the game's songs/folderSongs.ts): tvOS may
+ * delete them when it runs short of space. Paths are relative and '/'-separated.
+ */
+export const appFilesShim = {
+  read: (path: string) => N.fileRead(path),
+  write(path: string, bytes: Uint8Array) {
+    const why = N.fileWrite(path, bytes);
+    if (why === 'full') throw Object.assign(new Error('Out of space'), { name: 'QuotaExceededError' });
+    if (why) throw new Error(`Couldn't write ${path}: ${why}`);
+  },
+  list: (path: string) => JSON.parse(N.fileList(path)) as { name: string; size: number; dir: boolean }[],
+  remove: (path: string) => N.fileRemove(path),
+  move(from: string, to: string) {
+    const why = N.fileMove(from, to);
+    if (why) throw new Error(`Couldn't move ${from}: ${why}`);
+  },
+};
 export class FileShim extends BlobShim {
   readonly name: string;
   readonly lastModified = Date.now();

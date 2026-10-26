@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { Box3, Group, Vector3 } from "three";
+import { Box3, Group, Quaternion, Vector3 } from "three";
 import type { Bone, Object3D, SkinnedMesh } from "three";
 import { createPoseApplier, calibratePoses } from '../retarget.ts';
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -166,6 +166,104 @@ test('original wrist reach and continuous foot depth are preserved', () => {
     }
     assert.deepEqual(lifted,raw);
   }
+});
+test('hips stepping toward the camera bring the whole character forward', () => {
+  const model=clone(asset.scene), standing=standingPose();
+  const apply=createPoseApplier(model,calibratePoses([standing]));
+  apply(standing);
+  const before=['Body','ArmL','FootR'].map(name=>meshBounds(model,name).getCenter(new Vector3()));
+  // Every landmark a little nearer: the hips' depth is the only change relative to them.
+  const near=structuredClone(standing);
+  for(const l of near.landmarks) l.z-=.05;
+  apply(near);
+  const after=['Body','ArmL','FootR'].map(name=>meshBounds(model,name).getCenter(new Vector3()));
+  for(const [i,a] of after.entries()) {
+    assert.ok(a.z-before[i].z>.1,`forward, toward the camera: ${a.z-before[i].z}`);
+    assert.ok(Math.abs(a.z-before[i].z-(after[0].z-before[0].z))<1e-5,'all together');
+    assert.ok(Math.abs(a.x-before[i].x)<1e-6 && Math.abs(a.y-before[i].y)<1e-6);
+  }
+});
+// A face as MediaPipe and Dance Studio place it: ears `w` frame heights apart, the nose a little below
+// and in front of them; `down` drops the nose further (a nod), `away` puts it behind the ears.
+function withFace(pose: Pose, { down = 0, away = false } = {}, aspect = 4 / 3): Pose {
+  const out = structuredClone(pose), l = out.landmarks, s = { x: (l[11].x + l[12].x) / 2, y: (l[11].y + l[12].y) / 2 };
+  const w = .06, cx = s.x, cy = s.y - .08, side = away ? -1 : 1;
+  Object.assign(l[7], { x: cx + side * w / 2 / aspect, y: cy, z: 0 });
+  Object.assign(l[8], { x: cx - side * w / 2 / aspect, y: cy, z: 0 });
+  Object.assign(l[0], { x: cx, y: cy + (.12 + down) * w, z: (away ? .55 : -.55) * w / aspect });
+  return out;
+}
+const up = (model: Object3D, name: string) => new Vector3(0, 1, 0).applyQuaternion(node(model, name).getWorldQuaternion(new Quaternion()));
+const front = (model: Object3D, name: string) => new Vector3(0, 0, 1).applyQuaternion(node(model, name).getWorldQuaternion(new Quaternion()));
+const aboveFloor = (model: Object3D) => { for (const name of ['Body', 'Head', 'ArmL', 'ArmR', 'FootL', 'FootR']) assert.ok(meshBounds(model, name).min.y > -1e-3, `${name} above the floor`); };
+test('a torso tipped toward the camera lies the body down toward it, above the floor', () => {
+  const standing = withFace(standingPose()), model = clone(asset.scene);
+  const apply = createPoseApplier(model, calibratePoses([standing]));
+  apply(standing);
+  assert.ok(up(model, 'Body').distanceTo(new Vector3(0, 1, 0)) < 1e-6, 'upright stays upright');
+  const standingHead = node(model, 'Head').getWorldPosition(new Vector3());
+  // On all fours facing the camera: the torso end-on, its shoulders level with the hips.
+  const crawl = structuredClone(standing);
+  for (const i of [11, 12]) crawl.landmarks[i].y = .54;
+  apply(withFace(crawl));
+  const body = up(model, 'Body'), head = node(model, 'Head').getWorldPosition(new Vector3());
+  assert.ok(body.z > .95, `tipped toward the camera: ${body.toArray()}`);
+  assert.ok(head.y < standingHead.y - .9 && head.z > standingHead.z + .9, `head from ${standingHead.toArray()} to ${head.toArray()}`);
+  aboveFloor(model);
+  // The head still looks where the face does: at the camera.
+  assert.ok(front(model, 'Head').z > .95);
+  // A small shortening is a step back or noise, not a tip.
+  const near = structuredClone(standing);
+  for (const i of [11, 12]) near.landmarks[i].y = .33;
+  apply(near);
+  assert.ok(up(model, 'Body').distanceTo(new Vector3(0, 1, 0)) < 1e-6);
+});
+test('a live dancer scales to its torso and never reads as tipped', () => {
+  const standing = withFace(standingPose()), model = clone(asset.scene);
+  const apply = createPoseApplier(model, calibratePoses([standing], undefined, { adaptiveDistance: true }));
+  const bowed = structuredClone(standing);
+  for (const i of [11, 12]) bowed.landmarks[i].y = .45;
+  apply(withFace(bowed));
+  assert.ok(Math.abs(up(model, 'Body').z) < 1e-6);
+});
+test('a confident torso leans as far as it goes; an unsure one at most 37 degrees', () => {
+  const standing = withFace(standingPose()), model = clone(asset.scene), aspect = 4 / 3;
+  const apply = createPoseApplier(model, calibratePoses([standing]));
+  const lean = (angle: number, confidence = 1) => {
+    const p = structuredClone(standing), h = { x: .5, y: .55 }, half = .06 / aspect;
+    const sx = h.x + Math.sin(angle) * .25 / aspect, sy = h.y - Math.cos(angle) * .25;
+    Object.assign(p.landmarks[11], { x: sx + half * Math.cos(angle), y: sy + half * Math.sin(angle) * aspect });
+    Object.assign(p.landmarks[12], { x: sx - half * Math.cos(angle), y: sy - half * Math.sin(angle) * aspect });
+    for (const i of [11, 12, 23, 24]) p.landmarks[i].confidence = confidence;
+    apply(withFace(p));
+    return Math.acos(clamp01(up(model, 'Body').y));
+  };
+  const clamp01 = (x: number) => Math.min(1, Math.max(-1, x));
+  assert.ok(Math.abs(lean(1.4) - 1.4) < .02, 'a side bend near horizontal');
+  aboveFloor(model);
+  assert.ok(Math.abs(lean(1.4, .3) - .65) < .02);
+  // Bent double, the torso pointing down: upside down, still above the floor.
+  assert.ok(lean(Math.PI - .1) > 2.9);
+  aboveFloor(model);
+});
+test('the dancer turns around only when the shoulders and the face agree', () => {
+  const standing = withFace(standingPose()), model = clone(asset.scene);
+  const apply = createPoseApplier(model, calibratePoses([standing]));
+  const back = structuredClone(standing);
+  [back.landmarks[11].x, back.landmarks[12].x] = [back.landmarks[12].x, back.landmarks[11].x];
+  apply(withFace(back, { away: true }));
+  assert.ok(front(model, 'Body').z < -.95 && front(model, 'Head').z < -.95, 'facing away');
+  // Crossed shoulders under a face still looking at the camera: a side view's jitter, so it doesn't spin.
+  apply(withFace(back));
+  assert.ok(front(model, 'Body').z > .9 && front(model, 'Head').z > .9);
+});
+test('the head nods with the face', () => {
+  const standing = withFace(standingPose()), model = clone(asset.scene);
+  const apply = createPoseApplier(model, calibratePoses([standing]));
+  apply(standing);
+  assert.ok(Math.abs(front(model, 'Head').y) < 1e-6, 'a level face looks straight ahead');
+  apply(withFace(standingPose(), { down: .2 }));
+  assert.ok(front(model, 'Head').y < -.3, 'the nose lower: looking down');
 });
 test('live distance smoothing damps torso noise without changing recorded playback', () => {
   const standing=standingPose(), calibration=calibratePoses([standing],undefined,{adaptiveDistance:true});

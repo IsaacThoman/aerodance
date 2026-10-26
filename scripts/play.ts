@@ -3,14 +3,14 @@
 // click, press keys, wait on the canvas's data-* state and take screenshots in that page.
 // See docs/interactive-testing.md.
 import { spawn } from 'node:child_process';
-import { existsSync, openSync, readdirSync } from 'node:fs';
+import { openSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import type { Browser, ConsoleMessage, Page } from 'playwright';
+import { chromiumPath, gpuFlags } from './chromium.ts';
 import * as menuLayout from '../apps/web/src/menu/layout.ts';
 import * as gameLayout from '../apps/web/src/game/layout.ts';
 import { displayDesign } from '../apps/web/src/display.ts';
@@ -21,7 +21,9 @@ const sessionFile = path.join(dir, 'session.json');
 const logFile = path.join(dir, 'daemon.log');
 
 type Options = {
-  app: 'game' | 'studio';
+  app: 'game' | 'studio' | 'dance';
+  /** --dance: the dance project the Studio (tools/dance) opens. */
+  project?: string;
   dist: boolean;
   headed: boolean;
   url: string;
@@ -34,13 +36,14 @@ type Command = { cmd: string; [key: string]: unknown };
 
 const USAGE = `Usage: node scripts/play.ts <command> [args]
 
-  start [--studio] [--dist] [--headed] [--url /?input=ghost] [--size 1280x800]
+  start [--studio | --dance <project>] [--dist] [--headed] [--url /?input=ghost] [--size 1280x800]
         [--camera fixture|deny|none]   start (or restart) the background session
   stop                                 close the browser and server
   status                               session details, renderer and frame rate
   state                                the canvas's data-* state as JSON
   click <target> | --locator <sel>     click a layout target, design point "x,y" or element
   hover <target>                       move the mouse to a target
+  drag <x,y> <x,y> [--steps n]         press, move and release the mouse between two page points
   key <key>...                         press keys (Enter, Escape, ArrowDown, ...)
   type <text>                          type text into the focused element
   wait <cond>... [--timeout ms]        wait until every condition holds:
@@ -106,41 +109,6 @@ function listTargets() {
 
 // ---- Browser ----
 
-// Playwright's own build, else the newest one in its cache (another checkout may have installed
-// a different Playwright version), unless CHROMIUM_PATH says otherwise.
-function chromiumPath(headed: boolean) {
-  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
-  if (existsSync(chromium.executablePath())) return undefined;
-  const cache = process.env.PLAYWRIGHT_BROWSERS_PATH || (process.platform === 'darwin'
-    ? path.join(os.homedir(), 'Library/Caches/ms-playwright')
-    : process.platform === 'win32' ? path.join(os.homedir(), 'AppData/Local/ms-playwright') : path.join(os.homedir(), '.cache/ms-playwright'));
-  const binaries: Record<string, string[]> = {
-    'chromium_headless_shell-': [`chrome-headless-shell-${process.platform === 'darwin' ? `mac-${process.arch}` : 'linux64'}/chrome-headless-shell`],
-    'chromium-': [
-      `chrome-mac-${process.arch}/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
-      'chrome-mac/Chromium.app/Contents/MacOS/Chromium', 'chrome-linux64/chrome', 'chrome-linux/chrome', 'chrome-win/chrome.exe',
-    ],
-  };
-  const builds = existsSync(cache) ? readdirSync(cache) : [];
-  for (const prefix of headed ? ['chromium-'] : ['chromium-', 'chromium_headless_shell-']) {
-    const candidates = builds.filter((d) => d.startsWith(prefix) && /^\d+$/.test(d.slice(prefix.length)))
-      .sort((a, b) => Number(b.slice(prefix.length)) - Number(a.slice(prefix.length)))
-      .flatMap((d) => binaries[prefix].map((b) => path.join(cache, d, b)));
-    const found = candidates.find((p) => existsSync(p));
-    if (found) return found;
-  }
-  throw Error('No Chromium found: run `npx playwright install chromium` or set CHROMIUM_PATH');
-}
-
-// Headless Chromium falls back to SwiftShader (about 1 fps for the game) unless told to use the
-// GPU. PLAY_BROWSER_ARGS adds flags, for machines where these defaults don't find it.
-function gpuFlags() {
-  const extra = process.env.PLAY_BROWSER_ARGS?.split(' ').filter(Boolean) ?? [];
-  if (process.platform === 'darwin') return ['--use-angle=metal', ...extra];
-  if (process.platform === 'win32') return ['--use-angle=d3d11', ...extra];
-  return ['--ignore-gpu-blocklist', ...extra];
-}
-
 // A synthetic webcam like the webcam tests': the MediaPipe fixture photo, drawn once per dancer.
 function fakeCamera({ image, mode }: { image: string; mode: Options['camera'] }) {
   const w = window as typeof window & { playDancers: number };
@@ -183,7 +151,16 @@ async function daemon(options: Options) {
   const configFile = path.join(root, options.app === 'studio' ? 'tools/choreography/vite.config.ts' : 'vite.config.ts');
   let appUrl: string;
   let closeServer: () => Promise<void>;
-  if (options.dist) {
+  if (options.app === 'dance') {
+    // The animation Studio runs on the dance project's own bridge (tools/dance/server.ts).
+    const { Bridge } = await import('../tools/dance/server.ts');
+    const { DanceProject } = await import('../tools/dance/project.ts');
+    if (options.dist) await vite.build({ configFile: path.join(root, 'tools/dance/vite.config.ts'), logLevel: 'warn' });
+    const bridge = await Bridge.start(new DanceProject(options.project!), { port: 5300, dist: options.dist })
+      .catch(() => Bridge.start(new DanceProject(options.project!), { dist: options.dist }));
+    appUrl = bridge.url;
+    closeServer = () => bridge.close();
+  } else if (options.dist) {
     await vite.build({ configFile, logLevel: 'warn' });
     const server = await vite.preview({ configFile, preview: { host: '127.0.0.1', port: 4300, strictPort: false } });
     appUrl = server.resolvedUrls?.local[0] ?? '';
@@ -217,6 +194,7 @@ async function daemon(options: Options) {
 
   const ready = async () => {
     if (options.app === 'studio') return page.waitForLoadState('load');
+    if (options.app === 'dance') return void await page.waitForSelector('.studio[data-revision]', { timeout: 120000 });
     // The canvas fades in once the world is built, then the menu reports ready. The phone
     // camera page (/pair/) has no world and is ready once it draws.
     await page.waitForFunction(() => {
@@ -248,8 +226,9 @@ async function daemon(options: Options) {
   };
   let shots = 0;
   const commands: Record<string, (c: Command) => Promise<unknown>> = {
+    // The game's canvas reports its state; so does the animation Studio's root (.studio).
     state: () => page.evaluate(() => {
-      const c = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas');
+      const c = document.querySelector<HTMLElement>('.canvas-frame canvas') ?? document.querySelector<HTMLElement>('.studio[data-revision]');
       return c ? { ...c.dataset } : { url: location.href, title: document.title };
     }),
     status: async () => ({
@@ -266,11 +245,19 @@ async function daemon(options: Options) {
       await page.mouse.click(p.x, p.y);
     },
     hover: async (c) => { const p = await toPage(String(c.target)); await page.mouse.move(p.x, p.y); },
+    // Page pixels, for DOM tools like the animation Studio (its timeline and video are canvases).
+    drag: async (c) => {
+      const [from, to] = [c.from, c.to] as [number, number][];
+      await page.mouse.move(from[0], from[1]);
+      await page.mouse.down();
+      await page.mouse.move(to[0], to[1], { steps: Number(c.steps) || 8 });
+      await page.mouse.up();
+    },
     key: async (c) => { for (const k of c.keys as string[]) await page.keyboard.press(k); },
     type: (c) => page.keyboard.type(String(c.text)),
     wait: async (c) => {
       await page.waitForFunction((conditions) => {
-        const d = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas')?.dataset ?? {};
+        const d = (document.querySelector<HTMLElement>('.canvas-frame canvas') ?? document.querySelector<HTMLElement>('.studio[data-revision]'))?.dataset ?? {};
         return conditions.every(([key, op, want]) => {
           const have = d[key] ?? '';
           if (op === '=') return have === want;
@@ -368,6 +355,7 @@ async function start(args: string[]) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--studio') options.app = 'studio';
+    else if (a === '--dance') { options.app = 'dance'; options.project = path.resolve(args[++i] ?? ''); }
     else if (a === '--dist') options.dist = true;
     else if (a === '--headed') options.headed = true;
     else if (a === '--url') options.url = args[++i];
@@ -424,6 +412,12 @@ async function main() {
     case 'hover':
       if (!args[0]) throw Error('hover needs a target');
       return print(await send(session, { cmd, target: args[0] }));
+    case 'drag': {
+      const steps = flag('--steps');
+      const points = args.map((a) => a.split(',').map(Number));
+      if (points.length !== 2 || points.some((p) => p.length !== 2 || p.some((v) => !Number.isFinite(v)))) throw Error('drag needs two page points: x,y x,y');
+      return print(await send(session, { cmd, from: points[0], to: points[1], steps }));
+    }
     case 'key': return print(await send(session, { cmd, keys: args }));
     case 'type': return print(await send(session, { cmd, text: args.join(' ') }));
     case 'wait': {

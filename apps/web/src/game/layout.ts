@@ -4,11 +4,11 @@ import type { Rect } from '../ui/draw.ts';
 // Both phases: back button + heading, top left (under the server HUD).
 export const BACK = { x: 166, y: 150, r: 30 };
 
-// List phase: songs down the left.
-export const ROWS = { x: 128, y: 258, w: 560, h: 88, gap: 16, perPage: 4 };
+// List phase: songs down the left, `shown` at a time (the rest scroll into view), with a
+// scrollbar beside them while there are more. rowRect(i) is the ith row in view.
+export const ROWS = { x: 128, y: 258, w: 640, h: 88, gap: 16, shown: 5 };
 export const rowRect = (i: number): Rect => ({ x: ROWS.x, y: ROWS.y + i * (ROWS.h + ROWS.gap), w: ROWS.w, h: ROWS.h });
-export const PAGE_UP = { x: 730, y: ROWS.y + ROWS.h / 2, r: 28 };
-export const PAGE_DOWN = { x: 730, y: ROWS.y + 3 * (ROWS.h + ROWS.gap) + ROWS.h / 2, r: 28 };
+export const SCROLLBAR = { x: ROWS.x + ROWS.w + 22, y: ROWS.y, w: 10, h: ROWS.shown * (ROWS.h + ROWS.gap) - ROWS.gap };
 export const RETRY = { x: 128, y: 340, w: 300, h: 80 };
 
 // Preview phase: title top left; anything worth saying (a stage or audio that couldn't
@@ -86,15 +86,14 @@ export function gameLayout(width = 1600) {
   const dx = (width - 1600) / 2;
   const compact = width === 1200;
   const centered = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x + dx });
-  const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 480 : ROWS.w };
+  const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 540 : ROWS.w };
   const right = width - rows.x;
   const castW = (right - rows.x - CAST.gap) / 2;
   return {
     BACK: { ...BACK, x: compact ? 110 : BACK.x },
     ROWS: rows,
     rowRect: (i: number): Rect => ({ x: rows.x, y: rows.y + i * (rows.h + rows.gap), w: rows.w, h: rows.h }),
-    PAGE_UP: { ...PAGE_UP, x: rows.x + rows.w + 42 },
-    PAGE_DOWN: { ...PAGE_DOWN, x: rows.x + rows.w + 42 },
+    SCROLLBAR: { ...SCROLLBAR, x: rows.x + rows.w + 22 },
     RETRY: { ...RETRY, x: rows.x },
     PREVIEW_NOTE: { ...PREVIEW_NOTE, x: rows.x },
     DANCE: { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w },

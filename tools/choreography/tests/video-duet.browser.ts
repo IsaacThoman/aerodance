@@ -117,7 +117,7 @@ try {
     // Unmirrored camera coordinates: player 1 (id 0) is on the right, shown on the left of the mirrored view.
     assert.ok(report.hipX[0] > .5 && report.hipX[1] < .5, 'restored coordinates retain the original regions');
   }
-  console.log('Portrait duet regression passed for Lite, Full and Heavy: both calibration and video processing.');
+  console.log('Portrait duet regression passed for Lite: both calibration and video processing.');
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve)); await vite.close();
 }

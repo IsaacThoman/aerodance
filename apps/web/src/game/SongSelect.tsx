@@ -1,10 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, dancerWidth, drawDancer, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText, ellipsize, glassCorner, paragraph,
-  roundRect, wrapText,
+  FONT, dancerWidth, drawDancer, drawGlassButton, drawHeader, drawShadowText, ellipsize, glassCorner, paragraph, roundRect, wrapText,
 } from '../ui/draw.ts';
-import type { Circle, Face, IconDraw, IconName, Point, Rect } from '../ui/draw.ts';
+import type { Face, IconDraw, Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane } from '../ui/useGlassBlur.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
@@ -19,6 +18,7 @@ import type { Cast, CatalogSong } from '../../../../packages/pose/song.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { SCORER_VERSION } from '../../../../packages/score/scorer.ts';
 import { bestScore } from './bestScores.ts';
+import { createCastSprites } from './castSprites.ts';
 import { PLAYERS } from './results.ts';
 import type { SongRoutine } from './GameSession.ts';
 import type { PoseInputView, PoseSource } from '../pose/PoseSource.ts';
@@ -32,8 +32,10 @@ import { displayDesign } from '../display.ts';
  *
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
  *            then the songs imported into this browser or app (songs/customSongs.ts; Settings →
- *            Songs imports and removes them), four to a page, each with a cutout of every
- *            dancer it has in the colour of the player following them
+ *            Songs imports and removes them), each with a cutout of every dancer it has, each in
+ *            a different move, in the colour of the player following them (castSprites.ts).
+ *            Five are in view at a time; the wheel,
+ *            a drag (or swipe) and the keyboard cursor scroll the rest in, a row at a time
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
  *            Studio), the music looping on its own while the stage camera circles them,
@@ -50,7 +52,8 @@ import { displayDesign } from '../display.ts';
  * list to the player count.
  * The canvas reports data-song-screen, -song-ready, -catalog, -song-count, -custom-song-count,
  * -song-load-error, -player-slots, -preview-state, -preview-time-ms, -song-dancers and
- * -song-cast (the dancer each player follows, from 0) for tests.
+ * -song-cast (the dancer each player follows, from 0) and -song-list-top (the first song in view)
+ * for tests.
  *
  * <SongSelect visible playerCount={1} source={source} onBack
  *   stageState={{ showing, prepared, ready, stage, failed }} onPreviewChange onScreenChange onDance />
@@ -76,7 +79,17 @@ type ListedSong = CatalogSong & { custom: boolean; key: string };
 /** A song row, or a player's row on the dancers screen. */
 type SongWidget = Widget & { song?: ListedSong; player?: number };
 interface SongSelectState {
-  alpha: number; screen: SongScreen; next: SongScreen; swap: number; page: number;
+  alpha: number; screen: SongScreen; next: SongScreen; swap: number;
+  /** The list's first song in view, and where the list is on its way there (in rows). */
+  top: number; scroll: number;
+  /** Wheel travel short of a whole row, in rows. */
+  wheel: number;
+  /** A press on the list: where it went down, and once it moves, the drag scrolling the list. */
+  listDrag: { id: number; y: number; scroll: number; moved: boolean; velocity: number; at: number } | null;
+  /** The keyboard cursor's widget the list last scrolled to. */
+  followed: string | null;
+  /** While the scrollbar's thumb is dragged: where on it (from its top) it's held. */
+  thumbGrab: number | null;
   catalog: { status: CatalogStatus; songs: ListedSong[]; error: string };
   catalogCtl: AbortController | null;
   /** The song (key) whose bundle is loading. */
@@ -116,6 +129,10 @@ const playerFace = (id: number): Face => [PLAYERS[id].light, PLAYERS[id].color, 
 // A dancer nobody follows, or on a player's row one they don't: an empty spot on the glass.
 const SPARE = 'rgba(255, 255, 255, 0.3)';
 const SPARE_HOVER = 'rgba(255, 255, 255, 0.6)';
+// A press on the list that travels this far (design units) drags it instead of choosing a song.
+const DRAG_SLOP = 14;
+// A released drag carries on for this long at the speed it was going.
+const FLING_S = 0.2;
 
 function faceFill(g: CanvasRenderingContext2D, face: Face, top: number, bottom: number) {
   const fill = g.createLinearGradient(0, top, 0, bottom);
@@ -123,7 +140,8 @@ function faceFill(g: CanvasRenderingContext2D, face: Face, top: number, bottom: 
   return fill;
 }
 
-// A song's dancers side by side, ending at `right`, each `h` tall on `floor`, hands overlapping
+// Until the dancers are rendered (or if they can't be), their vector cutouts instead:
+// side by side, ending at `right`, each `h` tall on `floor`, hands overlapping
 // (castWidth across): each in the colour of the first player following them, or an empty spot.
 function drawCast(g: CanvasRenderingContext2D, right: number, floor: number, h: number, dancers: number, cast: Cast) {
   const w = dancerWidth(h), step = w * 0.8;
@@ -199,12 +217,13 @@ export default function SongSelect({
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const {
-    BACK, CAST_AUTO, DANCE, DANCERS, PAGE_DOWN, PAGE_UP, PREVIEW_NOTE, RETRY, ROWS, castRow, rowRect,
+    BACK, CAST_AUTO, DANCE, DANCERS, PREVIEW_NOTE, RETRY, ROWS, SCROLLBAR, castRow, rowRect,
   } = gameLayout(displayDesign(size.width, size.height).w);
+  const step = ROWS.h + ROWS.gap;
   const props = useRef({ visible, playerCount, source, onBack, stageState, onPreviewChange, onScreenChange, onDance });
   props.current = { visible, playerCount, source, onBack, stageState, onPreviewChange, onScreenChange, onDance };
   const st = useRef<SongSelectState>({
-    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0,
+    alpha: 0, screen: 'list', next: 'list', swap: 1, top: 0, scroll: 0, wheel: 0, listDrag: null, followed: null, thumbGrab: null,
     catalog: { status: 'idle', songs: [], error: '' }, catalogCtl: null,
     loading: null, chosen: null, loadError: '',
     bundle: null, player: null, routine: null, previewState: 'loading', previewError: '',
@@ -213,12 +232,42 @@ export default function SongSelect({
   }).current;
 
   const songs = () => st.catalog.songs.filter((song) => song.supportedPlayerCounts.includes(props.current.playerCount));
-  const pages = () => Math.max(1, Math.ceil(songs().length / ROWS.perPage));
-  const pageSongs = () => songs().slice(st.page * ROWS.perPage, (st.page + 1) * ROWS.perPage);
+  const lastTop = () => Math.max(0, songs().length - ROWS.shown);
+  const scrollTo = (top: number) => {
+    st.top = Math.min(lastTop(), Math.max(0, Math.round(top)));
+    ui.invalidate();
+  };
+  // Scrolls the list just far enough to bring the ith song into view.
+  const reveal = (i: number) => scrollTo(Math.min(i, Math.max(st.top, i - ROWS.shown + 1)));
+  // The ith song's row where the list is now, and how much of it is in view (0..1): rows fade
+  // as they scroll out past either end.
+  const songRect = (i: number) => rowRect(i - st.scroll);
+  const inView = (i: number) => {
+    const d = i - st.scroll;
+    return Math.min(1, Math.max(0, Math.min(d + 1, ROWS.shown - d)));
+  };
+  // The songs with any of their row in view.
+  const viewRange = () => [Math.max(0, Math.floor(st.scroll)), Math.min(songs().length, Math.ceil(st.scroll) + ROWS.shown)] as const;
+  // The scrollbar's thumb: as long as the share of the songs in view, and as far down as the list.
+  const thumb = () => {
+    const bar = SCROLLBAR, h = Math.max(bar.w * 5, (bar.h * ROWS.shown) / Math.max(1, songs().length));
+    return { y: bar.y + ((bar.h - h) * st.scroll) / Math.max(1, lastTop()), h };
+  };
+  // Dragged by its thumb, or pressed on its track to bring the thumb there; the hit area is wider
+  // than the bar.
+  const scrollbarWidget = (): SongWidget => ({ id: 'scrollbar', rect: { ...SCROLLBAR, x: SCROLLBAR.x - 12, w: SCROLLBAR.w + 24 }, drag: true, nav: false });
   const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
-  // The song opened last is the primary one while it's on the page, else the first.
-  const primaryRow = () => Math.max(0, pageSongs().findIndex((song) => song.key === st.chosen));
-  const songWidget = (song: ListedSong, i: number): SongWidget => ({ id: `song-${song.key}`, song, rect: rowRect(i), corner: glassCorner(rowRect(i).h), primary: i === primaryRow() });
+  // The song opened last is the primary one while it's in view, else the first in view.
+  const primaryRow = () => {
+    const i = songs().findIndex((song) => song.key === st.chosen);
+    return i >= st.top && i < st.top + ROWS.shown ? i : st.top;
+  };
+  // Every song is a widget, so the keyboard cursor can step onto the next one out of view (the
+  // list scrolls to it); only those in view take the pointer.
+  const songWidget = (song: ListedSong, i: number, primary = primaryRow()): SongWidget => {
+    const rect = songRect(i);
+    return { id: `song-${song.key}`, song, rect, corner: glassCorner(rect.h), primary: i === primary, hit: inView(i) > 0.5 };
+  };
   const castWidget = (player: number): SongWidget => {
     const rect = castRow(player, props.current.playerCount);
     return { id: `cast-${player}`, player, rect, corner: glassCorner(rect.h) };
@@ -241,8 +290,8 @@ export default function SongSelect({
     st.next = screen;
     props.current.onScreenChange?.(screen);
     if (!key) return;
-    const i = screen === 'list' ? pageSongs().findIndex((song) => song.key === st.chosen) : -1;
-    ui.focus(i >= 0 ? songWidget(pageSongs()[i], i)
+    const i = screen === 'list' ? songs().findIndex((song) => song.key === st.chosen) : -1;
+    ui.focus(i >= 0 ? songWidget(songs()[i], i)
       : screen === 'dancers' ? castWidget(0)
         : screen === 'preview' && from === 'dancers' ? button('dancers', DANCERS) : null);
   };
@@ -258,8 +307,8 @@ export default function SongSelect({
   };
   const pick = (player: number, dancer: number) => setCast(st.cast.map((d, i) => (i === player ? dancer : d)));
 
-  // Loads the published and imported songs. With show (a song's key), the list turns to its page
-  // and the keyboard cursor, if out, goes to it; otherwise the page stays where it was.
+  // Loads the published and imported songs. With show (a song's key), the list scrolls to it and
+  // the keyboard cursor, if out, goes to it; otherwise the list stays where it was.
   const fetchCatalog = (show?: string) => {
     st.catalogCtl?.abort();
     const ctl = new AbortController();
@@ -282,8 +331,9 @@ export default function SongSelect({
         if (ctl.signal.aborted) return;
         st.catalog = { status: 'ready', songs: [...listed(shipped, false), ...listed(custom, true)], error: '' };
         const i = show ? songs().findIndex((song) => song.key === show) : -1;
-        st.page = i >= 0 ? Math.floor(i / ROWS.perPage) : Math.min(st.page, pages() - 1);
-        if (i >= 0 && ui.keyboard && st.next === 'list') ui.focus(songWidget(songs()[i], i % ROWS.perPage));
+        if (i >= 0) reveal(i);
+        else scrollTo(st.top);
+        if (i >= 0 && ui.keyboard && st.next === 'list') ui.focus(songWidget(songs()[i], i));
       })
       .catch((error: unknown) => {
         if (ctl.signal.aborted) return;
@@ -424,9 +474,9 @@ export default function SongSelect({
       }
       const list: SongWidget[] = [{ id: 'back', circle: BACK }];
       if (st.catalog.status === 'ready') {
-        if (!st.loading) pageSongs().forEach((song, i) => list.push(songWidget(song, i)));
-        if (st.page > 0) list.push({ id: 'page-up', circle: PAGE_UP });
-        if (st.page < pages() - 1) list.push({ id: 'page-down', circle: PAGE_DOWN });
+        const primary = primaryRow();
+        if (!st.loading) songs().forEach((song, i) => list.push(songWidget(song, i, primary)));
+        if (!st.loading && lastTop() > 0) list.push(scrollbarWidget());
       }
       if (st.catalog.status === 'error') list.push(button('retry', RETRY, true));
       return list;
@@ -440,17 +490,18 @@ export default function SongSelect({
       } else if (wdg.id === 'dancers') go('dancers');
       else if (wdg.id === 'auto') setCast(defaultCast(props.current.playerCount, dancers()));
       else if (wdg.id === 'back') back();
-      else if (wdg.id === 'page-up' || wdg.id === 'page-down') {
-        const up = wdg.id === 'page-up';
-        st.page = Math.min(pages() - 1, Math.max(0, st.page + (up ? -1 : 1)));
-        // The keyboard cursor stays on the arrow, or once it's gone (the first or last page),
-        // goes to the song beside it: the last one going up, the first going down.
-        const arrow = up ? st.page > 0 : st.page < pages() - 1;
-        const row = up ? pageSongs().length - 1 : 0;
-        if (s.keyboard && !arrow && row >= 0) s.focus(songWidget(pageSongs()[row], row));
-      }
       else if (wdg.id === 'retry') fetchCatalog();
       else if (wdg.id === 'dance') dance();
+      s.invalidate();
+    },
+    // The scrollbar's thumb follows the pointer, held where it was pressed (or by its middle, from
+    // the track); the list settles on a whole row when it's let go (update).
+    onDrag: (wdg, p, s) => {
+      if (wdg.id !== 'scrollbar') return;
+      const t = thumb();
+      st.thumbGrab ??= p.y >= t.y && p.y <= t.y + t.h ? p.y - t.y : t.h / 2;
+      const room = SCROLLBAR.h - t.h;
+      st.scroll = Math.min(lastTop(), Math.max(0, room > 0 ? ((p.y - st.thumbGrab - SCROLLBAR.y) / room) * lastTop() : 0));
       s.invalidate();
     },
     // Left / Right on a player's row step through the dancers.
@@ -478,6 +529,19 @@ export default function SongSelect({
         s.invalidate();
       }
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 3 : 6);
+      // The list scrolls to the song the keyboard cursor steps onto, and eases to its top row
+      // (a drag moves it directly).
+      if (s.keyFocus !== st.followed) {
+        st.followed = s.keyFocus;
+        const i = songs().findIndex((song) => `song-${song.key}` === s.keyFocus);
+        if (i >= 0) reveal(i);
+      }
+      if (st.thumbGrab !== null && s.drag?.id !== 'scrollbar') {
+        st.thumbGrab = null;
+        scrollTo(st.scroll);
+      }
+      st.top = Math.min(st.top, lastTop());
+      if (!st.listDrag?.moved && st.thumbGrab === null) st.scroll = s.ease(st.scroll, st.top, 14);
       // A chosen song waits on the list until its stage is prepared (or failed).
       if (st.bundle && st.loading && st.next === 'list') {
         const want = resolveStage(st.bundle.song.stage);
@@ -490,7 +554,7 @@ export default function SongSelect({
       // The dancer under the pointer lights up on its player's row.
       const hovering = st.screen === 'dancers' ? st.cast.map((_, i) => slotAt(castWidget(i), s)).join() : '';
       const key = [
-        st.screen, st.catalog.status, st.page, st.loading?.id, st.loadError, st.previewState, st.previewError,
+        st.screen, st.catalog.status, st.top, st.loading?.id, st.loadError, st.previewState, st.previewError,
         p.stageState.stage, p.stageState.ready, p.stageState.failed, st.cast.join(), hovering,
       ].join('~');
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
@@ -508,6 +572,7 @@ export default function SongSelect({
         previewTimeMs: st.routine ? String(Math.round(st.routine.timeMs())) : '',
         songDancers: st.bundle ? String(dancers()) : '',
         songCast: st.bundle ? st.cast.join('|') : '',
+        songListTop: String(st.top),
       };
       const json = JSON.stringify(report);
       if (json !== st.reported) { st.reported = json; Object.assign(gl.domElement.dataset, report); }
@@ -551,8 +616,11 @@ export default function SongSelect({
               : 'No playable songs have been published yet. Each routine needs music and choreography for its dancers.', ROWS.x, ROWS.y + 96, ROWS.w, { size: 25, color: '#ffffff' });
           g.restore();
         } else {
-          pageSongs().forEach((song, i) => {
-            const rect = rowRect(i);
+          const [first, end] = viewRange();
+          for (let i = first; i < end; i++) {
+            const song = list[i], shown = inView(i);
+            if (shown <= 0) continue;
+            const rect = songRect(i);
             const id = `song-${song.key}`;
             const loadingThis = st.loading?.id === song.key;
             // Every dancer the song has, at the row's right end.
@@ -563,26 +631,40 @@ export default function SongSelect({
             const sub = loadingThis ? `Loading${dots}` : [song.custom ? 'Custom' : null, song.artist, difficulty, song.stage ? resolveStage(song.stage) : null,
               best ? `Best ${best.score.toLocaleString('en-US')} ${best.grade}` : null].filter(Boolean).join(' · ');
             // (The button shortens the title and line under it to stop short of the dancers.)
+            g.save();
+            g.globalAlpha *= shown;
             drawGlassButton(g, rect, {
-              label: song.title, sub, icon: 'note', reserve: cutout.right + castWidth(cutout.h, count) + 10 - rect.h * 0.3,
+              label: song.title, sub, icon: 'note',
+              reserve: cutout.right + (sprites.width(cutout.h, count) ?? castWidth(cutout.h, count)) + 10 - rect.h * 0.3,
               hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
-              content: (c, r) => drawCast(c, r.x + r.w - cutout.right, r.y + (r.h + cutout.h) / 2, cutout.h, count, cast),
+              content: (c, r) => {
+                const right = r.x + r.w - cutout.right, floor = r.y + (r.h + cutout.h) / 2;
+                c.save();
+                shadowed(c);
+                const drawn = sprites.draw(c, right, floor, cutout.h, count, cast);
+                c.restore();
+                if (!drawn) drawCast(c, right, floor, cutout.h, count, cast);
+              },
             });
-          });
-          if (pages() > 1) {
-            const pagers: [Circle, string, IconName, boolean][] = [[PAGE_UP, 'page-up', 'up', st.page > 0], [PAGE_DOWN, 'page-down', 'down', st.page < pages() - 1]];
-            for (const [c, id, icon, on] of pagers) {
-              g.save();
-              if (!on) g.globalAlpha *= 0.35;
-              drawGlassCircle(g, c, on ? h[id] ?? 0 : 0);
-              g.lineWidth = 4;
-              g.lineCap = 'round';
-              g.lineJoin = 'round';
-              g.strokeStyle = '#ffffff';
-              ICONS[icon](g, c.x, c.y, c.r * 1.5);
-              g.restore();
-            }
-            drawShadowText(g, `${st.page + 1}/${pages()}`, PAGE_UP.x, (PAGE_UP.y + PAGE_DOWN.y) / 2, { size: 22, weight: 700, align: 'center' });
+            g.restore();
+          }
+          // More songs than fit: a scrollbar beside them. Its thumb widens under the pointer and
+          // while it's dragged.
+          if (list.length > ROWS.shown) {
+            const bar = SCROLLBAR, t = thumb();
+            const wide = 6 * Math.max(h.scrollbar ?? 0, st.thumbGrab === null ? 0 : 1);
+            g.save();
+            roundRect(g, bar.x, bar.y, bar.w, bar.h, bar.w / 2);
+            g.fillStyle = 'rgba(0, 30, 60, 0.3)';
+            g.fill();
+            g.lineWidth = 1.5;
+            g.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            g.stroke();
+            shadowed(g);
+            roundRect(g, bar.x - wide / 2, t.y, bar.w + wide, t.h, (bar.w + wide) / 2);
+            g.fillStyle = '#ffffff';
+            g.fill();
+            g.restore();
           }
         }
         // A song that wouldn't load: two lines at most, under the list.
@@ -590,7 +672,7 @@ export default function SongSelect({
           g.font = `700 22px ${FONT}`;
           const lines = wrapText(g, st.loadError, ROWS.w + 60);
           const shown = lines.length > 2 ? [lines[0], ellipsize(g, lines.slice(1).join(' '), ROWS.w + 60)] : lines;
-          shown.forEach((line, i) => drawShadowText(g, line, ROWS.x, ROWS.y + ROWS.perPage * (ROWS.h + ROWS.gap) + 6 + i * 28, { size: 22, color: '#ffb38a' }));
+          shown.forEach((line, i) => drawShadowText(g, line, ROWS.x, ROWS.y + ROWS.shown * step + 6 + i * 28, { size: 22, color: '#ffb38a' }));
         }
       } else if (st.bundle && st.screen === 'dancers') {
         const { song } = st.bundle;
@@ -645,14 +727,25 @@ export default function SongSelect({
       g.restore();
     },
   });
+  // The rows' dancers, rendered in-engine on the first draw (see the rows' content above).
+  const sprites = useMemo(() => createCastSprites(gl, () => ui.invalidate()), [gl, ui]);
+  useEffect(() => { void sprites.preload(); }, [sprites]);
 
+  // The songs in view, fading with their rows.
+  const songPanes = () => {
+    const list = songs(), [first, end] = viewRange(), panes = [];
+    for (let i = first; i < end; i++) {
+      if (inView(i) > 0) panes.push({ ...buttonPane(ui, `song-${list[i].key}`, songRect(i)), alpha: inView(i) });
+    }
+    return panes;
+  };
   // Frosted glass inside the buttons drawn above (ui/useGlassBlur.ts), fading and sliding with them.
   useGlassBlur(() => {
     const pane = (wdg: SongWidget) => buttonPane(ui, wdg.id, wdg.rect ?? DANCE);
     const panes = st.screen === 'dancers' ? (st.bundle ? [...st.cast.map((_, i) => pane(castWidget(i))), pane(button('auto', CAST_AUTO)), pane(button('dance', DANCE))] : [])
       : st.screen === 'preview' ? (st.bundle ? [...(dancers() > 1 ? [pane(button('dancers', DANCERS))] : []), pane(button('dance', DANCE))] : [])
         : st.catalog.status === 'error' ? [buttonPane(ui, 'retry', RETRY)]
-          : st.catalog.status === 'ready' ? pageSongs().map((song, i) => buttonPane(ui, `song-${song.key}`, rowRect(i))) : [];
+          : st.catalog.status === 'ready' ? songPanes() : [];
     return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
   });
 
@@ -662,7 +755,8 @@ export default function SongSelect({
       st.screen = st.next = 'list';
       onScreenChange?.('list');
       st.swap = 1;
-      st.page = 0;
+      st.top = st.scroll = st.wheel = 0;
+      st.listDrag = null;
       st.loadError = '';
       fetchCatalog();
       ui.invalidate();
@@ -675,6 +769,77 @@ export default function SongSelect({
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+
+  // The list scrolls a row per wheel notch (or per row's height of trackpad travel) and by
+  // dragging it: a press on it that moves drags it instead of choosing a song, and settles on a
+  // whole row when let go.
+  // Scrolling takes over from the keyboard cursor, as the mouse does.
+  useEffect(() => {
+    const el = gl.domElement;
+    const scrolls = () => live() && st.screen === 'list' && st.catalog.status === 'ready' && !st.loading && lastTop() > 0;
+    const toDesign = (e: MouseEvent): Point => {
+      const r = el.getBoundingClientRect();
+      return { x: ((e.clientX - r.left) / r.width) * ui.w, y: ((e.clientY - r.top) / r.height) * ui.h };
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!scrolls() || !e.deltaY) return;
+      const r = el.getBoundingClientRect();
+      // A wheel's notch (big, or in lines or pages) is a row; a trackpad's pixels move the list.
+      const rows = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50 ? Math.sign(e.deltaY) : ((e.deltaY / r.height) * ui.h) / step;
+      if (Math.sign(rows) !== Math.sign(st.wheel)) st.wheel = 0;
+      st.wheel += rows;
+      const whole = Math.trunc(st.wheel);
+      if (!whole) return;
+      st.wheel -= whole;
+      if (ui.keyFocus) ui.focus(null);
+      scrollTo(st.top + whole);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0 || !scrolls()) return;
+      const p = toDesign(e), { ROWS: rows } = gameLayout(ui.w);
+      if (p.x < rows.x || p.x > rows.x + rows.w || p.y < rows.y || p.y > rows.y + rows.shown * step) return;
+      st.listDrag = { id: e.pointerId, y: p.y, scroll: st.scroll, moved: false, velocity: 0, at: e.timeStamp };
+    };
+    const onMove = (e: PointerEvent) => {
+      const drag = st.listDrag;
+      if (!drag || e.pointerId !== drag.id) return;
+      const dy = toDesign(e).y - drag.y;
+      if (!drag.moved) {
+        if (Math.abs(dy) < DRAG_SLOP) return;
+        // A drag, not a press: the song under it isn't chosen on release.
+        drag.moved = true;
+        drag.y += Math.sign(dy) * DRAG_SLOP;
+        ui.pressed = null;
+        return;
+      }
+      const scroll = Math.min(lastTop(), Math.max(0, drag.scroll - dy / step));
+      const dt = (e.timeStamp - drag.at) / 1000;
+      if (dt > 0) drag.velocity = drag.velocity * 0.5 + ((scroll - st.scroll) / dt) * 0.5;
+      drag.at = e.timeStamp;
+      st.scroll = scroll;
+      ui.invalidate();
+    };
+    const onUp = (e: PointerEvent) => {
+      const drag = st.listDrag;
+      if (!drag || e.pointerId !== drag.id) return;
+      st.listDrag = null;
+      // A drag that stopped before letting go doesn't fling.
+      if (drag.moved) scrollTo(st.scroll + (e.timeStamp - drag.at < 100 ? drag.velocity * FLING_S : 0));
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gl, st]);
 
   // A hidden tab pauses the song.
   useEffect(() => {

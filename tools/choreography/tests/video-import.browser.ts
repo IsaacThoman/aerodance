@@ -94,7 +94,7 @@ try {
   await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
   const panel = page.getByRole('dialog', { name: 'Import video' });
   await panel.waitFor();
-  assert.equal(await page.getByLabel('Video pose model').inputValue(), 'heavy');
+  assert.equal(await page.getByLabel('Video pose model').count(), 0);
   assert.equal(await page.getByRole('checkbox', {name: 'Clean up poses after detection'}).isChecked(), true);
   assert.equal(await page.getByRole('button', { name: 'Process video', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).waitFor();
@@ -111,8 +111,9 @@ try {
   await page.evaluate(() => { window.calibrationFixture = 'normal'; });
   await page.getByRole('button', { name: 'Use current frame for calibration' }).click();
   await page.getByText(/Calibration at .*P1 and P2 ready/).waitFor();
-  // Changing a model invalidates its calibration.
-  await page.getByLabel('Video pose model').selectOption('full');
+  // Changing capture mode invalidates its calibration.
+  await page.getByLabel('Video players').selectOption('p1');
+  await page.getByLabel('Video players').selectOption('both');
   assert.equal(await page.getByRole('button', { name: 'Process video', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).click();
   await page.getByText(/Calibration at .*P1 and P2 ready/).waitFor();
@@ -123,7 +124,7 @@ try {
   let saved = await store.project(p.projectId);
   assert.equal(saved.takes.length, 2); assert.deepEqual(saved.tracks, initialTracks); assert.deepEqual(saved.audio, audioBefore);
   const imported = validateTake(await store.take(p.projectId, saved.takes[1].takeId));
-  assert.equal(imported.source, 'video'); assert.equal(imported.provenance?.modelId, 'full');
+  assert.equal(imported.source, 'video'); assert.equal(imported.provenance?.modelId, 'lite');
   assert.ok(imported.provenance?.cleanupCounts);
   assert.ok(Math.abs(found(imported.calibrationFrame).mediaTimeMs - 300) < 1);
   assert.ok(imported.samples.length >= 2);
@@ -149,7 +150,7 @@ try {
   const choreography = zipPose(files, `${songFolder(files)}/choreography.adpose`);
   assert.deepEqual(found(choreography.tracks)[0].calibration, storedCalibration(takeCalibration(imported, 0)));
   assert.deepEqual(errors, []);
-  console.log(`Video import browser passed: actual Heavy/Full calibration and Full inference with cleanup, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
+  console.log(`Video import browser passed: actual Lite calibration and inference with cleanup, ${imported.samples.length} samples (${imported.provenance?.frameTimingMethod}), unchanged tracks/audio, explicit assignment, reopen and export.`);
 } catch (error) {
   if (page) {
     console.error(error instanceof Error ? error.message : error);

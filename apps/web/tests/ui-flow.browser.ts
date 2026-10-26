@@ -16,6 +16,7 @@ import { glassLabelX } from '../src/ui/draw.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { resolveStage } from '../../../packages/stages/catalog.ts';
 import { validateCatalog, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
+import { decodePoseFile, encodePoseFile, framesFromSamples, framesToSamples, sampleFrames } from '../../../packages/pose/binary.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 
 // Run the same real input/session flow in each fixed display configuration.
@@ -23,7 +24,7 @@ const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
 const { ASPECT, BACK: MENU_BACK, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
-const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, castRow, rowRect } = gameLayout(design.w);
+const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, SCROLLBAR, castRow, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
 type Shape = Rect | Circle | { rect: Rect };
@@ -240,6 +241,45 @@ try {
   await page.waitForTimeout(300);
   frame = await frameBox();
 
+  // More songs than fit scroll: the keyboard cursor brings the next one into view, a wheel
+  // notch moves a row (no further than the last song), and a drag scrolls without choosing
+  // the song under it.
+  const many = Array.from({ length: 12 }, (_, i) => ({ ...bundleFixture().entry, id: `scroll-${i}`, title: `Song ${i + 1}`, bundle: `scroll-${i}/song.json` }));
+  await page.unroute('**/songs/manifest.json');
+  await page.route('**/songs/manifest.json', (route) => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ version: 1, songs: many }),
+  }));
+  await click(BACK);
+  await menuOn('players');
+  await pickPlayers(2);
+  await until({ songScreen: 'list', songReady: 'true', catalog: 'ready', songCount: '12', songListTop: '0' });
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown');
+  await until({ songListTop: '2' });
+  const toPage = (x: number, y: number) => [frame.x + (x / design.w) * frame.width, frame.y + (y / design.h) * frame.height] as const;
+  await page.mouse.move(...toPage(rowRect(2).x + 100, rowRect(2).y + 40));
+  await page.mouse.wheel(0, 100);
+  await until({ songListTop: '3' });
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 100);
+  await until({ songListTop: '7' });
+  await page.mouse.down();
+  await page.mouse.move(...toPage(rowRect(2).x + 100, rowRect(4).y + 40), { steps: 10 });
+  await page.waitForTimeout(200);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const dragged = await data();
+  assert.equal(dragged.songScreen, 'list');
+  assert.equal(dragged.songLoadError, '');
+  assert.ok(Number(dragged.songListTop) === 5, `a two-row drag scrolls two rows, at ${dragged.songListTop}`);
+  // So does the scrollbar: pressed on its track the thumb comes there, then follows the pointer.
+  const barX = SCROLLBAR.x + SCROLLBAR.w / 2;
+  await page.mouse.move(...toPage(barX, SCROLLBAR.y + 4));
+  await page.mouse.down();
+  await page.mouse.move(...toPage(barX, SCROLLBAR.y + SCROLLBAR.h + 40), { steps: 8 });
+  await page.mouse.up();
+  await until({ songListTop: '7', songScreen: 'list' });
+  await click({ x: barX, y: SCROLLBAR.y + 4, r: 1 });
+  await until({ songListTop: '0', songScreen: 'list' });
+
   // Installed exports through the built catalog and the real HTTP assets, at every player
   // count they support, each opening on its own stage.
   await page.unroute('**/songs/manifest.json');
@@ -386,13 +426,20 @@ try {
 
   // A whole song with the autoplay ghost (?input=ghost): ready check, countdown, pause and
   // resume, scoring, results, Play again and back to Song Select; then four players. The test
-  // routine's own choreography plays over silence.
+  // routine's own choreography plays over silence, cut to its first 8 seconds: the song plays
+  // in real time, twice per run.
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   const routine = new URL('./fixtures/song-70c63c8e/', import.meta.url);
   const song = validateSong(JSON.parse(await readFile(new URL('song.json', routine), 'utf8')));
   song.audio = { path: 'audio.wav', mimeType: 'audio/wav' };
   song.supportedPlayerCounts = [1, 2, 3, 4];
-  const routineChoreography = await readFile(new URL('choreography.adpose', routine));
+  song.playableEndMs = 8000;
+  const routineFrames = decodePoseFile(await readFile(new URL('choreography.adpose', routine)));
+  const routineCut = [
+    ...framesToSamples(routineFrames, 'songTimeMs').filter((sample) => sample.songTimeMs < song.playableEndMs),
+    { songTimeMs: song.playableEndMs, ...sampleFrames(routineFrames, song.playableEndMs) },
+  ];
+  const routineChoreography = encodePoseFile(framesFromSamples({ ...routineFrames, song: { ...routineFrames.song!, playableEndMs: song.playableEndMs } }, routineCut, 'songTimeMs'));
   validateSongChoreography(song, routineChoreography);
   await serveFixture(null, {
     song,

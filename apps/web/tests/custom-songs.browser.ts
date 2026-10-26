@@ -3,7 +3,8 @@
 // through the real file picker; Song Select lists it as a custom song beside a published song with
 // the same ID, it's still there after a reload (IndexedDB), previews, dances with the autoplay ghost
 // and keeps its best score apart from the published song's. Importing it again asks before
-// replacing, and Settings removes it, damaged or not. Run after `npm run build`;
+// replacing, and Settings removes it, damaged or not. Several ZIPs import at once, picked together
+// or dragged onto the Songs panel. Run after `npm run build`;
 // CUSTOM_SONGS_BROWSER=webkit runs it in WebKit.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -20,11 +21,12 @@ import { gameLayout, resultsSongs } from '../src/game/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { validateSong } from '../../../packages/pose/song.ts';
+import { decodePoseFile, encodePoseFile } from '../../../packages/pose/binary.ts';
 
 // UI_ASPECT=standard runs it in a 4:3 window.
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
-const { BACK: MENU_BACK, PLAYERS_GO, SETTINGS, SONG_IMPORT, SONG_TRASH, START } = menuLayout(design.w);
+const { BACK: MENU_BACK, PLAYERS_GO, SETTINGS, SONGS, SONG_IMPORT, SONG_TRASH, SOUND, START } = menuLayout(design.w);
 const { BACK, DANCE, rowRect } = gameLayout(design.w);
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
@@ -67,6 +69,16 @@ function finderZip(folder: string, entries: Map<string, Buffer>) {
 const work = await mkdtemp(path.join(tmpdir(), 'aerodance-custom-songs-'));
 const zipPath = path.join(work, `${song.songId}.zip`);
 await writeFile(zipPath, finderZip(song.songId, files));
+// Another song, to import beside it: the same routine under another ID.
+const other = { ...song, songId: 'other-routine', title: 'Other routine' };
+const otherFiles = new Map(files);
+const pose = decodePoseFile(files.get('choreography.adpose')!);
+otherFiles.set('choreography.adpose', Buffer.from(encodePoseFile({ ...pose, song: { ...pose.song!, songId: other.songId } })));
+otherFiles.set('song.json', Buffer.from(JSON.stringify(other)));
+otherFiles.delete('checksums.json');
+otherFiles.set('checksums.json', Buffer.from(JSON.stringify({ schema: 'aerodance.checksums', schemaVersion: 1, files: [...otherFiles].map(([name, body]) => ({ path: name, bytes: body.length, sha256: sha(body) })) })));
+const otherZipPath = path.join(work, `${other.songId}.zip`);
+await writeFile(otherZipPath, finderZip(other.songId, otherFiles));
 const published = {
   id: song.songId, title: song.title, artist: song.artist, durationMs: song.durationMs, supportedPlayerCounts: song.supportedPlayerCounts,
   bundleRevision: song.bundleRevision, bundle: `${song.songId}/song.json`, sha256: sha(files.get('song.json')!),
@@ -147,11 +159,23 @@ try {
     await until({ songScreen: 'list', songReady: 'true', catalog: 'ready' });
   };
   const shot = async (name: string) => { if (process.env.UI_ARTIFACTS) await page.screenshot({ path: `${process.env.UI_ARTIFACTS}/${name}.png` }); };
-  const importZip = async () => {
+  const importZip = async (paths = [zipPath]) => {
     const chooser = new Promise<FileChooser>((resolve) => { chosen = resolve; });
     await click(SONG_IMPORT);
-    await (await chooser).setFiles(zipPath);
+    await (await chooser).setFiles(paths);
     chosen = null;
+  };
+  // Drags files from outside the page to a place in the layout, and drops them there if asked.
+  const dragFiles = async (shape: Rect, list: { name: string; body: Buffer }[], drop: boolean) => {
+    const x = frame.x + ((shape.x + shape.w / 2) / design.w) * frame.width, y = frame.y + ((shape.y + shape.h / 2) / design.h) * frame.height;
+    await page.evaluate(({ x, y, list, drop }) => {
+      const data = new DataTransfer();
+      for (const { name, body } of list) data.items.add(new File([Uint8Array.from(atob(body), (c) => c.charCodeAt(0))], name, { type: 'application/zip' }));
+      const canvas = document.querySelector('canvas');
+      for (const type of drop ? ['dragover', 'drop'] : ['dragenter', 'dragover']) {
+        canvas?.dispatchEvent(new DragEvent(type, { dataTransfer: data, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      }
+    }, { x, y, list: list.map(({ name, body }) => ({ name, body: body.toString('base64') })), drop });
   };
   // Answers the next confirm() and gives its message. It's answered in the handler: a click that
   // opens one doesn't finish until it's answered.
@@ -283,8 +307,30 @@ try {
   await click(SONG_TRASH(0));
   await removeDamaged;
   await until({ savedSongs: '0', songNotice: /^Removed/ });
+
+  // Two ZIPs picked together import one after the other.
+  await importZip([zipPath, otherZipPath]);
+  await until({ songImport: 'done', songNotice: 'Imported 2 songs.', savedSongs: '2', damagedSongs: '0' });
+  await shot('custom-imported-two');
+
+  // Files dragged over Settings: the Songs panel takes them, the rest of the page doesn't.
+  const dropped = [{ name: path.basename(zipPath), body: await readFile(zipPath) }, { name: 'notes.zip', body: Buffer.from('not a zip') }];
+  await dragFiles(SOUND, dropped, false);
+  await until({ songDrop: 'near' });
+  await dragFiles(SONGS, dropped, false);
+  await until({ songDrop: 'over' });
+  await shot('custom-drop');
+  await dragFiles(SOUND, dropped, true);
+  await until({ songDrop: '' });
+  assert.equal(await page.evaluate(() => document.querySelector('canvas')?.dataset.songImport), 'done', 'a drop beside the panel imported');
+  // Dropped on it, they import (the same revision asking first), and a file that isn't a song says so.
+  const replaceDropped = answerDialog(true);
+  await dragFiles(SONGS, dropped, true);
+  assert.equal(await replaceDropped, `“${song.title}” revision ${song.bundleRevision} is already imported. Replace it?`);
+  await until({ songImport: 'error', songNotice: /^Updated 1 song\. notes\.zip: That isn't a readable song ZIP/, savedSongs: '2', songDrop: '' });
+  await shot('custom-dropped');
   assert.deepEqual(errors, []);
-  console.log(`Custom songs passed in ${engine.name()}: Settings → Songs importing through the file picker, listing beside a published song in Song Select, persistence across a reload, asking before replacing, preview, a scored song with its own best score, removing, a song replaced in another tab, and a damaged song removed in Settings.`);
+  console.log(`Custom songs passed in ${engine.name()}: Settings → Songs importing through the file picker, listing beside a published song in Song Select, persistence across a reload, asking before replacing, preview, a scored song with its own best score, removing, a song replaced in another tab, a damaged song removed in Settings, and several ZIPs picked together or dropped on the Songs panel.`);
 } catch (error) {
   console.error(error);
   if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));

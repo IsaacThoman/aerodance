@@ -1,50 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { makeZip, readZip } from '../../../packages/pose/zip.ts';
 import { customScoreId, importSongZip, listCustomSongs, listSavedSongs, loadCustomSong, readSongZip, removeCustomSong } from '../src/songs/customSongs.ts';
-import type { CustomSongRecord, CustomSongStore } from '../src/songs/customSongs.ts';
-import { appSongsStore, pickAppSong } from '../src/songs/appSongs.ts';
+import { appSongsStore, pickAppSongs } from '../src/songs/appSongs.ts';
 import type { AppSongsOptions } from '../src/songs/appSongs.ts';
 import type { PickedSong } from '../src/host.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
-import type { BundleFixture } from './fixtures/songBundle.ts';
+import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
+import type { Performance } from '../../../packages/pose/performance.ts';
+import { bundleFiles, exportZip, memoryStore, sha } from './helpers/customSongs.ts';
 
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
-const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
-/** A song's export files (song.json, choreography, audio, checksums.json) by bundle path. */
-function bundleFiles(fixture: BundleFixture = bundleFixture()) {
-  const files = new Map<string, Uint8Array>([
-    ['song.json', encode(fixture.song)], ['choreography.adpose', choreographyBytes(fixture)], ['audio.wav', fixture.audio],
-  ]);
-  files.set('checksums.json', encode({ schema: 'aerodance.checksums', schemaVersion: 1, files: [...files].map(([path, bytes]) => ({ path, bytes: bytes.length, sha256: sha(bytes) })) }));
-  return files;
-}
-/** A ZIP like Dance Studio's export: everything in one <folder>/ (none: at the top level), plus extras. */
-function exportZip(files = bundleFiles(), { folder = 'fixture', extra = {} }: { folder?: string; extra?: Record<string, Uint8Array> } = {}) {
-  const prefix = folder ? `${folder}/` : '';
-  const entries = new Map([...files].map(([path, bytes]) => [prefix + path, bytes]));
-  for (const [path, bytes] of Object.entries(extra)) entries.set(path, bytes);
-  return new Blob([makeZip(entries)]);
-}
-function memoryStore(): CustomSongStore & { records: Map<string, CustomSongRecord>; files: Map<string, Map<string, Uint8Array<ArrayBuffer>>> } {
-  const records = new Map<string, CustomSongRecord>(), files = new Map<string, Map<string, Uint8Array<ArrayBuffer>>>();
-  return {
-    records, files,
-    all: async () => [...records.values()],
-    get: async (id) => records.get(id),
-    file: async (id, path) => files.get(id)?.get(path),
-    put: async (record, contents) => { records.set(record.id, record); files.set(record.id, new Map(contents)); },
-    delete: async (id, only) => {
-      const saved = records.get(id);
-      if (!saved || (only && (saved.entry.bundleRevision !== only.bundleRevision || saved.entry.sha256 !== only.sha256))) return false;
-      records.delete(id);
-      files.delete(id);
-      return true;
-    },
-  };
-}
 const revised = (revision: number) => {
   const fixture = bundleFixture();
   fixture.song.bundleRevision = revision;
@@ -74,6 +41,21 @@ test('imports a Dance Studio export, lists it and loads it with its own best-sco
   assert.equal(await removeCustomSong(entry, store), true);
   assert.deepEqual(await listCustomSongs(store), []);
   assert.equal(await removeCustomSong(entry, store), false);
+});
+
+test('an imported ZIP retains authored character motion when the saved song is loaded again', async () => {
+  const performance: Performance = { schema: 'aerodance.performance', schemaVersion: 1, tracks: [{ clips: [
+    { id: 'reach', startMs: 100, endMs: 700, keys: [
+      { t: 100, pose: neutralCharacterPose() },
+      { t: 700, pose: { ...neutralCharacterPose(), leftHand: [1.2, 3.7, .6] } },
+    ] },
+  ] }] };
+  const store = memoryStore();
+  const imported = await importSongZip(exportZip(bundleFiles(bundleFixture({ dancers: 1 }), performance)), { store });
+  assert.equal(imported.status, 'imported');
+  assert.ok(store.files.get(imported.entry.id)?.has('performance.json'));
+  const [saved] = await listCustomSongs(store);
+  assert.deepEqual((await loadCustomSong(saved, { store })).performance, performance);
 });
 
 test('replacing asks first unless the import is a later revision', async () => {
@@ -282,17 +264,27 @@ test('in the app, two ZIPs of one song list as the later revision, and removing 
   assert.deepEqual([...folder.files.keys()], []);
 });
 
-test("in the app, the picker's ZIP is read with the key, and the app's copy deleted", async () => {
+test("in the app, the picker's ZIPs are read with the key when they're imported, and the app's copies deleted", async () => {
   const requests: string[] = [];
   const zip = exportZip();
   const fetcher = async (url: string, init: RequestInit = {}) => {
     requests.push(`${init.method ?? 'GET'} ${url} ${new Headers(init.headers).get('x-aerodance-key')}`);
+    if (url.endsWith('/gone.zip')) return new Response(null, { status: 404 });
     return new Response(init.method === 'DELETE' ? null : zip);
   };
-  const songs = (picked: PickedSong | null) => ({ key: 'k', pick: async () => picked });
-  assert.equal(await pickAppSong(songs(null), fetcher), null);
-  const file = await pickAppSong(songs({ url: '/app/incoming/1.zip', name: 'fixture-r1.aerodance-song.zip' }), fetcher);
-  assert.equal(file?.name, 'fixture-r1.aerodance-song.zip');
-  assert.equal(file?.size, zip.size);
-  assert.deepEqual(requests, ['GET /app/incoming/1.zip k', 'DELETE /app/incoming/1.zip k']);
+  const songs = (picked: PickedSong[]) => ({ key: 'k', pick: async () => picked });
+  assert.deepEqual(await pickAppSongs(songs([]), fetcher), []);
+  const files = await pickAppSongs(songs([
+    { url: '/app/incoming/1.zip', name: 'fixture-r1.aerodance-song.zip' },
+    { url: '/app/incoming/gone.zip', name: 'gone.aerodance-song.zip' },
+    { url: '/app/incoming/2.zip', name: 'other-r1.aerodance-song.zip' },
+  ]), fetcher);
+  assert.deepEqual(files.map((file) => file.name), ['fixture-r1.aerodance-song.zip', 'gone.aerodance-song.zip', 'other-r1.aerodance-song.zip']);
+  assert.deepEqual(requests, []);
+  const first = await files[0].read();
+  assert.equal(first.size, zip.size);
+  await assert.rejects(files[1].read(), /gone\.aerodance-song\.zip couldn't be opened/);
+  assert.equal((await files[2].read()).size, zip.size);
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.deepEqual(requests.sort(), ['DELETE /app/incoming/1.zip k', 'DELETE /app/incoming/2.zip k', 'GET /app/incoming/1.zip k', 'GET /app/incoming/2.zip k', 'GET /app/incoming/gone.zip k']);
 });

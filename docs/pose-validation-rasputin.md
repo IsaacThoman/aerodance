@@ -1,5 +1,8 @@
 # Rasputin pose cleanup validation
 
+> Historical measurement with the retired Heavy model. Current imports and the
+> validation harness use Lite; the results below are not a Lite quality baseline.
+
 Validated on 2026-10-18 using the supplied `Just Dance 2 Rasputin.mp4`.
 The source video and generated captures/overlays remain local; this document
 records the reproducible configuration and findings.

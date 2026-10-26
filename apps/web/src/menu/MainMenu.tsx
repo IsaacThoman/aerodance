@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawGlassButton, drawGlassCircle, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
-import type { Circle, GlassStyle, Rect } from '../ui/draw.ts';
+import type { Circle, GlassStyle, Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
@@ -15,8 +15,10 @@ import type { Fullscreen } from './useFullscreen.ts';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
-import { CAN_IMPORT, createSongsPanel } from './songsPanel.ts';
+import { HAS_SONGS, createSongsPanel } from './songsPanel.ts';
 import type { SongsPanel, SongsWidget } from './songsPanel.ts';
+import { createTransferPanel } from './transferPanel.ts';
+import type { TransferPanel, TransferWidget } from './transferPanel.ts';
 
 /**
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in the selected display mode and
@@ -29,8 +31,10 @@ import type { SongsPanel, SongsWidget } from './songsPanel.ts';
  * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies, then
  * a Fullscreen switch where the page can go fullscreen (menu/useFullscreen.ts; it isn't there in
  * iPhone Safari, the tvOS app, the iPhone/iPad app or iframes without allowfullscreen);
- * where the browser or app can save songs, a Songs panel beside them: the songs imported into it and
- * Import song, menu/songsPanel.ts).
+ * where the browser or app can save songs, a Songs panel beside them: the songs imported into it,
+ * Import song and Transfer songs, menu/songsPanel.ts), and transfer (opened from Transfer songs:
+ * sending songs to and from another device, menu/transferPanel.ts; transferCode opens it joining
+ * that code, from a transfer QR code's link).
  * Start, Settings and Let's dance are glass buttons (ui/useGlassBlur.ts blurs the world inside
  * them) in the look ?buttons=1..6 picks; Settings' panels are the dark style's glass.
  * The main screen also shows the AirPlay bubble in the corner in the iPhone/iPad app. The title
@@ -42,18 +46,20 @@ import type { SongsPanel, SongsWidget } from './songsPanel.ts';
  * The dial is controlled (playerCount / onPlayerCountChange); Start always turns it back to 2
  * (Back from Song Select keeps the count picked last). onScreenChange reports the
  * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players
- * (and the Songs panel's, songsPanel.ts) for tests.
+ * (and the Songs and Transfer panels', songsPanel.ts and transferPanel.ts) for tests.
  *
  * <MainMenu visible initialScreen="main" playerCount={n} onPlayerCountChange={setN}
  *   onStart={(playerCount) => ...} onScreenChange={setShown} sound={sound} onSoundChange={setSound}
  *   graphics={graphics} onGraphicsChange={setGraphics} />
  */
 
-export type MenuScreen = 'main' | 'players' | 'settings';
+export type MenuScreen = 'main' | 'players' | 'settings' | 'transfer';
 export interface MainMenuProps {
   visible?: boolean;
   /** Where the menu opens when it is shown. */
   initialScreen?: MenuScreen;
+  /** A transfer code to join when the transfer screen first opens (a transfer QR code's link). */
+  transferCode?: string;
   /** The players dial's count. */
   playerCount?: PlayerCount;
   onPlayerCountChange?: (count: PlayerCount) => void;
@@ -68,7 +74,7 @@ export interface MainMenuProps {
 type SliderKey = 'master' | 'music' | 'sfx';
 type ToggleKey = 'menuMusic' | 'muted';
 interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
-type MenuWidget = SongsWidget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting; fullscreen?: boolean };
+type MenuWidget = SongsWidget & TransferWidget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting; fullscreen?: boolean };
 
 const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
@@ -92,8 +98,8 @@ const STATS: readonly { value: StatsSetting; label: string }[] = [
   { value: 'full', label: 'Full' },
 ];
 // Where back / Escape leads from each submenu, and the button there that opens it.
-const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main' };
-const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings: 'settings' };
+const PARENT: Partial<Record<MenuScreen, MenuScreen>> = { players: 'main', settings: 'main', transfer: 'settings' };
+const OPENER: Partial<Record<MenuScreen, string>> = { players: 'start', settings: 'settings', transfer: 'song-transfer' };
 
 // ?buttons=1..6 picks the look of Start, Settings and Let's dance (GLASS_STYLES: the mockups in
 // order, then dark); dark, the players dial's blue glass, by default.
@@ -293,7 +299,7 @@ interface MenuState {
   drawnSongs: string;
   /** The title's baseline, easing up on the players screen. */
   titleY: number;
-  /** The title's opacity, fading out on the settings screen. */
+  /** The title's opacity, fading out on the settings and transfer screens. */
   titleAlpha: number;
   /** The widget the keyboard cursor goes to once the screen is in (going back). */
   refocus: string | null;
@@ -301,7 +307,7 @@ interface MenuState {
 }
 
 export default function MainMenu({
-  visible = true, initialScreen = 'main', playerCount = 1, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
+  visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
@@ -320,6 +326,7 @@ export default function MainMenu({
       { id: 'plus', circle: PLUS },
       { id: 'go', rect: PLAYERS_GO, corner: glassCorner(PLAYERS_GO.h), primary: true },
     ],
+    transfer: [{ id: 'back', circle: BACK }],
     settings: [
       { id: 'back', circle: BACK },
       ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
@@ -358,9 +365,21 @@ export default function MainMenu({
     layout: () => layoutRef.current,
     ui: (): CanvasUI<SongsWidget> => ui,
     showing: () => !!props.current.visible && m.next === 'settings',
+    toDesign: (x, y): Point => {
+      const rect = gl.domElement.getBoundingClientRect();
+      return { x: ((x - rect.left) / rect.width) * ui.w, y: ((y - rect.top) / rect.height) * ui.h + ui.scroll };
+    },
+    onTransfer: () => go('transfer'),
   // One panel for the menu's life: ui is the same object every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [m]);
+  const transfer = useMemo<TransferPanel>(() => createTransferPanel({
+    layout: () => layoutRef.current,
+    ui: (): CanvasUI<TransferWidget> => ui,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [m]);
+  // The code to join, used by the first visit to the transfer screen only.
+  const pendingCode = useRef(transferCode);
   const setCount = (n: number) => {
     const next = clampCount(n);
     if (next !== count()) props.current.onPlayerCountChange?.(next);
@@ -375,7 +394,7 @@ export default function MainMenu({
     // Input goes to the visible screen as soon as it is fading in (never mid swap-out).
     active: live,
     keyNav: true,
-    widgets: () => (m.screen === 'settings' ? [...WIDGETS.settings, ...songs.widgets()] : WIDGETS[m.screen]),
+    widgets: () => (m.screen === 'settings' ? [...WIDGETS.settings, ...songs.widgets()] : m.screen === 'transfer' ? [...WIDGETS.transfer, ...transfer.widgets()] : WIDGETS[m.screen]),
     onDrag: (wdg, p) => {
       if (!wdg.slider) return;
       const patch: Partial<SoundSettings> = {};
@@ -391,7 +410,7 @@ export default function MainMenu({
       return true;
     },
     onActivate: (wdg, s) => {
-      if (songs.activate(wdg)) { s.invalidate(); return; }
+      if (m.screen === 'transfer' ? transfer.activate(wdg) : songs.activate(wdg)) { s.invalidate(); return; }
       if (wdg.toggle) {
         const patch: Partial<SoundSettings> = {};
         patch[wdg.toggle.key] = !wdg.toggle.on(props.current);
@@ -429,6 +448,7 @@ export default function MainMenu({
       s.invalidate();
     },
     onKey: (e, s) => {
+      if (live() && m.screen === 'transfer' && transfer.keyDown(e)) { e.preventDefault(); s.invalidate(); return; }
       if (e.key === 'Escape' && !e.repeat && live() && PARENT[m.screen]) { go(PARENT[m.screen], true); s.invalidate(); }
     },
     update: (dt, s) => {
@@ -454,19 +474,23 @@ export default function MainMenu({
       }
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
       m.titleY = s.ease(m.titleY, m.next === 'players' ? PLAYERS_TITLE_Y : TITLE.y, 7);
-      m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' ? 0 : 1, 8);
+      m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' || m.next === 'transfer' ? 0 : 1, 8);
       const { sound: drawSound, graphics: drawGraphics } = props.current;
       if (drawSound !== m.drawnSound || drawGraphics !== m.drawnGraphics || fullscreenRef.current !== m.drawnFullscreen || count() !== m.drawnCount) s.invalidate();
       if (m.screen !== m.reported) {
+        if (m.reported === 'settings') songs.close();
+        if (m.reported === 'transfer') transfer.close();
         if (m.screen === 'settings') songs.open();
-        else if (m.reported === 'settings') songs.close();
+        if (m.screen === 'transfer') { transfer.open(pendingCode.current); pendingCode.current = ''; }
         m.reported = m.screen;
         props.current.onScreenChange?.(m.screen);
       }
-      const songsKey = songs.key();
-      if (songsKey !== m.drawnSongs || songs.busy()) { m.drawnSongs = songsKey; s.invalidate(); }
+      const songsKey = `${songs.key()}|${transfer.key()}`;
+      if (songsKey !== m.drawnSongs || songs.busy() || transfer.busy()) { m.drawnSongs = songsKey; s.invalidate(); }
       const { dataset } = gl.domElement;
       Object.assign(dataset, songs.report());
+      // The transfer screen's, gone while it isn't showing.
+      for (const [key, value] of Object.entries(transfer.report())) { if (value) dataset[key] = value; else delete dataset[key]; }
       dataset.menuScreen = m.screen;
       dataset.menuPlayers = String(count());
       dataset.menuReady = String(shown && m.alpha > 0.5 && m.screen === m.next && m.swap > 0.95);
@@ -501,6 +525,9 @@ export default function MainMenu({
         drawCount(g, n, COUNT_X, MINUS.y);
         drawStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
         drawGlassButton(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go'), style: BUTTONS, chevron: false });
+      } else if (m.screen === 'transfer') {
+        drawHeader(g, BACK, 'TRANSFER SONGS', h.back ?? 0);
+        transfer.draw(g, h, press, s.time);
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
         drawSettingsPanel(g, props.current, fullscreenRef.current, h, layout);
@@ -515,7 +542,8 @@ export default function MainMenu({
   useGlassBlur(() => {
     const panes = m.screen === 'main' ? [buttonPane(ui, 'start', START), buttonPane(ui, 'settings', SETTINGS)]
       : m.screen === 'players' ? [buttonPane(ui, 'go', PLAYERS_GO)]
-        : [panelPane(SOUND), panelPane(layout.GRAPHICS), ...(CAN_IMPORT ? [panelPane(layout.SONGS)] : [])];
+        : m.screen === 'transfer' ? [panelPane(layout.TRANSFER_CONNECT), panelPane(layout.SONGS)]
+          : [panelPane(SOUND), panelPane(layout.GRAPHICS), ...(HAS_SONGS ? [panelPane(layout.SONGS)] : [])];
     return { panes, alpha: m.alpha * m.swap, offsetX: (1 - m.swap) * -24 };
   });
 
@@ -526,12 +554,13 @@ export default function MainMenu({
     m.screen = m.next = initialScreen;
     m.swap = 1;
     m.titleY = initialScreen === 'players' ? PLAYERS_TITLE_Y : HOME_TITLE.y;
-    m.titleAlpha = initialScreen === 'settings' ? 0 : 1;
+    m.titleAlpha = initialScreen === 'settings' || initialScreen === 'transfer' ? 0 : 1;
     m.refocus = ui.keyboard && initialScreen === 'players' ? 'go' : null;
     ui.invalidate();
   }, [visible, initialScreen, m, ui]);
 
   useEffect(() => () => songs.dispose(), [songs]);
+  useEffect(() => () => transfer.dispose(), [transfer]);
 
   const onMain = () => !!props.current.visible && m.screen === 'main' && m.next === 'main';
   return <AirPlayButton visible={onMain} />;

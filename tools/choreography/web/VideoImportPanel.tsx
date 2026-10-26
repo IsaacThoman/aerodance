@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { MODELS } from '../../../packages/pose/browser/models.ts';
 import { CONNECTIONS } from '../../../packages/pose/choreography.ts';
 import { VideoImporter } from './videoImport.ts';
 import type { DetectedPose, ImportProgress } from './videoImport.ts';
@@ -24,7 +23,7 @@ export interface VideoImportPanelProps {
 const aborted = (e: unknown) => isObject(e) && e.name === 'AbortError';
 export default function VideoImportPanel({ file, projectId, request, onImported, onClose, onBusy }: VideoImportPanelProps) {
   const [url] = useState(() => URL.createObjectURL(file));
-  const [model, setModel] = useState('heavy'), [fps, setFps] = useState('30');
+  const [fps, setFps] = useState('30');
   const [cleanup, setCleanup] = useState(true);
   const [captureMode, setCaptureMode] = useState<CaptureMode>('both');
   const [useAudio, setUseAudio] = useState(false), [committing, setCommitting] = useState(false);
@@ -46,7 +45,7 @@ export default function VideoImportPanel({ file, projectId, request, onImported,
   const getImporter = () => {
     const element = video.current;
     if (!element || !rate) throw Error('Choose a video and a sample rate first');
-    importer.current ||= new VideoImporter({ video: element, file, modelId: model, cleanup, captureMode, sampleRate: rate, projectId, request, onProgress: setProgress });
+    importer.current ||= new VideoImporter({ video: element, file, modelId: 'lite', cleanup, captureMode, sampleRate: rate, projectId, request, onProgress: setProgress });
     return importer.current;
   };
   const run = async (action: () => Promise<void>) => {
@@ -56,7 +55,7 @@ export default function VideoImportPanel({ file, projectId, request, onImported,
     finally { if (active.current) { setWorking(false); onBusy(false); } }
   };
   const selectFrame = () => run(async () => {
-    setProgress({ fraction: 0, message: `Checking calibration with ${model}…` });
+    setProgress({ fraction: 0, message: 'Checking calibration…' });
     const frame = await getImporter().calibrate();
     setProgress(null);
     setCalibration({ mediaTimeMs: frame.mediaTimeMs, poses: frame.poses });
@@ -101,24 +100,18 @@ export default function VideoImportPanel({ file, projectId, request, onImported,
       <div><h2 id="video-import-title">Import video</h2><p className="muted">{file.name}</p></div>
       <button onClick={close} disabled={committing} aria-label="Close video import">×</button>
     </div>
-    <p className="muted">Choose a model, then pause on a frame with the dancers standing clearly in view. Import creates a new take; assign it to player tracks from the take menu.</p>
+    <p className="muted">Pause on a frame with the dancers standing clearly in view. Import creates a new take; assign it to player tracks from the take menu.</p>
     <label>Players<select aria-label="Video players" value={captureMode} disabled={working} onChange={event => {
       importer.current?.abort(); importer.current = null; finalizedTake.current = null;
       setCaptureMode(event.target.value as CaptureMode); setCalibration(null); setDetections([]); setProcessed(false); setProgress(null); setError('');
     }}><option value="both">Both players</option><option value="p1">P1 only</option><option value="p2">P2 only</option></select></label>
     <label className="check"><input type="checkbox" checked={useAudio} disabled={working} onChange={event => setUseAudio(event.target.checked)} /> Use video audio as song audio</label>
     <p className="muted">Selecting video audio replaces existing song audio after the import succeeds.</p>
-    <label>Pose model
-      <select aria-label="Video pose model" value={model} disabled={working} onChange={event => {
-        importer.current?.abort(); importer.current = null; finalizedTake.current = null;
-        setModel(event.target.value); setCalibration(null); setDetections([]); setProcessed(false); setProgress(null); setError('');
-      }}>{MODELS.map(m => <option key={m.id} value={m.id}>{m.label} · {m.description}</option>)}</select>
-    </label>
     <label className="check"><input type="checkbox" checked={cleanup} disabled={working || processed} onChange={event => {
       importer.current?.abort(); importer.current = null; finalizedTake.current = null;
       setCleanup(event.target.checked); setCalibration(null); setDetections([]); setProgress(null); setError('');
     }} /> Clean up poses after detection</label>
-    <p className="muted">Removes isolated spikes, repairs supported gaps up to 200 ms, and smooths motion. Repaired joints need review before scoring. Heavy and continuous two-player tracking take longer to process.</p>
+    <p className="muted">Removes isolated spikes, repairs supported gaps up to 200 ms, and smooths motion. Repaired joints need review before scoring. Continuous two-player tracking takes longer to process.</p>
     <label>Sample rate
       <input type="number" aria-label="Video sample rate" min={1} max={30} step={1} value={fps} disabled={working}
         aria-invalid={rate === null} onChange={event => {
@@ -141,7 +134,7 @@ export default function VideoImportPanel({ file, projectId, request, onImported,
         ? `${calibration.poses.map(p => `P${p.playerId + 1}`).join(' and ')} ready` : 'choose a clearer frame'}</p>}
       {detections.map((pose, index) => <p role="status" key={index}>P{pose.playerId + 1} detected · {pose.reason}</p>)}
       {calibration && capturePlayers(captureMode).filter(id => !detections.some(p => p.playerId === id)).map(id =>
-        <p role="status" key={`missing-${id}`}>P{id + 1} not detected in this frame · try another frame or Full / Heavy</p>)}
+        <p role="status" key={`missing-${id}`}>P{id + 1} not detected in this frame · try a clearer frame with the dancer's whole body visible</p>)}
     </div>
     {progress && <div className="video-progress" role="status"><progress value={progress.fraction} max="1" /><p>{progress.message}</p></div>}
     {error && <p role="alert" className="video-import-error">{error}</p>}

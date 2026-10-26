@@ -12,11 +12,14 @@ import type { BufferGeometry, ColorRepresentation, Mesh, Object3D, Skeleton, Ski
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createRetargeter } from "./motion.ts";
 import { createPoseApplier } from "./retarget.ts";
+import { createPerformanceApplier } from './performance.ts';
+import type { CharacterPose } from '../pose/performance.ts';
 import { BalloonPop } from "./balloonPop.ts";
 import { LivePoseFilter } from './livePoseFilter.ts';
 import { cloneCharacter } from './cloneCharacter.ts';
 import { hasRigidSkinning, patchRigidSkinning } from './rigidSkinning.ts';
 import { createAccessorySelector } from './accessories.ts';
+import { createSkinBounds } from './skinBounds.ts';
 import modelUrl from "./assets/aero-character.glb?url";
 import type { MotionTake } from "../pose/motion.ts";
 import type { Pose, TrackCalibration } from "../pose/choreography.ts";
@@ -44,6 +47,8 @@ export interface CharacterProps {
   person?: number;
   playback?: RefObject<number>;
   poseRef?: RefObject<Pose | null>;
+  /** Authored character performance; used while a clip is active. */
+  performanceRef?: RefObject<CharacterPose | null>;
   calibration?: TrackCalibration | null;
   /** Live webcam input: smooth the displayed pose and keep rendering while it settles. */
   live?: boolean;
@@ -62,6 +67,7 @@ export default function Character({
   person = 0,
   playback,
   poseRef,
+  performanceRef,
   calibration,
   live = false,
   popRef,
@@ -80,11 +86,13 @@ export default function Character({
   // Custom models can animate accessory nodes; retain their animation bindings.
   const accessories = useMemo(() => createAccessorySelector(model, { detach: url === modelUrl }), [model, url]);
   const rigid = useMemo(() => hasRigidSkinning(gltf.scene), [gltf]);
+  const updateBounds = useMemo(() => createSkinBounds(model), [model]);
   const retarget = useMemo(
     () => (motion ? createRetargeter(model, motion, person) : null),
     [model, motion, person],
   );
   const applyPose = useMemo(() => calibration ? createPoseApplier(model, calibration, {smoothDistance:live}) : null, [model, calibration, live]);
+  const applyPerformance = useMemo(() => createPerformanceApplier(model), [model]);
   // A fresh filter for each model/calibration/live session, so old smoothing never carries over.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const poseFilter=useMemo(()=>new LivePoseFilter(),[model,calibration,live]);
@@ -202,13 +210,20 @@ export default function Character({
       // Faded out entirely: nobody sees the pose, so skip it.
       if (opacityRef.current <= 0) return;
     }
-    if (applyPose) {
+    if (applyPerformance(performanceRef?.current)) {
+      // The keyed performance already placed every part.
+    } else if (applyPose) {
       const pose = poseRef?.current ?? null;
       applyPose(live ? poseFilter.update(pose,delta) : pose,delta);
       if(live && (poseFilter.settling || applyPose.settling)) invalidate();
     }
-    else if (retarget) retarget(playback?.current ?? 0);
-    else mixer.update(Math.min(delta, 0.05));
+    else {
+      if (retarget) retarget(playback?.current ?? 0);
+      else mixer.update(Math.min(delta, 0.05));
+      // Posing updates the bones' world matrices; clips and takes leave them to the render.
+      model.updateMatrixWorld();
+    }
+    updateBounds();
   }, opacityRef ? 1 : 0);
   return <primitive object={model} dispose={null} />;
 }

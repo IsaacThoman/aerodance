@@ -49,8 +49,8 @@ export const id = (value: unknown): string => {
  * re-exporting an unchanged one keeps it. Metadata and provenance don't count, and the
  * choreography is hashed with an empty ID since the file carries the result.
  */
-export async function bundleSongId(audioSha256: string, motion: SongChoreography): Promise<string> {
-  const input = concatBytes([new TextEncoder().encode(audioSha256), encodePoseFile(motion)]);
+export async function bundleSongId(audioSha256: string, motion: SongChoreography, performance?: Uint8Array): Promise<string> {
+  const input = concatBytes([new TextEncoder().encode(audioSha256), encodePoseFile(motion), ...(performance ? [performance] : [])]);
   return `song-${(await sha(input)).slice(0, 16)}`;
 }
 /** The file name a project download is saved as; a song bundle is named after its song folder. */

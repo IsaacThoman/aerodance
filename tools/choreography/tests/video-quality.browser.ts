@@ -68,7 +68,7 @@ try {
     await sink.qualityProgress(`Video decoded: ${video.videoWidth}×${video.videoHeight}, ${video.duration.toFixed(2)} seconds`);
     let captureHeader:unknown,status:unknown;
     let lastProgress=-1;
-    const job=new VideoImporter({video,file:blob,modelId:'heavy',captureMode:'p1',projectId:'validation',cleanup:true,
+    const job=new VideoImporter({video,file:blob,modelId:'lite',captureMode:'p1',projectId:'validation',cleanup:true,
       createWorker:()=>new Worker(`/assets/${workerFile}`,{type:'module'}),assetUrl:()=>`${location.origin}/pose-assets/mediapipe-1.1.0/`,
       onProgress:({fraction,message})=>{const step=Math.floor(fraction*100);if(step!==lastProgress){lastProgress=step;void sink.qualityProgress(`${step}% ${message}`);}},
       request:async(url,{body}={})=>{
@@ -177,7 +177,7 @@ try {
   for(const [i,item] of images.entries())await writeFile(path.join(output,`review-${String(i).padStart(2,'0')}.jpg`),Buffer.from(item.jpeg.split(',')[1],'base64'));
   const {residuals:ignoredBefore,...rawStats}=before,{residuals:ignoredAfter,...cleanedStats}=after;
   void ignoredBefore;void ignoredAfter;
-  const report={source,size,durationMs:result.durationMs,model:'heavy',captureMode:'p1',targetRateHz:30,elapsedSeconds,frames:raw.length,
+  const report={source,size,durationMs:result.durationMs,model:'lite',captureMode:'p1',targetRateHz:30,elapsedSeconds,frames:raw.length,
     calibrationAttempts:result.calibrationAttempts,status:result.status,counts:cleaned.counts,torsoScale:scale,raw:rawStats,cleaned:cleanedStats,windowStats,
     reviewTimesMs:contactFrames.map(f=>f.timeMs),
     checks:{timestampsPreserved:true,noDetectedPosesRemoved:true,measuredConfidencePreserved:true,reconstructedJointsRequireReview:true},
@@ -187,7 +187,7 @@ try {
   const summaryRaw=windowStats?.raw ?? rawStats,summaryCleaned=windowStats?.cleaned ?? cleanedStats;
   const scope=windowStats ? `Reviewed window: ${windowStats.startSeconds}–${windowStats.endSeconds} seconds. The entire source was processed.` : 'Entire source.';
   const table=`<table><tr><th>Measure</th><th>Raw</th><th>Cleaned</th></tr><tr><td>99th-percentile temporal deviation (torso lengths)</td><td>${summaryRaw.residualP99.toFixed(3)}</td><td>${summaryCleaned.residualP99.toFixed(3)}</td></tr><tr><td>Large joint-frame deviations (&gt;0.6 torso lengths)</td><td>${summaryRaw.residualAbovePointSix}</td><td>${summaryCleaned.residualAbovePointSix}</td></tr><tr><td>Missing poses</td><td>${summaryRaw.missingFrames}</td><td>${summaryCleaned.missingFrames}</td></tr></table>`;
-  await writeFile(path.join(output,'report.html'),`<!doctype html><meta charset="utf-8"><title>Pose validation</title><style>body{background:#101820;color:#eef;font:16px sans-serif;max-width:1100px;margin:24px auto}img{width:100%}pre{white-space:pre-wrap}td,th{padding:12px;text-align:left;border-bottom:1px solid #456}summary{cursor:pointer;margin:20px 0}h2{margin-top:40px}</style><h1>Heavy / 30 fps / solo validation</h1><p>${scope}</p>${table}<p>${report.note} Deviation is the distance from a joint to time-weighted interpolation between its neighboring frames, divided by median torso length.</p><details><summary>Full metrics and provenance</summary><pre>${JSON.stringify({...report,worstRaw:undefined,worstCleaned:undefined,raw:{...rawStats,worst:undefined},cleaned:{...cleanedStats,worst:undefined}},null,2)}</pre></details><h2>Raw and cleaned overlays</h2>${images.map(i=>`<img src="${i.jpeg}" alt="Raw and cleaned poses at ${(i.timeMs/1000).toFixed(3)} seconds">`).join('\n')}`);
+  await writeFile(path.join(output,'report.html'),`<!doctype html><meta charset="utf-8"><title>Pose validation</title><style>body{background:#101820;color:#eef;font:16px sans-serif;max-width:1100px;margin:24px auto}img{width:100%}pre{white-space:pre-wrap}td,th{padding:12px;text-align:left;border-bottom:1px solid #456}summary{cursor:pointer;margin:20px 0}h2{margin-top:40px}</style><h1>Lite / 30 fps / solo validation</h1><p>${scope}</p>${table}<p>${report.note} Deviation is the distance from a joint to time-weighted interpolation between its neighboring frames, divided by median torso length.</p><details><summary>Full metrics and provenance</summary><pre>${JSON.stringify({...report,worstRaw:undefined,worstCleaned:undefined,raw:{...rawStats,worst:undefined},cleaned:{...cleanedStats,worst:undefined}},null,2)}</pre></details><h2>Raw and cleaned overlays</h2>${images.map(i=>`<img src="${i.jpeg}" alt="Raw and cleaned poses at ${(i.timeMs/1000).toFixed(3)} seconds">`).join('\n')}`);
   console.log(JSON.stringify({frames:raw.length,status:result.status,counts:cleaned.counts,checks:report.checks,scope,
     raw:{...summaryRaw,gaps:undefined,worst:undefined},cleaned:{...summaryCleaned,gaps:undefined,worst:undefined}},null,2));
   console.log(`Validation artifacts: ${output}`);

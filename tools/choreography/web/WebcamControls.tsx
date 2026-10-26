@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { MODELS } from '../../../packages/pose/browser/models.ts';
 import { drawWebcamPreview } from '../../../packages/pose/browser/preview.ts';
 import type { PoseSourceController, PoseSourceView } from '../../../packages/pose/browser/PoseSourceController.ts';
 import type { WebcamConfigureOptions } from '../../../packages/pose/browser/WebcamPoseSource.ts';
@@ -26,10 +25,6 @@ export default function WebcamControls({ source, connection, disabled, captureMo
       onChange={e => configure({ cameraId: e.target.value })}>
       <option value="">Default camera</option>
       {(connection.cameras || []).map(camera => <option key={camera.deviceId} value={camera.deviceId}>{camera.label}</option>)}
-    </select></label>
-    <label>Pose model<select aria-label="Webcam pose model" value={connection.model || 'lite'} disabled={disabled}
-      onChange={e => configure({ modelId: e.target.value })}>
-      {MODELS.map(model => <option key={model.id} value={model.id}>{model.label} · {model.description}</option>)}
     </select></label>
     <canvas ref={canvas} width="320" height="180" aria-label="Mirrored webcam setup preview" />
     <small>Video stays in this browser. {captureMode === 'both' ? 'Keep full bodies in separate camera halves.' : 'One dancer can use the whole frame. Keep your full body visible.'}</small>

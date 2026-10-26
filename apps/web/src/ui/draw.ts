@@ -141,7 +141,8 @@ export type IconDraw = (g: Ctx, cx: number, cy: number, r: number) => void;
 
 // The aero dancer from the front, in its model's units (packages/character/source/build-character.py):
 // x to the right, z up from the floor to the top of its head, its hands the widest part.
-const DANCER_TOP = 3.36;
+/** How tall the dancer stands, in its model's units. */
+export const DANCER_TOP = 3.36;
 const DANCER_HALF_WIDTH = 1.29;
 // The body is lathed from this profile, [height above BODY_BASE, half width].
 const DANCER_BODY = [[0, 0], [0.015, 0.43], [0.045, 0.6], [0.1, 0.66], [0.2, 0.67], [0.38, 0.65], [0.62, 0.6], [0.87, 0.52], [1.1, 0.44], [1.3, 0.34], [1.41, 0.22], [1.45, 0]] as const;
@@ -393,6 +394,42 @@ export const ICONS = {
     g.moveTo(cx - a + a * 0.55, cy - a * 0.55);
     g.lineTo(cx - a, cy);
     g.lineTo(cx - a + a * 0.55, cy + a * 0.55);
+    g.stroke();
+  },
+  // An arrow pointing right (Transfer songs: send a song to the other device).
+  send(g, cx, cy, r) {
+    const a = r * 0.4;
+    g.beginPath();
+    g.moveTo(cx - a, cy);
+    g.lineTo(cx + a, cy);
+    g.moveTo(cx + a - a * 0.55, cy - a * 0.55);
+    g.lineTo(cx + a, cy);
+    g.lineTo(cx + a - a * 0.55, cy + a * 0.55);
+    g.stroke();
+  },
+  // Two arrows passing each other, right above and left below (Settings → Songs: transfer songs).
+  transfer(g, cx, cy, r) {
+    const a = r * 0.4, h = a * 0.42, tip = a * 0.42;
+    g.beginPath();
+    g.moveTo(cx - a, cy - h);
+    g.lineTo(cx + a, cy - h);
+    g.moveTo(cx + a - tip, cy - h - tip);
+    g.lineTo(cx + a, cy - h);
+    g.lineTo(cx + a - tip, cy - h + tip);
+    g.moveTo(cx + a, cy + h);
+    g.lineTo(cx - a, cy + h);
+    g.moveTo(cx - a + tip, cy + h - tip);
+    g.lineTo(cx - a, cy + h);
+    g.lineTo(cx - a + tip, cy + h + tip);
+    g.stroke();
+  },
+  // A tick (Transfer songs: the other device has this song).
+  check(g, cx, cy, r) {
+    const a = r * 0.4;
+    g.beginPath();
+    g.moveTo(cx - a, cy + a * 0.05);
+    g.lineTo(cx - a * 0.25, cy + a * 0.7);
+    g.lineTo(cx + a, cy - a * 0.6);
     g.stroke();
   },
   // An aero dancer (choose who follows which dancer).
