@@ -49,7 +49,6 @@ export const GAME_PAUSE_PANEL ={ x: 560, y: 250, w: 480, h: 420 };
 export const GAME_RESUME = { x: 610, y: 340, w: 380, h: 84 };
 export const GAME_RESTART = { x: 610, y: 444, w: 380, h: 84 };
 export const GAME_QUIT = { x: 610, y: 548, w: 380, h: 84 };
-export const GAME_PROGRESS = { x: 560, y: 852, w: 480, h: 14 };
 // Results: the scoreboard down the left (the stage and its winner on the right). The winner
 // large on top, `top` tall, then a `row` per other player and `pad` under them; a solo round
 // has its judgements, `stats` tall, instead. Play again and Song select sit side by side under
@@ -70,12 +69,12 @@ export const resultsRetry = (players: number) => resultsButton(players, 0);
 export const resultsSongs = (players: number) => resultsButton(players, 1);
 // Song Select preview: Dance! starts the song for real, bottom right, with Dancers beside it
 // (a song with more than one dancer), which opens the dancers screen.
-export const DANCE = { x: 1172, y: 770, w: 300, h: 96 };
-export const DANCERS = { x: 812, y: 770, w: 340, h: 96 };
+export const DANCE = { x: 1172, y: 730, w: 300, h: 96 };
+export const DANCERS = { x: 812, y: 730, w: 340, h: 96 };
 // The dancers screen: the song's title top left and the stage's dancers facing the camera, with
 // a pill per player under them (two to a row, players 1 and 2 first), each picking the dancer
 // they follow, just above Auto (players take the dancers in turn) bottom left and Dance!.
-export const CAST_AUTO = { x: 128, y: 770, w: 300, h: 96 };
+export const CAST_AUTO = { x: 128, y: 730, w: 300, h: 96 };
 const CAST = { h: 80, gap: 12, above: 16 };
 /** On the dancers screen the stage's picture rises by this share of its height, so its dancers stand clear of the pills. */
 export const castLift = (players: number) => (players > 2 ? 0.1 : 0.04);
@@ -115,6 +114,5 @@ export function gameLayout(width = 1600) {
     GAME_RESUME: centered(GAME_RESUME),
     GAME_RESTART: centered(GAME_RESTART),
     GAME_QUIT: centered(GAME_QUIT),
-    GAME_PROGRESS: centered(GAME_PROGRESS),
   };
 }
