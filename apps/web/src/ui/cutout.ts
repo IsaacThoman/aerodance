@@ -1,71 +1,44 @@
-/** What covers a cutout's pixel. */
-export const CUTOUT = { none: 0, body: 1, head: 2, hand: 3, eye: 4 } as const;
+/** What covers a cutout's pixel: each of the dancer's parts, or nothing. */
+export const CUTOUT = { none: 0, body: 1, head: 2, leftHand: 3, rightHand: 4, leftFoot: 5, rightFoot: 6, eye: 7 } as const;
 
-/** A moment of the menu capture (packages/character/assets/dance.adpose): its dancer and time. */
-export interface CutoutPose { take: number; seconds: number; }
+/** A held pose: the bones it moves (by name), each its local [x, y, z] position and [x, y, z, w] rotation. */
+export type CutoutPose = Readonly<Record<string, readonly number[]>>;
 
 /** A thresholded cutout of the dancer (ui/dancerCutouts.ts), cropped to it. */
 export interface Cutout {
   /** Pixels. */
   w: number;
   h: number;
-  /** The body's middle, in whole pixels from the left: where it stands on its spot. */
+  /** Pixels per character unit. */
+  ppu: number;
+  /** The body's middle, in pixels from the left: where it stands on its spot. */
   cx: number;
   /** CUTOUT values, row by row from the top. */
   part: Uint8Array;
+  /** How near each pixel is, 255 nearest. */
+  depth: Uint8Array;
 }
 
+// The eyes are part of the head.
+const solid = (p: number) => p === CUTOUT.eye ? CUTOUT.head : p;
+
 /**
- * How many whole pixels `moving` must slide along x (`dir` 1 right, -1 left) to keep at least
- * `gap` pixels clear of `fixed` all round: 0 if it's clear already, or null if sliding it `limit`
- * pixels doesn't clear it. Both are W×H coverage masks, row by row from the top.
+ * The pixels within `gap` of a nearer, different part (a hand in front of the body, the head
+ * over a hand): cut out, so each part reads on its own.
  */
-export function clearShift(fixed: Uint8Array, moving: Uint8Array, W: number, H: number, dir: 1 | -1, gap = 1, limit = W): number | null {
-  // Everywhere within `gap` of the fixed pixels.
-  const near = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (!fixed[y * W + x]) continue;
-    for (let dy = -gap; dy <= gap; dy++) for (let dx = -gap; dx <= gap; dx++) {
+export function seams(c: Cutout, gap: number) {
+  const cut = new Uint8Array(c.w * c.h);
+  const ring: [number, number][] = [];
+  for (let y = -gap; y <= gap; y++) for (let x = -gap; x <= gap; x++) if ((x || y) && x * x + y * y <= gap * gap) ring.push([x, y]);
+  for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) {
+    const i = y * c.w + x, p = solid(c.part[i]);
+    if (!p) continue;
+    for (const [dx, dy] of ring) {
       const nx = x + dx, ny = y + dy;
-      if (nx >= 0 && ny >= 0 && nx < W && ny < H) near[ny * W + nx] = 1;
+      if (nx < 0 || ny < 0 || nx >= c.w || ny >= c.h) continue;
+      const j = ny * c.w + nx, q = solid(c.part[j]);
+      if (q && q !== p && c.depth[j] > c.depth[i] + 2) { cut[i] = 1; break; }
     }
-  }
-  const pixels: number[] = [];
-  for (let i = 0; i < moving.length; i++) if (moving[i]) pixels.push(i);
-  for (let k = 0; k <= limit; k++) {
-    const touches = pixels.some((i) => {
-      const x = (i % W) + k * dir;
-      return x >= 0 && x < W && near[i - (i % W) + x] === 1;
-    });
-    if (!touches) return k;
-  }
-  return null;
-}
-
-// The dancer's eyes, in its model's units: their middles this far apart, and this tall
-// (packages/character/source/build-character.py).
-const EYE_SPACING = 0.37;
-const EYE_HEIGHT = 0.356;
-
-/**
- * Gives `cut` (in place) the eyes it has facing front, whichever way its head is turned: two
- * one-pixel-wide upright lines, the model's eye spacing apart and its eye height tall, in the
- * middle of the head, at `ppu` pixels per unit down and `ppuX` across. The head's outline is the
- * same however it's turned (it's a ball), so every dancer's eyes come out alike.
- */
-export function faceFront(cut: Cutout, ppu: number, ppuX = ppu) {
-  let x0 = cut.w, x1 = -1, y0 = cut.h, y1 = -1;
-  for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) {
-    const i = y * cut.w + x;
-    if (cut.part[i] === CUTOUT.eye) cut.part[i] = CUTOUT.head;
-    if (cut.part[i] !== CUTOUT.head) continue;
-    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-  }
-  if (x1 < 0) return cut;
-  const spacing = Math.max(2, Math.round(EYE_SPACING * ppuX)), height = Math.max(1, Math.round(EYE_HEIGHT * ppu));
-  const left = Math.round((x0 + x1) / 2 - spacing / 2), top = Math.round((y0 + y1) / 2 - (height - 1) / 2);
-  for (const x of [left, left + spacing]) for (let y = top; y < top + height; y++) {
-    if (cut.part[y * cut.w + x] === CUTOUT.head) cut.part[y * cut.w + x] = CUTOUT.eye;
   }
   return cut;
 }

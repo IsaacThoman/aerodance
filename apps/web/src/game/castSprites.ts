@@ -1,215 +1,175 @@
 import type { WebGLRenderer } from 'three';
 import { DANCER_TOP, dancerWidth } from '../ui/draw.ts';
-import { CUTOUT } from '../ui/cutout.ts';
+import { CUTOUT, seams } from '../ui/cutout.ts';
 import type { Cutout, CutoutPose } from '../ui/cutout.ts';
 import { leadOf } from '../../../../packages/pose/song.ts';
 import type { Cast } from '../../../../packages/pose/song.ts';
 import { PLAYERS } from './results.ts';
 
 /*
- * Song Select's cast: each of a song's dancers as a pixel sprite, in a different moment of the
- * menu capture, in the colour of the first player following it with a one-pixel shadow down and
- * to the right, or a faint white silhouette if nobody follows it, close together: their bodies
- * overlap, but every face and hand stays in view (layoutCast). The sprites are the dancer
- * rendered in-engine and thresholded (ui/dancerCutouts.ts) at the overlay's own resolution and
- * drawn on its pixel grid, one sprite pixel to a buffer pixel, so they line up with the canvas
- * (and the world under it) exactly. The 640x480 buffer's pixels are 4:3 wide in widescreen and
- * square in 4:3, so each display mode gets its own set.
+ * Song Select's cast: each of a song's dancers as a cutout in a different move, shaded light to
+ * dark down it in the colour of the first player following it, or white (drawn faint) if nobody
+ * follows it, with its eyes and the seams between its parts cut out, side by side. The cutouts
+ * are the dancer model rendered in-engine and thresholded (ui/dancerCutouts.ts), once, large,
+ * and drawn down to the row's size.
  *
  * const sprites = createCastSprites(gl, () => ui.invalidate());
  * if (!sprites.draw(g, right, floor, h, dancers, cast)) ...   // false until they're rendered
  */
 
-// One moment per dancer, each facing front: a wave, a reach, a lean and a hand out.
+// One move per dancer, as the retargeter posed four moments of the menu capture (dance.adpose:
+// take 1 at 5 s, take 0 at 9.5 s, take 1 at 3 s and take 0 at 10 s) when they were picked, kept
+// as the bones' poses so they stay those moves.
 export const CREW: readonly CutoutPose[] = [
-  { take: 1, seconds: 5 },
-  { take: 0, seconds: 12 },
-  { take: 1, seconds: 3 },
-  { take: 1, seconds: 10 },
+  {
+    Root: [0.0461, -0.0492, 0, 0, 0, 0, 1],
+    Body: [0, 1.1, 0, 0.001, 0.0455, 0.0228, 0.9987],
+    Head: [0, 1, 0, 0.002, -0.0318, -0.0624, 0.9975],
+    ArmL: [-0.5465, 2.2552, 0.6141, 0, 0, 0, 1],
+    ArmR: [0.173, 1.2391, 0.5006, 0, 0, 0, 1],
+    FootL: [-0.677, 0.4192, -0.3376, 0, 0, 0, 1],
+    FootR: [0.4957, 0.3774, -0.4627, 0, 0, 0, 1],
+  },
+  {
+    Root: [0.0038, -0.0977, 0, 0, 0, 0, 1],
+    Body: [0, 1.1, 0, -0.0012, 0.1297, -0.0091, 0.9915],
+    Head: [0, 1, 0, 0.0008, -0.0378, -0.0203, 0.9991],
+    ArmL: [-0.1607, 1.7655, 0.7793, 0, 0, 0, 1],
+    ArmR: [0.4781, 1.2065, 0.4574, 0, 0, 0, 1],
+    FootL: [-0.3668, 0.3979, -0.3974, 0, 0, 0, 1],
+    FootR: [0.106, 0.4097, -0.4163, 0, 0, 0, 1],
+  },
+  {
+    Root: [-0.2449, 0.1054, 0, 0, 0, 0, 1],
+    Body: [0, 1.1, 0, -0.002, 0.0184, -0.1068, 0.9941],
+    Head: [0, 1, 0, 0.0007, 0.0082, 0.0817, 0.9966],
+    ArmL: [0.2656, 1.3427, 0.389, 0, 0, 0, 1],
+    ArmR: [-0.3628, 1.2113, 0.3141, 0, 0, 0, 1],
+    FootL: [-0.7058, 0.1946, -0.127, 0, 0, 0, 1],
+    FootR: [0.3989, 0.2725, -0.1744, 0, 0, 0, 1],
+  },
+  {
+    Root: [-0.1315, 0.1813, 0, 0, 0, 0, 1],
+    Body: [0, 1.1, 0, -0.0001, 0.179, -0.0003, 0.9838],
+    Head: [0, 1, 0, -0.0059, -0.0408, 0.1427, 0.9889],
+    ArmL: [0.7425, 1.8029, 0.47, 0, 0, 0, 1],
+    ArmR: [0.6293, 1.4954, -0.0564, 0, 0, 0, 1],
+    FootL: [0.0652, 0.2025, 0.0972, 0, 0, 0, 1],
+    FootR: [-0.0348, 0.2567, -0.3298, 0, 0, 0, 1],
+  },
 ];
-// The closest the dancers stand, in dancer widths between their middles (hands included, so they
-// overlap); further if that would hide a face or a hand.
-const STEP = 0.7;
+// The cutouts' resolution (pixels per character unit), and their seams' width in those pixels.
+const PPU = 72;
+const SEAM = 6;
+// The dancers' middles this many dancer widths apart.
+const STEP = 0.8;
 // A dancer nobody follows: an empty spot on the glass.
 export const SPARE_ALPHA = 0.3;
+// Clear pixels round each sprite, so it scales down without clipping its edges.
+const PAD = 4;
 
 type RGB = readonly [number, number, number];
 const rgb = (hex: string): RGB => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 const mix = (a: RGB, b: RGB, t: number): RGB => [0, 1, 2].map((i) => Math.round(a[i] + (b[i] - a[i]) * t)) as unknown as RGB;
-const NIGHT: RGB = [0, 10, 40];
-const BLACK: RGB = [0, 0, 0];
 const WHITE: RGB = [255, 255, 255];
 
-/** A player's sprite colours: the dancer, its eyes and its shadow. */
-export function spriteInk(lead: number) {
-  if (lead < 0) return null;
+/** A player's colours down their dancer, top to bottom: light, colour and dark (or white for nobody, -1). */
+export function spriteInk(lead: number): readonly [RGB, RGB, RGB] {
+  if (lead < 0) return [WHITE, WHITE, WHITE];
   const look = PLAYERS[lead];
-  return { fill: rgb(look.color), eyes: mix(rgb(look.dark), BLACK, 0.5), shadow: mix(rgb(look.dark), NIGHT, 0.35) };
+  return [rgb(look.light), rgb(look.color), rgb(look.dark)];
 }
 
-/**
- * One layer of a dancer's sprite (RGBA, one pixel wider and taller for the shadow), for the
- * player leading it or, as a white silhouette with its eyes cut out, for nobody (-1): its body
- * (with its head and eyes), or its hands, which go over every dancer's body.
- */
-export function paintSprite(cut: Cutout, lead: number, layer: 'body' | 'hands' = 'body') {
-  const width = cut.w + 1, height = cut.h + 1, data = new Uint8ClampedArray(width * height * 4);
-  const ink = spriteInk(lead);
-  const raw = (x: number, y: number) => x < 0 || y < 0 || x >= cut.w || y >= cut.h ? CUTOUT.none : cut.part[y * cut.w + x];
-  // The layer's own parts; the rest is empty.
-  const part = (x: number, y: number) => {
-    const p = raw(x, y);
-    return (p === CUTOUT.hand) === (layer === 'hands') ? p : CUTOUT.none;
-  };
-  const put = (x: number, y: number, [r, g, b]: RGB) => data.set([r, g, b, 255], (y * width + x) * 4);
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const p = part(x, y);
-    const solid = p !== CUTOUT.none && p !== CUTOUT.eye;
-    if (!ink) { if (solid) put(x, y, WHITE); }
-    else if (solid) put(x, y, ink.fill);
-    else if (p === CUTOUT.eye) put(x, y, ink.eyes);
-    else if (part(x - 1, y - 1) !== CUTOUT.none) put(x, y, ink.shadow);
+/** A dancer's sprite (RGBA, PAD pixels clear all round) for the player leading it, or for nobody (-1). */
+export function paintSprite(cut: Cutout, lead: number) {
+  const width = cut.w + 2 * PAD, height = cut.h + 2 * PAD, data = new Uint8ClampedArray(width * height * 4);
+  const [light, color, dark] = spriteInk(lead), seam = seams(cut, SEAM);
+  for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) {
+    const i = y * cut.w + x, p = cut.part[i];
+    if (p === CUTOUT.none || p === CUTOUT.eye || seam[i]) continue;
+    // Light to dark down the dancer, as the vector cutouts are.
+    const t = y / cut.h, [r, g, b] = t < 0.5 ? mix(light, color, t * 2) : mix(color, dark, t * 2 - 1);
+    data.set([r, g, b, 255], ((y + PAD) * width + x + PAD) * 4);
   }
   return { width, height, data };
 }
 
-// A hand drawn over another may cover at most this much of it.
-const HAND_COVER = 0.4;
-
 /**
- * Where each sprite goes, left to right, standing on one floor: each body's middle `step` pixels
- * after the one before's, or as little further as keeps every face and hand in view.
- * Bodies are drawn left to right and all the hands over them, so bodies may overlap each other
- * and a hand may lie over a body; but no body comes within `gap` pixels of a head, no hand covers
- * a head, and a hand covers at most HAND_COVER of another. Returns each one's
- * left edge in pixels from the group's, and the group's width (shadows included).
+ * Where a song's cutouts go, `h` design units tall (as tall as the vector dancers, or the tallest
+ * pose that height): their scale (design units per cutout pixel), each body's middle from the
+ * first's and the group's left and right edges from it.
  */
-export function layoutCast(cuts: readonly Cutout[], step = 1, gap = 1) {
-  const at = (x: number, row: number) => row * 65536 + x + 32768;
-  // Each dancer's pixels, by column from its body's middle and row up from the floor, and its
-  // hands' (each as its own set: they're apart).
-  const dancers = cuts.map((cut) => {
-    const own: { x: number; row: number; hand: boolean; head: boolean }[] = [];
-    for (let y = 0; y < cut.h; y++) for (let x = 0; x < cut.w; x++) {
-      const p = cut.part[y * cut.w + x];
-      if (p !== CUTOUT.none) own.push({ x: x - cut.cx, row: cut.h - 1 - y, hand: p === CUTOUT.hand, head: p === CUTOUT.head || p === CUTOUT.eye });
-    }
-    // Hand pixels in groups of touching ones.
-    const left = new Map(own.filter((p) => p.hand).map((p) => [at(p.x, p.row), p]));
-    const hands: { x: number; row: number }[][] = [];
-    for (const start of [...left.values()]) {
-      if (!left.delete(at(start.x, start.row))) continue;
-      const group = [start], queue = [start];
-      while (queue.length) {
-        const { x, row } = queue.pop()!;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const next = left.get(at(x + dx, row + dy));
-          if (next && left.delete(at(next.x, next.row))) { group.push(next); queue.push(next); }
-        }
-      }
-      hands.push(group);
-    }
-    return { own, hands };
-  });
-  // Heads, and heads with their margins (a hand may come right up to a head), and hands.
-  const heads = new Set<number>(), margins = new Set<number>(), anyHand = new Set<number>();
-  const hands: { pixels: Set<number>; size: number }[] = [];
-  const middles: number[] = [];
-  dancers.forEach(({ own, hands: mine }, d) => {
-    const clashes = (m: number) => {
-      if (own.some(({ x, row, hand, head }) => (hand ? heads : margins).has(at(m + x, row)) || (head && anyHand.has(at(m + x, row))))) return true;
-      const covering = own.filter((p) => p.hand).map((p) => at(m + p.x, p.row));
-      return hands.some(({ pixels, size }) => covering.filter((k) => pixels.has(k)).length > HAND_COVER * size);
-    };
-    let m = d ? middles[d - 1] + Math.max(1, step) : 0;
-    while (clashes(m)) m++;
-    middles.push(m);
-    for (const { x, row, head } of own) {
-      if (!head) continue;
-      heads.add(at(m + x, row));
-      for (let dy = -gap; dy <= gap; dy++) for (let dx = -gap; dx <= gap; dx++) margins.add(at(m + x + dx, row + dy));
-    }
-    for (const hand of mine) {
-      const pixels = new Set(hand.map((p) => at(m + p.x, p.row)));
-      pixels.forEach((k) => anyHand.add(k));
-      hands.push({ pixels, size: pixels.size });
-    }
-  });
-  const lefts = cuts.map((cut, d) => middles[d] - cut.cx);
-  const min = Math.min(...lefts), max = Math.max(...cuts.map((cut, d) => lefts[d] + cut.w + 1));
-  return { x: lefts.map((x) => x - min), width: max - min };
-}
-
-/** The cutouts' resolution for dancers `h` design units tall under transform `t`: buffer pixels per character unit. */
-export function spriteGrid(t: Pick<DOMMatrix, 'a' | 'd'>, h: number) {
-  const round = (n: number) => Math.round(n * 100) / 100;
-  return { ppu: round((h * t.d) / DANCER_TOP), ppuX: round((h * t.a) / DANCER_TOP) };
+export function layoutCast(cuts: readonly Cutout[], h: number, crew: readonly Cutout[] = cuts) {
+  const tallest = Math.max(DANCER_TOP, ...crew.map((cut) => cut.h / cut.ppu));
+  const unit = h / tallest, step = dancerWidth(h * DANCER_TOP / tallest) * STEP;
+  const x = cuts.map((_, d) => d * step);
+  const scale = cuts.map((cut) => unit / cut.ppu);
+  const left = Math.min(...cuts.map((cut, d) => x[d] - cut.cx * scale[d]));
+  const right = Math.max(...cuts.map((cut, d) => x[d] + (cut.w - cut.cx) * scale[d]));
+  return { x, scale, left, right };
 }
 
 export function createCastSprites(gl: WebGLRenderer, onReady: () => void) {
-  const sets = new Map<string, Cutout[] | 'baking' | 'failed'>();
+  let crew: Cutout[] | 'baking' | 'failed' | null = null;
   const sprites = new Map<string, HTMLCanvasElement>();
-  // The cutouts for this resolution, or null while they render (or if they couldn't).
-  const cutouts = (ppu: number, ppuX: number) => {
-    const key = `${ppu}x${ppuX}`, set = sets.get(key);
-    if (set === undefined) {
-      sets.set(key, 'baking');
-      import('../ui/dancerCutouts.ts').then(({ bakeCutouts }) => bakeCutouts(gl, CREW, ppu, ppuX)).then((cuts) => {
-        sets.set(key, cuts);
+  // The cutouts, or null while they render (or if they couldn't).
+  const cutouts = () => {
+    if (!crew) {
+      crew = 'baking';
+      import('../ui/dancerCutouts.ts').then(({ bakeCutouts }) => bakeCutouts(gl, CREW, PPU)).then((cuts) => {
+        crew = cuts;
         onReady();
       }, (err: unknown) => {
-        sets.set(key, 'failed');
+        crew = 'failed';
         console.warn("Song Select's dancers could not render", err);
       });
     }
-    return Array.isArray(set) ? { key, cuts: set } : null;
+    return Array.isArray(crew) ? crew : null;
   };
-  const sprite = (key: string, cut: Cutout, pose: number, lead: number, layer: 'body' | 'hands') => {
-    const id = `${key}|${pose}|${lead}|${layer}`;
+  const sprite = (cut: Cutout, pose: number, lead: number) => {
+    const id = `${pose}|${lead}`;
     let canvas = sprites.get(id);
     if (!canvas) {
-      const { width, height, data } = paintSprite(cut, lead, layer);
+      const { width, height, data } = paintSprite(cut, lead);
       canvas = Object.assign(document.createElement('canvas'), { width, height });
       canvas.getContext('2d')!.putImageData(new ImageData(data, width, height), 0, 0);
       sprites.set(id, canvas);
     }
     return canvas;
   };
-  // A song's sprites and where they go under `g`'s transform, in buffer pixels.
-  const arrange = (g: CanvasRenderingContext2D, h: number, dancers: number) => {
-    const t = g.getTransform(), { ppu, ppuX } = spriteGrid(t, h), set = cutouts(ppu, ppuX);
-    if (!set) return null;
-    const poses = Array.from({ length: dancers }, (_, d) => d % set.cuts.length);
-    const cuts = poses.map((pose) => set.cuts[pose]);
-    return { t, key: set.key, poses, cuts, ...layoutCast(cuts, Math.round(dancerWidth(h) * STEP * t.a)) };
+  // A song's cutouts, a pose each in turn, and where they go.
+  const arrange = (h: number, dancers: number) => {
+    const all = cutouts();
+    if (!all) return null;
+    const poses = Array.from({ length: dancers }, (_, d) => d % all.length);
+    const cuts = poses.map((pose) => all[pose]);
+    return { poses, cuts, ...layoutCast(cuts, h, all) };
   };
 
   return {
-    /** Loads the model and the capture ahead of the first draw. */
-    preload: () => import('../ui/dancerCutouts.ts').then(({ loadCutoutAssets }) => loadCutoutAssets()).catch(() => {}),
-    /** How wide (design units) a song's sprites are, or null until they're rendered. */
-    width(g: CanvasRenderingContext2D, h: number, dancers: number) {
-      const at = arrange(g, h, dancers);
-      return at && at.width / at.t.a;
+    /** Loads the model ahead of the first draw. */
+    preload: () => import('../ui/dancerCutouts.ts').then(({ loadCutoutModel }) => loadCutoutModel()).catch(() => {}),
+    /** How wide (design units) a song's dancers are, or null until they're rendered. */
+    width(h: number, dancers: number) {
+      const at = arrange(h, dancers);
+      return at && at.right - at.left;
     },
     /**
-     * A song's dancers, `h` design units tall, standing on `floor` and ending at `right`, snapped
-     * to the buffer's pixels. False (drawing nothing) until they're rendered.
+     * A song's dancers, `h` design units tall, standing on `floor` and ending at `right`. False
+     * (drawing nothing) until they're rendered.
      */
     draw(g: CanvasRenderingContext2D, right: number, floor: number, h: number, dancers: number, cast: Cast) {
-      const at = arrange(g, h, dancers);
+      const at = arrange(h, dancers);
       if (!at) return false;
-      const { t } = at;
-      const left = Math.round(t.a * right + t.e) - at.width, bottom = Math.round(t.d * floor + t.f);
+      const shift = right - at.right;
       g.save();
-      g.setTransform(1, 0, 0, 1, 0, 0);
-      g.imageSmoothingEnabled = false;
+      g.imageSmoothingEnabled = true;
+      g.imageSmoothingQuality = 'high';
       const alpha = g.globalAlpha;
-      // The bodies, then the hands over them.
-      for (const layer of ['body', 'hands'] as const) at.cuts.forEach((cut, d) => {
-        const lead = leadOf(cast, d);
+      at.cuts.forEach((cut, d) => {
+        const lead = leadOf(cast, d), s = at.scale[d], canvas = sprite(cut, at.poses[d], lead);
         g.globalAlpha = alpha * (lead < 0 ? SPARE_ALPHA : 1);
-        g.drawImage(sprite(at.key, cut, at.poses[d], lead, layer), left + at.x[d], bottom - cut.h);
+        g.drawImage(canvas, shift + at.x[d] - (cut.cx + PAD) * s, floor - (cut.h + PAD) * s, canvas.width * s, canvas.height * s);
       });
       g.restore();
       return true;

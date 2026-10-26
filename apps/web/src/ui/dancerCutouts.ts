@@ -2,22 +2,16 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { cloneCharacter } from '../../../../packages/character/cloneCharacter.ts';
 import { createAccessorySelector } from '../../../../packages/character/accessories.ts';
-import { createRetargeter, loadMotion } from '../../../../packages/character/motion.ts';
-import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import modelUrl from '../../../../packages/character/assets/aero-character.glb?url';
-import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
-import { CUTOUT, clearShift, faceFront, type Cutout, type CutoutPose } from './cutout.ts';
+import { CUTOUT, type Cutout, type CutoutPose } from './cutout.ts';
 
 /*
- * Thresholded cutouts of the aero dancer, rendered in-engine: the real model, held in a moment
- * of the menu capture, drawn flat by the game's renderer into a render target and read back as
- * a hard-edged mask (no antialiasing, so every pixel is its body, head, a hand, an eye or
- * nothing: each is drawn in its own shade). A hand
- * the pose holds against the body or head would vanish into the silhouette, so it's slid out
- * sideways, away from the body's middle, until there's a pixel clear between them. The eyes are
- * redrawn facing front (cutout.ts's faceFront), as the pose's head turns would squash them.
+ * Thresholded cutouts of the aero dancer, rendered in-engine: the real model, held in a pose,
+ * drawn flat by the game's renderer into a render target and read back as a hard-edged mask (no
+ * antialiasing, so every pixel is one of its parts or nothing: each is drawn in its own shade),
+ * with how near each pixel is, so a part in front of another can be told apart from it.
  *
- * const [cutout] = await bakeCutouts(gl, [{ take: 1, seconds: 5 }], 9.5, 7.1);
+ * const [cutout] = await bakeCutouts(gl, [{ ArmL: [-0.5, 2.3, 0.6, 0, 0, 0, 1] }], 72);
  */
 
 // Coverage over half is the dancer's.
@@ -25,34 +19,30 @@ const THRESHOLD = 127;
 // How far past the posed model's bounds to frame it (character units): its bounds miss what a
 // pose does to the skin.
 const REACH = 2.5;
-// Hands are slid out at most this far (character units).
-const HAND_SLIDE = 1.5;
-// Each part's shade (red, 0-255), and the part a read-back shade is: the nearest.
-const SHADES = [[CUTOUT.body, 255], [CUTOUT.head, 170], [CUTOUT.hand, 85], [CUTOUT.eye, 0]] as const;
-const partOf = (red: number) => SHADES.reduce((best, s) => Math.abs(s[1] - red) < Math.abs(best[1] - red) ? s : best)[0];
+// Each part is drawn as this many times its CUTOUT value in red, well clear of rounding.
+const ID_STEP = 32;
+// The part a mesh is, by the bone it's skinned to; the rest is the body.
+const BONE_PARTS: Record<string, number> = {
+  Head: CUTOUT.head, ArmL: CUTOUT.leftHand, ArmR: CUTOUT.rightHand, FootL: CUTOUT.leftFoot, FootR: CUTOUT.rightFoot,
+};
 
-let assets: Promise<{ scene: THREE.Object3D; motion: MotionTake }> | null = null;
-/** Starts loading the model and the capture, once. */
-export const loadCutoutAssets = () => assets ??= Promise.all([
-  new GLTFLoader().loadAsync(modelUrl),
-  fetch(motionUrl).then((r) => {
-    if (!r.ok) throw Error(`The dance capture didn't load (${r.status})`);
-    return r.arrayBuffer();
-  }).then(loadMotion),
-]).then(([gltf, motion]) => ({ scene: gltf.scene, motion }), (err: unknown) => {
-  assets = null;
+let model: Promise<THREE.Object3D> | null = null;
+/** Starts loading the model, once. */
+export const loadCutoutModel = () => model ??= new GLTFLoader().loadAsync(modelUrl).then((gltf) => gltf.scene, (err: unknown) => {
+  model = null;
   throw err;
 });
 
 /**
- * Renders each pose once with `gl`, at `ppu` pixels per character unit down and `ppuX` across
- * (the overlay's pixels are 4:3 wide in widescreen). Leaves the renderer as it found it.
+ * Renders each pose once with `gl`, at `ppu` pixels per character unit. Leaves the renderer as
+ * it found it.
  */
-export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly CutoutPose[], ppu: number, ppuX = ppu): Promise<Cutout[]> {
-  const { scene: source, motion } = await loadCutoutAssets();
+export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly CutoutPose[], ppu: number): Promise<Cutout[]> {
+  const source = await loadCutoutModel();
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera();
-  const shades = new Map(SHADES.map(([part, red]) => [part, new THREE.MeshBasicMaterial({ color: new THREE.Color(red / 255, 0, 0), toneMapped: false })]));
+  const ids = new Map<number, THREE.MeshBasicMaterial>(Object.values(CUTOUT).map((part) => [part, new THREE.MeshBasicMaterial({ color: new THREE.Color((part * ID_STEP) / 255, 0, 0), toneMapped: false })]));
+  const depthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.BasicDepthPacking });
   const target = new THREE.WebGLRenderTarget(1, 1, { samples: 0 });
   const previous = { target: gl.getRenderTarget(), color: gl.getClearColor(new THREE.Color()), alpha: gl.getClearAlpha() };
   const results: Cutout[] = [];
@@ -60,117 +50,79 @@ export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly Cutou
   try {
     gl.setClearColor(0x000000, 0);
     for (const pose of poses) {
-      const model = cloneCharacter(source);
-      createAccessorySelector(model).select('None');
-      const meshes: THREE.Mesh[] = [];
-      const hands: { mesh: THREE.Mesh; bone: THREE.Bone }[] = [];
-      model.traverse((o) => {
+      const dancer = cloneCharacter(source);
+      createAccessorySelector(dancer).select('None');
+      dancer.traverse((o) => {
         const mesh = o as THREE.Mesh;
-        if (!mesh.isMesh || Array.isArray(mesh.material) || !mesh.visible) return;
+        if (!mesh.isMesh || Array.isArray(mesh.material)) return;
         mesh.frustumCulled = false;
-        meshes.push(mesh);
-        // The ink is the eyes; of the gel, the parts skinned to the arm bones are the hands and
-        // the one skinned to the head bone is the head.
+        // The ink is the eyes; the gel is the part of the bone it's skinned to.
         const skinned = mesh as THREE.SkinnedMesh;
         const bone = skinned.isSkinnedMesh ? skinned.skeleton.bones[skinned.geometry.getAttribute('skinIndex')?.getX(0) ?? -1] : undefined;
         if (skinned.isSkinnedMesh) skeletons.add(skinned.skeleton);
-        const hand = bone?.name === 'ArmL' || bone?.name === 'ArmR';
-        if (hand) hands.push({ mesh, bone });
-        const part = mesh.material.name === 'Ink' ? CUTOUT.eye : hand ? CUTOUT.hand : bone?.name === 'Head' ? CUTOUT.head : CUTOUT.body;
-        mesh.material = shades.get(part)!;
+        mesh.material = ids.get(mesh.material.name === 'Ink' ? CUTOUT.eye : BONE_PARTS[bone?.name ?? ''] ?? CUTOUT.body)!;
+      });
+      let body: THREE.Object3D | undefined;
+      dancer.traverse((o) => {
+        if (!(o as THREE.Bone).isBone) return;
+        if (o.name === 'Body') body = o;
+        const held = pose[o.name];
+        if (held) {
+          o.position.fromArray(held, 0);
+          o.quaternion.fromArray(held, 3).normalize();
+        }
       });
       scene.clear();
-      scene.add(model);
-      scene.updateMatrixWorld(true);
-      createRetargeter(model, motion, pose.take)(pose.seconds);
-      model.visible = true;
+      scene.add(dancer);
+      dancer.visible = true;
       scene.updateMatrixWorld(true);
 
       // Frame it wide, looking down -z from in front, then crop to what was drawn.
-      const box = new THREE.Box3().setFromObject(model, true);
+      const box = new THREE.Box3().setFromObject(dancer, true);
       const left = box.min.x - REACH, bottom = box.min.y - REACH;
-      const W = Math.ceil((box.max.x - box.min.x + 2 * REACH) * ppuX), H = Math.ceil((box.max.y - box.min.y + 2 * REACH) * ppu);
-      Object.assign(camera, { left, right: left + W / ppuX, top: bottom + H / ppu, bottom, near: 5 - REACH, far: 5 + REACH + box.max.z - box.min.z });
+      const W = Math.ceil((box.max.x - box.min.x + 2 * REACH) * ppu), H = Math.ceil((box.max.y - box.min.y + 2 * REACH) * ppu);
+      Object.assign(camera, { left, right: left + W / ppu, top: bottom + H / ppu, bottom, near: 5 - REACH, far: 5 + REACH + box.max.z - box.min.z });
       camera.position.set(0, 0, box.max.z + 5);
       camera.updateProjectionMatrix();
       target.setSize(W, H);
-      const pixels = new Uint8Array(W * H * 4);
-      const render = () => {
+      // Each pass's pixels, rows from the top.
+      const pass = (material: THREE.Material | null) => {
+        const pixels = new Uint8Array(W * H * 4);
+        scene.overrideMaterial = material;
         gl.setRenderTarget(target);
         gl.clear();
         gl.render(scene, camera);
         gl.readRenderTargetPixels(target, 0, 0, W, H, pixels);
+        return (x: number, y: number, channel: number) => pixels[((H - 1 - y) * W + x) * 4 + channel];
       };
-      // What the visible meshes cover, rows from the top.
-      const coverage = () => {
-        render();
-        const mask = new Uint8Array(W * H);
-        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) mask[y * W + x] = pixels[((H - 1 - y) * W + x) * 4 + 3] > THRESHOLD ? 1 : 0;
-        return mask;
-      };
-      let spine: THREE.Object3D | undefined;
-      model.traverse((o) => { if ((o as THREE.Bone).isBone && o.name === 'Body') spine = o; });
-      const mid = spine ? spine.getWorldPosition(new THREE.Vector3()).x : (box.min.x + box.max.x) / 2;
+      const id = pass(null), near = pass(depthMaterial);
+      scene.overrideMaterial = null;
 
-      // Each hand clear of the rest of the dancer, and of the other hand, sliding out on its own
-      // side of the body's middle; if both are held against it on one side, the nearer one goes
-      // to the other side.
-      const show = (only: readonly THREE.Mesh[] | null) => meshes.forEach((m) => { m.visible = !only || only.includes(m); });
-      show(meshes.filter((m) => !hands.some((hand) => hand.mesh === m)));
-      const fixed = coverage();
-      const middle = (mid - left) * ppuX;
-      const placed = hands.map(({ mesh, bone }) => {
-        show([mesh]);
-        const mask = coverage();
-        let sum = 0, n = 0;
-        mask.forEach((c, i) => { if (c) { sum += i % W; n++; } });
-        const x = n ? sum / n : middle;
-        return { bone, mask, x, dir: (x >= middle ? 1 : -1) as 1 | -1, held: clearShift(fixed, mask, W, H, 1, 1, 0) !== 0 };
-      });
-      if (placed.length === 2 && placed[0].held && placed[1].held && placed[0].dir === placed[1].dir) {
-        const nearer = Math.abs(placed[0].x - middle) < Math.abs(placed[1].x - middle) ? placed[0] : placed[1];
-        nearer.dir = -nearer.dir as 1 | -1;
-      }
-      placed.forEach(({ bone, mask, dir }) => {
-        const k = clearShift(fixed, mask, W, H, dir, 1, Math.ceil(HAND_SLIDE * ppuX)) ?? 0;
-        if (k) {
-          // k whole pixels along x, in the bone's parent's space.
-          bone.position.add(new THREE.Vector3((dir * k) / ppuX, 0, 0)
-            .applyMatrix3(new THREE.Matrix3().setFromMatrix4(bone.parent!.matrixWorld.clone().invert())));
-          bone.updateMatrixWorld(true);
-        }
-        mask.forEach((c, j) => {
-          const x = (j % W) + dir * k;
-          if (c && x >= 0 && x < W) fixed[j - (j % W) + x] = 1;
-        });
-      });
-      show(null);
-      render();
-
-      // Rows come back bottom-up.
-      const covered = (x: number, y: number) => pixels[((H - 1 - y) * W + x) * 4 + 3] > THRESHOLD;
       let x0 = W, y0 = H, x1 = -1, y1 = -1;
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        if (!covered(x, y)) continue;
+        if (id(x, y, 3) <= THRESHOLD) continue;
         x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
       }
-      if (x1 < 0) throw Error(`The dancer drew nothing at ${pose.seconds} s`);
-      const w = x1 - x0 + 1, h = y1 - y0 + 1, part = new Uint8Array(w * h);
+      if (x1 < 0) throw Error('The dancer drew nothing in this pose');
+      const w = x1 - x0 + 1, h = y1 - y0 + 1, part = new Uint8Array(w * h), depth = new Uint8Array(w * h);
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        if (!covered(x + x0, y + y0)) continue;
-        part[y * w + x] = partOf(pixels[((H - 1 - y - y0) * W + x + x0) * 4]);
+        if (id(x + x0, y + y0, 3) <= THRESHOLD) continue;
+        part[y * w + x] = Math.round(id(x + x0, y + y0, 0) / ID_STEP);
+        depth[y * w + x] = near(x + x0, y + y0, 0);
       }
       // It stands on its spot by its body's middle.
-      // Its eyes facing front, alike on every dancer, however the pose turns its head.
-      results.push(faceFront({ w, h, cx: Math.round((mid - left) * ppuX) - x0, part }, ppu, ppuX));
+      const mid = body ? body.getWorldPosition(new THREE.Vector3()).x : (box.min.x + box.max.x) / 2;
+      results.push({ w, h, ppu, cx: (mid - left) * ppu - x0, part, depth });
     }
   } finally {
     gl.setRenderTarget(previous.target);
     gl.setClearColor(previous.color, previous.alpha);
+    scene.overrideMaterial = null;
     scene.clear();
     skeletons.forEach((skeleton) => skeleton.dispose());
     target.dispose();
-    shades.forEach((material) => material.dispose());
+    ids.forEach((material) => material.dispose());
+    depthMaterial.dispose();
   }
   return results;
 }

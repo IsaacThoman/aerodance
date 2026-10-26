@@ -106,11 +106,11 @@ How it shows:
 - **The stage always shows the song's dancers**, however many players there are. Each dancer
   wears the colour of the first player following them (blue, purple, green, pink for P1 to P4);
   a dancer nobody follows is frosted glass (`castLooks` in `packages/stages/shared/Dancers.tsx`).
-- **Song Select's rows** show a pixel sprite of every dancer the song has, in those colours and
-  each in a different move, so a solo, a duet or a crew reads at a glance, and so does who would
-  dance whom. A dancer nobody follows is a faint white silhouette. The sprites are the dancer
-  model rendered in-engine and thresholded at the 640×480 buffer's own pixels, so they sit on
-  its grid exactly (`apps/web/src/game/castSprites.ts`).
+- **Song Select's rows** show a cutout of every dancer the song has, in those colours and each
+  in a different move, so a solo, a duet or a crew reads at a glance, and so does who would
+  dance whom. A dancer nobody follows is a faint white silhouette. The cutouts are the dancer
+  model rendered in-engine and thresholded, with the seams between its parts cut out
+  (`apps/web/src/game/castSprites.ts`).
 - **The dancers screen** shows each player's pick lit in their colour on their row, and who
   shares it ("Dancer 1 · with P3"). The stage camera stops circling and faces the dancers, so
   they stand in the rows' order.

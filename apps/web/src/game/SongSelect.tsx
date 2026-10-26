@@ -32,9 +32,9 @@ import { displayDesign } from '../display.ts';
  *
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
  *            then the songs imported into this browser or app (songs/customSongs.ts; Settings →
- *            Songs imports and removes them), each with a pixel sprite of every dancer it has
- *            in the colour of the player following them (castSprites.ts). Five are in view at
- *            a time; the wheel,
+ *            Songs imports and removes them), each with a cutout of every dancer it has, each in
+ *            a different move, in the colour of the player following them (castSprites.ts).
+ *            Five are in view at a time; the wheel,
  *            a drag (or swipe) and the keyboard cursor scroll the rest in, a row at a time
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
@@ -140,7 +140,7 @@ function faceFill(g: CanvasRenderingContext2D, face: Face, top: number, bottom: 
   return fill;
 }
 
-// Until the sprites are rendered (or if they can't be), the dancers' vector cutouts instead:
+// Until the dancers are rendered (or if they can't be), their vector cutouts instead:
 // side by side, ending at `right`, each `h` tall on `floor`, hands overlapping
 // (castWidth across): each in the colour of the first player following them, or an empty spot.
 function drawCast(g: CanvasRenderingContext2D, right: number, floor: number, h: number, dancers: number, cast: Cast) {
@@ -635,7 +635,7 @@ export default function SongSelect({
             g.globalAlpha *= shown;
             drawGlassButton(g, rect, {
               label: song.title, sub, icon: 'note',
-              reserve: cutout.right + (sprites.width(g, cutout.h, count) ?? castWidth(cutout.h, count)) + 10 - rect.h * 0.3,
+              reserve: cutout.right + (sprites.width(cutout.h, count) ?? castWidth(cutout.h, count)) + 10 - rect.h * 0.3,
               hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
               content: (c, r) => {
                 const right = r.x + r.w - cutout.right, floor = r.y + (r.h + cutout.h) / 2;
