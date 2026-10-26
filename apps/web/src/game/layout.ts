@@ -6,7 +6,7 @@ export const BACK = { x: 166, y: 150, r: 30 };
 
 // List phase: songs down the left, `shown` at a time (the rest scroll into view), with a
 // scrollbar beside them while there are more. rowRect(i) is the ith row in view.
-export const ROWS = { x: 128, y: 258, w: 560, h: 88, gap: 16, shown: 5 };
+export const ROWS = { x: 128, y: 258, w: 640, h: 88, gap: 16, shown: 5 };
 export const rowRect = (i: number): Rect => ({ x: ROWS.x, y: ROWS.y + i * (ROWS.h + ROWS.gap), w: ROWS.w, h: ROWS.h });
 export const SCROLLBAR = { x: ROWS.x + ROWS.w + 22, y: ROWS.y, w: 10, h: ROWS.shown * (ROWS.h + ROWS.gap) - ROWS.gap };
 export const RETRY = { x: 128, y: 340, w: 300, h: 80 };
@@ -86,7 +86,7 @@ export function gameLayout(width = 1600) {
   const dx = (width - 1600) / 2;
   const compact = width === 1200;
   const centered = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x + dx });
-  const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 480 : ROWS.w };
+  const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 540 : ROWS.w };
   const right = width - rows.x;
   const castW = (right - rows.x - CAST.gap) / 2;
   return {
