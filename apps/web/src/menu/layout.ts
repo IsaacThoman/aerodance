@@ -16,7 +16,7 @@ export const BACK = { x: 166, y: 150, r: 30 };
 // the puck (menu/MenuDancers.tsx) show the count.
 export const PLAYERS_BACK = { x: 166, y: 292, r: 30 };
 // Wide enough for "Let's dance" with room to spare at the pill's rounded end.
-export const PLAYERS_GO = { x: 128, y: 766, w: 370, h: 92 };
+export const PLAYERS_GO = { x: 128, y: 726, w: 370, h: 92 };
 const DIAL_Y = Math.round((PLAYERS_BACK.y + PLAYERS_BACK.r + PLAYERS_GO.y) / 2);
 export const COUNT_X = 426;
 export const MINUS = { x: COUNT_X - 112, y: DIAL_Y, r: 40 };
