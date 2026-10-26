@@ -34,7 +34,7 @@ jobs:
       - run: npm run dance:build
 
   browser:
-    # The TV remote, the canvas UI flow and imported songs in Chromium; the Dockerfile's ui-test stage brings Playwright.
+    # The TV remote, the canvas UI flow, imported songs and transferring them in Chromium; the Dockerfile's ui-test stage brings Playwright.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
