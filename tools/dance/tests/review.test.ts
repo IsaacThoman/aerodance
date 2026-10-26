@@ -11,6 +11,7 @@ import { DanceProject, attachSources, formatJson, initProject } from '../project
 import { installBundle, songBundle } from '../bundle.ts';
 import { main } from '../cli.ts';
 import { danceWith, dist, tempDir, trackingOf, withTracking } from './helpers.ts';
+import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
 
 function wav(ms: number, rate = 8000): Uint8Array {
   const samples = Math.round(ms * rate / 1000), data = samples * 4, out = Buffer.alloc(44 + data);
@@ -170,6 +171,23 @@ test('renaming a dancer or adding a phrase keeps the song id', async t => {
   await project.apply({ ops: [{ op: 'dancer', dancer: 'P1', label: 'Lead' }, { op: 'phrase', label: 'Verse', start: 0, end: 1000 }, { op: 'marker', t: 500 }] });
   assert.equal((await songBundle(project, await project.read())).songId, before);
 });
+test('changing only authored character motion changes song identity, and removing it restores the original identity', async t => {
+  const dir = await tempDir(t), project = await initProject(path.join(dir, 'p'), { dancers: 1, durationMs: 3000, title: 'Test routine', artist: 'Test' });
+  await writeFile(path.join(dir, 'a.wav'), wav(3000));
+  await attachSources(project, { audio: path.join(dir, 'a.wav') });
+  const original = (await songBundle(project, await project.read())).songId;
+  const keys = [{ t: 0, pose: neutralCharacterPose() }, { t: 1000, pose: neutralCharacterPose() }];
+  await project.apply({ ops: [{ op: 'performance', dancer: 'P1', id: 'reach', start: 0, end: 1000, keys }] });
+  const first = (await songBundle(project, await project.read())).songId;
+  assert.notEqual(first, original);
+  assert.equal((await songBundle(project, await project.read())).songId, first);
+  keys[1].pose.leftHand = [1.2, 3.7, .6];
+  await project.apply({ ops: [{ op: 'performance', dancer: 'P1', id: 'reach', start: 0, end: 1000, keys }] });
+  assert.notEqual((await songBundle(project, await project.read())).songId, first);
+  await project.apply({ ops: [{ op: 'performance', dancer: 'P1', id: 'reach', action: 'remove' }] });
+  assert.equal((await songBundle(project, await project.read())).songId, original);
+});
+
 test('the CLI\'s revision checks and range errors say what\'s wrong', async t => {
   const dir = await tempDir(t), project = path.join(dir, 'p');
   await initProject(project, { dancers: 1, durationMs: 4000 });

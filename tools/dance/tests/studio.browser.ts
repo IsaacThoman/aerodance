@@ -15,6 +15,7 @@ import { chromium } from 'playwright';
 import { chromiumPath, gpuFlags } from '../../../scripts/chromium.ts';
 import { readZip } from '../../../packages/pose/zip.ts';
 import { validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
+import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
 import { Bridge, runBrowserCommand } from '../server.ts';
 import { formatJson, initProject } from '../project.ts';
 import type { RenderSpec } from '../studio/renderSpec.ts';
@@ -208,6 +209,19 @@ try {
   const edited = await bridge.render(overlay(await stampNow()));
   assert.notDeepEqual(edited, plain, 'the hand edit shows');
   await (await import('node:fs/promises')).writeFile(project.file, text);
+
+  step('dancer selection hides authored performances as well as landmark poses');
+  const blank = await bridge.render({ ...small(160, await stampNow()), dancers: [] });
+  const reach = neutralCharacterPose();
+  reach.leftHand = [1.2, 3.7, .6];
+  await project.apply({ ops: [{ op: 'performance', dancer: 'P1', id: 'reach', start: 0, end: 800,
+    keys: [{ t: 0, pose: reach }, { t: 800, pose: reach }] }] });
+  dance = await project.read();
+  const selected = await bridge.render({ ...small(160, await stampNow()), dancers: ['P1'] });
+  const excluded = await bridge.render({ ...small(160, await stampNow()), dancers: [] });
+  assert.notDeepEqual(selected, blank, 'the included dancer renders its authored performance');
+  assert.deepEqual(excluded, blank, 'an excluded authored dancer leaves the same empty scene');
+  await project.apply({ ops: [{ op: 'performance', dancer: 'P1', id: 'reach', action: 'remove' }] });
 
   step('tracking finds the dancer in the video');
   const out = process.stdout.write.bind(process.stdout);

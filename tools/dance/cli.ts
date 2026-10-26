@@ -22,6 +22,7 @@ import { rigToLandmarks } from './rig.ts';
 import { scoreAgainstTracking } from './score.ts';
 import { beatAt, formatTime, parseRange, parseTime } from './time.ts';
 import { JOINT_NAMES } from '../../packages/pose/choreography.ts';
+import { createPerformanceSampler } from '../../packages/pose/performance.ts';
 
 const USAGE = `dance: animate Aerodance dancers to a video (docs/dance-cli.md)
 
@@ -35,8 +36,8 @@ Project
   log <dir>                           the undo and redo history
 
 Read the animation
-  keys <dir> [--dancer P1] [--range a:b] [--controls c,…] [--layer id]
-  pose <dir> --at t [--dancer P1] [--landmarks]     every control's value at t
+  keys <dir> [--dancer P1] [--range a:b] [--controls c,…] [--layer id] [--performance]
+  pose <dir> --at t [--dancer P1] [--landmarks | --performance]     every control's value at t
   sample <dir> --range a:b [--every 100] [--dancer P1] --controls c,…   values over time
 
 Edit (atomic; prints what changed)
@@ -71,6 +72,7 @@ const OPTIONS = {
   link: { type: 'boolean' }, 'no-proxy': { type: 'boolean' }, 'no-video-audio': { type: 'boolean' }, duration: { type: 'string' },
   dancer: { type: 'string' }, range: { type: 'string' }, controls: { type: 'string' }, layer: { type: 'string' },
   at: { type: 'string' }, landmarks: { type: 'boolean' }, every: { type: 'string' },
+  performance: { type: 'boolean' },
   op: { type: 'string', multiple: true }, 'expect-revision': { type: 'string' }, 'op-id': { type: 'string' }, 'dry-run': { type: 'boolean' }, label: { type: 'string' },
   views: { type: 'string' }, zoom: { type: 'string' }, reference: { type: 'boolean' }, mirror: { type: 'boolean' }, width: { type: 'string' },
   out: { type: 'string' }, fps: { type: 'string' }, 'no-audio': { type: 'boolean' }, port: { type: 'string' }, dist: { type: 'boolean' },
@@ -111,6 +113,7 @@ function showDance(dance: Dance, project: DanceProject): string {
     }
     if (d.contacts.length) lines.push(`  contacts ${d.contacts.map(c => `${c.id} ${c.control} ${c.startMs}–${c.endMs}`).join(', ')}`);
     if (d.exclusions.length) lines.push(`  unscored ${d.exclusions.map(x => `${x.id} ${x.startMs}–${x.endMs}${x.controls ? ` ${x.controls.join('+')}` : ''} (${x.reason})`).join(', ')}`);
+    for (const c of d.performance ?? []) lines.push(`  performance ${c.id}: ${c.keys.length} character poses ${formatTime(c.startMs)}–${formatTime(c.endMs)}`);
   }
   if (dance.phrases.length) lines.push(`phrases ${dance.phrases.map(p => `${p.id} "${p.label}" ${p.startMs}–${p.endMs}${p.dancer ? ` ${p.dancer}` : ''}`).join(', ')}`);
   if (dance.markers.length) lines.push(`markers ${dance.markers.map(m => `${m.timeMs} ${m.kind}${m.label ? ` "${m.label}"` : ''}`).join(', ')}`);
@@ -239,12 +242,20 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case 'keys': {
+      if (values.performance) {
+        print(dancers.map(d => ({ dancer: d.id, timeOffsetMs: d.timeOffsetMs, clips: (d.performance ?? []).filter(c => !range || c.endMs >= range[0] && c.startMs <= range[1]) })));
+        return 0;
+      }
       const tables = dancers.map(d => keysTable(dance, d, opt(values, 'layer'), range, controls));
       print(json ? tables.map(t => t.json) : tables.map(t => t.text).join('\n'));
       return 0;
     }
     case 'pose': {
       const at = parseTime(need(values, 'at'), dance);
+      if (values.performance) {
+        print(dancers.map(d => ({ dancer: d.id, songTimeMs: at, performance: createPerformanceSampler(d.performance ?? [])(at - d.timeOffsetMs) })));
+        return 0;
+      }
       const report = poseReport(dance, dancers, at, values.landmarks === true);
       if (json) { print(report); return 0; }
       for (const r of report) {

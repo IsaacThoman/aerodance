@@ -34,7 +34,8 @@ export default function VideoPane({ dance, clock, selection, onSelect, onPreview
   const box = useRef<HTMLDivElement>(null), video = useRef<HTMLVideoElement>(null), canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 640, h: 360 });
   const [view, setView] = useState({ zoom: 1, cx: 0.5, cy: 0.5 });
-  const evaluators = useMemo(() => dance.dancers.map(d => createEvaluator(dance, d)), [dance]);
+  // The pose as keyed (no style), to line up with the video.
+  const evaluators = useMemo(() => dance.dancers.map(d => createEvaluator(dance, d, { style: false })), [dance]);
   /**
    * A joint being dragged: where the pointer went down, the joint's offset from it (so grabbing
    * near a joint doesn't snap it to the pointer), the dancer-clock time it keys, and what layers

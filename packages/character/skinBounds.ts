@@ -1,7 +1,21 @@
-import { Sphere, Vector3 } from 'three';
+import { Matrix4 } from 'three';
 import type { Bone, Object3D, SkinnedMesh } from 'three';
+import type { Sphere } from 'three';
 
-interface Part { mesh: SkinnedMesh; bone: Bone; point: Vector3; }
+interface Part { mesh: SkinnedMesh; bone: Bone; bind: Matrix4; rest: Sphere; }
+
+/** Conservative maximum stretch, including shear; exact when the matrix's axes are orthogonal. */
+function stretch(matrix: Matrix4): number {
+  const e = matrix.elements;
+  const xx = e[0] ** 2 + e[1] ** 2 + e[2] ** 2;
+  const yy = e[4] ** 2 + e[5] ** 2 + e[6] ** 2;
+  const zz = e[8] ** 2 + e[9] ** 2 + e[10] ** 2;
+  const xy = Math.abs(e[0] * e[4] + e[1] * e[5] + e[2] * e[6]);
+  const xz = Math.abs(e[0] * e[8] + e[1] * e[9] + e[2] * e[10]);
+  const yz = Math.abs(e[4] * e[8] + e[5] * e[9] + e[6] * e[10]);
+  // The largest absolute row sum bounds the largest eigenvalue of AᵀA.
+  return Math.sqrt(Math.max(xx + xy + xz, yy + xy + yz, zz + xz + yz));
+}
 
 /**
  * Keeps each rigidly skinned part's bounding sphere on its bone. Three.js computes a skinned
@@ -22,15 +36,17 @@ export function createSkinBounds(model: Object3D): () => void {
     for (let i = 0; i < index.count; i++) if (index.getX(i) !== k || weight.getX(i) !== 1) return;
     mesh.geometry.computeBoundingSphere();
     const sphere = mesh.geometry.boundingSphere!;
-    // The sphere's centre in the bone's space; the skin moves it rigidly with the bone.
-    const point = sphere.center.clone().applyMatrix4(mesh.bindMatrix).applyMatrix4(mesh.skeleton.boneInverses[k]);
-    mesh.boundingSphere = new Sphere(sphere.center.clone(), sphere.radius);
-    parts.push({ mesh, bone: mesh.skeleton.bones[k], point });
+    const bind = new Matrix4().multiplyMatrices(mesh.skeleton.boneInverses[k], mesh.bindMatrix);
+    mesh.boundingSphere = sphere.clone();
+    parts.push({ mesh, bone: mesh.skeleton.bones[k], bind, rest: sphere.clone() });
   });
+  const skin = new Matrix4();
   return () => {
-    for (const { mesh, bone, point } of parts) {
-      // Mesh space, as the skin shader places it: bindMatrixInverse · bone world · point.
-      mesh.boundingSphere!.center.copy(point).applyMatrix4(bone.matrixWorld).applyMatrix4(mesh.bindMatrixInverse);
+    for (const { mesh, bone, bind, rest } of parts) {
+      // The full skin transform maps the geometry's rest sphere into current mesh space.
+      skin.multiplyMatrices(mesh.bindMatrixInverse, bone.matrixWorld).multiply(bind);
+      mesh.boundingSphere!.center.copy(rest.center).applyMatrix4(skin);
+      mesh.boundingSphere!.radius = rest.radius * stretch(skin);
     }
   };
 }

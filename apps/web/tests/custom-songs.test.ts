@@ -6,6 +6,8 @@ import { appSongsStore, pickAppSongs } from '../src/songs/appSongs.ts';
 import type { AppSongsOptions } from '../src/songs/appSongs.ts';
 import type { PickedSong } from '../src/host.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
+import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
+import type { Performance } from '../../../packages/pose/performance.ts';
 import { bundleFiles, exportZip, memoryStore, sha } from './helpers/customSongs.ts';
 
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
@@ -39,6 +41,21 @@ test('imports a Dance Studio export, lists it and loads it with its own best-sco
   assert.equal(await removeCustomSong(entry, store), true);
   assert.deepEqual(await listCustomSongs(store), []);
   assert.equal(await removeCustomSong(entry, store), false);
+});
+
+test('an imported ZIP retains authored character motion when the saved song is loaded again', async () => {
+  const performance: Performance = { schema: 'aerodance.performance', schemaVersion: 1, tracks: [{ clips: [
+    { id: 'reach', startMs: 100, endMs: 700, keys: [
+      { t: 100, pose: neutralCharacterPose() },
+      { t: 700, pose: { ...neutralCharacterPose(), leftHand: [1.2, 3.7, .6] } },
+    ] },
+  ] }] };
+  const store = memoryStore();
+  const imported = await importSongZip(exportZip(bundleFiles(bundleFixture({ dancers: 1 }), performance)), { store });
+  assert.equal(imported.status, 'imported');
+  assert.ok(store.files.get(imported.entry.id)?.has('performance.json'));
+  const [saved] = await listCustomSongs(store);
+  assert.deepEqual((await loadCustomSong(saved, { store })).performance, performance);
 });
 
 test('replacing asks first unless the import is a later revision', async () => {

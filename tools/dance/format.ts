@@ -12,6 +12,8 @@
 // are on its own clock: song time minus its timeOffsetMs.
 import { isStageId } from '../../packages/stages/catalog.ts';
 import type { StageId } from '../../packages/stages/catalog.ts';
+import { assertPerformanceClips } from '../../packages/pose/performance.ts';
+import type { PerformanceClip } from '../../packages/pose/performance.ts';
 
 export const DANCE_SCHEMA = 'aerodance.dance';
 export const DANCE_VERSION = 1;
@@ -111,6 +113,36 @@ export interface Body {
 export const BODY_FIELDS: readonly (keyof Body)[] = ['shoulderWidth', 'hipWidth', 'torso', 'neck', 'head', 'upperArm', 'forearm', 'thigh', 'shin', 'hand', 'foot'];
 /** How the game sizes and places the character (the retargeter's calibration); null derives it from the poses. */
 export interface Calibration { torsoLength: number; baseHip: [number, number, number]; floorY: number; }
+/**
+ * Exaggeration for the game's character, applied to the evaluated pose (1 leaves a part as
+ * keyed). The keys stay true to the video; the characters, the scorer and the export play the
+ * styled pose. The character has no elbows or knees: it shows the hips, torso lean and turn, the
+ * head, and floating hands and feet, so those are what a style can push further. Only lean and
+ * sway change a scored limb direction (the torso's, and the legs' as the hips move over the feet);
+ * the rest move or scale limbs whole.
+ */
+export interface Style {
+  /** Arms longer from the shoulder, elbow and wrist alike, so the hands travel further. */
+  reach: number;
+  /** How far the body dips below its average height over about a beat (the whole body moves). */
+  bounce: number;
+  /** Side-to-side hip motion within about a beat, likewise. */
+  sway: number;
+  /** Torso lean from upright; the arms keep their directions. */
+  lean: number;
+  /** Body turn (it moves only depth). */
+  turn: number;
+  /** Head yaw, pitch and roll. */
+  head: number;
+  /** How high a raised foot rises off the floor (the leg shortens toward the hip). */
+  lift: number;
+}
+export const STYLE_FIELDS: readonly (keyof Style)[] = ['reach', 'bounce', 'sway', 'lean', 'turn', 'head', 'lift'];
+/** The range each style factor may take. */
+export const STYLE_LIMITS: Readonly<Record<keyof Style, readonly [number, number]>> = {
+  reach: [0.5, 2], bounce: [0, 4], sway: [0, 4], lean: [0, 3], turn: [0, 3], head: [0, 3], lift: [0, 4],
+};
+export const neutralStyle = (): Style => ({ reach: 1, bounce: 1, sway: 1, lean: 1, turn: 1, head: 1, lift: 1 });
 export interface Dancer {
   id: string; label: string;
   /** Delays this dancer's whole animation, in ms (negative advances it). */
@@ -119,6 +151,10 @@ export interface Dancer {
   home: [number, number];
   body: Body;
   calibration: Calibration | null;
+  /** Exaggeration for the characters; absent or null plays the pose as keyed. */
+  style?: Style | null;
+  /** Direct character poses on the dancer's clock; independent of scoring landmarks. */
+  performance?: PerformanceClip[];
   /** layers[0] is the absolute base; any further layers are additive. */
   layers: Layer[];
   contacts: Contact[];
@@ -340,6 +376,14 @@ function checkDancer(d: unknown, path: string, ids: Set<string>) {
     check(isObject(c) && finite(c.torsoLength) && c.torsoLength > 0 && Array.isArray(c.baseHip) && c.baseHip.length === 3 && c.baseHip.every(finite) &&
       finite(c.floorY), `${path}.calibration`, 'must be null or { torsoLength, baseHip: [x, y, z], floorY }');
   }
+  if (d.style !== undefined && d.style !== null) {
+    const style = d.style;
+    check(isObject(style), `${path}.style`, 'must be null or an object of factors');
+    for (const k of STYLE_FIELDS) check(finite(style[k]) && style[k] >= STYLE_LIMITS[k][0] && style[k] <= STYLE_LIMITS[k][1], `${path}.style.${k}`,
+      `must be a factor from ${STYLE_LIMITS[k][0]} to ${STYLE_LIMITS[k][1]}`);
+    for (const k of Object.keys(style)) check((STYLE_FIELDS as readonly string[]).includes(k), `${path}.style.${k}`, `is not a style factor; they are ${STYLE_FIELDS.join(', ')}`);
+  }
+  if (d.performance !== undefined) assertPerformanceClips(d.performance);
   check(Array.isArray(d.layers) && d.layers.length >= 1, `${path}.layers`, 'needs at least the base layer');
   const layerIds = new Set<string>();
   d.layers.forEach((layer, i) => {

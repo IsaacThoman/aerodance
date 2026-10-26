@@ -11,6 +11,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../packages/character/Character.tsx';
 import type { Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
 import type { SongBundle } from '../../../packages/pose/song.ts';
+import type { CharacterPose } from '../../../packages/pose/performance.ts';
 import { defaultCast } from '../../../packages/pose/song.ts';
 import Dancers, { DANCER_LOOKS, dancerSpot } from '../../../packages/stages/shared/Dancers.tsx';
 import { STAGES } from '../../../packages/stages/index.ts';
@@ -35,6 +36,7 @@ export function Ready({ onReady }: { onReady: () => void }) {
 }
 export interface CharacterSceneProps {
   poses: RefObject<(Pose | null)[]>;
+  performances?: RefObject<(CharacterPose | null)[]>;
   calibrations: readonly TrackCalibration[];
   /** As the game's coach (mirrored), instead of as filmed. */
   mirror?: boolean;
@@ -42,11 +44,12 @@ export interface CharacterSceneProps {
   focus?: number | null;
   onReady?: () => void;
 }
-function PoseCharacter({ index, poses, calibration, opacity }: { index: number; poses: RefObject<(Pose | null)[]>; calibration: TrackCalibration; opacity: number }) {
+function PoseCharacter({ index, poses, performances, calibration, opacity }: { index: number; poses: RefObject<(Pose | null)[]>; performances?: RefObject<(CharacterPose | null)[]>; calibration: TrackCalibration; opacity: number }) {
   // Character reads poseRef.current each frame; this view of the shared array keeps it current.
   const poseRef = useMemo((): RefObject<Pose | null> => ({ get current() { return poses.current?.[index] ?? null; } } as RefObject<Pose | null>), [poses, index]);
+  const performanceRef = useMemo((): RefObject<CharacterPose | null> => ({ get current() { return performances?.current[index] ?? null; } }), [performances, index]);
   const look = useMemo(() => ({ ...DANCER_LOOKS[index % DANCER_LOOKS.length], opacity }), [index, opacity]);
-  return <Character poseRef={poseRef} calibration={calibration} appearance={look} />;
+  return <Character poseRef={poseRef} performanceRef={performanceRef} calibration={calibration} appearance={look} />;
 }
 /** Frames `count` dancers standing side by side: closer for one, wider for a crew. */
 export function CharacterCamera({ count }: { count: number }) {
@@ -63,7 +66,7 @@ export function CharacterCamera({ count }: { count: number }) {
   }, [camera, count]);
   return null;
 }
-export function CharacterScene({ poses, calibrations, mirror = false, focus = null, onReady }: CharacterSceneProps) {
+export function CharacterScene({ poses, performances, calibrations, mirror = false, focus = null, onReady }: CharacterSceneProps) {
   const count = calibrations.length;
   return (
     <>
@@ -83,7 +86,7 @@ export function CharacterScene({ poses, calibrations, mirror = false, focus = nu
           return (
             <group key={i} position={[spot.x, 0.015, 0]} scale={spot.scale}>
               <group scale={[mirror ? -1 : 1, 1, 1]}>
-                <PoseCharacter index={i} poses={poses} calibration={calibration} opacity={focus === null || focus === i ? 0.85 : 0.45} />
+                <PoseCharacter index={i} poses={poses} performances={performances} calibration={calibration} opacity={focus === null || focus === i ? 0.85 : 0.45} />
               </group>
             </group>
           );
