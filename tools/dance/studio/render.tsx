@@ -292,7 +292,8 @@ async function renderNow(spec: RenderSpec): Promise<string> {
     }
     for (const [row, t] of spec.times.entries()) {
       sceneTime = t;
-      performances.current = data.performances.map((sample, i) => sample(t - dance.dancers[i].timeOffsetMs));
+      performances.current = data.performances.map((sample, i) => spec.dancers && !spec.dancers.includes(dance.dancers[i].id)
+        ? null : sample(t - dance.dancers[i].timeOffsetMs));
       poses.current = data.evaluators.map((e, i) => ({ playerId: i, landmarks: e.landmarks(t) }) as Pose)
         .map((p, i) => spec.dancers && !spec.dancers.includes(dance.dancers[i].id) ? null : p);
       // A couple of steps, so smoothing that depends on the last frame settles.
