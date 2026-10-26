@@ -49,7 +49,6 @@ export const GAME_PAUSE_PANEL ={ x: 560, y: 250, w: 480, h: 420 };
 export const GAME_RESUME = { x: 610, y: 340, w: 380, h: 84 };
 export const GAME_RESTART = { x: 610, y: 444, w: 380, h: 84 };
 export const GAME_QUIT = { x: 610, y: 548, w: 380, h: 84 };
-export const GAME_PROGRESS = { x: 560, y: 852, w: 480, h: 14 };
 // Results: the scoreboard down the left (the stage and its winner on the right). The winner
 // large on top, `top` tall, then a `row` per other player and `pad` under them; a solo round
 // has its judgements, `stats` tall, instead. Play again and Song select sit side by side under
@@ -115,6 +114,5 @@ export function gameLayout(width = 1600) {
     GAME_RESUME: centered(GAME_RESUME),
     GAME_RESTART: centered(GAME_RESTART),
     GAME_QUIT: centered(GAME_QUIT),
-    GAME_PROGRESS: centered(GAME_PROGRESS),
   };
 }

@@ -255,7 +255,7 @@ function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup,
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
+  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, session, source, onQuit, onRetry });
   props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
@@ -427,11 +427,6 @@ export default function GameScreen({ visible = false, session, camera: source, o
         ICONS.pause(g, GAME_PAUSE.x, GAME_PAUSE.y, 36);
         g.restore();
       }
-      const t = session.loaded().timeMs() - song.playableStartMs;
-      const total = song.playableEndMs - song.playableStartMs;
-      drawProgress(g, GAME_PROGRESS, t / total);
-      g.font = `700 22px ${FONT}`;
-      drawShadowText(g, ellipsize(g, song.title, GAME_PROGRESS.w), GAME_PROGRESS.x, GAME_PROGRESS.y - 22, { size: 22 });
 
       if (ph === 'countdown') {
         const left = session.countdownMs();
