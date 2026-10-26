@@ -19,7 +19,8 @@ the Siri Remote.
 - **`runtime/`**: a small browser. `dom.ts` is enough of the DOM for React DOM and R3F's
   `<Canvas>`; `web.ts` has timers, `fetch`, `URL`, `Blob`, `TextEncoder`, storage and crypto;
   `audio.ts` is the Web Audio the game uses (gain automation, buffer sources, `decodeAudioData`)
-  over the mixer in `src/Audio.mm`.
+  over the mixer in `src/Audio.mm`. It plays as long-form audio and the app is the Now Playing
+  app, so it follows the speakers chosen in Control Center (AirPlay, HomePod) and their volume.
 - **WebGL 2** (`runtime/webgl.ts`): calls that return nothing are encoded into a command buffer
   in shared memory (`runtime/ops.ts` lists the commands); object handles are numbered in
   JavaScript, so creating a buffer or texture doesn't wait. The buffer is handed over once a

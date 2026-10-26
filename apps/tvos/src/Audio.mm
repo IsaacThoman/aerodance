@@ -213,6 +213,14 @@ void BuildEngine() {
   }];
 }
 
+/** Playback, as long-form audio: tvOS sends only long-form audio to the speakers chosen in
+ *  Control Center (AirPlay speakers, a HomePod); other apps' sound stays on the TV. */
+void SetCategory() {
+  NSError *error = nil;
+  if (![AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeDefault routeSharingPolicy:AVAudioSessionRouteSharingPolicyLongFormAudio options:0 error:&error])
+    HostLog(2, [NSString stringWithFormat:@"audio session: %@", error]);
+}
+
 void Restart(NSString *why) {
   AVAudioSession *session = AVAudioSession.sharedInstance;
   [session setActive:YES error:nil];
@@ -225,7 +233,7 @@ void Start() {
   if (gEngine) return;
   gEvents = dispatch_queue_create("aerodance.audio.events", DISPATCH_QUEUE_SERIAL);
   AVAudioSession *session = AVAudioSession.sharedInstance;
-  [session setCategory:AVAudioSessionCategoryPlayback error:nil];
+  SetCategory();
   [session setActive:YES error:nil];
   gRate = session.sampleRate > 0 ? session.sampleRate : 48000;
   gLatency = session.outputLatency + session.IOBufferDuration;
@@ -247,7 +255,7 @@ void Start() {
     }];
   }
   [center addObserverForName:AVAudioSessionMediaServicesWereResetNotification object:session queue:nil usingBlock:^(NSNotification *) {
-    dispatch_async(gEvents, ^{ [AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryPlayback error:nil]; Restart(@"a media services reset"); });
+    dispatch_async(gEvents, ^{ SetCategory(); Restart(@"a media services reset"); });
   }];
   [center addObserverForName:AVAudioSessionRouteChangeNotification object:session queue:nil usingBlock:^(NSNotification *) {
     dispatch_async(gEvents, ^{ if (!gEngine.isRunning) Restart(@"a route change"); else gLatency = AVAudioSession.sharedInstance.outputLatency + AVAudioSession.sharedInstance.IOBufferDuration; });
