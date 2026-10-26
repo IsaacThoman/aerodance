@@ -34,12 +34,31 @@ jobs:
       - run: npm run dance:build
 
   browser:
-    # The TV remote, the canvas UI flow, imported songs and transferring them in Chromium; the Dockerfile's ui-test stage brings Playwright.
+    # The TV remote, the canvas UI flow, imported songs and transferring them in Chromium; the
+    # Dockerfile's ui-test stage brings Playwright. Each test runs in its own job, side by side;
+    # the image's default command runs them all, one after another.
+    name: browser (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: remote
+            test: node apps/web/tests/remote.browser.ts
+          - name: ui-flow widescreen
+            test: node apps/web/tests/ui-flow.browser.ts
+          - name: ui-flow standard
+            test: UI_ASPECT=standard node apps/web/tests/ui-flow.browser.ts
+          - name: custom-songs
+            test: node apps/web/tests/custom-songs.browser.ts
+          - name: transfer-songs
+            test: >-
+              node apps/web/tests/transfer-songs.browser.ts &&
+              TRANSFER_TRANSPORT=relay node apps/web/tests/transfer-songs.browser.ts
     steps:
       - uses: actions/checkout@v5
       - run: docker build --target ui-test -t aerodance-ui-browser-test .
-      - run: docker run --rm aerodance-ui-browser-test
+      - run: docker run --rm aerodance-ui-browser-test sh -c "${{ matrix.test }}"
 
   studio-browser:
     # Dance Studio in Chromium: project loading, video import and the duet import.
