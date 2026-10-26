@@ -19,6 +19,8 @@ To animate dancers to a video by hand (from scratch or from tracking), use the
 [`dance` CLI and animation Studio](dance-cli.md) in [`tools/dance`](../tools/dance/README.md).
 Its projects ([`aerodance.dance`](dance-format.md)) keep keys, curves, planted feet and timing on
 disk, and export the same song bundles. It is built to be driven by coding agents.
+See [the video conversion guide](video-dance-conversion.md) for the process that combines authored
+character movements, tracked secondary motion, protected interactions, and geometry checks.
 
 ## Aero background
 
