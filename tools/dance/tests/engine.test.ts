@@ -120,3 +120,74 @@ test('contacts plant a foot, blending in and out', () => {
   let last = e.rig(390).points.leftAnkle;
   for (let t = 391; t <= 1400; t++) { const p = e.rig(t).points.leftAnkle; assert.ok(dist(p, last) < 0.004, `jump at ${t}`); last = p; }
 });
+
+test('a style exaggerates the pose for the character and leaves the keys as filmed', () => {
+  const pose = { head: [0.5, 0.3], leftShoulder: [0.54, 0.36], rightShoulder: [0.46, 0.36], leftElbow: [0.6, 0.3], leftWrist: [0.64, 0.22],
+    rightElbow: [0.41, 0.42], rightWrist: [0.4, 0.5], leftHip: [0.53, 0.56], rightHip: [0.47, 0.56], leftKnee: [0.54, 0.7], rightKnee: [0.46, 0.7],
+    leftAnkle: [0.54, 0.84], rightAnkle: [0.46, 0.84] };
+  // The head rests at 0 (its keys' median) and glances 10° aside at 1 s.
+  const keys = [{ op: 'song', set: { bpm: 120, beatOffsetMs: 0 } }, { op: 'key', dancer: 'P1', t: 1000, set: { ...pose, turn: 20, headYaw: 10 } },
+    { op: 'key', dancer: 'P1', t: 0, set: { headYaw: 0 } }, { op: 'key', dancer: 'P1', t: 2000, set: { headYaw: 0 } }];
+  const base = danceWith(keys);
+  const styled = danceWith([...keys, { op: 'dancer', dancer: 'P1', style: { reach: 1.5, turn: 2, head: 2 } }]);
+  const plain = createEvaluator(base, base.dancers[0]).rig(1000), e = createEvaluator(styled, styled.dancers[0]);
+  const s = e.rig(1000), keyed = createEvaluator(styled, styled.dancers[0], { style: false }).rig(1000);
+  assert.deepEqual(keyed, plain, 'style: false plays the keys as they are');
+  assert.deepEqual(styled.dancers[0].style, { reach: 1.5, bounce: 1, sway: 1, lean: 1, turn: 2, head: 2, lift: 1 }, 'unnamed factors stay at 1');
+  // Reach scales the arm about its shoulder: 1.5 times as far, the same direction.
+  for (const side of ['left', 'right'] as const) {
+    const sh = plain.points[`${side}Shoulder`], w = plain.points[`${side}Wrist`], sw = s.points[`${side}Wrist`];
+    assert.ok(close(dist(sh, sw), 1.5 * dist(sh, w), 1e-9));
+    assert.ok(close(Math.atan2(sw[1] - sh[1], sw[0] - sh[0]), Math.atan2(w[1] - sh[1], w[0] - sh[0]), 1e-9));
+  }
+  assert.equal(s.turn, 40);
+  assert.equal(s.headYaw, 20);
+  // Grown about the head's rest: a head that rests turned keeps resting there.
+  const resting = danceWith([...keys.slice(0, 2), { op: 'key', dancer: 'P1', t: 0, set: { headYaw: 10 } }, { op: 'key', dancer: 'P1', t: 2000, set: { headYaw: 10, turn: 50 } },
+    { op: 'dancer', dancer: 'P1', style: { head: 2, turn: 2 } }]);
+  const r = createEvaluator(resting, resting.dancers[0]);
+  assert.equal(r.rig(1000).headYaw, 10);
+  // Never grown round past side-on.
+  assert.equal(r.rig(2000).turn, 80);
+  assert.deepEqual(s.points.leftHip.slice(0, 2), plain.points.leftHip.slice(0, 2), 'reach, turn and head move no hip on screen (turn moves it in depth)');
+  // The base layer that ops key from is unstyled.
+  assert.deepEqual(createEvaluator(styled, styled.dancers[0], { additive: false }).rig(1000).points.leftWrist, plain.points.leftWrist);
+});
+test('lean grows an upright lean but leaves a body bent over as keyed', () => {
+  const upright = (dx: number) => ({ leftShoulder: [0.54 + dx, 0.36], rightShoulder: [0.46 + dx, 0.36], leftHip: [0.53, 0.56], rightHip: [0.47, 0.56] });
+  const leanOf = (p: Record<string, number[]>) => Math.atan2(((p.leftShoulder[0] + p.rightShoulder[0]) - (p.leftHip[0] + p.rightHip[0])) / 2 * 16 / 9,
+    (p.leftHip[1] + p.rightHip[1]) / 2 - (p.leftShoulder[1] + p.rightShoulder[1]) / 2);
+  const with_ = (set: object) => {
+    const d = danceWith([{ op: 'key', dancer: 'P1', t: 0, set }, { op: 'dancer', dancer: 'P1', style: { lean: 2 } }]);
+    return [createEvaluator(d, d.dancers[0], { style: false }).rig(0).points, createEvaluator(d, d.dancers[0]).rig(0).points];
+  };
+  const [k1, s1] = with_(upright(0.03));
+  assert.ok(close(leanOf(s1), 2 * leanOf(k1), 1e-6), 'a slight lean doubles');
+  // On all fours: shoulders level with the hips, beside them.
+  const [k2, s2] = with_({ leftShoulder: [0.62, 0.56], rightShoulder: [0.62, 0.5], leftHip: [0.5, 0.56], rightHip: [0.5, 0.5] });
+  assert.ok(close(leanOf(s2), leanOf(k2), 1e-9));
+});
+test('lift raises a foot off the floor; bounce deepens dips without bending a limb', () => {
+  const stand = { leftHip: [0.53, 0.56], rightHip: [0.47, 0.56], leftKnee: [0.54, 0.7], rightKnee: [0.46, 0.7], leftAnkle: [0.54, 0.84], rightAnkle: [0.46, 0.84] };
+  const raised = { ...stand, leftKnee: [0.56, 0.66], leftAnkle: [0.55, 0.78] };
+  const ops = [{ op: 'song', set: { bpm: 120, beatOffsetMs: 0 } }, { op: 'key', dancer: 'P1', t: 0, set: stand }, { op: 'key', dancer: 'P1', t: 1000, set: raised },
+    { op: 'key', dancer: 'P1', t: 2000, set: stand }];
+  const d = danceWith([...ops, { op: 'dancer', dancer: 'P1', style: { lift: 2 } }]);
+  const k = createEvaluator(d, d.dancers[0], { style: false }).rig(1000).points, s = createEvaluator(d, d.dancers[0]).rig(1000).points;
+  assert.ok(s.leftAnkle[1] < k.leftAnkle[1] - 0.02, 'the raised foot goes higher');
+  assert.ok(close(s.rightAnkle[1], k.rightAnkle[1], 1e-9), 'the standing foot stays on the floor');
+  const thigh = (p: typeof k) => Math.atan2(p.leftKnee[1] - p.leftHip[1], p.leftKnee[0] - p.leftHip[0]);
+  assert.ok(close(thigh(s), thigh(k), 1e-9), 'the leg shortens along itself');
+  const dip = danceWith([...ops.slice(0, 1), { op: 'key', dancer: 'P1', t: 0, set: stand },
+    { op: 'key', dancer: 'P1', t: 500, set: Object.fromEntries(Object.entries(stand).map(([c, v]) => [c, [v[0], v[1] + 0.03]])) },
+    { op: 'key', dancer: 'P1', t: 1000, set: stand }, { op: 'dancer', dancer: 'P1', style: { bounce: 2 } }]);
+  const kd = createEvaluator(dip, dip.dancers[0], { style: false }).rig(500).points, sd = createEvaluator(dip, dip.dancers[0]).rig(500).points;
+  assert.ok(sd.leftHip[1] > kd.leftHip[1] + 0.005, 'the low point goes lower');
+  assert.ok(close(sd.leftAnkle[1] - sd.leftHip[1], kd.leftAnkle[1] - kd.leftHip[1], 1e-9), 'the whole body moves');
+});
+test('style factors are checked', () => {
+  assert.throws(() => danceWith([{ op: 'dancer', dancer: 'P1', style: { reach: 9 } }]), /reach/);
+  assert.throws(() => danceWith([{ op: 'dancer', dancer: 'P1', style: { wobble: 2 } }]), /no factor wobble/);
+  const d = danceWith([{ op: 'dancer', dancer: 'P1', style: { reach: 1.4 } }, { op: 'dancer', dancer: 'P1', style: null }]);
+  assert.equal(d.dancers[0].style, undefined);
+});

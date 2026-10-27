@@ -12,6 +12,8 @@ import type { BufferGeometry, ColorRepresentation, Mesh, Object3D, Skeleton, Ski
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createRetargeter } from "./motion.ts";
 import { createPoseApplier } from "./retarget.ts";
+import { createPerformanceApplier } from './performance.ts';
+import type { CharacterPose } from '../pose/performance.ts';
 import { BalloonPop } from "./balloonPop.ts";
 import { LivePoseFilter } from './livePoseFilter.ts';
 import { cloneCharacter } from './cloneCharacter.ts';
@@ -45,6 +47,8 @@ export interface CharacterProps {
   person?: number;
   playback?: RefObject<number>;
   poseRef?: RefObject<Pose | null>;
+  /** Authored character performance; used while a clip is active. */
+  performanceRef?: RefObject<CharacterPose | null>;
   calibration?: TrackCalibration | null;
   /** Live webcam input: smooth the displayed pose and keep rendering while it settles. */
   live?: boolean;
@@ -63,6 +67,7 @@ export default function Character({
   person = 0,
   playback,
   poseRef,
+  performanceRef,
   calibration,
   live = false,
   popRef,
@@ -87,6 +92,7 @@ export default function Character({
     [model, motion, person],
   );
   const applyPose = useMemo(() => calibration ? createPoseApplier(model, calibration, {smoothDistance:live}) : null, [model, calibration, live]);
+  const applyPerformance = useMemo(() => createPerformanceApplier(model), [model]);
   // A fresh filter for each model/calibration/live session, so old smoothing never carries over.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const poseFilter=useMemo(()=>new LivePoseFilter(),[model,calibration,live]);
@@ -169,6 +175,8 @@ export default function Character({
         if (!Array.isArray(obj.material) && obj.material.name === "Ink") obj.material = ink;
       }
     });
+    // Changes made here don't draw by themselves on a canvas that renders on demand.
+    invalidate();
     return () => {
       ownedGeometries.forEach((geo) => geo.dispose());
       skeletons.forEach((skeleton) => skeleton.dispose());
@@ -177,15 +185,16 @@ export default function Character({
       gel.dispose();
       ink.dispose();
     };
-  }, [model, mixer, gel, ink]);
+  }, [model, mixer, gel, ink, invalidate]);
   useEffect(() => {
     gel.color = new Color(appearance.color);
     gel.roughness = 0.36 - appearance.gloss * 0.0029;
     gel.clearcoat = 0.4 + appearance.gloss * 0.006;
     gel.opacity = appearance.opacity ?? 0.72;
     accessories.select(appearance.accessory);
+    invalidate();
     return () => accessories.restore();
-  }, [appearance, accessories, gel]);
+  }, [appearance, accessories, gel, invalidate]);
   useEffect(() => {
     if (retarget || applyPose) return;
     const clip = gltf.animations.find((c) => c.name === animation);
@@ -204,7 +213,9 @@ export default function Character({
       // Faded out entirely: nobody sees the pose, so skip it.
       if (opacityRef.current <= 0) return;
     }
-    if (applyPose) {
+    if (applyPerformance(performanceRef?.current)) {
+      // The keyed performance already placed every part.
+    } else if (applyPose) {
       const pose = poseRef?.current ?? null;
       applyPose(live ? poseFilter.update(pose,delta) : pose,delta);
       if(live && (poseFilter.settling || applyPose.settling)) invalidate();

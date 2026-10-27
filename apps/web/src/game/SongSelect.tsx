@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
   FONT, dancerWidth, drawDancer, drawGlassButton, drawHeader, drawShadowText, ellipsize, glassCorner, paragraph, roundRect, wrapText,
 } from '../ui/draw.ts';
-import type { Face, IconDraw, Point, Rect } from '../ui/draw.ts';
+import type { Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane } from '../ui/useGlassBlur.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
@@ -18,7 +18,8 @@ import type { Cast, CatalogSong } from '../../../../packages/pose/song.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { SCORER_VERSION } from '../../../../packages/score/scorer.ts';
 import { bestScore } from './bestScores.ts';
-import { PLAYERS } from './results.ts';
+import { createCastSprites } from './castSprites.ts';
+import { castHit, drawCastScreen, faceFill, playerFace } from './castScreen.ts';
 import type { SongRoutine } from './GameSession.ts';
 import type { PoseInputView, PoseSource } from '../pose/PoseSource.ts';
 import { preloadStage, resolveStage } from '../../../../packages/stages/index.ts';
@@ -31,8 +32,9 @@ import { displayDesign } from '../display.ts';
  *
  *   list     the published songs (songs/manifest.json, found by scripts/songCatalog.ts),
  *            then the songs imported into this browser or app (songs/customSongs.ts; Settings →
- *            Songs imports and removes them), each with a cutout of every dancer it has in
- *            the colour of the player following them. Five are in view at a time; the wheel,
+ *            Songs imports and removes them), each with a cutout of every dancer it has, each in
+ *            a different move, in the colour of the player following them (castSprites.ts).
+ *            Five are in view at a time; the wheel,
  *            a drag (or swipe) and the keyboard cursor scroll the rest in, a row at a time
  *   preview  a song's music with its reference dancers on the song's stage (StageView,
  *            mounted by App from onPreviewChange; each song's stage is picked in Dance
@@ -40,8 +42,10 @@ import { displayDesign } from '../display.ts';
  *            and Dance!, which hands the bundle and the cast to the game (onDance); the menu
  *            music ducks underneath. A song with more than one dancer has Dancers beside it
  *   dancers  which dancer each player follows (the cast): players take the dancers in turn
- *            until they pick (Auto goes back to that), and the dancers on the stage, faced
- *            from the front, change colour with them. Picks last while the game is open.
+ *            until they pick (Auto goes back to that). The players are listed down the left
+ *            (castScreen.ts), each tapping their dancer, and the stage moves right, its
+ *            dancers faced from the front, changing colour with the picks and named under
+ *            their feet. Picks last while the game is open.
  *
  * Choosing a song keeps the list up, its row loading, until the preview can show at once: the
  * bundle loads (fully verified, songs/loadBundle.ts) while the stage's code downloads, then the
@@ -121,24 +125,15 @@ const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players
 const playsMusic = (screen: SongScreen) => screen !== 'list';
 const castKey = (key: string, playerCount: number) => `${key}|${playerCount}`;
 const sameCast = (a: Cast, b: Cast) => a.length === b.length && a.every((d, i) => d === b[i]);
-const inside = (p: Point, r: Rect) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
-// A player's colours, light to dark: their disc, and the dancer they follow.
-const playerFace = (id: number): Face => [PLAYERS[id].light, PLAYERS[id].color, PLAYERS[id].dark];
-// A dancer nobody follows, or on a player's row one they don't: an empty spot on the glass.
+// A dancer nobody follows: an empty spot on the glass.
 const SPARE = 'rgba(255, 255, 255, 0.3)';
-const SPARE_HOVER = 'rgba(255, 255, 255, 0.6)';
 // A press on the list that travels this far (design units) drags it instead of choosing a song.
 const DRAG_SLOP = 14;
 // A released drag carries on for this long at the speed it was going.
 const FLING_S = 0.2;
 
-function faceFill(g: CanvasRenderingContext2D, face: Face, top: number, bottom: number) {
-  const fill = g.createLinearGradient(0, top, 0, bottom);
-  face.forEach((color, i) => fill.addColorStop(i / 2, color));
-  return fill;
-}
-
-// A song's dancers side by side, ending at `right`, each `h` tall on `floor`, hands overlapping
+// Until the dancers are rendered (or if they can't be), their vector cutouts instead:
+// side by side, ending at `right`, each `h` tall on `floor`, hands overlapping
 // (castWidth across): each in the colour of the first player following them, or an empty spot.
 function drawCast(g: CanvasRenderingContext2D, right: number, floor: number, h: number, dancers: number, cast: Cast) {
   const w = dancerWidth(h), step = w * 0.8;
@@ -161,41 +156,6 @@ const castWidth = (h: number, dancers: number) => dancerWidth(h) * (1 + 0.8 * (d
 // The cutouts in a song's row: their height and the gap to the pill's right end.
 const rowCutout = (rowH: number) => ({ h: Math.round(rowH * 0.68), right: rowH * 0.4 });
 
-// The dancers on a player's row, ending at its right: where each can be picked, and drawn
-// (inset) on its spot.
-function castSlots(row: Rect, dancers: number): Rect[] {
-  const h = row.h - 12, w = Math.round(dancerWidth(h * 0.8) + 18);
-  const end = row.x + row.w - row.h * 0.36;
-  return Array.from({ length: dancers }, (_, d) => ({ x: end - (dancers - d) * w - (dancers - 1 - d) * 4, y: row.y + 6, w, h }));
-}
-// A player's pick on their row: a lit spot behind the dancer, rimmed in their colour.
-function drawPicked(g: CanvasRenderingContext2D, slot: Rect, face: Face) {
-  g.save();
-  roundRect(g, slot.x, slot.y, slot.w, slot.h, 14);
-  g.fillStyle = 'rgba(255, 255, 255, 0.2)';
-  g.fill();
-  g.lineWidth = 3;
-  g.strokeStyle = face[0];
-  g.stroke();
-  g.restore();
-}
-// The player's number on a disc in their colour, where a glass button has its icon.
-const playerGlyph = (id: number): IconDraw => (g, cx, cy, r) => {
-  const d = r * 0.9;
-  g.beginPath();
-  g.arc(cx, cy, d, 0, Math.PI * 2);
-  g.fillStyle = faceFill(g, playerFace(id), cy - d, cy + d);
-  g.fill();
-  g.lineWidth = 2;
-  g.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-  g.stroke();
-  g.shadowColor = 'transparent';
-  g.fillStyle = '#ffffff';
-  g.font = `800 ${Math.round(d * 1.25)}px ${FONT}`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(String(id + 1), cx, cy + d * 0.06);
-};
 
 // Each player's tracking, from the pose input (reported for tests as data-player-slots).
 function slotStatus(connection: PoseInputView, id: number): { label: string; kind?: 'detected' } {
@@ -214,7 +174,7 @@ export default function SongSelect({
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const {
-    BACK, CAST_AUTO, DANCE, DANCERS, PREVIEW_NOTE, RETRY, ROWS, SCROLLBAR, castRow, rowRect,
+    BACK, DANCE, DANCERS, PREVIEW_NOTE, RETRY, ROWS, SCROLLBAR, cast: castLayoutFor, rowRect,
   } = gameLayout(displayDesign(size.width, size.height).w);
   const step = ROWS.h + ROWS.gap;
   const props = useRef({ visible, playerCount, source, onBack, stageState, onPreviewChange, onScreenChange, onDance });
@@ -265,8 +225,10 @@ export default function SongSelect({
     const rect = songRect(i);
     return { id: `song-${song.key}`, song, rect, corner: glassCorner(rect.h), primary: i === primary, hit: inView(i) > 0.5 };
   };
+  // The dancers screen's layout (layout.ts; castScreen.ts draws it).
+  const castLayout = () => castLayoutFor(props.current.playerCount);
   const castWidget = (player: number): SongWidget => {
-    const rect = castRow(player, props.current.playerCount);
+    const layout = castLayout(), rect = layout.rows[player];
     return { id: `cast-${player}`, player, rect, corner: glassCorner(rect.h) };
   };
   // The preview's and the dancers screen's buttons besides the players'.
@@ -452,10 +414,9 @@ export default function SongSelect({
     props.current.onDance?.(bundle, cast);
   };
   // The dancer under the pointer on a player's row, or -1 (the keyboard cursor points at none).
-  const slotAt = (wdg: SongWidget, s: { pointer: Point | null; pointerKind: string | null }) => {
+  const hitAt = (wdg: SongWidget, s: { pointer: Point | null; pointerKind: string | null }) => {
     if (!wdg.rect || !s.pointer || s.pointerKind === 'key') return -1;
-    const { pointer } = s;
-    return castSlots(wdg.rect, dancers()).findIndex((slot) => inside(pointer, slot));
+    return castHit(wdg.rect, dancers(), s.pointer);
   };
 
   const ui = useCanvasUI<SongWidget>({
@@ -464,7 +425,8 @@ export default function SongSelect({
     keyNav: true,
     widgets: () => {
       if (st.screen === 'dancers') {
-        return [{ id: 'back', circle: BACK }, ...st.cast.map((_, i) => castWidget(i)), button('auto', CAST_AUTO), button('dance', DANCE, true)];
+        const layout = castLayout();
+        return [{ id: 'back', circle: BACK }, ...st.cast.map((_, i) => castWidget(i)), button('auto', layout.auto), button('dance', layout.dance, true)];
       }
       if (st.screen === 'preview') {
         return [{ id: 'back', circle: BACK }, ...(dancers() > 1 ? [button('dancers', DANCERS)] : []), button('dance', DANCE, true)];
@@ -482,7 +444,7 @@ export default function SongSelect({
       if (wdg.song) chooseSong(wdg.song);
       // A dancer on the player's row, or (the keyboard, or beside them) the next one.
       else if (wdg.player !== undefined) {
-        const slot = slotAt(wdg, s);
+        const slot = hitAt(wdg, s);
         pick(wdg.player, slot >= 0 ? slot : (st.cast[wdg.player] + 1) % dancers());
       } else if (wdg.id === 'dancers') go('dancers');
       else if (wdg.id === 'auto') setCast(defaultCast(props.current.playerCount, dancers()));
@@ -548,8 +510,10 @@ export default function SongSelect({
       // Read the current view alongside the rest of the canvas's live state.
       const c = p.source.view;
       const slots = Array.from({ length: p.playerCount }, (_, i) => slotStatus(c, i).label);
-      // The dancer under the pointer lights up on its player's row.
-      const hovering = st.screen === 'dancers' ? st.cast.map((_, i) => slotAt(castWidget(i), s)).join() : '';
+      // The control under the pointer lights up on its player's row, and the stage's dancers
+      // carry their names round with them.
+      const hovering = st.screen === 'dancers' ? st.cast.map((_, i) => hitAt(castWidget(i), s)).join() : '';
+      if (st.screen === 'dancers' && p.stageState.ready) s.invalidate();
       const key = [
         st.screen, st.catalog.status, st.top, st.loading?.id, st.loadError, st.previewState, st.previewError,
         p.stageState.stage, p.stageState.ready, p.stageState.failed, st.cast.join(), hovering,
@@ -631,9 +595,17 @@ export default function SongSelect({
             g.save();
             g.globalAlpha *= shown;
             drawGlassButton(g, rect, {
-              label: song.title, sub, icon: 'note', reserve: cutout.right + castWidth(cutout.h, count) + 10 - rect.h * 0.3,
+              label: song.title, sub, icon: 'note',
+              reserve: cutout.right + (sprites.width(cutout.h, count) ?? castWidth(cutout.h, count)) + 10 - rect.h * 0.3,
               hover: h[id] ?? 0, press: press(id), disabled: !!st.loading && !loadingThis,
-              content: (c, r) => drawCast(c, r.x + r.w - cutout.right, r.y + (r.h + cutout.h) / 2, cutout.h, count, cast),
+              content: (c, r) => {
+                const right = r.x + r.w - cutout.right, floor = r.y + (r.h + cutout.h) / 2;
+                c.save();
+                shadowed(c);
+                const drawn = sprites.draw(c, right, floor, cutout.h, count, cast);
+                c.restore();
+                if (!drawn) drawCast(c, right, floor, cutout.h, count, cast);
+              },
             });
             g.restore();
           }
@@ -665,36 +637,13 @@ export default function SongSelect({
         }
       } else if (st.bundle && st.screen === 'dancers') {
         const { song } = st.bundle;
-        const count = dancers();
         drawHeader(g, BACK, 'DANCERS', h.back ?? 0);
-        g.font = `800 64px ${FONT}`;
-        drawShadowText(g, ellipsize(g, song.title, s.w - BACK.x - 90), BACK.x - 38, BACK.y + 84, { size: 64, weight: 800 });
-        g.font = `700 30px ${FONT}`;
-        drawShadowText(g, ellipsize(g, `Pick the dancer each player follows · ${count} dancers`, s.w - BACK.x - 90), BACK.x - 36, BACK.y + 140, { size: 30, color: '#d8f6ff' });
-        st.cast.forEach((dancer, player) => {
-          const wdg = castWidget(player);
-          const id = wdg.id, hovered = slotAt(wdg, s);
-          const sharing = st.cast.flatMap((d, other) => (d === dancer && other !== player ? [`P${other + 1}`] : []));
-          const row = castRow(player, p.playerCount);
-          // The text stops short of the dancers.
-          drawGlassButton(g, row, {
-            label: `Player ${player + 1}`,
-            sub: `Dancer ${dancer + 1}${sharing.length ? ` · with ${sharing.join(' & ')}` : ''}`,
-            reserve: row.x + row.w - row.h * 0.3 - castSlots(row, count)[0].x + 10,
-            icon: playerGlyph(player), hover: h[id] ?? 0, press: press(id),
-            content: (c, r) => castSlots(r, count).forEach((slot, d) => {
-              const tall = slot.h * 0.8, floor = slot.y + (slot.h + tall) / 2;
-              if (d === dancer) drawPicked(c, slot, playerFace(player));
-              const fill = d === dancer ? faceFill(c, playerFace(player), floor - tall, floor) : d === hovered ? SPARE_HOVER : SPARE;
-              c.save();
-              shadowed(c);
-              drawDancer(c, slot.x + slot.w / 2, floor, tall, fill);
-              c.restore();
-            }),
-          });
+        drawCastScreen(g, {
+          layout: castLayout(), title: song.title, cast: st.cast, dancers: dancers(),
+          width: s.w, left: BACK.x, hover: (id) => h[id] ?? 0, press,
+          hovered: st.cast.map((_, i) => hitAt(castWidget(i), s)),
+          tags: !!p.stageState.ready, playerCount: COUNT_NAMES[p.playerCount - 1],
         });
-        drawGlassButton(g, CAST_AUTO, { label: 'Auto', sub: 'Take turns', icon: 'replay', hover: h.auto ?? 0, press: press('auto') });
-        drawGlassButton(g, DANCE, { label: 'Dance!', sub: COUNT_NAMES[p.playerCount - 1], icon: 'play', hover: h.dance ?? 0, press: press('dance') });
       } else if (st.bundle) {
         const { song } = st.bundle;
         drawHeader(g, BACK, 'PREVIEW', h.back ?? 0);
@@ -716,6 +665,9 @@ export default function SongSelect({
       g.restore();
     },
   });
+  // The rows' dancers, rendered in-engine on the first draw (see the rows' content above).
+  const sprites = useMemo(() => createCastSprites(gl, () => ui.invalidate()), [gl, ui]);
+  useEffect(() => { void sprites.preload(); }, [sprites]);
 
   // The songs in view, fading with their rows.
   const songPanes = () => {
@@ -728,7 +680,9 @@ export default function SongSelect({
   // Frosted glass inside the buttons drawn above (ui/useGlassBlur.ts), fading and sliding with them.
   useGlassBlur(() => {
     const pane = (wdg: SongWidget) => buttonPane(ui, wdg.id, wdg.rect ?? DANCE);
-    const panes = st.screen === 'dancers' ? (st.bundle ? [...st.cast.map((_, i) => pane(castWidget(i))), pane(button('auto', CAST_AUTO)), pane(button('dance', DANCE))] : [])
+    const layout = castLayout();
+    const castPanes = () => [...st.cast.map((_, i) => pane(castWidget(i))), pane(button('auto', layout.auto)), pane(button('dance', layout.dance))];
+    const panes = st.screen === 'dancers' ? (st.bundle ? castPanes() : [])
       : st.screen === 'preview' ? (st.bundle ? [...(dancers() > 1 ? [pane(button('dancers', DANCERS))] : []), pane(button('dance', DANCE))] : [])
         : st.catalog.status === 'error' ? [buttonPane(ui, 'retry', RETRY)]
           : st.catalog.status === 'ready' ? songPanes() : [];

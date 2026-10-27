@@ -15,6 +15,23 @@ chromium`) for previews and tracking. The project format is in [dance-format.md]
 
 ## The workflow
 
+For the complete process combining authored movement, tracked secondary motion, contact and
+staging constraints, geometric validation, and export, see
+[converting dance videos into expressive Aerodance songs](video-dance-conversion.md).
+
+For an authored character performance, use the video to identify the moves and musical accents,
+then choose poses that read on the glass character. Block the important silhouettes first, add
+anticipation and held accents, and review the transitions in a rendered clip. Judge the result at
+the game's camera and size. Tracking can help measure timing or prepare scoring landmarks; a high
+tracking score does not establish animation quality.
+
+The `performance` op keys the actual body, head, hands and feet directly, including body squash,
+independent head placement and depth. These poses appear in the Studio, renders and exported game
+song. See [direct character performance](dance-format.md#direct-character-performance) for controls
+and an authoring example. `pose --performance` and `keys --performance` inspect them. Human-pose
+keys remain available for scoring and video overlays; `check`, `compare` and `score` inspect those
+landmarks. Review the authored character performance visually.
+
 This is how the 5-second phrase in the PR that added the tool was animated, from scratch, from a
 video of one dancer.
 
@@ -129,7 +146,7 @@ To start from tracking instead of from scratch, `draft` turns the tracked video 
 | `compare <dir> [--range a:b] [--every 500]` | Degrees between each scored limb and the tracked video, per window |
 | `score <dir>` | The game's scorer with the tracked video as the player, over the tracked span |
 | `export <dir> [--out song.zip] [--install] [--folder dir]` | The song bundle ZIP (default under `.dance/exports/`); `--install` writes it into the game's songs, replacing what this project installed last. The song id comes from the audio and what the game plays and scores (poses, calibration, unscored intervals), so renaming, retitling or adding phrases keeps it. |
-| `studio <dir> [--port 5310] [--dist] [--open]` | The Studio; while it runs, `frames` and `render` use its browser and return in about a second |
+| `studio <dir> [--port 5310] [--dist] [--open]` | The Studio; while it runs, `frames` and `render` use its browser and return in about a second. On a folder with no dance yet, the Studio makes one (see [The Studio](#the-studio)) |
 
 Every command takes `--json` for machine-readable output. Times are `4200` (ms), `4.2s`, `1:02.5`
 or `b17` (beat 17, needing the song's bpm); ranges are `a:b` or `a..b`.
@@ -164,6 +181,7 @@ the group selects that channel.
 |---|---|---|
 | `key` | `dancer`, `t`, `set: {control or group: value}`, `layer?`, `interp?`, `ease?`, `follow?` | Keys values at `t`. Groups move relatively; on the base layer they key the points they move directly. With `follow` (default) an elbow or knee keyed at `t` keeps its place along its limb when the limb's ends move, and a head keyed at `t` stays over the shoulders. |
 | `pose` | `dancer`, `t`, `from?`, `controls?`, `mirror?`, `depth?` | Keys a whole pose at `t`: `current` (lock in what's shown; the default), `neutral`, `{"t": …, "dancer"?: …}` (hold or copy a pose; from another dancer it moves to this one's home), or `tracking`. `mirror`: `frame` or `self`. |
+| `performance` | `dancer`, `id`, `start`, `end`, `keys: [{t, pose, interp?, ease?}]`, `action?` | Sets a clip of direct character poses. Each key contains a complete pose. `action: "remove"` deletes the clip by id. Times accept beats and seconds. |
 | `delete` | `dancer?`, `t` \| `times` \| `range`, `controls?`, `layer?` | Removes keys (all dancers without `dancer`) |
 | `interp` | `dancer?`, `t` \| `times` \| `range`, `controls?`, `interp?`, `ease?` | Sets the curve shape of keys |
 | `retime` | `range`, `shift?`, `scale?`, `pivot?`, `dancer?`, `layer?`, `controls?`, `replace?` | Moves keys in a range, on every layer or the one named (and, for all controls, contacts and exclusions inside it); landing on another key is an error unless `replace` |
@@ -177,7 +195,7 @@ the group selects that channel.
 | `arc` | `dancer`, `control`, `from`, `to`, `via: [x, y]`, `at?` (0.5) | Keys a point between two times, so the path passes `via` |
 | `nudge` | `dancer`, `t`, `set: {control or group: offset}`, `fadeMs?` (150), `layer?` (`fix`) | An additive correction that fades in and out around `t` |
 | `layer` | `dancer`, `action` (`add`, `update`, `remove`), `id`, `label?`, `enabled?`, `weight?` | Additive layers |
-| `dancer` | `action` (`add`, `update`, `remove`), `dancer?`, `id?`, `label?`, `timeOffsetMs?`, `home?`, `body?`, `calibration?` | Dancers and their timing and proportions |
+| `dancer` | `action` (`add`, `update`, `remove`), `dancer?`, `id?`, `label?`, `timeOffsetMs?`, `home?`, `body?`, `calibration?`, `style?` | Dancers and their timing and proportions; `style` sets exaggeration factors (the rest keep their value) or `null` removes it |
 | `fit-body` | `dancer`, `from?` (`tracking` or keys), `t?`, `range?`, `home?` | Measures `body` (and `home`) from the keyed poses or the tracking |
 | `song` | `set: {title, artist, bpm, beatOffsetMs, playableStartMs, playableEndMs, stage, difficulty, …}` | Song details |
 | `video` | `startMs?`, `rate?` | Where the video sits on the song clock |
@@ -216,6 +234,10 @@ for rhythm: a clip shows sliding, late arrivals and floaty transitions that stil
 edits the same `dance.json` through the same ops, and picks up changes from the CLI as they're
 made, so a person and an agent can work on one dance together.
 
+On a folder with no dance yet (`dance studio ~/dances/new`), the Studio asks for the title,
+artist and number of dancers, and the video to animate to, the song, or both, and creates the
+project as `dance init` would. Without a video, start from the song and record yourself.
+
 - **Video**: the source with every skeleton over it. Drag a joint to key it at the playhead. Wheel
   zooms, dragging the background pans, double-click fits. Toggles show the tracked pose, the
   neighbouring keys, or only the selected dancer.
@@ -228,15 +250,26 @@ made, so a person and an agent can work on one dance together.
   (diamond smooth, triangle linear, square hold) and colours the ease (green stop, orange sharp).
 - **Animate**: the dancer's controls (with where they're keyed), exact values to type, the key's
   interpolation and ease, Key pose / Key from video, contacts and layers. **Song**: details, beat
-  grid, stage, playable range, video alignment. **Review**: check, score, export or install.
+  grid, stage, playable range, video alignment; then the sources:
+  - **Music and video** adds or replaces the song and the video (as `dance attach`), tracks the video
+    (as `dance track`, with progress), and keys every dancer it follows from the newest tracking
+    (a `draft` op per dancer, which undo takes back).
+  - **Record yourself** records the webcam as the video. After a countdown the song plays from the
+    playhead while it records, until the song ends or you stop (Stop, or Space). The recording replaces
+    the video, re-encoded to a constant frame rate, and starts where the song was when recording began;
+    fine-tune that with the video alignment. The preview is mirrored; the recording is as filmed.
+    Recording needs the song, and the speed at 1×.
+
+  **Review**: check, score, export or install.
 
 Keys: Space plays, ←/→ steps a video frame, ⇧←/→ a beat, `,`/`.` jump between keys, K keys the whole
 pose, ⌘Z/⇧⌘Z undo and redo, 1–4 pick a dancer, G toggles the game view, M mirrors.
 
-To drive it from a script, `node scripts/play.ts start --dance <project>` opens it in a GPU-rendered
+To drive it from a script, `node scripts/play.ts start --dance <project>` (or a new folder) opens it in a GPU-rendered
 headless Chromium; `state` and `wait` read the `.studio` element's `data-*` (revision, time,
 dancer, control, mode), `drag x,y x,y` drags, and `window.danceStudio.jointOnPage(dancer, control)` /
-`window.danceTimeline.keyOnPage(dancer, channel, t)` give page positions.
+`window.danceTimeline.keyOnPage(dancer, channel, t)` give page positions. Its fake webcam (the
+MediaPipe fixture photo) is what **Record yourself** records.
 
 ## Tips for agents
 
@@ -250,3 +283,12 @@ dancer, control, mode), `drag x,y x,y` drags, and `window.danceStudio.jointOnPag
   poses, again after adding more.
 - `compare` says where; `frames --reference` shows why. Trust the video over the tracker.
 - Use `--expect-revision` when a person might be editing in the Studio at the same time.
+- Keep the keys true to the video and exaggerate with the dancer's `style` (see
+  [dance-format.md](dance-format.md#how-a-pose-is-evaluated)): the glass character has no elbows or
+  knees, so a move that reads on a person can look like a shrug on it. Compare `frames --views
+  source,character` with and without a style, and `score` after: `reach`, `turn`, `head`, `bounce`
+  and `lift` leave the scored directions alone.
+
+  ```sh
+  dance apply ~/dances/new-dance --op '{"op":"dancer","dancer":"P1","style":{"reach":1.6,"bounce":2.5,"lean":1.5,"lift":2}}'
+  ```

@@ -68,12 +68,14 @@ function Halo({ color, intensity }: GlowProps) {
     }
     if (glow.current) glow.current.visible = k > 0.01;
   });
+  // Drawn before the dancers (render order 0): their glass writes no depth, so a halo drawn after
+  // them would glow over their feet and they'd look like they stand behind it.
   return (
     <group position={[0, 0.02, 0]}>
-      <mesh ref={glow} rotation={[-Math.PI / 2, 0, 0]} material={material} renderOrder={3}>
+      <mesh ref={glow} rotation={[-Math.PI / 2, 0, 0]} material={material} renderOrder={-2}>
         <planeGeometry args={[3.6, 3.6]} />
       </mesh>
-      <mesh ref={ring} rotation={[Math.PI / 2, 0, 0]} renderOrder={4}>
+      <mesh ref={ring} rotation={[Math.PI / 2, 0, 0]} renderOrder={-1}>
         <torusGeometry args={[1.25, 0.05, 10, 96]} />
         <meshBasicMaterial color={color} transparent opacity={0} toneMapped={false} />
       </mesh>

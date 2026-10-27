@@ -6,6 +6,7 @@ view can be rendered to an image, and the checks and the game's own scorer say w
 and the video disagree.
 
 - [docs/dance-cli.md](../../docs/dance-cli.md): the workflow, the commands, the ops and the Studio.
+- [docs/video-dance-conversion.md](../../docs/video-dance-conversion.md): the full conversion process, combining authored choreography, tracked detail, constraints, and review.
 - [docs/dance-format.md](../../docs/dance-format.md): the `aerodance.dance` project format.
 
 ```sh
@@ -13,6 +14,7 @@ node tools/dance/cli.ts init ~/dances/mine --video dance.mp4 --dancers 2 --title
 node tools/dance/cli.ts frames ~/dances/mine --range 4s:8s --views source --grid
 node tools/dance/cli.ts apply ~/dances/mine patch.json
 node tools/dance/cli.ts studio ~/dances/mine
+node tools/dance/cli.ts studio ~/dances/new   # no dance there yet: the Studio makes one, from a video, a song or the webcam
 ```
 
 Needs FFmpeg on `PATH` and Playwright's Chromium (`npx playwright install chromium`).

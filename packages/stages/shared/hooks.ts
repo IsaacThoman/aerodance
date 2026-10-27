@@ -41,6 +41,10 @@ export const stagePlay: { dancing: boolean; celebrating: boolean } = { dancing: 
 // and its winner sit right of its scoreboard.
 export const stageShift: { x: number } = { x: 0 };
 
+// Where each of a song's dancers stands on screen (0..1 from the top left, the floor under them),
+// kept by Dancers while it dances a routine: Song Select's dancers screen names them there.
+export const dancerFeet: { x: number; y: number }[] = [];
+
 /**
  * Walk mode (apps/web/src/walk) flies whichever scene camera is live: each frame every
  * StageCamera, BackdropCamera and the Aero world's drone moves its camera as usual, then hands

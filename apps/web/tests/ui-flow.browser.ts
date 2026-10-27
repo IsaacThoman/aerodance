@@ -16,6 +16,7 @@ import { glassLabelX } from '../src/ui/draw.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import { resolveStage } from '../../../packages/stages/catalog.ts';
 import { validateCatalog, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
+import { decodePoseFile, encodePoseFile, framesFromSamples, framesToSamples, sampleFrames } from '../../../packages/pose/binary.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 
 // Run the same real input/session flow in each fixed display configuration.
@@ -432,13 +433,20 @@ try {
 
   // A whole song with the autoplay ghost (?input=ghost): ready check, countdown, pause and
   // resume, scoring, results, Play again and back to Song Select; then four players. The test
-  // routine's own choreography plays over silence.
+  // routine's own choreography plays over silence, cut to its first 8 seconds: the song plays
+  // in real time, twice per run.
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   const routine = new URL('./fixtures/song-70c63c8e/', import.meta.url);
   const song = validateSong(JSON.parse(await readFile(new URL('song.json', routine), 'utf8')));
   song.audio = { path: 'audio.wav', mimeType: 'audio/wav' };
   song.supportedPlayerCounts = [1, 2, 3, 4];
-  const routineChoreography = await readFile(new URL('choreography.adpose', routine));
+  song.playableEndMs = 8000;
+  const routineFrames = decodePoseFile(await readFile(new URL('choreography.adpose', routine)));
+  const routineCut = [
+    ...framesToSamples(routineFrames, 'songTimeMs').filter((sample) => sample.songTimeMs < song.playableEndMs),
+    { songTimeMs: song.playableEndMs, ...sampleFrames(routineFrames, song.playableEndMs) },
+  ];
+  const routineChoreography = encodePoseFile(framesFromSamples({ ...routineFrames, song: { ...routineFrames.song!, playableEndMs: song.playableEndMs } }, routineCut, 'songTimeMs'));
   validateSongChoreography(song, routineChoreography);
   await serveFixture(null, {
     song,

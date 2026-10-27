@@ -28,6 +28,7 @@ targets:
       - sdk: Accelerate.framework
       - sdk: AVFAudio.framework
       - sdk: AudioToolbox.framework
+      - sdk: MediaPlayer.framework
     info:
       path: Info.plist
       properties:

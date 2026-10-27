@@ -7,6 +7,7 @@ import { main } from '../cli.ts';
 import { tempDir } from './helpers.ts';
 import { readZip } from '../../../packages/pose/zip.ts';
 import { validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
+import { neutralCharacterPose, validatePerformance } from '../../../packages/pose/performance.ts';
 
 /** A short stereo WAV of silence. */
 function wav(ms: number, rate = 8000): Uint8Array {
@@ -68,9 +69,12 @@ test('the CLI edits, reads and exports a dance the game accepts', async t => {
       { op: 'pose', dancer: 'P1', t: 0, from: 'neutral' }, { op: 'pose', dancer: 'P2', t: 0, from: 'neutral' },
       { op: 'key', dancer: 'P1', t: 'b3', set: { leftWrist: [0.4, 0.2], leftElbow: [0.36, 0.3] } },
       { op: 'copy', from: { dancer: 'P1', range: '0:2s' }, to: { dancer: 'P2', t: 0 }, mirror: 'frame' },
+      { op: 'performance', dancer: 'P1', id: 'point', start: 0, end: '2s', keys: [
+        { t: 0, pose: neutralCharacterPose() }, { t: '2s', pose: { ...neutralCharacterPose(), leftHand: [1, 3.7, .5] } },
+      ] },
     ] }));
     const applied = await run('apply', project, patch);
-    assert.match(applied.text, /revision 0 → 1: 5 ops, keys \+\d+/);
+    assert.match(applied.text, /revision 0 → 1: 6 ops, keys \+\d+/);
     const stale = await run('apply', project, '--op', '{"op":"song","set":{"title":"x"}}', '--expect-revision', '0');
     assert.equal(stale.code, 3);
     const keys = JSON.parse((await run('keys', project, '--dancer', 'P2', '--controls', 'rightWrist', '--json')).text);
@@ -88,6 +92,11 @@ test('the CLI edits, reads and exports a dance the game accepts', async t => {
     const song = validateSong(JSON.parse(new TextDecoder().decode(zip.get(`${result.songId}/song.json`)!)));
     assert.equal(song.dancers, 2);
     assert.equal(song.title, 'Test routine');
+    assert.equal(song.performance?.path, 'performance.json');
+    const performance = validatePerformance(JSON.parse(new TextDecoder().decode(zip.get(`${result.songId}/performance.json`)!)), 2);
+    assert.deepEqual(performance.tracks[0].clips[0].keys[1].pose.leftHand, [1, 3.7, .5]);
+    const direct = JSON.parse((await run('pose', project, '--at', '2s', '--dancer', 'P1', '--performance', '--json')).text);
+    assert.deepEqual(direct[0].performance.leftHand, [1, 3.7, .5]);
     const choreography = validateSongChoreography(song, zip.get(`${result.songId}/choreography.adpose`)!);
     assert.equal(choreography.tracks.length, 2);
     assert.equal((await readFile(path.join(dir, 'songs', result.songId, 'song.json'), 'utf8')).length > 0, true);

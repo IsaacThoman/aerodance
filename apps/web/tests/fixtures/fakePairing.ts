@@ -76,12 +76,14 @@ class FakeChannel {
   /** Messages go nowhere (the network went quiet, and the connection hasn't noticed). */
   silent = false;
   constructor(label: string) { this.label = label; }
-  send(data: string) {
+  send(data: string | ArrayBufferView) {
     if (this.readyState !== 'open') throw Error('InvalidStateError');
     this.sent.push(data);
     const other = this.other;
     if (this.silent) return;
-    setTimeout(() => { if (other?.readyState === 'open') other.onmessage?.(new MessageEvent('message', { data })); }, 1);
+    // Binary arrives as an ArrayBuffer (binaryType 'arraybuffer'), a copy of what was sent.
+    const message = typeof data === 'string' ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice().buffer;
+    setTimeout(() => { if (other?.readyState === 'open') other.onmessage?.(new MessageEvent('message', { data: message })); }, 1);
   }
   open() { this.readyState = 'open'; this.onopen?.(new Event('open')); }
   close() {

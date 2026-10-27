@@ -360,6 +360,79 @@ NATIVE(N_storageKeys) {
   NSArray *keys = [NSUserDefaults.standardUserDefaults dictionaryForKey:kStorageKey].allKeys ?: @[];
   return MakeString(ctx, [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:keys options:0 error:nil] encoding:NSUTF8StringEncoding]);
 }
+// Files the page keeps (songs/folderSongs.ts in the game: the songs it's sent), under
+// Library/Caches/aerodance/. tvOS gives apps no lasting storage beyond a little in
+// NSUserDefaults: it may delete caches when it runs short of space, never while the app runs.
+// Paths are relative, '/'-separated, and stay inside that folder.
+static NSString *FilesRoot() {
+  static NSString *root;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSString *caches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+    root = [[caches stringByAppendingPathComponent:@"aerodance"] stringByStandardizingPath];
+  });
+  return root;
+}
+static NSString *FilePath(JSContextRef ctx, JSValueRef v) {
+  NSString *rel = ToNS(ctx, v);
+  if (!rel.length || [rel hasPrefix:@"/"]) return nil;
+  for (NSString *part in [rel componentsSeparatedByString:@"/"]) if (!part.length || [part isEqual:@"."] || [part isEqual:@".."]) return nil;
+  NSString *path = [[FilesRoot() stringByAppendingPathComponent:rel] stringByStandardizingPath];
+  return [path hasPrefix:[FilesRoot() stringByAppendingString:@"/"]] ? path : nil;
+}
+static JSValueRef Failed(JSContextRef ctx, NSString *why) { return MakeString(ctx, why); }
+static NSString *Why(NSError *error) {
+  NSError *posix = error.userInfo[NSUnderlyingErrorKey];
+  if (error.code == NSFileWriteOutOfSpaceError || ([posix.domain isEqual:NSPOSIXErrorDomain] && posix.code == ENOSPC)) return @"full";
+  return error.localizedDescription ?: @"failed";
+}
+// fileRead(path): the file's bytes, or null.
+NATIVE(N_fileRead) {
+  NSString *path = argc ? FilePath(ctx, argv[0]) : nil;
+  NSData *data = path ? [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil] : nil;
+  return data ? MakeArrayBuffer(ctx, data) : JSValueMakeNull(ctx);
+}
+// fileWrite(path, bytes): writes it whole (making its folders); '' when it did, else why ('full' when out of space).
+NATIVE(N_fileWrite) {
+  NSString *path = argc > 1 ? FilePath(ctx, argv[0]) : nil;
+  size_t len = 0;
+  uint8_t *b = argc > 1 ? BytesOf(ctx, argv[1], &len) : nullptr;
+  if (!path || (!b && len)) return Failed(ctx, @"bad path or bytes");
+  NSError *error;
+  if (![NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:&error]) return Failed(ctx, Why(error));
+  NSData *data = [NSData dataWithBytesNoCopy:b ?: (uint8_t *)"" length:len freeWhenDone:NO];
+  if (![data writeToFile:path options:NSDataWritingAtomic error:&error]) return Failed(ctx, Why(error));
+  return MakeString(ctx, @"");
+}
+// fileList(path): a folder's entries as JSON [{ name, size, dir }] ([] when it isn't there). Read
+// as URL resource values, which have no timestamps (no required-reason API: PrivacyInfo.xcprivacy).
+NATIVE(N_fileList) {
+  NSString *path = argc ? FilePath(ctx, argv[0]) : nil;
+  NSMutableArray *list = [NSMutableArray array];
+  NSArray<NSURLResourceKey> *keys = @[NSURLIsDirectoryKey, NSURLFileSizeKey];
+  for (NSURL *url in path ? [NSFileManager.defaultManager contentsOfDirectoryAtURL:[NSURL fileURLWithPath:path] includingPropertiesForKeys:keys options:0 error:nil] : @[]) {
+    NSDictionary<NSURLResourceKey, id> *values = [url resourceValuesForKeys:keys error:nil];
+    if (!values) continue;
+    [list addObject:@{ @"name": url.lastPathComponent, @"size": values[NSURLFileSizeKey] ?: @0, @"dir": values[NSURLIsDirectoryKey] ?: @NO }];
+  }
+  return MakeString(ctx, [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:list options:0 error:nil] encoding:NSUTF8StringEncoding]);
+}
+// fileRemove(path): removes a file or a folder and everything in it (nothing there is fine).
+NATIVE(N_fileRemove) {
+  NSString *path = argc ? FilePath(ctx, argv[0]) : nil;
+  if (path) [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+  return JSValueMakeUndefined(ctx);
+}
+// fileMove(from, to): moves a file or folder in place of whatever is at `to`; '' when it did, else why.
+NATIVE(N_fileMove) {
+  NSString *from = argc > 1 ? FilePath(ctx, argv[0]) : nil, *to = argc > 1 ? FilePath(ctx, argv[1]) : nil;
+  if (!from || !to) return Failed(ctx, @"bad path");
+  NSError *error;
+  [NSFileManager.defaultManager removeItemAtPath:to error:nil];
+  [NSFileManager.defaultManager createDirectoryAtPath:to.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+  if (![NSFileManager.defaultManager moveItemAtPath:from toPath:to error:&error]) return Failed(ctx, Why(error));
+  return MakeString(ctx, @"");
+}
 NATIVE(N_digest) {
   int alg = (int)Num(ctx, argc, argv, 0);
   size_t len;
@@ -531,6 +604,8 @@ static void Define(JSContextRef ctx, JSObjectRef obj, const char *name, JSValueR
     { "measureText", N_measureText }, { "decodeImage", N_decodeImage }, { "releaseImage", N_releaseImage },
     { "readFile", N_readFile }, { "http", N_http }, { "wake", N_wake }, { "now", N_now }, { "log", N_log },
     { "storageGet", N_storageGet }, { "storageSet", N_storageSet }, { "storageKeys", N_storageKeys }, { "report", N_report },
+    { "fileRead", N_fileRead }, { "fileWrite", N_fileWrite }, { "fileList", N_fileList }, { "fileRemove", N_fileRemove },
+    { "fileMove", N_fileMove },
     { "digest", N_digest }, { "randomBytes", N_randomBytes }, { "setAtRoot", N_setAtRoot }, { "ready", N_ready }, { "audio", N_audio }, { "net", N_net },
     { "noop", N_noop }, { "noop4", N_noop4 },
   };

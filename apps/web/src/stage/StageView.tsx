@@ -36,6 +36,8 @@ export interface StageViewProps {
   orbiting?: boolean;
   /** Raise the stage's picture by this share of its height (Song Select's dancers screen). */
   lift?: number;
+  /** Push the stage's picture right by this share of its width (Song Select's dancers screen; the results push it their own way). */
+  shift?: number;
   /** The song's stage id (openreef if unset or unknown). */
   stageId?: string | null;
   routine?: SongRoutine | null;
@@ -403,15 +405,15 @@ interface StageViewState {
   reported: string;
 }
 
-export default function StageView({ active = false, orbiting = false, lift = 0, stageId, routine, results = null, live = null, demo = false, onState }: StageViewProps) {
+export default function StageView({ active = false, orbiting = false, lift = 0, shift = 0, stageId, routine, results = null, live = null, demo = false, onState }: StageViewProps) {
   const scene = useMemo(() => new THREE.Scene(), []);
   const [shown, setShown] = useState<StageId | null>(null);
   const [onScreen, setOnScreen] = useState(false);
   const fade = useRef<Fade>({ value: 0, settled: 0 });
   const st = useRef<StageViewState>({ loaded: null, failed: new Set(), dancersFailed: false, routine: null, requested: undefined, onScreen: false, reported: '' }).current;
   const target = active ? resolveStage(stageId) : null;
-  const props = useRef({ target, shown, onState, routine, orbiting, lift, results });
-  props.current = { target, shown, onState, routine, orbiting, lift, results };
+  const props = useRef({ target, shown, onState, routine, orbiting, lift, shift, results });
+  props.current = { target, shown, onState, routine, orbiting, lift, shift, results };
   useEffect(() => () => { Object.assign(stagePlay, { dancing: false, celebrating: false }); stageShift.x = 0; stageOrbit.lift = 0; }, []);
   const orbit = useRef({ speed: 0, phase: 0, ramp: 0, on: false });
   // Keep dancing the last routine while the veil comes up on the way out.
@@ -438,8 +440,8 @@ export default function StageView({ active = false, orbiting = false, lift = 0, 
     const playing = have !== null && want === have;
     stagePlay.dancing = playing && !props.current.results;
     stagePlay.celebrating = playing && !!props.current.results;
-    // The results' scoreboard takes the left: the stage eases right, and back after.
-    const shift = stagePlay.celebrating ? RESULTS_SHIFT : 0;
+    // The results' scoreboard (or the dancers screen's players) takes the left: the stage eases right, and back after.
+    const shift = stagePlay.celebrating ? RESULTS_SHIFT : have !== null && st.onScreen ? props.current.shift : 0;
     stageShift.x += (shift - stageShift.x) * Math.min(1, dt * SHIFT_RATE);
     if (Math.abs(shift - stageShift.x) < 1e-4) stageShift.x = shift;
     // Song Select's dancers screen raises the dancers clear of the players' pills.

@@ -11,6 +11,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Character from '../../../packages/character/Character.tsx';
 import type { Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
 import type { SongBundle } from '../../../packages/pose/song.ts';
+import type { CharacterPose } from '../../../packages/pose/performance.ts';
 import { defaultCast } from '../../../packages/pose/song.ts';
 import Dancers, { DANCER_LOOKS, dancerSpot } from '../../../packages/stages/shared/Dancers.tsx';
 import { STAGES } from '../../../packages/stages/index.ts';
@@ -35,6 +36,7 @@ export function Ready({ onReady }: { onReady: () => void }) {
 }
 export interface CharacterSceneProps {
   poses: RefObject<(Pose | null)[]>;
+  performances?: RefObject<(CharacterPose | null)[]>;
   calibrations: readonly TrackCalibration[];
   /** As the game's coach (mirrored), instead of as filmed. */
   mirror?: boolean;
@@ -42,48 +44,60 @@ export interface CharacterSceneProps {
   focus?: number | null;
   onReady?: () => void;
 }
-function PoseCharacter({ index, poses, calibration, opacity }: { index: number; poses: RefObject<(Pose | null)[]>; calibration: TrackCalibration; opacity: number }) {
+function PoseCharacter({ index, poses, performances, calibration, opacity }: { index: number; poses: RefObject<(Pose | null)[]>; performances?: RefObject<(CharacterPose | null)[]>; calibration: TrackCalibration; opacity: number }) {
   // Character reads poseRef.current each frame; this view of the shared array keeps it current.
   const poseRef = useMemo((): RefObject<Pose | null> => ({ get current() { return poses.current?.[index] ?? null; } } as RefObject<Pose | null>), [poses, index]);
+  const performanceRef = useMemo((): RefObject<CharacterPose | null> => ({ get current() { return performances?.current[index] ?? null; } }), [performances, index]);
   const look = useMemo(() => ({ ...DANCER_LOOKS[index % DANCER_LOOKS.length], opacity }), [index, opacity]);
-  return <Character poseRef={poseRef} calibration={calibration} appearance={look} />;
+  return <Character poseRef={poseRef} performanceRef={performanceRef} calibration={calibration} appearance={look} />;
+}
+/**
+ * How far to stand back from the 4:3 framing: a narrower view (the Studio's pane) keeps that
+ * width, so hands held out to the side stay in the picture.
+ */
+function useWidening() {
+  const aspect = useThree(s => s.size.width / s.size.height);
+  return Math.max(1, 4 / 3 / aspect || 1);
 }
 /** Frames `count` dancers standing side by side: closer for one, wider for a crew. */
-export function CharacterCamera({ count }: { count: number }) {
+export function CharacterCamera({ count, widening = 1 }: { count: number; widening?: number }) {
   const camera = useThree(s => s.camera);
   useLayoutEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
     // The character's head tops out about 3.4 units up; leave room for raised hands and a
     // lifted foot. Three or four dancers stand closer together and smaller (dancerSpot).
-    const crew = count > 2, distance = count === 1 ? 10 : count === 2 ? 12.5 : 9.2;
+    const crew = count > 2, distance = (count === 1 ? 10 : count === 2 ? 12.5 : 9.2) * widening;
     camera.fov = 32;
     camera.position.set(0, crew ? 1.9 : 2.4, distance);
     camera.lookAt(0, crew ? 1.2 : 1.75, 0);
     camera.updateProjectionMatrix();
-  }, [camera, count]);
+  }, [camera, count, widening]);
   return null;
 }
-export function CharacterScene({ poses, calibrations, mirror = false, focus = null, onReady }: CharacterSceneProps) {
-  const count = calibrations.length;
+export function CharacterScene({ poses, performances, calibrations, mirror = false, focus = null, onReady }: CharacterSceneProps) {
+  const count = calibrations.length, widening = useWidening();
   return (
     <>
-      <CharacterCamera count={count} />
+      <CharacterCamera count={count} widening={widening} />
       <color attach="background" args={['#14313b']} />
       <hemisphereLight args={['#dbffff', '#1d615d', 1.8]} />
       <directionalLight position={[-3, 6, 5]} intensity={3} />
       <Environment />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
-        <circleGeometry args={[7.5, 96]} />
-        <meshPhysicalMaterial color="#3f7681" metalness={0.35} roughness={0.28} />
-      </mesh>
-      <gridHelper args={[16, 32, '#3f8391', '#27545f']} position={[0, -0.01, 0]} />
+      {/* The floor grows with the camera's distance, so its edge stays out of the picture. */}
+      <group scale={[widening, 1, widening]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
+          <circleGeometry args={[7.5, 96]} />
+          <meshPhysicalMaterial color="#3f7681" metalness={0.35} roughness={0.28} />
+        </mesh>
+        <gridHelper args={[16, 32, '#3f8391', '#27545f']} position={[0, -0.01, 0]} />
+      </group>
       <Suspense fallback={null}>
         {calibrations.map((calibration, i) => {
           const spot = dancerSpot(i, count, 4);
           return (
             <group key={i} position={[spot.x, 0.015, 0]} scale={spot.scale}>
               <group scale={[mirror ? -1 : 1, 1, 1]}>
-                <PoseCharacter index={i} poses={poses} calibration={calibration} opacity={focus === null || focus === i ? 0.85 : 0.45} />
+                <PoseCharacter index={i} poses={poses} performances={performances} calibration={calibration} opacity={focus === null || focus === i ? 0.85 : 0.45} />
               </group>
             </group>
           );

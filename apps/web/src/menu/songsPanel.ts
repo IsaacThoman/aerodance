@@ -1,9 +1,9 @@
 import { FONT, ICONS, drawCaps, drawDarkGlassPanel, drawMarquee, ellipsize, paragraph, pill, roundRect, wrapText } from '../ui/draw.ts';
-import type { Circle, Point } from '../ui/draw.ts';
+import type { Circle, IconName, Point, Rect } from '../ui/draw.ts';
 import type { CanvasUI, Widget } from '../ui/useCanvasUI.ts';
-import { customSongsSupported, importSongZip, listSavedSongs, removeCustomSong, savedCustomSong, savedIn } from '../songs/customSongs.ts';
+import { canPickSongs, customSongsSupported, importSongZip, listSavedSongs, removeCustomSong, savedCustomSong, savedIn } from '../songs/customSongs.ts';
 import { pickAppSongs } from '../songs/appSongs.ts';
-import { appSongs } from '../host.ts';
+import { appFiles, appSongs } from '../host.ts';
 import type { ImportResult, SavedSong } from '../songs/customSongs.ts';
 import type { CatalogSong } from '../../../../packages/pose/song.ts';
 import type { SongFile } from '../songs/appSongs.ts';
@@ -13,17 +13,20 @@ import type { menuLayout } from './layout.ts';
 /**
  * Settings → Songs: the songs imported into this browser or app (songs/customSongs.ts), a dense list
  * SONGS_PER_PAGE to a page, each with a remove button (a title too long for its row scrolls:
- * drawMarquee), and Import song at the bottom, which takes Dance Studio export ZIPs, as many as
- * are picked or dragged onto the panel, one after another. Song Select lists the imported songs
- * that check out; the damaged ones are only here, to remove. Only where the browser or app can
- * save songs (customSongsSupported): elsewhere Settings has no Songs panel. In the iPhone/iPad
- * app the app's own picker picks the ZIPs (pickAppSongs), and a ZIP saved to its folder in the
- * Files app lists too.
+ * drawMarquee), and at the bottom Import song, which takes Dance Studio export ZIPs, as many as
+ * are picked or dragged onto the panel, one after another, and Transfer songs, which opens the
+ * screen for sending songs to and from another device (menu/transferPanel.ts; onTransfer). Song
+ * Select lists the imported songs that check out; the damaged ones are only here, to remove. Only
+ * where the browser or app can save songs (customSongsSupported): elsewhere Settings has no Songs
+ * panel. In the iPhone/iPad app the app's own picker picks the ZIPs (pickAppSongs), and a ZIP
+ * saved to its folder in the Files app lists too. The Apple TV app has no file picker, so only
+ * Transfer songs, and no confirm(): removing a song takes a second press.
  *
  * MainMenu draws it beside Sound and Graphics and passes its widgets and presses on: open()
  * and close() as Settings shows and hides. report() is data-saved-songs and -damaged-songs (the
- * counts, once listed), -song-import (idle / importing / done / error), -song-notice and
- * -song-drop (near / over while files are dragged over Settings) for tests.
+ * counts, once listed), -song-import (idle / importing / done / error), -song-notice,
+ * -song-drop (near / over while files are dragged over Settings) and -song-removing (the song a
+ * second press removes, on Apple TV) for tests.
  */
 
 type Layout = ReturnType<typeof menuLayout>;
@@ -42,14 +45,73 @@ export interface SongsPanel {
   dispose(): void;
 }
 
-export const CAN_IMPORT = customSongsSupported();
+/** Settings has a Songs panel: this browser or app can keep songs. */
+export const HAS_SONGS = customSongsSupported();
+/** It can import a ZIP too (not on Apple TV). */
+const CAN_PICK = canPickSongs();
 const IN_APP = appSongs() !== null;
+const ON_TV = appFiles() !== null;
+// A remove press on Apple TV waits this long for the second.
+const REMOVE_CONFIRM_MS = 4000;
 // Saved songs that take longer than this to list show as unavailable.
 const LIST_TIMEOUT_MS = 5000;
 const message = (error: unknown) => (error instanceof Error ? error.message : '');
 const trashId = (saved: SavedSong) => `remove-${saved.entry.id}`;
 const songFile = (file: File): SongFile => ({ name: file.name, read: async () => file });
 const songCount = (n: number) => `${n} song${n === 1 ? '' : 's'}`;
+
+/** A glass-edged dark circle like the settings switches, with a white icon: remove, page arrows, import, send. */
+export function drawCircleButton(g: CanvasRenderingContext2D, c: Circle, icon: IconName, hover: number, press: number, enabled = true) {
+  g.save();
+  if (!enabled) { g.globalAlpha *= 0.35; hover = 0; press = 0; }
+  const y = c.y + press * 2;
+  g.beginPath();
+  g.arc(c.x, y, c.r, 0, Math.PI * 2);
+  g.fillStyle = `rgba(0, 30, 70, ${0.45 + hover * 0.2})`;
+  g.fill();
+  g.lineWidth = 2.5;
+  g.strokeStyle = `rgba(255,255,255,${0.45 + hover * 0.45})`;
+  g.stroke();
+  g.lineWidth = 3;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.strokeStyle = '#ffffff';
+  ICONS[icon](g, c.x, y, c.r * (icon === 'up' || icon === 'down' ? 1.3 : 1.6));
+  g.restore();
+}
+
+/**
+ * A link at a panel's foot: a small circle button with its icon, then the label, underlined while
+ * it's pointed at, then a dimmer note if there's room (busy: dimmed, not pointed at). Its label
+ * shrinks to fit the rect.
+ */
+export function drawPanelLink(g: CanvasRenderingContext2D, rect: Rect, { icon, label, note = '', hover = 0, press = 0, busy = false }:
+  { icon: IconName; label: string; note?: string; hover?: number; press?: number; busy?: boolean }) {
+  const cy = rect.y + rect.h / 2;
+  const c = { x: rect.x + 22, y: cy, r: 18 };
+  g.save();
+  if (busy) g.globalAlpha *= 0.6;
+  drawCircleButton(g, c, icon, busy ? 0 : hover, press);
+  const x = c.x + c.r + 14;
+  g.textBaseline = 'middle';
+  g.textAlign = 'left';
+  g.font = `700 24px ${FONT}`;
+  const room = rect.x + rect.w - x;
+  const size = Math.max(16, Math.min(24, Math.floor(24 * room / Math.max(1, g.measureText(label).width))));
+  g.font = `700 ${size}px ${FONT}`;
+  g.fillStyle = '#b8fff0';
+  g.fillText(label, x, cy + 1);
+  const w = g.measureText(label).width;
+  // Hover eases in and out; the underline just appears and disappears halfway through.
+  if (hover > 0.5 && !busy) g.fillRect(x, cy + size * 0.62, w, 2.5);
+  if (note) {
+    g.font = `600 19px ${FONT}`;
+    g.fillStyle = '#d8f6ff';
+    const after = room - w;
+    if (after > 40) g.fillText(ellipsize(g, note, after), x + w, cy + 2);
+  }
+  g.restore();
+}
 
 /** How the files imported in one go went (those that failed: why). */
 interface Batch { total: number; imported: number; replaced: number; kept: number; failed: { name: string; text: string }[]; }
@@ -72,8 +134,10 @@ function summary({ imported: added, replaced, kept, failed }: Batch) {
   return { text: ok ? `${ok} ${bad}` : bad, error: true };
 }
 
-export function createSongsPanel({ layout, ui, showing, toDesign }: {
+export function createSongsPanel({ layout, ui, showing, toDesign, onTransfer }: {
   layout: () => Layout;
+  /** Transfer songs was pressed. */
+  onTransfer: () => void;
   ui: () => CanvasUI<SongsWidget>;
   /** Settings is the screen showing (an import only asks before replacing a song then). */
   showing: () => boolean;
@@ -107,6 +171,9 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
     shownAt: 0,
     nextMotion: Infinity,
     motionTimer: 0,
+    /** Apple TV: the song a second press removes, and when that stops. */
+    removing: null as { id: string; until: number } | null,
+    removingTimer: 0,
   };
   // The marquees start over whenever the titles showing change.
   const restartMarquees = () => { st.shownAt = performance.now(); };
@@ -118,12 +185,15 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
   const pageSongs = () => st.songs.slice(st.page * SONGS_PER_PAGE, (st.page + 1) * SONGS_PER_PAGE);
   const trash = (saved: SavedSong, i: number): SongsWidget => ({ id: trashId(saved), saved, circle: layout().SONG_TRASH(i) });
   const importWidget = (): SongsWidget => ({ id: 'song-import', rect: layout().SONG_IMPORT });
+  const transferWidget = (): SongsWidget => ({ id: 'song-transfer', rect: CAN_PICK ? layout().SONG_TRANSFER : layout().SONG_ACTIONS });
+  // Where a keyboard cursor goes once there are no songs to go to.
+  const footWidget = () => (CAN_PICK ? importWidget() : transferWidget());
 
   // Lists the saved songs. With show (an ID), the list turns to that song's page; with focus (a
   // place on a page), a keyboard cursor goes to the song there now, the last one if the page has
-  // fewer, or Import song once none are left.
+  // fewer, or Import song (Transfer songs on Apple TV) once none are left.
   const refresh = ({ show, focus }: { show?: string; focus?: { page: number; at: number } } = {}) => {
-    if (!CAN_IMPORT) return;
+    if (!HAS_SONGS) return;
     const load = ++st.loads;
     st.listing = true;
     if (st.status !== 'ready') st.status = 'loading';
@@ -141,7 +211,7 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
         if (focus && ui().keyboard && showing()) {
           const shown = pageSongs();
           const at = st.page === focus.page ? Math.min(focus.at, shown.length - 1) : shown.length - 1;
-          ui().focus(at >= 0 ? trash(shown[at], at) : importWidget());
+          ui().focus(at >= 0 ? trash(shown[at], at) : footWidget());
         }
       })
       .catch((error: unknown) => {
@@ -274,12 +344,32 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
     st.dragging = null;
   };
 
+  // Asks before removing: confirm() in a browser or the iPhone/iPad app, a second press of the same
+  // button within REMOVE_CONFIRM_MS on Apple TV (it has no dialogs).
+  const confirmRemove = (saved: SavedSong) => {
+    const { entry } = saved;
+    if (!ON_TV) {
+      return window.confirm(IN_APP ? `Remove “${entry.title}”? Its ZIP is deleted from the aerodance folder in Files.` : `Remove “${entry.title}” from this browser?`);
+    }
+    const now = performance.now();
+    if (st.removing?.id === entry.id && now < st.removing.until) { st.removing = null; return true; }
+    st.removing = { id: entry.id, until: now + REMOVE_CONFIRM_MS };
+    st.notice = { text: `Press again to remove “${entry.title}” from this Apple TV.`, error: false };
+    clearTimeout(st.removingTimer);
+    st.removingTimer = window.setTimeout(() => {
+      if (st.removing?.id !== entry.id) return;
+      st.removing = null;
+      st.notice = null;
+      ui().invalidate();
+    }, REMOVE_CONFIRM_MS);
+    return false;
+  };
   // Deletes a song from this browser or app (its best scores stay), unless another tab has put
   // another copy in its place since it was listed. A keyboard cursor moves on to the song after it.
   const remove = (saved: SavedSong) => {
     const { entry } = saved;
-    const question = IN_APP ? `Remove “${entry.title}”? Its ZIP is deleted from the aerodance folder in Files.` : `Remove “${entry.title}” from this browser?`;
-    if (!window.confirm(question)) return;
+    if (!confirmRemove(saved)) return;
+    clearTimeout(st.removingTimer);
     const focus = ui().keyFocus === trashId(saved) ? { page: st.page, at: pageSongs().indexOf(saved) } : undefined;
     removeCustomSong(entry)
       // Not removed: another tab already did, or put another copy in its place (which stays).
@@ -304,31 +394,11 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
     if (s.keyboard && !arrow && row >= 0) s.focus(trash(pageSongs()[row], row));
   };
 
-  // A glass-edged dark circle like the settings switches, with a white icon: remove, page arrows, import.
-  const drawButton = (g: CanvasRenderingContext2D, c: Circle, icon: 'trash' | 'up' | 'down' | 'add', hover: number, press: number, enabled = true) => {
-    g.save();
-    if (!enabled) { g.globalAlpha *= 0.35; hover = 0; press = 0; }
-    const y = c.y + press * 2;
-    g.beginPath();
-    g.arc(c.x, y, c.r, 0, Math.PI * 2);
-    g.fillStyle = `rgba(0, 30, 70, ${0.45 + hover * 0.2})`;
-    g.fill();
-    g.lineWidth = 2.5;
-    g.strokeStyle = `rgba(255,255,255,${0.45 + hover * 0.45})`;
-    g.stroke();
-    g.lineWidth = 3;
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
-    g.strokeStyle = '#ffffff';
-    ICONS[icon](g, c.x, y, c.r * (icon === 'up' || icon === 'down' ? 1.3 : 1.6));
-    g.restore();
-  };
-
   return {
     open() {
       st.page = 0;
       refresh();
-      if (CAN_IMPORT) takeDrags(true);
+      if (CAN_PICK) takeDrags(true);
     },
     close() {
       // A listing on its way is dropped; the next visit lists them again.
@@ -337,17 +407,20 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
       if (st.status === 'loading') st.status = 'idle';
       stopMarquees();
       takeDrags(false);
+      st.removing = null;
+      clearTimeout(st.removingTimer);
       // An import still going says how it went next time.
       if (!st.importing) st.notice = null;
     },
     widgets() {
-      if (!CAN_IMPORT) return [];
+      if (!HAS_SONGS) return [];
       const { SONGS_UP, SONGS_DOWN } = layout();
       const list: SongsWidget[] = [];
       if (st.status === 'ready') pageSongs().forEach((saved, i) => list.push(trash(saved, i)));
       if (st.page > 0) list.push({ id: 'songs-up', circle: SONGS_UP });
       if (st.page < pages() - 1) list.push({ id: 'songs-down', circle: SONGS_DOWN });
-      if (st.status !== 'error') list.push(importWidget());
+      if (st.status !== 'error' && CAN_PICK) list.push(importWidget());
+      list.push(transferWidget());
       return list;
     },
     activate(wdg) {
@@ -355,11 +428,12 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
       else if (wdg.id === 'songs-up') turn(-1);
       else if (wdg.id === 'songs-down') turn(1);
       else if (wdg.id === 'song-import') pickSong();
+      else if (wdg.id === 'song-transfer') onTransfer();
       else return false;
       return true;
     },
     draw(g, hover, press, time) {
-      if (!CAN_IMPORT) return;
+      if (!HAS_SONGS) return;
       const { SONGS, SONG_ROW, SONGS_UP, SONGS_DOWN, SONGS_NOTE_Y, SONG_IMPORT } = layout();
       const textX = SONGS.x + 40;
       const textW = SONGS.w - 80;
@@ -370,8 +444,8 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
       g.textAlign = 'left';
 
       if (pages() > 1) {
-        drawButton(g, SONGS_UP, 'up', hover['songs-up'] ?? 0, press('songs-up'), st.page > 0);
-        drawButton(g, SONGS_DOWN, 'down', hover['songs-down'] ?? 0, press('songs-down'), st.page < pages() - 1);
+        drawCircleButton(g, SONGS_UP, 'up', hover['songs-up'] ?? 0, press('songs-up'), st.page > 0);
+        drawCircleButton(g, SONGS_DOWN, 'down', hover['songs-down'] ?? 0, press('songs-down'), st.page < pages() - 1);
         g.font = `700 20px ${FONT}`;
         g.textAlign = 'right';
         g.fillStyle = '#d8f6ff';
@@ -389,8 +463,9 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
       } else if (st.status === 'error') {
         paragraph(g, st.error, textX, top.y + top.h / 2, textW, { size: 22, color: '#ffb38a' });
       } else if (!st.songs.length) {
-        paragraph(g, IN_APP ? 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here or save it to the aerodance folder in Files.'
-          : 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here to dance it in this browser.', textX, top.y + top.h / 2, textW, { size: 22 });
+        paragraph(g, ON_TV ? 'No songs on this Apple TV yet. Choose Transfer songs to send some from a phone, tablet or computer that has them.'
+          : IN_APP ? 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here or save it to the aerodance folder in Files.'
+            : 'No songs imported yet. Export a song from Dance Studio as a ZIP, then import it here to dance it in this browser.', textX, top.y + top.h / 2, textW, { size: 22 });
       } else {
         const elapsed = performance.now() - st.shownAt;
         let next = Infinity;
@@ -422,7 +497,16 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
             g.fillStyle = '#d8f6ff';
             g.fillText(ellipsize(g, ` · ${saved.entry.artist}`, after), x, cy + 2);
           }
-          drawButton(g, layout().SONG_TRASH(i), 'trash', hv, press(id));
+          // Waiting for the second press (Apple TV): the button glows.
+          const confirming = st.removing?.id === saved.entry.id;
+          if (confirming) {
+            const c = layout().SONG_TRASH(i);
+            g.beginPath();
+            g.arc(c.x, c.y, c.r + 5, 0, Math.PI * 2);
+            g.fillStyle = 'rgba(255, 140, 90, 0.55)';
+            g.fill();
+          }
+          drawCircleButton(g, layout().SONG_TRASH(i), 'trash', confirming ? 1 : hv, press(id));
         });
         // While a title scrolls MainMenu draws every frame (busy); while they hold, once more
         // when the next one moves.
@@ -439,28 +523,14 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
         shown.forEach((line, i) => g.fillText(line, textX, SONGS_NOTE_Y + i * 26));
       }
 
-      if (st.status !== 'error') {
-        // Import song: a link, underlined while it's pointed at.
-        const hv = hover['song-import'] ?? 0;
-        const cy = SONG_IMPORT.y + SONG_IMPORT.h / 2;
-        const icon = { x: SONG_IMPORT.x + 22, y: cy, r: 18 };
-        g.save();
-        if (st.importing) g.globalAlpha *= 0.6;
-        drawButton(g, icon, 'add', st.importing ? 0 : hv, press('song-import'));
-        const label = st.importing ? `Importing${dots}` : 'Import song';
-        const x = icon.x + icon.r + 14;
-        g.font = `700 24px ${FONT}`;
-        g.fillStyle = '#b8fff0';
-        g.fillText(label, x, cy + 1);
-        const w = g.measureText(label).width;
-        if (hv > 0.01 && !st.importing) {
-          g.fillRect(x, cy + 15, w * hv, 2.5);
-        }
-        g.font = `600 19px ${FONT}`;
-        g.fillStyle = '#d8f6ff';
-        g.fillText(' · Dance Studio ZIP', x + w, cy + 2);
-        g.restore();
+      // Import song (where there's a file picker) and Transfer songs: links, underlined while pointed at.
+      if (st.status !== 'error' && CAN_PICK) {
+        drawPanelLink(g, SONG_IMPORT, { icon: 'add', label: st.importing ? `Importing${dots}` : 'Import song', busy: st.importing,
+          hover: hover['song-import'] ?? 0, press: press('song-import') });
       }
+      const transfer = transferWidget().rect!;
+      drawPanelLink(g, transfer, { icon: 'transfer', label: 'Transfer songs',
+        hover: hover['song-transfer'] ?? 0, press: press('song-transfer') });
 
       // Files dragged over Settings: a dashed edge says the panel takes them, and over it, the
       // panel dims under Drop to import.
@@ -480,7 +550,7 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
         if (st.over > 0.01) {
           g.globalAlpha *= st.over;
           const cx = SONGS.x + SONGS.w / 2, cy = SONGS.y + SONGS.h / 2;
-          drawButton(g, { x: cx, y: cy - 30, r: 28 }, 'add', 1, 0);
+          drawCircleButton(g, { x: cx, y: cy - 30, r: 28 }, 'add', 1, 0);
           g.font = `700 28px ${FONT}`;
           g.textAlign = 'center';
           g.fillStyle = '#b8fff0';
@@ -492,11 +562,11 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
         g.restore();
       }
     },
-    key: () => [st.status, st.songs.map((saved) => `${saved.entry.id}:${saved.entry.bundleRevision}:${saved.damaged}`).join(','), st.page, st.importing, st.notice?.text, st.error, st.dragging].join('~'),
+    key: () => [st.status, st.songs.map((saved) => `${saved.entry.id}:${saved.entry.bundleRevision}:${saved.damaged}`).join(','), st.page, st.importing, st.notice?.text, st.error, st.dragging, st.removing?.id].join('~'),
     busy: () => st.importing || st.status === 'loading' || st.nextMotion === 0 ||
       st.near !== (st.dragging ? 1 : 0) || st.over !== (st.dragging === 'over' ? 1 : 0),
     report(): Record<string, string> {
-      if (!CAN_IMPORT) return {};
+      if (!HAS_SONGS) return {};
       return {
         // Once listed this visit.
         savedSongs: st.status === 'ready' && !st.listing ? String(st.songs.length) : '',
@@ -504,11 +574,13 @@ export function createSongsPanel({ layout, ui, showing, toDesign }: {
         songImport: st.importing ? 'importing' : st.notice ? (st.notice.error ? 'error' : 'done') : 'idle',
         songNotice: st.notice?.text ?? '',
         songDrop: st.dragging ?? '',
+        songRemoving: st.removing?.id ?? '',
       };
     },
     dispose() {
       st.loads++;
       stopMarquees();
+      clearTimeout(st.removingTimer);
       takeDrags(false);
       st.picker?.remove();
     },

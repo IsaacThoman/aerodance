@@ -44,6 +44,16 @@ export interface Native {
   storageGet(key: string): string | null;
   storageSet(key: string, value: string | null): void;
   storageKeys(): string;
+  /** Files the page keeps, under Library/Caches/aerodance/ (paths relative to it): a file's bytes or null. */
+  fileRead(path: string): ArrayBuffer | null;
+  /** Writes a file whole, making its folders: '' when it did, else why ('full' when out of space). */
+  fileWrite(path: string, bytes: ArrayBufferView): string;
+  /** A folder's entries as JSON [{ name, size, dir }]. */
+  fileList(path: string): string;
+  /** Removes a file, or a folder and everything in it. */
+  fileRemove(path: string): void;
+  /** Moves a file or folder in place of whatever is at `to`: '' when it did, else why. */
+  fileMove(from: string, to: string): string;
   /** SHA digests via CommonCrypto: algorithm 1, 256, 384 or 512. */
   digest(algorithm: number, data: ArrayBufferView): ArrayBuffer;
   randomBytes(out: ArrayBufferView): void;

@@ -19,6 +19,8 @@ const config = JSON.parse(N.config || '{}') as Config;
 if (config.url) web.setPageUrl(config.url);
 // The deployed site the game pairs a phone through (and the QR code sends the phone to).
 if (config.site) g.__aerodanceSite = config.site;
+// Where the game keeps the songs it's sent (its songs/folderSongs.ts).
+g.__aerodanceFiles = web.appFilesShim;
 if (config.width) dom.viewport.width = config.width;
 if (config.height) dom.viewport.height = config.height;
 

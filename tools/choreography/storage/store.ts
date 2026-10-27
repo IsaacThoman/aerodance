@@ -11,11 +11,11 @@ import {
   trackDataIds,
 } from "../core.ts";
 import type { CompiledChoreography, Project, ProjectSummary, ProjectV3, ReviewReport, StudioAssets, Take, TakeSummary, TrackData } from "../core.ts";
-import { concatBytes, decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
+import { decodeTake, decodeTrack, encodeTake, encodeTrack } from "../poseFiles.ts";
 import { isObject } from "../../../packages/pose/choreography.ts";
 import type { PlayerCount } from "../../../packages/pose/choreography.ts";
-import { songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
-import type { ChecksumManifest, Song, SongChoreography } from "../../../packages/pose/song.ts";
+import { bundleSongId, songChoreographyFromTimeline } from "../../../packages/pose/song.ts";
+import type { ChecksumManifest, Song } from "../../../packages/pose/song.ts";
 import { encodePoseFile } from "../../../packages/pose/binary.ts";
 import { readZip } from "../../../packages/pose/zip.ts";
 
@@ -44,15 +44,6 @@ export const id = (value: unknown): string => {
   if (typeof value !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(value)) throw Error("Invalid ID");
   return value;
 };
-/**
- * A song's ID: a hash of its audio and its motion, so each distinct dance gets its own ID and
- * re-exporting an unchanged one keeps it. Metadata and provenance don't count, and the
- * choreography is hashed with an empty ID since the file carries the result.
- */
-export async function bundleSongId(audioSha256: string, motion: SongChoreography): Promise<string> {
-  const input = concatBytes([new TextEncoder().encode(audioSha256), encodePoseFile(motion)]);
-  return `song-${(await sha(input)).slice(0, 16)}`;
-}
 /** The file name a project download is saved as; a song bundle is named after its song folder. */
 export async function downloadName(p: Project, kind: "backup" | "export", bytes: Uint8Array): Promise<string> {
   if (kind === "backup") return `${p.projectId}.aerodance-project.zip`;

@@ -10,7 +10,7 @@ import { loadGraphics, saveGraphics } from './menu/graphicsSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import SongSelect from './game/SongSelect.tsx';
 import type { SongScreen } from './game/SongSelect.tsx';
-import { castLift } from './game/layout.ts';
+import { CAST_LIFT, CAST_SHIFT } from './game/layout.ts';
 import GameScreen from './game/GameScreen.tsx';
 import ResultsScreen from './game/ResultsScreen.tsx';
 import { GameSession } from './game/GameSession.ts';
@@ -34,11 +34,20 @@ import FixedRenderResolution from './FixedRenderResolution.tsx';
 import { isBackgroundId, shuffleBackground } from './backdrop/backgrounds.ts';
 import type { GraphicsSettings } from './menu/graphicsSettings.ts';
 import type { DisplayMode } from './display.ts';
+import { transferCode } from './songs/transferLink.ts';
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
 // late); ?input=recording&recording=<url> replays a pose recording. ?record downloads each
 // song's live poses as a recording on the results screen.
 const params = new URLSearchParams(location.search);
+// ?transfer=<code>, a transfer QR code's link (songs/transferLink.ts), opens Settings → Songs →
+// Transfer songs joining it. It comes off the address once read, so reloading doesn't join again.
+const startTransfer = transferCode();
+if (startTransfer) {
+  params.delete('transfer');
+  const search = params.toString();
+  history.replaceState(history.state, '', `${location.pathname}${search ? `?${search}` : ''}${location.hash}`);
+}
 function replaySource() {
   const input = params.get('input');
   if (input === 'ghost') return new ReplayPoseSource({ mode: 'ghost', lagMs: Number(params.get('ghostLagMs')) || 0 });
@@ -78,9 +87,9 @@ export default function App() {
   }, []);
   // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select) or 'game' (a song).
   const [screen, setScreen] = useState<AppScreen>('menu');
-  const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
+  const [menuScreen, setMenuScreen] = useState<MenuScreen>(startTransfer ? 'transfer' : 'main');
   // The menu screen actually showing.
-  const [menuShown, setMenuShown] = useState<MenuScreen>('main');
+  const [menuShown, setMenuShown] = useState<MenuScreen>(startTransfer ? 'transfer' : 'main');
   const [playerCount, setPlayerCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
   // The players screen's dial; it only becomes playerCount once Let's dance is pressed.
   const [dialCount, setDialCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
@@ -217,7 +226,8 @@ export default function App() {
           <StageView
             active={(songsOpen && !!preview) || screen === 'game'}
             orbiting={songsOpen && !!preview && songScreen !== 'dancers'}
-            lift={songsOpen && !!preview && songScreen === 'dancers' ? castLift(playerCount) : 0}
+            lift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_LIFT : 0}
+            shift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_SHIFT : 0}
             stageId={stageId}
             routine={game ? gameRoutine : preview}
             results={resultsVisible ? resultsShow : null}
@@ -225,7 +235,7 @@ export default function App() {
             onState={setStage}
           />
           <MenuDancers
-            visible={((menuOpen && menuShown !== 'settings') || songsOpen) && !stage.showing && !diagnostic('nodancers')}
+            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen) && !stage.showing && !diagnostic('nodancers')}
             raised={songsOpen}
             // One dancer per player: the dial's count on the players screen, the chosen count on
             // Song Select, and the duet everywhere else.
@@ -234,6 +244,7 @@ export default function App() {
           <MainMenu
             visible={menuOpen}
             initialScreen={menuScreen}
+            transferCode={startTransfer}
             playerCount={dialCount}
             onPlayerCountChange={setDialCount}
             onStart={choosePlayers}
