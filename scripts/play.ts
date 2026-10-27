@@ -13,10 +13,14 @@ import type { Browser, ConsoleMessage, Page } from 'playwright';
 import { chromiumPath, gpuFlags } from './chromium.ts';
 import * as menuLayout from '../apps/web/src/menu/layout.ts';
 import * as gameLayout from '../apps/web/src/game/layout.ts';
+import * as walkLayout from '../apps/web/src/walk/layout.ts';
 import { displayDesign } from '../apps/web/src/display.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const dir = path.join(root, '.cache/play');
+// PLAY_SESSION=<name> runs a separate named session beside the default one (each with its own
+// server, browser and Vite dependency cache), e.g. for agents working side by side.
+const sessionName = process.env.PLAY_SESSION?.replace(/[^\w-]/g, '') || null;
+const dir = path.join(root, '.cache/play', ...(sessionName ? ['sessions', sessionName] : []));
 const sessionFile = path.join(dir, 'session.json');
 const logFile = path.join(dir, 'daemon.log');
 
@@ -44,7 +48,8 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   click <target> | --locator <sel>     click a layout target, design point "x,y" or element
   hover <target>                       move the mouse to a target
   drag <x,y> <x,y> [--steps n]         press, move and release the mouse between two page points
-  key <key>...                         press keys (Enter, Escape, ArrowDown, ...)
+  key <key>...                         press keys (Enter, Escape, ArrowDown, ...); key:ms holds
+                                       one down that long, e.g. w:1500 or Shift+w:800
   type <text>                          type text into the focused element
   wait <cond>... [--timeout ms]        wait until every condition holds:
                                        key=value, key~regex, key>number, key<number
@@ -57,13 +62,15 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in apps/web/src/{menu,game}/layout.ts, e.g. START,
-menu.BACK, game.BACK, rowRect.0 or GAME_CALIBRATION_CAMERA.next.`;
+Targets name layout exports in apps/web/src/{menu,game,walk}/layout.ts, e.g. START,
+menu.BACK, game.BACK, rowRect.0, GAME_CALIBRATION_CAMERA.next or walk.sceneRect.3.
+
+PLAY_SESSION=<name> before any command uses a separate named session.`;
 
 // ---- Layout targets ----
 
 type Shape = { x: number; y: number; w?: number; h?: number; r?: number };
-const layouts: Record<string, Record<string, unknown>> = { menu: menuLayout, game: gameLayout };
+const layouts: Record<string, Record<string, unknown>> = { menu: menuLayout, game: gameLayout, walk: walkLayout };
 const isShape = (v: unknown): v is Shape =>
   typeof v === 'object' && v !== null && typeof Reflect.get(v, 'x') === 'number' && typeof Reflect.get(v, 'y') === 'number';
 const centre = (s: Shape) => ({ x: s.x + (s.w ?? 0) / 2, y: s.y + (s.h ?? 0) / 2 });
@@ -73,6 +80,7 @@ function resolveTarget(target: string, width = 1600) {
   const layouts: Record<string, Record<string, unknown>> = {
     menu: { ...menuLayout, ...menuLayout.menuLayout(width) },
     game: { ...gameLayout, ...gameLayout.gameLayout(width) },
+    walk: { ...walkLayout, ...walkLayout.walkLayout(width) },
   };
   const point = /^(-?[\d.]+),(-?[\d.]+)$/.exec(target);
   if (point) return { x: Number(point[1]), y: Number(point[2]) };
@@ -166,7 +174,9 @@ async function daemon(options: Options) {
     appUrl = server.resolvedUrls?.local[0] ?? '';
     closeServer = () => server.close();
   } else {
-    const server = await vite.createServer({ configFile, server: { host: '127.0.0.1', port: 5300, strictPort: false } });
+    // Named sessions keep their own dependency cache, so servers starting together don't clash.
+    const cacheDir = sessionName ? path.join(dir, 'vite') : undefined;
+    const server = await vite.createServer({ configFile, cacheDir, server: { host: '127.0.0.1', port: 5300, strictPort: false } });
     await server.listen();
     appUrl = server.resolvedUrls?.local[0] ?? '';
     closeServer = () => server.close();
@@ -196,10 +206,12 @@ async function daemon(options: Options) {
     if (options.app === 'studio') return page.waitForLoadState('load');
     if (options.app === 'dance') return void await page.waitForSelector('.studio[data-revision], .new-dance', { timeout: 120000 });
     // The canvas fades in once the world is built, then the menu reports ready. The phone
-    // camera page (/pair/) has no world and is ready once it draws.
+    // camera page (/pair/) has no world and is ready once it draws; walk mode (/?walk) once its
+    // scene is built (or has failed).
     await page.waitForFunction(() => {
       const c = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas');
-      return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true';
+      return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true'
+        || c?.dataset.walkReady === 'true' || c?.dataset.walkFailed === 'true';
     }, null, { timeout: 120000 });
   };
   const goto = async (target: string) => { await page.goto(new URL(target, appUrl).href); await ready(); };
@@ -253,7 +265,17 @@ async function daemon(options: Options) {
       await page.mouse.move(to[0], to[1], { steps: Number(c.steps) || 8 });
       await page.mouse.up();
     },
-    key: async (c) => { for (const k of c.keys as string[]) await page.keyboard.press(k); },
+    key: async (c) => {
+      for (const k of c.keys as string[]) {
+        // key:ms holds it (and any others joined with +) down that long, e.g. Shift+w:1500.
+        const hold = /^(.+):(\d+)$/.exec(k);
+        if (!hold) { await page.keyboard.press(k); continue; }
+        const keys = hold[1].split('+');
+        for (const key of keys) await page.keyboard.down(key);
+        await page.waitForTimeout(Number(hold[2]));
+        for (const key of keys.reverse()) await page.keyboard.up(key);
+      }
+    },
     type: (c) => page.keyboard.type(String(c.text)),
     wait: async (c) => {
       await page.waitForFunction((conditions) => {

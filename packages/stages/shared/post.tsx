@@ -114,6 +114,10 @@ export interface RenderPipelineProps {
   bloom?: boolean;
   /** false draws nothing: the stage is mounted, but something else has the screen. */
   enabled?: boolean;
+  /** Checked every frame on top of `enabled`, for a hand-over that can't wait for a render. */
+  isEnabled?: () => boolean;
+  /** The live settings it reads every frame (default: the stages' `post`). */
+  settings?: PostSettings;
 }
 
 /**
@@ -123,7 +127,9 @@ export interface RenderPipelineProps {
  * It renders the scene and camera of the store it is mounted in, so inside a
  * createPortal it draws that portal's stage.
  */
-export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect, samples = 4, bloom: bloomOn = true, enabled = true }: RenderPipelineProps) {
+export function RenderPipeline({
+  hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect, samples = 4, bloom: bloomOn = true, enabled = true, isEnabled, settings = post,
+}: RenderPipelineProps) {
   const gl = useThree((s) => s.gl);
 
   const fx = useMemo(() => {
@@ -181,10 +187,10 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
         gl.compile(scene, camera);
       }
       gl.setRenderTarget(null);
-      gl.toneMapping = post.toneMapping;
+      gl.toneMapping = settings.toneMapping;
       const defines: Record<string, string> = {};
       if (THREE.ColorManagement.getTransfer(gl.outputColorSpace) === THREE.SRGBTransfer) defines.SRGB_TRANSFER = '';
-      const tone = OUTPUT_TONE_DEFINES[post.toneMapping];
+      const tone = OUTPUT_TONE_DEFINES[settings.toneMapping];
       if (tone) defines[tone] = '';
       output.material.defines = defines;
       output.material.needsUpdate = true;
@@ -197,24 +203,24 @@ export function RenderPipeline({ hudScene, hudCamera, width = RENDER_WIDTH, heig
       gl.toneMapping = saved.toneMapping;
     }
     return () => quad.geometry.dispose();
-  }, [fx, gl, enabled]);
+  }, [fx, gl, enabled, settings]);
 
   useFrame((state, delta) => {
-    if (!enabled) return;
+    if (!enabled || (isEnabled && !isEnabled())) return;
     tickBeat(Math.min(delta, 0.1));
     const { composer, render, bloom, gradeUniforms } = fx;
     render.scene = state.scene;
     render.camera = state.camera;
-    bloom.enabled = bloomOn && post.bloomStrength > 0;
-    bloom.strength = post.bloomStrength;
-    bloom.radius = post.bloomRadius;
-    bloom.threshold = post.bloomThreshold;
-    gradeUniforms.uVignette.value = post.vignette;
+    bloom.enabled = bloomOn && settings.bloomStrength > 0;
+    bloom.strength = settings.bloomStrength;
+    bloom.radius = settings.bloomRadius;
+    bloom.threshold = settings.bloomThreshold;
+    gradeUniforms.uVignette.value = settings.vignette;
     gradeUniforms.uAspect.value = aspect ?? state.size.width / Math.max(1, state.size.height);
-    gradeUniforms.uSaturation.value = post.saturation;
-    gradeUniforms.uTint.value.setRGB(...post.tint);
-    gl.toneMapping = post.toneMapping;
-    gl.toneMappingExposure = post.exposure;
+    gradeUniforms.uSaturation.value = settings.saturation;
+    gradeUniforms.uTint.value.setRGB(...settings.tint);
+    gl.toneMapping = settings.toneMapping;
+    gl.toneMappingExposure = settings.exposure;
     gl.info.autoReset = false;
     gl.info.reset();
     composer.render(delta);

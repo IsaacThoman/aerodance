@@ -68,6 +68,8 @@ interface WaterUniforms {
   time: THREE.IUniform<number>;
   eye: THREE.IUniform<THREE.Vector3>;
   size: THREE.IUniform<number>;
+  /** The reflection, drawn into a render target Water keeps to itself. */
+  mirrorSampler: THREE.IUniform<THREE.Texture>;
 }
 
 interface Boat { x: number; z: number; dir: number; v: number; ph: number; heel: number; scale: number }
@@ -155,6 +157,8 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   });
   const uniforms = water.material.uniforms as WaterUniforms;
   uniforms.size.value = 2.2;
+  // Water has no dispose of its own: free its reflection's target with the world.
+  ctx.disposables.push(uniforms.mirrorSampler.value.renderTarget);
   water.rotation.x = -Math.PI / 2; water.position.set(0, 0.4, -375);
   ctx.root.add(water);
   // Skip the reflection pass while the drone is down in the meadow, where the lake is hidden.

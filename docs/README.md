@@ -30,6 +30,8 @@ The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, ho
 - `apps/web/src/aero/AeroWorld.tsx` plugs it into the Fiber `<Canvas>` (used by `Scene.tsx`): `<AeroWorld speed={1} />`. It renders the frame itself, so it uses whatever buffer size `FixedRenderResolution` sets.
 - The loop starts low over the meadow facing the skyline (`start` 0.08). Downtown, the east/west districts and the north district across the lake all sit on one 70 m street grid; the lake uses a reflective water surface with boats and quays.
 - There is one graphics setting everywhere, tuned to hold 60 fps on an Apple TV: coarse distant trees, a small lake reflection that leaves the small things out, and no MSAA.
+- **Settings → Graphics → Background** swaps the flight for one of ten animated menu backdrops ([`packages/backdrops`](../packages/backdrops/README.md)), or **Shuffle** for a different one each visit; `?background=<id>` picks one for a visit (e.g. `?background=koi`). `Scene.tsx` shows whichever is chosen and swaps them behind a pale veil; `apps/web/src/backdrop/BackdropView.tsx` draws a backdrop through the stages' post-processing, and stands it down while a dance stage has the screen, like the flight.
+- `/?walk` walks round the skyline, the backdrops and the dance stages in first person instead of playing, with noclip on Z ([walk mode](walk-mode.md)).
 
 ### Sound
 
@@ -95,7 +97,7 @@ A phone can be the camera instead of a webcam: pick **Phone camera** with the ca
 
 ## Shared packages
 
-The dance stages live in [`packages/stages`](../packages/stages/README.md) and the glass character, its retargeting and the menu dance capture in [`packages/character`](../packages/character/README.md). The game, Dance Studio and the thumbnail renderer share them.
+The dance stages live in [`packages/stages`](../packages/stages/README.md), the menu backdrops in [`packages/backdrops`](../packages/backdrops/README.md) and the glass character, its retargeting and the menu dance capture in [`packages/character`](../packages/character/README.md). The game, Dance Studio and the thumbnail renderer share them.
 
 ## Thumbnails
 

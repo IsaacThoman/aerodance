@@ -34,6 +34,8 @@ export interface AeroWorldOptions extends AeroSettings {
   camera: THREE.PerspectiveCamera;
   /** Diagnostics: parts left out. They are still built (the layout doesn't change), just not drawn or animated. */
   hide?: readonly AeroPart[];
+  /** Moves the camera each frame after the drone has (walk mode), before anything follows it. */
+  steer?: ((camera: THREE.PerspectiveCamera) => void) | null;
 }
 
 export interface AeroWorldHandle {

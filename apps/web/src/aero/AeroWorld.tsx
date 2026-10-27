@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createAeroWorld, type AeroPart, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
 import { screenOwner } from '../screenOwner.ts';
+import { cameraPilot } from '../../../../packages/stages/shared/hooks.ts';
 
 export interface AeroWorldProps {
   speed?: number;
@@ -12,12 +13,14 @@ export interface AeroWorldProps {
   onTelemetry?: (telemetry: AeroTelemetry) => void;
   /** Diagnostics: parts of the world left out (createAeroWorld's hide). */
   hide?: readonly AeroPart[];
+  /** Called once, after the world has drawn its first frame. */
+  onShown?: () => void;
 }
 
 /**
  * Puts the Aero drone flight inside the surrounding <Canvas>.
- * It drives the default camera and renders the frame itself (useFrame priority 1),
- * so it uses whatever buffer size the Canvas has, e.g. a fixed 640x480.
+ * It drives the default camera (or walk mode's cameraPilot does) and renders the frame itself
+ * (useFrame priority 1), so it uses whatever buffer size the Canvas has, e.g. a fixed 640x480.
  *
  * fps caps how often the world itself renders (phones: it's the battery hog). In between,
  * the last frame is reused from a texture, so overlays can still redraw at full rate.
@@ -27,9 +30,9 @@ export interface AeroWorldProps {
  * It also stands down at once whenever a stage holds the renderer (screenOwner.ts), since the
  * paused prop arrives frames later.
  *
- * <AeroWorld speed={1} fps={15} paused={false} onTelemetry={(t) => ...} />
+ * <AeroWorld speed={1} fps={15} paused={false} onTelemetry={(t) => ...} onShown={() => ...} />
  */
-export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry, hide }: AeroWorldProps) {
+export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry, hide, onShown }: AeroWorldProps) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
@@ -37,6 +40,8 @@ export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry,
   const shownRef = useRef(false);
   const teleRef = useRef(onTelemetry);
   teleRef.current = onTelemetry;
+  const shownCallback = useRef(onShown);
+  shownCallback.current = onShown;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
 
@@ -45,14 +50,13 @@ export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry,
       console.warn('AeroWorld needs a perspective camera');
       return;
     }
-    const canvas = gl.domElement;
-    canvas.style.transition = 'opacity 1.2s ease';
-    canvas.style.opacity = '0';
     shownRef.current = false;
     let world: AeroWorldHandle | null = null;
     // Deferred one tick so StrictMode's mount/unmount/mount only builds the scene once.
     const timer = setTimeout(() => {
-      world = createAeroWorld({ renderer: gl, scene, camera, speed, hide, onTelemetry: (t) => teleRef.current?.(t) });
+      world = createAeroWorld({
+        renderer: gl, scene, camera, speed, hide, onTelemetry: (t) => teleRef.current?.(t), steer: (cam) => cameraPilot.fly?.(cam, scene),
+      });
       worldRef.current = world;
     }, 0);
     return () => {
@@ -110,7 +114,7 @@ export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry,
       gl.clear();
       gl.render(cache.scene, cache.camera);
     }
-    if (!shownRef.current) { shownRef.current = true; gl.domElement.style.opacity = '1'; }
+    if (!shownRef.current) { shownRef.current = true; shownCallback.current?.(); }
   }, 1);
 
   return null;
