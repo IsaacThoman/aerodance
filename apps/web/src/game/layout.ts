@@ -71,14 +71,15 @@ export const resultsSongs = (players: number) => resultsButton(players, 1);
 // (a song with more than one dancer), which opens the dancers screen.
 export const DANCE = { x: 1172, y: 730, w: 300, h: 96 };
 export const DANCERS = { x: 812, y: 730, w: 340, h: 96 };
-// The dancers screen: the song's title top left and the stage's dancers facing the camera, with
-// a pill per player under them (two to a row, players 1 and 2 first), each picking the dancer
-// they follow, just above Auto (players take the dancers in turn) bottom left and Dance!.
-export const CAST_AUTO = { x: 128, y: 730, w: 300, h: 96 };
-const CAST = { h: 80, gap: 12, above: 16 };
-/** On the dancers screen the stage's picture rises by this share of its height, so its dancers stand clear of the pills. */
-export const castLift = (players: number) => (players > 2 ? 0.1 : 0.04);
-/** Player i's pill on the dancers screen, with this many players (four by default). */
+// The dancers screen, like the results: a glass row per player down the left (each tapping the
+// dancer they follow), the stage's dancers facing the camera on the right, and Auto (players
+// take the dancers in turn) stacked over Dance! bottom right.
+/** On the dancers screen the stage's picture moves right by this share of its width, as on the results. */
+export const CAST_SHIFT = 0.2;
+/** On the dancers screen the stage's picture rises by this share of its height, its dancers clear of Auto. */
+export const CAST_LIFT = 0.1;
+export interface CastLayout { rows: Rect[]; auto: Rect; dance: Rect; }
+/** Player i's row on the dancers screen, with this many players (four by default). */
 export const castRow = (i: number, players = 4) => gameLayout().castRow(i, players);
 
 export function gameLayout(width = 1600) {
@@ -86,8 +87,16 @@ export function gameLayout(width = 1600) {
   const compact = width === 1200;
   const centered = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x + dx });
   const rows = { ...ROWS, x: compact ? 72 : ROWS.x, w: compact ? 540 : ROWS.w };
-  const right = width - rows.x;
-  const castW = (right - rows.x - CAST.gap) / 2;
+  const dance = { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w };
+  // The rows start under the song's title, shorter with three or four players.
+  const cast = (players: number): CastLayout => {
+    const h = players > 2 ? 76 : 88, w = compact ? 480 : 560;
+    return {
+      rows: Array.from({ length: players }, (_, i) => ({ x: rows.x, y: 326 + i * (h + 14), w, h })),
+      auto: { x: dance.x, y: dance.y - 16 - 80, w: dance.w, h: 80 },
+      dance,
+    };
+  };
   return {
     BACK: { ...BACK, x: compact ? 110 : BACK.x },
     ROWS: rows,
@@ -95,13 +104,11 @@ export function gameLayout(width = 1600) {
     SCROLLBAR: { ...SCROLLBAR, x: rows.x + rows.w + 22 },
     RETRY: { ...RETRY, x: rows.x },
     PREVIEW_NOTE: { ...PREVIEW_NOTE, x: rows.x },
-    DANCE: { ...DANCE, x: width - (compact ? 72 : 128) - DANCE.w },
+    DANCE: dance,
     DANCERS: { ...DANCERS, x: width - (compact ? 72 : 128) - DANCE.w - 20 - DANCERS.w },
-    castRow: (i: number, players = 4): Rect => {
-      const lines = Math.ceil(players / 2), below = lines - Math.floor(i / 2);
-      return { x: rows.x + (i % 2) * (castW + CAST.gap), y: CAST_AUTO.y - CAST.above - below * CAST.h - (below - 1) * CAST.gap, w: castW, h: CAST.h };
-    },
-    CAST_AUTO: { ...CAST_AUTO, x: rows.x },
+    cast,
+    castRow: (i: number, players = 4): Rect => cast(players).rows[i],
+    CAST_AUTO: cast(2).auto,
     GAME_MIRROR: centered(GAME_MIRROR),
     GAME_PAUSE: centered(GAME_PAUSE),
     GAME_READY_START: centered(GAME_READY_START),
