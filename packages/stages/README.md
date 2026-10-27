@@ -1,6 +1,6 @@
 # Dance stages
 
-Six procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
+Nine procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
 
 | Id | Kind | Highlights |
 | --- | --- | --- |
@@ -10,6 +10,9 @@ Six procedural stages inspired by Frutiger Aero, used for the song preview, game
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
+| `snowcabin` | snow | A snowy clearing under the northern lights: a glass A-frame cabin with a lit interior you can see into, a snow-loaded roof, icicles, stovepipe smoke, deck lanterns and fairy lights, warm window light thrown across the snow, snow-laden spruces, a snowman, a sled, footprints and a snow angel, sparkling snow, the moon |
+| `icelake` | frozen lake | Black ice in the middle of a frozen lake under the northern lights: the ice mirrors the aurora, stars, peaks, pines and the dancers all round, with frozen bubbles, pale cracks, skate loops, wind-swept snow, glass lanterns, a red ice-fishing hut and the glass cabin's light trailing across the ice |
+| `fireside` | interior | Inside the glass A-frame cabin: an all-glass gable onto a frozen lake, snowy peaks and the aurora with snow falling, a round hanging fireplace with flickering fire and sparks, pine boarding and rafters strung with fairy lights, a teal velvet sofa, a bookcase, figs, cocoa and candles |
 
 ## Layout
 

@@ -8,13 +8,7 @@ import { nightSky, noiseTexture, palette, polar } from '../polar/world.ts';
 /** Where the moon hangs: low on the left, off to the side of the dancers. */
 export const MOON = new THREE.Vector3(-0.93, 0.25, 0.2).normalize();
 
-/**
- * The kit's night sky (polar/world.ts) for a stage the preview circles all the way round. Its
- * gradient and farthest aurora are painted for looking towards -z and meet in a seam behind; here
- * the back half of the sky shows the front half mirrored, so there's none. The stars aren't
- * mirrored (their grid is sized to close up round the circle), and a moon with a soft halo hangs
- * low on the left.
- */
+/** The kit's night sky (polar/world.ts nightSky), with a moon and its soft halo hanging low on the left. */
 export function SnowSky() {
   const mesh = useRef<THREE.Mesh>(null);
   const material = useDisposable(() =>
@@ -52,15 +46,7 @@ export function SnowSky() {
         void main() {
           vec3 d = normalize(vDir);
           float pixel = max(length(dFdx(d)), length(dFdy(d)));
-          vec3 s = vec3(d.x, max(d.y, 0.0), d.z);
-          vec3 f = vec3(s.x, s.y, -abs(s.z) - 1e-4);
-          float el = asin(clamp(s.y, -1.0, 1.0));
-          vec3 col = skyGradient(f) + farAurora(atan(f.x, -f.z), s.y);
-          vec2 q = vec2(atan(s.x, -s.z + 1e-6), el);
-          // Star cells that divide the circle exactly, so the grid closes up behind without a seam.
-          vec3 stars = starLayer(q, el, 6.2831853 / 314.0, 0.16, pixel, 0.5, 3.0) + starLayer(q, el, 6.2831853 / 114.0, 0.3, pixel * 1.25, 1.5, 11.0);
-          col += (stars + shootingStar(vec2(atan(f.x, -f.z), el), pixel)) * smoothstep(0.0, 0.14, el);
-          col += moon(d, pixel);
+          vec3 col = nightSky(vec3(d.x, max(d.y, 0.0), d.z), pixel) + moon(d, pixel);
           gl_FragColor = vec4(col, 1.0);
         }
       `,
