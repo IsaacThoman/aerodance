@@ -26,6 +26,9 @@ const LOADERS: Record<StageId, () => Promise<{ default: StageComponent }>> = {
   falls: () => import('./falls/FallsStage.tsx'),
   club: () => import('./club/ClubStage.tsx'),
   beach: () => import('./beach/BeachStage.tsx'),
+  orbit: () => import('./orbit/OrbitStage.tsx'),
+  orbitnight: () => import('./orbitnight/OrbitNightStage.tsx'),
+  orbitdome: () => import('./orbitdome/OrbitDomeStage.tsx'),
 };
 
 // Dance stages in browse order (see catalog.ts).

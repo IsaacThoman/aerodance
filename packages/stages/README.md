@@ -1,6 +1,6 @@
 # Dance stages
 
-Six procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
+Nine procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
 
 | Id | Kind | Highlights |
 | --- | --- | --- |
@@ -10,6 +10,9 @@ Six procedural stages inspired by Frutiger Aero, used for the song preview, game
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
+| `orbit` | space | Glossy white-and-glass deck on a station high over a ray-traced blue planet at sunrise: the sun cresting the limb with a lens flare, ocean glint and drifting clouds, beat-pulsing LED rings, glass floor windows, solar wings, a turning habitat ring, satellites trailing light, a shuttle, camera drones, the Moon |
+| `orbitnight` | space | The `orbit` stage over the night side: city lights, aurora curtains along the limb, meteors, a bright Moon, the deck's LEDs as the main light |
+| `orbitdome` | space | The `orbit` stage's deck under a ribbed iridescent glass dome: a ring of planters with round trees, ferns and flowers, grow lights, drifting seed-puffs |
 
 ## Layout
 

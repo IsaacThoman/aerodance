@@ -99,7 +99,7 @@ The dance stages live in [`packages/stages`](../packages/stages/README.md) and t
 
 ## Thumbnails
 
-27 in-engine 3:2 thumbnails (2160×1440) of the six dance stages, with and without the "aerodance." wordmark, are in `tools/thumbnails/with-logo/` and `tools/thumbnails/no-logo/`. They use the game's own pixel grid, each pixel an exact 4×3 block. See [its README](../tools/thumbnails/README.md) to re-render them or add shots.
+32 in-engine 3:2 thumbnails (2160×1440) of the nine dance stages, with and without the "aerodance." wordmark, are in `tools/thumbnails/with-logo/` and `tools/thumbnails/no-logo/`. They use the game's own pixel grid, each pixel an exact 4×3 block. See [its README](../tools/thumbnails/README.md) to re-render them or add shots.
 
 ## Stack
 

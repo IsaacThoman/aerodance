@@ -27,7 +27,7 @@ const USAGE = `Usage: node scripts/menu-bench.ts (--device UDID | --sim UDID) --
   --port N           report/log receiver port (default 4897)
   --profile          enable WebGL/2D method profiling (adds overhead)
   --gpu-timing       glFinish every frame (adds overhead; replay execMs is still not GPU time)
-  --scenes           also play all six stages (build with --game --bench-scenes first)
+  --scenes           also play every dance stage (build with --game --bench-scenes first)
   --stages IDS       measure only these stages, comma separated, in catalog order
   --players N        players in stage runs (1–4, default 2); menu samples stay 2/4
   --file-report      pull reports over the paired device connection instead of the LAN
