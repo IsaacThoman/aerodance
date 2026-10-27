@@ -30,8 +30,11 @@ const SHUTTLE_PATH = new THREE.CatmullRomCurve3(
   ].map(([x, y, z]) => new THREE.Vector3(x, y, z)),
 );
 
-/** Where the drones hover: radians either side of the camera round the dancers, out from them, and up; and their size. */
-const DRONE = { spread: 1.2, radius: 6.4, domeRadius: 5.6, y: DECK_Y + 2.9, scale: 1.3 };
+/**
+ * Where the drones hover: radians either side of the camera round the dancers, out from them, and
+ * up (under the dome nearer and higher, over the planters' trees); and their size.
+ */
+const DRONE = { spread: 1.2, radius: 6.4, y: DECK_Y + 2.9, domeRadius: 4.4, domeY: DECK_Y + 4.1, scale: 1.3 };
 /** The drones' glow tints. */
 const DRONE_ACCENTS = ['#4fe3ff', '#b6ff6a'];
 /** What the drones look at: the dancers' chests. */
@@ -209,7 +212,7 @@ export function Craft({ dome }: OrbitVariant) {
         const side = i === 0 ? -1 : 1;
         const az = state.azimuth + side * DRONE.spread + 0.1 * Math.sin(t * 0.23 + i * 2.1);
         const r = (dome ? DRONE.domeRadius : DRONE.radius) + 0.3 * Math.sin(t * 0.31 + i * 1.3);
-        dummy.position.set(Math.sin(az) * r, DRONE.y + 0.14 * Math.sin(t * 1.1 + i * 1.7) + 0.06 * nod, Math.cos(az) * r);
+        dummy.position.set(Math.sin(az) * r, (dome ? DRONE.domeY : DRONE.y) + 0.14 * Math.sin(t * 1.1 + i * 1.7) + 0.06 * nod, Math.cos(az) * r);
         // Filming the dancers from a three-quarter view, now and then turning to the camera.
         const glance = THREE.MathUtils.smoothstep(Math.sin(t * 0.19 + i * 2.5), 0.55, 0.9);
         dummy.lookAt(look.lerpVectors(DANCERS, camera.position, 0.3 + 0.6 * glance));
