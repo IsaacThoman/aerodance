@@ -22,11 +22,18 @@ export const DOME_R = VOID_R + BALCONY_DEPTH;
 export const ROOF_Y = 20.8;
 export const DOME_RISE = 7.5;
 /**
- * The glass wall fills the back right; the balconies run the rest of the way round, over the
- * camera too, and meet the glass at a white pier on each side.
+ * The glass wall fills the back right, meeting the balconies at a white pier on each side. The
+ * shop fronts run the rest of the way round (BALCONY_THETA), but the balconies leave a gap over
+ * the camera (OPEN_THETA either side of theta 0), so it never looks through their plants as it
+ * swings round the dancers.
  */
 export const GLASS_THETA: readonly [number, number] = [1.45, 3.04];
 export const BALCONY_THETA: readonly [number, number] = [GLASS_THETA[1], GLASS_THETA[0] + Math.PI * 2];
+export const OPEN_THETA = 0.78;
+export const BALCONY_ARCS: readonly (readonly [number, number])[] = [
+  [GLASS_THETA[1], Math.PI * 2 - OPEN_THETA],
+  [OPEN_THETA, GLASS_THETA[0]],
+];
 export const GLASS_R = VOID_R + 2.5;
 /** The aquarium column and its pool. */
 export const TANK_R = 1.5;
@@ -94,6 +101,7 @@ const float TANK_TOP = ${f(TANK_TOP)};
 const float POOL_R = ${f(POOL_R)};
 const float WATER_Y = ${f(WATER_Y)};
 const vec2 GLASS_THETA = vec2(${f(GLASS_THETA[0])}, ${f(GLASS_THETA[1])});
+const float OPEN_THETA = ${f(OPEN_THETA)};
 const vec3 LEVELS = vec3(${f(LEVELS[0])}, ${f(LEVELS[1])}, ${f(LEVELS[2])});
 const vec3 PLATFORM = vec3(0.0, ${f(PLATFORM.top)}, ${f(PLATFORM.r)});
 `;

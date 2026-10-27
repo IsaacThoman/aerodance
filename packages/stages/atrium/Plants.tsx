@@ -5,7 +5,7 @@ import { shaderMaterial } from '../shared/glsl.ts';
 import { makeRandom } from '../shared/random.ts';
 import { fill, mergeAll, sweepArc } from './geometry.ts';
 import type { ProfilePoint } from './geometry.ts';
-import { AXIS, BALCONY_THETA, CAMERA, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
+import { AXIS, BALCONY_ARCS, BALCONY_THETA, CAMERA, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
 import type { TreeSpot } from './layout.ts';
 import { COMMON, useAtrium } from './shading.ts';
 
@@ -254,7 +254,7 @@ function hedges(parts: THREE.BufferGeometry[]) {
     g.deleteAttribute('uv');
     parts.push(g);
   };
-  for (const y of LEVELS) ring(VOID_R + 0.36, y + 0.74, 0.5, 0.42, BALCONY_THETA[0] + 0.03, BALCONY_THETA[1] - 0.03);
+  for (const [a0, a1] of BALCONY_ARCS) for (const y of LEVELS) ring(VOID_R + 0.36, y + 0.74, 0.5, 0.42, a0 + 0.03, a1 - 0.03);
   ring(VOID_R + 2.2, 0.15, 0.9, 0.85, BALCONY_THETA[0] + 0.08, BALCONY_THETA[1] - 0.08);
   // A deep tropical bed along the foot of the glass wall.
   ring(GLASS_R - 1.7, 0.3, 1.5, 1.9, GLASS_THETA[0] - 0.15, GLASS_THETA[1] - 0.02, 2.2);
@@ -365,13 +365,13 @@ export function Curtains() {
   const { uniforms } = useAtrium();
   const geometry = useDisposable(() =>
     mergeAll(
-      LEVELS.map((y) => {
+      BALCONY_ARCS.flatMap(([a0, a1]) => LEVELS.map((y) => {
         const top = y + 0.8;
         const profile: ProfilePoint[] = [];
         // Just in front of the fascia, the top edge tucked into the planter.
         for (let i = 0; i <= 8; i++) profile.push([i === 0 ? VOID_R + 0.06 : VOID_R - 0.14, top - (i / 8) * 4.2]);
-        return fill(sweepArc(profile, BALCONY_THETA[0] + 0.03, BALCONY_THETA[1] - 0.03, 320), 'aTop', [top]);
-      }),
+        return fill(sweepArc(profile, a0 + 0.03, a1 - 0.03, Math.ceil((a1 - a0) * 50)), 'aTop', [top]);
+      })),
     ),
   );
   const material = useDisposable(() =>

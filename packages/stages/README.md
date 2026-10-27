@@ -1,6 +1,6 @@
 # Dance stages
 
-Six procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
+Nine procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
 
 | Id | Kind | Highlights |
 | --- | --- | --- |
@@ -10,11 +10,15 @@ Six procedural stages inspired by Frutiger Aero, used for the song preview, game
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
+| `atrium` | indoor | A round eco-tech atrium at midday: a white stage in a reflecting pool, an aquarium column of circling fish, curved balconies trailing plants, a ribbed glass dome with sunbeams and dust motes, a maglev past white towers outside |
+| `atriumdusk` | indoor | The `atrium` at golden hour: low sun through the glass wall, warm beams across the room, a peach and lilac sky, the lights coming on |
+| `atriumnight` | indoor | The `atrium` after dark: stars and the moon through the dome, a glowing aquarium, warm shop fronts and downlights, lights in the pool, fireflies, lit towers outside |
 
 ## Layout
 
 - `catalog.ts`: the stages as plain data (each folder's `meta.ts`: name card text, accent colors, dancer placement, post settings), with no rendering code, so Node, Dance Studio and song catalogs can import it.
 - `index.ts`: pairs each meta with its lazily loaded `<Name>Stage.tsx`, so only the visible stage is fetched and one broken stage can't take down the others.
+- `atrium/`: one stage component in three looks (`looks.ts`), which `AtriumDayStage.tsx`, `AtriumDuskStage.tsx` and `AtriumNightStage.tsx` pick. The look's light reaches every shader through per-mount uniforms (`shading.ts`), so two looks can be mounted at once while one is prepared out of sight.
 - `shared/`:
   - `hooks.ts`: `StageCamera` (16:9 projection with slow orbit, sway and pointer parallax), a steady 118 bpm beat clock for light pulses, and disposal helpers.
   - `Environment.tsx`: PMREM reflections; the glass dancers get most of their look from these.

@@ -119,11 +119,16 @@ float glassSector(float a) {
   return smoothstep(GLASS_THETA.x, GLASS_THETA.x + 0.08, a) * smoothstep(GLASS_THETA.y + 0.05, GLASS_THETA.y - 0.08, a);
 }
 
+// 1 where balconies ring the void (by angle about the axis): not the glass, nor the gap over the camera.
+float balconySector(float a) {
+  return (1.0 - glassSector(a)) * smoothstep(OPEN_THETA - 0.1, OPEN_THETA + 0.1, abs(a));
+}
+
 // The balconies shade the floor underneath them: 0 there, 1 out in the void.
 float foreLight(vec3 p) {
   vec2 d = p.xz - AXIS.xz;
   float under = smoothstep(VOID_R - 1.0, VOID_R + 1.5, length(d)) * smoothstep(LEVELS.x - 0.2, LEVELS.x - 1.2, p.y);
-  return 1.0 - under * (1.0 - glassSector(atan(d.x, d.y)));
+  return 1.0 - under * balconySector(atan(d.x, d.y));
 }
 
 // Sunlight reaching p: through the dome between its ribs, or through the glass wall between its
@@ -203,7 +208,7 @@ vec3 lampPools(vec3 w, vec3 n) {
   float r = length(d);
   float a = atan(d.x, d.y);
   float bay = abs(fract(a * DOME_R / 3.2) - 0.5) * 2.0;
-  float under = smoothstep(VOID_R - 2.5, VOID_R + 0.5, r) * smoothstep(DOME_R + 1.0, DOME_R - 2.0, r) * (1.0 - glassSector(a));
+  float under = smoothstep(VOID_R - 2.5, VOID_R + 0.5, r) * smoothstep(DOME_R + 1.0, DOME_R - 2.0, r) * balconySector(a);
   float pool = exp(-bay * bay * 3.0) * under * smoothstep(1.0, -0.2, w.y) * max(n.y, 0.0);
   return uLamp * uLamps * (pool * 0.9 + under * 0.12);
 }

@@ -4,7 +4,7 @@ import { shaderMaterial } from '../shared/glsl.ts';
 import { fill, mergeAll, sweepArc } from './geometry.ts';
 import type { ProfilePoint } from './geometry.ts';
 import {
-  AXIS, BALCONY_THETA, DOME_R, DOME_RISE, GALLERY, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, POOL_R, ROOF_Y, TANK_R, TANK_TOP, TREES, VOID_R, WATER_Y, polar, wrapTheta,
+  AXIS, BALCONY_ARCS, BALCONY_THETA, DOME_R, DOME_RISE, GALLERY, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, POOL_R, ROOF_Y, TANK_R, TANK_TOP, TREES, VOID_R, WATER_Y, OPEN_THETA, polar, wrapTheta,
 } from './layout.ts';
 import { AA, COMMON, WORLD_VERTEX, useAtrium } from './shading.ts';
 import type { AtriumUniforms } from './shading.ts';
@@ -20,16 +20,17 @@ function buildStructure(): THREE.BufferGeometry {
   const [t0, t1] = BALCONY_THETA;
   const segs = 192;
   const R = VOID_R;
-  for (const y of LEVELS) {
+  for (const [a0, a1] of BALCONY_ARCS) for (const y of LEVELS) {
+    const n = Math.ceil(((a1 - a0) / (Math.PI * 2)) * segs);
     // The rounded white fascia doubles as the planter's front; plants sit on top.
     const fascia: ProfilePoint[] = [
       [R + 0.75, y - 0.85], [R + 0.28, y - 0.8], [R + 0.06, y - 0.58], [R - 0.02, y - 0.2],
       [R, y + 0.35], [R + 0.08, y + 0.66], [R + 0.22, y + 0.76], [R + 0.6, y + 0.76], [R + 0.66, y + 0.3], [DOME_R, y + 0.3],
     ];
-    parts.push(tagged(sweepArc(fascia, t0, t1, segs), KIND.white));
-    parts.push(tagged(sweepArc([[DOME_R, y - 0.85], [R + 0.75, y - 0.85]], t0, t1, segs), KIND.soffit));
-    // A rounded end where each balcony meets the glass wall.
-    for (const theta of [t0, t1]) {
+    parts.push(tagged(sweepArc(fascia, a0, a1, n), KIND.white));
+    parts.push(tagged(sweepArc([[DOME_R, y - 0.85], [R + 0.75, y - 0.85]], a0, a1, n), KIND.soffit));
+    // A rounded end where each balcony meets the glass wall or the gap over the camera.
+    for (const theta of [a0, a1]) {
       const cap = new THREE.CylinderGeometry(0.82, 0.82, 1.62, 20, 1).translate(0, y - 0.05, 0);
       const end = polar(R + 0.82, theta);
       parts.push(tagged(cap.translate(end.x, 0, end.z), KIND.white));
@@ -70,7 +71,7 @@ function buildStructure(): THREE.BufferGeometry {
   }
   // Slim pilotis under the balcony edges, none beside the camera.
   for (let theta = t0 + 0.22; theta < t1; theta += 0.36) {
-    if (Math.abs(wrapTheta(theta)) < 0.4) continue;
+    if (Math.abs(wrapTheta(theta)) < OPEN_THETA) continue;
     const p = polar(R + 1.3, theta);
     parts.push(tagged(new THREE.CylinderGeometry(0.26, 0.26, LEVELS[2], 14, 1).translate(p.x, LEVELS[2] / 2, p.z), KIND.white));
   }
@@ -142,7 +143,7 @@ void main() {
   vec2 d = w.xz - AXIS.xz;
   float r = length(d);
   float a = atan(d.x, d.y);
-  float recess = smoothstep(VOID_R + 0.6, VOID_R + 2.5, r) * step(w.y, LEVELS.z + 0.25) * (1.0 - glassSector(a));
+  float recess = smoothstep(VOID_R + 0.6, VOID_R + 2.5, r) * step(w.y, LEVELS.z + 0.25) * balconySector(a);
   float ao = 1.0 - recess * (0.35 + 0.25 * smoothstep(VOID_R + 1.0, DOME_R, r));
   ao *= mix(0.72, 1.0, foreLight(w));
   // Contact shade where walls, planters and rims meet the floor.
@@ -312,7 +313,7 @@ export function GlassWall() {
 export function Balustrades() {
   const { uniforms } = useAtrium();
   const geometry = useDisposable(() => {
-    const parts = LEVELS.map((y) => sweepArc([[VOID_R + 0.9, y + 0.3], [VOID_R + 0.9, y + 1.35]], BALCONY_THETA[0], BALCONY_THETA[1], 192));
+    const parts = BALCONY_ARCS.flatMap(([a0, a1]) => LEVELS.map((y) => sweepArc([[VOID_R + 0.9, y + 0.3], [VOID_R + 0.9, y + 1.35]], a0, a1, Math.ceil((a1 - a0) * 30))));
     // Round the gallery, open where the bridges leave it, and along both sides of each bridge.
     const gy = GALLERY.y;
     const gap = (GALLERY.width / 2 + 0.1) / GALLERY.r;
