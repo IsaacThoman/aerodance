@@ -8,8 +8,8 @@
 //                                   {"progress": {"task", "done", "total"}} while tracking
 //   POST /api/upload?name=f.mp4     the request body, kept as an upload → { upload } for create and attach
 //   POST /api/create                { title, artist, dancers, video?, audio?, audioFromVideo? } → { dance }: makes the dance
-//   POST /api/attach                { video?, audio?, recording?: { fps, startMs } } → { dance }: adds or replaces the
-//                                   song audio or video (a recording is re-encoded and placed at startMs)
+//   POST /api/attach                { video?, audio?, recording?: { fps, startMs, durationMs } } → { dance }: adds or
+//                                   replaces the song audio or video (a recording is re-encoded and placed at startMs)
 //   POST /api/track                 { fps? } → tracks the video with MediaPipe, as `dance track`
 //   POST /api/apply                 { ops, expectRevision?, opId?, label? } → ApplyResult (409 on a stale revision)
 //   POST /api/undo, /api/redo       { expectRevision? }
@@ -157,7 +157,7 @@ export class Bridge {
     }));
     api.post('/attach', handle(async req => {
       let video = uploaded(req.body?.video);
-      const audio = uploaded(req.body?.audio), recording = req.body?.recording as { fps?: unknown; startMs?: unknown } | undefined;
+      const audio = uploaded(req.body?.audio), recording = req.body?.recording as { fps?: unknown; startMs?: unknown; durationMs?: unknown } | undefined;
       const files = [video, audio];
       try {
         if (!video && !audio) throw Error('Attach a video, a song or both');
@@ -167,7 +167,8 @@ export class Bridge {
           const startMs = Number(recording.startMs);
           if (!Number.isFinite(startMs) || startMs < 0) throw Error('A recording needs the song time it started at');
           const normalized = path.join(uploads, `${path.basename(video, path.extname(video))}-${fps}fps.webm`);
-          await normalizeRecording(video, normalized, fps);
+          const durationMs = Number(recording.durationMs);
+          await normalizeRecording(video, normalized, fps, { durationMs: durationMs > 0 ? durationMs : undefined });
           files.push(video = normalized);
           videoStartMs = Math.round(startMs * 10) / 10;
         }

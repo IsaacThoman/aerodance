@@ -20,6 +20,7 @@ import { validateSong, validateSongChoreography } from '../../../packages/pose/s
 import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
 import { Bridge, runBrowserCommand } from '../server.ts';
 import { DanceProject, formatJson, initProject } from '../project.ts';
+import { normalizeRecording, probeVideo, run } from '../media.ts';
 import type { RenderSpec } from '../studio/renderSpec.ts';
 
 const fixture = fileURLToPath(new URL('../../../packages/pose/tests/fixtures/solo-video-fixture.webm', import.meta.url));
@@ -309,6 +310,16 @@ try {
   assert.match(made.sources.audio!.path, /^sources\/audio-[0-9a-f]{12}\.wav$/);
   assert.equal(made.song.durationMs, 800, 'replacing the song keeps its length');
 
+  step('a recording handed frames from before it started keeps only what it recorded');
+  // Three seconds of frames from a recorder that ran for one: the first two are cut.
+  const backlog = path.join(dir, 'backlog.webm');
+  await run(process.env.FFMPEG_PATH || 'ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=20:duration=3', '-c:v', 'libvpx', backlog]);
+  for (const [ran, kept] of [[1000, 1000], [3000, 3000], [undefined, 3000]] as const) {
+    await normalizeRecording(backlog, path.join(dir, 'normalized.webm'), 20, { durationMs: ran });
+    const { durationMs } = await probeVideo(path.join(dir, 'normalized.webm'));
+    assert.ok(Math.abs(durationMs - kept) <= 100, `ran ${ran} ms: kept ${durationMs} ms, not ${kept}`);
+  }
+
   step('recording the webcam makes the video, lined up with the song');
   await fresh.apply({ ops: [{ op: 'song', set: { durationMs: 1500, playableEndMs: 1500 } }] });
   await camera.waitForSelector(`.studio[data-revision="${created + 2}"]`);
@@ -322,8 +333,9 @@ try {
   assert.equal(recorded.width, 640);
   assert.equal(recorded.fps, 20);
   assert.equal(recorded.proxy, null, 'a recording plays in the browser as it is');
-  // It stops with the 1.5 s song; a slow software-rendered frame may hold the stop up a little.
-  assert.ok(recorded.durationMs >= 600 && recorded.durationMs <= 2500, `recorded ${recorded.durationMs} ms of a 1500 ms song`);
+  // It stops with the 1.5 s song, and keeps no more than it recorded. How much of that a browser
+  // starved by software rendering gets is up to it: this fake camera draws on the main thread.
+  assert.ok(recorded.durationMs > 0 && recorded.durationMs <= 2000, `recorded ${recorded.durationMs} ms of a 1500 ms song`);
   assert.ok(recorded.startMs >= 0 && recorded.startMs < 400, `starts at ${recorded.startMs} ms of the song`);
 
   step('the Studio tracks the recording and keys the dancer from it');

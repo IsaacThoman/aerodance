@@ -38,7 +38,7 @@ export interface NewDanceRequest { title: string; artist: string; dancers: numbe
 /** Makes the dance in the folder the Studio was opened on. */
 export const createDance = (request: NewDanceRequest) => post<{ dance: Dance }>('/api/create', request);
 /** Adds or replaces the song audio or the video (uploads); a recording starts at its song time. */
-export const attachSources = (request: { video?: string; audio?: string; recording?: { fps: number; startMs: number } }) => post<{ dance: Dance }>('/api/attach', request);
+export const attachSources = (request: { video?: string; audio?: string; recording?: { fps: number; startMs: number; durationMs: number } }) => post<{ dance: Dance }>('/api/attach', request);
 export const trackVideo = (fps: number) => post<TrackResult>('/api/track', { fps });
 export const projectFolder = async () => (await call<{ dir: string }>('/api/ping')).dir;
 /** The video frame shown at a song time; the URL names the video's alignment too, so realigning it never shows a cached frame. */

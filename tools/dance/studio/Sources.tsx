@@ -136,19 +136,23 @@ export function RecordPanel({ dance, clock, time, onChanged }: { dance: Dance; c
     const mimeType = RECORDER_TYPES.find(t => MediaRecorder.isTypeSupported(t)) ?? '';
     const recorder = new MediaRecorder(source, mimeType ? { mimeType } : undefined);
     const chunks: Blob[] = [];
-    let startMs = clock.now();
+    let stoppedAt = 0;
     recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     const stopped = new Promise<void>(resolve => { recorder.onstop = () => resolve(); });
     // The song plays first; the video's first frame is where the song is when recording starts.
     await clock.play();
-    const started = new Promise<void>(resolve => { recorder.onstart = () => { startMs = clock.now(); resolve(); }; });
+    const started = new Promise<void>(resolve => { recorder.onstart = () => resolve(); });
+    // Where the song is when recording starts, and when that is, to know how long it went on.
+    // Recording starts with start(); its start event can come a while later on a busy page.
+    const startMs = clock.now(), startedAt = performance.now();
     recorder.start(1000);
     await started;
     setPhase('recording');
     // Recording ends with the song, or when it's paused (Stop, or Space). The video stays lined up
     // with the song only while the song plays straight on, so seeking stops it too.
-    const unsubscribe = clock.subscribe(() => { if (recorder.state === 'recording') recorder.stop(); });
-    cancel.current = () => { if (recorder.state === 'recording') recorder.stop(); };
+    const stop = () => { if (recorder.state === 'recording') { stoppedAt = performance.now(); recorder.stop(); } };
+    const unsubscribe = clock.subscribe(stop);
+    cancel.current = stop;
     await stopped;
     unsubscribe();
     clock.pause();
@@ -158,7 +162,7 @@ export function RecordPanel({ dance, clock, time, onChanged }: { dance: Dance; c
       if (!blob.size) throw Error('The recording is empty');
       const fps = Math.round(source.getVideoTracks()[0]?.getSettings().frameRate ?? 30);
       const name = await upload(blob, 'recording.webm');
-      const { dance: next } = await attachSources({ video: name, recording: { fps, startMs } });
+      const { dance: next } = await attachSources({ video: name, recording: { fps, startMs, durationMs: Math.round(stoppedAt - startedAt) } });
       setNote(`Recorded ${formatTime(next.sources.video?.durationMs ?? 0)} from ${formatTime(startMs)} as the video. Track it to key the dancers from it.`);
       await onChanged();
     } catch (e) {
