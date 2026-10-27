@@ -276,7 +276,7 @@ void main() {
   vec3 col = mix(uSkyLow, vec3(0.8, 0.94, 1.0), 0.6) * (0.35 + 0.6 * fres + 0.5 * sheen) + uLamp * uLamps * fres * 0.3;
   float alpha = 0.02 + 0.16 * fres + 0.07 * sheen;
   if (uMullions > 0.5) {
-    float m = max(aaLine(fract(vUv.x / 4.4 + 0.5) * 4.4 - 2.2, 0.15), aaLine(fract(w.y / 4.8 + 0.5) * 4.8 - 2.4 + 0.0, 0.16));
+    float m = max(aaLine(fract(vUv.x / 4.4 + 0.5) * 4.4 - 2.2, 0.15), aaLine(fract(w.y / LEVELS.x + 0.5) * LEVELS.x - LEVELS.x * 0.5, 0.16));
     vec3 white = vec3(0.92, 0.94, 0.96) * (ambient(n) + SUN * 0.25 * sunLight(w));
     col = mix(col, white, m);
     alpha = mix(alpha, 1.0, m);

@@ -367,7 +367,7 @@ export function Maglev() {
   );
   const haloMaterial = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...uniforms, uGlow: { value: 1 + uniforms.uLamps.value } },
+      uniforms: { ...uniforms, uGlow: { value: 1 + uniforms.uLamps.value * 0.4 } },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
