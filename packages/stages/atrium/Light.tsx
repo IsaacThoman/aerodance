@@ -179,8 +179,9 @@ void main() {
   vNdc = position.xy;
   // Where the sun is on screen, wherever the camera is looking (and however its picture is shifted).
   vec4 sun = projectionMatrix * viewMatrix * vec4(cameraPosition + uSunDir * 1000.0, 1.0);
-  vSun = sun.xy / sun.w;
-  vAhead = step(0.0, sun.w);
+  // Behind the camera (or level with it, where the divide would blow up) there's no glow.
+  vAhead = step(1e-3, sun.w);
+  vSun = sun.xy / max(sun.w, 1e-3);
   vAspect = projectionMatrix[1][1] / projectionMatrix[0][0];
   gl_Position = vec4(position.xy, 0.0, 1.0);
 }
@@ -198,7 +199,7 @@ void main() {
   float uAspect = vAspect;
   vec2 d = (vNdc - uSun) * vec2(uAspect, 1.0);
   float r = length(d);
-  float a = atan(d.y, d.x);
+  float a = r > 1e-5 ? atan(d.y, d.x) : 0.0;
   vec3 col = vec3(1.0, 0.93, 0.78) * (exp(-r * 2.0) * 0.2 + exp(-r * 5.0) * 0.28);
   float rays = pow(max(sin(a * 7.0 + uTime * 0.03) * 0.5 + 0.5, 0.0), 6.0) + pow(max(sin(a * 11.0 - uTime * 0.02 + 1.3) * 0.5 + 0.5, 0.0), 8.0) * 0.6;
   col += vec3(1.0, 0.95, 0.85) * rays * exp(-r * 1.3) * 0.12;

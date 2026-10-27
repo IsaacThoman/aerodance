@@ -117,7 +117,8 @@ vec3 ambient(vec3 n) {
 
 // A cheap stand-in for the room in reflections: dome sky above, white tiers and green around, pale floor.
 vec3 roomReflect(vec3 r) {
-  float a = atan(r.x, r.z);
+  // Straight up, atan(0, 0) is undefined (and a NaN would spread through the stage's bloom).
+  float a = abs(r.x) + abs(r.z) > 1e-6 ? atan(r.x, r.z) : 0.0;
   float glass = smoothstep(GLASS_THETA.x - 0.1, GLASS_THETA.x + 0.2, a) * smoothstep(GLASS_THETA.y + 0.2, GLASS_THETA.y - 0.2, a);
   vec3 sky = mix(vec3(0.9, 1.0, 1.1), vec3(0.35, 0.68, 1.05), smoothstep(0.1, 0.9, r.y));
   vec3 tiers = mix(vec3(0.62, 0.74, 0.52), vec3(1.0, 1.02, 1.04), smoothstep(0.35, 0.65, fract(r.y * 4.0 + 0.2)));

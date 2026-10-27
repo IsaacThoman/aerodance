@@ -34,7 +34,8 @@ void main() {
   vec3 s = normalize(uSunDir);
   vec2 d = w.xz - CENTER;
   float r = length(d);
-  float a = atan(d.x, d.y);
+  // atan(0, 0) is undefined, and a NaN would spread through the bloom.
+  float a = r > 1e-4 ? atan(d.x, d.y) : 0.0;
   float lit = sunLight(w);
   float sun = max(dot(n, s), 0.0) * lit;
   vec3 albedo = vec3(0.86, 0.88, 0.9);
