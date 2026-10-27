@@ -299,8 +299,8 @@ export function Aquarium({ uniforms }: { uniforms: AtriumUniforms }) {
       {/* The fish before the water behind them; both early among the opaque, in front of the room. */}
       <mesh geometry={fish} material={mats.fish} frustumCulled={false} renderOrder={-16} />
       <mesh geometry={tube} material={mats.water} renderOrder={-15} />
-      <points geometry={bubbles} material={mats.bubble} frustumCulled={false} renderOrder={6} />
-      <mesh geometry={tube} material={mats.glass} renderOrder={7} />
+      <points geometry={bubbles} material={mats.bubble} frustumCulled={false} renderOrder={-54} />
+      <mesh geometry={tube} material={mats.glass} renderOrder={-53} />
     </group>
   );
 }

@@ -72,7 +72,7 @@ function buildStructure(): THREE.BufferGeometry {
   // its other side.
   const pilotis: number[] = [];
   for (let theta = t0 + 0.22; theta < Math.PI * 2 - ENTRANCE; theta += 0.42) pilotis.push(theta);
-  pilotis.push(...pilotis.map((theta) => Math.PI * 2 - theta).filter((theta) => theta < t1 - Math.PI * 2 - 0.05));
+  pilotis.push(...pilotis.map((theta) => Math.PI * 2 - theta).filter((theta) => theta < GLASS_THETA[0] - 0.2));
   for (const theta of pilotis) {
     const p = polar(R + 1.3, theta);
     parts.push(tagged(new THREE.CylinderGeometry(0.26, 0.26, LEVELS[2], 14, 1).translate(p.x, LEVELS[2] / 2, p.z), KIND.white));
@@ -258,7 +258,7 @@ export function Dome({ uniforms }: { uniforms: AtriumUniforms }) {
       vertexShader: WORLD_VERTEX,
       fragmentShader: domeFragment,
     }), [uniforms]);
-  return <mesh geometry={geometry} material={material} renderOrder={10} />;
+  return <mesh geometry={geometry} material={material} renderOrder={-50} />;
 }
 
 const glassFragment = /* glsl */ `
@@ -308,7 +308,7 @@ const makeGlass = (uniforms: AtriumUniforms, mullions: boolean) =>
 export function GlassWall({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(() => sweepArc([[GLASS_R, 0], [GLASS_R, ROOF_Y]], GLASS_THETA[0] - 0.02, GLASS_THETA[1], 64));
   const material = useDisposable(() => makeGlass(uniforms, true), [uniforms]);
-  return <mesh geometry={geometry} material={material} renderOrder={8} />;
+  return <mesh geometry={geometry} material={material} renderOrder={-52} />;
 }
 
 /** Frameless glass balustrades along every balcony. */
@@ -336,5 +336,5 @@ export function Balustrades({ uniforms }: { uniforms: AtriumUniforms }) {
     return mergeAll(parts);
   });
   const material = useDisposable(() => makeGlass(uniforms, false), [uniforms]);
-  return <mesh geometry={geometry} material={material} renderOrder={9} />;
+  return <mesh geometry={geometry} material={material} renderOrder={-51} />;
 }

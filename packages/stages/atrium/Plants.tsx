@@ -394,5 +394,5 @@ export function Curtains({ uniforms }: { uniforms: AtriumUniforms }) {
       vertexShader: curtainVertex,
       fragmentShader: curtainFragment,
     }), [uniforms]);
-  return <mesh geometry={geometry} material={material} renderOrder={2} />;
+  return <mesh geometry={geometry} material={material} renderOrder={-58} />;
 }

@@ -19,6 +19,10 @@ import type { AtriumUniforms } from './shading.ts';
 /**
  * The atrium, for a scene that brings its own camera and clock and moves `uniforms.uTime` on:
  * the menu's backdrop (packages/backdrops/atrium) and the dance stage (AtriumStage.tsx).
+ *
+ * Its see-through layers (vines, glass, bubbles, light) draw below renderOrder 0, before the
+ * stage's glass dancers: they don't write depth, so anything drawn after them paints over them.
+ * Only the sun's glow, a lens effect in screen space, comes last.
  */
 export function Atrium({ uniforms }: { uniforms: AtriumUniforms }) {
   return (

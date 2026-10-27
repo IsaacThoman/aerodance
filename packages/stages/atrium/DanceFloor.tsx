@@ -123,8 +123,8 @@ export function DanceFloor({ uniforms }: { uniforms: AtriumUniforms }) {
   return (
     <>
       <mesh geometry={geometry} material={material} />
-      <mesh geometry={foot} material={footMaterial} renderOrder={1} />
-      <mesh geometry={shade} material={shadeMaterial} receiveShadow renderOrder={1} />
+      <mesh geometry={foot} material={footMaterial} renderOrder={-60} />
+      <mesh geometry={shade} material={shadeMaterial} receiveShadow renderOrder={-60} />
     </>
   );
 }

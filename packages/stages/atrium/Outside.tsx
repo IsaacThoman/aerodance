@@ -353,7 +353,7 @@ export function Maglev({ uniforms }: { uniforms: AtriumUniforms }) {
   return (
     <>
       <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={-5} />
-      <mesh geometry={halo} material={haloMaterial} frustumCulled={false} renderOrder={5} />
+      <mesh geometry={halo} material={haloMaterial} frustumCulled={false} renderOrder={-55} />
     </>
   );
 }

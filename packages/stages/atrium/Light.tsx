@@ -136,7 +136,7 @@ export function Shafts({ uniforms, intensity = 0.75 }: { uniforms: AtriumUniform
       fragmentShader: shaftFragment,
     }), [uniforms]);
   material.uniforms.uIntensity.value = intensity;
-  return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={20} />;
+  return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={-42} />;
 }
 
 export function Motes({ uniforms, count = 420 }: { uniforms: AtriumUniforms; count?: number }) {
@@ -162,7 +162,7 @@ export function Motes({ uniforms, count = 420 }: { uniforms: AtriumUniforms; cou
       vertexShader: moteVertex,
       fragmentShader: moteFragment,
     }), [uniforms]);
-  return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={21} />;
+  return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={-41} />;
 }
 
 /**
@@ -291,5 +291,5 @@ export function Glints({ uniforms }: { uniforms: AtriumUniforms }) {
       vertexShader: glintVertex,
       fragmentShader: glintFragment,
     }), [uniforms]);
-  return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={22} />;
+  return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={-40} />;
 }
