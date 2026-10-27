@@ -16,7 +16,7 @@ Six procedural stages inspired by Frutiger Aero, used for the song preview, game
 - `catalog.ts`: the stages as plain data (each folder's `meta.ts`: name card text, accent colors, dancer placement, post settings), with no rendering code, so Node, Dance Studio and song catalogs can import it.
 - `index.ts`: pairs each meta with its lazily loaded `<Name>Stage.tsx`, so only the visible stage is fetched and one broken stage can't take down the others.
 - `shared/`:
-  - `hooks.ts`: `StageCamera` (16:9 projection with slow orbit, sway and pointer parallax), a steady 118 bpm beat clock for light pulses, and disposal helpers.
+  - `hooks.ts`: `StageCamera` (16:9 projection with slow orbit, sway and pointer parallax), a steady 118 bpm beat clock for light pulses, and disposal helpers. `cameraPilot` lets [walk mode](../../docs/walk-mode.md) fly whichever stage or backdrop camera is live.
   - `Environment.tsx`: PMREM reflections; the glass dancers get most of their look from these.
   - `post.tsx`: stage → UnrealBloom → vignette/saturation grade → ACES. Bloom works on linear HDR, so each stage sets a threshold above its lit surfaces.
   - `Dancers.tsx`, `DancerEntrance.tsx`: the dancers on the stage floor.

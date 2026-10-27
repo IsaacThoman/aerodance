@@ -86,7 +86,7 @@ and Vite dependency cache under `.cache/play/sessions/<name>/`.
 | `click --locator <selector>` | Clicks a DOM element with a [Playwright selector](https://playwright.dev/docs/other-locators), mainly for Studio, e.g. `'role=button[name="Save"]'` |
 | `drag <x,y> <x,y> [--steps n]` | Presses, moves and releases the mouse between two page points (the animation Studio's video and timeline are canvases; `eval "window.danceStudio.jointOnPage('P1','leftWrist')"` finds a joint) |
 | `hover <target>` | Moves the mouse onto a target |
-| `key <key>...` | Presses keys in order: `Enter`, `Escape`, `ArrowDown`, … |
+| `key <key>...` | Presses keys in order: `Enter`, `Escape`, `ArrowDown`, …; `key:ms` holds one down that long (`w:1500`, or `Shift+w:800` for several) |
 | `type <text>` | Types into the focused element |
 | `wait <condition>... [--timeout ms]` | Waits until every condition holds, then prints the state. Conditions: `key=value`, `key~regex`, `key>number`, `key<number`. The default timeout is 30 s |
 | `shot [file.png] [--frame]` | Screenshot of the page, or of just the game frame. Without a file it goes to `.cache/play/shots/` |
@@ -102,7 +102,7 @@ and Vite dependency cache under `.cache/play/sessions/<name>/`.
 ### Clicking the canvas
 
 Every game screen is drawn on the canvas in 1600×900 (16:9) or 1200×900 (4:3) design units, and the layout
-modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`) export the position
+modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`, `apps/web/src/walk/layout.ts`) export the position
 of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
@@ -121,6 +121,7 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 - Menus: `menuScreen` (`main`, `players`, `settings`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice`, `songDrop` (`near` / `over` while files are dragged over Settings / the Songs panel) (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first)
 - Song Select: `songScreen` (`list`, `preview`, `dancers`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`, `songDancers` (the open song's dancer count), `songCast` (the dancer each player follows, from 0, e.g. `0|1`). From the preview, `click game.DANCERS` opens the dancers screen; `click castRow.<n>.<players>` presses player n's row (from 0, laid out for that many players) and picks their next dancer, and `key ArrowLeft` / `ArrowRight` on a row step it
 - Stage: `stage`, `stageReady`
+- Walk mode (`goto '/?walk=club'`): `walkScene`, `walkReady`, `walkPaused`, `walkMode`, `walkGrounded`, `walkPosition`; `click walk.RESUME` walks, `key w:1500` holds W ([walk mode](walk-mode.md#testing-it))
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
 - Performance, while the stats overlay is on (Settings → Graphics → Stats: `click STATS.1` for Basic, `STATS.2` for Full, `STATS.0` for Off; or open `/?diag=stats`): `statsMode`, `statsFps`, `statsFrameMs`, `statsP99Ms`, `statsMaxMs`, `statsCpuMs`, `statsGpuMs` (Full only, and `--` without timer queries), `statsDrawCalls`, `statsTriangles`, `statsPoseHz`, `statsPoseAgeMs`. They update four times a second, e.g. `wait 'statsFps>55'`.
 

@@ -41,6 +41,13 @@ export const stagePlay: { dancing: boolean; celebrating: boolean } = { dancing: 
 // and its winner sit right of its scoreboard.
 export const stageShift: { x: number } = { x: 0 };
 
+/**
+ * Walk mode (apps/web/src/walk) flies whichever scene camera is live: each frame every
+ * StageCamera, BackdropCamera and the Aero world's drone moves its camera as usual, then hands
+ * it to `fly` with its scene, which may put it anywhere.
+ */
+export const cameraPilot: { fly: ((camera: THREE.PerspectiveCamera, scene: THREE.Object3D) => void) | null } = { fly: null };
+
 export interface StageCameraProps {
   position?: Vec3;
   target?: Vec3;
@@ -146,6 +153,7 @@ export function StageCamera({
       else camera.setViewOffset(camera.aspect, 1, -shift * camera.aspect, lift, camera.aspect, 1);
     }
     onFrame?.(camera, state, delta);
+    cameraPilot.fly?.(camera, state.scene);
   });
 
   return null;

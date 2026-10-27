@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
 import Scene from './Scene.tsx';
 import MainMenu, { DEFAULT_PLAYERS } from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
@@ -29,24 +29,11 @@ import type { Cast } from '../../../packages/pose/song.ts';
 import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
-import { DISPLAY_MODES, RENDER_SIZE, displayModeFor } from './display.ts';
+import { DISPLAY_MODES, displayModeFor } from './display.ts';
+import FixedRenderResolution from './FixedRenderResolution.tsx';
 import { isBackgroundId, shuffleBackground } from './backdrop/backgrounds.ts';
 import type { GraphicsSettings } from './menu/graphicsSettings.ts';
 import type { DisplayMode } from './display.ts';
-
-function FixedRenderResolution() {
-  const gl = useThree((state) => state.gl);
-  const size = useThree((state) => state.size);
-
-  useLayoutEffect(() => {
-    // Fiber tracks the displayed size for projection and pointer events. As on Wii,
-    // both display modes use the same buffer; widescreen is anamorphic.
-    gl.setSize(RENDER_SIZE.w, RENDER_SIZE.h, false);
-    gl.domElement.dataset.displayMode = displayModeFor(size.width, size.height);
-  }, [gl, size.width, size.height]);
-
-  return null;
-}
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
 // late); ?input=recording&recording=<url> replays a pose recording. ?record downloads each

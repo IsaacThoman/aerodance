@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createAeroWorld, type AeroPart, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
 import { screenOwner } from '../screenOwner.ts';
+import { cameraPilot } from '../../../../packages/stages/shared/hooks.ts';
 
 export interface AeroWorldProps {
   speed?: number;
@@ -18,8 +19,8 @@ export interface AeroWorldProps {
 
 /**
  * Puts the Aero drone flight inside the surrounding <Canvas>.
- * It drives the default camera and renders the frame itself (useFrame priority 1),
- * so it uses whatever buffer size the Canvas has, e.g. a fixed 640x480.
+ * It drives the default camera (or walk mode's cameraPilot does) and renders the frame itself
+ * (useFrame priority 1), so it uses whatever buffer size the Canvas has, e.g. a fixed 640x480.
  *
  * fps caps how often the world itself renders (phones: it's the battery hog). In between,
  * the last frame is reused from a texture, so overlays can still redraw at full rate.
@@ -53,7 +54,9 @@ export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry,
     let world: AeroWorldHandle | null = null;
     // Deferred one tick so StrictMode's mount/unmount/mount only builds the scene once.
     const timer = setTimeout(() => {
-      world = createAeroWorld({ renderer: gl, scene, camera, speed, hide, onTelemetry: (t) => teleRef.current?.(t) });
+      world = createAeroWorld({
+        renderer: gl, scene, camera, speed, hide, onTelemetry: (t) => teleRef.current?.(t), steer: (cam) => cameraPilot.fly?.(cam, scene),
+      });
       worldRef.current = world;
     }, 0);
     return () => {

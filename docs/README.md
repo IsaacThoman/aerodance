@@ -29,6 +29,7 @@ The canvas shows a looping Frutiger Aero drone flight (glass skyline, clouds, ho
 - The loop starts low over the meadow facing the skyline (`start` 0.08). Downtown, the east/west districts and the north district across the lake all sit on one 70 m street grid; the lake uses a reflective water surface with boats and quays.
 - There is one graphics setting everywhere, tuned to hold 60 fps on an Apple TV: coarse distant trees, a small lake reflection that leaves the small things out, and no MSAA.
 - **Settings → Graphics → Background** swaps the flight for one of ten animated menu backdrops ([`packages/backdrops`](../packages/backdrops/README.md)), or **Shuffle** for a different one each visit; `?background=<id>` picks one for a visit (e.g. `?background=koi`). `Scene.tsx` shows whichever is chosen and swaps them behind a pale veil; `apps/web/src/backdrop/BackdropView.tsx` draws a backdrop through the stages' post-processing, and stands it down while a dance stage has the screen, like the flight.
+- `/?walk` walks round the skyline, the backdrops and the dance stages in first person instead of playing, with noclip on Z ([walk mode](walk-mode.md)).
 
 ### Sound
 

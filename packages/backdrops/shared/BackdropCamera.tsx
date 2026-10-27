@@ -3,7 +3,7 @@ import { useThree } from '@react-three/fiber';
 import type { RootState } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Vec2, Vec3 } from '../../stages/catalog.ts';
-import { ASPECT } from '../../stages/shared/hooks.ts';
+import { ASPECT, cameraPilot } from '../../stages/shared/hooks.ts';
 import { damp } from '../../stages/shared/random.ts';
 import { useBackdropFrame } from './frame.ts';
 
@@ -86,6 +86,7 @@ export function BackdropCamera({
     );
     camera.lookAt(look.current);
     onFrame?.(camera, t, delta, state);
+    cameraPilot.fly?.(camera, state.scene);
   });
 
   return null;
