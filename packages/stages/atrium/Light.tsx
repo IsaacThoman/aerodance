@@ -85,6 +85,7 @@ uniform float uTime;
 uniform vec3 uSunDir;
 uniform float uScale;
 uniform float uBase;
+uniform float uSize;
 varying float vGlow;
 ${beamGlsl(beams)}
 void main() {
@@ -96,7 +97,7 @@ void main() {
   float inBeam = beamField(p, -normalize(uSunDir), uTime);
   float twinkle = 0.5 + 0.5 * sin(uTime * (1.1 + aSeed.x * 2.0) + aSeed.y * 30.0);
   vGlow = (uBase + inBeam * 1.6) * (0.4 + 0.6 * twinkle) * smoothstep(3.0, 7.0, -mv.z);
-  gl_PointSize = clamp((0.05 + 0.05 * aSeed.z) * uScale / -mv.z, 1.6, 7.0);
+  gl_PointSize = clamp((0.05 + 0.05 * aSeed.z) * uScale * uSize / -mv.z, 1.6, 7.0 * uSize);
 }
 `;
 
@@ -164,6 +165,7 @@ export function Motes({ count = 480 }: { count?: number }) {
         uBeamStrength: { value: look.beams.map((b) => b[4]) },
         uScale: { value: pointScale(46) },
         uBase: { value: look.moteGlow },
+        uSize: { value: look.moteSize ?? 1 },
         uColor: { value: rgb(look.mote) },
       },
       transparent: true,

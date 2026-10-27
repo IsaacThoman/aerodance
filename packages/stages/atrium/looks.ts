@@ -44,6 +44,8 @@ export interface AtriumLook {
   /** Dust motes in the beams (or, at night, fireflies drifting about). */
   mote: RGB;
   moteGlow: number;
+  /** Their size (default 1): fireflies are bigger than dust. */
+  moteSize?: number;
   /** Twinkling star glints on the glass. */
   glints: boolean;
   /** The platform's glow ring: two colours it alternates on the beat, and its strength. */
@@ -174,12 +176,14 @@ const dusk: AtriumLook = {
   },
 };
 
-// Night: the dome open to the stars and a high moon, the shop fronts and soffits glowing warm,
-// the aquarium lit from within, light pooling under the water, fireflies about the plants.
+// Night: a low moon through the glass wall and stars over the dome, the shop fronts and soffits
+// glowing warm, the aquarium lit from within, light pooling under the water, fireflies about.
 const night: AtriumLook = {
   id: 'night',
-  sunDir: new THREE.Vector3(-0.3, 0.86, -0.42).normalize(),
-  sun: [0.32, 0.4, 0.62],
+  // The moon, low over the park: it shows through the glass wall right of the column, in the
+  // middle of a pane (the wall's mullions are 4.8 apart), and its light falls in barred patches.
+  sunDir: new THREE.Vector3(0.229, 0.324, -0.918).normalize(),
+  sun: [0.36, 0.46, 0.72],
   ambientUp: [0.12, 0.16, 0.3],
   ambientDown: [0.2, 0.17, 0.16],
   skyLow: [0.1, 0.14, 0.3],
@@ -187,37 +191,41 @@ const night: AtriumLook = {
   haze: [0.1, 0.14, 0.28],
   hazeAmount: 0.3,
   lamps: 1,
-  lamp: [1.0, 0.78, 0.5],
+  lamp: [0.72, 0.48, 0.24],
   stars: 1,
   cloudLit: [0.32, 0.38, 0.55],
   cloudShade: [0.08, 0.1, 0.2],
-  glow: [0.45, 0.55, 0.8],
-  shaft: [0.3, 0.4, 0.62],
-  beams: [
-    rel(-5, DOME_BEAM_Y, -2, 1.6, 0.6),
-    rel(-9, DOME_BEAM_Y, -7, 2.2, 0.5),
-    rel(-2, DOME_BEAM_Y, -11, 1.4, 0.45),
-  ],
+  glow: [0.2, 0.25, 0.4],
+  shaft: [0.18, 0.24, 0.4],
+  beams: wallBeams([
+    [2.35, 14.5, 1.6, 0.6],
+    [2.6, 10.5, 2.0, 0.5],
+    [2.15, 7.0, 1.4, 0.4],
+  ]),
   mote: [0.75, 1.0, 0.45],
-  moteGlow: 0.5,
+  moteGlow: 0.7,
+  moteSize: 2.0,
   glints: false,
   ring: ['#36e0ff', '#c46bff'],
   ringGlow: 1.6,
-  platform: '#a6afc4',
-  sky: { top: '#020a26', horizon: '#1a2e6a', bottom: '#24305a', exponent: 0.5, sun: '#dfe8ff', disc: 1.4, glow: 0.35, size: 0.9 },
-  key: { position: [8, 14, 12], color: '#cfe0ff', intensity: 1.7 },
-  hemi: ['#3a4a8a', '#5a3a2a', 0.5],
+  platform: '#97a1b8',
+  sky: { top: '#020a26', horizon: '#1a2e6a', bottom: '#24305a', exponent: 0.5, sun: '#dfe8ff', disc: 1.8, glow: 0.18, size: 1.0 },
+  // A cool key from the front and bright panels behind the camera, so the glass dancers read
+  // against the glowing column instead of going dark.
+  key: { position: [8, 14, 12], color: '#d8e4ff', intensity: 2.3 },
+  hemi: ['#6a7ad0', '#5a3a2a', 0.7],
   environment: {
-    top: '#0a1440',
-    horizon: '#1a3a8a',
-    bottom: '#2a1a24',
-    intensity: 1.3,
+    top: '#1a2a6a',
+    horizon: '#2a4aa0',
+    bottom: '#2a1a34',
+    intensity: 1.9,
     lights: [
-      { position: [0, 6, -12], color: '#2ff0ff', intensity: 5, size: [4, 16] },
+      { position: [0, 6, -12], color: '#2ff0ff', intensity: 4, size: [4, 16] },
       { position: [-20, 5, -4], color: '#ffb060', intensity: 3, size: [14, 6] },
       { position: [16, 7, -12], color: '#ffc070', intensity: 2.2, size: [12, 6] },
       { position: [0, 26, -6], color: '#6070c0', intensity: 1.6, size: [20, 20] },
-      { position: [0, 3, 24], color: '#8fb0ff', intensity: 1.6, size: [20, 6] },
+      { position: [0, 5, 24], color: '#a8c4ff', intensity: 4, size: [24, 10] },
+      { position: [-14, 10, 16], color: '#d8a0ff', intensity: 2.5, size: [10, 8] },
       { position: [0, -2, 0], color: '#2fc8ff', intensity: 1.5, size: [10, 10] },
     ],
   },
