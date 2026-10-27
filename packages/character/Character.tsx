@@ -175,6 +175,8 @@ export default function Character({
         if (!Array.isArray(obj.material) && obj.material.name === "Ink") obj.material = ink;
       }
     });
+    // Changes made here don't draw by themselves on a canvas that renders on demand.
+    invalidate();
     return () => {
       ownedGeometries.forEach((geo) => geo.dispose());
       skeletons.forEach((skeleton) => skeleton.dispose());
@@ -183,15 +185,16 @@ export default function Character({
       gel.dispose();
       ink.dispose();
     };
-  }, [model, mixer, gel, ink]);
+  }, [model, mixer, gel, ink, invalidate]);
   useEffect(() => {
     gel.color = new Color(appearance.color);
     gel.roughness = 0.36 - appearance.gloss * 0.0029;
     gel.clearcoat = 0.4 + appearance.gloss * 0.006;
     gel.opacity = appearance.opacity ?? 0.72;
     accessories.select(appearance.accessory);
+    invalidate();
     return () => accessories.restore();
-  }, [appearance, accessories, gel]);
+  }, [appearance, accessories, gel, invalidate]);
   useEffect(() => {
     if (retarget || applyPose) return;
     const clip = gltf.animations.find((c) => c.name === animation);
