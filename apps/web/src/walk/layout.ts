@@ -38,7 +38,7 @@ export function walkLayout(width = 1600) {
     const caps = y + CAPS_H / 2;
     y += CAPS_H;
     scenes.forEach((scene, i) => {
-      rects.set(scene.id, { x: Math.round(inner + (i % COLS) * (colW + GAP_X)), y: y + Math.floor(i / COLS) * (BUTTON_H + GAP_Y), w: Math.round(colW), h: BUTTON_H });
+      rects.set(scene.key, { x: Math.round(inner + (i % COLS) * (colW + GAP_X)), y: y + Math.floor(i / COLS) * (BUTTON_H + GAP_Y), w: Math.round(colW), h: BUTTON_H });
     });
     const rows = Math.ceil(scenes.length / COLS);
     y += rows * BUTTON_H + (rows - 1) * GAP_Y + SECTION_GAP;
@@ -52,7 +52,7 @@ export function walkLayout(width = 1600) {
   const PANEL = { x, y: top, w, h };
   const RESUME = down({ x: x + w - PAD - 230, y: PAD + (HEADER_H - BUTTON_H) / 2, w: 230, h: BUTTON_H });
   const sceneRect = (i: number) => {
-    const rect = rects.get(WALK_SCENES[i]?.id ?? '');
+    const rect = rects.get(WALK_SCENES[i]?.key ?? '');
     return rect ? down(rect) : null;
   };
   return {

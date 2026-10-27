@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial } from '../../stages/shared/glsl.ts';
+import { useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
 import { AXIS, POOL_R, WATER_Y } from './layout.ts';
-import { AA, COMMON, WORLD_VERTEX, atriumUniforms } from './shading.ts';
+import { AA, COMMON, WORLD_VERTEX } from './shading.ts';
+import type { AtriumUniforms } from './shading.ts';
 
 // The round reflecting pool at the column's foot. Rather than render the room twice, its
 // reflection is traced against the few big shapes that matter: the aquarium column, the ring
@@ -100,8 +101,8 @@ void main() {
 }
 `;
 
-export function Pool() {
+export function Pool({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(() => new THREE.CircleGeometry(POOL_R + 0.05, 96).rotateX(-Math.PI / 2).translate(AXIS.x, WATER_Y, AXIS.z));
-  const material = useDisposable(() => shaderMaterial({ uniforms: { ...atriumUniforms }, vertexShader: WORLD_VERTEX, fragmentShader: poolFragment }));
+  const material = useDisposable(() => shaderMaterial({ uniforms: { ...uniforms }, vertexShader: WORLD_VERTEX, fragmentShader: poolFragment }), [uniforms]);
   return <mesh geometry={geometry} material={material} renderOrder={-14} />;
 }

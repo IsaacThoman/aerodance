@@ -1,10 +1,11 @@
 # Walk mode
 
 `/?walk` opens the game's scenes for walking round in first person, like an FPS, instead of
-playing: Skyline (the Aero world), the ten menu backdrops and the six dance stages, each drawn
+playing: Skyline (the Aero world), the ten menu backdrops and the seven dance stages, each drawn
 as the game draws it (the same 640×480 buffer, post-processing and aspect). `/?walk=<id>` opens
-one (`koi`, `club`, `beach`…); the URL follows the scene as it changes, so a reload comes back
-to it. It's only loaded for `?walk`, and nothing in the game links to it.
+one (`koi`, `club`, `beach`…); a stage that shares its id with a backdrop goes by `<id>-stage`
+(`atrium-stage`, beside the `atrium` backdrop). The URL follows the scene as it changes, so a
+reload comes back to it. It's only loaded for `?walk`, and nothing in the game links to it.
 
 You start where the scene's own camera stands, looking the same way, and drop to whatever is
 under you, or a little ahead of you where a scene only has ground in front of its camera. Where
@@ -37,8 +38,8 @@ seconds with nothing below takes you back to the start.
 - `apps/web/src/walk/walker.ts` is the movement, independent of three's scene: walking with
   gravity, sliding along walls, stepping up ledges under 45 cm and jumping, and noclip flight.
   It sees the world only through ray casts. Distances are in metres times the scene's `scale`
-  (`walk/scenes.ts`): a stage is 1.5 units to the metre (its dancers are 2.6 units tall), Koi
-  Pond 2 and Aurora 2.5.
+  (`walk/scenes.ts`): a stage is 1.5 units to the metre (its dancers are 2.6 units tall), except
+  the atrium, built in metres like its backdrop; Koi Pond 2 and Aurora 2.5.
 - `apps/web/src/walk/collider.ts` casts those rays against the scene's solid meshes, through a
   [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) tree per geometry, built when the
   scene is ready (under 0.1 s for the biggest) and kept beside the geometry rather than in it.

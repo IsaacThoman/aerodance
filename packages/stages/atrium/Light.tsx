@@ -1,12 +1,10 @@
-import { useMemo } from 'react';
 import * as THREE from 'three';
-import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial } from '../../stages/shared/glsl.ts';
-import { makeRandom } from '../../stages/shared/random.ts';
-import { useBackdropFrame } from '../shared/frame.ts';
+import { useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
+import { makeRandom } from '../shared/random.ts';
 import { instanced } from './geometry.ts';
-import { AXIS, DOME_R, DOME_RISE, GLASS_R, GLASS_THETA, ROOF_Y, SUN_DIR, TANK_R, polar } from './layout.ts';
-import { atriumUniforms } from './shading.ts';
+import { AXIS, DOME_R, DOME_RISE, GLASS_R, GLASS_THETA, ROOF_Y, TANK_R, polar } from './layout.ts';
+import type { AtriumUniforms } from './shading.ts';
 
 // Sunlight made visible: soft beams slanting down through the dome, dust motes drifting and
 // twinkling in them, and the glow of the sun just off the top right of the frame.
@@ -117,7 +115,7 @@ void main() {
 
 const beamUniform = () => ({ value: BEAMS.map(([x, z, w, s]) => new THREE.Vector4(AXIS.x + x, AXIS.z + z, w, s)) });
 
-export function Shafts({ intensity = 0.75 }: { intensity?: number }) {
+export function Shafts({ uniforms, intensity = 0.75 }: { uniforms: AtriumUniforms; intensity?: number }) {
   const geometry = useDisposable(() => {
     const data = new Float32Array(BEAMS.length * 4);
     const index = new Float32Array(BEAMS.length);
@@ -129,20 +127,19 @@ export function Shafts({ intensity = 0.75 }: { intensity?: number }) {
   });
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...atriumUniforms, uIntensity: { value: intensity } },
+      uniforms: { ...uniforms, uIntensity: { value: intensity } },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       vertexShader: shaftVertex,
       fragmentShader: shaftFragment,
-    }),
-  );
+    }), [uniforms]);
   material.uniforms.uIntensity.value = intensity;
   return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={20} />;
 }
 
-export function Motes({ count = 420 }: { count?: number }) {
+export function Motes({ uniforms, count = 420 }: { uniforms: AtriumUniforms; count?: number }) {
   const geometry = useDisposable(() => {
     const rand = makeRandom(606);
     const pos = new Float32Array(count * 3);
@@ -158,14 +155,13 @@ export function Motes({ count = 420 }: { count?: number }) {
   });
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...atriumUniforms, uBeams: beamUniform(), uScale: { value: 480 / (2 * Math.tan(THREE.MathUtils.degToRad(28))) } },
+      uniforms: { ...uniforms, uBeams: beamUniform(), uScale: uniforms.uPointScale },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       vertexShader: moteVertex,
       fragmentShader: moteFragment,
-    }),
-  );
+    }), [uniforms]);
   return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={21} />;
 }
 
@@ -174,20 +170,32 @@ export function Motes({ count = 420 }: { count?: number }) {
  * soft rays turning slowly, and faint bokeh drifting near it. Drawn in screen space, last.
  */
 const glowVertex = /* glsl */ `
+uniform vec3 uSunDir;
 varying vec2 vNdc;
+varying vec2 vSun;
+varying float vAspect;
+varying float vAhead;
 void main() {
   vNdc = position.xy;
+  // Where the sun is on screen, wherever the camera is looking (and however its picture is shifted).
+  vec4 sun = projectionMatrix * viewMatrix * vec4(cameraPosition + uSunDir * 1000.0, 1.0);
+  vSun = sun.xy / sun.w;
+  vAhead = step(0.0, sun.w);
+  vAspect = projectionMatrix[1][1] / projectionMatrix[0][0];
   gl_Position = vec4(position.xy, 0.0, 1.0);
 }
 `;
 
 const glowFragment = /* glsl */ `
-uniform vec2 uSun;
-uniform float uAspect;
 uniform float uTime;
 varying vec2 vNdc;
+varying vec2 vSun;
+varying float vAspect;
+varying float vAhead;
 float hash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 void main() {
+  vec2 uSun = vSun;
+  float uAspect = vAspect;
   vec2 d = (vNdc - uSun) * vec2(uAspect, 1.0);
   float r = length(d);
   float a = atan(d.y, d.x);
@@ -204,29 +212,22 @@ void main() {
     vec3 tint = mix(vec3(0.6, 1.0, 0.9), vec3(1.0, 0.9, 0.7), hash11(fi + 5.0));
     col += tint * disc * 0.05;
   }
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col * vAhead, 1.0);
 }
 `;
 
-export function SunGlow() {
+export function SunGlow({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(() => new THREE.PlaneGeometry(2, 2));
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { uSun: { value: new THREE.Vector2(1.2, 1.2) }, uAspect: { value: 16 / 9 }, uTime: atriumUniforms.uTime },
+      uniforms: { uTime: uniforms.uTime, uSunDir: uniforms.uSunDir },
       transparent: true,
       depthTest: false,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       vertexShader: glowVertex,
       fragmentShader: glowFragment,
-    }),
-  );
-  const sun = useMemo(() => new THREE.Vector3(), []);
-  useBackdropFrame(({ camera }) => {
-    sun.copy(SUN_DIR).multiplyScalar(1000).add(camera.position).project(camera);
-    material.uniforms.uSun.value.set(sun.x, sun.y);
-    if (camera instanceof THREE.PerspectiveCamera) material.uniforms.uAspect.value = camera.aspect;
-  });
+    }), [uniforms]);
   return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={100} />;
 }
 
@@ -257,7 +258,7 @@ void main() {
 `;
 
 /** Star glints flashing on the dome's rib crossings, the glass wall's mullions and the column. */
-export function Glints() {
+export function Glints({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(() => {
     const rand = makeRandom(313);
     const pos: number[] = [];
@@ -284,13 +285,12 @@ export function Glints() {
   });
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { uTime: atriumUniforms.uTime, uScale: { value: 480 / (2 * Math.tan(THREE.MathUtils.degToRad(28))) } },
+      uniforms: { uTime: uniforms.uTime, uScale: uniforms.uPointScale },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       vertexShader: glintVertex,
       fragmentShader: glintFragment,
-    }),
-  );
+    }), [uniforms]);
   return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={22} />;
 }

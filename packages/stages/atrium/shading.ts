@@ -1,17 +1,41 @@
 import * as THREE from 'three';
-import { hash, simplex } from '../../stages/shared/glsl.ts';
+import { hash, simplex } from '../shared/glsl.ts';
 import { LAYOUT_GLSL, SUN_DIR, TREES, polar } from './layout.ts';
 
+/**
+ * The uniforms every material of one atrium shares, so one write a frame moves them all. Each
+ * scene that shows the atrium (the menu's backdrop, the dance stage) makes its own and drives
+ * uTime from its own clock: the two can be mounted at once.
+ */
 export interface AtriumUniforms {
   uTime: THREE.IUniform<number>;
   uSunDir: THREE.IUniform<THREE.Vector3>;
+  /** 1 shades the floor nearest the menu's camera, which frames the menu better; 0 leaves it in the sun. */
+  uForeShade: THREE.IUniform<number>;
+  /** Point sprites' scale: the 640x480 buffer's height over the view's height 1 m away. */
+  uPointScale: THREE.IUniform<number>;
+  /** The music (shared/hooks.ts's beat; still in the menu): 1 on the beat, decaying quickly. */
+  uBeat: THREE.IUniform<number>;
+  /** 0..1 through the beat. */
+  uBeatPhase: THREE.IUniform<number>;
 }
 
-// Shared by every material and moved on by the backdrop clock (AtriumBackdrop's Clock).
-export const atriumUniforms: AtriumUniforms = {
-  uTime: { value: 0 },
-  uSunDir: { value: SUN_DIR.clone() },
-};
+export interface AtriumOptions {
+  /** The camera's vertical field of view at 16:9, in degrees. */
+  fov: number;
+  foreShade: number;
+}
+
+export function makeAtriumUniforms({ fov, foreShade }: AtriumOptions): AtriumUniforms {
+  return {
+    uTime: { value: 0 },
+    uSunDir: { value: SUN_DIR.clone() },
+    uForeShade: { value: foreShade },
+    uPointScale: { value: 480 / (2 * Math.tan(THREE.MathUtils.degToRad(fov / 2))) },
+    uBeat: { value: 0 },
+    uBeatPhase: { value: 0 },
+  };
+}
 
 // The trees' crowns as soft occluders of the sun: centre (x, y, z) and radius.
 const CROWNS = TREES.filter((t) => t.height > 4).map((t) => {
@@ -32,6 +56,7 @@ const vec4 CROWNS[${CROWNS.length}] = vec4[](${CROWNS.join(', ')});
 export const COMMON = /* glsl */ `
 uniform float uTime;
 uniform vec3 uSunDir;
+uniform float uForeShade;
 ${LAYOUT_GLSL}
 ${CROWNS_GLSL}
 ${hash}
@@ -50,9 +75,9 @@ float domeRibDist(vec2 xz) {
   return min(spokes, rings);
 }
 
-// The balcony behind the camera shades the near floor: 0 there, 1 elsewhere.
+// With uForeShade, the balcony behind the menu's camera shades the near floor: 0 there, 1 elsewhere.
 float foreLight(vec3 p) {
-  return 1.0 - smoothstep(2.5, 7.5, p.z - AXIS.z) * smoothstep(4.5, 2.5, p.y);
+  return 1.0 - uForeShade * smoothstep(2.5, 7.5, p.z - AXIS.z) * smoothstep(4.5, 2.5, p.y);
 }
 
 // Sunlight reaching p: the dome's ribs cast soft bars, and the column a long shadow.

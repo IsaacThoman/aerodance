@@ -129,7 +129,7 @@ slower; measure without it and read the console through `logUrl` (or pull file r
 optimizations, paired hardware measurements and visual checks. The six menu scenarios can be
 measured without attaching a debugger: `node scripts/menu-bench.ts --device <udid> --label <name>`.
 
-To exercise all six dance stages through preview, a scored ghost song and results, build with
+To exercise every dance stage through preview, a scored ghost song and results, build with
 `node scripts/tvos.ts build --game --bench-scenes`, then run
 `node scripts/menu-bench.ts --device <udid> --label <name> --scenes --file-report`.
 This uses development-only copies of the demo song, each assigned to a different stage; the

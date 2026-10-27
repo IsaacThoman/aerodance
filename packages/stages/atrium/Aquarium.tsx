@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial } from '../../stages/shared/glsl.ts';
-import { makeRandom } from '../../stages/shared/random.ts';
+import { useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
+import { makeRandom } from '../shared/random.ts';
 import { instanced, sweepArc } from './geometry.ts';
 import { AXIS, LAYOUT_GLSL, TANK_R, TANK_TOP, WATER_Y } from './layout.ts';
-import { COMMON, WORLD_VERTEX, atriumUniforms } from './shading.ts';
+import { COMMON, WORLD_VERTEX } from './shading.ts';
+import type { AtriumUniforms } from './shading.ts';
 
 // The aquarium column: a glass cylinder of sunlit water rising from the pool to the dome, with
 // tropical fish circling inside and bubbles streaming up.
@@ -254,7 +255,7 @@ void main() {
 }
 `;
 
-export function Aquarium() {
+export function Aquarium({ uniforms }: { uniforms: AtriumUniforms }) {
   const tube = useDisposable(() => sweepArc([[TANK_R, BOTTOM - 0.1], [TANK_R, TOP + 0.1]], 0, Math.PI * 2, 48));
   const fish = useFish(46);
   const bubbles = useDisposable(() => {
@@ -274,26 +275,25 @@ export function Aquarium() {
     return g;
   });
   const mats = useDisposable(() => ({
-    water: shaderMaterial({ uniforms: { ...atriumUniforms }, side: THREE.BackSide, vertexShader: WORLD_VERTEX, fragmentShader: waterFragment }),
+    water: shaderMaterial({ uniforms: { ...uniforms }, side: THREE.BackSide, vertexShader: WORLD_VERTEX, fragmentShader: waterFragment }),
     glass: shaderMaterial({
-      uniforms: { ...atriumUniforms },
+      uniforms: { ...uniforms },
       transparent: true,
       depthWrite: false,
       premultipliedAlpha: true,
       vertexShader: WORLD_VERTEX,
       fragmentShader: glassFragment,
     }),
-    fish: shaderMaterial({ uniforms: { ...atriumUniforms }, side: THREE.DoubleSide, vertexShader: fishVertex, fragmentShader: fishFragment }),
+    fish: shaderMaterial({ uniforms: { ...uniforms }, side: THREE.DoubleSide, vertexShader: fishVertex, fragmentShader: fishFragment }),
     bubble: shaderMaterial({
-      // Point sizes in buffer pixels: the 640x480 buffer's height over the view's height at 1 m.
-      uniforms: { uTime: atriumUniforms.uTime, uScale: { value: 480 / (2 * Math.tan(THREE.MathUtils.degToRad(28))) } },
+      uniforms: { uTime: uniforms.uTime, uScale: uniforms.uPointScale },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       vertexShader: bubbleVertex,
       fragmentShader: bubbleFragment,
     }),
-  }));
+  }), [uniforms]);
   return (
     <group>
       {/* The fish before the water behind them; both early among the opaque, in front of the room. */}
