@@ -1,6 +1,6 @@
 import { MAX_PLAYERS, assertChoreography, copy, finite, isArray, isObject, isPlayerCount } from './choreography.ts';
 import type { Choreography, ChoreographyCoordinates, ChoreographyTrack, PlayerCount, PoseSnapshot, TrackCalibration } from './choreography.ts';
-import { decodePoseFile, framesFromSamples, quantizeConfidence, sampleFrames, sparseSamples } from './binary.ts';
+import { decodePoseFile, encodePoseFile, framesFromSamples, quantizeConfidence, sampleFrames, sparseSamples } from './binary.ts';
 import type { PoseFrames, PoseMarker, SongHeader, TrackHeader } from './binary.ts';
 import type { Performance } from './performance.ts';
 
@@ -98,6 +98,18 @@ export function validateCatalog(data: unknown): SongCatalog {
 export async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+}
+/**
+ * A song's ID: a hash of its audio and its motion, so each distinct dance gets its own ID and
+ * re-exporting an unchanged one keeps it. Metadata and provenance don't count, and the
+ * choreography is hashed with an empty ID since the file carries the result. Both song tools
+ * (Dance Studio and tools/dance) export with it, so the same dance gets the same ID from either.
+ */
+export async function bundleSongId(audioSha256: string, motion: SongChoreography, performance?: Uint8Array): Promise<string> {
+  const parts = [new TextEncoder().encode(audioSha256), encodePoseFile(motion), ...(performance ? [performance] : [])];
+  const input = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((at, p) => { input.set(p, at); return at + p.length; }, 0);
+  return `song-${(await sha256(input)).slice(0, 16)}`;
 }
 /** An exported song folder's files, by bundle-relative path: on disk, in a ZIP, or saved in the browser. */
 export interface SongFolder {

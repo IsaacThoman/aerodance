@@ -128,6 +128,28 @@ export async function makeProxy(video: string, out: string, fps: number): Promis
   await run(FFMPEG, ['-v', 'error', '-y', '-i', video, '-an', '-vf', 'scale=-2:min(720\\,ih)', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8',
     '-row-mt', '1', '-b:v', '0', '-crf', '34', '-g', String(Math.max(1, Math.round(fps / 2))), '-pix_fmt', 'yuv420p', out]);
 }
+/**
+ * A browser recording (MediaRecorder's WebM, which has no length and a variable frame rate) as
+ * VP9 WebM at a constant `fps`, so it probes, seeks and tracks like any other video.
+ *
+ * Its first frame has to be when recording started, as that's where it's placed on the song. A
+ * browser that's slow to deliver camera frames can hand the recorder a backlog from before it
+ * started; with `durationMs`, how long it really recorded, whatever comes before is cut.
+ */
+export async function normalizeRecording(video: string, out: string, fps: number, { durationMs }: { durationMs?: number } = {}): Promise<void> {
+  await mkdir(path.dirname(out), { recursive: true });
+  let skip = 0;
+  if (durationMs) {
+    const { stdout } = await run(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', video]);
+    // One "time," per line.
+    const times = stdout.toString().split('\n').map(line => parseFloat(line)).filter(t => Number.isFinite(t));
+    const spanMs = times.length ? (Math.max(...times) - Math.min(...times)) * 1000 + 1000 / fps : 0;
+    if (spanMs > durationMs + 250) skip = (spanMs - durationMs) / 1000;
+  }
+  // -ss after the input decodes up to it, so the cut is exact.
+  await run(FFMPEG, ['-v', 'error', '-y', '-i', video, ...(skip ? ['-ss', skip.toFixed(3)] : []), '-an', '-vf', `fps=${fps}`, '-c:v', 'libvpx-vp9',
+    '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-b:v', '0', '-crf', '30', '-g', String(Math.max(1, Math.round(fps / 2))), '-pix_fmt', 'yuv420p', out]);
+}
 /** Encodes PNG frames into an H.264 MP4 (with optional audio from `audio`, starting at audioStartMs). */
 export async function encodeClip(frames: AsyncIterable<Buffer>, out: string, { fps, audio, audioStartMs = 0, durationMs }:
   { fps: number; audio?: string | null; audioStartMs?: number; durationMs: number }): Promise<void> {
