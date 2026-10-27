@@ -7,11 +7,36 @@ import * as THREE from 'three';
 
 /** The deck's top surface (the dancers' feet) and its radius. */
 export const DECK_Y = 0;
-export const DECK_RADIUS = 7.5;
+export const DECK_RADIUS = 8;
 
 export const CAMERA = { position: [0, 1.9, 15.5], target: [0, 1.35, 0], fov: 38 } as const;
-/** Inside the dome the camera stands closer. */
-export const DOME_CAMERA = { position: [0, 1.75, 13], target: [0, 1.4, 0], fov: 40 } as const;
+/** Under the dome the camera stands back a little and higher, to take in its crown and garden. */
+export const DOME_CAMERA = { position: [0, 2.1, 15], target: [0, 1.6, 0], fov: 40 } as const;
+
+// --- The deck, the station and the dome ---------------------------------------------------------
+// The deck is the top of a saucer-shaped module; under it the station's spine runs back along +z,
+// behind the front camera, to its core: trusses out and up carrying two pairs of solar wings over
+// the deck's sides, a habitat ring turning about the spine, and a docking port at its far end.
+
+/** The deck slab's depth under its top surface. */
+export const DECK_THICKNESS = 0.36;
+/** The ring of glass windows in the deck: inner and outer radius, and how many. */
+export const DECK_WINDOWS = { inner: 5.45, outer: 6.85, count: 8 } as const;
+/** The low glass rail round the deck's edge: its radius and height. */
+export const DECK_RAIL = { radius: DECK_RADIUS - 0.24, height: 0.5 } as const;
+/** The spine's height (it runs along +z from under the deck) and length. */
+export const SPINE = { y: -4.3, length: 52 } as const;
+/** The node where the wing trusses leave the spine. */
+export const WING_NODE_Z = 22;
+/**
+ * Each side's solar wings: their height, x span of the pair, and z span. The right-hand pair
+ * reaches less far forward (`fore`) so it stays clear of the Moon from the front camera.
+ */
+export const WINGS = { y: 8.5, x: [12, 28], z: [-22, 56], fore: { left: -22, right: -8 } } as const;
+/** The habitat ring round the spine. */
+export const HABITAT = { z: 38, radius: 13, tube: 1.15 } as const;
+/** The garden dome on orbitdome: radius at its foot and height. */
+export const DOME = { radius: 7.55, height: 6.6 } as const;
 
 // ---------------------------------------------------------------------------------------------
 // The planet and the sky (Planet.tsx, Space.tsx).
