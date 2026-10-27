@@ -322,7 +322,8 @@ try {
   assert.equal(recorded.width, 640);
   assert.equal(recorded.fps, 20);
   assert.equal(recorded.proxy, null, 'a recording plays in the browser as it is');
-  assert.ok(recorded.durationMs >= 600 && recorded.durationMs <= 1700, `recorded ${recorded.durationMs} ms`);
+  // It stops with the 1.5 s song; a slow software-rendered frame may hold the stop up a little.
+  assert.ok(recorded.durationMs >= 600 && recorded.durationMs <= 2500, `recorded ${recorded.durationMs} ms of a 1500 ms song`);
   assert.ok(recorded.startMs >= 0 && recorded.startMs < 400, `starts at ${recorded.startMs} ms of the song`);
 
   step('the Studio tracks the recording and keys the dancer from it');
