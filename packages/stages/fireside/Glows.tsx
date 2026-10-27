@@ -1,11 +1,12 @@
 // The room's little lights: warm fairy lights swagged along the gable's frame and the collar
-// ties, candle flames, and the halo round the globe lamp. All of them are camera-facing glows
-// in one instanced draw (their wires in one more), twinkling in the shader.
+// ties, candle flames, the halo round the globe lamp, and the steam off the cocoa. All of them
+// are camera-facing glows in one instanced draw (the strands' wires in one more), moved in the
+// shader.
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { shaderMaterial } from '../shared/glsl.ts';
 import { noiseTexture, polar } from '../polar/world.ts';
-import { CANDLES, COLLAR, FLOOR, GABLE, HALF, LAMP, RAFTERS, RIDGE, roofX } from './layout.ts';
+import { CANDLES, COLLAR, FLOOR, GABLE, HALF, LAMP, MUGS, RAFTERS, RIDGE, SIDE_TABLE, roofX } from './layout.ts';
 import { roomPalette } from './room.ts';
 
 const BULB_STEP = 0.42;
@@ -64,6 +65,7 @@ function strands() {
 const BULB = 0;
 const FLAME = 1;
 const HALO = 2;
+const STEAM = 3;
 
 /** The bulbs, candle flames and halos, and the strands' wires. */
 export function Glows() {
@@ -85,6 +87,10 @@ export function Glows() {
     });
     spots.push(LAMP.x, FLOOR + LAMP.height, LAMP.z, HALO);
     looks.push(2.6, 0, 1, 0);
+    MUGS.forEach(([x, z], i) => {
+      spots.push(x, FLOOR + SIDE_TABLE.height + 0.15, z, STEAM);
+      looks.push(1, i * 0.53, 0, 0);
+    });
     const plane = new THREE.PlaneGeometry(1, 1);
     const g = new THREE.InstancedBufferGeometry();
     g.index = plane.index;
@@ -122,6 +128,10 @@ export function Glows() {
           if (aSpot.w == ${FLAME.toFixed(1)}) {
             size = vec2(0.13, 0.26) * aLook.x * (1.0 + 0.08 * sin(uTime * 11.0 + vSeed * 40.0) * vec2(0.4, 1.0));
             mv.xy += vec2(0.0, size.y * 0.35);
+          } else if (aSpot.w == ${STEAM.toFixed(1)}) {
+            // Rising from the mug's rim.
+            size = vec2(0.2, 0.55);
+            mv.xy += vec2(0.0, size.y * 0.5);
           }
           mv.xy += position.xy * size;
           // Bulbs twinkle slowly out of step with each other, candles flicker, the lamp (aLook.z) holds steady.
@@ -151,6 +161,13 @@ export function Glows() {
             float width = pow(max(1.0 - y, 0.0), 0.7) * smoothstep(0.0, 0.3, y) + 0.001;
             float body = 1.0 - smoothstep(0.55, 1.0, abs(x) / width);
             col = mix(vec3(2.4, 0.9, 0.25), vec3(4.2, 3.0, 1.6), 1.0 - smoothstep(0.0, 0.6, abs(x) / width)) * body * vGlow;
+          } else if (vKind == ${STEAM.toFixed(1)}) {
+            // A faint curl of steam, wavering as it rises and thinning out.
+            float y = vUv.y;
+            float x = vUv.x - 0.5 + noise4(vec2(y * 2.2 - uTime * 0.7, vSeed * 7.0)).r * 0.22 * y;
+            float wisp = exp(-x * x / (0.004 + 0.02 * y)) * smoothstep(0.0, 0.15, y) * (1.0 - smoothstep(0.45, 1.0, y));
+            wisp *= 0.6 + 0.4 * noise4(vec2(x * 4.0, y * 3.0 - uTime * 1.1 + vSeed * 5.0)).g;
+            col = vec3(0.5, 0.42, 0.36) * wisp * 0.6;
           } else {
             col = BULB * (exp(-r2 * 5.0) * 0.16 + exp(-r2 * 22.0) * 0.12) * (1.0 - smoothstep(0.7, 1.0, r2)) * vGlow;
           }

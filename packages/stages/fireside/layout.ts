@@ -38,6 +38,11 @@ export const FIRE_LIGHT: Vec3 = [FIRE.x + 0.95, FIRE.y + 0.35, FIRE.z + 2.1];
 // pouf in front.
 export const SOFA = { x: 6.6, z: -1.6, heading: -Math.PI / 2 + 0.38 };
 export const SIDE_TABLE = { x: 5.4, z: 2.0, height: 0.78 };
+/** The two mugs of cocoa on it: [x, z, colour, which way the handle points]. */
+export const MUGS: readonly (readonly [x: number, z: number, color: string, turn: number])[] = [
+  [SIDE_TABLE.x - 0.16, SIDE_TABLE.z + 0.14, '#f2ede6', 0.5],
+  [SIDE_TABLE.x + 0.2, SIDE_TABLE.z + 0.08, '#c4562a', 2.4],
+];
 export const POUF = { x: 4.7, z: 4.0 };
 export const LAMP = { x: 5.4, z: -4.6, height: 2.3 };
 
@@ -46,8 +51,8 @@ export const SHELF = { x: -8.55, z0: -4.7, z1: 1.9, height: 1.75, depth: 0.8 };
 
 // Potted plants: [x, z, size] (a fiddle-leaf fig either side of the window, smaller ones).
 export const PLANTS: readonly (readonly [x: number, z: number, size: number])[] = [
-  [-7.7, -5.7, 1.25],
-  [7.5, -5.5, 1.05],
+  [-7.7, -5.7, 1.3],
+  [7.25, -5.9, 1.35],
 ];
 
 /** Candle flames, [x, y, z, size]: on the side table and along the top of the bookcase. */

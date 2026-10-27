@@ -3,7 +3,7 @@
 // candles, and a glossy globe lamp glowing behind it all.
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
-import { FLOOR, LAMP, POUF, SIDE_TABLE, SOFA } from './layout.ts';
+import { FLOOR, LAMP, MUGS, POUF, SIDE_TABLE, SOFA } from './layout.ts';
 import { lathe, merge, paint, place, rod, softBox } from './geometry.ts';
 import type { Placement } from './geometry.ts';
 import { patchRoom } from './room.ts';
@@ -31,8 +31,8 @@ function Sofa() {
     ),
   );
   const geometry = useDisposable(() => {
-    const teal = '#2f7480';
-    const deep = '#235a64';
+    const teal = '#1f7a88';
+    const deep = '#175e6a';
     const parts = [
       paint(softBox(4.3, 0.36, 1.55, 0.12).translate(0, 0.36, -0.02), deep),
       paint(softBox(4.3, 0.95, 0.32, 0.14).translate(0, 0.86, -0.64), deep),
@@ -136,10 +136,10 @@ function scaleUv(g: THREE.BufferGeometry, u: number, v: number): void {
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * u, uv.getY(i) * v);
 }
 
-/** The side table, the mugs and candles on it, and the globe lamp: glossy, in one draw. */
+/** The side table, the mugs and candles on it, and the globe lamp, in one draw. */
 function Things() {
   const material = useDisposable(() =>
-    patchRoom(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 }), {
+    patchRoom(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32 }), {
       key: 'lounge-things',
       emissive: /* glsl */ `
         ${lampGlow}
@@ -147,7 +147,8 @@ function Things() {
         // The globe itself, lit from within.
         totalEmissiveRadiance += BULB * 2.2 * (1.0 - smoothstep(0.3, 0.36, lampD));
       `,
-      ibl: 0.3,
+      // Little of the environment: the table top would mirror the cool window.
+      ibl: 0.15,
     }),
   );
   const geometry = useDisposable(() => {
@@ -158,6 +159,7 @@ function Things() {
       paint(new THREE.CylinderGeometry(0.06, 0.07, top - 0.06, 12).translate(0, (top - 0.06) / 2, 0), walnut),
       paint(lathe([[0.32, 0], [0.3, 0.04], [0.001, 0.05]], 32), walnut),
     ];
+    // Mugs, at the table's centre (the table is placed below).
     const mug = (x: number, z: number, color: string, turn: number) => [
       paint(lathe([[0.001, 0], [0.075, 0], [0.08, 0.17], [0.07, 0.17], [0.066, 0.02], [0.001, 0.02]], 20).translate(x, top, z), color),
       paint(new THREE.CylinderGeometry(0.068, 0.068, 0.01, 16).translate(x, top + 0.145, z), '#4a2412'),
@@ -175,7 +177,7 @@ function Things() {
       paint(new THREE.CylinderGeometry(0.06, 0.08, 0.1, 12).translate(0, LAMP.height - 0.33, 0), '#c88a48'),
     ];
     return merge([
-      ...[...table, ...mug(-0.16, 0.14, '#f2ede6', 0.5), ...mug(0.2, 0.08, '#c4562a', 2.4), candle(-0.12, -0.2, 0.3), candle(0.1, -0.28, 0.2)].map((g) =>
+      ...[...table, ...MUGS.flatMap(([x, z, color, turn]) => mug(x - SIDE_TABLE.x, z - SIDE_TABLE.z, color, turn)), candle(-0.12, -0.2, 0.3), candle(0.1, -0.28, 0.2)].map((g) =>
         place(g, { position: [SIDE_TABLE.x, FLOOR, SIDE_TABLE.z] }),
       ),
       ...lamp.map((g) => place(g, { position: [LAMP.x, FLOOR, LAMP.z] })),

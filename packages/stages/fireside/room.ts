@@ -32,14 +32,13 @@ export const roomPalette = /* glsl */ `
 const vec3 EMBER = vec3(1.0, 0.36, 0.08);
 const vec3 FIRELIGHT = vec3(1.0, 0.5, 0.2);
 const vec3 BULB = vec3(1.0, 0.66, 0.32);
-const vec3 MOONLIGHT = vec3(0.32, 0.55, 0.9);
 `;
 
 /**
  * Warm light from the fire on a surface at p facing n: a soft fake on top of the real point
  * light, that reaches round corners and across the ceiling. Needs `uFire` and `uFlicker`.
  */
-export const fireGlow = /* glsl */ `
+const fireGlow = /* glsl */ `
 vec3 fireGlow(vec3 p, vec3 n) {
   vec3 d = uFire - p;
   float l = length(d);

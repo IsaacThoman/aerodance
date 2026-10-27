@@ -83,12 +83,15 @@ const NEAR_PINES = [
   [17.5, -33, 12],
   [-40, -21, 19],
   [42, -23, 19],
-].map(([x, z, tall], i) => ({ x, y: bankHeight(x, z) - 0.5, z, width: tall * 0.42, height: tall, seed: (i * 0.37) % 1 }));
+]
+  .map(([x, z, tall], i) => ({ x, y: bankHeight(x, z) - 0.5, z, width: tall * 0.42, height: tall, seed: (i * 0.37) % 1 }))
+  // Far to near, for blending.
+  .sort((a, b) => a.z - b.z);
 
 /**
- * The frozen lake: clear black ice that mirrors the sky along its reflection ray, with a faint
- * slow warp in the ice. It writes no depth, so the mirrored land, curtains and pines drawn after
- * it show in it, and then a dusting of wind-blown snow lies over the lot.
+ * The frozen lake: clear black ice that mirrors the sky along its reflection ray, a little
+ * warped by the ice's unevenness. It writes no depth, so the mirrored land, curtains and pines
+ * drawn after it show in it, and then a dusting of wind-blown snow lies over the lot.
  */
 function Ice() {
   const ice = useDisposable(() =>
@@ -188,7 +191,7 @@ function Bank() {
   });
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { uTime: polar.uTime, uNoise: polar.uNoise, uFlicker: room.uFlicker },
+      uniforms: { uFlicker: room.uFlicker },
       vertexShader: /* glsl */ `
         varying vec3 vWorld;
         varying vec3 vNormal;
@@ -199,11 +202,9 @@ function Bank() {
         }
       `,
       fragmentShader: /* glsl */ `
-        uniform float uTime, uFlicker;
+        uniform float uFlicker;
         varying vec3 vWorld;
         varying vec3 vNormal;
-        ${hash}
-        ${noiseTexture}
         ${palette}
         ${landLight}
         void main() {
@@ -215,8 +216,8 @@ function Bank() {
           vec3 col = mix(vec3(0.03, 0.06, 0.13), vec3(0.2, 0.3, 0.5), smoothstep(0.05, 0.9, key));
           col += vec3(0.0, 0.05, 0.04) * max(dot(n, FILL), 0.0);
           // The glass gable's light spilling out over the snow, in a warm fan from the window.
-          float out_ = max(${GABLE.toFixed(1)} - vWorld.z, 0.0);
-          float fan = exp(-out_ * 0.16) * (1.0 - smoothstep(4.0 + out_ * 0.5, 9.0 + out_ * 0.8, abs(vWorld.x)));
+          float beyond = max(${GABLE.toFixed(1)} - vWorld.z, 0.0);
+          float fan = exp(-beyond * 0.16) * (1.0 - smoothstep(4.0 + beyond * 0.5, 9.0 + beyond * 0.8, abs(vWorld.x)));
           col += vec3(0.5, 0.24, 0.08) * fan * uFlicker * 0.55;
           // A soft sheen on the crust towards the aurora.
           col += vec3(0.05, 0.16, 0.13) * pow(1.0 - max(dot(n, view), 0.0), 3.0) * 0.6;
