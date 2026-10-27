@@ -1,0 +1,212 @@
+// polar: the night sky, northern lights, snowy peaks, pines and snowfall that the snowcabin,
+// icelake and fireside stages share, after the menus' Aurora backdrop. Shared clock, noise and
+// GLSL for every layer, so one update a frame moves the curtains, the stars and the ripples
+// together in whichever stage is showing.
+//
+// Where a stage has a mirror (the frozen lake), it lies at y = 0. What it reflects comes two
+// ways: the sky (gradient, stars, shooting stars, the farthest curtains) is a function of
+// direction that the mirror's shader evaluates along its reflection ray, and the things with
+// geometry (the near curtains, mountains, pines) are drawn a second time mirrored below it.
+//
+// The noise in the shaders comes from one small texture (noise.ts makeNoiseTexture) rather
+// than being computed per pixel, so the sky stays cheap on phones and the Apple TV.
+import { useLayoutEffect } from 'react';
+import { useFrame } from '@react-three/fiber';
+import type * as THREE from 'three';
+import { reducedMotion } from '../shared/hooks.ts';
+import { uniform } from '../shared/glsl.ts';
+import { makeNoiseTexture } from './noise.ts';
+
+export const polar = {
+  /** Seconds on the stage clock (0 with prefers-reduced-motion). */
+  uTime: { value: 0 },
+  /** noise.ts makeNoiseTexture, while a stage using it is mounted (usePolarWorld). */
+  uNoise: uniform<THREE.Texture | null>(null),
+};
+
+let noise: THREE.DataTexture | null = null;
+let users = 0;
+
+/**
+ * Runs the polar clock and holds the noise texture while mounted: call it once in each stage
+ * that uses this folder. Two stages can be mounted at once (one being prepared out of sight),
+ * so the texture is shared and its GPU copy freed when the last one goes.
+ */
+export function usePolarWorld(): void {
+  useLayoutEffect(() => {
+    noise ??= makeNoiseTexture();
+    polar.uNoise.value = noise;
+    users++;
+    return () => {
+      if (--users === 0) noise?.dispose();
+    };
+  }, []);
+  useFrame((state) => {
+    polar.uTime.value = reducedMotion ? 0 : state.clock.elapsedTime;
+  });
+}
+
+/**
+ * Noise from polar.uNoise, in about [-1, 1] with features about a unit across like simplex
+ * noise, for a texture fetch instead of the arithmetic, in four independent fields (RGBA).
+ * Declares the `uNoise` sampler uniform.
+ */
+export const noiseTexture = /* glsl */ `
+uniform sampler2D uNoise;
+vec4 noise4(vec2 p) { return texture2D(uNoise, p * 0.03125) * 2.0 - 1.0; }
+`;
+
+// Linear HDR palette (the pipeline tone maps with ACES afterwards; values above the bloom
+// threshold glow).
+export const palette = /* glsl */ `
+const vec3 SKY_ZENITH = vec3(0.004, 0.010, 0.046);
+const vec3 SKY_MID = vec3(0.010, 0.036, 0.120);
+const vec3 SKY_HORIZON = vec3(0.030, 0.150, 0.200);
+const vec3 AIRGLOW = vec3(0.010, 0.150, 0.090);
+const vec3 VEIL = vec3(0.022, 0.008, 0.050);
+const vec3 HAZE = vec3(0.030, 0.110, 0.160);
+const vec3 WATER = vec3(0.002, 0.010, 0.020);
+const vec3 EMERALD = vec3(0.10, 1.00, 0.42);
+const vec3 TEAL = vec3(0.04, 0.70, 0.75);
+const vec3 VIOLET = vec3(0.42, 0.16, 0.95);
+const vec3 WARM = vec3(1.00, 0.55, 0.22);
+`;
+
+/**
+ * The sky as a function of direction: gradient, a green airglow low over the mountains, a
+ * violet veil higher up, the farthest auroral curtains, two layers of soft twinkling stars and
+ * the odd shooting star. Everything varies in whole cycles round the horizon, so a camera
+ * circling the dancers never meets a seam. Needs `hash` (glsl.ts), `noiseTexture` and `palette`
+ * first, and a `uTime` uniform.
+ *
+ *   vec3 nightSky(vec3 dir, float pixel)   // pixel: radians a pixel spans, for star size
+ */
+export const nightSky = /* glsl */ `
+// Clockwise from north (-z); 0 rather than NaN straight up.
+float azimuth(vec3 d) {
+  return atan(d.x, -d.z + step(abs(d.x) + abs(d.z), 0.0));
+}
+
+vec3 skyGradient(float az, float h) {
+  vec3 col = mix(SKY_HORIZON, SKY_MID, smoothstep(0.0, 0.24, h));
+  col = mix(col, SKY_ZENITH, smoothstep(0.2, 0.8, h));
+  // Airglow low over the peaks, strongest north under the brightest curtains.
+  float band = exp(-max(h, 0.0) * 8.0) * (0.55 + 0.45 * sin(az * 2.0 - 0.2 + uTime * 0.015));
+  col += AIRGLOW * band * (0.7 + 0.3 * cos(az));
+  col += VEIL * smoothstep(0.12, 0.5, h) * (0.6 + 0.4 * sin(az * 2.0 - 0.5));
+  return col;
+}
+
+// The farthest curtains, too far off to show their folds, painted into the sky rather than
+// drawn as more layers over it (Aurora.tsx): two rayed teal-to-violet bands with bright lower
+// edges, rising and falling round the whole sky.
+float farBand(float v, float ray, float rays) {
+  if (v < 0.0) return 0.0;
+  float top = 0.4 + 0.6 * ray;
+  float profile = smoothstep(0.0, 0.05, v) * (0.25 + 0.75 * exp(-v * 3.0) + exp(-v * 22.0) * 0.6);
+  return profile * (1.0 - smoothstep(top * 0.5, top, v)) * (rays + (1.0 - rays) * ray);
+}
+
+vec3 farAurora(float az, float h) {
+  float edgeA = 0.25 - 0.06 * cos(az) + 0.05 * cos(2.0 * az + 1.0) + 0.025 * sin(az * 5.0 + uTime * 0.07) + 0.012 * sin(az * 13.0 - uTime * 0.2);
+  float edgeB = 0.44 + 0.07 * sin(az + 0.8) + 0.02 * sin(az * 6.0 - uTime * 0.06 + 1.7) + 0.01 * sin(az * 15.0 + uTime * 0.17);
+  if (h < min(edgeA, edgeB)) return vec3(0.0);
+  // Eleven noise tiles round the circle (the texture repeats every 32 units), so the rays wrap.
+  vec4 n = noise4(vec2(az * 56.0225 + uTime * 0.08, uTime * 0.07 + az * 5.093));
+  float vA = (h - edgeA) * 2.2;
+  float vB = (h - edgeB) * 2.6;
+  float a = farBand(vA, clamp(0.5 + 0.6 * (n.x * 0.65 + n.y * 0.5), 0.0, 1.0), 0.5 + 0.15 * sin(az * 3.0));
+  float b = farBand(vB, clamp(0.5 + 0.6 * (n.z * 0.65 + n.w * 0.5), 0.0, 1.0), 0.6);
+  float swell = 0.6 + 0.4 * sin(az * 2.0 - uTime * 0.12);
+  vec3 col = mix(TEAL, VIOLET, smoothstep(0.06, 0.5, vA)) * a * 0.42 * swell;
+  col += mix(TEAL, VIOLET, smoothstep(0.0, 0.4, vB)) * b * 0.22 * (0.65 + 0.35 * sin(az * 3.0 + uTime * 0.1));
+  return col;
+}
+
+// One layer of stars on an azimuth / elevation grid: a soft dot at most per cell.
+vec3 starLayer(vec2 q, float el, float cell, float density, float pixel, float gain, float seed) {
+  vec2 g = q / cell;
+  vec2 id = floor(g);
+  float pick = hash12(id + seed);
+  if (pick > density) return vec3(0.0);
+  vec2 rnd = hash22(id * 1.7 + seed);
+  vec2 diff = (fract(g) - 0.5 - (rnd - 0.5) * 0.5) * cell;
+  diff.x *= cos(el);
+  // About a pixel across; spread wider by ripples in a mirror, they keep their light, not their peak.
+  float sigma = max(pixel, 0.0019) * 0.7;
+  float dot2 = dot(diff, diff) / (sigma * sigma);
+  float spread = 0.0019 / max(pixel, 0.0019);
+  float r = pick / density;
+  float twinkle = 0.6 + 0.4 * sin(uTime * (1.1 + 2.6 * rnd.x) + r * 40.0);
+  vec3 tint = mix(vec3(0.75, 0.88, 1.0), vec3(1.0, 0.9, 0.78), rnd.x);
+  return tint * exp(-0.5 * dot2) * gain * (0.2 + pow(r, 4.0) * 1.2) * twinkle * spread * spread;
+}
+
+// A meteor every dozen seconds or so somewhere over the right half of the sky, fading in and out.
+vec3 shootingStar(vec2 q, float pixel) {
+  const float PERIOD = 13.0;
+  float k = floor(uTime / PERIOD);
+  float life = fract(uTime / PERIOD) / 0.075;
+  if (life > 1.0) return vec3(0.0);
+  vec2 rnd = hash22(vec2(k, 7.31));
+  vec2 start = vec2(mix(0.02, 0.58, rnd.x), mix(0.3, 0.46, rnd.y));
+  vec2 dir = normalize(vec2(rnd.y > 0.5 ? 1.0 : -0.55, -0.42));
+  vec2 head = start + dir * 0.2 * life;
+  vec2 rel = q - head;
+  float along = dot(rel, -dir);
+  float across = dot(rel, vec2(-dir.y, dir.x));
+  float trail = 0.08 * smoothstep(0.0, 0.35, life);
+  float w = pixel * 1.1;
+  float tail = 1.0 - smoothstep(0.0, trail, along);
+  float streak = exp(-across * across / (w * w)) * smoothstep(-w, 0.0, along) * tail * tail;
+  return vec3(0.75, 1.0, 0.92) * streak * sin(3.14159 * life) * 3.0;
+}
+
+vec3 nightSky(vec3 d, float pixel) {
+  float az = azimuth(d);
+  float el = asin(clamp(d.y, -1.0, 1.0));
+  vec2 q = vec2(az, el);
+  vec3 col = skyGradient(az, d.y) + farAurora(az, d.y);
+  // 314 and 114 cells round the horizon: whole numbers, so the grids close up behind the camera.
+  vec3 stars = starLayer(q, el, 6.2831853 / 314.0, 0.16, pixel, 0.5, 3.0) + starLayer(q, el, 6.2831853 / 114.0, 0.3, pixel * 1.25, 1.5, 11.0);
+  col += (stars + shootingStar(q, pixel)) * smoothstep(0.0, 0.14, el);
+  return col;
+}
+`;
+
+/**
+ * Gentle ripples or frost on a mirror at y = 0: the slope (dh/dx, dh/dz) of a few slow waves at
+ * p. Each wave flattens where it would pack more than a cycle into a few pixels, so the distance
+ * stays calm instead of shimmering. Needs `noiseTexture` and a `uTime` uniform.
+ *
+ *   vec2 rippleSlope(vec2 p)      // the mirror's own surface
+ *   vec2 mirrorRipple(vec2 p)     // a cheaper wobble for the things seen in it
+ *   vec3 waterHit(vec3 mirrored)  // where the eye's line to a mirrored point meets y = 0
+ */
+export const ripple = /* glsl */ `
+vec2 rippleWave(vec2 p, vec2 dir, float len, float speed, float slope) {
+  float k = 6.2831853 / len;
+  float phase = (dot(p, dir) - uTime * speed) * k;
+  float cycles = fwidth(dot(p, dir)) / len;
+  return dir * cos(phase) * slope * (1.0 - smoothstep(0.08, 0.3, cycles));
+}
+
+vec2 rippleSlope(vec2 p) {
+  vec2 warp = noise4(p * 0.03 + vec2(uTime * 0.013, uTime * 0.02)).rg;
+  vec2 q = p + warp * 4.0;
+  vec2 s = rippleWave(q, vec2(0.28, 0.96), 7.0, 0.7, 0.0055);
+  s += rippleWave(q, vec2(-0.6, 0.8), 3.9, 0.55, 0.0045);
+  s += rippleWave(q, vec2(0.9, 0.44), 2.3, 0.45, 0.0035);
+  s += rippleWave(q, vec2(-0.2, -0.98), 1.3, 0.35, 0.0028);
+  return s;
+}
+
+vec2 mirrorRipple(vec2 p) {
+  return noise4(p * vec2(0.22, 0.45) + uTime * vec2(0.07, 0.12)).ba * 0.012;
+}
+
+vec3 waterHit(vec3 mirrored) {
+  float k = cameraPosition.y / max(cameraPosition.y - mirrored.y, 1e-3);
+  return cameraPosition + (mirrored - cameraPosition) * k;
+}
+`;
