@@ -9,7 +9,6 @@ import { Aquarium } from './Aquarium.tsx';
 import { Balustrades, Dome, GlassWall, Structure } from './Architecture.tsx';
 import { CAMERA } from './layout.ts';
 import { Glints, Motes, Shafts, SunGlow } from './Light.tsx';
-import { LOOKS } from './looks.ts';
 import type { AtriumLook } from './looks.ts';
 import { Clouds, Landscape, Maglev } from './Outside.tsx';
 import { Platform } from './Platform.tsx';
@@ -99,5 +98,3 @@ export function AtriumScene({ look, post: settings }: AtriumStageProps) {
     </AtriumContext.Provider>
   );
 }
-
-export { LOOKS };

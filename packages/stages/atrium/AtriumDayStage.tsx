@@ -1,4 +1,5 @@
-import { AtriumScene, LOOKS } from './AtriumStage.tsx';
+import { AtriumScene } from './AtriumStage.tsx';
+import { LOOKS } from './looks.ts';
 import { atrium } from './meta.ts';
 
 /** atrium: the atrium at sunlit midday. */
