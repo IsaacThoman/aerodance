@@ -1,13 +1,12 @@
 // A dance as a game song bundle: <songId>/song.json, choreography.adpose, the audio and
-// checksums.json, exactly as Dance Studio exports them (tools/choreography/storage/store.ts), so
-// the game installs and imports it the same way (docs/game-song-bundles.md).
+// checksums.json, exactly as Dance Studio exports them, so the game installs and imports it the
+// same way (docs/game-song-bundles.md).
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bundleSongId } from '../choreography/storage/store.ts';
 import { encodePoseFile } from '../../packages/pose/binary.ts';
-import { catalogEntry, sha256, songChoreographyFromTimeline, validateSongChoreography } from '../../packages/pose/song.ts';
+import { bundleSongId, catalogEntry, sha256, songChoreographyFromTimeline, validateSongChoreography } from '../../packages/pose/song.ts';
 import type { CatalogSong, ChecksumManifest, Song } from '../../packages/pose/song.ts';
 import type { PlayerCount } from '../../packages/pose/choreography.ts';
 import { makeZip } from '../../packages/pose/zip.ts';

@@ -20,7 +20,7 @@ import { Bridge, runBrowserCommand } from '../server.ts';
 import { formatJson, initProject } from '../project.ts';
 import type { RenderSpec } from '../studio/renderSpec.ts';
 
-const fixture = fileURLToPath(new URL('../../choreography/tests/solo-video-fixture.webm', import.meta.url));
+const fixture = fileURLToPath(new URL('../../../packages/pose/tests/fixtures/solo-video-fixture.webm', import.meta.url));
 const dir = await mkdtemp(path.join(tmpdir(), 'dance-studio-'));
 const step = (message: string) => process.stdout.write(`· ${message}\n`);
 const project = await initProject(path.join(dir, 'routine'), { video: fixture, dancers: 1, title: 'Fixture', artist: 'Test', proxy: false });
@@ -235,7 +235,7 @@ try {
   assert.ok(found >= tracking.times.length - 1, `found the dancer in ${found} of ${tracking.times.length} frames`);
 
   step('tracking keeps two dancers in their own slots');
-  const duet = await initProject(path.join(dir, 'duet'), { video: fileURLToPath(new URL('../../choreography/tests/video-fixture.webm', import.meta.url)),
+  const duet = await initProject(path.join(dir, 'duet'), { video: fileURLToPath(new URL('../../../packages/pose/tests/fixtures/video-fixture.webm', import.meta.url)),
     dancers: 2, proxy: false, durationMs: 800 });
   process.stdout.write = (() => true) as typeof process.stdout.write;
   try { await runBrowserCommand('track', duet, await duet.read(), { fps: '10' }, true); }
