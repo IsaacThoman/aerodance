@@ -1,6 +1,6 @@
 # Dance stages
 
-Six procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
+Seven procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
 
 | Id | Kind | Highlights |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ Six procedural stages inspired by Frutiger Aero, used for the song preview, game
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
+| `pond` | garden | A koi pond in spring: the dancers on a giant Victoria lily pad, koi circling it under jade water over a pebble bed with caustics, smaller pads and lotus flowers, cherry trees in bloom dropping petals on the water, cloud-pruned pines, azaleas, stone lanterns, a vermilion bridge over the stream, the garden mirrored in the water, and a ripple ring from the pad on every bar |
 
 ## Layout
 

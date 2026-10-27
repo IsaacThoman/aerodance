@@ -9,8 +9,8 @@ import { DEFAULT_STAGE, STAGE_LIST, resolveStage } from '../../../packages/stage
 import { discoverSongs } from '../../../scripts/songCatalog.ts';
 import { bundleFixture, choreographyBytes } from './fixtures/songBundle.ts';
 
-test('the stage catalog lists the six dance stages and defaults to openreef', () => {
-  assert.deepEqual(STAGE_LIST.map((stage) => stage.id), ['sanctuary', 'reef', 'openreef', 'falls', 'club', 'beach']);
+test('the stage catalog lists the seven dance stages and defaults to openreef', () => {
+  assert.deepEqual(STAGE_LIST.map((stage) => stage.id), ['sanctuary', 'reef', 'openreef', 'falls', 'club', 'beach', 'pond']);
   assert.equal(DEFAULT_STAGE, 'openreef');
   assert.equal(resolveStage('club'), 'club');
   assert.equal(resolveStage(undefined), 'openreef');
