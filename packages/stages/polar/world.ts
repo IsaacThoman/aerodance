@@ -75,28 +75,31 @@ const vec3 WARM = vec3(1.00, 0.55, 0.22);
 /**
  * The sky as a function of direction: gradient, a green airglow low over the mountains, a
  * violet veil higher up, the farthest auroral curtains, two layers of soft twinkling stars and
- * the odd shooting star. Needs `hash` (glsl.ts), `noiseTexture` and `palette` first, and a
- * `uTime` uniform.
+ * the odd shooting star. Everything varies in whole cycles round the horizon, so a camera
+ * circling the dancers never meets a seam. Needs `hash` (glsl.ts), `noiseTexture` and `palette`
+ * first, and a `uTime` uniform.
  *
  *   vec3 nightSky(vec3 dir, float pixel)   // pixel: radians a pixel spans, for star size
  */
 export const nightSky = /* glsl */ `
-vec3 skyGradient(vec3 d) {
-  float h = d.y;
-  float az = atan(d.x, -d.z);
+// Clockwise from north (-z); 0 rather than NaN straight up.
+float azimuth(vec3 d) {
+  return atan(d.x, -d.z + step(abs(d.x) + abs(d.z), 0.0));
+}
+
+vec3 skyGradient(float az, float h) {
   vec3 col = mix(SKY_HORIZON, SKY_MID, smoothstep(0.0, 0.24, h));
   col = mix(col, SKY_ZENITH, smoothstep(0.2, 0.8, h));
-  // Airglow under the curtains: brighter right of centre, where they hang lowest.
-  float band = exp(-max(h, 0.0) * 8.0) * (0.55 + 0.45 * sin(az * 2.2 - 0.2 + uTime * 0.015));
-  col += AIRGLOW * band * smoothstep(-0.9, 0.3, az);
-  col += VEIL * smoothstep(0.12, 0.5, h) * (0.6 + 0.4 * sin(az * 1.7 - 0.5));
+  // Airglow low over the peaks, strongest north under the brightest curtains.
+  float band = exp(-max(h, 0.0) * 8.0) * (0.55 + 0.45 * sin(az * 2.0 - 0.2 + uTime * 0.015));
+  col += AIRGLOW * band * (0.7 + 0.3 * cos(az));
+  col += VEIL * smoothstep(0.12, 0.5, h) * (0.6 + 0.4 * sin(az * 2.0 - 0.5));
   return col;
 }
 
 // The farthest curtains, too far off to show their folds, painted into the sky rather than
 // drawn as more layers over it (Aurora.tsx): two rayed teal-to-violet bands with bright lower
-// edges, one across the sky, high on the left and lower and brighter to the right, and one
-// higher still over the left. Smooth sheets on the left, rayed to the right.
+// edges, rising and falling round the whole sky.
 float farBand(float v, float ray, float rays) {
   if (v < 0.0) return 0.0;
   float top = 0.4 + 0.6 * ray;
@@ -105,19 +108,18 @@ float farBand(float v, float ray, float rays) {
 }
 
 vec3 farAurora(float az, float h) {
-  float edgeA = 0.3 - 0.16 * az + 0.025 * sin(az * 5.0 + uTime * 0.07) + 0.012 * sin(az * 13.0 - uTime * 0.2);
-  float edgeB = 0.42 - 0.08 * az + 0.02 * sin(az * 6.0 - uTime * 0.06 + 1.7) + 0.01 * sin(az * 15.0 + uTime * 0.17);
+  float edgeA = 0.25 - 0.06 * cos(az) + 0.05 * cos(2.0 * az + 1.0) + 0.025 * sin(az * 5.0 + uTime * 0.07) + 0.012 * sin(az * 13.0 - uTime * 0.2);
+  float edgeB = 0.44 + 0.07 * sin(az + 0.8) + 0.02 * sin(az * 6.0 - uTime * 0.06 + 1.7) + 0.01 * sin(az * 15.0 + uTime * 0.17);
   if (h < min(edgeA, edgeB)) return vec3(0.0);
-  vec4 n = noise4(vec2(az * 55.0 + uTime * 0.08, uTime * 0.07 + az * 4.0));
-  float right = smoothstep(-0.6, 0.6, az);
-  float rays = mix(0.65, 0.3, right);
+  // Eleven noise tiles round the circle (the texture repeats every 32 units), so the rays wrap.
+  vec4 n = noise4(vec2(az * 56.0225 + uTime * 0.08, uTime * 0.07 + az * 5.093));
   float vA = (h - edgeA) * 2.2;
   float vB = (h - edgeB) * 2.6;
-  float a = farBand(vA, clamp(0.5 + 0.6 * (n.x * 0.65 + n.y * 0.5), 0.0, 1.0), rays);
+  float a = farBand(vA, clamp(0.5 + 0.6 * (n.x * 0.65 + n.y * 0.5), 0.0, 1.0), 0.5 + 0.15 * sin(az * 3.0));
   float b = farBand(vB, clamp(0.5 + 0.6 * (n.z * 0.65 + n.w * 0.5), 0.0, 1.0), 0.6);
-  float swell = 0.6 + 0.4 * sin(az * 2.3 - uTime * 0.12);
-  vec3 col = mix(TEAL, VIOLET, smoothstep(0.06, 0.5, vA)) * a * mix(0.45, 0.5, right) * swell;
-  col += mix(TEAL, VIOLET, smoothstep(0.0, 0.4, vB)) * b * 0.26 * (1.0 - smoothstep(-0.3, 0.3, az)) * (0.7 + 0.3 * sin(az * 3.1 + uTime * 0.1));
+  float swell = 0.6 + 0.4 * sin(az * 2.0 - uTime * 0.12);
+  vec3 col = mix(TEAL, VIOLET, smoothstep(0.06, 0.5, vA)) * a * 0.42 * swell;
+  col += mix(TEAL, VIOLET, smoothstep(0.0, 0.4, vB)) * b * 0.22 * (0.65 + 0.35 * sin(az * 3.0 + uTime * 0.1));
   return col;
 }
 
@@ -161,13 +163,13 @@ vec3 shootingStar(vec2 q, float pixel) {
 }
 
 vec3 nightSky(vec3 d, float pixel) {
-  vec3 col = skyGradient(d);
+  float az = azimuth(d);
   float el = asin(clamp(d.y, -1.0, 1.0));
-  vec2 q = vec2(atan(d.x, -d.z), el);
-  float above = smoothstep(0.0, 0.14, el);
-  col += farAurora(q.x, d.y);
-  vec3 stars = starLayer(q, el, 0.02, 0.16, pixel, 0.5, 3.0) + starLayer(q, el, 0.055, 0.3, pixel * 1.25, 1.5, 11.0);
-  col += (stars + shootingStar(q, pixel)) * above;
+  vec2 q = vec2(az, el);
+  vec3 col = skyGradient(az, d.y) + farAurora(az, d.y);
+  // 314 and 114 cells round the horizon: whole numbers, so the grids close up behind the camera.
+  vec3 stars = starLayer(q, el, 6.2831853 / 314.0, 0.16, pixel, 0.5, 3.0) + starLayer(q, el, 6.2831853 / 114.0, 0.3, pixel * 1.25, 1.5, 11.0);
+  col += (stars + shootingStar(q, pixel)) * smoothstep(0.0, 0.14, el);
   return col;
 }
 `;

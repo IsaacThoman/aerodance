@@ -275,9 +275,10 @@ function pineMaterial(mirror: boolean) {
 
 /**
  * Dark pine silhouettes for far shores and foothills (camera-facing billboards; build nearer
- * trees in 3D), and their reflection below y = 0 if `reflected`.
+ * trees in 3D), and their reflection below y = 0 if `reflected`. Like the curtains, they blend
+ * before the dancers by default.
  */
-export function FarPines({ pines, reflected = false, renderOrder = 20 }: { pines: readonly FarPine[]; reflected?: boolean; renderOrder?: number }) {
+export function FarPines({ pines, reflected = false, renderOrder = -40 }: { pines: readonly FarPine[]; reflected?: boolean; renderOrder?: number }) {
   const geometry = useDisposable(() => pineGeometry(pines), [pines]);
   const material = useDisposable(() => pineMaterial(false));
   const reflection = useDisposable(() => pineMaterial(true));

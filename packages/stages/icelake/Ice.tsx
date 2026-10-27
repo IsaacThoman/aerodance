@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { hash, shaderMaterial } from '../shared/glsl.ts';
 import { nightSky, noiseTexture, palette, polar } from '../polar/world.ts';
-import { lakeSky } from './Sky.tsx';
 import { CABIN, LANTERN_HEIGHT, LANTERNS, RINK, SKATE_LOOPS, WIND } from './layout.ts';
 
 // The frozen lake, in two layers either side of the reflections the polar kit draws below
@@ -64,7 +63,6 @@ function mirrorMaterial() {
       ${noiseTexture}
       ${palette}
       ${nightSky}
-      ${lakeSky}
       ${ice}
       void main() {
         vec3 view = normalize(cameraPosition - vWorld);
@@ -75,7 +73,7 @@ function mirrorMaterial() {
         r.y = abs(r.y);
         // A little wider than a pixel: the stars blur a touch in the ice.
         float pixel = max(max(length(dFdx(r)), length(dFdy(r))), 0.003);
-        vec3 col = mix(WATER, lakeSky(r, pixel), iceReflect(dot(n, view)));
+        vec3 col = mix(WATER, nightSky(r, pixel), iceReflect(dot(n, view)));
         // The cabin's windows, drawn out into a soft warm path across the ice towards us.
         vec3 toLight = normalize(uLight - vWorld);
         vec3 off = r - toLight;

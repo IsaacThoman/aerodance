@@ -182,8 +182,12 @@ function curtainMaterial(mirror: boolean) {
   });
 }
 
-/** The curtains, and the reflections of the `reflected` ones below y = 0, if any. */
-export function AuroraCurtains({ curtains, renderOrder = 10 }: { curtains: readonly Curtain[]; renderOrder?: number }) {
+/**
+ * The curtains, and the reflections of the `reflected` ones below y = 0, if any. They blend
+ * before the dancers by default: the dancers' glass writes no depth, so anything drawn after it
+ * shows through.
+ */
+export function AuroraCurtains({ curtains, renderOrder = -50 }: { curtains: readonly Curtain[]; renderOrder?: number }) {
   const geometry = useDisposable(() => curtainGeometry(curtains), [curtains]);
   const mirrored = curtains.filter((c) => c.reflected);
   const reflected = useDisposable(() => (mirrored.length ? curtainGeometry(mirrored) : null), [curtains]);

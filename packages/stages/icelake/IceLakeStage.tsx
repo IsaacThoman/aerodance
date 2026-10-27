@@ -10,8 +10,8 @@ import { StageEnvironment } from '../shared/Environment.tsx';
 import type { EnvironmentLight } from '../shared/Environment.tsx';
 import { usePolarWorld } from '../polar/world.ts';
 import { AuroraCurtains } from '../polar/Aurora.tsx';
+import { NightSky } from '../polar/Sky.tsx';
 import { Snowfall } from '../polar/Snowfall.tsx';
-import { LakeSky } from './Sky.tsx';
 import { Ice } from './Ice.tsx';
 import { Cabin, Halos, Land, Mist, ShorePines } from './Shore.tsx';
 import { Hut, Lanterns } from './Props.tsx';
@@ -65,7 +65,7 @@ export default function IceLakeStage() {
         shadow-radius={3}
       />
       <group ref={world}>
-        <LakeSky />
+        <NightSky />
         <Ice world={world} />
         <Land />
         <Cabin />

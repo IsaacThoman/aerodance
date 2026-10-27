@@ -23,5 +23,6 @@ Six procedural stages inspired by Frutiger Aero, used for the song preview, game
   - `hud.tsx`: the in-engine name card and veil.
   - `Sky.tsx`: sky dome and cloud billboards.
   - `glsl.ts`, `random.ts`: GLSL noise and seeded randomness.
+- `polar/`: the night that `snowcabin`, `icelake` and `fireside` share, made from the menus' Aurora backdrop: `usePolarWorld` (its clock and noise texture, once per stage), the `nightSky` gradient with stars, shooting stars and the farthest aurora painted in, `NightSky`, `AuroraCurtains` (folding curtains of light far beyond the mountains), `Mountains` and `FarPines`, and `Snowfall`. Curtains, mountains and pines can also draw themselves mirrored below y = 0 for a lake or ice to reflect, with `ripple`'s `mirrorRipple` and `waterHit` to wobble them.
 
 In development, `window.__aeroStats` reports draw calls and triangles. At the last measurement the stages used 69–134 draw calls and 0.19–0.83M triangles each, including the dancers.
