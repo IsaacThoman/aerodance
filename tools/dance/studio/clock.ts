@@ -23,13 +23,16 @@ export class SongClock {
     this.audio = audio;
   }
   now(): number {
-    let t: number;
-    if (!this.playing) t = this.position;
-    else if (this.audio && !this.audio.paused) t = this.audio.currentTime * 1000;
-    else t = this.startedFrom + (performance.now() - this.startedAt) * this.rate;
+    const t = this.elapsed();
     if (this.playing && this.loop && t >= this.loop[1]) { this.seek(this.loop[0]); return this.loop[0]; }
-    if (this.playing && this.durationMs && t >= this.durationMs) { this.pause(); return this.durationMs; }
+    if (this.playing && this.durationMs && t >= this.durationMs) { this.stop(this.durationMs); return this.durationMs; }
     return t;
+  }
+  /** Where the song is, before looping or stopping at its end. */
+  private elapsed(): number {
+    if (!this.playing) return this.position;
+    if (this.audio && !this.audio.paused) return this.audio.currentTime * 1000;
+    return this.startedFrom + (performance.now() - this.startedAt) * this.rate;
   }
   seek(ms: number) {
     const t = Math.max(0, Math.min(this.durationMs || Infinity, ms));
@@ -54,7 +57,10 @@ export class SongClock {
   }
   pause() {
     if (!this.playing) return;
-    this.position = this.now();
+    this.stop(Math.min(this.elapsed(), this.durationMs || Infinity));
+  }
+  private stop(at: number) {
+    this.position = at;
     this.playing = false;
     this.audio?.pause();
     this.emit();
