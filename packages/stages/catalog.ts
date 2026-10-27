@@ -5,8 +5,11 @@ import openreef from './openreef/meta.ts';
 import falls from './falls/meta.ts';
 import club from './club/meta.ts';
 import beach from './beach/meta.ts';
+import orbit from './orbit/meta.ts';
+import orbitnight from './orbitnight/meta.ts';
+import orbitdome from './orbitdome/meta.ts';
 
-export type StageId = 'sanctuary' | 'reef' | 'openreef' | 'falls' | 'club' | 'beach';
+export type StageId = 'sanctuary' | 'reef' | 'openreef' | 'falls' | 'club' | 'beach' | 'orbit' | 'orbitnight' | 'orbitdome';
 
 export type Vec2 = readonly [x: number, y: number];
 export type Vec3 = readonly [x: number, y: number, z: number];
@@ -45,7 +48,7 @@ export type StageListing = Pick<StageMeta, 'id' | 'subtitle' | 'accent'>;
 
 // The dance stages as plain data, in browse order, with no rendering code: Dance Studio,
 // song catalogs and node tests import this; index.ts pairs each with its stage component.
-export const STAGE_METAS: readonly StageMeta[] = [sanctuary, reef, openreef, falls, club, beach];
+export const STAGE_METAS: readonly StageMeta[] = [sanctuary, reef, openreef, falls, club, beach, orbit, orbitnight, orbitdome];
 
 export const STAGE_LIST: readonly StageListing[] = STAGE_METAS.map(({ id, subtitle, accent }) => ({ id, subtitle, accent }));
 
