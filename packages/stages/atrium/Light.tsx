@@ -195,9 +195,7 @@ varying float vAspect;
 varying float vAhead;
 float hash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 void main() {
-  vec2 uSun = vSun;
-  float uAspect = vAspect;
-  vec2 d = (vNdc - uSun) * vec2(uAspect, 1.0);
+  vec2 d = (vNdc - vSun) * vec2(vAspect, 1.0);
   float r = length(d);
   float a = r > 1e-5 ? atan(d.y, d.x) : 0.0;
   vec3 col = vec3(1.0, 0.93, 0.78) * (exp(-r * 2.0) * 0.2 + exp(-r * 5.0) * 0.28);
@@ -206,10 +204,10 @@ void main() {
   // Bokeh: soft hexagon-free discs drifting about the sun.
   for (int i = 0; i < 6; i++) {
     float fi = float(i);
-    vec2 c = uSun * vec2(uAspect, 1.0) + vec2(-0.25 - 0.32 * hash11(fi + 1.0), -0.15 - 0.4 * hash11(fi + 7.0));
+    vec2 c = vSun * vec2(vAspect, 1.0) + vec2(-0.25 - 0.32 * hash11(fi + 1.0), -0.15 - 0.4 * hash11(fi + 7.0));
     c += vec2(sin(uTime * 0.05 + fi * 2.0), cos(uTime * 0.04 + fi * 3.0)) * 0.05;
     float rad = 0.04 + 0.05 * hash11(fi + 3.0);
-    float disc = smoothstep(rad, rad * 0.8, length(vNdc * vec2(uAspect, 1.0) - c));
+    float disc = smoothstep(rad, rad * 0.8, length(vNdc * vec2(vAspect, 1.0) - c));
     vec3 tint = mix(vec3(0.6, 1.0, 0.9), vec3(1.0, 0.9, 0.7), hash11(fi + 5.0));
     col += tint * disc * 0.05;
   }
