@@ -3,8 +3,14 @@
 // the CLI. `dance studio` keeps one running (and writes .dance/server.json so CLI commands use
 // it); otherwise frames/render/track start one for the command and stop it after.
 //
-//   GET  /api/dance                 { dance }
-//   GET  /api/events                server-sent events: {"revision": n} whenever dance.json changes
+//   GET  /api/dance                 { dance } (null while the folder has no dance yet)
+//   GET  /api/events                server-sent events: {"revision": n} whenever dance.json changes, and
+//                                   {"progress": {"task", "done", "total"}} while tracking
+//   POST /api/upload?name=f.mp4     the request body, kept as an upload → { upload } for create and attach
+//   POST /api/create                { title, artist, dancers, video?, audio?, audioFromVideo? } → { dance }: makes the dance
+//   POST /api/attach                { video?, audio?, recording?: { fps, startMs } } → { dance }: adds or replaces the
+//                                   song audio or video (a recording is re-encoded and placed at startMs)
+//   POST /api/track                 { fps? } → tracks the video with MediaPipe, as `dance track`
 //   POST /api/apply                 { ops, expectRevision?, opId?, label? } → ApplyResult (409 on a stale revision)
 //   POST /api/undo, /api/redo       { expectRevision? }
 //   GET  /api/history               the undo and redo stacks
@@ -17,9 +23,10 @@
 import express from 'express';
 import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
-import { existsSync, watch } from 'node:fs';
+import { createWriteStream, existsSync, watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -29,8 +36,8 @@ import { checkDance } from './check.ts';
 import { createEvaluator } from './evaluate.ts';
 import { aspectOf, findDancer } from './format.ts';
 import type { Dance } from './format.ts';
-import { decodeFrames, grabFrame, encodeClip } from './media.ts';
-import { DanceProject, RevisionConflict } from './project.ts';
+import { decodeFrames, grabFrame, encodeClip, normalizeRecording } from './media.ts';
+import { DanceProject, RevisionConflict, attachSources, initProject } from './project.ts';
 import { scoreAgainstTracking } from './score.ts';
 import { formatTime, parseRange, parseTime, songToVideo } from './time.ts';
 import { assignSlots, encodeTracking } from './tracking.ts';
@@ -69,9 +76,13 @@ export class Bridge {
     });
     const clients = new Set<Response>();
     // Clients hear about every change to dance.json: a new revision, or a hand edit that kept it.
+    // A folder with no dance yet has neither until the Studio creates one (POST /api/create).
     const stampOf = async () => createHash('sha1').update(await readFile(project.file)).digest('hex').slice(0, 16);
-    let revision = (await project.read()).revision, stamp = await stampOf();
+    const exists = () => DanceProject.exists(project.dir);
+    let revision: number | null = exists() ? (await project.read()).revision : null, stamp = exists() ? await stampOf() : '';
     const broadcast = (data: unknown) => { for (const c of clients) c.write(`data: ${JSON.stringify(data)}\n\n`); };
+    const changed = async (next: number) => { revision = next; stamp = await stampOf(); broadcast({ revision, stamp }); };
+    await mkdir(project.dir, { recursive: true });
     // dance.json is replaced by rename, so watch its folder.
     let timer: NodeJS.Timeout | null = null;
     const watcher: FSWatcher = watch(project.dir, (_, name) => {
@@ -95,25 +106,86 @@ export class Bridge {
     };
     api.get('/ping', (_req, res) => { res.json({ ok: true, dir: project.dir, pid: process.pid }); });
     api.get('/dance', handle(async req => {
+      if (!exists()) return { dance: null };
       if (req.query.revision === undefined) return { dance: await project.read() };
       return { dance: await project.revisionAt(Number(req.query.revision)) };
     }));
     api.get('/events', (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ revision, stamp })}\n\n`);
+      if (revision !== null) res.write(`data: ${JSON.stringify({ revision, stamp })}\n\n`);
       clients.add(res);
       const ping = setInterval(() => res.write(': ping\n\n'), 15000);
       req.on('close', () => { clearInterval(ping); clients.delete(res); });
     });
     api.post('/apply', handle(async req => {
       const result = await project.apply(req.body);
-      revision = result.revision; stamp = await stampOf(); broadcast({ revision, stamp });
+      await changed(result.revision);
       return result;
     }));
     for (const step of ['undo', 'redo'] as const) api.post(`/${step}`, handle(async req => {
       const result = await project.step(step, req.body?.expectRevision);
-      if (result) { revision = result.revision; stamp = await stampOf(); broadcast({ revision, stamp }); }
+      if (result) await changed(result.revision);
       return { result };
+    }));
+    // Files from the browser (a chosen video or song, a webcam recording) wait in .dance/uploads
+    // under a name of the bridge's choosing until create or attach takes them.
+    const uploads = project.meta('uploads');
+    api.post('/upload', handle(async req => {
+      const extension = path.extname(String(req.query.name ?? '')).toLowerCase();
+      if (!/^\.[a-z0-9]{1,5}$/.test(extension)) throw Error('Upload a file whose name has an extension, such as .mp4 or .wav');
+      const upload = `${crypto.randomUUID()}${extension}`;
+      await mkdir(uploads, { recursive: true });
+      await pipeline(req, createWriteStream(path.join(uploads, upload)));
+      return { upload };
+    }));
+    const uploaded = (name: unknown) => {
+      if (name === undefined || name === null || name === '') return undefined;
+      if (typeof name !== 'string' || !/^[0-9a-f-]{36}\.[a-z0-9]{1,5}$/.test(name) || !existsSync(path.join(uploads, name))) throw Error(`No upload ${String(name)}`);
+      return path.join(uploads, name);
+    };
+    const discard = (files: (string | undefined)[]) => Promise.all(files.map(f => f && rm(f, { force: true })));
+    api.post('/create', handle(async req => {
+      const { title, artist, dancers, audioFromVideo } = req.body ?? {};
+      const video = uploaded(req.body?.video), audio = uploaded(req.body?.audio);
+      try {
+        await initProject(project.dir, { video, audio, audioFromVideo: audioFromVideo !== false, dancers: Number(dancers) || 1,
+          title: typeof title === 'string' ? title : '', artist: typeof artist === 'string' ? artist : '' });
+      } finally { await discard([video, audio]); }
+      const dance = await project.read();
+      await changed(dance.revision);
+      return { dance };
+    }));
+    api.post('/attach', handle(async req => {
+      let video = uploaded(req.body?.video);
+      const audio = uploaded(req.body?.audio), recording = req.body?.recording as { fps?: unknown; startMs?: unknown } | undefined;
+      const files = [video, audio];
+      try {
+        if (!video && !audio) throw Error('Attach a video, a song or both');
+        let videoStartMs: number | undefined;
+        if (recording && video) {
+          const fps = Math.min(60, Math.max(10, Math.round(Number(recording.fps) || 30)));
+          const startMs = Number(recording.startMs);
+          if (!Number.isFinite(startMs) || startMs < 0) throw Error('A recording needs the song time it started at');
+          const normalized = path.join(uploads, `${path.basename(video, path.extname(video))}-${fps}fps.webm`);
+          await normalizeRecording(video, normalized, fps);
+          files.push(video = normalized);
+          videoStartMs = Math.round(startMs * 10) / 10;
+        }
+        const dance = await attachSources(project, { video, audio, videoStartMs });
+        await changed(dance.revision);
+        return { dance };
+      } finally { await discard(files); }
+    }));
+    let tracking: Promise<TrackResult> | null = null;
+    api.post('/track', handle(async req => {
+      if (tracking) throw Error('The video is already being tracked');
+      const fps = req.body?.fps === undefined ? undefined : Number(req.body.fps);
+      tracking = trackVideo(project, { fps, dist, onProgress: (done, total) => broadcast({ progress: { task: 'track', done, total } }) });
+      try {
+        const result = await tracking;
+        await changed(result.revision);
+        return result;
+      } finally { tracking = null; }
     }));
     api.get('/history', handle(() => project.log()));
     api.get('/media/:kind', handle(async (req, res) => {
@@ -307,7 +379,6 @@ const str = (values: Values, name: string) => typeof values[name] === 'string' ?
 export async function runBrowserCommand(command: string, project: DanceProject, dance: Dance, values: Values, json: boolean): Promise<number> {
   const stamp = createHash('sha1').update(await readFile(project.file)).digest('hex').slice(0, 16);
   const out = (v: unknown) => process.stdout.write((typeof v === 'string' ? v : JSON.stringify(v, null, 2)) + '\n');
-  if (command === 'studio') return studio(project, values, json);
   if (command === 'track') return track(project, dance, values, json, out);
   const dancers = str(values, 'dancer') ? str(values, 'dancer')!.split(',').map(d => findDancer(dance, d).id) : null;
   if (command === 'frames') {
@@ -360,7 +431,8 @@ export async function runBrowserCommand(command: string, project: DanceProject, 
   throw Error(`Unknown command ${command}`);
 }
 
-async function studio(project: DanceProject, values: Values, json: boolean): Promise<number> {
+/** `dance studio`: the Studio on a project, or on a folder with no dance yet, where it makes one. */
+export async function studio(project: DanceProject, values: Values, json: boolean): Promise<number> {
   const existing = await runningBridge(project);
   if (existing) throw Error(`The Studio is already running for this project at ${existing}`);
   const bridge = await Bridge.start(project, { port: str(values, 'port') ? Number(str(values, 'port')) : 5310, dist: values.dist === true, quiet: true })
@@ -370,8 +442,10 @@ async function studio(project: DanceProject, values: Values, json: boolean): Pro
     });
   // Renders requested by CLI commands while the Studio runs.
   const info: ServerInfo = { pid: process.pid, port: Number(new URL(bridge.url).port), url: bridge.url };
+  await mkdir(project.meta(), { recursive: true });
   await writeFile(project.meta('server.json'), JSON.stringify(info) + '\n');
-  process.stdout.write(json ? JSON.stringify(info) + '\n' : `Studio: ${bridge.url}\nCLI previews use this session. Ctrl-C stops it.\n`);
+  const fresh = DanceProject.exists(project.dir) ? '' : `No dance in ${project.dir} yet: the Studio makes one.\n`;
+  process.stdout.write(json ? JSON.stringify(info) + '\n' : `${fresh}Studio: ${bridge.url}\nCLI previews use this session. Ctrl-C stops it.\n`);
   if (values.open) (await import('node:child_process')).spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [bridge.url], { stdio: 'ignore', detached: true }).unref();
   await new Promise<void>(resolve => {
     for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => resolve());
@@ -381,30 +455,42 @@ async function studio(project: DanceProject, values: Values, json: boolean): Pro
   return 0;
 }
 
-async function track(project: DanceProject, dance: Dance, values: Values, json: boolean, out: (v: unknown) => void): Promise<number> {
-  const video = dance.sources.video;
+export interface TrackOptions {
+  /** Frames a second to track (default 15, at most 30). */
+  fps?: number;
+  /** The song-time range to track; the whole video by default. */
+  range?: [number, number];
+  /** Several dancers each get a strip of the picture around their home (default true). */
+  strips?: boolean;
+  /** Serve the detector page from the Studio's production build. */
+  dist?: boolean;
+  onProgress?: (done: number, total: number) => void;
+}
+export interface TrackResult { id: string; path: string; frames: number; fps: number; revision: number; coverage: { dancer: string; percent: number }[]; detectionsPerFrame: number[]; }
+/** Tracks the dancers in the video with MediaPipe Lite and adds the result as the next tracking source. */
+export async function trackVideo(project: DanceProject, { fps = 15, range, strips = true, dist = false, onProgress }: TrackOptions = {}): Promise<TrackResult> {
+  const dance = await project.read(), video = dance.sources.video;
   if (!video) throw Error('This dance has no video to track');
-  const fps = str(values, 'fps') ? Number(str(values, 'fps')) : 15;
   if (!(fps > 0 && fps <= 30)) throw Error('--fps must be 1 to 30');
-  const [startMs, endMs] = str(values, 'range') ? parseRange(str(values, 'range'), dance).map(t => songToVideo(dance, t)) : [0, video.durationMs];
+  const [startMs, endMs] = range ? range.map(t => songToVideo(dance, t)) : [0, video.durationMs];
   const slots = dance.dancers.length;
   // MediaPipe looks at a 256-pixel square; 640 wide keeps the detail without a heavy transfer.
   // Several dancers each get a strip of the picture centred on where they stand (their home).
   const width = Math.min(1280, video.width), height = Math.round(width * video.height / video.width / 2) * 2;
   const stripWidth = Math.min(0.55, Math.max(0.3, 1.4 / slots));
-  const tiles: Tile[] | null = slots > 1 && values['no-strips'] !== true
+  const tiles: Tile[] | null = slots > 1 && strips
     ? dance.dancers.map(d => ({ x: Math.min(1 - stripWidth, Math.max(0, d.home[0] - stripWidth / 2)), width: stripWidth })) : null;
   const detections: { videoMs: number; poses: Landmark[][] }[] = [];
-  const log = (m: string) => { if (!json) process.stderr.write(m); };
+  const total = Math.max(1, Math.ceil((endMs - startMs) / 1000 * fps));
   // Tracking runs in a bridge of its own, even while the Studio runs: it holds the GPU for a while.
-  const bridge = await Bridge.start(project);
+  const bridge = await Bridge.start(project, { dist });
   try {
     let batch: { width: number; height: number; rgba: Buffer; timestampMs: number }[] = [];
     const flush = async () => {
       if (!batch.length) return;
       const results = await bridge.detect(batch, Math.min(4, slots + 1), tiles);
       results.forEach((poses, i) => detections.push({ videoMs: batch[i].timestampMs, poses }));
-      log(`\rTracked ${detections.length} frames (${formatTime(batch[batch.length - 1].timestampMs)})`);
+      onProgress?.(Math.min(total, detections.length), total);
       batch = [];
     };
     await decodeFrames(project.resolve(video.path), { startMs, endMs, fps, width, height }, async (index, rgba) => {
@@ -412,11 +498,9 @@ async function track(project: DanceProject, dance: Dance, values: Values, json: 
       if (batch.length >= 8) await flush();
     });
     await flush();
-    log('\n');
   } finally { await bridge.close(); }
   const aspect = aspectOf(dance);
   const frames: TrackedFrame[] = assignSlots(detections, slots, aspect, { starts: dance.dancers.map(d => d.home) });
-  const found = frames.map(f => f.poses.filter(Boolean).length);
   const bytes = encodeTracking(frames, { width: video.width, height: video.height, slots,
     provenance: { tool: 'dance track', model: 'lite', fps, videoSha256: video.sha256, rangeMs: [startMs, endMs], createdAt: new Date().toISOString() } });
   const { sha256 } = await import('../../packages/pose/song.ts');
@@ -431,10 +515,21 @@ async function track(project: DanceProject, dance: Dance, values: Values, json: 
     next.sources.tracking.push({ id, path: rel, sha256: hash, bytes: bytes.length, mimeType: 'application/octet-stream', model: 'lite',
       createdAt: new Date().toISOString(), fps, dancers: next.dancers.slice(0, slots).map(d => d.id) });
   });
-  const current = saved;
-  const coverage = current.dancers.map((d, slot) => `${d.id} ${Math.round(100 * frames.filter(f => f.poses[slot]).length / Math.max(1, frames.length))}%`);
-  out(json ? { id, path: rel, frames: frames.length, revision: saved.revision, detectionsPerFrame: found }
-    : `Tracking ${id}: ${frames.length} frames at ${fps} fps → ${rel} (revision ${saved.revision}); found ${coverage.join(', ')}`);
+  const coverage = saved.dancers.slice(0, slots).map((d, slot) => ({ dancer: d.id, percent: Math.round(100 * frames.filter(f => f.poses[slot]).length / Math.max(1, frames.length)) }));
+  return { id, path: rel, frames: frames.length, fps, revision: saved.revision, coverage, detectionsPerFrame: frames.map(f => f.poses.filter(Boolean).length) };
+}
+
+async function track(project: DanceProject, dance: Dance, values: Values, json: boolean, out: (v: unknown) => void): Promise<number> {
+  const log = (m: string) => { if (!json) process.stderr.write(m); };
+  const result = await trackVideo(project, {
+    fps: str(values, 'fps') ? Number(str(values, 'fps')) : undefined,
+    range: str(values, 'range') ? parseRange(str(values, 'range'), dance) : undefined,
+    strips: values['no-strips'] !== true,
+    onProgress: done => log(`\rTracked ${done} frames`),
+  });
+  log('\n');
+  out(json ? { id: result.id, path: result.path, frames: result.frames, revision: result.revision, detectionsPerFrame: result.detectionsPerFrame }
+    : `Tracking ${result.id}: ${result.frames} frames at ${result.fps} fps → ${result.path} (revision ${result.revision}); found ${result.coverage.map(c => `${c.dancer} ${c.percent}%`).join(', ')}`);
   return 0;
 }
 export { STUDIO };

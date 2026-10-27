@@ -57,8 +57,9 @@ node scripts/play.ts start [--studio | --dance <project>] [--dist] [--headed] [-
 
 - `--studio` runs Dance Studio instead of the game.
 - `--dance <project>` runs the animation Studio ([tools/dance](../tools/dance/README.md)) on a
-  dance project. `state` and `wait` read its `.studio` element's `data-*` (`revision`, `time`,
-  `dancer`, `control`, `mode`, `busy`).
+  dance project, or on a folder with no dance yet, where it opens on the New dance form.
+  `state` and `wait` read its `.studio` element's `data-*` (`revision`, `time`, `dancer`,
+  `control`, `mode`, `busy`).
 - `--dist` builds and serves the production bundle (`vite build` + `vite preview`),
   for checking what actually ships.
 - `--headed` opens a visible window that you can play in while the commands still work.

@@ -194,7 +194,7 @@ async function daemon(options: Options) {
 
   const ready = async () => {
     if (options.app === 'studio') return page.waitForLoadState('load');
-    if (options.app === 'dance') return void await page.waitForSelector('.studio[data-revision]', { timeout: 120000 });
+    if (options.app === 'dance') return void await page.waitForSelector('.studio[data-revision], .new-dance', { timeout: 120000 });
     // The canvas fades in once the world is built, then the menu reports ready. The phone
     // camera page (/pair/) has no world and is ready once it draws.
     await page.waitForFunction(() => {

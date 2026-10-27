@@ -47,7 +47,7 @@ export default function Review({ dance, onSeek, onSelect }: { dance: Dance; onSe
       </Section>
       <Section title="Score against the video" aside={<button disabled={!!busy || !dance.sources.tracking.length}
         onClick={() => run('score', async () => setScores(await get('/api/score')))}>{busy === 'score' ? 'Scoring…' : 'Score'}</button>}>
-        {!dance.sources.tracking.length && <p className="hint">Track the video first: <code>dance track &lt;project&gt;</code>. Scoring then plays the tracked dancers through the game's scorer against this dance.</p>}
+        {!dance.sources.tracking.length && <p className="hint">Track the video first (Song tab, or <code>dance track &lt;project&gt;</code>). Scoring then plays the tracked dancers through the game's scorer against this dance.</p>}
         {scores && scores.scores.map(s => (
           <div key={s.dancer} className="score">
             <strong>{s.dancer}</strong> <span className="grade">{s.result.grade}</span> {(s.result.accuracy * 100).toFixed(1)}%

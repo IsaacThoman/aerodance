@@ -128,6 +128,15 @@ export async function makeProxy(video: string, out: string, fps: number): Promis
   await run(FFMPEG, ['-v', 'error', '-y', '-i', video, '-an', '-vf', 'scale=-2:min(720\\,ih)', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8',
     '-row-mt', '1', '-b:v', '0', '-crf', '34', '-g', String(Math.max(1, Math.round(fps / 2))), '-pix_fmt', 'yuv420p', out]);
 }
+/**
+ * A browser recording (MediaRecorder's WebM, which has no length and a variable frame rate) as
+ * VP9 WebM at a constant `fps`, so it probes, seeks and tracks like any other video.
+ */
+export async function normalizeRecording(video: string, out: string, fps: number): Promise<void> {
+  await mkdir(path.dirname(out), { recursive: true });
+  await run(FFMPEG, ['-v', 'error', '-y', '-i', video, '-an', '-vf', `fps=${fps}`, '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8',
+    '-row-mt', '1', '-b:v', '0', '-crf', '30', '-g', String(Math.max(1, Math.round(fps / 2))), '-pix_fmt', 'yuv420p', out]);
+}
 /** Encodes PNG frames into an H.264 MP4 (with optional audio from `audio`, starting at audioStartMs). */
 export async function encodeClip(frames: AsyncIterable<Buffer>, out: string, { fps, audio, audioStartMs = 0, durationMs }:
   { fps: number; audio?: string | null; audioStartMs?: number; durationMs: number }): Promise<void> {
