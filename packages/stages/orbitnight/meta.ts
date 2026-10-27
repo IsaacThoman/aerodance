@@ -5,7 +5,7 @@ import orbit from '../orbit/meta.ts';
 // The orbit stage over the night side of the planet.
 const meta = {
   id: 'orbitnight',
-  subtitle: 'Over the night side, under the aurora',
+  subtitle: 'Night side under the aurora',
   accent: ['#9dffd8', '#4a3fd8'],
   dancers: orbit.dancers,
   post: { ...orbit.post, exposure: 1.05 },

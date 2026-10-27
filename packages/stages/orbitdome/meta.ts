@@ -5,7 +5,7 @@ import orbit from '../orbit/meta.ts';
 // The orbit stage's deck closed under a glass dome.
 const meta = {
   id: 'orbitdome',
-  subtitle: 'Garden dome on an orbiting station',
+  subtitle: 'Garden dome in orbit',
   accent: ['#c6ff9a', '#1f9fd0'],
   dancers: orbit.dancers,
   post: orbit.post,
