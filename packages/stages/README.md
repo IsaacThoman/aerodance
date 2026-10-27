@@ -10,7 +10,7 @@ Nine procedural stages inspired by Frutiger Aero, used for the song preview, gam
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
-| `atrium` | indoor | A round eco-tech atrium at midday: a white stage in a reflecting pool, an aquarium column of circling fish, curved balconies trailing plants, a ribbed glass dome with sunbeams and dust motes, a maglev past white towers outside |
+| `atrium` | indoor | A round eco-tech atrium at midday: dancing on a polished floor inlaid with aqua rings round a reflecting pool, an aquarium column of circling fish, curved balconies trailing plants, a ribbed glass dome with sunbeams and dust motes, a maglev past white towers outside |
 | `atriumdusk` | indoor | The `atrium` at golden hour: low sun through the glass wall, warm beams across the room, a peach and lilac sky, the lights coming on |
 | `atriumnight` | indoor | The `atrium` after dark: stars and the moon through the dome, a glowing aquarium, warm shop fronts and downlights, lights in the pool, fireflies, lit towers outside |
 

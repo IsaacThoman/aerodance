@@ -92,8 +92,8 @@ void main() {
   float sun = sunLight(vec3(w.x, 0.0, w.z));
   // A dark pool floor makes a better mirror: deep teal, caustics where the sun reaches it.
   vec3 bottom = vec3(0.01, 0.16, 0.3) * (0.6 * (uAmbUp + uSun * 0.1) * 1.5 + 0.25 * sun * uSun) + vec3(0.3, 0.8, 0.95) * caustic * (0.05 + 0.12 * sun * uSun);
-  // Lights under the water: a ring of aqua round the column and the stage, brightening on the beat.
-  float underwater = exp(-pow(r - TANK_R - 1.2, 2.0) * 0.6) + exp(-pow(length(w.xz) - PLATFORM.z - 0.6, 2.0) * 1.2);
+  // Lights under the water: rings of aqua round the column and inside the rim, brightening on the beat.
+  float underwater = exp(-pow(r - TANK_R - 1.2, 2.0) * 0.6) + exp(-pow(r - POOL_R + 0.5, 2.0) * 2.0) * 0.6;
   bottom += vec3(0.1, 0.75, 1.0) * uLamps * underwater * (0.35 + 0.25 * uBeat) * (0.7 + 0.6 * caustic);
   vec3 col = mix(bottom, refl * vec3(0.5, 0.72, 0.9), clamp(fres + 0.25, 0.0, 0.75));
   // Glints where ripples catch the sun.

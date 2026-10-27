@@ -5,7 +5,7 @@ import { shaderMaterial } from '../shared/glsl.ts';
 import { makeRandom } from '../shared/random.ts';
 import { fill, mergeAll, sweepArc } from './geometry.ts';
 import type { ProfilePoint } from './geometry.ts';
-import { AXIS, BALCONY_ARCS, BALCONY_THETA, CAMERA, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
+import { AXIS, BALCONY_ARCS, CAMERA, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
 import type { TreeSpot } from './layout.ts';
 import { COMMON, useAtrium } from './shading.ts';
 
@@ -255,7 +255,7 @@ function hedges(parts: THREE.BufferGeometry[]) {
     parts.push(g);
   };
   for (const [a0, a1] of BALCONY_ARCS) for (const y of LEVELS) ring(VOID_R + 0.36, y + 0.74, 0.5, 0.42, a0 + 0.03, a1 - 0.03);
-  ring(VOID_R + 2.2, 0.15, 0.9, 0.85, BALCONY_THETA[0] + 0.08, BALCONY_THETA[1] - 0.08);
+  for (const [a0, a1] of BALCONY_ARCS) ring(VOID_R + 2.2, 0.15, 0.9, 0.85, a0 + 0.08, a1 - 0.08);
   // A deep tropical bed along the foot of the glass wall.
   ring(GLASS_R - 1.7, 0.3, 1.5, 1.9, GLASS_THETA[0] - 0.15, GLASS_THETA[1] - 0.02, 2.2);
 }

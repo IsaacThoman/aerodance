@@ -11,14 +11,14 @@ import { CAMERA } from './layout.ts';
 import { Glints, Motes, Shafts, SunGlow } from './Light.tsx';
 import type { AtriumLook } from './looks.ts';
 import { Clouds, Landscape, Maglev } from './Outside.tsx';
-import { Platform } from './Platform.tsx';
+import { FloorShadows } from './FloorShadows.tsx';
 import { Curtains, Plants } from './Plants.tsx';
 import { Pool } from './Pool.tsx';
 import { AtriumContext, makeAtriumUniforms } from './shading.ts';
 import type { Atrium } from './shading.ts';
 
-// atrium: inside a round eco-tech atrium, 2008 brochure style. The dancers stand on a white stage
-// reaching into a reflecting pool; behind them an aquarium column of circling fish and rising
+// atrium: inside a round eco-tech atrium, 2008 brochure style. The dancers dance on the polished
+// floor in front of a reflecting pool; behind them an aquarium column of circling fish and rising
 // bubbles climbs to a ribbed glass dome, ringed by curved white balconies trailing plants, and
 // through the glass wall at the back right a maglev glides past white eco-towers. Three looks:
 // sunlit midday (atrium), golden hour (atriumdusk) and night (atriumnight). The plan and the
@@ -83,7 +83,7 @@ export function AtriumScene({ look, post: settings }: AtriumStageProps) {
       {/* The atrium. */}
       <Structure />
       <Pool />
-      <Platform />
+      <FloorShadows />
       <Plants />
       <Curtains />
       <Aquarium />

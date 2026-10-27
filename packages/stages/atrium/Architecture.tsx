@@ -165,8 +165,17 @@ void main() {
     vec2 g = (w.xz - AXIS.xz) / 1.8;
     float joint = max(aaLine(fract(g.x) - 0.5, 0.012), aaLine(fract(g.y) - 0.5, 0.012));
     float tone = hash12(floor(g) + 3.0);
-    albedo = mix(vec3(0.5, 0.5, 0.5), vec3(0.42, 0.43, 0.44), tone * 0.5 + joint * 0.6);
+    albedo = mix(vec3(0.44, 0.44, 0.45), vec3(0.37, 0.38, 0.39), tone * 0.5 + joint * 0.6);
     gloss = 0.45 * mix(0.6, 1.0, foreLight(w));
+    // Rings of aqua and pale green stone inlaid round the pool, out past the dancers: after
+    // dark, lit from within and brightening on the beat.
+    float ringR = r - POOL_R - 0.74;
+    float inlay = 0.0;
+    for (int i = 0; i < 4; i++) inlay = max(inlay, aaLine(ringR - 1.6 - float(i) * 2.6, 0.13 + 0.06 * float(i == 0 || i == 3)));
+    inlay *= step(ringR, 10.0);
+    vec3 inlayCol = mix(vec3(0.24, 0.62, 0.66), vec3(0.42, 0.7, 0.38), step(1.5, mod(floor((ringR - 0.3) / 2.6), 2.0) + 0.5));
+    albedo = mix(albedo, inlayCol, inlay * 0.85);
+    emit += inlayCol * inlay * uLamps * (0.25 + 0.35 * uBeat);
   } else if (k < 4.5) {
     // Chrome.
     albedo = vec3(0.25);

@@ -4,13 +4,13 @@ import type { Vec3 } from '../catalog.ts';
 // atrium: a round, sunlit eco-tech atrium. Curved white balconies dripping with plants ring a
 // tall aquarium column standing in a reflecting pool, under a ribbed glass dome; at the back right
 // a full-height glass wall looks out over a green park where a maglev glides past. The dancers
-// stand on a round white stage reaching into the pool in front of the column.
+// dance on the polished floor in front of the pool.
 //
 // Positions around the atrium go by cylinder thetas about AXIS (x = r sin(theta), z = r cos(theta)):
 // theta 0 faces the camera, +pi/2 is right, pi the back, -pi/2 the left.
 
-/** Foot of the aquarium column, the centre of everything; the dancers stand at the origin in front of it. */
-export const AXIS = new THREE.Vector3(0, 0, -8);
+/** Foot of the aquarium column, the centre of everything; the dancers stand at the origin in front of its pool. */
+export const AXIS = new THREE.Vector3(0, 0, -9.5);
 /** Radius of the balcony fronts around the void. */
 export const VOID_R = 19;
 /** How deep the balcony floors run back to the shop fronts. */
@@ -38,11 +38,8 @@ export const GLASS_R = VOID_R + 2.5;
 /** The aquarium column and its pool. */
 export const TANK_R = 1.5;
 export const TANK_TOP = ROOF_Y + DOME_RISE;
-export const POOL_R = 11.6;
+export const POOL_R = 6.6;
 export const WATER_Y = 0.32;
-
-/** The dancers' stage: a round white platform at the origin, its front edge over the pool's rim. */
-export const PLATFORM = { r: 4.6, top: 0.62 };
 
 /** A glass-railed gallery ringing the column at the middle balconies' level, bridged back to them. */
 export const GALLERY = { y: LEVELS[1], r: 3.6, bridges: [3.5, 2.72] as const, width: 2.0 };
@@ -75,8 +72,8 @@ export const PLANTER_R = 1.7;
 
 /** The camera, looking past the dancers to the column, a little up into the balconies. */
 export const CAMERA = {
-  position: [0, 2.7, 12.6] as Vec3,
-  target: [0, 3.3, 0] as Vec3,
+  position: [0, 2.5, 12.6] as Vec3,
+  target: [0, 3.0, 0] as Vec3,
   fov: 46,
 };
 
@@ -103,5 +100,4 @@ const float WATER_Y = ${f(WATER_Y)};
 const vec2 GLASS_THETA = vec2(${f(GLASS_THETA[0])}, ${f(GLASS_THETA[1])});
 const float OPEN_THETA = ${f(OPEN_THETA)};
 const vec3 LEVELS = vec3(${f(LEVELS[0])}, ${f(LEVELS[1])}, ${f(LEVELS[2])});
-const vec3 PLATFORM = vec3(0.0, ${f(PLATFORM.top)}, ${f(PLATFORM.r)});
 `;

@@ -3,9 +3,9 @@ import type { StageMeta } from '../catalog.ts';
 // Name cards, dancer placement and post settings, loaded before the stages themselves: the
 // atrium at midday, at golden hour and at night (looks.ts).
 
-// On the platform in the pool (PLATFORM in layout.ts). The column and the room stand behind it,
-// so the Song Select preview swings the camera either way instead of circling.
-const dancers = { position: [0, 0.62, 0], rotationY: 0, spacing: 4 } as const;
+// On the floor in front of the pool. The column and the room stand behind them, so the Song
+// Select preview swings the camera either way instead of circling.
+const dancers = { position: [0, 0, 0], rotationY: 0, spacing: 4 } as const;
 const previewOrbit = { swing: 0.8 };
 
 export const atrium = {

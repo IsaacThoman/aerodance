@@ -48,11 +48,8 @@ export interface AtriumLook {
   moteSize?: number;
   /** Twinkling star glints on the glass. */
   glints: boolean;
-  /** The platform's glow ring: two colours it alternates on the beat, and its strength. */
-  ring: readonly [string, string];
-  ringGlow: number;
-  /** The platform's white, before its light. */
-  platform: string;
+  /** How dark the dancers' shadows fall on the floor (0..1). */
+  shadow: number;
   sky: { top: string; horizon: string; bottom: string; exponent: number; sun: string; disc: number; glow: number; size: number };
   /** The dancers' key light (it casts their shadows), and hemisphere fill. */
   key: { position: Vec3; color: string; intensity: number };
@@ -102,9 +99,7 @@ const day: AtriumLook = {
   mote: [1.0, 0.97, 0.88],
   moteGlow: 0.12,
   glints: true,
-  ring: ['#4fe8ff', '#9dff5a'],
-  ringGlow: 1,
-  platform: '#c9d3da',
+  shadow: 0.32,
   sky: { top: '#0f5cc8', horizon: '#9ad6ff', bottom: '#d4f0ff', exponent: 0.45, sun: '#fff2d6', disc: 3, glow: 0.8, size: 1.4 },
   key: { position: [9, 16, 12], color: '#fff6e8', intensity: 2.4 },
   hemi: ['#d6ecff', '#9fb8a0', 0.7],
@@ -155,9 +150,7 @@ const dusk: AtriumLook = {
   mote: [1.0, 0.82, 0.6],
   moteGlow: 0.16,
   glints: true,
-  ring: ['#ffb347', '#ff6fb5'],
-  ringGlow: 1.2,
-  platform: '#c8c6cc',
+  shadow: 0.34,
   sky: { top: '#3d4cae', horizon: '#ffb27a', bottom: '#ffd6a8', exponent: 0.6, sun: '#ffd08a', disc: 4, glow: 1.2, size: 1.6 },
   key: { position: [14, 5.5, 1.5], color: '#ffc890', intensity: 2.6 },
   hemi: ['#c8b8ff', '#c08a6a', 0.6],
@@ -206,9 +199,7 @@ const night: AtriumLook = {
   moteGlow: 0.7,
   moteSize: 2.0,
   glints: false,
-  ring: ['#36e0ff', '#c46bff'],
-  ringGlow: 1.6,
-  platform: '#97a1b8',
+  shadow: 0.26,
   sky: { top: '#020a26', horizon: '#1a2e6a', bottom: '#24305a', exponent: 0.5, sun: '#dfe8ff', disc: 1.8, glow: 0.18, size: 1.0 },
   // A cool key from the front and bright panels behind the camera, so the glass dancers read
   // against the glowing column instead of going dark.
