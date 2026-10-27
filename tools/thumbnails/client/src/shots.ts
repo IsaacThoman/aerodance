@@ -455,6 +455,52 @@ export const SHOTS: readonly Shot[] = [
     camera: { position: [3, 1.12, 6.4], target: [3.5, 1.37, 1], fov: 38 },
     logo: { y: 215, size: 140, x: 'right' },
   },
+
+  // orbit: the deck over the planet at sunrise.
+  {
+    id: 'orbit-sunrise',
+    stage: 'orbit',
+    time: 10,
+    pose: 12.9,
+    camera: { position: [0, 6.5, 19.5], target: [0, 1.2, -3], fov: 45 },
+    logo: { y: 215, size: 190 },
+  },
+  {
+    id: 'orbit-hero',
+    stage: 'orbit',
+    time: 10,
+    pose: 5,
+    camera: { position: [0, 2.3, 11.5], target: [0, 1.75, 0], fov: 44 },
+    logo: { y: 215, size: 190 },
+  },
+
+  // orbitnight: over the night side.
+  {
+    id: 'orbitnight-cities',
+    stage: 'orbitnight',
+    time: 12,
+    pose: 12.9,
+    camera: { position: [0, 6.5, 19.5], target: [0, 1.2, -3], fov: 45 },
+    logo: { y: 215, size: 190 },
+  },
+  {
+    id: 'orbitnight-aurora',
+    stage: 'orbitnight',
+    time: 30.8, // When two meteors fall on the left.
+    pose: 5,
+    camera: { position: [0, 2.5, 12], target: [0, 1.85, 0], fov: 44 },
+    logo: { y: 215, size: 190 },
+  },
+
+  // orbitdome: the garden dome.
+  {
+    id: 'orbitdome-garden',
+    stage: 'orbitdome',
+    time: 20,
+    pose: 9,
+    camera: { position: [0, 3.2, 16.5], target: [0, 2.2, 0], fov: 42 },
+    logo: { y: 215, size: 190 },
+  },
 ];
 
 const shotById = (id: string): Shot => {

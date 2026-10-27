@@ -1,6 +1,6 @@
 # Thumbnails
 
-27 thumbnails of the six dance stages, each **with** the "aerodance." wordmark (`with-logo/`) and **without** it (`no-logo/`). All are **2160×1440 (3:2)** lossless PNGs, rendered in-engine from the real stages, dancers and post-processing in [`packages/stages`](../../packages/stages).
+32 thumbnails of the nine dance stages, each **with** the "aerodance." wordmark (`with-logo/`) and **without** it (`no-logo/`). All are **2160×1440 (3:2)** lossless PNGs, rendered in-engine from the real stages, dancers and post-processing in [`packages/stages`](../../packages/stages).
 
 ## Pixel perfect
 
@@ -18,6 +18,9 @@ The wordmark is the title screen's own (`drawTitle` in `apps/web/src/ui/draw.ts`
 | `falls` | `falls-valley` (wide over the falls and islands), `falls-meadow`, `falls-rainbow` (¾ right), `falls-cliffs` (¾ left), `falls-closeup` (purple) |
 | `club` | `club-floor` (wide over the club and crowd), `club-dj`, `club-aquarium` (¾ right), `club-stage` (low, under the mirror ball) |
 | `beach` | `beach-sunset` (wide), `beach-hero`, `beach-ball` (¾ left), `beach-palm` (¾ right), `beach-closeup` (purple) |
+| `orbit` | `orbit-sunrise` (wide over the deck and the planet), `orbit-hero` |
+| `orbitnight` | `orbitnight-cities` (wide over the city lights), `orbitnight-aurora` (meteors falling on the left) |
+| `orbitdome` | `orbitdome-garden` |
 
 The dancers hold four moments of the capture: 3.1 s (purple's lunge), 5 s (blue's hands up), 9 s (reach) and 12.9 s (blue's wide arms). Club shots land just after a beat, when the lights peak.
 
