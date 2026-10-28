@@ -51,35 +51,46 @@ function PoseCharacter({ index, poses, performances, calibration, opacity }: { i
   const look = useMemo(() => ({ ...DANCER_LOOKS[index % DANCER_LOOKS.length], opacity }), [index, opacity]);
   return <Character poseRef={poseRef} performanceRef={performanceRef} calibration={calibration} appearance={look} />;
 }
+/**
+ * How far to stand back from the 4:3 framing: a narrower view (the Studio's pane) keeps that
+ * width, so hands held out to the side stay in the picture.
+ */
+function useWidening() {
+  const aspect = useThree(s => s.size.width / s.size.height);
+  return Math.max(1, 4 / 3 / aspect || 1);
+}
 /** Frames `count` dancers standing side by side: closer for one, wider for a crew. */
-export function CharacterCamera({ count }: { count: number }) {
+export function CharacterCamera({ count, widening = 1 }: { count: number; widening?: number }) {
   const camera = useThree(s => s.camera);
   useLayoutEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
     // The character's head tops out about 3.4 units up; leave room for raised hands and a
     // lifted foot. Three or four dancers stand closer together and smaller (dancerSpot).
-    const crew = count > 2, distance = count === 1 ? 10 : count === 2 ? 12.5 : 9.2;
+    const crew = count > 2, distance = (count === 1 ? 10 : count === 2 ? 12.5 : 9.2) * widening;
     camera.fov = 32;
     camera.position.set(0, crew ? 1.9 : 2.4, distance);
     camera.lookAt(0, crew ? 1.2 : 1.75, 0);
     camera.updateProjectionMatrix();
-  }, [camera, count]);
+  }, [camera, count, widening]);
   return null;
 }
 export function CharacterScene({ poses, performances, calibrations, mirror = false, focus = null, onReady }: CharacterSceneProps) {
-  const count = calibrations.length;
+  const count = calibrations.length, widening = useWidening();
   return (
     <>
-      <CharacterCamera count={count} />
+      <CharacterCamera count={count} widening={widening} />
       <color attach="background" args={['#14313b']} />
       <hemisphereLight args={['#dbffff', '#1d615d', 1.8]} />
       <directionalLight position={[-3, 6, 5]} intensity={3} />
       <Environment />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
-        <circleGeometry args={[7.5, 96]} />
-        <meshPhysicalMaterial color="#3f7681" metalness={0.35} roughness={0.28} />
-      </mesh>
-      <gridHelper args={[16, 32, '#3f8391', '#27545f']} position={[0, -0.01, 0]} />
+      {/* The floor grows with the camera's distance, so its edge stays out of the picture. */}
+      <group scale={[widening, 1, widening]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
+          <circleGeometry args={[7.5, 96]} />
+          <meshPhysicalMaterial color="#3f7681" metalness={0.35} roughness={0.28} />
+        </mesh>
+        <gridHelper args={[16, 32, '#3f8391', '#27545f']} position={[0, -0.01, 0]} />
+      </group>
       <Suspense fallback={null}>
         {calibrations.map((calibration, i) => {
           const spot = dancerSpot(i, count, 4);

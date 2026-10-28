@@ -26,6 +26,7 @@ const LOADERS: Record<StageId, () => Promise<{ default: StageComponent }>> = {
   falls: () => import('./falls/FallsStage.tsx'),
   club: () => import('./club/ClubStage.tsx'),
   beach: () => import('./beach/BeachStage.tsx'),
+  atrium: () => import('./atrium/AtriumStage.tsx'),
   pond: () => import('./pond/PondStage.tsx'),
 };
 

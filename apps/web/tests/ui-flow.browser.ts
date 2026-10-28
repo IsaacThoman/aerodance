@@ -23,7 +23,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { ASPECT, BACK: MENU_BACK, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
+const { ASPECT, BACK: MENU_BACK, BACKGROUND_NEXT, BACKGROUND_PREV, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
 const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, SCROLLBAR, castRow, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
@@ -143,8 +143,15 @@ try {
   const auto = center(menuLayout(otherDesign.w).ASPECT(0));
   await page.mouse.click(otherFrame.x + (auto.x / otherDesign.w) * otherFrame.width, otherFrame.y + (auto.y / otherDesign.h) * otherFrame.height);
   await until({ displayMode: mode, menuReady: 'true' });
-  assert.deepEqual(await page.evaluate(() => localStorage.getItem('aerodance.graphics')), JSON.stringify({ aspect: 'auto', stats: 'off' }));
+  assert.deepEqual(await page.evaluate(() => localStorage.getItem('aerodance.graphics')), JSON.stringify({ aspect: 'auto', stats: 'off', background: 'skyline' }));
   frame = await frameBox();
+  // Graphics → Background swaps the Aero world for a menu backdrop behind the veil, and back.
+  await until({ background: 'skyline', backgroundReady: 'true' });
+  await click(BACKGROUND_NEXT);
+  await until({ background: 'aurora', backgroundReady: 'true' });
+  await shot('settings-background');
+  await click(BACKGROUND_PREV);
+  await until({ background: 'skyline', backgroundReady: 'true', menuReady: 'true' });
   // Graphics → Stats shows the overlay, which reports its numbers; Off takes it and them away.
   await click(STATS(1));
   await until({ statsMode: 'basic', statsFps: /^\d/ });

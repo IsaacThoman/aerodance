@@ -14,6 +14,7 @@ node tools/dance/cli.ts init ~/dances/mine --video dance.mp4 --dancers 2 --title
 node tools/dance/cli.ts frames ~/dances/mine --range 4s:8s --views source --grid
 node tools/dance/cli.ts apply ~/dances/mine patch.json
 node tools/dance/cli.ts studio ~/dances/mine
+node tools/dance/cli.ts studio ~/dances/new   # no dance there yet: the Studio makes one, from a video, a song or the webcam
 ```
 
 Needs FFmpeg on `PATH` and Playwright's Chromium (`npx playwright install chromium`).

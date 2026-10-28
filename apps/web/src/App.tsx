@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
 import Scene from './Scene.tsx';
 import MainMenu, { DEFAULT_PLAYERS } from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
@@ -29,23 +29,12 @@ import type { Cast } from '../../../packages/pose/song.ts';
 import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
-import { DISPLAY_MODES, RENDER_SIZE, displayModeFor } from './display.ts';
+import { DISPLAY_MODES, displayModeFor } from './display.ts';
+import FixedRenderResolution from './FixedRenderResolution.tsx';
+import { isBackgroundId, shuffleBackground } from './backdrop/backgrounds.ts';
+import type { GraphicsSettings } from './menu/graphicsSettings.ts';
 import type { DisplayMode } from './display.ts';
 import { transferCode } from './songs/transferLink.ts';
-
-function FixedRenderResolution() {
-  const gl = useThree((state) => state.gl);
-  const size = useThree((state) => state.size);
-
-  useLayoutEffect(() => {
-    // Fiber tracks the displayed size for projection and pointer events. As on Wii,
-    // both display modes use the same buffer; widescreen is anamorphic.
-    gl.setSize(RENDER_SIZE.w, RENDER_SIZE.h, false);
-    gl.domElement.dataset.displayMode = displayModeFor(size.width, size.height);
-  }, [gl, size.width, size.height]);
-
-  return null;
-}
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
 // late); ?input=recording&recording=<url> replays a pose recording. ?record downloads each
@@ -69,6 +58,9 @@ function replaySource() {
     .catch((err: unknown) => console.error('pose recording could not load:', err instanceof Error ? err.message : err));
   return source;
 }
+
+const backgroundParam = params.get('background');
+const BACKGROUND_PARAM = isBackgroundId(backgroundParam) ? backgroundParam : null;
 
 type AppScreen = 'menu' | 'songs' | 'game';
 
@@ -117,6 +109,22 @@ export default function App() {
   const [gamePhase, setGamePhase] = useState<GamePhase | null>(null);
   const resultsShow = useRef<ResultsShow | null>(null);
   const [sound, setSound] = useState(loadSound);
+  // Settings → Graphics → Background. ?background=<id> starts the visit on one without saving it,
+  // until the picker moves. Shuffle picks one per visit, and a new one whenever it's chosen.
+  const [pinned, setPinned] = useState(BACKGROUND_PARAM);
+  const [shuffled, setShuffled] = useState(() => shuffleBackground());
+  const background = pinned ?? (graphics.background === 'shuffle' ? shuffled : graphics.background);
+  // The picker shows the background on screen, pinned or not.
+  const menuGraphics = useMemo(() => (pinned ? { ...graphics, background: pinned } : graphics), [graphics, pinned]);
+  const changeGraphics = useCallback((next: GraphicsSettings) => {
+    if (next.background === menuGraphics.background) {
+      setGraphics({ ...next, background: graphics.background });
+      return;
+    }
+    setPinned(null);
+    if (next.background === 'shuffle') setShuffled(shuffleBackground(background));
+    setGraphics(next);
+  }, [graphics.background, menuGraphics.background, background]);
 
   useEffect(() => {
     if (!replay) return undefined;
@@ -214,7 +222,7 @@ export default function App() {
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
         <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
           <FixedRenderResolution />
-          <Scene paused={stage.showing} />
+          <Scene paused={stage.showing} background={background} />
           <StageView
             active={(songsOpen && !!preview) || screen === 'game'}
             orbiting={songsOpen && !!preview && songScreen !== 'dancers'}
@@ -243,8 +251,8 @@ export default function App() {
             onScreenChange={setMenuShown}
             sound={sound}
             onSoundChange={setSound}
-            graphics={graphics}
-            onGraphicsChange={setGraphics}
+            graphics={menuGraphics}
+            onGraphicsChange={changeGraphics}
           />
           <SongSelect
             visible={songsOpen}

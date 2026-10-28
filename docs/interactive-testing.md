@@ -57,8 +57,9 @@ node scripts/play.ts start [--studio | --dance <project>] [--dist] [--headed] [-
 
 - `--studio` runs Dance Studio instead of the game.
 - `--dance <project>` runs the animation Studio ([tools/dance](../tools/dance/README.md)) on a
-  dance project. `state` and `wait` read its `.studio` element's `data-*` (`revision`, `time`,
-  `dancer`, `control`, `mode`, `busy`).
+  dance project, or on a folder with no dance yet, where it opens on the New dance form.
+  `state` and `wait` read its `.studio` element's `data-*` (`revision`, `time`, `dancer`,
+  `control`, `mode`, `busy`).
 - `--dist` builds and serves the production bundle (`vite build` + `vite preview`),
   for checking what actually ships.
 - `--headed` opens a visible window that you can play in while the commands still work.
@@ -73,6 +74,10 @@ so separate worktrees can run their own at the same time; the server takes the f
 port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's output.
 `status` reports the URL, renderer and current frame rate.
 
+To run several sessions in one checkout (agents working side by side, say), put
+`PLAY_SESSION=<name>` before every command: each named session has its own server, browser
+and Vite dependency cache under `.cache/play/sessions/<name>/`.
+
 ## Commands
 
 | Command | Does |
@@ -82,7 +87,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 | `click --locator <selector>` | Clicks a DOM element with a [Playwright selector](https://playwright.dev/docs/other-locators), mainly for Studio, e.g. `'role=button[name="Save"]'` |
 | `drag <x,y> <x,y> [--steps n]` | Presses, moves and releases the mouse between two page points (the animation Studio's video and timeline are canvases; `eval "window.danceStudio.jointOnPage('P1','leftWrist')"` finds a joint) |
 | `hover <target>` | Moves the mouse onto a target |
-| `key <key>...` | Presses keys in order: `Enter`, `Escape`, `ArrowDown`, … |
+| `key <key>...` | Presses keys in order: `Enter`, `Escape`, `ArrowDown`, …; `key:ms` holds one down that long (`w:1500`, or `Shift+w:800` for several) |
 | `type <text>` | Types into the focused element |
 | `wait <condition>... [--timeout ms]` | Waits until every condition holds, then prints the state. Conditions: `key=value`, `key~regex`, `key>number`, `key<number`. The default timeout is 30 s |
 | `shot [file.png] [--frame]` | Screenshot of the page, or of just the game frame. Without a file it goes to `.cache/play/shots/` |
@@ -98,7 +103,7 @@ port from 5300 (4300 with `--dist`). `.cache/play/daemon.log` has the server's o
 ### Clicking the canvas
 
 Every game screen is drawn on the canvas in 1600×900 (16:9) or 1200×900 (4:3) design units, and the layout
-modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`) export the position
+modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`, `apps/web/src/walk/layout.ts`) export the position
 of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
@@ -113,9 +118,11 @@ Each screen reports what it shows on the canvas's `data-*` attributes, which is 
 browser tests assert on, and `wait` and `state` read the same attributes. The useful ones:
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen while Settings → Graphics → Aspect ratio is on Auto (`click ASPECT.0`); `ASPECT.1` / `ASPECT.2` hold 4:3 / 16:9 whatever the window, and the choice is saved. Both keep the canvas buffer at 640×480.
+- Background: `background` (`skyline` or a backdrop id), `backgroundReady` (built, and the veil down). Settings → Graphics → Background steps through them with `click BACKGROUND_NEXT` / `BACKGROUND_PREV`; `goto '/?background=koi'` picks one for the visit.
 - Menus: `menuScreen` (`main`, `players`, `settings`, `transfer`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice`, `songDrop` (`near` / `over` while files are dragged over Settings / the Songs panel) (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first); Settings → Songs → Transfer songs (`click SONG_TRANSFER`): `transferStatus` (`starting`, `waiting`, `entering`, `connecting`, `connected`, `ended`), `transferMode` (`code`, `enter`), `transferCode`, `transferDevice`, `transferTransport` (`webrtc`, `relay`), `transferSongs`, `transferSent`, `transferReceived`, `transferNotice` (`click TRANSFER_LINK` enters a code instead; `click SONG_TRASH.0` sends the first song)
 - Song Select: `songScreen` (`list`, `preview`, `dancers`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`, `songDancers` (the open song's dancer count), `songCast` (the dancer each player follows, from 0, e.g. `0|1`). From the preview, `click game.DANCERS` opens the dancers screen; `click castRow.<n>.<players>` presses player n's row (from 0, laid out for that many players) and picks their next dancer, and `key ArrowLeft` / `ArrowRight` on a row step it
 - Stage: `stage`, `stageReady`
+- Walk mode (`goto '/?walk=club'`): `walkScene`, `walkReady`, `walkPaused`, `walkMode`, `walkGrounded`, `walkPosition`; `click walk.RESUME` walks, `key w:1500` holds W ([walk mode](walk-mode.md#testing-it))
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
 - Performance, while the stats overlay is on (Settings → Graphics → Stats: `click STATS.1` for Basic, `STATS.2` for Full, `STATS.0` for Off; or open `/?diag=stats`): `statsMode`, `statsFps`, `statsFrameMs`, `statsP99Ms`, `statsMaxMs`, `statsCpuMs`, `statsGpuMs` (Full only, and `--` without timer queries), `statsDrawCalls`, `statsTriangles`, `statsPoseHz`, `statsPoseAgeMs`. They update four times a second, e.g. `wait 'statsFps>55'`.
 

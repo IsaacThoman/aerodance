@@ -27,11 +27,13 @@ export const PLAYER_COLORS = ['#078fff', '#b86bff', '#1fcf72', '#ff5fb4'] as con
 // Imported songs listed a page at a time in Settings → Songs.
 export const SONGS_PER_PAGE = 7;
 
-// Settings rows: the first row's centre below its panel's top, and the spacing.
-const ROWS_TOP = 98;
-const ROW_H = 50;
+// Settings rows: the first row's centre below its panel's top, the spacing, and the room under
+// the last row.
+const ROWS_TOP = 88;
+const ROW_H = 48;
+const ROWS_BOTTOM = 44;
 // Graphics rows hold segmented switches, whose tracks are 50 tall, so they sit further apart.
-const GRAPHICS_ROW_H = ROW_H + 12;
+const GRAPHICS_ROW_H = ROW_H + 10;
 
 /**
  * Compact menus leave a separate area for the dancers on the right. Graphics has a Fullscreen
@@ -44,15 +46,17 @@ export function menuLayout(width = 1600, fullscreen = true) {
   const left = <T extends { x: number }>(shape: T): T => ({ ...shape, x: shape.x - 128 + x });
   // Each settings panel has its heading, then rows ROW_H apart.
   const w = compact ? 540 : 600;
-  const rowsHeight = (rows: number, rowH = ROW_H) => ROWS_TOP + (rows - 1) * rowH + 48;
+  const rowsHeight = (rows: number, rowH = ROW_H) => ROWS_TOP + (rows - 1) * rowH + ROWS_BOTTOM;
   const SOUND = { x, y: 222, w, h: rowsHeight(5) };
-  const GRAPHICS = { x, y: SOUND.y + SOUND.h + 24, w, h: rowsHeight(fullscreen ? 3 : 2, GRAPHICS_ROW_H) };
+  const GRAPHICS = { x, y: SOUND.y + SOUND.h + 24, w, h: rowsHeight(fullscreen ? 4 : 3, GRAPHICS_ROW_H) };
   const graphicsRowY = (row: number) => GRAPHICS.y + ROWS_TOP + row * GRAPHICS_ROW_H;
-  // Three options side by side, right of the row's label: Aspect ratio Auto / 4:3 / 16:9, then
-  // Stats Off / Basic / Full. Then a Fullscreen switch like Sound's.
+  // Right of each row's label: the Background picker (the one showing, between back and next
+  // arrows), then three options side by side, Aspect ratio Auto / 4:3 / 16:9 and Stats Off /
+  // Basic / Full. Then a Fullscreen switch like Sound's.
   const options = { x0: x + 240, x1: x + w - 32, gap: 6 };
   const optionW = (options.x1 - options.x0 - 2 * options.gap) / 3;
   const option = (row: number, i: number) => ({ x: options.x0 + i * (optionW + options.gap), y: graphicsRowY(row) - 21, w: optionW, h: 42 });
+  const BACKGROUND = { x: options.x0, y: graphicsRowY(0) - 21, w: options.x1 - options.x0, h: 42 };
   // Songs (where the browser can import them): beside Sound and Graphics and as tall as both,
   // SONGS_PER_PAGE imported songs a page under the heading, then Import song at the bottom.
   const SONGS = { x: x + w + 24, y: SOUND.y, w: compact ? 1200 - x - (x + w + 24) : 520, h: GRAPHICS.y + GRAPHICS.h - SOUND.y };
@@ -80,12 +84,17 @@ export function menuLayout(width = 1600, fullscreen = true) {
     TRACK: { x0: x + 190, x1: x + w - 110 },
     SWITCH: { w: 84, h: 42, x: x + w - 124 },
     ROW_Y: (i: number) => SOUND.y + ROWS_TOP + i * ROW_H,
-    ASPECT_ROW_Y: graphicsRowY(0),
-    ASPECT: (i: number) => option(0, i),
-    STATS_ROW_Y: graphicsRowY(1),
-    STATS: (i: number) => option(1, i),
+    BACKGROUND_ROW_Y: graphicsRowY(0),
+    /** The Background picker: pressing its left half goes back, its right half (or Enter) on. */
+    BACKGROUND,
+    BACKGROUND_PREV: { x: BACKGROUND.x + BACKGROUND.h / 2, y: BACKGROUND.y + BACKGROUND.h / 2, r: BACKGROUND.h / 2 - 4 },
+    BACKGROUND_NEXT: { x: BACKGROUND.x + BACKGROUND.w - BACKGROUND.h / 2, y: BACKGROUND.y + BACKGROUND.h / 2, r: BACKGROUND.h / 2 - 4 },
+    ASPECT_ROW_Y: graphicsRowY(1),
+    ASPECT: (i: number) => option(1, i),
+    STATS_ROW_Y: graphicsRowY(2),
+    STATS: (i: number) => option(2, i),
     /** The Fullscreen row, which toggles from anywhere along it like Sound's switches. */
-    FULLSCREEN: fullscreen ? { x: x + 16, y: graphicsRowY(2) - 24, w: w - 32, h: 48 } : null,
+    FULLSCREEN: fullscreen ? { x: x + 16, y: graphicsRowY(3) - 24, w: w - 32, h: 48 } : null,
     SONGS,
     SONG_ROW: songRow,
     /** Each song's remove button, at its row's right end. */
