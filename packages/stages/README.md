@@ -10,13 +10,13 @@ Seven procedural stages inspired by Frutiger Aero, used for the song preview, ga
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
-| `atrium` | indoor garden | The Atrium menu backdrop's sunlit eco-tech atrium, seen from its entrance: the dancers on a glass floor over rippling water in front of the reflecting pool, the aquarium column rising behind them under the ribbed dome, trees, balconies trailing vines, palms by the glass wall, a maglev outside. Built in metres, so its dancers are scaled to life size |
+| `atrium` | indoor garden | The Atrium menu backdrop's sunlit eco-tech atrium, seen from its entrance: the dancers on the stone floor in front of the reflecting pool, the aquarium column rising behind them under the ribbed dome, trees, balconies trailing vines, palms by the glass wall, a maglev outside. Built in metres, so its dancers are scaled to life size |
 
 ## Layout
 
 - `catalog.ts`: the stages as plain data (each folder's `meta.ts`: name card text, accent colors, dancer placement, post settings), with no rendering code, so Node, Dance Studio and song catalogs can import it.
 - `index.ts`: pairs each meta with its lazily loaded `<Name>Stage.tsx`, so only the visible stage is fetched and one broken stage can't take down the others.
-- `atrium/`: the room is shared with the Atrium menu backdrop (`packages/backdrops/atrium`), which shows it from its own camera without the dance floor. `Atrium.tsx` is the room for any scene that brings its own camera and clock; each scene makes its own uniforms (`makeAtriumUniforms`) and moves its `uTime` on, as the two can be mounted at once.
+- `atrium/`: the room is shared with the Atrium menu backdrop (`packages/backdrops/atrium`), which shows it from its own camera without the dancers. `Atrium.tsx` is the room for any scene that brings its own camera and clock; each scene makes its own uniforms (`makeAtriumUniforms`) and moves its `uTime` on, as the two can be mounted at once.
 - `shared/`:
   - `hooks.ts`: `StageCamera` (16:9 projection with slow orbit, sway and pointer parallax), a steady 118 bpm beat clock for light pulses, and disposal helpers. `cameraPilot` lets [walk mode](../../docs/walk-mode.md) fly whichever stage or backdrop camera is live.
   - `Environment.tsx`: PMREM reflections; the glass dancers get most of their look from these.

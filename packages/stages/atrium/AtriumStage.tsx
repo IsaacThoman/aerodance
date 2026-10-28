@@ -1,16 +1,16 @@
 import { useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { StageCamera, beat, reducedMotion } from '../shared/hooks.ts';
+import * as THREE from 'three';
+import { StageCamera, beat, reducedMotion, useDisposable } from '../shared/hooks.ts';
 import { StageEnvironment } from '../shared/Environment.tsx';
 import type { EnvironmentLight } from '../shared/Environment.tsx';
 import { post } from '../shared/post.tsx';
 import { Atrium } from './Atrium.tsx';
-import { DanceFloor } from './DanceFloor.tsx';
 import { STAGE_CAMERA, SUN_DIR } from './layout.ts';
 import { makeAtriumUniforms } from './shading.ts';
 import meta from './meta.ts';
 
-// atrium: the menu's sunlit atrium (Atrium.tsx) as a dance stage. The dancers dance on a round
+// atrium: the menu's sunlit atrium (Atrium.tsx) as a dance stage. The dancers dance on the stone
 // floor in front of the reflecting pool, the aquarium column rising behind them under the dome,
 // seen from the entrance across the atrium. The room is lit by its own shaders; the stage's lights
 // are for the glass dancers, the sun's among them casting their shadows.
@@ -30,12 +30,21 @@ const ENV_LIGHTS: readonly EnvironmentLight[] = [
   { position: [0, 4, 24], color: '#3fb0ff', intensity: 1.3, size: [24, 8] },
 ];
 
+/**
+ * The dancers' shadows on the floor. The room's light is drawn by its shaders, so the stage's sun
+ * casts them onto a shadow-only disc laid over the stone, drawn before the glass dancers.
+ */
+function DancerShadows() {
+  const [x, y, z] = meta.dancers.position;
+  const geometry = useDisposable(() => new THREE.CircleGeometry(3.6, 64).rotateX(-Math.PI / 2).translate(x, y + 0.003, z));
+  const material = useDisposable(() => new THREE.ShadowMaterial({ color: '#163650', opacity: 0.34, depthWrite: false }));
+  return <mesh geometry={geometry} material={material} receiveShadow renderOrder={-60} />;
+}
+
 export default function AtriumStage() {
   const uniforms = useMemo(() => makeAtriumUniforms({ fov: STAGE_CAMERA.fov, foreShade: 0 }), []);
   useFrame((state) => {
     uniforms.uTime.value = state.clock.elapsedTime * MOTION;
-    uniforms.uBeat.value = beat.pulse;
-    uniforms.uBeatPhase.value = beat.phase;
     post.bloomStrength = meta.post.bloomStrength + beat.pulse * 0.03;
   });
   return (
@@ -68,7 +77,7 @@ export default function AtriumStage() {
         shadow-bias={-0.0004}
       />
       <Atrium uniforms={uniforms} />
-      <DanceFloor uniforms={uniforms} />
+      <DancerShadows />
     </>
   );
 }

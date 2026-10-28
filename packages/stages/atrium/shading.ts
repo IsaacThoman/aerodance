@@ -14,10 +14,6 @@ export interface AtriumUniforms {
   uForeShade: THREE.IUniform<number>;
   /** Point sprites' scale: the 640x480 buffer's height over the view's height 1 m away. */
   uPointScale: THREE.IUniform<number>;
-  /** The music (shared/hooks.ts's beat; still in the menu): 1 on the beat, decaying quickly. */
-  uBeat: THREE.IUniform<number>;
-  /** 0..1 through the beat. */
-  uBeatPhase: THREE.IUniform<number>;
 }
 
 export interface AtriumOptions {
@@ -32,8 +28,6 @@ export function makeAtriumUniforms({ fov, foreShade }: AtriumOptions): AtriumUni
     uSunDir: { value: SUN_DIR.clone() },
     uForeShade: { value: foreShade },
     uPointScale: { value: 480 / (2 * Math.tan(THREE.MathUtils.degToRad(fov / 2))) },
-    uBeat: { value: 0 },
-    uBeatPhase: { value: 0 },
   };
 }
 

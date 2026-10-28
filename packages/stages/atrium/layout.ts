@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import type { Vec3 } from '../catalog.ts';
-import meta from './meta.ts';
 
 // atrium: a round, sunlit eco-tech atrium. Curved white balconies dripping with plants ring a
 // tall aquarium column standing in a reflecting pool, under a ribbed glass dome; on the right a
-// full-height glass wall looks out over a green park where a maglev glides past. The dancers
-// dance in front of the pool, on a round floor of their own (the stage's DanceFloor.tsx).
+// full-height glass wall looks out over a green park where a maglev glides past. On the stage,
+// the dancers dance on the stone floor in front of the pool.
 //
 // Positions around the atrium go by cylinder thetas about AXIS (x = r sin(theta), z = r cos(theta)):
 // theta 0 faces the cameras, +pi/2 is right, pi the back, -pi/2 the left.
@@ -41,12 +40,6 @@ export const WATER_Y = 0.32;
  * stand in it. Thetas either side of 0.
  */
 export const ENTRANCE = 0.42;
-/** The dancers' round floor in front of the pool (they stand at its centre, meta.dancers). */
-export const DANCE_FLOOR = {
-  center: new THREE.Vector3(...meta.dancers.position).setY(0),
-  radius: 2.6,
-  top: meta.dancers.position[1],
-};
 
 /** A glass-railed gallery ringing the column at the middle balconies' level, bridged back to them. */
 export const GALLERY = { y: LEVELS[1], r: 3.2, bridges: [3.5, 2.72] as const, width: 2.0 };

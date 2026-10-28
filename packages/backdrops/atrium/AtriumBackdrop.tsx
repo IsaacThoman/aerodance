@@ -5,9 +5,9 @@ import { makeAtriumUniforms } from '../../stages/atrium/shading.ts';
 import { BackdropCamera } from '../shared/BackdropCamera.tsx';
 import { useBackdropFrame } from '../shared/frame.ts';
 
-// atrium: the atrium stage's room (packages/stages/atrium) seen from where the menu wants it,
-// without its dance floor: trees and the balconies' greenery behind the title, the glass wall's
-// sky and the tropical bed behind the menu's dancers, and the aquarium column between them.
+// atrium: the atrium stage's room (packages/stages/atrium) seen from where the menu wants it:
+// trees and the balconies' greenery behind the title, the glass wall's sky and the tropical bed
+// behind the menu's dancers, and the aquarium column between them.
 
 export default function AtriumBackdrop() {
   // The floor nearest the camera in the shade, which frames the menu better.
