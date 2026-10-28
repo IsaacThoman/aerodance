@@ -6,8 +6,9 @@ import falls from './falls/meta.ts';
 import club from './club/meta.ts';
 import beach from './beach/meta.ts';
 import atrium from './atrium/meta.ts';
+import pond from './pond/meta.ts';
 
-export type StageId = 'sanctuary' | 'reef' | 'openreef' | 'falls' | 'club' | 'beach' | 'atrium';
+export type StageId = 'sanctuary' | 'reef' | 'openreef' | 'falls' | 'club' | 'beach' | 'atrium' | 'pond';
 
 export type Vec2 = readonly [x: number, y: number];
 export type Vec3 = readonly [x: number, y: number, z: number];
@@ -46,7 +47,7 @@ export type StageListing = Pick<StageMeta, 'id' | 'subtitle' | 'accent'>;
 
 // The dance stages as plain data, in browse order, with no rendering code: Dance Studio,
 // song catalogs and node tests import this; index.ts pairs each with its stage component.
-export const STAGE_METAS: readonly StageMeta[] = [sanctuary, reef, openreef, falls, club, beach, atrium];
+export const STAGE_METAS: readonly StageMeta[] = [sanctuary, reef, openreef, falls, club, beach, atrium, pond];
 
 export const STAGE_LIST: readonly StageListing[] = STAGE_METAS.map(({ id, subtitle, accent }) => ({ id, subtitle, accent }));
 

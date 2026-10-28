@@ -1,6 +1,6 @@
 # Dance stages
 
-Seven procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
+Eight procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
 
 | Id | Kind | Highlights |
 | --- | --- | --- |
@@ -11,6 +11,7 @@ Seven procedural stages inspired by Frutiger Aero, used for the song preview, ga
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
 | `atrium` | indoor garden | The Atrium menu backdrop's sunlit eco-tech atrium, seen from its entrance: the dancers on the stone floor in front of the reflecting pool, the aquarium column rising behind them under the ribbed dome (schools of small fish darting round it, some climbing or sinking through it), koi in the pool, trees, balconies trailing vines, palms by the glass wall, a maglev outside. Built in metres, so its dancers are scaled to life size |
+| `pond` | garden | A koi pond in spring: the dancers on a giant lily pad (a big one of the small pads, slit and all), koi circling it under jade water over a pebble bed with caustics, smaller pads and lotus flowers, cherry trees in bloom dropping petals on the water, cloud-pruned pines, azaleas, stone lanterns, a vermilion bridge over the stream, the garden mirrored in the water, and a ripple ring from the pad on every bar |
 
 ## Layout
 

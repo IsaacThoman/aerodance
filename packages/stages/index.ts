@@ -27,6 +27,7 @@ const LOADERS: Record<StageId, () => Promise<{ default: StageComponent }>> = {
   club: () => import('./club/ClubStage.tsx'),
   beach: () => import('./beach/BeachStage.tsx'),
   atrium: () => import('./atrium/AtriumStage.tsx'),
+  pond: () => import('./pond/PondStage.tsx'),
 };
 
 // Dance stages in browse order (see catalog.ts).

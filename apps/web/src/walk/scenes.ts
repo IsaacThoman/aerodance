@@ -20,7 +20,7 @@ export type WalkScene = {
 
 // The stages have no display names of their own.
 const STAGE_NAMES: Record<StageId, string> = {
-  sanctuary: 'Sanctuary', reef: 'Reef Dome', openreef: 'Open Reef', falls: 'Falls', club: 'Club', beach: 'Beach', atrium: 'Atrium Stage',
+  sanctuary: 'Sanctuary', reef: 'Reef Dome', openreef: 'Open Reef', falls: 'Falls', club: 'Club', beach: 'Beach', atrium: 'Atrium Stage', pond: 'Pond',
 };
 
 // Each backdrop was built to its own scale, so it gets a walker to match: Aurora's cabin is 20
