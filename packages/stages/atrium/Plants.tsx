@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial } from '../../stages/shared/glsl.ts';
-import { makeRandom } from '../../stages/shared/random.ts';
-import { fill, mergeAll, sweepArc } from './geometry.ts';
+import { useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
+import { makeRandom } from '../shared/random.ts';
+import { arcSegments, fill, mergeAll, sweepArc } from './geometry.ts';
 import type { ProfilePoint } from './geometry.ts';
-import { AXIS, BALCONY_THETA, CAMERA, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
+import { AXIS, BALCONY_THETA, ENTRANCE, GLASS_R, GLASS_THETA, LEVELS, MENU_CAMERA, PLANTER_R, TREES, VOID_R, polar } from './layout.ts';
 import type { TreeSpot } from './layout.ts';
-import { COMMON, atriumUniforms } from './shading.ts';
+import { COMMON } from './shading.ts';
+import type { AtriumUniforms } from './shading.ts';
 
 // Greenery: hedges spilling over every balcony, curtains of trailing plants hanging from them,
 // broadleaf trees shading the left and palms by the glass. Leaves are glossy, Aero style: soft
@@ -225,14 +226,14 @@ function palm(spot: TreeSpot, parts: THREE.BufferGeometry[]) {
 
 /** Plump hedges along every balcony's planter and planted beds at the foot of the shop fronts and the glass. */
 function hedges(parts: THREE.BufferGeometry[]) {
-  const ring = (rc: number, yc: number, w: number, h: number, theta0: number, theta1: number, lumps = 1) => {
+  const ring = (rc: number, yc: number, w: number, h: number, theta0: number, theta1: number, lumps = 1, segments = arcSegments(theta1 - theta0, 108)) => {
     const profile: ProfilePoint[] = [];
     // Wound so the outside faces the camera (the mesh culls back faces).
     for (let i = 8; i >= 0; i--) {
       const a = Math.PI * (1.15 - (i / 8) * 1.3);
       profile.push([rc + Math.cos(a) * w, yc + Math.sin(a) * h]);
     }
-    const g = sweepArc(profile, theta0, theta1, 220);
+    const g = sweepArc(profile, theta0, theta1, segments);
     // Lumpy, so the silhouette isn't a clean tube.
     const p = g.attributes.position;
     const centers = new Float32Array(p.count * 4);
@@ -254,10 +255,18 @@ function hedges(parts: THREE.BufferGeometry[]) {
     g.deleteAttribute('uv');
     parts.push(g);
   };
-  for (const y of LEVELS) ring(VOID_R + 0.36, y + 0.74, 0.5, 0.42, BALCONY_THETA[0] + 0.03, BALCONY_THETA[1]);
-  ring(VOID_R + 2.2, 0.15, 0.9, 0.85, BALCONY_THETA[0] + 0.08, BALCONY_THETA[1]);
+  for (const y of LEVELS) ring(VOID_R + 0.36, y + 0.74, 0.5, 0.42, BALCONY_THETA[0] + 0.03, BALCONY_THETA[1] - 0.03);
+  // The bed under the balconies stops either side of the entrance, in a bush.
+  const bed = (theta0: number, theta1: number) => ring(VOID_R + 2.2, 0.15, 0.9, 0.85, theta0, theta1);
+  bed(BALCONY_THETA[0] + 0.08, Math.PI * 2 - ENTRANCE);
+  bed(Math.PI * 2 + ENTRANCE, BALCONY_THETA[1] - 0.08);
+  for (const side of [-1, 1]) {
+    const end = polar(VOID_R + 2.2, side * ENTRANCE, 0.25);
+    const bush = lumpy(new THREE.IcosahedronGeometry(1.0, 2), 0.14, 11 + side).scale(1, 0.85, 1).translate(end.x, end.y, end.z);
+    parts.push(leaves(bush, end, 0.35, 0));
+  }
   // A deep tropical bed along the foot of the glass wall.
-  ring(GLASS_R - 1.7, 0.3, 1.5, 1.9, GLASS_THETA[0] - 0.15, GLASS_THETA[1] - 0.02, 2.2);
+  ring(GLASS_R - 1.7, 0.3, 1.5, 1.9, GLASS_THETA[0] - 0.15, GLASS_THETA[1] - 0.02, 2.2, 220);
 }
 
 function buildPlants(): THREE.BufferGeometry {
@@ -272,7 +281,7 @@ function buildPlants(): THREE.BufferGeometry {
   }
   hedges(parts);
   // Nearest first, so leaves behind leaves fail the depth test instead of being shaded twice.
-  const eye = new THREE.Vector3(...CAMERA.position);
+  const eye = new THREE.Vector3(...MENU_CAMERA.position);
   const distance = (g: THREE.BufferGeometry) => {
     g.computeBoundingSphere();
     return g.boundingSphere ? g.boundingSphere.center.distanceTo(eye) - g.boundingSphere.radius * 0.5 : 0;
@@ -280,11 +289,10 @@ function buildPlants(): THREE.BufferGeometry {
   return mergeAll(parts.map((g) => ({ g, d: distance(g) })).sort((a, b) => a.d - b.d).map(({ g }) => g));
 }
 
-export function Plants() {
+export function Plants({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(buildPlants);
   const material = useDisposable(() =>
-    shaderMaterial({ uniforms: { ...atriumUniforms }, vertexShader: plantVertex, fragmentShader: plantFragment }),
-  );
+    shaderMaterial({ uniforms: { ...uniforms }, vertexShader: plantVertex, fragmentShader: plantFragment }), [uniforms]);
   // Drawn before the rest of the room: the trees hide much of it.
   return <mesh geometry={geometry} material={material} renderOrder={-20} />;
 }
@@ -303,9 +311,12 @@ varying float vTop;
 varying float vClump;
 varying float vSun;
 varying float vN1;
+varying float vLong;
 void main() {
   // The tips hang out from the fascia and swing a little, the more the further down.
   vec3 p = position;
+  // Over the entrance they're kept short, clear of the way in (and the stage's camera).
+  vLong = smoothstep(ENTRANCE + 0.15, ENTRANCE + 0.45, abs(atan(p.x - AXIS.x, p.z - AXIS.z)));
   float drop = aTop - p.y;
   vec2 radial = normalize(p.xz - AXIS.xz);
   float sway = sin(uTime * 0.6 + uv.x * 0.25) * 0.5 + sin(uTime * 0.37 + uv.x * 0.11) * 0.5;
@@ -334,6 +345,7 @@ varying float vTop;
 varying float vClump;
 varying float vSun;
 varying float vN1;
+varying float vLong;
 void main() {
   float u = vUv.x;
   float drop = vTop - vWorld.y;
@@ -342,7 +354,7 @@ void main() {
   float strand = floor(u / 0.5);
   float fu = fract(u / 0.5);
   float h1 = hash12(vec2(strand, vTop));
-  float len = 0.9 + vClump * (0.5 + 3.0 * h1 * h1);
+  float len = 0.9 + vClump * (0.5 + 3.0 * h1 * h1) * vLong;
   float rough = snoise(vec2(u * 3.2, vWorld.y * 2.2));
   float edge = len + 0.3 * rough;
   float sheet = 1.0 - smoothstep(len * 0.35, len * 0.9, drop);
@@ -360,7 +372,7 @@ void main() {
 }
 `;
 
-export function Curtains() {
+export function Curtains({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(() =>
     mergeAll(
       LEVELS.map((y) => {
@@ -368,19 +380,19 @@ export function Curtains() {
         const profile: ProfilePoint[] = [];
         // Just in front of the fascia, the top edge tucked into the planter.
         for (let i = 0; i <= 8; i++) profile.push([i === 0 ? VOID_R + 0.06 : VOID_R - 0.14, top - (i / 8) * 4.2]);
-        return fill(sweepArc(profile, BALCONY_THETA[0] + 0.03, BALCONY_THETA[1], 160), 'aTop', [top]);
+        const [t0, t1] = [BALCONY_THETA[0] + 0.03, BALCONY_THETA[1] - 0.03];
+        return fill(sweepArc(profile, t0, t1, arcSegments(t1 - t0, 79)), 'aTop', [top]);
       }),
     ),
   );
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...atriumUniforms },
+      uniforms: { ...uniforms },
       side: THREE.DoubleSide,
       transparent: true,
       premultipliedAlpha: true,
       vertexShader: curtainVertex,
       fragmentShader: curtainFragment,
-    }),
-  );
-  return <mesh geometry={geometry} material={material} renderOrder={2} />;
+    }), [uniforms]);
+  return <mesh geometry={geometry} material={material} renderOrder={-58} />;
 }

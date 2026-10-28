@@ -10,7 +10,7 @@ Ten procedural Frutiger Aero scenes that can stand behind the menus in place of 
 | `cloudsea` | Cloud Sea | Sunrise above rolling clouds: pastel sky, god rays and lens flare, a glossy airship, glass garden pods, circling gulls |
 | `hills` | Bliss Hills | Smooth emerald hills with wind waves and cloud shadows, a sparkling river, wind turbines on the ridge, glass greenhouse domes, cumulus |
 | `koi` | Koi Pond | A clear jade pond from above: seven koi swimming lazy loops, caustics on the pebbles, lily pads and lotus flowers, ripple rings, cherry petals, sun glitter |
-| `atrium` | Atrium | A sunlit eco-tech atrium: ribbed glass dome, curved white balconies hung with vines, an aquarium column with schools of fish, a reflecting pool, a maglev outside |
+| `atrium` | Atrium | A sunlit eco-tech atrium: ribbed glass dome, curved white balconies hung with vines, an aquarium column with schools of small fish darting round, climbing and sinking, a reflecting pool with koi, a maglev outside. Its room is the `atrium` dance stage's |
 | `dew` | Dewdrops | Leaves up close: drops that magnify the veins, a slow drip cycle, a ladybug, sunlit bokeh, a sunshower |
 | `orbit` | Orbit | A glossy Earth at sunrise: clouds, ocean glint, city lights, an atmosphere rim, a space station with a turning glass ring, satellites, the Moon |
 | `jellyfish` | Jellyfish | Open water: glowing glass-like jellies that pulse and drift, trailing tentacles and frilly arms, light rays, marine snow, plankton sparkles |
@@ -21,7 +21,7 @@ Ten procedural Frutiger Aero scenes that can stand behind the menus in place of 
 - `index.ts`: pairs each meta with its lazily loaded `<Name>Backdrop.tsx`, so only the one showing is fetched.
 - `shared/frame.ts`: the backdrop clock and `useBackdropFrame`, which stops while a dance stage has the screen and runs at half speed with prefers-reduced-motion; and `backdropPost`, the live post settings of the backdrop showing.
 - `shared/BackdropCamera.tsx`: the camera, with slow drift and a lean towards the pointer. Use it rather than a camera of your own: [walk mode](../../docs/walk-mode.md) takes it over through `cameraPilot`.
-- Backdrops also use the stages' shared modules: `Sky.tsx`, `Environment.tsx`, `glsl.ts`, `random.ts` and `useDisposable` in `hooks.ts`.
+- Backdrops also use the stages' shared modules: `Sky.tsx`, `Environment.tsx`, `glsl.ts`, `random.ts` and `useDisposable` in `hooks.ts`. Atrium's room is the `atrium` stage's (`packages/stages/atrium`), seen from the menu's camera.
 
 The game hosts them in `apps/web/src/backdrop/BackdropView.tsx`: a createPortal scene drawn through the stages' `RenderPipeline` (stage → bloom → grade → ACES) into the 640×480 buffer.
 

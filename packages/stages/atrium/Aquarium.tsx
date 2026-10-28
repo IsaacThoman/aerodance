@@ -1,13 +1,15 @@
 import * as THREE from 'three';
-import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial } from '../../stages/shared/glsl.ts';
-import { makeRandom } from '../../stages/shared/random.ts';
+import { useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
+import { makeRandom } from '../shared/random.ts';
 import { instanced, sweepArc } from './geometry.ts';
-import { AXIS, LAYOUT_GLSL, TANK_R, TANK_TOP, WATER_Y } from './layout.ts';
-import { COMMON, WORLD_VERTEX, atriumUniforms } from './shading.ts';
+import { LAYOUT_GLSL, TANK_R, TANK_TOP, WATER_Y } from './layout.ts';
+import { COMMON, WORLD_VERTEX } from './shading.ts';
+import type { AtriumUniforms } from './shading.ts';
 
 // The aquarium column: a glass cylinder of sunlit water rising from the pool to the dome, with
-// tropical fish circling inside and bubbles streaming up.
+// schools of small tropical fish darting round inside, some climbing or sinking through it, and
+// bubbles streaming up.
 
 const BOTTOM = WATER_Y + 0.9;
 const TOP = TANK_TOP - 1.3;
@@ -117,19 +119,27 @@ function fishGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-// Body, accent and pattern (0 plain, 1 bands, 2 stripe).
-const SPECIES = [
-  { body: '#ffc61a', accent: '#fff4a8', pattern: 0, size: 1.0, weight: 3 },
-  { body: '#2a63ff', accent: '#ffd21a', pattern: 2, size: 1.1, weight: 3 },
-  { body: '#ff6a12', accent: '#ffffff', pattern: 1, size: 0.75, weight: 3 },
-  { body: '#1ad8ff', accent: '#ff4fbf', pattern: 2, size: 0.6, weight: 4 },
-  { body: '#f2f8ff', accent: '#ffb020', pattern: 1, size: 1.15, weight: 2 },
-] as const;
+// Body, accent, pattern (0 plain, 1 bands, 2 stripe) and length in metres.
+interface Species { body: string; accent: string; pattern: number; length: number }
+const TETRA: Species = { body: '#1ad8ff', accent: '#ff4fbf', pattern: 2, length: 0.25 };
+const CLOWN: Species = { body: '#ff6a12', accent: '#ffffff', pattern: 1, length: 0.32 };
+const TANG: Species = { body: '#ffc61a', accent: '#fff4a8', pattern: 0, length: 0.52 };
+const BLUE_TANG: Species = { body: '#2a63ff', accent: '#ffd21a', pattern: 2, length: 0.56 };
+const BANNER: Species = { body: '#f2f8ff', accent: '#ffb020', pattern: 1, length: 0.45 };
 
+/**
+ * Each fish swims its own loop round the column, worked out in the shader from the clock: round
+ * and round (aOrbit: angle, angular speed, radius, radius wobble), drifting in and out, and up and
+ * down (aRise: height, how far, how fast, phase). Climbers rise and sink metres at a time; the
+ * rest bob. It faces the way it's going, nose up as it climbs, and its tail beats as fast as it
+ * swims.
+ */
 const fishVertex = /* glsl */ `
+${LAYOUT_GLSL}
 attribute float aU;
-attribute vec4 aSwim;
-attribute vec4 aLook;
+attribute vec4 aOrbit;
+attribute vec4 aRise;
+attribute vec2 aLook;
 attribute vec3 aBody;
 attribute vec3 aAccent;
 uniform float uTime;
@@ -140,19 +150,30 @@ varying vec3 vAccent;
 varying float vU;
 varying float vPattern;
 varying float vSide;
+
+vec3 swimAt(float t) {
+  float ph = aRise.w;
+  float theta = aOrbit.x + aOrbit.y * t + 0.25 * sin(t * 0.31 + ph * 5.0);
+  float r = aOrbit.z + aOrbit.w * sin(t * 0.47 + ph * 3.0);
+  float y = aRise.x + aRise.y * sin(t * aRise.z + ph) + 0.06 * sin(t * 1.3 + ph * 7.0);
+  return vec3(AXIS.x + sin(theta) * r, y, AXIS.z + cos(theta) * r);
+}
+
 void main() {
-  // aSwim: orbit radius, height, angular speed (signed), phase. aLook: size, pattern, axis x, axis z.
-  float theta = aSwim.w + uTime * aSwim.z;
-  float y = aSwim.y + sin(uTime * 0.3 + aSwim.w * 3.0) * 0.6;
-  vec3 radial = vec3(sin(theta), 0.0, cos(theta));
-  vec3 fwd = vec3(cos(theta), 0.0, -sin(theta)) * sign(aSwim.z);
-  vec3 p = position * aLook.x;
-  // Swim: the tail beats harder than the head.
-  float beat = sin(uTime * 9.0 * abs(aSwim.z) / 0.35 + aSwim.w * 7.0 - aU * 4.0);
-  p.x += beat * aU * aU * 0.12 * aLook.x;
-  vec3 side = cross(vec3(0.0, 1.0, 0.0), fwd);
-  vec3 w = vec3(aLook.z, 0.0, aLook.w) + radial * aSwim.x + vec3(0.0, y, 0.0) + side * p.x + vec3(0.0, p.y, 0.0) + fwd * p.z;
-  vNormal = normalize(side * normal.x + vec3(0.0, normal.y, 0.0) + fwd * normal.z);
+  vec3 at = swimAt(uTime);
+  vec3 d = swimAt(uTime + 0.08) - swimAt(uTime - 0.08);
+  // Never steeper than about 35 degrees: fish climb at a slant.
+  float level = length(d.xz);
+  vec3 fwd = normalize(vec3(d.x, clamp(d.y, -0.7 * level, 0.7 * level), d.z));
+  vec3 side = normalize(cross(vec3(0.0, 1.0, 0.0), fwd));
+  vec3 up = cross(fwd, side);
+  float len = aLook.x;
+  vec3 p = position * len;
+  // The tail beats harder than the head, faster the more body lengths a second it swims.
+  float rate = 5.0 + 3.0 * abs(aOrbit.y) * aOrbit.z / len;
+  p.x += sin(uTime * rate + aRise.w * 7.0 - aU * 4.0) * aU * aU * 0.14 * len;
+  vec3 w = at + side * p.x + up * p.y + fwd * p.z;
+  vNormal = normalize(side * normal.x + up * normal.y + fwd * normal.z);
   vWorld = w;
   vBody = aBody;
   vAccent = aAccent;
@@ -190,32 +211,50 @@ void main() {
 }
 `;
 
-function useFish(count: number) {
+// The water the fish keep to, and how much room each has round the column's axis.
+const SWIM_LOW = BOTTOM + 0.5;
+const SWIM_HIGH = TOP - 0.8;
+const ROOM = TANK_R - 0.12;
+
+function useFish() {
   return useDisposable(() => {
     const rand = makeRandom(4242);
-    const swim = new Float32Array(count * 4);
-    const look = new Float32Array(count * 4);
-    const body = new Float32Array(count * 3);
-    const accent = new Float32Array(count * 3);
-    const total = SPECIES.reduce((s, sp) => s + sp.weight, 0);
+    const orbit: number[] = [];
+    const rise: number[] = [];
+    const look: number[] = [];
+    const body: number[] = [];
+    const accent: number[] = [];
     const color = new THREE.Color();
-    for (let i = 0; i < count; ) {
-      let pick = rand.next() * total;
-      const sp = SPECIES.find((s) => (pick -= s.weight) < 0) ?? SPECIES[0];
-      // Small schools share a species, a direction and roughly a height.
-      const n = Math.min(count - i, sp.size < 0.8 ? rand.int(3, 6) : rand.int(1, 2));
-      const dir = rand.sign();
-      const height = rand.range(BOTTOM + 1, TOP - 4);
-      const speed = rand.range(0.18, 0.32) * dir;
+    /** A school of n of a species sharing a loop (a lone fish when n is 1); climbers rise and sink through the column. */
+    const school = (sp: Species, n: number, climbing: boolean) => {
+      const length = sp.length * rand.range(0.9, 1.1);
+      const reach = ROOM - length * 0.6;
+      const radius = rand.range(0.3, reach - 0.2);
+      const wobble = rand.range(0.05, Math.min(0.3, reach - radius - 0.1));
+      // Brisk: 0.3-0.7 m/s round the loop, but never spinning on the spot.
+      const omega = rand.sign() * Math.min(rand.range(0.3, 0.7) / radius, 1.3);
+      const amp = climbing ? rand.range(2.5, 7) : rand.range(0.15, 0.5);
+      // Most of them low down, where both cameras see the column best.
+      const height = SWIM_LOW + amp + 0.3 + (SWIM_HIGH - SWIM_LOW - 2 * amp - 0.6) * rand.next() ** 1.6;
+      // Climbers at up to about 0.25 m/s; the rest bob every 15-30 s.
+      const rate = climbing ? rand.range(0.12, 0.25) / amp : rand.range(0.2, 0.4);
+      const angle = rand.range(0, Math.PI * 2);
       const phase = rand.range(0, Math.PI * 2);
-      for (let j = 0; j < n; j++, i++) {
-        swim.set([rand.range(0.45, TANK_R - 0.3), height + rand.range(-0.5, 0.5), speed * rand.range(0.95, 1.05), phase + rand.range(-0.3, 0.3)], i * 4);
-        look.set([1.45 * sp.size * rand.range(0.85, 1.1), sp.pattern, AXIS.x, AXIS.z], i * 4);
-        color.set(sp.body).toArray(body, i * 3);
-        color.set(sp.accent).toArray(accent, i * 3);
+      for (let i = 0; i < n; i++) {
+        const own = n > 1;
+        orbit.push(angle + (own ? rand.range(-0.3, 0.3) : 0), omega, Math.min(radius + (own ? rand.range(-0.12, 0.12) : 0), reach - wobble), wobble);
+        rise.push(height + (own ? rand.range(-0.3, 0.3) : 0), amp, rate, phase + (own ? rand.range(-0.05, 0.05) : 0));
+        look.push(length * rand.range(0.92, 1.08), sp.pattern);
+        body.push(...color.set(sp.body).toArray());
+        accent.push(...color.set(sp.accent).toArray());
       }
-    }
-    return instanced(fishGeometry(), count, { aSwim: [4, swim], aLook: [4, look], aBody: [3, body], aAccent: [3, accent] });
+    };
+    // Schools of small fish, half of them climbing or sinking together; pairs and loners of
+    // bigger ones, a third of them climbers.
+    for (let i = 0; i < 7; i++) school(rand.pick([TETRA, TETRA, CLOWN]), rand.int(7, 11), i % 2 === 0);
+    for (let i = 0; i < 22; i++) school(rand.pick([TANG, BLUE_TANG, BANNER, CLOWN]), rand.int(1, 2), rand.chance(0.35));
+    const f32 = (list: number[]) => new Float32Array(list);
+    return instanced(fishGeometry(), look.length / 2, { aOrbit: [4, f32(orbit)], aRise: [4, f32(rise)], aLook: [2, f32(look)], aBody: [3, f32(body)], aAccent: [3, f32(accent)] });
   });
 }
 
@@ -254,9 +293,9 @@ void main() {
 }
 `;
 
-export function Aquarium() {
+export function Aquarium({ uniforms }: { uniforms: AtriumUniforms }) {
   const tube = useDisposable(() => sweepArc([[TANK_R, BOTTOM - 0.1], [TANK_R, TOP + 0.1]], 0, Math.PI * 2, 48));
-  const fish = useFish(46);
+  const fish = useFish();
   const bubbles = useDisposable(() => {
     const rand = makeRandom(77);
     const seeds: number[] = [];
@@ -274,33 +313,32 @@ export function Aquarium() {
     return g;
   });
   const mats = useDisposable(() => ({
-    water: shaderMaterial({ uniforms: { ...atriumUniforms }, side: THREE.BackSide, vertexShader: WORLD_VERTEX, fragmentShader: waterFragment }),
+    water: shaderMaterial({ uniforms: { ...uniforms }, side: THREE.BackSide, vertexShader: WORLD_VERTEX, fragmentShader: waterFragment }),
     glass: shaderMaterial({
-      uniforms: { ...atriumUniforms },
+      uniforms: { ...uniforms },
       transparent: true,
       depthWrite: false,
       premultipliedAlpha: true,
       vertexShader: WORLD_VERTEX,
       fragmentShader: glassFragment,
     }),
-    fish: shaderMaterial({ uniforms: { ...atriumUniforms }, side: THREE.DoubleSide, vertexShader: fishVertex, fragmentShader: fishFragment }),
+    fish: shaderMaterial({ uniforms: { ...uniforms }, side: THREE.DoubleSide, vertexShader: fishVertex, fragmentShader: fishFragment }),
     bubble: shaderMaterial({
-      // Point sizes in buffer pixels: the 640x480 buffer's height over the view's height at 1 m.
-      uniforms: { uTime: atriumUniforms.uTime, uScale: { value: 480 / (2 * Math.tan(THREE.MathUtils.degToRad(28))) } },
+      uniforms: { uTime: uniforms.uTime, uScale: uniforms.uPointScale },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       vertexShader: bubbleVertex,
       fragmentShader: bubbleFragment,
     }),
-  }));
+  }), [uniforms]);
   return (
     <group>
       {/* The fish before the water behind them; both early among the opaque, in front of the room. */}
       <mesh geometry={fish} material={mats.fish} frustumCulled={false} renderOrder={-16} />
       <mesh geometry={tube} material={mats.water} renderOrder={-15} />
-      <points geometry={bubbles} material={mats.bubble} frustumCulled={false} renderOrder={6} />
-      <mesh geometry={tube} material={mats.glass} renderOrder={7} />
+      <points geometry={bubbles} material={mats.bubble} frustumCulled={false} renderOrder={-54} />
+      <mesh geometry={tube} material={mats.glass} renderOrder={-53} />
     </group>
   );
 }

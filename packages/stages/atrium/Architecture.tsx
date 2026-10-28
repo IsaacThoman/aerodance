@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial } from '../../stages/shared/glsl.ts';
-import { fill, mergeAll, sweepArc } from './geometry.ts';
+import { useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial } from '../shared/glsl.ts';
+import { arcSegments, fill, mergeAll, sweepArc } from './geometry.ts';
 import type { ProfilePoint } from './geometry.ts';
 import {
-  AXIS, BALCONY_THETA, DOME_R, DOME_RISE, GALLERY, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, POOL_R, ROOF_Y, TANK_R, TANK_TOP, TREES, VOID_R, WATER_Y, polar,
+  AXIS, BALCONY_THETA, DOME_R, DOME_RISE, ENTRANCE, GALLERY, GLASS_R, GLASS_THETA, LEVELS, PLANTER_R, POOL_R, ROOF_Y, TANK_R, TANK_TOP, TREES, VOID_R, WATER_Y, polar,
 } from './layout.ts';
-import { AA, COMMON, WORLD_VERTEX, atriumUniforms } from './shading.ts';
+import { AA, COMMON, WORLD_VERTEX } from './shading.ts';
+import type { AtriumUniforms } from './shading.ts';
 
 // Surface kinds of the merged structure, picked in its shader.
 const KIND = { white: 0, soffit: 1, shopfront: 2, floor: 3, chrome: 4, stone: 5 } as const;
@@ -17,7 +18,7 @@ const tagged = (g: THREE.BufferGeometry, kind: number): THREE.BufferGeometry => 
 function buildStructure(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const [t0, t1] = BALCONY_THETA;
-  const segs = 96;
+  const segs = arcSegments(t1 - t0, 47);
   const R = VOID_R;
   for (const y of LEVELS) {
     // The rounded white fascia doubles as the planter's front; plants sit on top.
@@ -27,23 +28,27 @@ function buildStructure(): THREE.BufferGeometry {
     ];
     parts.push(tagged(sweepArc(fascia, t0, t1, segs), KIND.white));
     parts.push(tagged(sweepArc([[DOME_R, y - 0.85], [R + 0.75, y - 0.85]], t0, t1, segs), KIND.soffit));
-    // A rounded end where each balcony meets the glass wall.
-    const cap = new THREE.CylinderGeometry(0.82, 0.82, 1.62, 20, 1).translate(0, y - 0.05, 0);
-    const end = polar(R + 0.82, t0);
-    parts.push(tagged(cap.translate(end.x, 0, end.z), KIND.white));
+    // A rounded end where each balcony meets the glass wall, at either side of it.
+    for (const theta of [t0, t1]) {
+      const cap = new THREE.CylinderGeometry(0.82, 0.82, 1.62, 20, 1).translate(0, y - 0.05, 0);
+      const end = polar(R + 0.82, theta);
+      parts.push(tagged(cap.translate(end.x, 0, end.z), KIND.white));
+    }
   }
   // Shop fronts all the way up behind the balconies, and (below) the floor: drawn last, so what
   // stands in front of them hides them before they're shaded.
-  const behind = [tagged(sweepArc([[DOME_R, ROOF_Y], [DOME_R, 0]], t0 - 0.05, t1, segs), KIND.shopfront)];
-  // The ring beam the dome rests on, and a white pier where the balconies end at the glass.
+  const behind = [tagged(sweepArc([[DOME_R, ROOF_Y], [DOME_R, 0]], t0 - 0.05, t1 + 0.05, segs), KIND.shopfront)];
+  // The ring beam the dome rests on, and white piers where the balconies end at the glass.
   parts.push(
     tagged(
       sweepArc([[DOME_R + 0.3, ROOF_Y - 0.9], [DOME_R - 0.6, ROOF_Y - 0.85], [DOME_R - 0.9, ROOF_Y - 0.4], [DOME_R - 0.8, ROOF_Y + 0.1], [DOME_R + 0.3, ROOF_Y + 0.2]], 0, Math.PI * 2, 160),
       KIND.white,
     ),
   );
-  const pier = polar(GLASS_R - 0.2, GLASS_THETA[1] + 0.02);
-  parts.push(tagged(new THREE.CylinderGeometry(1.1, 1.1, ROOF_Y, 28, 1).translate(pier.x, ROOF_Y / 2, pier.z), KIND.white));
+  for (const theta of [GLASS_THETA[0] - 0.02, GLASS_THETA[1] + 0.02]) {
+    const pier = polar(GLASS_R - 0.2, theta);
+    parts.push(tagged(new THREE.CylinderGeometry(1.1, 1.1, ROOF_Y, 28, 1).translate(pier.x, ROOF_Y / 2, pier.z), KIND.white));
+  }
   // Chrome collars where the column leaves the pool and meets the dome.
   const collar = (r0: number, r1: number, y0: number, y1: number) =>
     tagged(sweepArc([[r0, y0], [r1, y0 + 0.08], [r1, y1 - 0.08], [r0, y1]], 0, Math.PI * 2, 48), KIND.chrome);
@@ -63,8 +68,12 @@ function buildStructure(): THREE.BufferGeometry {
       parts.push(tagged(beam.rotateY(theta).translate(mid.x, 0, mid.z), KIND.white));
     }
   }
-  // Slim pilotis under the balcony edges.
-  for (let theta = t0 + 0.22; theta < t1; theta += 0.42) {
+  // Slim pilotis under the balcony edges, from the glass round to the entrance, and mirrored on
+  // its other side.
+  const pilotis: number[] = [];
+  for (let theta = t0 + 0.22; theta < Math.PI * 2 - ENTRANCE; theta += 0.42) pilotis.push(theta);
+  pilotis.push(...pilotis.map((theta) => Math.PI * 2 - theta).filter((theta) => theta < GLASS_THETA[0] - 0.2));
+  for (const theta of pilotis) {
     const p = polar(R + 1.3, theta);
     parts.push(tagged(new THREE.CylinderGeometry(0.26, 0.26, LEVELS[2], 14, 1).translate(p.x, LEVELS[2] / 2, p.z), KIND.white));
   }
@@ -91,11 +100,21 @@ varying vec3 vNormal;
 varying vec2 vUv;
 varying float vKind;
 
-// Shop fronts behind the balconies: glazed bays, white spandrels and living walls.
-vec3 shopfront(vec3 w, out float gloss) {
+// Shop fronts behind the balconies: glazed bays, white spandrels and living walls; on the ground
+// floor in front of the column, the entrance's glass doors with the sunny street beyond.
+vec3 shopfront(vec3 w, out float gloss, out vec3 glow) {
+  glow = vec3(0.0);
   float level = w.y < LEVELS.x ? 0.0 : w.y < LEVELS.y ? LEVELS.x : w.y < LEVELS.z ? LEVELS.y : LEVELS.z;
   float h = w.y - level;
-  float u = atan(w.x - AXIS.x, w.z - AXIS.z) * DOME_R;
+  float a = atan(w.x - AXIS.x, w.z - AXIS.z);
+  float u = a * DOME_R;
+  if (level < 1.0 && abs(a) < ENTRANCE && h < 4.0) {
+    float frame = max(aaLine(fract(u / 2.2 + 0.5) * 2.2 - 1.1, 0.06), aaLine(h - 3.0, 0.07));
+    float white = max(frame, smoothstep(3.7, 3.8, h));
+    glow = mix(vec3(0.5, 0.78, 0.4), vec3(0.95, 1.0, 1.05), smoothstep(0.6, 2.4, h)) * (1.0 - white);
+    gloss = 0.4 * (1.0 - white);
+    return vec3(0.93, 0.94, 0.95) * white;
+  }
   float bay = floor(u / 3.2);
   float fu = fract(u / 3.2);
   float rnd = hash12(vec2(bay, level));
@@ -150,7 +169,7 @@ void main() {
     emit = vec3(1.0, 0.93, 0.8) * spot * 1.6;
     gloss = 0.15;
   } else if (k < 2.5) {
-    albedo = shopfront(w, gloss);
+    albedo = shopfront(w, gloss, emit);
   } else if (k < 3.5) {
     // Polished pale stone in big slabs.
     vec2 g = (w.xz - AXIS.xz) / 1.8;
@@ -178,16 +197,15 @@ void main() {
 }
 `;
 
-export function Structure() {
+export function Structure({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(buildStructure);
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...atriumUniforms },
+      uniforms: { ...uniforms },
       side: THREE.DoubleSide,
       vertexShader: WORLD_VERTEX.replace('varying vec2 vUv;', 'varying vec2 vUv;\nattribute float aKind;\nvarying float vKind;').replace('vUv = uv;', 'vUv = uv;\nvKind = aKind;'),
       fragmentShader: structureFragment,
-    }),
-  );
+    }), [uniforms]);
   // After the plants, the aquarium and the pool, which stand in front of it.
   return <mesh geometry={geometry} material={material} renderOrder={-12} />;
 }
@@ -228,20 +246,19 @@ void main() {
 }
 `;
 
-export function Dome() {
+export function Dome({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(buildDome);
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...atriumUniforms },
+      uniforms: { ...uniforms },
       side: THREE.DoubleSide,
       transparent: true,
       depthWrite: false,
       premultipliedAlpha: true,
       vertexShader: WORLD_VERTEX,
       fragmentShader: domeFragment,
-    }),
-  );
-  return <mesh geometry={geometry} material={material} renderOrder={10} />;
+    }), [uniforms]);
+  return <mesh geometry={geometry} material={material} renderOrder={-50} />;
 }
 
 const glassFragment = /* glsl */ `
@@ -276,9 +293,9 @@ void main() {
 }
 `;
 
-const makeGlass = (mullions: boolean) =>
+const makeGlass = (uniforms: AtriumUniforms, mullions: boolean) =>
   shaderMaterial({
-    uniforms: { ...atriumUniforms, uMullions: { value: mullions ? 1 : 0 } },
+    uniforms: { ...uniforms, uMullions: { value: mullions ? 1 : 0 } },
     side: THREE.DoubleSide,
     transparent: true,
     depthWrite: false,
@@ -287,17 +304,17 @@ const makeGlass = (mullions: boolean) =>
     fragmentShader: glassFragment,
   });
 
-/** The tall glass wall on the right, white mullions on a grid. */
-export function GlassWall() {
-  const geometry = useDisposable(() => sweepArc([[GLASS_R, 0], [GLASS_R, ROOF_Y]], GLASS_THETA[0] - 0.2, GLASS_THETA[1], 64));
-  const material = useDisposable(() => makeGlass(true));
-  return <mesh geometry={geometry} material={material} renderOrder={8} />;
+/** The tall glass wall on the right, white mullions on a grid, between the piers. */
+export function GlassWall({ uniforms }: { uniforms: AtriumUniforms }) {
+  const geometry = useDisposable(() => sweepArc([[GLASS_R, 0], [GLASS_R, ROOF_Y]], GLASS_THETA[0] - 0.02, GLASS_THETA[1], 64));
+  const material = useDisposable(() => makeGlass(uniforms, true), [uniforms]);
+  return <mesh geometry={geometry} material={material} renderOrder={-52} />;
 }
 
 /** Frameless glass balustrades along every balcony. */
-export function Balustrades() {
+export function Balustrades({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(() => {
-    const parts = LEVELS.map((y) => sweepArc([[VOID_R + 0.9, y + 0.3], [VOID_R + 0.9, y + 1.35]], BALCONY_THETA[0], BALCONY_THETA[1], 96));
+    const parts = LEVELS.map((y) => sweepArc([[VOID_R + 0.9, y + 0.3], [VOID_R + 0.9, y + 1.35]], BALCONY_THETA[0], BALCONY_THETA[1], arcSegments(BALCONY_THETA[1] - BALCONY_THETA[0], 47)));
     // Round the gallery, open where the bridges leave it, and along both sides of each bridge.
     const gy = GALLERY.y;
     const gap = (GALLERY.width / 2 + 0.1) / GALLERY.r;
@@ -318,6 +335,6 @@ export function Balustrades() {
     }
     return mergeAll(parts);
   });
-  const material = useDisposable(() => makeGlass(false));
-  return <mesh geometry={geometry} material={material} renderOrder={9} />;
+  const material = useDisposable(() => makeGlass(uniforms, false), [uniforms]);
+  return <mesh geometry={geometry} material={material} renderOrder={-51} />;
 }

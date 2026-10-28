@@ -12,22 +12,24 @@ import { aeroHide } from '../diagnostics.ts';
 import WalkControls, { createWalkStatus } from './WalkControls.tsx';
 import WalkHud from './WalkHud.tsx';
 import { stepScene, walkSceneFor } from './scenes.ts';
-import type { WalkScene, WalkSceneId } from './scenes.ts';
+import type { WalkScene } from './scenes.ts';
 
-type ReadyHandler = (id: WalkSceneId, failed: boolean) => void;
+/** A scene, by its key (WalkScene.key), is built and showing, or failed. */
+type ReadyHandler = (key: string, failed: boolean) => void;
 
 // One scene, as the game shows it, with its own camera until the walker takes it over.
 function SceneHost({ scene, onReady }: { scene: WalkScene; onReady: ReadyHandler }) {
-  const { id } = scene;
-  const onShown = useCallback(() => onReady(id, false), [id, onReady]);
-  const onState = useCallback(({ ready, failed }: StageState) => { if (ready) onReady(id, failed); }, [id, onReady]);
+  const { key } = scene;
+  const onShown = useCallback(() => onReady(key, false), [key, onReady]);
+  const onBackdrop = useCallback((_id: string, failed: boolean) => onReady(key, failed), [key, onReady]);
+  const onState = useCallback(({ ready, failed }: StageState) => { if (ready) onReady(key, failed); }, [key, onReady]);
   if (scene.kind === 'skyline') return <AeroWorld hide={aeroHide} onShown={onShown} />;
-  if (scene.kind === 'backdrop') return <BackdropView id={scene.id} onReady={onReady} />;
+  if (scene.kind === 'backdrop') return <BackdropView id={scene.id} onReady={onBackdrop} />;
   return <StageView active demo stageId={scene.id} onState={onState} />;
 }
 
 /**
- * Walk mode (/?walk, or /?walk=<scene id>): walk round any of the game's scenes, first person,
+ * Walk mode (/?walk, or /?walk=<scene key>): walk round any of the game's scenes, first person,
  * instead of playing. Skyline, the menu backdrops and the dance stages each show as the game
  * shows them (same buffer, post and aspect), and WalkControls takes over their camera once
  * they're built. The menu (Esc) picks another; [ and ] step through them. The URL follows the
@@ -50,12 +52,12 @@ export default function WalkApp() {
     Object.assign(status, { scene: next, ready: false, failed: false });
     setScene(next);
     const url = new URL(location.href);
-    url.searchParams.set('walk', next.id);
+    url.searchParams.set('walk', next.key);
     history.replaceState(history.state, '', url);
   }, [status]);
-  const onStep = useCallback((step: -1 | 1) => choose(stepScene(status.scene.id, step)), [choose, status]);
-  const onReady = useCallback<ReadyHandler>((id, failed) => {
-    if (id !== status.scene.id) return;
+  const onStep = useCallback((step: -1 | 1) => choose(stepScene(status.scene.key, step)), [choose, status]);
+  const onReady = useCallback<ReadyHandler>((key, failed) => {
+    if (key !== status.scene.key) return;
     Object.assign(status, { ready: !failed, failed });
   }, [status]);
 
@@ -64,7 +66,7 @@ export default function WalkApp() {
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
         <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
           <FixedRenderResolution />
-          <SceneHost key={scene.id} scene={scene} onReady={onReady} />
+          <SceneHost key={scene.key} scene={scene} onReady={onReady} />
           <WalkControls status={status} onStep={onStep} />
           <WalkHud status={status} onChoose={choose} />
         </Canvas>

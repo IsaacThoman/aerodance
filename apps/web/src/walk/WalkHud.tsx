@@ -77,7 +77,7 @@ export default function WalkHud({ status, onChoose }: WalkHudProps) {
       const layout = walkLayout(s.w);
       const scenes = WALK_SCENES.flatMap((scene, i) => {
         const rect = layout.sceneRect(i);
-        return rect ? [{ id: scene.id, rect, corner: glassCorner(rect.h) }] : [];
+        return rect ? [{ id: scene.key, rect, corner: glassCorner(rect.h) }] : [];
       });
       return [
         ...scenes,
@@ -89,21 +89,21 @@ export default function WalkHud({ status, onChoose }: WalkHudProps) {
     },
     onActivate: ({ id }) => {
       if (id === 'panel') return;
-      const scene = WALK_SCENES.find((s) => s.id === id);
-      if (scene && scene.id !== status.scene.id) choose.current(scene);
+      const scene = WALK_SCENES.find((s) => s.key === id);
+      if (scene && scene.key !== status.scene.key) choose.current(scene);
       resume(status, gl.domElement);
     },
     update: (_, s) => {
       st.panel = s.ease(st.panel, status.paused ? 1 : 0, 10);
       // Redraw when what's shown changes, and every frame while a toast fades.
       const toast = status.toast && (performance.now() - status.toast.at) / 1000 < TOAST_S;
-      const drawn = [status.scene.id, status.ready, status.failed, status.paused, status.hud, status.mode, status.toast?.at].join('|');
+      const drawn = [status.scene.key, status.ready, status.failed, status.paused, status.hud, status.mode, status.toast?.at].join('|');
       if (drawn !== st.drawn || toast) {
         st.drawn = drawn;
         s.invalidate();
       }
       Object.assign(gl.domElement.dataset, {
-        walkScene: status.scene.id, walkReady: String(status.ready), walkFailed: String(status.failed), walkPaused: String(status.paused), walkHud: String(status.hud),
+        walkScene: status.scene.key, walkReady: String(status.ready), walkFailed: String(status.failed), walkPaused: String(status.paused), walkHud: String(status.hud),
       });
     },
     draw: (g, s) => {
@@ -162,8 +162,8 @@ export default function WalkHud({ status, onChoose }: WalkHudProps) {
       WALK_SCENES.forEach((each, i) => {
         const rect = layout.sceneRect(i);
         if (!rect) return;
-        const current = each.id === scene.id;
-        drawGlassButton(g, rect, { label: each.name, icon: marker(current), hover: Math.max(hover(each.id), current ? 0.5 : 0), press: s.press * hover(each.id) });
+        const current = each.key === scene.key;
+        drawGlassButton(g, rect, { label: each.name, icon: marker(current), hover: Math.max(hover(each.key), current ? 0.5 : 0), press: s.press * hover(each.key) });
       });
       drawLegend(g, layout.LEGEND.x, layout.LEGEND.y);
       g.restore();

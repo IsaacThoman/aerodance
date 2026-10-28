@@ -162,11 +162,21 @@ test('hidden meshes stop colliding once refreshed', () => {
 
 test('walk mode opens every scene, Skyline by default, and steps round them', () => {
   assert.deepEqual(WALK_SCENES.map((s) => s.id), ['skyline', ...BACKDROP_METAS.map((m) => m.id), ...STAGE_METAS.map((m) => m.id)]);
+  assert.equal(new Set(WALK_SCENES.map((s) => s.key)).size, WALK_SCENES.length);
   assert.equal(new Set(WALK_SCENES.map((s) => s.name)).size, WALK_SCENES.length);
   assert.equal(walkSceneFor('koi').id, 'koi');
   assert.equal(walkSceneFor('beach').kind, 'stage');
   assert.equal(walkSceneFor(null).id, 'skyline');
   assert.equal(walkSceneFor('lava').id, 'skyline');
-  assert.equal(stepScene('skyline', -1).id, WALK_SCENES.at(-1)?.id);
-  assert.equal(stepScene(WALK_SCENES.at(-1)?.id ?? 'skyline', 1).id, 'skyline');
+  assert.equal(stepScene('skyline', -1).key, WALK_SCENES.at(-1)?.key);
+  assert.equal(stepScene(WALK_SCENES.at(-1)?.key ?? 'skyline', 1).id, 'skyline');
+});
+
+test('a stage named like a backdrop gets a key of its own', () => {
+  const backdrop = walkSceneFor('atrium');
+  const stage = walkSceneFor('atrium-stage');
+  assert.deepEqual([backdrop.kind, backdrop.id], ['backdrop', 'atrium']);
+  assert.deepEqual([stage.kind, stage.id], ['stage', 'atrium']);
+  assert.equal(stepScene('atrium-stage', 0).key, 'atrium-stage');
+  assert.equal(walkSceneFor('club').key, 'club');
 });

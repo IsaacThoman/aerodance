@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { useDisposable } from '../../stages/shared/hooks.ts';
-import { shaderMaterial, uniform } from '../../stages/shared/glsl.ts';
-import { makeCloudAtlas } from '../../stages/shared/Sky.tsx';
-import { makeRandom } from '../../stages/shared/random.ts';
+import { useDisposable } from '../shared/hooks.ts';
+import { shaderMaterial, uniform } from '../shared/glsl.ts';
+import { makeCloudAtlas } from '../shared/Sky.tsx';
+import { makeRandom } from '../shared/random.ts';
 import { fill, instanced, mergeAll, sweepArc } from './geometry.ts';
 import type { ProfilePoint } from './geometry.ts';
 import { AXIS, LAYOUT_GLSL, polar } from './layout.ts';
-import { atriumUniforms } from './shading.ts';
+import type { AtriumUniforms } from './shading.ts';
 
 // What the glass shows: blue sky and cumulus, a green park with white eco-towers, and a ring
 // guideway on tall pylons that three maglev trains glide round.
@@ -82,7 +82,7 @@ void main() {
 `;
 
 /** Cumulus billboards round the sky, drifting by on the backdrop clock. */
-export function Clouds({ count = 21 }: { count?: number }) {
+export function Clouds({ uniforms, count = 21 }: { uniforms: AtriumUniforms; count?: number }) {
   const texture = useDisposable(() => makeCloudAtlas(11));
   const geometry = useDisposable(() => {
     const rand = makeRandom(57);
@@ -110,14 +110,13 @@ export function Clouds({ count = 21 }: { count?: number }) {
   });
   const material = useDisposable(() =>
     shaderMaterial({
-      uniforms: { uTime: atriumUniforms.uTime, uMap: uniform<THREE.Texture | null>(null) },
+      uniforms: { uTime: uniforms.uTime, uMap: uniform<THREE.Texture | null>(null) },
       transparent: true,
       depthWrite: false,
       premultipliedAlpha: true,
       vertexShader: cloudVertex,
       fragmentShader: cloudFragment,
-    }),
-  );
+    }), [uniforms]);
   material.uniforms.uMap.value = texture;
   return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={-900} />;
 }
@@ -222,15 +221,14 @@ function buildOutdoor(): THREE.BufferGeometry {
 }
 
 /** The sky's lower half beyond the glass: park, hills, towers and the guideway. */
-export function Landscape() {
+export function Landscape({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(buildOutdoor);
   const material = useDisposable(() =>
-    shaderMaterial({ uniforms: { ...atriumUniforms }, vertexShader: outdoorVertex, fragmentShader: outdoorFragment }),
-  );
+    shaderMaterial({ uniforms: { ...uniforms }, vertexShader: outdoorVertex, fragmentShader: outdoorFragment }), [uniforms]);
   const hills = useDisposable(() => sweepArc([[520, 60], [520, -10]], 0.4, 3.9, 96));
   const hillsMaterial = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...atriumUniforms },
+      uniforms: { ...uniforms },
       transparent: true,
       depthWrite: false,
       premultipliedAlpha: true,
@@ -240,8 +238,7 @@ export function Landscape() {
         void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }
       `,
       fragmentShader: hillsFragment,
-    }),
-  );
+    }), [uniforms]);
   return (
     <>
       <mesh geometry={hills} material={hillsMaterial} renderOrder={-800} />
@@ -335,7 +332,7 @@ void main() {
 const PHASES = [2.0, 2.0 + (Math.PI * 2) / 3, 2.0 + (Math.PI * 4) / 3];
 
 /** Three maglev trains a third of a loop apart, gliding round the guideway. */
-export function Maglev() {
+export function Maglev({ uniforms }: { uniforms: AtriumUniforms }) {
   const geometry = useDisposable(() => instanced(buildTrain(), 3, { aPhase: [1, new Float32Array(PHASES)] }));
   const halo = useDisposable(() => {
     // Facing the atrium (normal -z in the train's frame), just in front of the train.
@@ -343,22 +340,20 @@ export function Maglev() {
     return instanced(plane, 3, { aPhase: [1, new Float32Array(PHASES)] });
   });
   const material = useDisposable(() =>
-    shaderMaterial({ uniforms: { ...atriumUniforms }, vertexShader: trainVertex, fragmentShader: trainFragment }),
-  );
+    shaderMaterial({ uniforms: { ...uniforms }, vertexShader: trainVertex, fragmentShader: trainFragment }), [uniforms]);
   const haloMaterial = useDisposable(() =>
     shaderMaterial({
-      uniforms: { ...atriumUniforms },
+      uniforms: { ...uniforms },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       vertexShader: trainVertex,
       fragmentShader: haloFragment,
-    }),
-  );
+    }), [uniforms]);
   return (
     <>
       <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={-5} />
-      <mesh geometry={halo} material={haloMaterial} frustumCulled={false} renderOrder={5} />
+      <mesh geometry={halo} material={haloMaterial} frustumCulled={false} renderOrder={-55} />
     </>
   );
 }

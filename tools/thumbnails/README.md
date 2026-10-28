@@ -1,6 +1,6 @@
 # Thumbnails
 
-27 thumbnails of the six dance stages, each **with** the "aerodance." wordmark (`with-logo/`) and **without** it (`no-logo/`). All are **2160×1440 (3:2)** lossless PNGs, rendered in-engine from the real stages, dancers and post-processing in [`packages/stages`](../../packages/stages).
+27 thumbnails of six of the dance stages (all but `atrium`, which came later), each **with** the "aerodance." wordmark (`with-logo/`) and **without** it (`no-logo/`). All are **2160×1440 (3:2)** lossless PNGs, rendered in-engine from the real stages, dancers and post-processing in [`packages/stages`](../../packages/stages).
 
 ## Pixel perfect
 

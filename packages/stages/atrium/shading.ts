@@ -1,17 +1,35 @@
 import * as THREE from 'three';
-import { hash, simplex } from '../../stages/shared/glsl.ts';
+import { hash, simplex } from '../shared/glsl.ts';
 import { LAYOUT_GLSL, SUN_DIR, TREES, polar } from './layout.ts';
 
+/**
+ * The uniforms every material of one atrium shares, so one write a frame moves them all. Each
+ * scene that shows the atrium (the menu's backdrop, the dance stage) makes its own and drives
+ * uTime from its own clock: the two can be mounted at once.
+ */
 export interface AtriumUniforms {
   uTime: THREE.IUniform<number>;
   uSunDir: THREE.IUniform<THREE.Vector3>;
+  /** 1 shades the floor nearest the menu's camera, which frames the menu better; 0 leaves it in the sun. */
+  uForeShade: THREE.IUniform<number>;
+  /** Point sprites' scale: the 640x480 buffer's height over the view's height 1 m away. */
+  uPointScale: THREE.IUniform<number>;
 }
 
-// Shared by every material and moved on by the backdrop clock (AtriumBackdrop's Clock).
-export const atriumUniforms: AtriumUniforms = {
-  uTime: { value: 0 },
-  uSunDir: { value: SUN_DIR.clone() },
-};
+export interface AtriumOptions {
+  /** The camera's vertical field of view at 16:9, in degrees. */
+  fov: number;
+  foreShade: number;
+}
+
+export function makeAtriumUniforms({ fov, foreShade }: AtriumOptions): AtriumUniforms {
+  return {
+    uTime: { value: 0 },
+    uSunDir: { value: SUN_DIR.clone() },
+    uForeShade: { value: foreShade },
+    uPointScale: { value: 480 / (2 * Math.tan(THREE.MathUtils.degToRad(fov / 2))) },
+  };
+}
 
 // The trees' crowns as soft occluders of the sun: centre (x, y, z) and radius.
 const CROWNS = TREES.filter((t) => t.height > 4).map((t) => {
@@ -32,6 +50,7 @@ const vec4 CROWNS[${CROWNS.length}] = vec4[](${CROWNS.join(', ')});
 export const COMMON = /* glsl */ `
 uniform float uTime;
 uniform vec3 uSunDir;
+uniform float uForeShade;
 ${LAYOUT_GLSL}
 ${CROWNS_GLSL}
 ${hash}
@@ -50,9 +69,9 @@ float domeRibDist(vec2 xz) {
   return min(spokes, rings);
 }
 
-// The balcony behind the camera shades the near floor: 0 there, 1 elsewhere.
+// With uForeShade, the balcony behind the menu's camera shades the near floor: 0 there, 1 elsewhere.
 float foreLight(vec3 p) {
-  return 1.0 - smoothstep(2.5, 7.5, p.z - AXIS.z) * smoothstep(4.5, 2.5, p.y);
+  return 1.0 - uForeShade * smoothstep(2.5, 7.5, p.z - AXIS.z) * smoothstep(4.5, 2.5, p.y);
 }
 
 // Sunlight reaching p: the dome's ribs cast soft bars, and the column a long shadow.
@@ -92,7 +111,8 @@ vec3 ambient(vec3 n) {
 
 // A cheap stand-in for the room in reflections: dome sky above, white tiers and green around, pale floor.
 vec3 roomReflect(vec3 r) {
-  float a = atan(r.x, r.z);
+  // Straight up, atan(0, 0) is undefined (and a NaN would spread through the stage's bloom).
+  float a = abs(r.x) + abs(r.z) > 1e-6 ? atan(r.x, r.z) : 0.0;
   float glass = smoothstep(GLASS_THETA.x - 0.1, GLASS_THETA.x + 0.2, a) * smoothstep(GLASS_THETA.y + 0.2, GLASS_THETA.y - 0.2, a);
   vec3 sky = mix(vec3(0.9, 1.0, 1.1), vec3(0.35, 0.68, 1.05), smoothstep(0.1, 0.9, r.y));
   vec3 tiers = mix(vec3(0.62, 0.74, 0.52), vec3(1.0, 1.02, 1.04), smoothstep(0.35, 0.65, fract(r.y * 4.0 + 0.2)));

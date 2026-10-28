@@ -44,6 +44,9 @@ export function sweepArc(profile: readonly ProfilePoint[], theta0: number, theta
   return g;
 }
 
+/** Segments for an arc `span` radians long, `perRadian` to the radian. */
+export const arcSegments = (span: number, perRadian: number): number => Math.max(1, Math.ceil(span * perRadian));
+
 /** Fills a per-vertex attribute with one value. */
 export function fill(geometry: THREE.BufferGeometry, name: string, value: readonly number[]): THREE.BufferGeometry {
   const count = geometry.attributes.position.count;
