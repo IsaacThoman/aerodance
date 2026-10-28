@@ -10,7 +10,7 @@ Ten procedural Frutiger Aero scenes that can stand behind the menus in place of 
 | `cloudsea` | Cloud Sea | Sunrise above rolling clouds: pastel sky, god rays and lens flare, a glossy airship, glass garden pods, circling gulls |
 | `hills` | Bliss Hills | Smooth emerald hills with wind waves and cloud shadows, a sparkling river, wind turbines on the ridge, glass greenhouse domes, cumulus |
 | `koi` | Koi Pond | A clear jade pond from above: seven koi swimming lazy loops, caustics on the pebbles, lily pads and lotus flowers, ripple rings, cherry petals, sun glitter |
-| `atrium` | Atrium | A sunlit eco-tech atrium: ribbed glass dome, curved white balconies hung with vines, an aquarium column with schools of fish, a reflecting pool, a maglev outside. Its room is the `atrium` dance stage's |
+| `atrium` | Atrium | A sunlit eco-tech atrium: ribbed glass dome, curved white balconies hung with vines, an aquarium column with schools of small fish darting round, climbing and sinking, a reflecting pool with koi, a maglev outside. Its room is the `atrium` dance stage's |
 | `dew` | Dewdrops | Leaves up close: drops that magnify the veins, a slow drip cycle, a ladybug, sunlit bokeh, a sunshower |
 | `orbit` | Orbit | A glossy Earth at sunrise: clouds, ocean glint, city lights, an atmosphere rim, a space station with a turning glass ring, satellites, the Moon |
 | `jellyfish` | Jellyfish | Open water: glowing glass-like jellies that pulse and drift, trailing tentacles and frilly arms, light rays, marine snow, plankton sparkles |

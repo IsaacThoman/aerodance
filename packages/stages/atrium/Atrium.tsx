@@ -9,8 +9,8 @@ import { Pool } from './Pool.tsx';
 import type { AtriumUniforms } from './shading.ts';
 
 // atrium: inside a sunlit eco-tech atrium, 2008 brochure style. Curved white balconies trailing
-// plants wrap round a tall aquarium column of circling fish and rising bubbles, ringed by a glass
-// walkway and standing in a reflecting pool; sunbeams and dust motes stream down through a ribbed
+// plants wrap round a tall aquarium column of darting fish and rising bubbles, ringed by a glass
+// walkway and standing in a reflecting pool where koi glide; sunbeams and dust motes stream down through a ribbed
 // glass dome; and through the glass wall on the right a maglev glides past white eco-towers.
 // The plan and the cameras are in layout.ts; the shared light (sun through the dome, haze) in
 // shading.ts. From the menu's camera, trees and the balconies' greenery sit behind the title, the

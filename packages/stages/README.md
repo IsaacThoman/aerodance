@@ -10,7 +10,7 @@ Seven procedural stages inspired by Frutiger Aero, used for the song preview, ga
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
-| `atrium` | indoor garden | The Atrium menu backdrop's sunlit eco-tech atrium, seen from its entrance: the dancers on the stone floor in front of the reflecting pool, the aquarium column rising behind them under the ribbed dome, trees, balconies trailing vines, palms by the glass wall, a maglev outside. Built in metres, so its dancers are scaled to life size |
+| `atrium` | indoor garden | The Atrium menu backdrop's sunlit eco-tech atrium, seen from its entrance: the dancers on the stone floor in front of the reflecting pool, the aquarium column rising behind them under the ribbed dome (schools of small fish darting round it, some climbing or sinking through it), koi in the pool, trees, balconies trailing vines, palms by the glass wall, a maglev outside. Built in metres, so its dancers are scaled to life size |
 
 ## Layout
 
