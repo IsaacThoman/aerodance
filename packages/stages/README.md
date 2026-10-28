@@ -26,4 +26,4 @@ Seven procedural stages inspired by Frutiger Aero, used for the song preview, ga
   - `Sky.tsx`: sky dome and cloud billboards.
   - `glsl.ts`, `random.ts`: GLSL noise and seeded randomness.
 
-In development, `window.__aeroStats` reports draw calls and triangles. At the last measurement the stages used 69–134 draw calls and 0.19–0.83M triangles each, including the dancers. `atrium`, measured later in the song preview on an Apple M5 Pro, used 58–74 draw calls, 0.19–0.26M triangles and 2.8 ms of GPU time, against 60, 0.47M and 2.7 ms for `openreef`.
+In development, `window.__aeroStats` reports draw calls and triangles. At the last measurement the stages used 69–134 draw calls and 0.19–0.83M triangles each, including the dancers. `atrium`, measured later in the song preview on an Apple M5 Pro, used 56–72 draw calls, 0.19–0.26M triangles and about 3 ms of GPU time, against 60, 0.47M and 2.7 ms for `openreef`.
