@@ -1,48 +1,38 @@
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
-import { STAGE_PAD } from './layout.ts';
+import { NOTCH, ORDER, STAGE_PAD, SUN_DIRECTION } from './layout.ts';
 
-// The dancers' floor: a giant water lily pad, like a Victoria's, flat and quilted with veins,
-// its rim turned up and crimson outside. A lit standard material, so it takes the dancers'
-// shadows; its pattern is drawn in the shader from the pad's own coordinates.
+// The dancers' floor: a giant lily pad, a big one of the small pads round it (Lilies.tsx), with
+// the same slit, fresh green, radiating veins, pale edge and bead of water. It's flat where the
+// dancers stand, so it doesn't ride the swell. A lit standard material, so it takes their shadows;
+// its outline fades over the last pixel like the small pads', drawn among them before the dancers.
 
-/** The pad's profile out from its middle: (radius, height, part), part 0 the top, 1 the rim's inside, 2 its outside. */
-function profile(): [number, number, number][] {
-  const { radius: R, rim, top } = STAGE_PAD;
-  const curl = 0.32;
-  const points: [number, number, number][] = [];
-  for (const r of [0, 0.4, 0.9, 1.5, 2.1, 2.7, 3.2, 3.6]) if (r < R - curl) points.push([r, top, 0]);
-  points.push([R - curl, top, 0]);
-  for (let i = 1; i <= 6; i++) {
-    const t = (i / 6) * Math.PI * 0.5;
-    points.push([R - curl + curl * Math.sin(t), top + rim * (1 - Math.cos(t)), 1]);
-  }
-  points.push([R + 0.02, top + rim + 0.012, 2], [R + 0.05, top + rim - 0.02, 2], [R + 0.065, top + rim * 0.45, 2], [R + 0.07, -0.03, 2], [R + 0.05, -0.12, 2]);
-  return points;
-}
+const RINGS = [0, 0.16, 0.36, 0.56, 0.7, 0.8, 0.86, 0.91, 0.95, 0.98, 1];
+const SEGMENTS = 120;
 
+/** Height of the pad's top at u (0 middle .. 1 edge): flat under the dancers, then turning up at the edge. */
+const lift = (u: number) => STAGE_PAD.curl * THREE.MathUtils.smoothstep(u, 0.78, 1) ** 1.4;
+
+/** The pad, round from one side of its slit to the other. aPolar = (u, 0..1 around from the slit). */
 function padGeometry(): THREE.BufferGeometry {
-  const SEGMENTS = 160;
-  const points = profile();
+  const { radius: R, top, slit } = STAGE_PAD;
   const positions: number[] = [];
   const normals: number[] = [];
-  const parts: number[] = [];
+  const polar: number[] = [];
   const indices: number[] = [];
-  points.forEach(([r, y, part], i) => {
-    // The profile's normal, from its neighbours.
-    const [r0, y0] = points[Math.max(i - 1, 0)];
-    const [r1, y1] = points[Math.min(i + 1, points.length - 1)];
-    const t = new THREE.Vector2(r1 - r0, y1 - y0).normalize();
-    const nr = i === 0 ? 0 : -t.y;
-    const ny = i === 0 ? 1 : t.x;
+  const n = new THREE.Vector3();
+  for (const u of RINGS) {
+    const slope = (lift(Math.min(u + 0.01, 1)) - lift(Math.max(u - 0.01, 0))) / (0.02 * R);
     for (let j = 0; j <= SEGMENTS; j++) {
-      const a = (j / SEGMENTS) * Math.PI * 2;
-      positions.push(Math.cos(a) * r, y, Math.sin(a) * r);
-      normals.push(Math.cos(a) * nr, ny, Math.sin(a) * nr);
-      parts.push(part);
+      const t = j / SEGMENTS;
+      const a = slit + NOTCH + t * (Math.PI * 2 - 2 * NOTCH);
+      positions.push(Math.cos(a) * u * R, top + lift(u), Math.sin(a) * u * R);
+      n.set(-Math.cos(a) * slope, 1, -Math.sin(a) * slope).normalize();
+      normals.push(n.x, n.y, n.z);
+      polar.push(u, t);
     }
-  });
-  for (let i = 0; i < points.length - 1; i++) {
+  }
+  for (let i = 0; i < RINGS.length - 1; i++) {
     for (let j = 0; j < SEGMENTS; j++) {
       const a = i * (SEGMENTS + 1) + j;
       const b = a + SEGMENTS + 1;
@@ -52,99 +42,87 @@ function padGeometry(): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  g.setAttribute('aPart', new THREE.Float32BufferAttribute(parts, 1));
+  g.setAttribute('aPolar', new THREE.Float32BufferAttribute(polar, 2));
   g.setIndex(indices);
   return g;
 }
 
-const head = /* glsl */ `
-varying vec3 vPadLocal;
-varying float vPart;
-float padHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+const f = (n: number) => n.toFixed(4);
 
-// The quilting on top: ribs running out from the middle, branching twice on the way, crossed by
-// wavy rings, so the leaf is divided into small puffy cells. Returns the distance to the nearest
-// vein; cell is the cell's id, slope how the cell's dome tilts (radial, around), in world units.
-float quilt(vec3 p, out vec2 cell, out vec2 slope) {
-  float r = length(p.xz);
-  float th = atan(p.z, p.x);
-  float ribs = r < 1.3 ? 28.0 : (r < 2.6 ? 56.0 : 112.0);
-  float width = 6.2831853 * max(r, 0.05) / ribs;
-  float ring = 0.26;
-  float ar = th / 6.2831853 * ribs;
-  float rr = r / ring + 0.18 * sin(th * 9.0 + r * 1.3);
-  vec2 f = vec2(fract(rr), fract(ar)) - 0.5;
-  cell = vec2(floor(rr), floor(ar) + ribs);
-  vec2 edge = (0.5 - abs(f)) * vec2(ring, width);
-  // A gentle dome in each cell: (1 - (2f)^2) both ways.
-  vec2 k = 1.0 - 4.0 * f * f;
-  slope = -8.0 * f * k.yx / vec2(ring, width);
-  return r < 0.12 ? 1.0 : min(edge.x, edge.y);
-}
-`;
+/** The bead of water: centre (x, z) and radius, out of the dancers' way behind them on the left. */
+const BEAD = { at: [-0.9, -2.5], radius: 0.3 };
+const sunFlat = new THREE.Vector2(SUN_DIRECTION[0], SUN_DIRECTION[2]).normalize();
 
 const vertexHead = /* glsl */ `
-attribute float aPart;
-varying vec3 vPadLocal;
-varying float vPart;
+attribute vec2 aPolar;
+varying vec2 vPolar;
+varying vec3 vPadWorld;
 `;
 
-const colorPatch = /* glsl */ `
-{
-  vec3 p = vPadLocal;
-  float r = length(p.xz);
-  if (vPart < 0.5) {
-    vec2 cell;
-    vec2 slope;
-    float vein = quilt(p, cell, slope);
-    float h = padHash(cell);
-    vec3 leaf = mix(vec3(0.07, 0.24, 0.025), vec3(0.14, 0.36, 0.04), h * 0.3 + 0.2 + 0.3 * smoothstep(2.4, 0.0, r));
-    // Veins a little darker, fading out where they're finer than a pixel.
-    float line = 1.0 - smoothstep(0.006, 0.006 + fwidth(vein) * 1.5 + 0.01, vein);
-    leaf = mix(leaf, vec3(0.05, 0.15, 0.02), line * 0.4);
-    // A paler, yellow-green band inside the rim.
-    leaf = mix(leaf, vec3(0.24, 0.4, 0.06), smoothstep(${(STAGE_PAD.radius - 0.9).toFixed(2)}, ${(STAGE_PAD.radius - 0.32).toFixed(2)}, r) * 0.45);
-    diffuseColor.rgb = leaf;
-  } else {
-    // The rim: green at its foot, flushing crimson to the lip and all down its outside, with ribs.
-    float up = clamp((p.y - ${STAGE_PAD.top.toFixed(3)}) / ${STAGE_PAD.rim.toFixed(3)}, 0.0, 1.0);
-    vec3 crimson = vec3(0.42, 0.03, 0.07);
-    vec3 col = vPart < 1.5 ? mix(vec3(0.12, 0.3, 0.04), crimson, smoothstep(0.35, 0.95, up)) : crimson * (0.75 + 0.25 * up);
-    float rib = abs(fract(atan(p.z, p.x) / 6.2831853 * 220.0) - 0.5);
-    col *= 0.86 + 0.14 * smoothstep(0.1, 0.35, rib);
-    diffuseColor.rgb = col;
-  }
+const head = /* glsl */ `
+varying vec2 vPolar;
+varying vec3 vPadWorld;
+
+// 0..1 inside the bead, with d the point's offset from its middle in radii.
+float bead(out vec2 d) {
+  d = (vPadWorld.xz - vec2(${f(BEAD.at[0])}, ${f(BEAD.at[1])})) / ${f(BEAD.radius)};
+  return 1.0 - smoothstep(0.85, 1.0, length(d));
 }
 `;
 
-// The cells' domes tilt the normal (world space, turned into view space).
-const normalPatch = /* glsl */ `
-if (vPart < 0.5) {
-  vec2 cell;
-  vec2 slope;
-  float vein = quilt(vPadLocal, cell, slope);
-  float r = max(length(vPadLocal.xz), 1e-3);
-  vec3 out_ = vec3(vPadLocal.x / r, 0.0, vPadLocal.z / r);
-  vec3 around = vec3(-out_.z, 0.0, out_.x);
-  // Fading out with distance, where the cells get too small to show.
-  float k = 0.022 * (1.0 - smoothstep(0.03, 0.09, length(fwidth(vPadLocal.xz))));
-  vec3 tilt = -(out_ * slope.x + around * slope.y) * k;
-  normal = normalize(normal + (viewMatrix * vec4(tilt, 0.0)).xyz);
+// The small pads' fresh green, darkening to the edge, with lighter veins and a pale rim.
+const colorPatch = /* glsl */ `
+{
+  float r = vPolar.x;
+  float around = vPolar.y;
+  vec3 centre = vec3(0.3, 0.58, 0.07);
+  vec3 edge = vec3(0.08, 0.36, 0.03);
+  vec3 col = mix(centre, edge, smoothstep(0.15, 1.0, r));
+  float va = around * 34.0 + 0.15 * sin(r * 9.0 + 3.0);
+  float vd = abs(fract(va) - 0.5) * 2.0;
+  float vein = smoothstep(1.0 - (0.06 + fwidth(va) * 1.5), 1.0, vd) * smoothstep(0.06, 0.3, r) * (1.0 - smoothstep(0.7, 0.95, r));
+  col = mix(col, col * 1.25 + vec3(0.02, 0.03, 0.0), vein * 0.3);
+  col = mix(col, edge * 1.6 + vec3(0.06, 0.08, 0.0), smoothstep(0.9, 0.985, r) * 0.6);
+  // The bead: the leaf seen a little darker through it.
+  vec2 bd;
+  col = mix(col, col * 0.75 + vec3(0.02, 0.04, 0.03), bead(bd));
+  // Lit by the stage's lights rather than the small pads' own, so brighter to match them.
+  diffuseColor.rgb = col * 1.45;
+  // Soft edges: over the last pixel or so of the rim and along the slit.
+  float px = length(fwidth(vPadWorld.xz));
+  float rimDist = (1.0 - r) * ${f(STAGE_PAD.radius)};
+  float slitDist = min(around, 1.0 - around) * ${f(Math.PI * 2 - 2 * NOTCH)} * r * ${f(STAGE_PAD.radius)};
+  diffuseColor.a = smoothstep(0.0, px * 1.5, min(rimDist, slitDist));
+}
+`;
+
+// The bead's glint towards the sun and the caustic crescent opposite it.
+const emissivePatch = /* glsl */ `
+{
+  vec2 bd;
+  float drop = bead(bd);
+  totalEmissiveRadiance += vec3(1.0, 0.95, 0.84) * 3.0 * (1.0 - smoothstep(0.0, 0.32, length(bd - vec2(${f(sunFlat.x * 0.46)}, ${f(sunFlat.y * 0.46)})))) * drop;
+  totalEmissiveRadiance += vec3(0.5, 0.7, 0.3) * smoothstep(0.45, 0.85, length(bd + vec2(${f(sunFlat.x * 0.32)}, ${f(sunFlat.y * 0.32)}))) * drop * 0.5;
 }
 `;
 
 function padMaterial(): THREE.MeshStandardMaterial {
-  const material = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.38, metalness: 0, envMapIntensity: 0.3 });
+  const material = new THREE.MeshStandardMaterial({
+    color: '#ffffff',
+    roughness: 0.42,
+    metalness: 0,
+    envMapIntensity: 0.3,
+    transparent: true,
+    side: THREE.DoubleSide,
+  });
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${vertexHead}`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPadLocal = position;\nvPart = aPart;');
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPolar = aPolar;\nvPadWorld = (modelMatrix * vec4(position, 1.0)).xyz;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${head}`)
       .replace('#include <color_fragment>', `#include <color_fragment>\n${colorPatch}`)
-      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${normalPatch}`)
-      // The waxy top is glossier than the rim.
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = vPart < 0.5 ? 0.34 : 0.5;');
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emissivePatch}`);
   };
   material.customProgramCacheKey = () => 'pond-stage-pad';
   return material;
@@ -152,5 +130,5 @@ function padMaterial(): THREE.MeshStandardMaterial {
 
 export function StagePad() {
   const pad = useDisposable(() => ({ geometry: padGeometry(), material: padMaterial() }));
-  return <mesh geometry={pad.geometry} material={pad.material} receiveShadow />;
+  return <mesh geometry={pad.geometry} material={pad.material} renderOrder={ORDER.pads} receiveShadow />;
 }

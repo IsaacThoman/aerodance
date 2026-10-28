@@ -16,8 +16,27 @@ export const CAMERA = { position: [0, 4.4, 14] as Vec3, target: [0, 1.45, 0] as 
 /** Towards the sun: high behind the dancers on the right, so their shadows fall forwards on the pad and the sun's glitter lands in the near water. */
 export const SUN_DIRECTION: Vec3 = [0.42, 0.66, -0.62];
 
-/** The dancers' pad: a giant water lily (a Victoria), its rim turned up. `top` is the floor the dancers stand on. */
-export const STAGE_PAD = { radius: 4.3, rim: 0.3, top: 0.07 };
+/** Half-angle of the slit in every lily pad. */
+export const NOTCH = 0.13;
+
+/**
+ * The dancers' pad: a giant lily pad, shaped like the small ones. `top` is the floor the dancers
+ * stand on, `curl` how far its edge turns up, `slit` which way its slit points (radians from +x
+ * towards +z: towards the camera, a little right of the dancers' middle).
+ */
+export const STAGE_PAD = { radius: 4.3, top: 0.07, curl: 0.19, slit: 1.22 };
+
+/** Signed distance (x, z) to the dancers' pad's edge, its slit included: negative on the pad. */
+export function stagePadDistance(x: number, z: number): number {
+  const disc = Math.hypot(x, z) - STAGE_PAD.radius;
+  // The slit is a wedge from the middle: turn the point onto its axis, folded about it.
+  const c = Math.cos(STAGE_PAD.slit);
+  const s = Math.sin(STAGE_PAD.slit);
+  const along = x * c + z * s;
+  const across = Math.abs(-x * s + z * c);
+  const wedge = along * Math.cos(NOTCH) + across * Math.sin(NOTCH) >= 0 ? across * Math.cos(NOTCH) - along * Math.sin(NOTCH) : Math.hypot(along, across);
+  return Math.max(disc, -wedge);
+}
 
 /** Pond bed depth: shelving quickly from the shore to the flat bottom. */
 export const POND_DEPTH = 2.4;
@@ -153,8 +172,6 @@ export const BUDS: readonly { at: Vec2; size: number; turn: number }[] = [
   { at: [3.0, -14.6], size: 1.3, turn: 4.1 },
 ];
 
-/** Every pad on the water, the dancers' first: what the pads' distance field and shade are made from. */
-export const ALL_PADS: readonly Pad[] = [{ at: [0, 0], radius: STAGE_PAD.radius + 0.06, turn: 0, tone: 0 }, ...PADS];
 
 /**
  * A koi's swim: an unhurried loop around a slowly wandering centre, with a smaller lobe

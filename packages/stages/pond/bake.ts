@@ -2,7 +2,7 @@ import { useLayoutEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { shaderMaterial } from '../shared/glsl.ts';
-import { ALL_PADS, shoreDistance } from './layout.ts';
+import { PADS, shoreDistance, stagePadDistance } from './layout.ts';
 import { MAP_RECT, PAD_RANGE, SHORE_RANGE, pondCommonGLSL } from './shaders.ts';
 import type { PondUniforms } from './shaders.ts';
 
@@ -168,8 +168,8 @@ function fields(): THREE.DataTexture {
     const z = MAP_RECT.min[1] + ((j + 0.5) / h) * MAP_RECT.size[1];
     for (let i = 0; i < w; i++) {
       const x = MAP_RECT.min[0] + ((i + 0.5) / w) * MAP_RECT.size[0];
-      let d = Infinity;
-      for (const pad of ALL_PADS) d = Math.min(d, Math.hypot(x - pad.at[0], z - pad.at[1]) - pad.radius);
+      let d = stagePadDistance(x, z);
+      for (const pad of PADS) d = Math.min(d, Math.hypot(x - pad.at[0], z - pad.at[1]) - pad.radius);
       data[(j * w + i) * 2] = store(d, PAD_RANGE);
       data[(j * w + i) * 2 + 1] = store(shoreDistance(x, z), SHORE_RANGE);
     }

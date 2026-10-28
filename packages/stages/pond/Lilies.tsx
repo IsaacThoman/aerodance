@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shaderMaterial } from '../shared/glsl.ts';
 import { useDisposable } from '../shared/hooks.ts';
-import { BUDS, LOTUS, ORDER, PADS } from './layout.ts';
+import { BUDS, LOTUS, NOTCH, ORDER, PADS } from './layout.ts';
 import { pondGLSL } from './shaders.ts';
 import type { PondUniforms } from './shaders.ts';
 
@@ -11,9 +11,6 @@ import type { PondUniforms } from './shaders.ts';
 // open flowers and one for the buds. They bob, turn and tilt with the waves in their vertex
 // shaders; their outlines fade over the last sliver of the shape so they stay smooth without MSAA.
 // ---------------------------------------------------------------------------
-
-/** Half-angle of the slit in a pad. */
-const NOTCH = 0.13;
 
 /** A unit lily pad: a shallow saucer with a slit, its rim curling up. aPolar = (radius, 0..1 around from the slit). */
 function padGeometry(): THREE.BufferGeometry {
