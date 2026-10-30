@@ -5,8 +5,8 @@ import { beatCount, club } from './clock.ts';
 import { patchClub } from './patch.ts';
 import { FLOOR } from './layout.ts';
 
-const STAGE_R = 4.9;
-const STAGE_TOP = 0;
+export const STAGE_R = 4.9;
+export const STAGE_TOP = 0;
 const TIER_R = STAGE_R + 0.75;
 const TIER_Y = -0.55;
 const SWEEP_ONLY = new THREE.Vector4(0, 0, 1, 0);
