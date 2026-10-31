@@ -23,6 +23,16 @@ test('formatJson keeps keys on one line and parses back to the same value', () =
   assert.deepEqual(JSON.parse(text), value);
   assert.match(text, /\{"t": 0, "v": \[0.5,0.25\]\}/);
 });
+test('a dance saved on the removed reef stage opens on openreef', async t => {
+  const dir = await tempDir(t);
+  const project = await initProject(dir, { dancers: 2, durationMs: 8000 });
+  const saved = JSON.parse(await readFile(project.file, 'utf8'));
+  saved.song.stage = 'reef';
+  await writeFile(project.file, formatJson(saved) + '\n');
+  assert.equal((await project.read()).song.stage, 'openreef');
+  await project.apply({ ops: [{ op: 'song', set: { title: 'Moved' } }] });
+  assert.equal(JSON.parse(await readFile(project.file, 'utf8')).song.stage, 'openreef');
+});
 test('apply writes revisions, rejects stale ones, replays retries, and undo/redo restore content', async t => {
   const dir = await tempDir(t);
   const project = await initProject(dir, { dancers: 2, durationMs: 8000 });

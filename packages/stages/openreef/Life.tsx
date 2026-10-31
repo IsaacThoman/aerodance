@@ -248,11 +248,11 @@ interface School {
 }
 
 const SCHOOLS: readonly School[] = [
-  // Big silver bait ball milling off to the back-right of the dome.
+  // Big silver bait ball milling off to the back-right of the dancers.
   { species: 'bait', count: 170, mode: 1, center: [11.5, 5.2, -13.0], radius: [3.4, 2.2, 1.6], speed: 0.45, size: 0.42, seed: 1 },
   // Aqua chromis hovering over the left bommie.
   { species: 'chromis', count: 55, mode: 1, center: [-12.6, 2.6, -7.2], radius: [2.2, 1.2, 0.6], speed: 0.35, size: 0.3, seed: 7 },
-  // Yellow tangs streaming around the dome, crossing high in front of it.
+  // Yellow tangs streaming around the dancers, crossing high in front of them.
   { species: 'yellowTang', count: 26, mode: 0, center: [0, 6.6, -2.0], radius: [12.5, 0.6, 10.5], speed: 0.1, size: 0.62, groups: [0, 0.5], spreadLong: 2.4, spreadLat: [1.5, 0.8], seed: 2 },
   // Blue tangs skimming the sand the other way round.
   { species: 'blueTang', count: 14, mode: 0, center: [0, 0.05, -2.5], radius: [12.0, 0.4, 11.0], speed: -0.085, size: 0.56, groups: [0.25, 0.75], spreadLong: 1.8, spreadLat: [1.4, 0.5], seed: 3 },
@@ -358,7 +358,7 @@ function usePathInstances(ref: RefObject<THREE.InstancedMesh | null>, count: num
   });
 }
 
-// A pair arcing in a long loop behind the dome, swooping over its back.
+// A pair arcing in a long loop far behind the dancers.
 const dolphinPath: Path = (t, k, out) => {
   const th = (t / 44) * Math.PI * 2 - k * 0.1 + 1.2;
   return out.set(

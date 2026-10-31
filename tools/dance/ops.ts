@@ -19,7 +19,7 @@ import { fitBody, landmarksToRig, limbIK, limbRel, mirrorControl, mirrorRig, neu
 import type { RigPose, Vec3 } from './rig.ts';
 import { parseRange, parseTime, songToVideo, videoToSong } from './time.ts';
 import type { TrackingData } from './tracking.ts';
-import { STAGE_LIST, isStageId } from '../../packages/stages/catalog.ts';
+import { STAGE_LIST, isStageId, replaceRemovedStage } from '../../packages/stages/catalog.ts';
 
 export type Op = { op: string; [field: string]: unknown };
 export interface KeyCounts { added: number; changed: number; removed: number; }
@@ -800,8 +800,9 @@ const HANDLERS: Record<string, Handler> = {
     fields(op, ['set']);
     if (!isObject(op.set)) fail('set must be an object of song fields');
     const allowed: (keyof SongInfo)[] = ['title', 'artist', 'songwriters', 'choreographers', 'difficulty', 'stage', 'tags', 'description', 'bpm', 'beatOffsetMs', 'durationMs', 'playableStartMs', 'playableEndMs'];
-    for (const [k, v] of Object.entries(op.set)) {
+    for (const [k, value] of Object.entries(op.set)) {
       if (!allowed.includes(k as keyof SongInfo)) fail(`song has no field ${k}; fields are ${allowed.join(', ')}`);
+      const v = k === 'stage' ? replaceRemovedStage(value) : value;
       if (k === 'stage' && !isStageId(v)) fail(`stage must be one of ${STAGE_LIST.map((s) => s.id).join(', ')}`);
       (dance.song as unknown as Record<string, unknown>)[k] = ['beatOffsetMs', 'durationMs', 'playableStartMs', 'playableEndMs'].includes(k) ? roundTime(parseTime(v, dance)) : v;
     }

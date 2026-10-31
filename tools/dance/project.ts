@@ -16,7 +16,7 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 
 import path from 'node:path';
 import { applyOps } from './ops.ts';
 import type { ChangeSummary } from './ops.ts';
-import { assertDance, newDance } from './format.ts';
+import { assertDance, newDance, upgradeDance } from './format.ts';
 import type { Dance, FileRef } from './format.ts';
 import { decodeTracking } from './tracking.ts';
 import type { TrackingData } from './tracking.ts';
@@ -73,7 +73,7 @@ export class DanceProject {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw Error(`No dance at ${this.dir} (no ${DANCE_FILE}); create one with \`dance init ${this.dir}\``, { cause: e });
       throw e;
     }
-    const dance: unknown = JSON.parse(text);
+    const dance = upgradeDance(JSON.parse(text));
     assertDance(dance);
     return dance;
   }
@@ -129,7 +129,7 @@ export class DanceProject {
     catch { throw Error(`Revision ${n} isn't kept (the history keeps the last ${HISTORY_LIMIT * 2})`); }
   }
   private async revision(n: number): Promise<Dance> {
-    const dance: unknown = JSON.parse(await readFile(this.meta('revisions', `${n}.json`), 'utf8'));
+    const dance = upgradeDance(JSON.parse(await readFile(this.meta('revisions', `${n}.json`), 'utf8')));
     assertDance(dance);
     return dance;
   }

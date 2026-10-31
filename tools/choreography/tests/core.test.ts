@@ -422,6 +422,10 @@ test("songs dance on openreef unless the project picks another stage", () => {
   delete metadata.stage;
   validateProject(p);
   assert.equal(p.metadata.stage, "openreef");
+  // Projects saved on the removed reef stage move to openreef.
+  metadata.stage = "reef";
+  validateProject(p);
+  assert.equal(p.metadata.stage, "openreef");
 });
 
 function independent(take = fixture().take) {
