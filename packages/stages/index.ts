@@ -21,7 +21,6 @@ export interface Stage {
 // Each stage component loads lazily, so only the visible stage is fetched.
 const LOADERS: Record<StageId, () => Promise<{ default: StageComponent }>> = {
   sanctuary: () => import('./sanctuary/SanctuaryStage.tsx'),
-  reef: () => import('./reef/ReefStage.tsx'),
   openreef: () => import('./openreef/OpenReefStage.tsx'),
   falls: () => import('./falls/FallsStage.tsx'),
   club: () => import('./club/ClubStage.tsx'),

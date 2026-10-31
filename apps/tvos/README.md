@@ -133,7 +133,7 @@ To exercise every dance stage through preview, a scored ghost song and results, 
 `node scripts/tvos.ts build --game --bench-scenes`, then run
 `node scripts/menu-bench.ts --device <udid> --label <name> --scenes --file-report`.
 This uses development-only copies of the demo song, each assigned to a different stage; the
-source songs stay unchanged, and a normal build removes the fixtures. `--stages reef,club`
+source songs stay unchanged, and a normal build removes the fixtures. `--stages openreef,club`
 measures only selected stages; `--players 4` exercises their four-player game and results UI.
 `--file-report` avoids a LAN report server and still runs without a debugger. Reports include
 native framebuffer copy and presentation CPU timings; these can include GPU/display waits.

@@ -3,17 +3,16 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
-import type { Vec3 } from '../catalog.ts';
 import { causticsGLSL, waterGLSL } from './shaders.ts';
 import type { SharedUniforms } from './shaders.ts';
-import { CAMERA, SUN_TRAVEL, SURFACE_Y } from './constants.ts';
+import { SHAFT_VIEW, SUN_TRAVEL, SURFACE_Y } from './constants.ts';
 
 // Returns a test: would a shaft from (x, SURFACE_Y, z) cross the dancers on
 // screen? Additive light over the transparent dancers washes them out.
 function makeShaftTest(): (x: number, z: number) => boolean {
-  const cam = new THREE.PerspectiveCamera(CAMERA.fov, 16 / 9, 0.1, 500);
-  cam.position.set(...CAMERA.position);
-  cam.lookAt(...CAMERA.target);
+  const cam = new THREE.PerspectiveCamera(SHAFT_VIEW.fov, 16 / 9, 0.1, 500);
+  cam.position.set(...SHAFT_VIEW.position);
+  cam.lookAt(...SHAFT_VIEW.target);
   cam.updateMatrixWorld();
   const dir = new THREE.Vector3(...SUN_TRAVEL).normalize();
   const p = new THREE.Vector3();
@@ -326,61 +325,4 @@ export function MarineSnow({ shared, count = 700 }: WaterProps & { count?: numbe
       }),
   );
   return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={40} />;
-}
-
-/** Four-point star glints that flash briefly at fixed points (dome glass, chrome, bubbles). */
-export function Sparkles({ shared, points, size = 1 }: WaterProps & { points: readonly Vec3[]; size?: number }) {
-  const geometry = useDisposable(() => {
-    const g = new THREE.BufferGeometry();
-    const rand = makeRandom(101);
-    const p = new Float32Array(points.length * 3);
-    const a = new Float32Array(points.length * 2);
-    points.forEach((pt, i) => {
-      p.set(pt, i * 3);
-      a.set([rand.next(), rand.range(0.7, 1.3) * size], i * 2);
-    });
-    g.setAttribute('position', new THREE.BufferAttribute(p, 3));
-    g.setAttribute('aS', new THREE.BufferAttribute(a, 2));
-    return g;
-  }, [points, size]);
-  const material = useDisposable(
-    () =>
-      new THREE.ShaderMaterial({
-        uniforms: { ...shared },
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        vertexShader: /* glsl */ `
-          uniform float uTime;
-          uniform float uBeat;
-          attribute vec2 aS;
-          varying float vA;
-          varying float vRot;
-          void main() {
-            vec4 mv = modelViewMatrix * vec4(position, 1.0);
-            float cyc = fract(uTime * (0.16 + aS.x * 0.14) + aS.x * 7.0);
-            float flash = smoothstep(0.0, 0.05, cyc) * smoothstep(0.2, 0.05, cyc);
-            vA = flash * (0.8 + 0.4 * uBeat);
-            vRot = aS.x * 0.6;
-            gl_PointSize = clamp(aS.y * (0.5 + 0.8 * flash) * 260.0 / max(-mv.z, 0.5), 0.0, 48.0);
-            gl_Position = projectionMatrix * mv;
-          }
-        `,
-        fragmentShader: /* glsl */ `
-          varying float vA;
-          varying float vRot;
-          void main() {
-            vec2 p = gl_PointCoord - 0.5;
-            float c = cos(vRot), s = sin(vRot);
-            p = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
-            float star = exp(-abs(p.x) * 60.0) * exp(-abs(p.y) * 5.0) + exp(-abs(p.y) * 60.0) * exp(-abs(p.x) * 5.0);
-            float core = exp(-dot(p, p) * 90.0);
-            float k = (star * 0.9 + core * 1.6) * vA;
-            gl_FragColor = vec4(vec3(0.85, 1.0, 1.0) * k * 3.0, 1.0);
-          }
-        `,
-      }),
-  );
-  if (!points.length) return null;
-  return <points geometry={geometry} material={material} frustumCulled={false} renderOrder={45} />;
 }

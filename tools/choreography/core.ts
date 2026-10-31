@@ -28,7 +28,7 @@ import type {
 import type { MotionTake, TakeSample } from "../../packages/pose/motion.ts";
 import type { RightsStatement, ScoreExclusion, SongTimeline, SongTrack } from "../../packages/pose/song.ts";
 import { calibratePoses, reliableBodyPose } from "../../packages/character/calibration.ts";
-import { DEFAULT_STAGE, isStageId } from "../../packages/stages/catalog.ts";
+import { DEFAULT_STAGE, isStageId, replaceRemovedStage } from "../../packages/stages/catalog.ts";
 import type { StageId } from "../../packages/stages/catalog.ts";
 import { EXTENSION, SEEK_TIME, framesToPoses, framesToSamples } from '../../packages/pose/binary.ts';
 import type { PoseFrames } from '../../packages/pose/binary.ts';
@@ -249,7 +249,7 @@ const isTakeSummary = (t: unknown): t is TakeSummary => isObject(t) && isId(t.ta
   (t.interruptionReason === undefined || t.interruptionReason === null || typeof t.interruptionReason === "string");
 const isJointTarget = (t: unknown): t is JointTarget =>
   isObject(t) && typeof t.joint === "number" && Number.isInteger(t.joint) && t.joint >= 0 && t.joint < 33 && point3(t.value);
-/** Checks a stored project. Fills in the default stage for projects saved before songs had stages. */
+/** Checks a stored project. Fills in the default stage for projects saved before songs had stages, and replaces a removed one. */
 export function assertProject(p: unknown): asserts p is Project {
   const version = isObject(p) ? p.schemaVersion ?? "unknown" : "unknown";
   assert(
@@ -269,8 +269,9 @@ export function assertProject(p: unknown): asserts p is Project {
     "Missing title/artist",
   );
   assert(oneOf(DIFFICULTIES, m.difficulty), "Invalid difficulty");
-  // Projects saved before songs had stages dance on the default one.
-  m.stage ??= DEFAULT_STAGE;
+  // Projects saved before songs had stages dance on the default one, and those on a
+  // removed stage move to its replacement.
+  m.stage = replaceRemovedStage(m.stage ?? DEFAULT_STAGE);
   assert(isStageId(m.stage), "Choose one of the dance stages");
   assert(
     strings(m.songwriters) && strings(m.choreographers) && strings(m.tags),

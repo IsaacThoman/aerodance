@@ -1,6 +1,6 @@
 # Thumbnails
 
-27 thumbnails of six of the dance stages (all but `atrium`, which came later), each **with** the "aerodance." wordmark (`with-logo/`) and **without** it (`no-logo/`). All are **2160×1440 (3:2)** lossless PNGs, rendered in-engine from the real stages, dancers and post-processing in [`packages/stages`](../../packages/stages).
+23 thumbnails of five of the dance stages (all but `atrium`, which came later), each **with** the "aerodance." wordmark (`with-logo/`) and **without** it (`no-logo/`). All are **2160×1440 (3:2)** lossless PNGs, rendered in-engine from the real stages, dancers and post-processing in [`packages/stages`](../../packages/stages).
 
 ## Pixel perfect
 
@@ -13,7 +13,6 @@ The wordmark is the title screen's own (`drawTitle` in `apps/web/src/ui/draw.ts`
 | Stage | Shots |
 | --- | --- |
 | `sanctuary` | `sanctuary-skyline` (wide over the terrace and city), `sanctuary-hero`, `sanctuary-canopy` (¾ right), `sanctuary-towers` (worm's-eye), `sanctuary-closeup` (blue) |
-| `reef` | `reef-dome` (the dome from outside), `reef-hero`, `reef-inside` (low ¾ under the glass), `reef-crown` (worm's-eye up to the crown) |
 | `openreef` | `openreef-garden` (wide), `openreef-hero`, `openreef-surface` (worm's-eye up to the surface), `openreef-turtle` (¾ right) |
 | `falls` | `falls-valley` (wide over the falls and islands), `falls-meadow`, `falls-rainbow` (¾ right), `falls-cliffs` (¾ left), `falls-closeup` (purple) |
 | `club` | `club-floor` (wide over the club and crowd), `club-dj`, `club-aquarium` (¾ right), `club-stage` (low, under the mirror ball) |

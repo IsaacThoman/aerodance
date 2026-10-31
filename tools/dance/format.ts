@@ -10,7 +10,7 @@
 // the hips. Lengths in `body` are in frame-height units, so they measure the same along x and y
 // (x * width / height). Every time is in milliseconds. A dancer's keys, contacts and exclusions
 // are on its own clock: song time minus its timeOffsetMs.
-import { isStageId } from '../../packages/stages/catalog.ts';
+import { isStageId, replaceRemovedStage } from '../../packages/stages/catalog.ts';
 import type { StageId } from '../../packages/stages/catalog.ts';
 import { assertPerformanceClips } from '../../packages/pose/performance.ts';
 import type { PerformanceClip } from '../../packages/pose/performance.ts';
@@ -429,6 +429,11 @@ function checkDancer(d: unknown, path: string, ids: Set<string>) {
 }
 export function validateDance(value: unknown): Dance {
   assertDance(value);
+  return value;
+}
+/** Brings a saved dance up to date before it's checked: a song on a removed stage moves to its replacement. */
+export function upgradeDance(value: unknown): unknown {
+  if (isObject(value) && isObject(value.song)) value.song.stage = replaceRemovedStage(value.song.stage);
   return value;
 }
 /** The dancer with this id, a 1-based number, or label; throws listing the dancers otherwise. */

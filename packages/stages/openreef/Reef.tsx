@@ -27,10 +27,10 @@ import {
   tubeSponges,
 } from './reefGeometry.ts';
 
-// Sand level around the dome; the reef beyond dips a little lower.
+// Sand level where the dancers stand; the reef beyond dips a little lower.
 export const SAND_Y = -0.45;
 
-/** Seafloor height: flat around the dome, dunes beyond, sloping into the deep. */
+/** Seafloor height: flat round the dancers, dunes beyond, sloping into the deep. */
 export type FloorHeight = (x: number, z: number) => number;
 
 export function makeFloorHeight(): FloorHeight {
@@ -132,7 +132,7 @@ const BOMMIES: readonly Bommie[] = [
   },
 ];
 
-// Low pieces on the sand, including the framing corners in front of the plinth.
+// Low pieces on the sand, including the framing corners in front of the dancers.
 const SCATTER: readonly CoralSpec[] = [
   ['brain', -4.6, 8.1, 0.7, { palette: ['#e2f56a', '#6f9424'] }],
   ['branch', -5.4, 7.2, 1.1, { base: '#ff3d8f', tip: '#ffd0ea' }],
@@ -374,7 +374,6 @@ uniform vec3 uUnderSun;
 uniform vec3 uUnderSunColor;
 uniform vec3 uUnderSky;
 uniform vec3 uUnderGround;
-uniform float uDome;
 ${waterGLSL}
 ${causticsGLSL}
 ${hash}
@@ -397,9 +396,6 @@ void main() {
   vec3 sand = mix(vec3(0.78, 0.7, 0.56), vec3(0.93, 0.88, 0.76), patchN);
   sand *= 0.92 + 0.12 * crest;
   sand *= 0.95 + 0.07 * hash12(floor(p * 9.0)) * fade;
-  // Soft contact shadow around the dome's plinth.
-  float plinth = (1.0 - smoothstep(7.3, 9.9, length(p))) * uDome;
-  sand *= 1.0 - 0.38 * plinth;
   vec3 L = -uUnderSun;
   float depth = max(uSurfaceY - vWorld.y, 0.0);
   vec3 sunC = uUnderSunColor * exp(-depth * vec3(0.05, 0.018, 0.01));
@@ -407,7 +403,7 @@ void main() {
   vec3 col = sand * (mix(uUnderGround, uUnderSky, n.y * 0.5 + 0.5) * 0.6 + sunC * diff * 0.36);
   float c = caustics(vWorld, uUnderSun, uSurfaceY, uTime);
   c = mix(c, 0.3, smoothstep(16.0, 50.0, dist));
-  col += sand * sunC * c * 0.95 * (1.0 - 0.25 * plinth);
+  col += sand * sunC * c * 0.95;
   col = underwaterFog(col, vWorld);
   gl_FragColor = vec4(col, 1.0);
 }
@@ -417,7 +413,7 @@ interface ReefProps {
   shared: SharedUniforms;
 }
 
-function SandFloor({ shared, floorHeight, dome }: ReefProps & { floorHeight: FloorHeight; dome: boolean }) {
+function SandFloor({ shared, floorHeight }: ReefProps & { floorHeight: FloorHeight }) {
   const geometry = useDisposable(() => {
     const g = new THREE.PlaneGeometry(320, 210, 160, 105);
     g.rotateX(-Math.PI / 2);
@@ -430,7 +426,7 @@ function SandFloor({ shared, floorHeight, dome }: ReefProps & { floorHeight: Flo
   const material = useDisposable(
     () =>
       new THREE.ShaderMaterial({
-        uniforms: { ...shared, uDome: { value: dome ? 1 : 0 } },
+        uniforms: { ...shared },
         vertexShader: /* glsl */ `
           varying vec3 vWorld;
           varying vec3 vN;
@@ -543,7 +539,7 @@ function Anemones({ shared, anemones }: ReefProps & { anemones: readonly Anemone
   return <primitive object={mesh} />;
 }
 
-export function Reef({ shared, floorHeight, dome = true }: ReefProps & { floorHeight: FloorHeight; dome?: boolean }) {
+export function Reef({ shared, floorHeight }: ReefProps & { floorHeight: FloorHeight }) {
   const reef = useDisposable(() => buildReef(floorHeight), [floorHeight]);
   const mats = useDisposable(() => ({
     solid: makeLitMaterial(shared, { shininess: 30, specular: 0.25, rim: 0.14, rimColor: '#9ff0ff', wrap: 0.45, caustics: 1.1 }),
@@ -551,14 +547,12 @@ export function Reef({ shared, floorHeight, dome = true }: ReefProps & { floorHe
   }));
   return (
     <>
-      <SandFloor shared={shared} floorHeight={floorHeight} dome={dome} />
-      {/* Without the dome's floor, catch the dancers' shadows on the flat sand. */}
-      {!dome && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, SAND_Y + 0.01, 0]} receiveShadow>
-          <circleGeometry args={[7.5, 64]} />
-          <shadowMaterial color="#0a4f72" opacity={0.3} depthWrite={false} />
-        </mesh>
-      )}
+      <SandFloor shared={shared} floorHeight={floorHeight} />
+      {/* Catches the dancers' shadows on the flat sand. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, SAND_Y + 0.01, 0]} receiveShadow>
+        <circleGeometry args={[7.5, 64]} />
+        <shadowMaterial color="#0a4f72" opacity={0.3} depthWrite={false} />
+      </mesh>
       <mesh geometry={reef.solid} material={mats.solid} />
       <mesh geometry={reef.sway} material={mats.sway} />
       <Seagrass shared={shared} blades={reef.blades} />
