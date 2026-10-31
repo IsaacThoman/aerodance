@@ -1,12 +1,11 @@
 # Dance stages
 
-Seven procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
+Six procedural stages inspired by Frutiger Aero, used for the song preview, gameplay and results screens, and by Dance Studio and the thumbnail renderer. Everything is generated (geometry, shaders, canvas textures); the only asset files are the character GLB and capture in `packages/character`.
 
 | Id | Kind | Highlights |
 | --- | --- | --- |
 | `sanctuary` | city | Rooftop sky-garden terrace over a glass eco-city: infinity pool, solar canopy, wind flowers, ~150 towers, monorail loops, airship with a beat-synced screen, balloons, eco-pods, gulls, sailboats on the river |
-| `reef` | water | Glass dome on a sunlit reef: caustics, light shafts, coral gardens, eight fish species in schools, dolphins, sea turtle, manta, jellyfish, bubble columns, glass tunnel |
-| `openreef` | water | The `reef` stage without the dome: the dancers stand on open sand among the coral, fish, dolphins, turtle, manta, jellyfish and light shafts. The default stage. |
+| `openreef` | water | Open sand on a sunlit reef ~10 m down: caustics, light shafts, coral gardens, eight fish species in schools, dolphins, sea turtle, manta, jellyfish, bubble columns. The default stage. |
 | `falls` | landscape | Clifftop meadow over a turquoise lake: eight waterfalls with mist and a rainbow, floating islands, wind-swept grass and wildflowers, solar-flower sculptures, turbines, observatory cable car, balloons, butterflies, birds |
 | `club` | dance club | Beat-driven LED floor, aquarium walls, curved video wall, mirror ball, moving heads and lasers, DJ blob, speaker stacks, bar, a crowd of bobbing gel blobs, confetti |
 | `beach` | beach | Golden-hour beach with open ocean to the horizon: sun path on the waves, a coconut palm, tiki torches, sailboats, cruise ship, leaping dolphins, gulls |
@@ -14,7 +13,7 @@ Seven procedural stages inspired by Frutiger Aero, used for the song preview, ga
 
 ## Layout
 
-- `catalog.ts`: the stages as plain data (each folder's `meta.ts`: name card text, accent colors, dancer placement, post settings), with no rendering code, so Node, Dance Studio and song catalogs can import it.
+- `catalog.ts`: the stages as plain data (each folder's `meta.ts`: name card text, accent colors, dancer placement, post settings), with no rendering code, so Node, Dance Studio and song catalogs can import it. It also maps removed stages to their replacements: songs and projects saved on `reef`, the glass dome that used to stand on the reef, play on `openreef`.
 - `index.ts`: pairs each meta with its lazily loaded `<Name>Stage.tsx`, so only the visible stage is fetched and one broken stage can't take down the others.
 - `atrium/`: the room is shared with the Atrium menu backdrop (`packages/backdrops/atrium`), which shows it from its own camera without the dancers. `Atrium.tsx` is the room for any scene that brings its own camera and clock; each scene makes its own uniforms (`makeAtriumUniforms`) and moves its `uTime` on, as the two can be mounted at once.
 - `shared/`:

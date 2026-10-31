@@ -455,10 +455,12 @@ carry actual song times and support variable tempo. BPM never sets the pose cloc
 (the game's stage lights pulse to it while the song plays).
 
 `stage` is the id of the dance stage the game shows the song on, one of
-`sanctuary`, `reef`, `openreef`, `falls`, `club`, `beach` or `atrium` (see
+`sanctuary`, `openreef`, `falls`, `club`, `beach` or `atrium` (see
 `packages/stages/catalog.ts`). Dance Studio sets it by id and defaults to
 `openreef`. A missing or unknown stage plays on `openreef`; players can try other
-stages from the preview.
+stages from the preview. Songs and projects saved on `reef`, a stage that has
+since been removed, play on `openreef`, and Dance Studio and the `dance` CLI
+move their projects to it when they open them.
 
 ### Choreography structure
 

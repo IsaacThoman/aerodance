@@ -31,7 +31,8 @@ Rebuild/redeploy after changing the source songs directory.
 Exported metadata supplies title, artist, duration, player counts, dancers (one to four;
 a duet when missing, as in songs exported before it), revision, difficulty, stage,
 optional cover, and a SHA-256 pin for `song.json`. The preview
-opens on the song's stage, or `openreef` when it has none. Re-exported songs
+opens on the song's stage, or `openreef` when it has none or names one this build doesn't
+have, such as the removed `reef`. Re-exported songs
 are discovered with their updated revision. Install the complete directory before
 opening Song Select. The game does not extract ZIP files or publish editor
 projects. The repo ships one song, **Demo Track 1** (`apps/web/public/songs/demo-track-1/`):
