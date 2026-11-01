@@ -798,6 +798,47 @@ export function drawGlassCircle(g: Ctx, c: Circle, hover: number) {
   g.fill();
 }
 
+// A dial's count (the players screen's): heavy white type with the title's embossed shadow and
+// cool glossy face, centred on (x, cy).
+export function drawDialCount(g: Ctx, n: number, x: number, cy: number, size = 150) {
+  const y = cy + size * 0.36;
+  g.save();
+  g.font = `800 ${size}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  g.shadowColor = 'rgba(0, 34, 84, 0.75)';
+  g.shadowBlur = 4;
+  g.shadowOffsetY = 7;
+  g.fillStyle = '#ffffff';
+  g.fillText(String(n), x, y);
+  g.shadowColor = 'transparent';
+  const face = g.createLinearGradient(0, y - size * 0.75, 0, y);
+  face.addColorStop(0, '#ffffff');
+  face.addColorStop(0.55, '#ffffff');
+  face.addColorStop(1, '#d5f3ff');
+  g.fillStyle = face;
+  g.fillText(String(n), x, y);
+  g.restore();
+}
+
+// A glass dial button with a white minus or plus, dimmed at the end of the range.
+export function drawDialStep(g: Ctx, c: Circle, plus: boolean, hover: number, press: number, enabled: boolean) {
+  g.save();
+  if (!enabled) { g.globalAlpha *= 0.4; hover = 0; press = 0; }
+  const y = c.y + press * 3;
+  drawGlassCircle(g, { ...c, y }, hover);
+  const a = c.r * 0.38;
+  g.beginPath();
+  g.moveTo(c.x - a, y);
+  g.lineTo(c.x + a, y);
+  if (plus) { g.moveTo(c.x, y - a); g.lineTo(c.x, y + a); }
+  g.lineCap = 'round';
+  g.lineWidth = 6;
+  g.strokeStyle = '#ffffff';
+  g.stroke();
+  g.restore();
+}
+
 // Submenu header: glass back button (circle `back`) and a small-caps heading beside it.
 export function drawHeader(g: Ctx, back: Circle, label: string, hover: number) {
   const { x, y, r } = back;

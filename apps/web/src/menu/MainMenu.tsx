@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
-import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawGlassButton, drawGlassCircle, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
+import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawDialCount, drawDialStep, drawGlassButton, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
 import type { Circle, GlassStyle, Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
@@ -111,46 +111,6 @@ const SLIDER_STEPS = 20;
 const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, n)) as PlayerCount;
 // The dial's count each time Start opens the players screen.
 export const DEFAULT_PLAYERS: PlayerCount = 2;
-
-// The dial's count: heavy white type with the title's embossed shadow and cool glossy face.
-function drawCount(g: CanvasRenderingContext2D, n: number, x: number, cy: number, size = 150) {
-  const y = cy + size * 0.36;
-  g.save();
-  g.font = `800 ${size}px ${FONT}`;
-  g.textAlign = 'center';
-  g.textBaseline = 'alphabetic';
-  g.shadowColor = 'rgba(0, 34, 84, 0.75)';
-  g.shadowBlur = 4;
-  g.shadowOffsetY = 7;
-  g.fillStyle = '#ffffff';
-  g.fillText(String(n), x, y);
-  g.shadowColor = 'transparent';
-  const face = g.createLinearGradient(0, y - size * 0.75, 0, y);
-  face.addColorStop(0, '#ffffff');
-  face.addColorStop(0.55, '#ffffff');
-  face.addColorStop(1, '#d5f3ff');
-  g.fillStyle = face;
-  g.fillText(String(n), x, y);
-  g.restore();
-}
-
-// A glass dial button with a white minus or plus, dimmed at the end of the range.
-function drawStep(g: CanvasRenderingContext2D, c: Circle, plus: boolean, hover: number, press: number, enabled: boolean) {
-  g.save();
-  if (!enabled) { g.globalAlpha *= 0.4; hover = 0; press = 0; }
-  const y = c.y + press * 3;
-  drawGlassCircle(g, { ...c, y }, hover);
-  const a = c.r * 0.38;
-  g.beginPath();
-  g.moveTo(c.x - a, y);
-  g.lineTo(c.x + a, y);
-  if (plus) { g.moveTo(c.x, y - a); g.lineTo(c.x, y + a); }
-  g.lineCap = 'round';
-  g.lineWidth = 6;
-  g.strokeStyle = '#ffffff';
-  g.stroke();
-  g.restore();
-}
 
 // A switch, right-aligned in its row and filled when on.
 function drawSwitch(g: CanvasRenderingContext2D, { w: tw, h: th, x: tx }: { w: number; h: number; x: number }, cy: number, on: boolean, hover: number) {
@@ -521,9 +481,9 @@ export default function MainMenu({
       } else if (m.screen === 'players') {
         const n = count();
         drawHeader(g, PLAYERS_BACK, 'PLAYERS', h.back ?? 0);
-        drawStep(g, MINUS, false, h.minus ?? 0, press('minus'), n > 1);
-        drawCount(g, n, COUNT_X, MINUS.y);
-        drawStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
+        drawDialStep(g, MINUS, false, h.minus ?? 0, press('minus'), n > 1);
+        drawDialCount(g, n, COUNT_X, MINUS.y);
+        drawDialStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
         drawGlassButton(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go'), style: BUTTONS, chevron: false });
       } else if (m.screen === 'transfer') {
         drawHeader(g, BACK, 'TRANSFER SONGS', h.back ?? 0);
