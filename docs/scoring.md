@@ -52,14 +52,16 @@ is unsure of many joints that are in the right place, so 0.5 cost players points
 tracking rather than dancing. On trackbench's 117 synthetic scenes, 0.1 cut MediaPipe Lite's
 score lost to tracking from 14.2% to 9.4%, and no scene scored worse. Dancing the wrong moves
 or standing still gained no more than with perfect tracking
-([trackbench report](../tools/trackbench/REPORT.md)). Players compare
+([trackbench report](../tools/trackbench/REPORT.md)). Version 2 also keeps a limb the tracker loses
+for a moment (below): 0.6 points more kept, with the same two checks. Players compare
 directly with the stored, unmirrored pose: the coach is only mirrored on screen
 (`coachMode: "mirror-player"`), and dancing the mirror image loses points.
 
 ## One interval (100 ms)
 
 For interval time `t`, the live directions at `t` (interpolated between samples up to
-350 ms apart, or the nearest sample within 120 ms) are compared with the reference at
+350 ms apart, or the nearest sample within 120 ms; a limb the tracker lost keeps its direction
+from the last sample within 300 ms that had it) are compared with the reference at
 `t + shift`, for shifts of 0, ±50, ±100 and ±150 ms:
 
 - **Pose match.** For each reference limb, `exp(-(θ / 0.8)²)`, where θ is the angle in

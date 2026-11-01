@@ -151,6 +151,16 @@ test('the confidence gate is the same live and replayed, and strips\' cut-off gu
   assert.equal(liveUsable([{ x: cut.x, y: cut.y, z: cut.z, confidence: Math.min(cut.visibility, cut.presence) }])[0], false);
 });
 
+test('a limb the tracker loses for a moment keeps its last direction; one lost for long does not', () => {
+  // The forearms drop out (confidence 0) for `ms` out of every second.
+  const dropping = (ms: number) => play((id, t) => reference(id, t)?.map((j, i) => [15, 16].includes(i) && t % 1000 < ms ? { ...j, confidence: 0 } : j) ?? null, { rate: 30 });
+  const brief = dropping(200), long = dropping(700);
+  for (const id of [0, 1]) {
+    assert.ok(brief[id].score > 0.97 * MAX_SCORE, `forearms lost for 200 ms a second ${brief[id].score}`);
+    assert.ok(long[id].score < 0.95 * brief[id].score, `forearms lost for 700 ms a second ${long[id].score}`);
+  }
+});
+
 test('scores do not depend on frame rate, duplicates or delivery order', () => {
   const runs = [
     play(reference, { rate: 30 }),
