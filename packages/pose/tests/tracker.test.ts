@@ -433,3 +433,33 @@ test('looks are the clothes\' colours on the chest, waist and thighs', () => {
   const unreliable = person(0.5); unreliable[11] = { ...unreliable[11], visibility: 0.2 };
   assert.equal(describeLooks({ data, width, height }, unreliable), null);
 });
+
+test('dressed alike, one passing in front of the other: they keep their numbers by their sizes', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(30, () => ({ people: [person(0.7), person(0.3)] })));
+  // The right one (P1) steps forward and the left one back, then they swap sides; the one behind
+  // is hidden while they pass.
+  run(tracker, repeat(15, i => ({ people: [person(0.7, { size: 1 + 0.02 * i }), person(0.3, { size: 1 - 0.0133 * i })] })), 1000);
+  const cross = (i: number) => ({ front: 0.7 - 0.4 * i / 29, back: 0.3 + 0.4 * i / 29 });
+  run(tracker, repeat(30, i => {
+    const { front, back } = cross(i);
+    return { people: [person(front, { size: 1.3 }), ...(Math.abs(front - back) < 0.12 ? [] : [person(back, { size: 0.8 })])] };
+  }), 1500);
+  const after = run(tracker, repeat(20, () => ({ people: [person(0.3, { size: 1.3 }), person(0.7, { size: 0.8 })] })), 2500);
+  assert.deepEqual([...after.at(-1)!].sort(), [[0, 0.3], [1, 0.7]], 'P1 crossed to the left in front');
+});
+
+test('a player the model swaps for somebody walking past in front is theirs again where they dance', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(40, () => ({ people: [person(0.7), person(0.3, { arms: 0.1 })] })));
+  // Somebody nearer walks across; as they cover P1, the model's following slides from P1 onto
+  // them, and P1 is only seen again as they leave the picture.
+  run(tracker, repeat(38, i => ({ people: [person(0.3, { arms: 0.1 }), person(0.7), person(0.05 + 0.015 * i, { size: 1.35, arms: 0.2 })] })), 1400);
+  run(tracker, repeat(4, i => ({ people: [person(0.3, { arms: 0.1 }), person(0.7, { size: 1 + 0.09 * (i + 1), arms: 0.2 })] })), 2700);
+  run(tracker, repeat(26, i => {
+    const x = 0.7 + 0.015 * (i + 1);
+    return { people: [person(0.3, { arms: 0.1 }), ...(x < 1 ? [person(x, { size: 1.35, arms: 0.2 })] : []), ...(x > 0.97 ? [person(0.7)] : [])] };
+  }), 2850);
+  const back = run(tracker, repeat(30, () => ({ people: [person(0.7), person(0.3, { arms: 0.1 })] })), 3750);
+  assert.deepEqual([...back[15]].sort(), [[0, 0.7], [1, 0.3]], 'P1 is back within half a second of the passer-by leaving');
+});
