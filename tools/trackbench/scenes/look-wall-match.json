@@ -1,0 +1,17 @@
+{
+  "id": "look-wall-match",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "Clothes the colour of the wall behind (off-white top and trousers): a low-contrast silhouette.",
+  "people": {
+    "0": {
+      "outfit": {
+        "recolor": {
+          "top": "#d6d0c6",
+          "bottom": "#cfc9be",
+          "hair": "#2b1d15"
+        }
+      }
+    }
+  }
+}

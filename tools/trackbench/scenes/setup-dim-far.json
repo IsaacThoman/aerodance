@@ -1,0 +1,12 @@
+{
+  "id": "setup-dim-far",
+  "base": "base-duo",
+  "category": "setup",
+  "description": "Both players hold 5 s in dim light at 5.8 m camera distance; ideal calibration should complete, testing estimator jitter alone.",
+  "camera": {
+    "distance_m": 5.8
+  },
+  "lighting": {
+    "preset": "dim_evening"
+  }
+}

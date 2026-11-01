@@ -1,0 +1,9 @@
+{
+  "id": "cam-fov-120",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Ultrawide 120 deg lens with barrel distortion at the baseline distance: player small, warped near the edges.",
+  "camera": {
+    "hfov_deg": 120
+  }
+}

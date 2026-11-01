@@ -1,0 +1,25 @@
+{
+ "note": "real-aist sequences: AIST Dance DB videos (downloads/aist-video, internal use under the AIST terms, never committed) with GT from the AIST++ keypoints3d (CC BY 4.0) projected through each camera, and their synthetic twins (same AIST++ motion and time window, camera placed like the AIST camera). Window: clip seconds 4-19 (video frames 240.. at 60 fps, every second frame, 450 frames at 30 fps).",
+ "start_s": 4.0,
+ "duration_s": 15.0,
+ "sequences": [
+  {"id": "br-c01", "seq": "gBR_sFM_cAll_d04_mBR0_ch01", "cam": "c01", "view": "front"},
+  {"id": "ho-c08", "seq": "gHO_sFM_cAll_d19_mHO5_ch06", "cam": "c08", "view": "diagonal"},
+  {"id": "ho-c02", "seq": "gHO_sFM_cAll_d21_mHO5_ch20", "cam": "c02", "view": "front"},
+  {"id": "jb-c01", "seq": "gJB_sFM_cAll_d09_mJB5_ch20", "cam": "c01", "view": "front"},
+  {"id": "jb-c04", "seq": "gJB_sFM_cAll_d07_mJB5_ch06", "cam": "c04", "view": "side"},
+  {"id": "js-c01", "seq": "gJS_sFM_cAll_d01_mJS3_ch04", "cam": "c01", "view": "front"},
+  {"id": "js-c02", "seq": "gJS_sFM_cAll_d02_mJS3_ch04", "cam": "c02", "view": "diagonal"},
+  {"id": "kr-c01", "seq": "gKR_sFM_cAll_d28_mKR2_ch03", "cam": "c01", "view": "front"},
+  {"id": "kr-c05", "seq": "gKR_sFM_cAll_d30_mKR2_ch17", "cam": "c05", "view": "back"},
+  {"id": "lh-c01", "seq": "gLH_sFM_cAll_d16_mLH4_ch05", "cam": "c01", "view": "front"},
+  {"id": "lh-c07", "seq": "gLH_sFM_cAll_d17_mLH4_ch12", "cam": "c07", "view": "side"},
+  {"id": "lo-c01", "seq": "gLO_sFM_cAll_d14_mLO2_ch10", "cam": "c01", "view": "front"},
+  {"id": "lo-c08", "seq": "gLO_sFM_cAll_d13_mLO2_ch03", "cam": "c08", "view": "diagonal"},
+  {"id": "mh-c01", "seq": "gMH_sFM_cAll_d23_mMH3_ch11", "cam": "c01", "view": "front"},
+  {"id": "mh-c05", "seq": "gMH_sFM_cAll_d22_mMH3_ch04", "cam": "c05", "view": "back"},
+  {"id": "po-c01", "seq": "gPO_sFM_cAll_d12_mPO1_ch16", "cam": "c01", "view": "front"},
+  {"id": "po-c09", "seq": "gPO_sFM_cAll_d10_mPO1_ch02", "cam": "c09", "view": "front-low"},
+  {"id": "wa-c02", "seq": "gWA_sFM_cAll_d27_mWA0_ch15", "cam": "c02", "view": "diagonal"}
+ ]
+}

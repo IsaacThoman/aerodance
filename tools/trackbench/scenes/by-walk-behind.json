@@ -1,0 +1,184 @@
+{
+  "id": "by-walk-behind",
+  "base": "base-duo",
+  "category": "bystander",
+  "description": "A bystander crosses the clear lane behind the dancing pair, testing size gating and player displacement.",
+  "people": [
+    {
+      "id": "p1",
+      "role": "player",
+      "body": {
+        "gender": 0,
+        "age": 0.5,
+        "height": 0.7,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 1,
+          "asian": 0,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_african_female",
+      "hair": "ponytail01",
+      "outfit": {
+        "clothes": [
+          "female_casualsuit01",
+          "shoes02"
+        ],
+        "recolor": {
+          "top": "#bd3030",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": -1.0,
+        "y": -0.55,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "role": "player",
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.6,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 0,
+          "caucasian": 1
+        }
+      },
+      "skin": "young_caucasian_male",
+      "hair": "short02",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#205bb0",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": 1.0,
+        "y": -0.55,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    {
+      "id": "b1",
+      "role": "bystander",
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.5,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 1,
+          "asian": 0,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_african_male",
+      "hair": "short01",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit04",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#25934a",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": 0,
+        "y": 0.5
+      },
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 11
+        },
+        {
+          "type": "walk",
+          "to": [
+            3.2,
+            0.1
+          ],
+          "duration_s": 5,
+          "from": [
+            -3.2,
+            0.1
+          ]
+        },
+        {
+          "type": "offstage",
+          "duration_s": 7
+        }
+      ]
+    }
+  ]
+}

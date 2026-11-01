@@ -1,0 +1,72 @@
+{
+  "id": "mp2-tight",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "At 0.7 m lateral spacing, 0.65 m safety depth offset and a compact pop dance, can two distinct players remain separately numbered?",
+  "people": {
+    "0": {
+      "place": {
+        "x": -0.35,
+        "y": -0.8,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -0.35,
+            -0.8
+          ],
+          "duration_s": 2,
+          "from": [
+            -0.35,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d11_mPO1_ch09",
+          "clip_start_s": 20,
+          "duration_s": 16
+        }
+      ]
+    },
+    "1": {
+      "place": {
+        "x": 0.35,
+        "y": -0.15,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0.35,
+            -0.15
+          ],
+          "duration_s": 2,
+          "from": [
+            0.35,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d11_mPO1_ch09",
+          "clip_start_s": 20,
+          "duration_s": 16
+        }
+      ]
+    }
+  }
+}

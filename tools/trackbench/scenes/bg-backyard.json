@@ -1,0 +1,9 @@
+{
+  "id": "bg-backyard",
+  "base": "base-solo",
+  "category": "background",
+  "description": "Outdoors on a backyard patio.",
+  "room": {
+    "preset": "backyard"
+  }
+}

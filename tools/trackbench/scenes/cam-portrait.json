@@ -1,0 +1,10 @@
+{
+  "id": "cam-portrait",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Phone in portrait (480x640, 50 deg across the short side).",
+  "camera": {
+    "orientation": "portrait",
+    "hfov_deg": 50
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "mp2-colour-only",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "The same garments in red versus blue test whether clothing colour alone separates identities.",
+  "people": {
+    "0": {
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#b42c32",
+          "bottom": "#30343f"
+        }
+      }
+    }
+  }
+}

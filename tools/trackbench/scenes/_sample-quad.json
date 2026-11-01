@@ -1,0 +1,60 @@
+{
+  "id": "_sample-quad",
+  "category": "multiplayer",
+  "description": "Sample: four players side by side (one a child, one in a dress), p3 and p4 dressed alike; calibration hold then four different dances.",
+  "seed": 4,
+  "duration_s": 8,
+  "fps": 30,
+  "resolution": [640, 480],
+  "players": 4,
+  "camera": {"height_m": 1.0, "distance_m": 4.0, "look_at": [0, 0.2, 0.9], "hfov_deg": 68},
+  "room": {"preset": "living_room", "clutter": 0.3},
+  "lighting": {"preset": "bright_even"},
+  "people": [
+    {
+      "id": "p1", "body": {"gender": 0.0, "age": 0.45, "weight": 0.55, "height": 0.5, "race": {"african": 1, "asian": 0, "caucasian": 0}},
+      "skin": "young_african_female", "hair": "afro01",
+      "outfit": {"clothes": ["tb_dress", "female_casualsuit02", "shoes04"], "recolor": {"top": "#8040a0"}},
+      "place": {"x": -1.5, "y": 0.3}, "travel": 0.15,
+      "timeline": [
+        {"type": "hold", "pose": "a-pose", "duration_s": 1.6},
+        {"type": "dance", "clip": "gPO_sFM_cAll_d10_mPO1_ch02", "clip_start_s": 5.0, "duration_s": 6.4}
+      ]
+    },
+    {
+      "id": "p2", "body": {"gender": 1.0, "age": 0.15, "weight": 0.45, "height": 0.5, "race": {"african": 0, "asian": 0.5, "caucasian": 0.5}},
+      "skin": "young_asian_male", "hair": "short04",
+      "outfit": {"clothes": ["male_casualsuit03", "shoes06"]},
+      "place": {"x": -0.5, "y": 0.1}, "travel": 0.15,
+      "timeline": [
+        {"type": "hold", "pose": "neutral", "duration_s": 1.6},
+        {"type": "dance", "clip": "gLO_sFM_cAll_d13_mLO2_ch03", "clip_start_s": 5.0, "duration_s": 6.4}
+      ]
+    },
+    {
+      "id": "p3", "body": {"gender": 1.0, "age": 0.5, "weight": 0.5, "height": 0.55, "race": {"african": 0, "asian": 0, "caucasian": 1}},
+      "skin": "young_caucasian_male", "hair": "short01",
+      "outfit": {"clothes": ["male_casualsuit04", "shoes01"], "recolor": {"top": "#2a8040", "bottom": "#303848"}},
+      "place": {"x": 0.5, "y": 0.3}, "travel": 0.15,
+      "timeline": [
+        {"type": "hold", "pose": "neutral", "duration_s": 1.6},
+        {"type": "dance", "clip": "gMH_sFM_cAll_d22_mMH3_ch04", "clip_start_s": 5.0, "duration_s": 6.4}
+      ]
+    },
+    {
+      "id": "p4", "body": {"gender": 0.85, "age": 0.55, "weight": 0.65, "height": 0.5, "race": {"african": 0, "asian": 0, "caucasian": 1}},
+      "skin": "middleage_caucasian_male", "hair": "short03",
+      "outfit": {"clothes": ["male_casualsuit04", "shoes01"], "recolor": {"top": "#2a8040", "bottom": "#303848"}},
+      "place": {"x": 1.5, "y": 0.2}, "travel": 0.15,
+      "timeline": [
+        {"type": "hold", "pose": "neutral", "duration_s": 1.6},
+        {"type": "dance", "clip": "gWA_sFM_cAll_d25_mWA0_ch01", "clip_start_s": 5.0, "duration_s": 6.4}
+      ]
+    }
+  ],
+  "phases": [
+    {"name": "setup", "start_s": 0, "end_s": 1.6},
+    {"name": "dance", "start_s": 1.6, "end_s": 8}
+  ],
+  "post": []
+}

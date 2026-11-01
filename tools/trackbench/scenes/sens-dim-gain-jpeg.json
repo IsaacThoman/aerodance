@@ -1,0 +1,20 @@
+{
+  "id": "sens-dim-gain-jpeg",
+  "base": "light-dim_evening",
+  "category": "sensor",
+  "description": "Post only, light-dim_evening render: gain +2 EV with noise, chroma subsampling and JPEG 50 (a cheap webcam at night).",
+  "post": [
+    {
+      "type": "gain",
+      "ev": -2,
+      "noise": 8
+    },
+    {
+      "type": "chroma_subsample"
+    },
+    {
+      "type": "jpeg",
+      "quality": 50
+    }
+  ]
+}

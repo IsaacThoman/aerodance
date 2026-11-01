@@ -1,0 +1,71 @@
+{
+  "id": "setup-t-pose",
+  "base": "base-duo",
+  "category": "setup",
+  "description": "Both players hold a T-pose for 5 s instead of neutral; ideal calibration should complete with wrists stable.",
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -1,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "t-pose",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ],
+      "place": {
+        "x": -1
+      }
+    },
+    "1": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            1,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "t-pose",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ],
+      "place": {
+        "x": 1
+      }
+    }
+  },
+  "camera": {
+    "distance_m": 4.5
+  }
+}

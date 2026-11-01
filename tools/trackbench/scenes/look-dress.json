@@ -1,0 +1,21 @@
+{
+  "id": "look-dress",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "Knee-length dress: hides the hips and thighs.",
+  "people": {
+    "0": {
+      "outfit": {
+        "clothes": [
+          "tb_dress",
+          "female_casualsuit01",
+          "shoes02"
+        ],
+        "recolor": {
+          "top": "#3a6a9a",
+          "hair": "#2b1d15"
+        }
+      }
+    }
+  }
+}

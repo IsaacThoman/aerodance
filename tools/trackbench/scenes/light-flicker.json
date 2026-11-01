@@ -1,0 +1,9 @@
+{
+  "id": "light-flicker",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: lights flickering at 11 Hz.",
+  "lighting": {
+    "preset": "flicker"
+  }
+}

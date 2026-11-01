@@ -1,0 +1,92 @@
+{
+ "id": "twin-stage-3",
+ "category": "sim2real",
+ "description": "Twin of real-stage: one woman, pink top and grey joggers, plain room, camera at hip height ~4 m away.",
+ "seed": 13,
+ "duration_s": 20.0,
+ "fps": 30,
+ "resolution": [
+  480,
+  360
+ ],
+ "players": 1,
+ "camera": {
+  "height_m": 1.0,
+  "distance_m": 4.0,
+  "look_at": [
+   0,
+   0,
+   0.95
+  ],
+  "hfov_deg": 50,
+  "orientation": "landscape",
+  "roll_deg": 0,
+  "shake": null,
+  "events": []
+ },
+ "room": {
+  "preset": "plain_wall",
+  "clutter": 0.2,
+  "features": []
+ },
+ "lighting": {
+  "preset": "bright_even",
+  "exposure_ev": 0,
+  "color_temp_k": 3800,
+  "flicker_hz": 0
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.42,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0.0,
+     "asian": 0.0,
+     "caucasian": 1.0
+    }
+   },
+   "skin": "young_caucasian_female2",
+   "hair": "long01",
+   "outfit": {
+    "clothes": [
+     "female_sportsuit01",
+     "shoes02"
+    ],
+    "recolor": {
+     "top": "#f2b8c6",
+     "bottom": "#a8a8ac"
+    }
+   },
+   "place": {
+    "x": 0,
+    "y": 0,
+    "facing_deg": 0
+   },
+   "travel": 0.3,
+   "timeline": [
+    {
+     "type": "dance",
+     "clip": "gJS_sFM_cAll_d02_mJS3_ch04",
+     "clip_start_s": 4.0,
+     "duration_s": 20.0,
+     "mirror": false
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "dance",
+   "start_s": 0,
+   "end_s": 20.0
+  }
+ ],
+ "post": []
+}

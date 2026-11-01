@@ -1,0 +1,123 @@
+{
+  "id": "setup-swap",
+  "base": "base-duo",
+  "category": "setup",
+  "description": "Immediately after a calibratable 5 s hold, players swap through separated depth lanes; tests stable post-calibration numbering.",
+  "duration_s": 24,
+  "phases": [
+    {
+      "name": "setup",
+      "start_s": 0,
+      "end_s": 7
+    },
+    {
+      "name": "dance",
+      "start_s": 7,
+      "end_s": 24
+    }
+  ],
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            0.25
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            0.25
+          ],
+          "duration_s": 1.5
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -0.55
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 10,
+          "duration_s": 14
+        }
+      ]
+    },
+    "1": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -1.35
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -1.35
+          ],
+          "duration_s": 1.5
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.55
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 10,
+          "duration_s": 14
+        }
+      ]
+    }
+  }
+}

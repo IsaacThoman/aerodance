@@ -1,0 +1,9 @@
+{
+  "id": "cam-low-0.3",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera on the floor/low table, 0.3 m high, looking up at the player.",
+  "camera": {
+    "height_m": 0.3
+  }
+}

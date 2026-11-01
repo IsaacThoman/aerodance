@@ -1,0 +1,11 @@
+{
+  "id": "bg-mirror",
+  "base": "base-solo",
+  "category": "background",
+  "description": "A mirror behind the player, camera frontal: the reflection is mostly hidden behind the player (visible during the walk-in and wide moves).",
+  "room": {
+    "features": [
+      "mirror_behind"
+    ]
+  }
+}

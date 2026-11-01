@@ -1,0 +1,12 @@
+{
+  "id": "sens-vignette",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: strong vignette.",
+  "post": [
+    {
+      "type": "vignette",
+      "strength": 0.6
+    }
+  ]
+}

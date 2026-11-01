@@ -1,0 +1,19 @@
+{
+  "id": "look-skin-caucasian",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "Baseline with a caucasian body and skin (the base is asian), same 1.65 m stature: skin-tone fairness.",
+  "people": {
+    "0": {
+      "body": {
+        "race": {
+          "african": 0,
+          "asian": 0,
+          "caucasian": 1
+        },
+        "height": 0.54
+      },
+      "skin": "young_caucasian_female"
+    }
+  }
+}

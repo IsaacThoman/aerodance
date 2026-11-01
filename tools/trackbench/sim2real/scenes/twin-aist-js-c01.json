@@ -1,0 +1,92 @@
+{
+ "id": "twin-aist-js-c01",
+ "category": "sim2real-aist",
+ "seed": 105,
+ "description": "Twin of real-aist-js-c01: gJS_sFM_cAll_d01_mJS3_ch04 seconds 4.0-19.0, camera like AIST c01 (front).",
+ "duration_s": 15.0,
+ "fps": 30,
+ "resolution": [
+  640,
+  480
+ ],
+ "players": 1,
+ "camera": {
+  "height_m": 0.9,
+  "distance_m": 5.68,
+  "yaw_deg": 0,
+  "look_at": [
+   0,
+   0,
+   0.929
+  ],
+  "hfov_deg": 35.52,
+  "roll_deg": 0,
+  "orientation": "landscape",
+  "shake": null,
+  "events": []
+ },
+ "room": {
+  "preset": "plain_wall",
+  "clutter": 0.0,
+  "features": []
+ },
+ "lighting": {
+  "preset": "bright_even",
+  "exposure_ev": 0.7,
+  "color_temp_k": 5500,
+  "flicker_hz": 0
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.45,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0.0,
+     "asian": 1.0,
+     "caucasian": 0.0
+    }
+   },
+   "skin": "young_asian_female",
+   "hair": "bob01",
+   "outfit": {
+    "clothes": [
+     "female_sportsuit01"
+    ],
+    "recolor": {
+     "top": "#181818",
+     "bottom": "#181818"
+    }
+   },
+   "place": {
+    "x": 0,
+    "y": 0,
+    "facing_deg": 4.9
+   },
+   "travel": 1.0,
+   "timeline": [
+    {
+     "type": "dance",
+     "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+     "clip_start_s": 4.0,
+     "duration_s": 15.0,
+     "mirror": false
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "dance",
+   "start_s": 0,
+   "end_s": 15.0
+  }
+ ],
+ "post": []
+}
