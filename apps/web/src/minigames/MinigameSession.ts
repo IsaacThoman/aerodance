@@ -10,7 +10,7 @@ import { createPoseFollower } from './pose/body.ts';
 import type { PlayerPose, PoseFollower } from './pose/body.ts';
 import { createGestureSet, handRaised } from './pose/gestures.ts';
 import type { GestureDetector, GestureEvent } from './pose/gestures.ts';
-import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFrame, MinigamePhase } from './types.ts';
+import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFrame, MinigameOutcome, MinigamePhase } from './types.ts';
 
 /*
  * One round of one minigame, independent of React and drawing (MinigameScreen draws it, App
@@ -92,6 +92,8 @@ export class MinigameSession implements MinigameContext {
   results: number[] | null = null;
   /** The players play as a team this round (the definition's coop, or setCoop). */
   coop: boolean;
+  /** How the game said the round ended (finish()'s outcome), if it did. */
+  outcome: MinigameOutcome | null = null;
   /** The game's own reported state (report()), as data-mg-* keys. */
   reported: Record<string, string> = {};
   listeners = new Set<Listener>();
@@ -248,9 +250,10 @@ export class MinigameSession implements MinigameContext {
   }
   setCoop(coop: boolean) { if (!this.results) this.coop = coop; }
   addScore(player: number, points: number) { this.setScore(player, (this.scoreList[player] ?? 0) + points); }
-  finish(scores?: readonly number[]) {
+  finish(scores?: readonly number[], outcome?: MinigameOutcome) {
     if (this.current !== 'playing' && this.current !== 'paused' && this.current !== 'countdown') return;
     if (scores) scores.slice(0, this.playerCount).forEach((s, i) => this.setScore(i, s));
+    this.outcome = outcome ?? null;
     this.clockAt = null;
     this.finishAt = this.now() + FINISH_MS;
     this.set('finishing');

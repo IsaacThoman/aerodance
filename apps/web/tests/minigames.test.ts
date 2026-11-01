@@ -120,9 +120,10 @@ test('a game can finish its own round, report its state, and fail', async () => 
   assert.equal(session.remainingMs(), Infinity);
   session.report({ bubbles: 3, done: false, gone: null });
   assert.deepEqual(session.reported, { mgBubbles: '3', mgDone: 'false' });
-  session.finish([42]);
+  session.finish([42], { headline: 'TEAMWORK!', best: false });
   cam.run(FINISH_MS + 100, () => session.advance());
   assert.deepEqual(session.results, [42]);
+  assert.deepEqual(session.outcome, { headline: 'TEAMWORK!', best: false }, 'how the game said it ended');
   session.fail('It broke.');
   assert.equal(session.phase(), 'error');
   assert.equal(session.error, 'It broke.');

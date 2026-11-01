@@ -101,6 +101,16 @@ export interface MinigameDefinition {
   load: () => Promise<{ default: MinigameComponent }>;
 }
 
+/** How a round ended, when its scores alone don't say: a team won, or everyone played together. */
+export interface MinigameOutcome {
+  /** The results' headline, in place of "Player 2 wins!" or "It's a tie!". */
+  headline?: string;
+  /** The player whose colours the headline wears (gold without one). */
+  player?: number;
+  /** false keeps the round out of the best scores (a match's points aren't a score to beat). */
+  best?: boolean;
+}
+
 /** What a game is given each frame (useMinigameFrame). */
 export interface MinigameFrame {
   /** Seconds since the last frame (0 while not playing, so a game's motion stops with it). */
@@ -134,8 +144,8 @@ export interface MinigameContext {
    * players choose (together or versus) once it has started. The results follow it.
    */
   setCoop(coop: boolean): void;
-  /** Ends the round (its results come up), with final scores if given. */
-  finish(scores?: readonly number[]): void;
+  /** Ends the round (its results come up), with final scores if given, and how it ended if the scores don't say. */
+  finish(scores?: readonly number[], outcome?: MinigameOutcome): void;
   /** The pose to draw a player's glass character with (smoothed for display), or null while they're missing. */
   livePose(player: number, now?: number): Pose | null;
   /** The calibration a player's character is drawn with. */

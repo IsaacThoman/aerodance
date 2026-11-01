@@ -10,7 +10,7 @@ import { topScore } from './bestScores.ts';
 import type { MinigameBestRecord } from './bestScores.ts';
 import { minigameLayout } from './layout.ts';
 import { formatScore } from './definition.ts';
-import type { MinigameDefinition } from './types.ts';
+import type { MinigameDefinition, MinigameOutcome } from './types.ts';
 
 /*
  * A minigame round's results, shared by every game: the winner (or the solo player's score, or a
@@ -34,6 +34,8 @@ export interface MinigameResultsShow {
   /** Seconds on the performance.now() clock when the reveal starts. */
   start: number;
   best: MinigameBestRecord;
+  /** How the game said it ended (a team's win, a shared score), if it did. */
+  outcome?: MinigameOutcome | null;
 }
 export interface MinigameResultsProps {
   visible?: boolean;
@@ -135,7 +137,13 @@ function drawBoard(g: CanvasRenderingContext2D, show: MinigameResultsShow, width
   const shownScore = (score: number) => (better === 'lower' ? score : score * count);
 
   let title = scores.length === 1 ? 'WELL PLAYED!' : 'And the winner is…', face: Face = ['#ffffff', '#ffffff', '#d5f3ff'], pop = 1;
-  if (scores.length > 1 && revealed) {
+  const outcome = show.outcome;
+  if (outcome?.headline && (scores.length === 1 || revealed)) {
+    if (scores.length > 1) pop = backOut(clamp01((t - COUNT_S[1]) / 0.32));
+    const p = outcome.player === undefined ? null : PLAYERS[outcome.player];
+    title = outcome.headline;
+    face = p ? ['#ffffff', p.light, p.color] : GOLD;
+  } else if (scores.length > 1 && revealed) {
     pop = backOut(clamp01((t - COUNT_S[1]) / 0.32));
     if (winner === null) { title = "IT'S A TIE!"; face = GOLD; }
     else { const p = PLAYERS[winner]; title = `${p.name.toUpperCase()} WINS!`; face = ['#ffffff', p.light, p.color]; }
