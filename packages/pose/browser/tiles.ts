@@ -28,8 +28,11 @@ const EVEN_WIDTH: Partial<Record<number, number>> = { 3: 0.45, 4: 0.35 };
  * log) are one person whatever their arms say: two strips can disagree about the arms.
  */
 const SAME_JOINTS = 0.35, SAME_CENTRE = 0.5, SAME_TORSO = 0.25, SAME_SIZE = 0.3;
-/** How sure a joint beyond a strip's cut edge can be. */
-const CUT = 0.2;
+/**
+ * How sure a joint beyond a strip's cut edge can be: it's the model's guess, so below what the
+ * scorer counts (MIN_CONFIDENCE in packages/score/features.ts).
+ */
+export const CUT = 0.05;
 /**
  * While a player is missing: a strip shown people hidden that has found nobody new for IDLE
  * results takes over a person it shares with another strip, which gets TRY results to find

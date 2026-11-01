@@ -6,6 +6,9 @@ import type { Landmark, PlayerCount } from '../../pose/choreography.ts';
 import { sampleDancers, validateSong, validateSongChoreography } from '../../pose/song.ts';
 import type { Cast, SongBundle } from '../../pose/song.ts';
 import { MAX_SCORE, SCORER_VERSION, createScorer, gradeFor, judge } from '../scorer.ts';
+import { MIN_CONFIDENCE, liveUsable } from '../features.ts';
+import { confidenceValue, quantizeConfidence } from '../../pose/binary.ts';
+import { fromTile } from '../../pose/browser/tiles.ts';
 import type { JudgementEvent } from '../scorer.ts';
 
 // A real recorded routine is the fixture: both tracks, real tracking noise and real gaps.
@@ -126,6 +129,26 @@ test('missing tracking never shrinks the possible score', () => {
     assert.ok(half[id].score < 0.6 * MAX_SCORE && half[id].score > 0.4 * MAX_SCORE, `half ${half[id].score}`);
     assert.ok(half[id].coverage < 0.6);
   }
+});
+
+test('joints the tracker is unsure of still count; ones it is nearly sure are wrong do not', () => {
+  const withConfidence = (confidence: number) => play((id, t) => reference(id, t)?.map((j, i) => [15, 16].includes(i) ? { ...j, confidence } : j) ?? null);
+  const unsure = withConfidence(0.3), wrong = withConfidence(0.05);
+  for (const id of [0, 1]) {
+    assert.ok(unsure[id].score > 0.97 * MAX_SCORE, `unsure wrists ${unsure[id].score}`);
+    // Without the forearms (weight 2 of 8.3), the pose match loses a quarter.
+    assert.ok(wrong[id].score < 0.9 * perfect[id].score, `untracked wrists ${wrong[id].score}`);
+  }
+});
+
+test('the confidence gate is the same live and replayed, and strips\' cut-off guesses never count', () => {
+  const at = (confidence: number) => liveUsable([{ x: 0.5, y: 0.5, z: 0, confidence }])[0];
+  assert.equal(at(MIN_CONFIDENCE), true);
+  assert.equal(at(0.09), false);
+  for (let c = 0.05; c < 0.15; c += 0.0007) assert.equal(at(c), at(confidenceValue(quantizeConfidence(c))!), `confidence ${c} replays the same`);
+  // A wrist past a strip's left edge is the model's guess.
+  const cut = fromTile([{ x: -0.2, y: 0.5, z: 0, visibility: 0.99, presence: 0.99 }], { x: 0.4, width: 0.3 })[0];
+  assert.equal(liveUsable([{ x: cut.x, y: cut.y, z: cut.z, confidence: Math.min(cut.visibility, cut.presence) }])[0], false);
 });
 
 test('scores do not depend on frame rate, duplicates or delivery order', () => {

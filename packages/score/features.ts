@@ -1,6 +1,7 @@
 // Pose features the scorer compares: 2D limb directions in aspect-corrected image space.
 // A direction is independent of body size, distance from the camera and where the player
 // stands, so neither a calibration step nor a torso scale is needed to compare two people.
+import { quantizeConfidence } from '../pose/binary.ts';
 import type { Landmark } from '../pose/choreography.ts';
 
 /** A limb end: one joint, or the midpoint of several. */
@@ -26,8 +27,14 @@ export const LIMBS: readonly Limb[] = [
 ];
 export const TOTAL_WEIGHT = LIMBS.reduce((n, l) => n + l.weight, 0);
 
-// A live joint below this confidence counts as untracked (the bundles' sampling threshold).
-export const MIN_CONFIDENCE = 0.5;
+/**
+ * A live joint below this confidence counts as untracked. It's well below the bundles' sampling
+ * threshold (0.5) because an untracked limb scores 0, which costs more than one the tracker is
+ * merely unsure of: on trackbench's 117 scenes, MediaPipe Lite's score lost to tracking falls
+ * from 14.2% to 9.4% at 0.1, no scene scores worse, and dancing the wrong moves or standing
+ * still gains no more than with perfect tracking (tools/trackbench/REPORT.md).
+ */
+export const MIN_CONFIDENCE = 0.1;
 
 const joints = (end: LimbEnd): readonly number[] => (typeof end === 'number' ? [end] : end);
 const point = (landmarks: readonly Landmark[], end: LimbEnd) => {
@@ -37,10 +44,12 @@ const point = (landmarks: readonly Landmark[], end: LimbEnd) => {
   return { x: x / ids.length, y: y / ids.length };
 };
 
-/** Live joints are usable when confident; unknown (null) confidence is trusted. */
+// Compared in the steps recordings store confidence in (254ths), so a replay counts the same joints.
+const MIN_CONFIDENCE_STEP = quantizeConfidence(MIN_CONFIDENCE);
+/** Live joints are usable unless the tracker is nearly sure they're wrong; unknown (null) confidence is trusted. */
 export const liveUsable = (landmarks: readonly Landmark[]) => landmarks.map((j) => {
   const c = j.confidence;
-  return c === null || c >= MIN_CONFIDENCE;
+  return c === null || quantizeConfidence(c) >= MIN_CONFIDENCE_STEP;
 });
 
 /**

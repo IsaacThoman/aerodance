@@ -1,6 +1,6 @@
 # How scores are calculated
 
-This document describes scorer version 1 (`SCORER_VERSION` in
+This document describes scorer version 2 (`SCORER_VERSION` in
 [`packages/score/scorer.ts`](../packages/score/scorer.ts)). Any change that would move
 scores must bump that version; best scores are saved per version.
 
@@ -45,8 +45,14 @@ direction vectors, in image space corrected for aspect ratio, for ten limbs:
 
 Directions don't depend on height, distance from the camera or where the player stands,
 so no torso scaling or calibration is needed. Arms carry the most weight because they
-carry most of the choreography and are tracked most reliably. A live joint counts only
-at a confidence (min of visibility and presence) of at least 0.5. Players compare
+carry most of the choreography and are tracked most reliably. A live joint counts unless
+its confidence (min of visibility and presence) is below 0.1 (`MIN_CONFIDENCE` in
+`features.ts`). Version 1 dropped joints below 0.5. Untracked limbs score 0, and the tracker
+is unsure of many joints that are in the right place, so 0.5 cost players points for
+tracking rather than dancing. On trackbench's 117 synthetic scenes, 0.1 cut MediaPipe Lite's
+score lost to tracking from 14.2% to 9.4%, and no scene scored worse. Dancing the wrong moves
+or standing still gained no more than with perfect tracking
+([trackbench report](../tools/trackbench/REPORT.md)). Players compare
 directly with the stored, unmirrored pose: the coach is only mirrored on screen
 (`coachMode: "mirror-player"`), and dancing the mirror image loses points.
 

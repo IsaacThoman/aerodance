@@ -49,7 +49,7 @@ export interface Scorer {
   onJudgement(fn: (event: JudgementEvent) => void): () => boolean;
 }
 
-export const SCORER_VERSION = 1;
+export const SCORER_VERSION = 2;
 export const MAX_SCORE = 1_000_000;
 
 export const INTERVAL_MS = 100;        // one score per 100 ms of song time
