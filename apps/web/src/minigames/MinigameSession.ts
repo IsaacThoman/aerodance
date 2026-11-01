@@ -143,7 +143,8 @@ export class MinigameSession implements MinigameContext {
 
   calibrationStatus(now = this.now()): CalibrationStatus | null { return this.calibrationHold?.status(now) ?? null; }
   /** Which players are in view (seen in the last PRESENT_MS). */
-  presence(now = this.now()) { return this.present.map((at) => now - at <= PRESENT_MS); }
+  /** Who is in view: seen within the last `within` ms (PRESENT_MS, as the games see it; the HUD's nudges wait longer). */
+  presence(now = this.now(), within = PRESENT_MS) { return this.present.map((at) => now - at <= within); }
 
   onRecord(event: PoseSourceEvent) {
     if (!isPoseRecordEvent(event)) return;

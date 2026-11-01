@@ -59,6 +59,8 @@ export interface MinigameScreenProps {
 
 // The pause screen's veil over the game.
 const VEIL = 0.35;
+/** How long a player has to be out of view before the HUD tells them to step back in. */
+const NUDGE_MS = 1500;
 const READY_FACE: Face = ['#ffffff', '#7fd0ff', '#0a7fd8'];
 const DATA_KEYS = ['minigamePhase', 'minigameId', 'minigameReady', 'minigamePlayers', 'minigameScores', 'minigameTimeMs', 'minigameRemainingMs',
   'minigameCountdown', 'minigamePresent', 'minigameGesture', 'minigameRaise', 'minigameCameraStatus', 'minigameCalibrationPlayers', 'minigameCalibrationProgress', 'minigameError'];
@@ -293,7 +295,8 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
   function drawHud(g: CanvasRenderingContext2D, session: MinigameSession, w: number, now: number, pauseHover: number, pauseIcon: boolean) {
     const { g16: G, mg: M } = layouts.current;
     const game = session.game, count = session.playerCount;
-    const presence = session.presence(now);
+    // A few dropped frames (a blurred arm, a slow phone) mustn't flash "Step back" at a player standing in view.
+    const presence = session.presence(now, NUDGE_MS);
     if (game.hud?.scores !== false) {
       const crowd = count > 2;
       session.scores().forEach((score, id) => {
