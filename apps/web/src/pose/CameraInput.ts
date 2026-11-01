@@ -35,6 +35,8 @@ export interface CameraInputOptions {
   phone?: PhonePoseSource;
   /** Whether this host can use a webcam at all (the Apple TV app can't: it starts on the phone). */
   webcamSupported?: boolean;
+  /** Start on this camera rather than the one picked last (the puppet camera, pose/puppet/). */
+  mode?: 'webcam' | 'phone' | 'none';
 }
 type Listener<T> = (value: T) => void;
 
@@ -60,10 +62,10 @@ export class CameraInput implements PoseSource {
   // simulator), which hasn't been tried on a device.
   constructor({ webcam = new PoseSourceController({ webcam: new WebcamPoseSource(inApp()
     ? { interruptedTimeoutMs: Infinity, adaptToResize: true, turn: cameraTurner(), tiles: false } : {}) }), phone = new PhonePoseSource(),
-    webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia }: CameraInputOptions = {}) {
+    webcamSupported = !!globalThis.navigator?.mediaDevices?.getUserMedia, mode }: CameraInputOptions = {}) {
     this.webcam = webcam; this.phone = phone; this.webcamSupported = webcamSupported;
     const choice = saved();
-    this.mode = choice === 'phone' || choice === 'none' ? choice : webcamSupported ? 'webcam' : 'phone';
+    this.mode = mode ?? (choice === 'phone' || choice === 'none' ? choice : webcamSupported ? 'webcam' : 'phone');
     this.view = this.compose();
     webcam.subscribe(() => this.update());
     phone.subscribe(() => this.update());

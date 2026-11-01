@@ -59,6 +59,8 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   eval <js>                            evaluate an expression in the page
   logs [--clear]                       console messages and page errors so far
   camera <0-4>                         dancers in the fixture camera's shot
+  puppet <command>                     pose the puppet camera's people (start with --url '/?input=puppet');
+                                       \`puppet help\` lists the commands
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
@@ -302,6 +304,12 @@ async function daemon(options: Options) {
     eval: (c) => page.evaluate(String(c.js)),
     logs: async (c) => { const out = [...logs]; if (c.clear) logs.length = 0; return out.join('\n'); },
     camera: (c) => page.evaluate((n) => { Reflect.set(window, 'playDancers', n); }, Number(c.dancers)),
+    // The puppet camera's command line (apps/web/src/pose/puppet/commands.ts), in the page.
+    puppet: (c) => page.evaluate((args) => {
+      const puppet = (window as typeof window & { puppet?: { run(args: string[]): unknown } }).puppet;
+      if (!puppet) throw Error('No puppet camera on this page: start (or goto) with /?input=puppet');
+      return puppet.run(args);
+    }, c.args as string[]),
     resize: (c) => page.setViewportSize({ width: Number(c.width), height: Number(c.height) }),
     stop: async () => { setTimeout(shutdown, 50); },
   };
@@ -458,6 +466,7 @@ async function main() {
     case 'goto': return print(await send(session, { cmd, target: args[0] ?? '/' }));
     case 'eval': return print(await send(session, { cmd, js: args.join(' ') }));
     case 'logs': return print(await send(session, { cmd, clear: args.includes('--clear') }));
+    case 'puppet': return print(await send(session, { cmd, args }));
     case 'camera': {
       const dancers = Number(args[0]);
       if (!Number.isInteger(dancers) || dancers < 0 || dancers > 4) throw Error('camera takes 0 to 4 dancers');

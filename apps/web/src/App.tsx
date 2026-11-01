@@ -34,10 +34,13 @@ import FixedRenderResolution from './FixedRenderResolution.tsx';
 import { isBackgroundId } from './backdrop/backgrounds.ts';
 import type { DisplayMode } from './display.ts';
 import { transferCode } from './songs/transferLink.ts';
+import { createPuppetInput } from './pose/puppet/puppetCamera.ts';
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
 // late); ?input=recording&recording=<url> replays a pose recording. ?record downloads each
-// song's live poses as a recording on the results screen.
+// song's live poses as a recording on the results screen. ?input=puppet makes the camera a
+// puppet camera: pretend people, posed from window.puppet or `node scripts/play.ts puppet`
+// (pose/puppet/), tracked by the real webcam pipeline.
 const params = new URLSearchParams(location.search);
 // ?transfer=<code>, a transfer QR code's link (songs/transferLink.ts), opens Settings → Songs →
 // Transfer songs joining it. It comes off the address once read, so reloading doesn't join again.
@@ -92,8 +95,8 @@ export default function App() {
   const [playerCount, setPlayerCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
   // The players screen's dial; it only becomes playerCount once Let's dance is pressed.
   const [dialCount, setDialCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
-  // The live camera (this computer's webcam or a paired phone), with optional URL replay.
-  const [source] = useState(() => new CameraInput());
+  // The live camera (this computer's webcam, a paired phone, or ?input=puppet's puppet camera), with optional URL replay.
+  const [source] = useState(() => (params.get('input') === 'puppet' ? createPuppetInput(params) : new CameraInput()));
   const [replay] = useState(replaySource);
   const activeSource: PoseSource = replay ?? source;
   // Song Select's preview: the routine to dance, and how its stage is doing. On the dancers
