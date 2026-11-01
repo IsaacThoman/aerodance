@@ -64,7 +64,8 @@ node scripts/play.ts start [--studio | --dance <project>] [--dist] [--headed] [-
   for checking what actually ships.
 - `--headed` opens a visible window that you can play in while the commands still work.
   Closing the window ends the session.
-- `--url` is the page to open, e.g. `/?input=ghost` for the autoplay ghost.
+- `--url` is the page to open, e.g. `/?input=ghost` for the autoplay ghost, or `/?input=puppet`
+  for the puppet camera (see [Camera](#camera)).
 - `--size` sets the viewport. The default, 1280×800, matches the browser tests: a
   1280×720 game frame starting 40 px down.
 - `--camera` sets the webcam (see below). The default is `fixture`.
@@ -96,6 +97,7 @@ and Vite dependency cache under `.cache/play/sessions/<name>/`.
 | `eval <js>` | Evaluates an expression in the page and prints the result |
 | `logs [--clear]` | Console messages, page errors, failed requests and page loads so far |
 | `camera <0-4>` | How many dancers the fixture camera shows |
+| `puppet <command>` | Poses the puppet camera's people (`/?input=puppet`): `puppet pose 0 tpose`, `puppet gesture all jump`, `puppet help` for the rest ([minigames](minigames.md#testing-with-the-puppet-camera)) |
 | `resize <w>x<h>` | Changes the viewport, e.g. `resize 390x844` for a phone |
 | `targets` | Lists every layout target |
 | `stop` | Closes the browser and the server |
@@ -103,13 +105,13 @@ and Vite dependency cache under `.cache/play/sessions/<name>/`.
 ### Clicking the canvas
 
 Every game screen is drawn on the canvas in 1600×900 (16:9) or 1200×900 (4:3) design units, and the layout
-modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`, `apps/web/src/walk/layout.ts`) export the position
-of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
+modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`, `apps/web/src/walk/layout.ts`,
+`apps/web/src/minigames/layout.ts`) export the position of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
 - `menu.BACK`, `game.BACK`: a module prefix where names clash
 - `GAME_CALIBRATION_CAMERA.next`: entries inside an export
-- `rowRect.2`: layout functions, called with the number (or numbers: `castRow.0.2`)
+- `rowRect.2`: layout functions, called with the number (or numbers: `castRow.0.2`; `mgTile.0` is Minigames' first tile)
 - `800,450`: any point in design units
 
 ### Reading the state
@@ -119,11 +121,12 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 
 - Display: `displayMode` (`standard` = 4:3, `widescreen` = 16:9); `resize 1024x768` / `resize 1280x800` switch between them without resetting the current screen while Settings → Graphics → Aspect ratio is on Auto (`click ASPECT.0`); `ASPECT.1` / `ASPECT.2` hold 4:3 / 16:9 whatever the window, and the choice is saved. Both keep the canvas buffer at 640×480.
 - Background: `background` (`skyline` or a backdrop id), `backgroundReady` (built, and the veil down). The menus always show the skyline; `goto '/?background=koi'` shows a backdrop for the visit.
-- Menus: `menuScreen` (`main`, `players`, `settings`, `transfer`), `menuReady`, `menuPlayers` (the players dial's count); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice`, `songDrop` (`near` / `over` while files are dragged over Settings / the Songs panel) (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first); Settings → Songs → Transfer songs (`click SONG_TRANSFER`): `transferStatus` (`starting`, `waiting`, `entering`, `connecting`, `connected`, `ended`), `transferMode` (`code`, `enter`), `transferCode`, `transferDevice`, `transferTransport` (`webrtc`, `relay`), `transferSongs`, `transferSent`, `transferReceived`, `transferNotice` (`click TRANSFER_LINK` enters a code instead; `click SONG_TRASH.0` sends the first song)
+- Menus: `menuScreen` (`main`, `players`, `settings`, `transfer`), `menuReady`, `menuPlayers` (the players dial's count), `menuMinigames` (the main screen has Minigames: `click MINIGAMES`); Settings → Songs: `savedSongs`, `damagedSongs`, `songImport` (`idle`, `importing`, `done`, `error`), `songNotice`, `songDrop` (`near` / `over` while files are dragged over Settings / the Songs panel) (`click SONG_TRASH.0` removes the first song once confirmed: the page dismisses confirms, so `eval "window.confirm = () => true"` first); Settings → Songs → Transfer songs (`click SONG_TRANSFER`): `transferStatus` (`starting`, `waiting`, `entering`, `connecting`, `connected`, `ended`), `transferMode` (`code`, `enter`), `transferCode`, `transferDevice`, `transferTransport` (`webrtc`, `relay`), `transferSongs`, `transferSent`, `transferReceived`, `transferNotice` (`click TRANSFER_LINK` enters a code instead; `click SONG_TRASH.0` sends the first song)
 - Song Select: `songScreen` (`list`, `preview`, `dancers`), `songReady`, `catalog`, `songCount`, `customSongCount`, `songLoadError`, `playerSlots`, `previewState`, `previewTimeMs`, `songDancers` (the open song's dancer count), `songCast` (the dancer each player follows, from 0, e.g. `0|1`). From the preview, `click game.DANCERS` opens the dancers screen; `click castRow.<n>.<players>` presses player n's row (from 0, laid out for that many players) and picks their next dancer, and `key ArrowLeft` / `ArrowRight` on a row step it
 - Stage: `stage`, `stageReady`
 - Walk mode (`goto '/?walk=club'`): `walkScene`, `walkReady`, `walkPaused`, `walkMode`, `walkGrounded`, `walkPosition`; `click walk.RESUME` walks, `key w:1500` holds W ([walk mode](walk-mode.md#testing-it))
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
+- Minigames: the list's `minigameScreen` (`list`, `preview`), `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`; a round's `minigamePhase` (`calibrating`, `howto`, `countdown`, `playing`, `paused`, `finishing`, `results`), `minigameReady`, `minigameScores`, `minigameTimeMs`, `minigameRemainingMs`, `minigamePresent`, `minigameGesture` (the last gesture seen, e.g. `1:swipe:left:right`), the results' `minigameWinner` and `minigameNewBest`, and the game's own `mg*` keys ([minigames](minigames.md#testing-with-the-puppet-camera)). A round calibrates on the song game's targets (`GAME_CALIBRATION_PREVIEW`) and pauses on them (`GAME_PAUSE`, `GAME_RESUME`, `GAME_RESTART`, `GAME_QUIT`)
 - Performance, while the stats overlay is on (Settings → Graphics → Stats: `click STATS.1` for Basic, `STATS.2` for Full, `STATS.0` for Off; or open `/?diag=stats`): `statsMode`, `statsFps`, `statsFrameMs`, `statsP99Ms`, `statsMaxMs`, `statsCpuMs`, `statsGpuMs` (Full only, and `--` without timer queries), `statsDrawCalls`, `statsTriangles`, `statsPoseHz`, `statsPoseAgeMs`. They update four times a second, e.g. `wait 'statsFps>55'`.
 
 Wait on `menuReady=true` or `songReady=true` after changing screens: these become `true`
@@ -142,6 +145,14 @@ in shot, side by side; start with as many as the song has players.
 For a scored run without any camera, open `/?input=ghost`: an autoplay ghost copies each
 routine (see the [developer guide](README.md#main-ui-flow)).
 
+For people you can pose, open `/?input=puppet`: the **puppet camera** shows up to four pretend
+people (as many as the game has players, unless told otherwise) and answers each frame with what
+MediaPipe would have found, so the real tracker, calibration and the minigames' pose API run on
+them, without loading the model. `puppet <command>` moves them (`puppet pose 0 armsUp`,
+`puppet gesture 1 swipeLeft`, `puppet move all 0.3`, `puppet play 0 tpose:300+500 stand:300 --loop`,
+`puppet realism rough`); `puppet help` lists everything, and [minigames](minigames.md#testing-with-the-puppet-camera)
+has the details and a whole round to copy.
+
 ## Examples
 
 A whole two-player song with the ghost:
@@ -158,6 +169,23 @@ node scripts/play.ts wait songScreen=preview songReady=true
 node scripts/play.ts click DANCE
 node scripts/play.ts wait gamePhase=results --timeout 90000   # prints gameScores
 node scripts/play.ts shot --frame
+```
+
+A two-player minigame with the puppet camera, from the main menu:
+
+```sh
+node scripts/play.ts goto '/?input=puppet'
+node scripts/play.ts click MINIGAMES
+node scripts/play.ts wait minigameScreen=list minigameSelectReady=true
+node scripts/play.ts click mgTile.0
+node scripts/play.ts wait minigameScreen=preview minigameSelectReady=true
+node scripts/play.ts click MG_PLAY                   # the dial starts on the menu's count, here 2
+node scripts/play.ts wait minigamePhase=calibrating minigameReady=true
+node scripts/play.ts click GAME_CALIBRATION_PREVIEW  # Start camera
+node scripts/play.ts wait minigamePhase=howto --timeout 20000
+node scripts/play.ts click MG_HOWTO_START
+node scripts/play.ts puppet play all armsOut:500+200 vUp:500+200 --loop
+node scripts/play.ts wait minigamePhase=results --timeout 60000
 ```
 
 Calibrating one player with the fixture camera, from a song's preview:
