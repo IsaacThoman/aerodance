@@ -86,6 +86,11 @@ export interface MinigameDefinition {
    * legs and feet). Otherwise the shoulders and hips are enough: players can stand close.
    */
   fullBody?: boolean;
+  /**
+   * The players play together, as a team: every player's score is the team's, and the results
+   * show it as one score instead of naming a winner (or a tie).
+   */
+  coop?: boolean;
   /** The host's HUD: each player's score in the top corners, and the round's time left (both on by default). */
   hud?: { scores?: boolean; timer?: boolean };
   /** Listed in development builds only (the reference game). */

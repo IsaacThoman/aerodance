@@ -6,13 +6,15 @@ import useCanvasUI from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
 import { displayDesign } from '../display.ts';
 import { PLAYERS, backOut, clamp01, easeOut } from '../game/results.ts';
+import { topScore } from './bestScores.ts';
 import type { MinigameBestRecord } from './bestScores.ts';
 import { minigameLayout } from './layout.ts';
 import { formatScore } from './definition.ts';
 import type { MinigameDefinition } from './types.ts';
 
 /*
- * A minigame round's results, shared by every game: the winner (or the solo player's score) in
+ * A minigame round's results, shared by every game: the winner (or the solo player's score, or a
+ * co-op team's) in
  * the song results' headline style, a scoreboard with everyone in finishing order (scores count
  * up, formatted the game's way: ScoreFormat), NEW BEST! when the top score beat this game's best
  * for this many players (bestScores.ts), then Play again and Minigames. Escape goes to Minigames.
@@ -49,6 +51,10 @@ const COUNT_S = [0.4, 1.5] as const;
 export function finishingOrder(scores: readonly number[], better: 'higher' | 'lower' = 'higher') {
   return scores.map((_, i) => i).sort((a, b) => (better === 'lower' ? scores[a] - scores[b] : scores[b] - scores[a]) || a - b);
 }
+/** The scores the board shows: a co-op game's players are one team, with the team's score. */
+export function resultSeats(game: Pick<MinigameDefinition, 'coop' | 'score'>, scores: readonly number[]) {
+  return game.coop && scores.length > 1 ? [topScore(scores, game.score?.better)] : scores;
+}
 /** The single winner, or null for a tie or a solo round. */
 export function minigameWinner(scores: readonly number[], better: 'higher' | 'lower' = 'higher') {
   if (scores.length < 2) return null;
@@ -64,7 +70,7 @@ export default function MinigameResults({ visible = false, show, onRetry, onQuit
   props.current = { visible, show, onRetry, onQuit, layout };
   const st = useRef({ alpha: 0 }).current;
   const live = () => props.current.visible && !!props.current.show.current;
-  const players = () => props.current.show.current?.scores.length ?? 1;
+  const players = () => { const shown = props.current.show.current; return shown ? resultSeats(shown.game, shown.scores).length : 1; };
 
   const ui = useCanvasUI({
     priority: 2.5,
@@ -90,7 +96,7 @@ export default function MinigameResults({ visible = false, show, onRetry, onQuit
       if (p.visible) s.invalidate();
       const { dataset } = gl.domElement;
       if (p.visible && shown) {
-        const winner = minigameWinner(shown.scores, shown.game.score?.better);
+        const winner = minigameWinner(resultSeats(shown.game, shown.scores), shown.game.score?.better);
         Object.assign(dataset, { minigameResults: 'shown', minigameWinner: winner === null ? '' : String(winner), minigameNewBest: String(shown.best.isNewBest) });
       } else for (const key of ['minigameResults', 'minigameWinner', 'minigameNewBest']) delete dataset[key];
     },
@@ -117,7 +123,8 @@ export default function MinigameResults({ visible = false, show, onRetry, onQuit
 
 // The headline, then the board: the top player large, everyone else a row each.
 function drawBoard(g: CanvasRenderingContext2D, show: MinigameResultsShow, width: number, layout: ReturnType<typeof minigameLayout>) {
-  const { game, scores } = show;
+  const { game } = show;
+  const scores = resultSeats(game, show.scores), team = scores.length < show.scores.length;
   const better = game.score?.better ?? 'higher';
   const t = performance.now() / 1000 - show.start;
   const count = easeOut(clamp01((t - COUNT_S[0]) / (COUNT_S[1] - COUNT_S[0])));
@@ -144,7 +151,7 @@ function drawBoard(g: CanvasRenderingContext2D, show: MinigameResultsShow, width
   const board = layout.mgResultsBoard(scores.length);
   drawDarkGlassPanel(g, board, 34);
   const first = order[0], p = PLAYERS[first];
-  drawShadowText(g, scores.length === 1 ? 'Your score' : p.name, board.x + 34, board.y + 42, { size: 24, weight: 700 });
+  drawShadowText(g, team ? 'Your team' : scores.length === 1 ? 'Your score' : p.name, board.x + 34, board.y + 42, { size: 24, weight: 700 });
   headline(g, formatScore(game, shownScore(scores[first]), { unit: true }), board.x + board.w / 2, board.y + 118, 64, ['#ffffff', p.light, p.color], board.w - 80);
   // A new best beside the top score once it has counted up, or the best to beat.
   g.save();

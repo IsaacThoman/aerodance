@@ -40,7 +40,7 @@ results → Play again or Minigames.**
   taken for a call, the camera muted: `game/interruptions.ts`) pauses: **Resume** counts down
   again, **Restart** starts the round over (with calibration), **Minigames** leaves. A timed round
   ends itself with **Time's up!**; others end when the game says.
-- **Results** (`minigames/MinigameResults.tsx`): the winner or the solo score, a scoreboard in
+- **Results** (`minigames/MinigameResults.tsx`): the winner, the solo score or a co-op team's, a scoreboard in
   finishing order, **NEW BEST!** when the top score beat the game's best for this many players
   (`minigames/bestScores.ts`, saved in the browser), **Play again** and **Minigames**.
 
@@ -81,7 +81,8 @@ The definition loads with the menus, so keep it small: the art and any drawing i
 `.ts` files (Node runs the tests that import it); the game, its 3D and its assets come in through
 `load`. The fields are in `minigames/types.ts`: also `tint` (the tile's glass colours), `hud` (turn
 the host's scores or timer off to draw your own), `fullBody` (calibrate only with feet in view, for
-games about legs), `order` (lower lists first, then by title) and `devOnly`.
+games about legs), `coop` (the players are a team: give everyone the team's score, and the results
+show it as one instead of naming a winner), `order` (lower lists first, then by title) and `devOnly`.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
 calibration to results, with the session's `MinigameContext` as its `ctx` prop (or
