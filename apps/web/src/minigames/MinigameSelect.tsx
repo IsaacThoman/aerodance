@@ -340,8 +340,11 @@ export default function MinigameSelect({ visible = false, open = null, players =
     const l = layoutRef.current;
     drawHeader(g, l.MG_BACK, 'MINIGAMES', h.back ?? 0);
     const x = l.MG_BACK.x - 38, w = l.MG_TEXT.w;
+    // A long title shrinks to fit (down to 48) before it's cut short.
     g.font = `800 64px ${FONT}`;
-    drawShadowText(g, ellipsize(g, game.title, w), x, l.MG_BACK.y + 84, { size: 64, weight: 800 });
+    const titleSize = Math.max(48, Math.min(64, Math.floor((64 * w) / g.measureText(game.title).width)));
+    g.font = `800 ${titleSize}px ${FONT}`;
+    drawShadowText(g, ellipsize(g, game.title, w), x, l.MG_BACK.y + 84, { size: titleSize, weight: 800 });
     g.font = `700 28px ${FONT}`;
     drawShadowText(g, ellipsize(g, game.blurb, w), x + 2, l.MG_BACK.y + 138, { size: 28, color: '#d8f6ff' });
     g.save();
