@@ -53,9 +53,9 @@ const COUNT_S = [0.4, 1.5] as const;
 export function finishingOrder(scores: readonly number[], better: 'higher' | 'lower' = 'higher') {
   return scores.map((_, i) => i).sort((a, b) => (better === 'lower' ? scores[a] - scores[b] : scores[b] - scores[a]) || a - b);
 }
-/** The scores the board shows: a co-op game's players are one team, with the team's score. */
-export function resultSeats(game: Pick<MinigameDefinition, 'coop' | 'score'>, scores: readonly number[]) {
-  return game.coop && scores.length > 1 ? [topScore(scores, game.score?.better)] : scores;
+/** The scores the board shows: a co-op game's (or round's) players are one team, with the team's score. */
+export function resultSeats(game: Pick<MinigameDefinition, 'coop' | 'score'>, scores: readonly number[], outcome?: MinigameOutcome | null) {
+  return (game.coop || outcome?.coop) && scores.length > 1 ? [topScore(scores, game.score?.better)] : scores;
 }
 /** The single winner, or null for a tie or a solo round. */
 export function minigameWinner(scores: readonly number[], better: 'higher' | 'lower' = 'higher') {
@@ -72,7 +72,7 @@ export default function MinigameResults({ visible = false, show, onRetry, onQuit
   props.current = { visible, show, onRetry, onQuit, layout };
   const st = useRef({ alpha: 0 }).current;
   const live = () => props.current.visible && !!props.current.show.current;
-  const players = () => { const shown = props.current.show.current; return shown ? resultSeats(shown.game, shown.scores).length : 1; };
+  const players = () => { const shown = props.current.show.current; return shown ? resultSeats(shown.game, shown.scores, shown.outcome).length : 1; };
 
   const ui = useCanvasUI({
     priority: 2.5,
@@ -98,7 +98,7 @@ export default function MinigameResults({ visible = false, show, onRetry, onQuit
       if (p.visible) s.invalidate();
       const { dataset } = gl.domElement;
       if (p.visible && shown) {
-        const winner = minigameWinner(resultSeats(shown.game, shown.scores), shown.game.score?.better);
+        const winner = minigameWinner(resultSeats(shown.game, shown.scores, shown.outcome), shown.game.score?.better);
         Object.assign(dataset, { minigameResults: 'shown', minigameWinner: winner === null ? '' : String(winner), minigameNewBest: String(shown.best.isNewBest) });
       } else for (const key of ['minigameResults', 'minigameWinner', 'minigameNewBest']) delete dataset[key];
     },
@@ -126,7 +126,7 @@ export default function MinigameResults({ visible = false, show, onRetry, onQuit
 // The headline, then the board: the top player large, everyone else a row each.
 function drawBoard(g: CanvasRenderingContext2D, show: MinigameResultsShow, width: number, layout: ReturnType<typeof minigameLayout>) {
   const { game } = show;
-  const scores = resultSeats(game, show.scores), team = scores.length < show.scores.length;
+  const scores = resultSeats(game, show.scores, show.outcome), team = scores.length < show.scores.length;
   const better = game.score?.better ?? 'higher';
   const t = performance.now() / 1000 - show.start;
   const count = easeOut(clamp01((t - COUNT_S[0]) / (COUNT_S[1] - COUNT_S[0])));

@@ -132,7 +132,10 @@ The game:
 - reads `frame.phase` and moves only while `playing` (`frame.dt` is 0 otherwise, so motion that
   multiplies by it stops by itself during the countdown and a pause);
 - keeps score with `ctx.addScore(player, points)` / `ctx.setScore`, and ends an untimed round
-  with `ctx.finish(scores?)`;
+  with `ctx.finish(scores?, outcome?)`; the outcome says what the scores can't: a `headline` for
+  the results (a team's win) in a `player`'s colours, `coop` for a round played together (one
+  team score, for a game whose modes differ round to round), `best: false` to keep a round
+  (a match's points) out of the best scores;
 - keeps its per-frame state in refs, not React state (the component re-renders only when the
   phase changes);
 - reports what a test needs with `ctx.report({ key: value })` (`data-mg-<key>`; `null` clears it);

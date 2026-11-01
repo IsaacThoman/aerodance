@@ -109,6 +109,8 @@ export interface MinigameOutcome {
   player?: number;
   /** false keeps the round out of the best scores (a match's points aren't a score to beat). */
   best?: boolean;
+  /** This round was played together, as a team (as `coop` says for a whole game): the results show one team score. */
+  coop?: boolean;
 }
 
 /** What a game is given each frame (useMinigameFrame). */
