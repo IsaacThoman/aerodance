@@ -274,10 +274,17 @@ test('three or four players are each looked for in a strip of the picture', asyn
   const twoInit = two.messages.find(m => m.type === 'initialize');
   assert.ok(twoInit?.type === 'initialize' && !twoInit.tiles);
   assert.equal(twoInit.playerCount, 2, 'two players must not keep the detector searching for a third person');
+  assert.equal(twoInit.search, true, 'two players get a search for whoever the model misses');
+  assert.ok(!init.search, 'strips have no search');
   const whole = fixture(t, { tiles: false });
   await whole.source.setPlayerCount(4); await whole.source.connect();
   const wholeInit = whole.messages.find(m => m.type === 'initialize');
   assert.ok(wholeInit?.type === 'initialize' && !wholeInit.tiles);
+  // Sources without strips (the iPhone/iPad app) can't afford the search's landmarker either.
+  const app = fixture(t, { tiles: false });
+  await app.source.setPlayerCount(2); await app.source.connect();
+  const appInit = app.messages.find(m => m.type === 'initialize');
+  assert.ok(appInit?.type === 'initialize' && !appInit.search);
 });
 test('each frame tells the worker how many players the last result found, for its strips', async t => {
   // Somebody standing at x, as MediaPipe reports them.

@@ -1,7 +1,7 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { fromTile, mergeTiles, StripHiding } from './tiles.ts';
+import { fromTile, mergeTiles, outline, StripHiding } from './tiles.ts';
 import type { Tile } from './tiles.ts';
 
 // The message protocol between a page (WebcamPoseSource, Studio video import) and this worker.
@@ -11,15 +11,17 @@ export type PoseWorkerRequest =
   /**
    * playerCount is how many poses to look for; looks asks for each person's looks (appearance.ts)
    * too. With tiles (VIDEO mode on a GPU), each strip of the picture looks for one person instead
-   * (tiles.ts), and playerCount is used only if they can't be set up.
+   * (tiles.ts), and playerCount is used only if they can't be set up. search adds a second
+   * landmarker to the whole picture (VIDEO mode on a GPU) that looks for whoever the first misses.
    */
-  | { type: 'initialize'; sessionId: string; playerCount: number; modelUrl: string; modelHash: string; wasmUrl: string; runningMode?: PoseRunningMode; looks?: boolean; tiles?: Tile[] }
+  | { type: 'initialize'; sessionId: string; playerCount: number; modelUrl: string; modelHash: string; wasmUrl: string; runningMode?: PoseRunningMode; looks?: boolean; tiles?: Tile[]; search?: boolean }
   /** players: how many players were found in the last result, which steers the strips (tiles.ts). */
   | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number; players?: number }
   | { type: 'close' };
 export type PoseWorkerResponse =
   | { type: 'ready'; sessionId: string; delegate: PoseDelegate; fallback: string; tiled?: boolean }
-  | { type: 'result'; sessionId: string | undefined; seq: number; landmarks: NormalizedLandmark[][]; inferenceMs: number; looks?: (number[] | null)[] }
+  /** searched: the search landmarker looked this time (for measuring its cost). */
+  | { type: 'result'; sessionId: string | undefined; seq: number; landmarks: NormalizedLandmark[][]; inferenceMs: number; looks?: (number[] | null)[]; searched?: boolean }
   | { type: 'error'; sessionId: string | undefined; message: string };
 
 // The project type-checks against the DOM lib; this is the part of the worker scope used here.
@@ -31,6 +33,15 @@ interface PoseWorkerScope {
 const scope: PoseWorkerScope = self;
 
 let landmarker: PoseLandmarker | undefined;
+/**
+ * On the whole picture: a second landmarker that, while the first finds fewer people than it was
+ * asked for (but somebody), is shown the picture with those it found hidden (their head, torso and
+ * legs), so it looks for whoever else is there. MediaPipe's person detector often finds only one
+ * of two people standing close together, and then never the other.
+ */
+let search: { landmarker: PoseLandmarker; people: number } | null = null;
+/** The search landmarker's results count as a strip of their own, for merging copies of somebody. */
+const WHOLE: Tile = { x: 0, width: 1 }, SEARCHED: Tile = { x: 0, width: 1 };
 /** With tiles: one landmarker per strip of the picture, the strips, who each is shown hidden (tiles.ts), and the picture's size. */
 let tiled: { landmarkers: PoseLandmarker[]; tiles: Tile[]; hiding: StripHiding; size: string } | null = null;
 /** Where a strip is drawn with people hidden. */
@@ -99,6 +110,12 @@ scope.onmessage = async ({ data }) => {
           if (delegate === 'CPU') throw error;
           fallback = errorMessage(error); delegate = 'CPU'; landmarker = await create(delegate);
         }
+        // (Like the strips, it needs the GPU and VIDEO mode's following; without them it's left out.)
+        search = null;
+        if (data.search && data.playerCount > 1 && delegate === 'GPU' && runningMode === 'VIDEO') {
+          try { search = { landmarker: await create(delegate, 1), people: data.playerCount }; }
+          catch (error) { console.warn('pose search could not start:', errorMessage(error) || error); }
+        }
       }
       scope.postMessage({ type: 'ready', sessionId, delegate, fallback, tiled: !!tiled });
     } else if (data.type === 'frame') {
@@ -106,6 +123,7 @@ scope.onmessage = async ({ data }) => {
         if (!landmarker && !tiled) throw Error('Pose model is not initialized');
         const start = performance.now();
         let landmarks: NormalizedLandmark[][];
+        let searched = false;
         if (tiled) {
           const { width, height } = data.bitmap;
           // A picture of another size (a phone turned round) starts afresh.
@@ -133,6 +151,21 @@ scope.onmessage = async ({ data }) => {
           tiled.hiding.next(found, landmarks, width / height, data.players);
         } else {
           landmarks = (runningMode === 'IMAGE' ? landmarker!.detect(data.bitmap) : landmarker!.detectForVideo(data.bitmap, data.timestampMs)).landmarks;
+          if (search && landmarks.length && landmarks.length < search.people) {
+            const { width, height } = data.bitmap;
+            hiding ??= new OffscreenCanvas(1, 1).getContext('2d')!;
+            const { canvas } = hiding;
+            if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+            hiding.drawImage(data.bitmap, 0, 0);
+            hiding.fillStyle = '#808080';
+            for (const points of landmarks) { const b = outline(points); hiding.fillRect(b.x0 * width, b.y0 * height, (b.x1 - b.x0) * width, (b.y1 - b.y0) * height); }
+            const picture = canvas.transferToImageBitmap();
+            searched = true;
+            try {
+              const more = search.landmarker.detectForVideo(picture, data.timestampMs).landmarks;
+              if (more.length) landmarks = mergeTiles([...landmarks.map(points => ({ points, tile: WHOLE })), ...more.map(points => ({ points, tile: SEARCHED }))], width / height);
+            } finally { picture.close(); }
+          }
         }
         const inferenceMs = performance.now() - start;
         let looks: (number[] | null)[] | undefined;
@@ -144,9 +177,9 @@ scope.onmessage = async ({ data }) => {
           const pixels = looksCanvas.getImageData(0, 0, canvas.width, canvas.height);
           looks = landmarks.map(points => describeLooks(pixels, points));
         }
-        scope.postMessage({ type: 'result', sessionId, seq: data.seq, landmarks, inferenceMs, ...(looks ? { looks } : {}) });
+        scope.postMessage({ type: 'result', sessionId, seq: data.seq, landmarks, inferenceMs, ...(looks ? { looks } : {}), ...(searched ? { searched } : {}) });
       } finally { data.bitmap.close(); }
-    } else if (data.type === 'close') { landmarker?.close(); for (const l of tiled?.landmarkers ?? []) l.close(); scope.close(); }
+    } else if (data.type === 'close') { landmarker?.close(); search?.landmarker.close(); for (const l of tiled?.landmarkers ?? []) l.close(); scope.close(); }
   } catch (error) {
     scope.postMessage({ type: 'error', sessionId, message: errorMessage(error) || 'Pose inference failed' });
   }

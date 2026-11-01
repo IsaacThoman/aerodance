@@ -99,7 +99,7 @@ export function mergeTiles<P extends Point>(found: readonly { points: P[]; tile:
  * for their hair and clothes: hiding that is enough for the model to lose them, and leaves
  * whoever their outstretched arms reach over in view.
  */
-function outline(points: readonly Point[]): Box {
+export function outline(points: readonly Point[]): Box {
   const core = points.filter((_, i) => i < 13 || i > 22), sure = core.filter(reliable), use = sure.length ? sure : core;
   const xs = use.map(p => p.x), ys = use.map(p => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
