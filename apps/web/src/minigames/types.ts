@@ -129,6 +129,11 @@ export interface MinigameContext {
   scores(): readonly number[];
   setScore(player: number, score: number): void;
   addScore(player: number, points: number): void;
+  /**
+   * Plays this round as a team, or not, whatever the definition's `coop` says: for a game whose
+   * players choose (together or versus) once it has started. The results follow it.
+   */
+  setCoop(coop: boolean): void;
   /** Ends the round (its results come up), with final scores if given. */
   finish(scores?: readonly number[]): void;
   /** The pose to draw a player's glass character with (smoothed for display), or null while they're missing. */

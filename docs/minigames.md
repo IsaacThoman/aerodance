@@ -82,7 +82,8 @@ The definition loads with the menus, so keep it small: the art and any drawing i
 `load`. The fields are in `minigames/types.ts`: also `tint` (the tile's glass colours), `hud` (turn
 the host's scores or timer off to draw your own), `fullBody` (calibrate only with feet in view, for
 games about legs), `coop` (the players are a team: give everyone the team's score, and the results
-show it as one instead of naming a winner), `order` (lower lists first, then by title) and `devOnly`.
+show it as one instead of naming a winner; a game whose players choose together or versus once
+it's started says so with `ctx.setCoop`), `order` (lower lists first, then by title) and `devOnly`.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
 calibration to results, with the session's `MinigameContext` as its `ctx` prop (or

@@ -90,12 +90,15 @@ export class MinigameSession implements MinigameContext {
   scoreList: number[];
   /** The final scores, once the results are in. */
   results: number[] | null = null;
+  /** The players play as a team this round (the definition's coop, or setCoop). */
+  coop: boolean;
   /** The game's own reported state (report()), as data-mg-* keys. */
   reported: Record<string, string> = {};
   listeners = new Set<Listener>();
   offRecords: () => void;
   constructor({ game, playerCount, source = null, now = () => performance.now() }: MinigameSessionOptions) {
     this.game = game; this.playerCount = playerCount; this.source = source; this.now = now;
+    this.coop = !!game.coop;
     this.trackingRefreshAt = now();
     // Live cameras calibrate; replays already know where everyone stands.
     // (Feet only for the games that want them: a living room's camera often can't see them.)
@@ -243,6 +246,7 @@ export class MinigameSession implements MinigameContext {
     if (player < 0 || player >= this.playerCount || !Number.isFinite(score) || this.results) return;
     this.scoreList[player] = score;
   }
+  setCoop(coop: boolean) { if (!this.results) this.coop = coop; }
   addScore(player: number, points: number) { this.setScore(player, (this.scoreList[player] ?? 0) + points); }
   finish(scores?: readonly number[]) {
     if (this.current !== 'playing' && this.current !== 'paused' && this.current !== 'countdown') return;
