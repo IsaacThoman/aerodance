@@ -135,7 +135,8 @@ The game:
   with `ctx.finish(scores?, outcome?)`; the outcome says what the scores can't: a `headline` for
   the results (a team's win) in a `player`'s colours, `coop` for a round played together (one
   team score, for a game whose modes differ round to round), `best: false` to keep a round
-  (a match's points) out of the best scores;
+  (a match's points) out of the best scores, `timeUp` for a round its own clock ended ("Time's
+  up!" rather than "Finish!", as a `durationMs` round says);
 - keeps its per-frame state in refs, not React state (the component re-renders only when the
   phase changes);
 - reports what a test needs with `ctx.report({ key: value })` (`data-mg-<key>`; `null` clears it);

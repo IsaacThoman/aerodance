@@ -61,6 +61,8 @@ export interface MinigameScreenProps {
 const VEIL = 0.35;
 /** How long a player has to be out of view before the HUD tells them to step back in. */
 const NUDGE_MS = 1500;
+/** A timed round its game finishes this close to the end (to say how it ended) is time up too. */
+const TIMES_UP_SLACK_MS = 250;
 const READY_FACE: Face = ['#ffffff', '#7fd0ff', '#0a7fd8'];
 const DATA_KEYS = ['minigamePhase', 'minigameId', 'minigameReady', 'minigamePlayers', 'minigameScores', 'minigameTimeMs', 'minigameRemainingMs',
   'minigameCountdown', 'minigamePresent', 'minigameGesture', 'minigameRaise', 'minigameCameraStatus', 'minigameCalibrationPlayers', 'minigameCalibrationProgress', 'minigameError'];
@@ -232,7 +234,7 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
         g.save();
         g.translate(s.w / 2, 470);
         g.scale(k, k);
-        headline(g, game.durationMs && session.remainingMs() <= 0 ? "TIME'S UP!" : 'FINISH!', 0, 30, 120, ['#fff6cc', '#ffd34d', '#f0a500'], s.w - 120);
+        headline(g, (game.durationMs && session.remainingMs() <= TIMES_UP_SLACK_MS) || session.outcome?.timeUp ? "TIME'S UP!" : 'FINISH!', 0, 30, 120, ['#fff6cc', '#ffd34d', '#f0a500'], s.w - 120);
         g.restore();
       } else if (ph === 'paused') {
         g.save();

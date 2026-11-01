@@ -111,6 +111,8 @@ export interface MinigameOutcome {
   best?: boolean;
   /** This round was played together, as a team (as `coop` says for a whole game): the results show one team score. */
   coop?: boolean;
+  /** The round ran out of time on the game's own clock: "Time's up!" rather than "Finish!" (as a durationMs round's). */
+  timeUp?: boolean;
 }
 
 /** What a game is given each frame (useMinigameFrame). */
