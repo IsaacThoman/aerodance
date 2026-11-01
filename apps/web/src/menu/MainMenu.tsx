@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawDialCount, drawDialStep, drawGlassButton, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
-import type { Circle, GlassStyle, Point, Rect } from '../ui/draw.ts';
+import type { GlassStyle, Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
@@ -16,6 +16,7 @@ import type { Fullscreen } from './useFullscreen.ts';
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
 import { HAS_SONGS, createSongsPanel } from './songsPanel.ts';
+import { MINIGAMES as GAMES } from '../minigames/registry.ts';
 import type { SongsPanel, SongsWidget } from './songsPanel.ts';
 import { createTransferPanel } from './transferPanel.ts';
 import type { TransferPanel, TransferWidget } from './transferPanel.ts';
@@ -24,7 +25,8 @@ import type { TransferPanel, TransferWidget } from './transferPanel.ts';
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in the selected display mode and
  * drawn after the world (useFrame priority 2).
  *
- * Screens: main (Start, Settings), players (a 1-4 dial, shown by that many dancers on the
+ * Screens: main (Start, Minigames while there are any (minigames/registry.ts; it opens their list,
+ * minigames/MinigameSelect.tsx), Settings), players (a 1-4 dial, shown by that many dancers on the
  * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
  * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
@@ -45,11 +47,12 @@ import type { TransferPanel, TransferWidget } from './transferPanel.ts';
  * the count changes by pressing minus or plus.
  * The dial is controlled (playerCount / onPlayerCountChange); Start always turns it back to 2
  * (Back from Song Select keeps the count picked last). onScreenChange reports the
- * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players
- * (and the Songs and Transfer panels', songsPanel.ts and transferPanel.ts) for tests.
+ * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players /
+ * data-menu-minigames (and the Songs and Transfer panels', songsPanel.ts and transferPanel.ts)
+ * for tests. `refocus` names the button a keyboard cursor comes back to when the menu reopens.
  *
  * <MainMenu visible initialScreen="main" playerCount={n} onPlayerCountChange={setN}
- *   onStart={(playerCount) => ...} onScreenChange={setShown} sound={sound} onSoundChange={setSound}
+ *   onStart={(playerCount) => ...} onMinigames={() => ...} onScreenChange={setShown} sound={sound} onSoundChange={setSound}
  *   graphics={graphics} onGraphicsChange={setGraphics} />
  */
 
@@ -64,6 +67,10 @@ export interface MainMenuProps {
   playerCount?: PlayerCount;
   onPlayerCountChange?: (count: PlayerCount) => void;
   onStart?: (playerCount: PlayerCount) => void;
+  /** Minigames: their list (shown only while there are minigames). */
+  onMinigames?: () => void;
+  /** The button a keyboard cursor comes back to when the menu reopens on the main screen ('minigames'). */
+  refocus?: string;
   onSettingsOpen?: () => void;
   onScreenChange?: (screen: MenuScreen) => void;
   sound: SoundSettings;
@@ -266,18 +273,22 @@ interface MenuState {
   reported?: MenuScreen;
 }
 
+// The main screen has Minigames while there are any to play.
+const HAS_MINIGAMES = GAMES.length > 0;
+
 export default function MainMenu({
-  visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
+  visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onMinigames, refocus, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const fullscreen = useFullscreen();
-  const layout = menuLayout(displayDesign(size.width, size.height).w, fullscreen.supported);
-  const { ASPECT, BACK, COUNT_X, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, SOUND, START, TITLE, TRACK, ROW_Y } = layout;
+  const layout = menuLayout(displayDesign(size.width, size.height).w, fullscreen.supported, HAS_MINIGAMES);
+  const { ASPECT, BACK, COUNT_X, FULLSCREEN, MINIGAMES, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, SOUND, START, TITLE, TRACK, ROW_Y } = layout;
   const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
   const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
     main: [
       { id: 'start', rect: START, corner: glassCorner(START.h), primary: true },
+      ...(MINIGAMES ? [{ id: 'minigames', rect: MINIGAMES, corner: glassCorner(MINIGAMES.h) }] : []),
       { id: 'settings', rect: SETTINGS, corner: glassCorner(SETTINGS.h) },
     ],
     players: [
@@ -300,7 +311,7 @@ export default function MainMenu({
     spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnFullscreen: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
   });
   const props = useRef<MainMenuProps>({ sound, graphics });
-  props.current = { visible, playerCount, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
+  props.current = { visible, playerCount, onPlayerCountChange, onStart, onMinigames, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
   const count = () => props.current.playerCount ?? 1;
   const fullscreenRef = useRef(fullscreen);
   fullscreenRef.current = fullscreen;
@@ -398,6 +409,7 @@ export default function MainMenu({
       }
       switch (wdg.id) {
         case 'start': setCount(DEFAULT_PLAYERS); go('players'); break;
+        case 'minigames': props.current.onMinigames?.(); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
         case 'minus': setCount(count() - 1); break;
@@ -453,6 +465,7 @@ export default function MainMenu({
       for (const [key, value] of Object.entries(transfer.report())) { if (value) dataset[key] = value; else delete dataset[key]; }
       dataset.menuScreen = m.screen;
       dataset.menuPlayers = String(count());
+      dataset.menuMinigames = String(HAS_MINIGAMES);
       dataset.menuReady = String(shown && m.alpha > 0.5 && m.screen === m.next && m.swap > 0.95);
     },
     opacity: () => m.alpha,
@@ -477,6 +490,7 @@ export default function MainMenu({
       if (m.screen === 'main') {
         // No chevrons on the title menu's buttons (Let's dance's too).
         drawGlassButton(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start'), style: BUTTONS, chevron: false });
+        if (MINIGAMES) drawGlassButton(g, MINIGAMES, { label: 'Minigames', icon: 'bubbles', hover: h.minigames ?? 0, press: press('minigames'), style: BUTTONS, chevron: false });
         drawGlassButton(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle, style: BUTTONS, chevron: false });
       } else if (m.screen === 'players') {
         const n = count();
@@ -500,7 +514,7 @@ export default function MainMenu({
   // Frosted glass: the world blurred inside the glass buttons and Settings' panels only,
   // lifting, fading and sliding with them (drawn just before the overlay).
   useGlassBlur(() => {
-    const panes = m.screen === 'main' ? [buttonPane(ui, 'start', START), buttonPane(ui, 'settings', SETTINGS)]
+    const panes = m.screen === 'main' ? [buttonPane(ui, 'start', START), ...(MINIGAMES ? [buttonPane(ui, 'minigames', MINIGAMES)] : []), buttonPane(ui, 'settings', SETTINGS)]
       : m.screen === 'players' ? [buttonPane(ui, 'go', PLAYERS_GO)]
         : m.screen === 'transfer' ? [panelPane(layout.TRANSFER_CONNECT), panelPane(layout.SONGS)]
           : [panelPane(SOUND), panelPane(layout.GRAPHICS), ...(HAS_SONGS ? [panelPane(layout.SONGS)] : [])];
@@ -515,9 +529,9 @@ export default function MainMenu({
     m.swap = 1;
     m.titleY = initialScreen === 'players' ? PLAYERS_TITLE_Y : HOME_TITLE.y;
     m.titleAlpha = initialScreen === 'settings' || initialScreen === 'transfer' ? 0 : 1;
-    m.refocus = ui.keyboard && initialScreen === 'players' ? 'go' : null;
+    m.refocus = !ui.keyboard ? null : initialScreen === 'players' ? 'go' : initialScreen === 'main' ? refocus ?? null : null;
     ui.invalidate();
-  }, [visible, initialScreen, m, ui]);
+  }, [visible, initialScreen, refocus, m, ui]);
 
   useEffect(() => () => songs.dispose(), [songs]);
   useEffect(() => () => transfer.dispose(), [transfer]);

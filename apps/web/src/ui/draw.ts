@@ -432,6 +432,19 @@ export const ICONS = {
     g.lineTo(cx + a, cy - a * 0.6);
     g.stroke();
   },
+  // Three bubbles, a glint in the biggest (Minigames).
+  bubbles(g, cx, cy, r) {
+    g.beginPath();
+    g.arc(cx - r * 0.12, cy + r * 0.1, r * 0.3, 0, TAU);
+    g.moveTo(cx + r * 0.47, cy - r * 0.2);
+    g.arc(cx + r * 0.3, cy - r * 0.2, r * 0.17, 0, TAU);
+    g.moveTo(cx + r * 0.12, cy - r * 0.48);
+    g.arc(cx + r * 0.03, cy - r * 0.48, r * 0.09, 0, TAU);
+    g.stroke();
+    g.beginPath();
+    g.arc(cx - r * 0.12, cy + r * 0.1, r * 0.17, Math.PI * 1.1, Math.PI * 1.45);
+    g.stroke();
+  },
   // An aero dancer (choose who follows which dancer).
   dancer(g, cx, cy, r) {
     drawDancer(g, cx, cy + r * 0.6, r * 1.24, g.strokeStyle as string);

@@ -14,6 +14,7 @@ import { chromiumPath, gpuFlags } from './chromium.ts';
 import * as menuLayout from '../apps/web/src/menu/layout.ts';
 import * as gameLayout from '../apps/web/src/game/layout.ts';
 import * as walkLayout from '../apps/web/src/walk/layout.ts';
+import * as minigameLayout from '../apps/web/src/minigames/layout.ts';
 import { displayDesign } from '../apps/web/src/display.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -64,25 +65,29 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in apps/web/src/{menu,game,walk}/layout.ts, e.g. START,
-menu.BACK, game.BACK, rowRect.0, GAME_CALIBRATION_CAMERA.next or walk.sceneRect.3.
+Targets name layout exports in apps/web/src/{menu,game,walk,minigames}/layout.ts, e.g. START,
+menu.BACK, game.BACK, rowRect.0, GAME_CALIBRATION_CAMERA.next, mgTile.0 or walk.sceneRect.3.
 
 PLAY_SESSION=<name> before any command uses a separate named session.`;
 
 // ---- Layout targets ----
 
 type Shape = { x: number; y: number; w?: number; h?: number; r?: number };
-const layouts: Record<string, Record<string, unknown>> = { menu: menuLayout, game: gameLayout, walk: walkLayout };
+const layouts: Record<string, Record<string, unknown>> = { menu: menuLayout, game: gameLayout, walk: walkLayout, minigames: minigameLayout };
 const isShape = (v: unknown): v is Shape =>
   typeof v === 'object' && v !== null && typeof Reflect.get(v, 'x') === 'number' && typeof Reflect.get(v, 'y') === 'number';
 const centre = (s: Shape) => ({ x: s.x + (s.w ?? 0) / 2, y: s.y + (s.h ?? 0) / 2 });
 
-/** The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the numbers after them as arguments). */
-function resolveTarget(target: string, width = 1600) {
+/**
+ * The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the
+ * numbers after them as arguments). The main menu's layout depends on whether it has Minigames.
+ */
+function resolveTarget(target: string, width = 1600, minigames = false) {
   const layouts: Record<string, Record<string, unknown>> = {
-    menu: { ...menuLayout, ...menuLayout.menuLayout(width) },
+    menu: { ...menuLayout, ...menuLayout.menuLayout(width, true, minigames) },
     game: { ...gameLayout, ...gameLayout.gameLayout(width) },
     walk: { ...walkLayout, ...walkLayout.walkLayout(width) },
+    minigames: { ...minigameLayout, ...minigameLayout.minigameLayout(width) },
   };
   const point = /^(-?[\d.]+),(-?[\d.]+)$/.exec(target);
   if (point) return { x: Number(point[1]), y: Number(point[2]) };
@@ -229,7 +234,8 @@ async function daemon(options: Options) {
     const frame = await page.locator('.canvas-frame').boundingBox();
     if (!frame) throw Error('No .canvas-frame on this page; use --locator');
     const design = displayDesign(frame.width, frame.height);
-    const { x, y } = resolveTarget(target, design.w);
+    const minigames = await page.evaluate(() => document.querySelector<HTMLElement>('.canvas-frame canvas')?.dataset.menuMinigames === 'true');
+    const { x, y } = resolveTarget(target, design.w, minigames);
     return { x: frame.x + (x / design.w) * frame.width, y: frame.y + (y / design.h) * frame.height };
   };
   const shutdown = async () => {
