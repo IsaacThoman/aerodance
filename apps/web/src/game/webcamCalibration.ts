@@ -15,14 +15,27 @@ export const WEBCAM_MISS_MS = 200;
 const MIN_SAMPLES = 6;
 const MOVEMENT_TOLERANCE = 0.15; // Fraction of the initial torso length, independent of camera distance.
 const BODY = [11, 12, 23, 24, 27, 28];
+const TORSO = [11, 12, 23, 24];
 const WRISTS = [15, 16];
 const reliable = (j: Landmark | undefined) => !!j && (j.confidence ?? 0) >= 0.5;
 const distance = (a: { x: number; y: number }, b: { x: number; y: number }, aspect: number) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
 const mid = (p: readonly Landmark[], a: number, b: number) => ({ x: (p[a].x + p[b].x) / 2, y: (p[a].y + p[b].y) / 2 });
+// The shoulders and hips are in the picture and confidently tracked.
+const reliableTorso = (pose: Pose) => TORSO.every(i => { const j = pose.landmarks[i]; return reliable(j) && j.x >= 0 && j.x <= 1 && j.y >= 0 && j.y <= 1; });
+
+export interface WebcamCalibrationOptions {
+  /**
+   * Everyone's whole body in view, ankles too (the songs: the characters stand on the floor and
+   * legs are scored). false asks only for the shoulders and hips (the minigames, played close to
+   * the camera in a living room); the floor is then wherever MediaPipe guesses the ankles are.
+   */
+  feet?: boolean;
+}
 
 /** A shared stillness window; only new camera frames advance it, never render ticks. */
 export class WebcamCalibration {
   playerCount: PlayerCount;
+  feet: boolean;
   boundary: string | null = null;
   seq: number | null = null;
   lastCapture = -Infinity;
@@ -36,8 +49,9 @@ export class WebcamCalibration {
   progress = 0;
   /** One calibration per player, once everyone has held still. */
   tracks: TrackCalibration[] | null = null;
-  constructor(playerCount: PlayerCount) {
+  constructor(playerCount: PlayerCount, { feet = true }: WebcamCalibrationOptions = {}) {
     this.playerCount = playerCount;
+    this.feet = feet;
     this.resetHold();
   }
 
@@ -72,7 +86,7 @@ export class WebcamCalibration {
     const found = Array.from({ length: this.playerCount }, (_, id) => record.poses.find(p => p.playerId === id));
     // (Somebody holding still whom the model misses for a moment hasn't moved.)
     const players = found.map((p, id): CalibrationPlayerStatus => !p ? (this.anchors && captureTime - this.seen[id] <= WEBCAM_MISS_MS ? 'holding' : 'missing')
-      : reliableBodyPose(p) ? 'holding' : 'body');
+      : (this.feet ? reliableBodyPose(p) : reliableTorso(p)) ? 'holding' : 'body');
     if (players.some(p => p !== 'holding')) {
       this.resetHold(players);
       return false;
@@ -85,7 +99,7 @@ export class WebcamCalibration {
         if (!pose) return;
         const p = pose.landmarks, anchor = anchors[id].landmarks;
         const tolerance = Math.max(0.02, distance(mid(anchor, 11, 12), mid(anchor, 23, 24), aspect)) * MOVEMENT_TOLERANCE;
-        const joints = [...BODY, ...WRISTS.filter(i => reliable(p[i]) && reliable(anchor[i]))];
+        const joints = [...(this.feet ? BODY : TORSO), ...WRISTS.filter(i => reliable(p[i]) && reliable(anchor[i]))];
         if (joints.some(i => distance(p[i], anchor[i], aspect) > tolerance)) players[id] = 'moving';
       });
       if (players.includes('moving')) {

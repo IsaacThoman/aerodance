@@ -24,6 +24,8 @@ export interface CalibrationCardOptions {
   title?: string;
   /** No camera continues without one (the preview is its button); otherwise the card asks for a camera. */
   withoutCamera?: boolean;
+  /** The hold wants everyone's feet in view too (webcamCalibration.ts's feet), as the songs' does. */
+  feet?: boolean;
 }
 
 // Each status's label, colour and a short label for the narrow columns of three or four players.
@@ -34,6 +36,8 @@ const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color:
   holding: ['Hold still…', '#bff4ff', 'Hold still…'],
   ready: ['Calibrated!', '#9effdf', 'Calibrated!'],
 };
+// Without feet, a player's body is in view once their shoulders and hips are.
+const UPPER_BODY: [label: string, color: string, short: string] = ['Keep your shoulders and hips in view', '#ffe27a', 'Step back'];
 
 // The webcam setup card, centred: the mirrored preview, then the camera picker. Over the
 // preview, each player's status along the top and the shared hold along the bottom. With the
@@ -42,7 +46,7 @@ const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color:
 /** Where each player last stood in the calibration preview (mirrored, as a fraction of its width). */
 const lastStood = new WeakMap<CalibrationOwner, number[]>();
 export function drawCalibration(g: CanvasRenderingContext2D, owner: CalibrationOwner, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI,
-  { title = 'CALIBRATION', withoutCamera = true }: CalibrationCardOptions = {}) {
+  { title = 'CALIBRATION', withoutCamera = true, feet = true }: CalibrationCardOptions = {}) {
   const { GAME_READY_BACK, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PROGRESS } = gameLayout(s.w);
   const h = s.hover;
   const { connection, source } = camera.target();
@@ -89,7 +93,7 @@ export function drawCalibration(g: CanvasRenderingContext2D, owner: CalibrationO
     };
     const columns = calibration.players.map((_, id) => id).sort((a, b) => standing(a) - standing(b));
     calibration.players.forEach((status, id) => {
-      const [label, color, short] = CALIBRATION_STATUS[status];
+      const [label, color, short] = !feet && status === 'body' ? UPPER_BODY : CALIBRATION_STATUS[status];
       const cx = picture.x + column * (columns.indexOf(id) + 0.5);
       // (One player's label too: the fade dims the preview's own.)
       drawShadowText(g, `P${id + 1}`, cx, preview.y + 24, { size: 16, weight: 800, align: 'center', color: SKELETON[id % SKELETON.length] });
@@ -100,7 +104,7 @@ export function drawCalibration(g: CanvasRenderingContext2D, owner: CalibrationO
     const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
     const message = calibration.complete ? 'Calibrated! Starting…'
       : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
-      : owner.playerCount > 2 && calibration.players.includes('missing') ? 'Stand side by side, feet in view'
+      : owner.playerCount > 2 && calibration.players.includes('missing') ? (feet ? 'Stand side by side, feet in view' : 'Stand side by side')
       : 'Stand still for 2.5 seconds';
     drawShadowText(g, message, mid, GAME_CALIBRATION_PROGRESS.y - 24, { size: 22, weight: 800, align: 'center' });
     drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);

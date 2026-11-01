@@ -28,7 +28,9 @@ results → Play again or Minigames.**
 - **Calibration** (`minigames/MinigameScreen.tsx`): the song game's camera setup card
   (`game/calibrationCard.ts`): the preview starts the camera, the arrows pick a webcam, a phone
   or the puppet, and every player holds still together for 2.5 seconds, which measures each
-  one's body (`game/webcamCalibration.ts`). No camera can't play a minigame: the card asks for one.
+  one's body (`game/webcamCalibration.ts`). Shoulders and hips in view are enough, so players can
+  stand close to the camera, unless the game asks for feet too (`fullBody`, as the songs do). No
+  camera can't play a minigame: the card asks for one.
   Replays (`?input=ghost`) skip it.
 - **How to play**: the game's steps, each with an icon, then **Start**, or any player holding a
   hand above their head for 0.8 seconds. Missing players are named.
@@ -78,8 +80,8 @@ export default highFive;
 The definition loads with the menus, so keep it small: the art and any drawing it uses go in
 `.ts` files (Node runs the tests that import it); the game, its 3D and its assets come in through
 `load`. The fields are in `minigames/types.ts`: also `tint` (the tile's glass colours), `hud` (turn
-the host's scores or timer off to draw your own), `order` (lower lists first, then by title) and
-`devOnly`.
+the host's scores or timer off to draw your own), `fullBody` (calibrate only with feet in view, for
+games about legs), `order` (lower lists first, then by title) and `devOnly`.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
 calibration to results, with the session's `MinigameContext` as its `ctx` prop (or

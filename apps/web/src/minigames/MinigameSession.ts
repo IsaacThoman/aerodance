@@ -18,7 +18,8 @@ import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFr
  *
  *   loading      the game's code downloads (definition.load)
  *   calibrating  with a live camera: every player in view holds still together for 2.5 seconds
- *                (game/webcamCalibration.ts, the song game's), which measures each one's body
+ *                (game/webcamCalibration.ts, the song game's), which measures each one's body;
+ *                shoulders and hips in view are enough, unless the game wants feet (fullBody)
  *   howto        the game's how-to card, until Start or a player holds a hand up for a moment
  *   countdown    3, 2, 1 (and again after a pause)
  *   playing      the game's clock runs (timeMs), the HUD shows scores, a timed round ends itself
@@ -97,7 +98,8 @@ export class MinigameSession implements MinigameContext {
     this.game = game; this.playerCount = playerCount; this.source = source; this.now = now;
     this.trackingRefreshAt = now();
     // Live cameras calibrate; replays already know where everyone stands.
-    this.calibrationHold = source && source.view.sourceKind !== 'replay' ? new WebcamCalibration(playerCount) : null;
+    // (Feet only for the games that want them: a living room's camera often can't see them.)
+    this.calibrationHold = source && source.view.sourceKind !== 'replay' ? new WebcamCalibration(playerCount, { feet: !!game.fullBody }) : null;
     if (this.calibrationHold) source?.resetTracking?.();
     this.followers = Array.from({ length: playerCount }, (_, id) => createPoseFollower(id));
     this.players = this.followers.map((f) => f.pose);

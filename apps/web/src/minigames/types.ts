@@ -81,6 +81,11 @@ export interface MinigameDefinition {
   durationMs?: number;
   /** What's behind it (default 'menu'). */
   scene?: MinigameScene;
+  /**
+   * Calibrate only with everyone's whole body in view, feet too, as the songs do (games about
+   * legs and feet). Otherwise the shoulders and hips are enough: players can stand close.
+   */
+  fullBody?: boolean;
   /** The host's HUD: each player's score in the top corners, and the round's time left (both on by default). */
   hud?: { scores?: boolean; timer?: boolean };
   /** Listed in development builds only (the reference game). */

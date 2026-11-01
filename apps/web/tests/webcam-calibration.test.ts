@@ -143,3 +143,16 @@ test('consistent inference latency does not break an otherwise continuous hold',
   }
   assert.equal(calibration.status(2900).complete, true);
 });
+
+test('without feet, the shoulders and hips are enough to calibrate (the minigames, close to the camera)', () => {
+  // Feet out of the picture: MediaPipe still guesses where, unsure.
+  const close = (count: PlayerCount) => poses(count).map((pose) => ({ ...pose, landmarks: pose.landmarks.map((j, i) => (i >= 25 ? { ...j, y: j.y + 0.3, confidence: 0.1 } : j)) }));
+  for (const feet of [true, false]) {
+    const calibration = new WebcamCalibration(2, { feet });
+    let seq = 0;
+    for (let time = 0; time <= 3000; time += 100) calibration.accept({ sessionId: 'camera', seq: ++seq, input: { width: 640, height: 480 }, poses: close(2) }, time, time);
+    const status = calibration.status(3000);
+    assert.equal(status.complete, !feet);
+    assert.deepEqual(status.players, feet ? ['body', 'body'] : ['ready', 'ready']);
+  }
+});

@@ -188,7 +188,7 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
 
       if (ph === 'calibrating') {
         const calibration = session.calibrationStatus(now);
-        if (calibration) drawCalibration(g, session, calibration, camera, s, { title: game.title.toUpperCase(), withoutCamera: false });
+        if (calibration) drawCalibration(g, session, calibration, camera, s, { title: game.title.toUpperCase(), withoutCamera: false, feet: !!game.fullBody });
         return;
       }
       if (ph === 'loading' || ph === 'error') {

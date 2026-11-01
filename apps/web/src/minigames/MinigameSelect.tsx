@@ -11,6 +11,7 @@ import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
 import { displayDesign } from '../display.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { minigameBest } from './bestScores.ts';
+import type { MinigameBest } from './bestScores.ts';
 import { formatScore, playersLabel } from './definition.ts';
 import { MG_PER_PAGE, minigameLayout, tileArt } from './layout.ts';
 import { MINIGAMES } from './registry.ts';
@@ -58,7 +59,7 @@ const fmt = (game: MinigameDefinition, score: number) => formatScore(game, score
 
 // A tile: the game's art in a rounded window, then its title, blurb and players and best below,
 // on frosted glass (useGlassBlur) tinted the game's colours. It lifts under the pointer.
-function drawTile(g: CanvasRenderingContext2D, rect: Rect, game: MinigameDefinition, hover: number, press: number, time: number, players: PlayerCount) {
+function drawTile(g: CanvasRenderingContext2D, rect: Rect, game: MinigameDefinition, hover: number, press: number, time: number, best: MinigameBest | null) {
   const lift = hover * 4 - press * 3;
   const r = { ...rect, y: rect.y - lift };
   const [top, bottom] = game.tint ?? TINT;
@@ -95,7 +96,6 @@ function drawTile(g: CanvasRenderingContext2D, rect: Rect, game: MinigameDefinit
   drawShadowText(g, ellipsize(g, game.title, w), x, y0 + 32, { size: r.w > 380 ? 30 : 26, weight: 800 });
   g.font = `600 18px ${FONT}`;
   drawShadowText(g, ellipsize(g, game.blurb, w), x, y0 + 62, { size: 18, weight: 600, color: '#d8f6ff' });
-  const best = minigameBest(game.id, game.players.includes(players) ? players : game.players[0]);
   drawShadowText(g, playersLabel(game.players), x, y0 + 92, { size: 17, weight: 700, color: '#bff4ff' });
   if (best) drawShadowText(g, `Best ${fmt(game, best.score)}`, r.x + r.w - 22, y0 + 92, { size: 17, weight: 800, align: 'right', color: '#fff2bf' });
   // The rim, brightening under the pointer.
@@ -141,6 +141,8 @@ interface SelectState {
   drawnAt: number;
   drawn: string;
   reported: string;
+  /** Best scores read from storage, by game and players (read again each time the list opens). */
+  bests: Map<string, MinigameBest | null>;
 }
 
 export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onPlay }: MinigameSelectProps) {
@@ -151,7 +153,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   props.current = { visible, players, onBack, onPlay };
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
-  const st = useRef<SelectState>({ alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), drawnAt: -Infinity, drawn: '', reported: '' }).current;
+  const st = useRef<SelectState>({ alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), drawnAt: -Infinity, drawn: '', reported: '', bests: new Map() }).current;
 
   const pages = Math.max(1, Math.ceil(MINIGAMES.length / MG_PER_PAGE));
   const onPage = () => MINIGAMES.slice(st.page * MG_PER_PAGE, (st.page + 1) * MG_PER_PAGE);
@@ -163,6 +165,12 @@ export default function MinigameSelect({ visible = false, open = null, players =
     return game.players.includes(props.current.players) ? props.current.players : game.players[0];
   };
   const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
+  // (The list redraws often: storage is read once a game and count.)
+  const bestOf = (game: MinigameDefinition, count: PlayerCount) => {
+    const key = `${game.id}|${count}`;
+    if (!st.bests.has(key)) st.bests.set(key, minigameBest(game.id, count));
+    return st.bests.get(key) ?? null;
+  };
   const tileWidget = (game: MinigameDefinition, i: number, primary: boolean): SelectWidget => ({ id: `game-${game.id}`, game, rect: layoutRef.current.mgTile(i), corner: TILE_CORNER, primary });
   // Tiles in column order, so Up/Down go down and up a column (Left/Right go across, onStep).
   const tileWidgets = () => {
@@ -306,7 +314,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
         if (!games.length) {
           drawShadowText(g, 'The first minigames are on their way', l.MG_BACK.x - 38, 300, { size: 36, weight: 800 });
         }
-        games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`), s.time, props.current.players));
+        games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`), s.time, bestOf(game, game.players.includes(props.current.players) ? props.current.players : game.players[0])));
         // The page's empty places, like the Wii's unused channels: faint glass waiting for a game.
         for (let i = games.length; i < MG_PER_PAGE && st.page === pages - 1; i++) drawEmptyTile(g, l.mgTile(i));
         if (pages > 1) {
@@ -343,7 +351,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
     paragraph(g, game.description, x + 2, l.MG_BACK.y + 200, w, { size: 24, color: '#ffffff', lineH: 33 });
     g.restore();
     // The best for this many players.
-    const best = minigameBest(game.id, count);
+    const best = bestOf(game, count);
     const counts = [...game.players].sort((a, b) => a - b);
     drawShadowText(g, best ? `Best ${fmt(game, best.score)} with ${COUNT_NAMES[count - 1].toLowerCase()}` : `No best yet with ${COUNT_NAMES[count - 1].toLowerCase()}`,
       x + 2, l.MG_MINUS.y - 72, { size: 22, weight: 700, color: best ? '#fff2bf' : '#bff4ff' });
@@ -380,6 +388,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   // Opening the list lands on it (or on the game just played, with its players), focusing that game's tile or Play.
   useEffect(() => {
     if (!visible) return;
+    st.bests.clear();
     const game = open ? MINIGAMES.find((g) => g.id === open.id) : null;
     if (game && open) {
       st.chosen = game.id;
