@@ -174,6 +174,9 @@ export default function App() {
     replay?.setPlayerCount(count);
     source.setPlayerCount(count).catch(() => {});
     const session = new MinigameSession({ game, playerCount: count, source: activeSource });
+    // In development (and with the puppet camera), window.minigame is the round, for poking at
+    // from play.ts: `eval "minigame.players[0].body[16]"`.
+    if (import.meta.env.DEV || params.get('input') === 'puppet') Reflect.set(window, 'minigame', session);
     minigameResults.current = null;
     setMinigame(session);
     setMinigamePhase(session.phase());

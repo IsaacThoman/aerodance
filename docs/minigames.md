@@ -354,6 +354,12 @@ off the floor), and `leftHand`, `rightHand`, `leftFoot`, `rightFoot` (body-space
 feet measured as if standing). Changes go on a timeline from the moment they're asked for, so a
 camera delay sees the past correctly; a new command cuts whatever was moving that puppet.
 
+The puppet camera's frames come from the page like a webcam's (a canvas stream, one frame
+tracked at a time), so a busy machine slows them as it would slow MediaPipe: if calibration
+stalls or gestures go missing, `node scripts/play.ts status` shows the page's frame rate, and
+`eval "minigame.source.view.message"` the poses a second. In development (and with
+`?input=puppet`), `window.minigame` is the round's session: `eval "minigame.players[0].body[16]"`.
+
 What to read back: `minigamePhase`, `minigameScores` (`3|5`), `minigameTimeMs`,
 `minigameRemainingMs`, `minigameCountdown`, `minigamePresent` (`1|0`), `minigameGesture` (the last
 gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to card's raise to start,
