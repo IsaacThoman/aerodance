@@ -1,6 +1,6 @@
 # Menu backdrops
 
-Ten procedural Frutiger Aero scenes that can stand behind the menus in place of the Aero world's drone flight (`apps/web/src/aero`). Settings → Graphics → Background picks one; `?background=<id>` picks one for a visit. They aren't dance stages: nobody dances in them, and they only have to look good behind the title, the menus and the menu dancers. Like the stages, everything is generated (geometry, shaders, canvas textures).
+Ten procedural Frutiger Aero scenes that can stand behind the menus in place of the Aero world's drone flight (`apps/web/src/aero`). `?background=<id>` picks one for a visit (the menus otherwise show the flight). They aren't dance stages: nobody dances in them, and they only have to look good behind the title, the menus and the menu dancers. Like the stages, everything is generated (geometry, shaders, canvas textures).
 
 | Id | Name | Highlights |
 | --- | --- | --- |
