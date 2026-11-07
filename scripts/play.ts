@@ -211,7 +211,7 @@ async function daemon(options: Options) {
     await page.waitForFunction(() => {
       const c = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas');
       return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true'
-        || c?.dataset.walkReady === 'true' || c?.dataset.walkFailed === 'true';
+        || c?.dataset.walkReady === 'true' || c?.dataset.walkFailed === 'true' || c?.dataset.handsReady === 'true';
     }, null, { timeout: 120000 });
   };
   const goto = async (target: string) => { await page.goto(new URL(target, appUrl).href); await ready(); };

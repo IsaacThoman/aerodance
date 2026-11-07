@@ -1,0 +1,53 @@
+.hands-hud {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font: 600 15px/1.3 system-ui, sans-serif;
+  color: #2a3140;
+  pointer-events: none;
+}
+
+.hands-button {
+  pointer-events: auto;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 999px;
+  background: linear-gradient(#bfe6ff, #6bb8ec);
+  color: #0d2a44;
+  font: inherit;
+  box-shadow: 0 2px 8px rgba(20, 60, 100, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+}
+
+.hands-status {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.hands-preview {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 320px;
+  height: auto;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  background: #000;
+}
+
+/* Not the game frame's canvas rule (100% of the frame). */
+.canvas-frame canvas.hands-preview {
+  width: 320px !important;
+  height: auto !important;
+}
+
+/* The last ball's pass and the paddle's calibration, along the bottom. */
+.hands-hud-low {
+  top: auto;
+  bottom: 16px;
+}
