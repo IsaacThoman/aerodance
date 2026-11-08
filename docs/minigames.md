@@ -14,9 +14,10 @@ The **Minigames** button only shows while there's a game to play. **Table Tennis
 **Minigames → a game's preview → Play → calibration → how to play → 3, 2, 1 → the round →
 results → Play again or Minigames.**
 
-- **The list** (`minigames/MinigameSelect.tsx`): six tiles a page, three across and two down,
+- **The list** (`minigames/MinigameSelect.tsx`): two tiles a page in a left column,
   each with the game's art, title, blurb, supported players and best score for the players
-  last picked. More than six games page with the arrows beside the grid. Up and Down move down and up a column (on to the
+  last picked. The menu dancers stay on their platform on the right. More than
+  two games page with the arrows under the column. Up and Down move down and up a column (on to the
   back button), Left and Right across a row (on to the next page at its end).
 - **The preview**: the game's title, its settings on the left ([options](#settings-options)),
   a players dial and **Play** below them, and the menu's glass dancer platform on the right,

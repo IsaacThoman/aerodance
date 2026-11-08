@@ -10,7 +10,7 @@ import { COUNTDOWN_MS, FINISH_MS, MinigameSession, RAISE_START_MS } from '../src
 import { definitionProblem, formatScore, listMinigames, playersLabel } from '../src/minigames/definition.ts';
 import { minigameBest, recordMinigameBest } from '../src/minigames/bestScores.ts';
 import { cameraArea, fromDesign, toDesign } from '../src/minigames/cameraArea.ts';
-import { MG_MAX_OPTIONS, minigameLayout, mgTile } from '../src/minigames/layout.ts';
+import { MG_MAX_OPTIONS, MG_PER_PAGE, minigameLayout, mgTile } from '../src/minigames/layout.ts';
 import { minigameOptions, optionsText, resolveOptions, saveMinigameOption, stepOption } from '../src/minigames/options.ts';
 import type { MinigameContext, MinigameDefinition, MinigameOption } from '../src/minigames/types.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
@@ -208,13 +208,19 @@ test('the camera picture fits the screen, and points map both ways', () => {
   assert.deepEqual(fromDesign(toDesign({ x: 0.2, y: 0.9 }, area), area), { x: 0.2, y: 0.9 });
 });
 
-test('the list fits six tiles in either display, clear of the back button and the bottom', () => {
+test('the list and its page controls stay on the left, clear of the menu dancers', () => {
   for (const width of [1600, 1200]) {
     const l = minigameLayout(width);
-    const tiles = Array.from({ length: 6 }, (_, i) => l.mgTile(i));
+    const tiles = Array.from({ length: MG_PER_PAGE }, (_, i) => l.mgTile(i));
     assert.deepEqual(tiles[0], mgTile(0, width));
     assert.ok(tiles.every((t) => t.x >= 0 && t.x + t.w <= width && t.y > l.MG_BACK.y + l.MG_BACK.r && t.y + t.h <= 900 - 40), `${width}`);
-    assert.ok(tiles[1].x >= tiles[0].x + tiles[0].w && tiles[3].y >= tiles[0].y + tiles[0].h, 'no overlaps');
+    assert.ok(tiles.every((t) => t.x + t.w <= width / 2), 'the right half stays free for dancers');
+    assert.ok(tiles[1].y >= tiles[0].y + tiles[0].h, 'rows do not overlap');
+    for (const c of [l.MG_PAGE_PREV, l.MG_PAGE_NEXT]) {
+      assert.ok(c.y - c.r > tiles.at(-1)!.y + tiles.at(-1)!.h, 'arrows below the tiles');
+      assert.ok(c.x - c.r >= 0 && c.x + c.r <= width / 2 && c.y + c.r < 900, 'arrows in the left half');
+    }
+    assert.ok(l.MG_PAGE_DOTS_X > l.MG_PAGE_PREV.x + l.MG_PAGE_PREV.r && l.MG_PAGE_DOTS_X < l.MG_PAGE_NEXT.x - l.MG_PAGE_NEXT.r);
     assert.ok(l.MG_MINUS.x - l.MG_MINUS.r > l.MG_TEXT.x + 150, 'the dial clears its label');
   }
 });

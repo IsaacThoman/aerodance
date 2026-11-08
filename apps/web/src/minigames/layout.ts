@@ -5,13 +5,14 @@ import type { Circle, Rect } from '../ui/draw.ts';
 
 // Both screens of the list: back button and heading top left, where Song Select has them.
 export const MG_BACK = { x: 166, y: 150, r: 30 };
-/** Tiles per page of the list: three across, two down. */
-export const MG_PER_PAGE = 6;
+/** The list leaves the right half free for the menu dancers. */
+export const MG_COLUMNS = 1;
+export const MG_PER_PAGE = 2;
 
 // The list: a grid of glass tiles, each the game's art over its title, blurb, players and best.
-const GRID = { y: 232, cols: 3 };
-const tileSize = (compact: boolean) => ({ w: compact ? 336 : 420, h: compact ? 268 : 288, gap: compact ? 22 : 32 });
-const gridX = (width: number) => { const t = tileSize(width === 1200); return (width - (GRID.cols * t.w + (GRID.cols - 1) * t.gap)) / 2; };
+const GRID = { y: 232, cols: MG_COLUMNS };
+const tileSize = (compact: boolean) => ({ w: compact ? 512 : 644, h: 268, gap: 24 });
+const gridX = (width: number) => width === 1200 ? 72 : 128;
 /** The ith tile on the page in view. */
 export const mgTile = (i: number, width = 1600): Rect => {
   const t = tileSize(width === 1200), col = i % GRID.cols, row = Math.floor(i / GRID.cols);
@@ -56,11 +57,12 @@ export function minigameLayout(width = 1600, options = 0) {
   return {
     MG_BACK: { ...MG_BACK, x: compact ? 110 : MG_BACK.x },
     mgTile: (i: number) => mgTile(i, width),
-    /** Page arrows, either side of the grid (only with more than a page of games). */
-    MG_PAGE_PREV: { x: gridX(width) - (compact ? 34 : 56), y: GRID.y + (gridBottom - GRID.y) / 2, r: 30 } as Circle,
-    MG_PAGE_NEXT: { x: width - gridX(width) + (compact ? 34 : 56), y: GRID.y + (gridBottom - GRID.y) / 2, r: 30 } as Circle,
+    /** Page controls under the left column, clear of the dancer platform. */
+    MG_PAGE_PREV: { x: left + 30, y: gridBottom + 44, r: 26 } as Circle,
+    MG_PAGE_NEXT: { x: left + t.w - 30, y: gridBottom + 44, r: 26 } as Circle,
     /** Under the grid: the page dots. */
-    MG_PAGE_DOTS_Y: gridBottom + 30,
+    MG_PAGE_DOTS_X: left + t.w / 2,
+    MG_PAGE_DOTS_Y: gridBottom + 44,
     MG_TEXT: { x: left, w: columnW },
     MG_PLAY: play,
     MG_COUNT_X: countX,

@@ -13,7 +13,7 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { minigameBest } from './bestScores.ts';
 import type { MinigameBest } from './bestScores.ts';
 import { formatScore, playersLabel } from './definition.ts';
-import { MG_PER_PAGE, minigameLayout, tileArt } from './layout.ts';
+import { MG_COLUMNS, MG_PER_PAGE, minigameLayout, tileArt } from './layout.ts';
 import { minigameOptions, optionsText, resolveOptions, saveMinigameOption, stepOption } from './options.ts';
 import type { MinigameOptionValues } from './options.ts';
 import { MINIGAMES } from './registry.ts';
@@ -22,9 +22,9 @@ import type { MinigameDefinition } from './types.ts';
 /**
  * Minigames' list, drawn in-engine from the main menu's Minigames (menu/MainMenu.tsx):
  *
- *   list     a glass tile per game (minigames/registry.ts), three across and two down, each with
- *            its art, title, blurb, players and best score; more than six page with the arrows
- *            beside the grid. Like the Wii's channels
+ *   list     a glass tile per game (minigames/registry.ts), one column on the left, each with
+ *            its art, title, blurb, players and best score; two per page, with page controls
+ *            below the column and the menu dancers on the right. Like the Wii's channels
  *   preview  the chosen game's title, options and players dial on the left, Play below,
  *            and the menu's glass dancer platform on the right. The dial only steps through
  *            supported player counts; solo games show one with both steps disabled.
@@ -250,7 +250,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   const tileWidgets = () => {
     const games = onPage();
     const primary = Math.max(0, games.findIndex((game) => game.id === st.chosen));
-    const order = games.map((_, i) => i).sort((a, b) => (a % 3) - (b % 3) || a - b);
+    const order = games.map((_, i) => i).sort((a, b) => (a % MG_COLUMNS) - (b % MG_COLUMNS) || a - b);
     return order.map((i) => tileWidget(games[i], i, i === primary));
   };
   const go = (screen: MinigameScreenName, key = ui.keyboard) => {
@@ -341,10 +341,10 @@ export default function MinigameSelect({ visible = false, open = null, players =
         return true;
       }
       if (!wdg.game) return false;
-      const games = onPage(), i = games.indexOf(wdg.game), col = i % 3;
-      if ((dir < 0 && col === 0) || (dir > 0 && (col === 2 || i === games.length - 1))) {
+      const games = onPage(), i = games.indexOf(wdg.game), col = i % MG_COLUMNS;
+      if ((dir < 0 && col === 0) || (dir > 0 && (col === MG_COLUMNS - 1 || i === games.length - 1))) {
         if (!turnPage(dir)) return true;
-        const next = onPage(), j = dir > 0 ? 0 : Math.min(next.length - 1, i - col + 2);
+        const next = onPage(), j = dir > 0 ? 0 : Math.min(next.length - 1, i - col + MG_COLUMNS - 1);
         s.focus(tileWidget(next[j], j, false));
         return true;
       }
@@ -419,7 +419,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
           drawArrow(g, l.MG_PAGE_NEXT, 'right', h['page-next'] ?? 0, { enabled: st.page < pages - 1 });
           for (let i = 0; i < pages; i++) {
             g.beginPath();
-            g.arc(s.w / 2 + (i - (pages - 1) / 2) * 26, l.MG_PAGE_DOTS_Y, i === st.page ? 7 : 5, 0, TAU);
+            g.arc(l.MG_PAGE_DOTS_X + (i - (pages - 1) / 2) * 26, l.MG_PAGE_DOTS_Y, i === st.page ? 7 : 5, 0, TAU);
             g.fillStyle = i === st.page ? '#ffffff' : 'rgba(255, 255, 255, 0.45)';
             g.fill();
           }
