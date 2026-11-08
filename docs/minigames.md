@@ -7,7 +7,8 @@ they share: the list, each game's settings, the camera and its calibration, the 
 3, 2, 1, pausing, the HUD, the results and best scores, a pose API built for games, and a puppet
 camera to test them with. A game is one folder; adding one changes no other file.
 
-The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game.
+The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game;
+its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room.
 
 ## The flow
 
@@ -416,7 +417,7 @@ gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to car
 `tracking: 'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
 results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `minigameScreen`,
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
-preview's settings, e.g. `botShots=medium|botReturns=everything` for
+preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything` for
 Table Tennis), and the game's own `mg*` keys; a round's settings are
 `eval "minigame.options"`. The puppet works for the song game too: its calibration and scoring
 run on it.

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createGelMaterial, gelGeometry } from '../../../../../packages/character/Character.tsx';
 import modelUrl from '../../../../../packages/character/assets/aero-character.glb?url';
+import BiodomeArena, { BIODOME_FAR, BIODOME_POST } from '../../../../../packages/arenas/biodome/BiodomeArena.tsx';
 import { StageEnvironment } from '../../../../../packages/stages/shared/Environment.tsx';
 import type { EnvironmentLight } from '../../../../../packages/stages/shared/Environment.tsx';
 import { PLAYER_COLORS } from '../../menu/layout.ts';
@@ -24,10 +25,11 @@ import type { Pass, PassResult } from './calibrate.ts';
 import { BALL_R, NET, TABLE, aimServe, v3 } from './ball.ts';
 import type { Ball, BallEvent, PaddlePose, V3 } from './ball.ts';
 import { choiceLabel, nextChoice, optionsOf } from './options.ts';
-import type { OptionId } from './options.ts';
+import type { OptionId, SceneId } from './options.ts';
 
 /*
- * Table Tennis (index.ts), in first person: a blank room from the end of a ping-pong table, the
+ * Table Tennis (index.ts), in first person, from the end of a ping-pong table in the Biodome
+ * (packages/arenas/biodome) or a blank room (the Scene setting, 'debug'): the
  * dancers' glass hands following the player's (the pose and Hand Landmarker landmarks the host's
  * camera sends with the game's 'hands' tracking, turned into the hands' places and angles by
  * arms.ts), a paddle in the right. Raising the left hand (or Space) has the launcher at the far
@@ -87,6 +89,16 @@ const DRAW_LAG = 0.05;
 // The ball's drawn place eases onto a rewound hit's this fast (per second).
 const CATCH_UP = 14;
 const TRAIL = 28;
+// A ring spreading on the table where the ball bounces: how long it lasts (s), its radius from
+// and to (m), and how many can show at once.
+const RIPPLE = { life: 0.6, from: 0.03, to: 0.23, count: 3 } as const;
+const easeOut = (u: number) => 1 - (1 - u) * (1 - u);
+// The ball and its trail (and the bounces' rings) in each scene: white in the plain room, orange
+// in the Biodome, where a white ball is lost against the pale deck and the bright haze.
+const BALL_LOOK: Record<SceneId, { ball: string; trail: string }> = {
+  debug: { ball: '#fff7ea', trail: '#fff3d6' },
+  biodome: { ball: '#ff8a1f', trail: '#ffc27a' },
+};
 
 // openreef's environment: the glass hands mostly reflect it, and it keeps their gel aqua.
 const ENV_LIGHTS: readonly EnvironmentLight[] = [
@@ -410,16 +422,23 @@ function Hands({ rig, forgiving }: { rig: Rig; forgiving: boolean }) {
  */
 /** What the HUD shows, kept up by the ball. */
 interface Hud { flying: boolean; returns: number; rally: number; best: number; pass: PassResult | null; }
-function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud }) {
+function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hud: Hud; scene: SceneId }) {
   const plain = useNoReflections();
+  const look = BALL_LOOK[scene];
   const parts = useMemo(() => ({
-    ball: new THREE.MeshStandardMaterial({ color: '#fff7ea', roughness: 0.35, ...plain }),
+    ball: new THREE.MeshStandardMaterial({ color: look.ball, roughness: 0.35, ...plain }),
     shape: new THREE.SphereGeometry(BALL_R, 20, 14),
-    trail: Array.from({ length: TRAIL }, (_, i) => new THREE.MeshBasicMaterial({ color: '#fff3d6', transparent: true, depthWrite: false, opacity: 0.45 * (1 - i / TRAIL) })),
-  }), [plain]);
-  useEffect(() => () => { parts.ball.dispose(); parts.shape.dispose(); for (const m of parts.trail) m.dispose(); }, [parts]);
+    trail: Array.from({ length: TRAIL }, (_, i) => new THREE.MeshBasicMaterial({ color: look.trail, transparent: true, depthWrite: false, opacity: 0.45 * (1 - i / TRAIL) })),
+    ring: new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2),
+    ripples: Array.from({ length: RIPPLE.count }, () => new THREE.MeshBasicMaterial({ color: new THREE.Color(look.trail).multiplyScalar(1.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })),
+  }), [plain, look]);
+  useEffect(() => () => {
+    parts.ball.dispose(); parts.shape.dispose(); parts.ring.dispose();
+    for (const m of [...parts.trail, ...parts.ripples]) m.dispose();
+  }, [parts]);
   const ballMesh = useRef<THREE.Mesh>(null);
   const trailGroup = useRef<THREE.Group>(null);
+  const rippleGroup = useRef<THREE.Group>(null);
   const botPaddle = useRef<THREE.Group>(null);
   const st = useMemo(() => ({
     ball: { pos: { ...LAUNCHER }, vel: v3(), cooldown: 0 } as Ball, lagged: null as LaggedBall | null, drawnOff: v3(), flying: false, deadAt: Infinity, slowSince: null as number | null, servedAt: -Infinity,
@@ -433,6 +452,8 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
     /** The player hit the ball last, and their return has had its one fair bounce (for the bot to play). */
     yours: false, farBounce: false,
     bot: { pos: { ...BOT.home }, hitAt: -Infinity },
+    /** The ball's latest bounces on the table, newest last: where (the table's frame), and when (the ball's time). */
+    ripples: [] as { at: V3; t: number }[],
   }), []);
   const tmp = useMemo(() => ({ p: new THREE.Vector3(), n: new THREE.Vector3(), q: new THREE.Quaternion(), nudge: new THREE.Vector3() }), []);
   // Development: the ball and the rig, for scripted swings from play.ts.
@@ -455,6 +476,15 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
       const p = st.trail[i + 1];
       child.visible = !!p;
       if (p) { child.position.copy(p); child.scale.setScalar(1 - (i / TRAIL) * 0.6); }
+    });
+    // The bounces' rings, spreading and fading.
+    rippleGroup.current?.children.forEach((child, i) => {
+      const r = st.ripples[i], u = r ? (st.time - r.t) / RIPPLE.life : 1;
+      child.visible = u >= 0 && u < 1;
+      if (!child.visible || !r) return;
+      child.position.set(r.at.x, TABLE.top + 0.002, r.at.z + TABLE_Z);
+      child.scale.setScalar(RIPPLE.from + (RIPPLE.to - RIPPLE.from) * easeOut(u));
+      parts.ripples[i].opacity = 0.8 * (1 - u) * (1 - u);
     });
     hud.flying = st.flying;
     ctx.report({ ball: st.flying ? 'flying' : 'ready', hits: st.hits, returns: st.returns, rally: st.rally, best: st.best });
@@ -551,6 +581,7 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
         // Anything else after the far half's bounce: the bot can't play it.
         else if (e.type !== 'paddle') st.farBounce = false;
         if (e.type === 'table' && e.side === 'near') st.hitThisServe = false;
+        if (e.type === 'table') { st.ripples.push({ at: e.at, t: st.time }); if (st.ripples.length > RIPPLE.count) st.ripples.shift(); }
         if (e.type === 'floor' && st.deadAt === Infinity) st.deadAt = st.time + DEAD_S;
       }
       // Gone by the paddle (or away) unhit.
@@ -605,6 +636,9 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
       </group>
       <group ref={trailGroup}>
         {parts.trail.map((m, i) => <mesh key={i} geometry={parts.shape} material={m} visible={false} />)}
+      </group>
+      <group ref={rippleGroup}>
+        {parts.ripples.map((m, i) => <mesh key={i} geometry={parts.ring} material={m} visible={false} />)}
       </group>
     </>
   );
@@ -673,6 +707,8 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
     };
   });
   const [forgiving, setForgiving] = useState(false);
+  // The scene is chosen on the preview, for the round.
+  const [scene] = useState<SceneId>(() => optionsOf(ctx.options).scene);
   const hud = useMemo<Hud>(() => ({ flying: false, returns: 0, rally: 0, best: 0, pass: null }), []);
   usePlayerHands(rig);
 
@@ -696,13 +732,21 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
 
   return (
     <>
-      <MinigameWorld camera={{ position: [EYE.x, EYE.y, EYE.z], target: [LOOK.x, LOOK.y, LOOK.z], fov: FOV, near: 0.02, far: 40 }} background="#e6e8ec" shadows
-        environment={<StageEnvironment top="#e6ffff" horizon="#34b2e6" bottom="#2a86bc" lights={ENV_LIGHTS} intensity={1.05} />}>
-        <Room />
-        <Table />
+      <MinigameWorld camera={{ position: [EYE.x, EYE.y, EYE.z], target: [LOOK.x, LOOK.y, LOOK.z], fov: FOV, near: scene === 'biodome' ? 0.03 : 0.02, far: scene === 'biodome' ? BIODOME_FAR : 40 }}
+        background="#e6e8ec" shadows post={scene === 'biodome' ? BIODOME_POST : undefined}
+        environment={scene === 'biodome' ? false : <StageEnvironment top="#e6ffff" horizon="#34b2e6" bottom="#2a86bc" lights={ENV_LIGHTS} intensity={1.05} />}>
+        {scene === 'biodome' ? (
+          // The Biodome brings its own table, lights, fog and reflections, round its origin.
+          <group position-z={TABLE_Z}><BiodomeArena /></group>
+        ) : (
+          <>
+            <Room />
+            <Table />
+          </>
+        )}
         <Launcher />
         <Hands rig={rig} forgiving={forgiving} />
-        <PlayBall ctx={ctx} rig={rig} hud={hud} />
+        <PlayBall ctx={ctx} rig={rig} hud={hud} scene={scene} />
       </MinigameWorld>
       <TableTennisHud ctx={ctx} rig={rig} hud={hud} />
     </>

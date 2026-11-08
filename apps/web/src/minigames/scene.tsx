@@ -69,7 +69,7 @@ export interface MinigameWorldProps {
   post?: PostOverrides;
   /** Shadows from lights that cast them (they cost a pass each). */
   shadows?: boolean;
-  /** The reflections glass shows (default the studio's, StageEnvironment preset="room"). */
+  /** The reflections glass shows (default the studio's, StageEnvironment preset="room"); false when the world brings its own. */
   environment?: ReactNode;
   children?: ReactNode;
 }
