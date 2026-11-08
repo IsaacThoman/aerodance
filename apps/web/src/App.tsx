@@ -310,7 +310,7 @@ export default function App() {
           </StageView>
           {!minigameStage && minigameView}
           <MenuDancers
-            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen || screen === 'minigames') && !stage.showing && !diagnostic('nodancers')}
+            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen || screen === 'minigames') && !diagnostic('nodancers')}
             raised={songsOpen}
             // One dancer per player: the dial's count on the players screen, the chosen count on
             // Song Select and minigame previews, and the duet everywhere else.
