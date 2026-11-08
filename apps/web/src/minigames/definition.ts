@@ -1,5 +1,6 @@
 import { isPlayerCount } from '../../../../packages/pose/choreography.ts';
-import type { MinigameDefinition } from './types.ts';
+import { MG_MAX_OPTIONS } from './layout.ts';
+import type { MinigameDefinition, MinigameOption } from './types.ts';
 
 /*
  * Checks a game's definition (types.ts) and puts the list in order: registry.ts runs every game
@@ -20,6 +21,34 @@ export function definitionProblem(def: unknown, folder?: string): string {
   if (typeof d.art !== 'function') return 'art must draw the tile';
   if (typeof d.load !== 'function') return 'load must import the game';
   if (d.durationMs !== undefined && !(d.durationMs > 0)) return 'durationMs must be positive';
+  if (d.tracking !== undefined && d.tracking !== 'hands') return "tracking must be 'hands' (or left out)";
+  return d.options === undefined ? '' : optionsProblem(d.options);
+}
+
+/** An option's id and its choices' values: letters, digits, hyphens and underscores (data-minigame-options lists them as id=value|…). */
+export const OPTION_KEY = /^[A-Za-z0-9_-]+$/;
+
+// What's wrong with a game's options: as many as its preview has rows for, each with its own id,
+// a label, two or more choices of their own, and a default among them.
+function optionsProblem(options: unknown): string {
+  if (!Array.isArray(options) || options.length > MG_MAX_OPTIONS) return `options must list at most ${MG_MAX_OPTIONS} settings`;
+  const ids = new Set<string>();
+  for (const option of options as Partial<MinigameOption>[]) {
+    const id = option?.id;
+    if (typeof id !== 'string' || !OPTION_KEY.test(id)) return 'each option needs an id of letters, digits, hyphens or underscores';
+    if (ids.has(id)) return `option "${id}" is listed twice`;
+    ids.add(id);
+    if (typeof option.label !== 'string' || !option.label) return `option "${id}" needs a label`;
+    if (!Array.isArray(option.choices) || option.choices.length < 2) return `option "${id}" needs two or more choices`;
+    const values = new Set<string>();
+    for (const choice of option.choices as Partial<MinigameOption['choices'][number]>[]) {
+      if (typeof choice?.value !== 'string' || !OPTION_KEY.test(choice.value)) return `option "${id}": each choice needs a value of letters, digits, hyphens or underscores`;
+      if (typeof choice.label !== 'string' || !choice.label) return `option "${id}": choice "${choice.value}" needs a label`;
+      if (values.has(choice.value)) return `option "${id}" offers "${choice.value}" twice`;
+      values.add(choice.value);
+    }
+    if (typeof option.default !== 'string' || !values.has(option.default)) return `option "${id}"'s default must be one of its choices`;
+  }
   return '';
 }
 

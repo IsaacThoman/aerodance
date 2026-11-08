@@ -1,4 +1,5 @@
-import type { FrameSize, Landmark, TrackCalibration } from '../../../../../packages/pose/choreography.ts';
+import type { CaptureInput, FrameSize, Landmark, Point3, TrackCalibration } from '../../../../../packages/pose/choreography.ts';
+import type { TrackedHand } from '../../../../../packages/pose/webcamRecord.ts';
 import { JOINT_INDEX } from '../../pose/joints.ts';
 import type { JointName } from '../../pose/joints.ts';
 
@@ -24,6 +25,10 @@ import type { JointName } from '../../pose/joints.ts';
  * model is unsure of holds its last sure place for a moment, then follows the guess with its
  * confidence low; feet are often out of the picture. A player missing for PRESENT_MS isn't present.
  *
+ *   raw       the newest pose as it arrived, for games that do their own geometry: unfiltered,
+ *             unmirrored, with the camera's world landmarks and hands when the game asks for
+ *             them (`tracking: 'hands'`)
+ *
  * const follower = createPoseFollower(0);
  * follower.setCalibration(calibration);                     // from the stillness hold
  * follower.push(pose.landmarks, record.input, captureBrowserTimeMs);  // each record
@@ -33,6 +38,24 @@ import type { JointName } from '../../pose/joints.ts';
 
 export interface BodyPoint { x: number; y: number; z: number; }
 export interface ScreenPoint { x: number; y: number; }
+/** A pose as it arrived from the camera (PlayerPose.raw). */
+export interface RawPose {
+  /** MediaPipe's 33 landmarks in the unmirrored picture (0-1), with their confidences, unfiltered. */
+  landmarks: readonly Landmark[];
+  /**
+   * Its world landmarks, with `tracking: 'hands'`: the 33 in metres from the hips' centre (x to
+   * the unmirrored picture's right, y down, z away from the camera), or null without them.
+   */
+  world: readonly Point3[] | null;
+  /**
+   * With `tracking: 'hands'` and one player, the hands the Hand Landmarker found at their wrists
+   * (none found: empty), each on the player's own side; null while it isn't running (ctx.handTracking()).
+   */
+  hands: readonly TrackedHand[] | null;
+  /** The picture it was measured in (always unmirrored), and when its frame was captured (performance.now()). */
+  input: CaptureInput;
+  capturedAt: number;
+}
 
 /** A joint's landmark index (JOINT.rightWrist is 16). */
 export const JOINT = JOINT_INDEX as Readonly<Record<JointName | 'leftHand' | 'rightHand' | 'leftFoot' | 'rightFoot', number>>;
@@ -64,6 +87,8 @@ export interface PlayerPose {
   /** The hip centre from where the player was calibrated, and its velocity. */
   offset: BodyPoint;
   offsetVelocity: BodyPoint;
+  /** The newest pose as it arrived (a new object with each one), or null before the first. */
+  raw: RawPose | null;
 }
 
 /** A player who hasn't been seen for this long isn't present. */
@@ -113,7 +138,7 @@ export function emptyPose(id: number): PlayerPose {
   return {
     id, present: false, calibrated: false, confidence: 0, capturedAt: -Infinity, ageMs: Infinity, samples: 0, aspect: 4 / 3, torso: 0.24,
     screen: Array.from({ length: COUNT }, () => ({ x: 0.5, y: 0.5 })), body: Array.from({ length: COUNT }, zero),
-    velocity: Array.from({ length: COUNT }, zero), jointConfidence: Array<number>(COUNT).fill(0), offset: zero(), offsetVelocity: zero(),
+    velocity: Array.from({ length: COUNT }, zero), jointConfidence: Array<number>(COUNT).fill(0), offset: zero(), offsetVelocity: zero(), raw: null,
   };
 }
 
@@ -122,8 +147,11 @@ export interface PoseFollower {
   readonly calibration: TrackCalibration | null;
   /** The calibration body space is measured against (null estimates it from the poses). */
   setCalibration(calibration: TrackCalibration | null): void;
-  /** A pose for this player from a record: its landmarks (image space), the frame and when it was captured. */
-  push(landmarks: readonly Landmark[], input: FrameSize, capturedAt: number): void;
+  /**
+   * A pose for this player from a record: its landmarks (image space), the frame and when it was
+   * captured, and its world landmarks and hands when it has them (raw).
+   */
+  push(landmarks: readonly Landmark[], input: FrameSize | CaptureInput, capturedAt: number, extras?: { world?: readonly Point3[]; hands?: readonly TrackedHand[] }): void;
   /** Each frame: whether the player is present, and how old their pose is. */
   update(now: number): void;
   /** Forgets the filters (a player who comes back starts afresh). */
@@ -161,8 +189,10 @@ export function createPoseFollower(id: number, { body: bodyFilter = BODY_FILTER,
       reset();
     },
     reset,
-    push(raw, input, capturedAt) {
+    push(raw, input, capturedAt, extras) {
       if (raw.length < COUNT) return;
+      pose.raw = { landmarks: raw, world: extras?.world ?? null, hands: extras?.hands ?? null,
+        input: 'mirrored' in input ? input : { ...input, mirrored: false }, capturedAt };
       // Gone long enough to have walked away: start afresh.
       if (capturedAt - lastSeen > 3000) reset();
       lastSeen = Math.max(lastSeen, capturedAt);

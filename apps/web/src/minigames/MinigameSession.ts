@@ -10,6 +10,8 @@ import { createPoseFollower } from './pose/body.ts';
 import type { PlayerPose, PoseFollower } from './pose/body.ts';
 import { createGestureSet, handRaised } from './pose/gestures.ts';
 import type { GestureDetector, GestureEvent } from './pose/gestures.ts';
+import type { BestScoreStorage } from '../game/bestScores.ts';
+import { offers, resolveOptions, saveMinigameOption } from './options.ts';
 import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFrame, MinigameOutcome, MinigamePhase } from './types.ts';
 
 /*
@@ -31,8 +33,10 @@ import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFr
  * pose follower (pose/body.ts) and gesture detectors (pose/gestures.ts) take every record, at
  * the camera frame's capture time; their events reach the game a frame at a time (frame()).
  * Replays (?input=ghost) skip calibrating: their players calibrate themselves as they go.
+ * A game that asks for more tracking (`tracking: 'hands'`) has it from the camera for as long as
+ * its session lives (PoseSource.setDetail), and the poses' world landmarks and hands in raw.
  *
- * const session = new MinigameSession({ game, playerCount, source });
+ * const session = new MinigameSession({ game, playerCount, source, options });  // options: the preview's settings
  * await session.load(); every frame: session.advance(performance.now());  // update(), then tick = frame()
  * session.start(); session.pause(); session.resume(); session.finish(); session.dispose();
  */
@@ -49,9 +53,16 @@ export interface MinigameSessionOptions {
   playerCount: PlayerCount;
   source?: PoseSource | null;
   now?: () => number;
+  /** The game's settings as its preview chose them (anything missing or not offered at its default: options.ts). */
+  options?: Readonly<Record<string, unknown>>;
+  /** Where setOption saves them (this browser's, by default). */
+  optionStorage?: BestScoreStorage;
 }
 type Listener = (session: MinigameSession) => void;
 let sessions = 0;
+// The session holding each camera's detail: the newest one. A session ending lets the detail go
+// only while it still holds it (Play again starts the next round before the last one ends).
+const detailHolders = new WeakMap<PoseSource, MinigameSession>();
 
 export class MinigameSession implements MinigameContext {
   /** Different for every round (a fresh mount of its game, even for Play again). */
@@ -94,13 +105,18 @@ export class MinigameSession implements MinigameContext {
   coop: boolean;
   /** How the game said the round ended (finish()'s outcome), if it did. */
   outcome: MinigameOutcome | null = null;
+  /** The game's settings (ctx.options): the preview's choices, as setOption changes them. */
+  options: Record<string, string>;
+  optionStorage: BestScoreStorage | undefined;
   /** The game's own reported state (report()), as data-mg-* keys. */
   reported: Record<string, string> = {};
   listeners = new Set<Listener>();
   offRecords: () => void;
-  constructor({ game, playerCount, source = null, now = () => performance.now() }: MinigameSessionOptions) {
+  constructor({ game, playerCount, source = null, now = () => performance.now(), options, optionStorage }: MinigameSessionOptions) {
     this.game = game; this.playerCount = playerCount; this.source = source; this.now = now;
     this.coop = !!game.coop;
+    this.options = resolveOptions(game, options);
+    this.optionStorage = optionStorage;
     this.trackingRefreshAt = now();
     // Live cameras calibrate; replays already know where everyone stands.
     // (Feet only for the games that want them: a living room's camera often can't see them.)
@@ -113,6 +129,11 @@ export class MinigameSession implements MinigameContext {
     this.present = Array<number>(playerCount).fill(-Infinity);
     this.scoreList = Array<number>(playerCount).fill(0);
     this.offRecords = source?.subscribeRecords((e) => this.onRecord(e)) ?? (() => {});
+    // The tracking the game asks for (none for most), until it ends.
+    if (source?.setDetail) {
+      detailHolders.set(source, this);
+      source.setDetail(game.tracking ?? null);
+    }
   }
 
   onChange(fn: Listener) { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
@@ -157,7 +178,7 @@ export class MinigameSession implements MinigameContext {
       if (id >= this.playerCount) continue;
       this.present[id] = now;
       this.live[id].push(pose.landmarks, record.input, now);
-      this.followers[id].push(pose.landmarks, record.input, captured);
+      this.followers[id].push(pose.landmarks, record.input, captured, pose);
       const happened = this.gestures[id].update(this.followers[id].pose);
       if (happened.length) this.lastGesture = happened.at(-1)!;
       if (this.current === 'playing') this.pending.push(...happened);
@@ -250,6 +271,11 @@ export class MinigameSession implements MinigameContext {
     this.scoreList[player] = score;
   }
   setCoop(coop: boolean) { if (!this.results) this.coop = coop; }
+  setOption(id: string, value: string) {
+    if (!offers(this.game, id, value) || this.options[id] === value) return;
+    this.options[id] = value;
+    saveMinigameOption(this.game, id, value, this.optionStorage);
+  }
   addScore(player: number, points: number) { this.setScore(player, (this.scoreList[player] ?? 0) + points); }
   finish(scores?: readonly number[], outcome?: MinigameOutcome) {
     if (this.current !== 'playing' && this.current !== 'paused' && this.current !== 'countdown') return;
@@ -263,6 +289,7 @@ export class MinigameSession implements MinigameContext {
     return this.live[player]?.frame(now, now - this.present[player] <= PRESENT_MS) ?? null;
   }
   calibration(player: number) { return this.live[player]?.calibration ?? null; }
+  handTracking() { return this.game.tracking === 'hands' ? this.source?.view.hands ?? 'unavailable' : null; }
   report(state: Record<string, string | number | boolean | null>) {
     for (const [key, value] of Object.entries(state)) {
       const name = `mg${key.charAt(0).toUpperCase()}${key.slice(1)}`;
@@ -273,6 +300,11 @@ export class MinigameSession implements MinigameContext {
 
   dispose() {
     this.offRecords();
+    // The songs never play with the detail on.
+    if (this.source && detailHolders.get(this.source) === this) {
+      detailHolders.delete(this.source);
+      this.source.setDetail?.(null);
+    }
     this.listeners.clear();
     this.current = 'disposed';
   }

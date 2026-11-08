@@ -207,3 +207,28 @@ test('a follower without a calibration estimates one, and a calibration resets i
   follower.update(r.clock.t + 1000);
   assert.equal(follower.pose.present, false);
 });
+
+test('raw is the newest pose as it arrived: unfiltered, unmirrored, a new one each time, with its world landmarks and hands when it had them', () => {
+  const r = rig(1, REALISM.clean);
+  r.run(600);
+  const p = r.poses(0), [last] = r.last();
+  assert.equal(p.raw?.landmarks, last.landmarks, 'the record\'s own landmarks');
+  assert.deepEqual([p.raw?.world, p.raw?.hands, p.raw?.input], [null, null, INPUT]);
+  assert.equal(p.raw?.capturedAt, p.capturedAt);
+  // The screen is the mirror; raw is the camera's picture.
+  near(p.screen[JOINT.rightWrist].x, 1 - p.raw!.landmarks[JOINT.rightWrist].x, 0.01);
+  // A pose from a camera asked for the hands detail: the puppet's, through the tracker, with its extras.
+  const found = r.puppet.detect(r.clock.t, { world: true, hands: true });
+  const [pose] = r.tracker.update(found.landmarks, INPUT, r.clock.t + 40, found.looks, { world: found.world, hands: found.hands });
+  const follower = createPoseFollower(0);
+  const raw = () => follower.pose.raw;
+  assert.equal(raw(), null, 'none before the first');
+  follower.push(pose.landmarks, { width: 640, height: 480 }, r.clock.t + 40, pose);
+  const first = raw();
+  assert.equal(first?.world?.length, 33);
+  assert.deepEqual(first?.hands?.map((h) => h.side), ['left', 'right']);
+  assert.deepEqual(first?.input, INPUT, 'unmirrored, as records always are');
+  follower.push(pose.landmarks, INPUT, r.clock.t + 80);
+  assert.notEqual(raw(), first);
+  assert.deepEqual([raw()?.world, raw()?.hands, raw()?.capturedAt], [null, null, r.clock.t + 80]);
+});

@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
   FONT, TAU, drawCaps, drawDarkGlassPanel, drawDialCount, drawDialStep, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText,
-  ellipsize, glassCorner, ICONS, paragraph, roundRect,
+  ellipsize, glassCorner, ICONS, paragraph, pill, roundRect,
 } from '../ui/draw.ts';
-import type { Rect } from '../ui/draw.ts';
+import type { Circle, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
@@ -14,6 +14,8 @@ import { minigameBest } from './bestScores.ts';
 import type { MinigameBest } from './bestScores.ts';
 import { formatScore, playersLabel } from './definition.ts';
 import { MG_PER_PAGE, minigameLayout, tileArt } from './layout.ts';
+import { minigameOptions, optionsText, resolveOptions, saveMinigameOption, stepOption } from './options.ts';
+import type { MinigameOptionValues } from './options.ts';
 import { MINIGAMES } from './registry.ts';
 import type { MinigameDefinition } from './types.ts';
 
@@ -24,30 +26,35 @@ import type { MinigameDefinition } from './types.ts';
  *            its art, title, blurb, players and best score; more than six page with the arrows
  *            beside the grid. Like the Wii's channels
  *   preview  the chosen game: its art large, its description, its best for the players picked,
- *            and the players dial (only the counts it supports) over Play, which starts it
- *            (onPlay) with that many players
+ *            its options (a row each under the art, the choice between arrows), and the players
+ *            dial (only the counts it supports; none for a game with just one) over Play, which
+ *            starts it (onPlay) with that many players and those settings
  *
  * Mouse, touch and the keyboard (or a Siri Remote) as on the other menus: the pearl focus ring
  * starts on the main action, Up/Down move down and up a column of tiles (on to the back button),
  * Left/Right across a row (on to the next page at its end), Enter or Space press, Escape goes back
- * (from the preview to the list, from the list to the main menu). The games' art moves gently.
- * The canvas reports data-minigame-screen (list, preview), -minigame-select-ready, -minigame-list
- * (the ids in order), -minigame-page, -minigame-chosen and -minigame-dial for tests.
+ * (from the preview to the list, from the list to the main menu). On the preview, Up/Down go
+ * through the option rows, the dial and Play, and Left/Right step the row with the cursor (Enter
+ * or a press on the row steps it on). The games' art moves gently. The canvas reports
+ * data-minigame-screen (list, preview), -minigame-select-ready, -minigame-list (the ids in
+ * order), -minigame-page, -minigame-chosen, -minigame-dial and -minigame-options (the preview's
+ * settings, assist=max|bot=medium) for tests.
  *
- * <MinigameSelect visible open={{ id, players }} onBack onPlay={(game, players) => ...} />
+ * <MinigameSelect visible open={{ id, players, options }} onBack onPlay={(game, players, options) => ...} />
  */
 
 export type MinigameScreenName = 'list' | 'preview';
 export interface MinigameSelectProps {
   visible?: boolean;
-  /** Opens on this game's preview with this many players (coming back from playing it). */
-  open?: { id: string; players: PlayerCount } | null;
+  /** Opens on this game's preview with this many players and these settings (coming back from playing it). */
+  open?: { id: string; players: PlayerCount; options?: MinigameOptionValues } | null;
   /** The player count to start a game's dial on, where the game supports it. */
   players?: PlayerCount;
   onBack?: () => void;
-  onPlay?: (game: MinigameDefinition, players: PlayerCount) => void;
+  onPlay?: (game: MinigameDefinition, players: PlayerCount, options: MinigameOptionValues) => void;
 }
-type SelectWidget = Widget & { game?: MinigameDefinition };
+/** A tile; an option row, or one of its arrows (step). */
+type SelectWidget = Widget & { game?: MinigameDefinition; option?: string; step?: -1 | 1 };
 
 const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
 // The deep aero glass a tile's art sits on, unless the game picks its own.
@@ -119,17 +126,59 @@ function drawEmptyTile(g: CanvasRenderingContext2D, r: Rect) {
   g.restore();
 }
 
-// A page arrow: a glass circle with a chevron.
-function drawPageArrow(g: CanvasRenderingContext2D, c: { x: number; y: number; r: number }, dir: 'left' | 'right', hover: number, enabled: boolean) {
+// An arrow, a glass circle with a chevron: the list's page arrows, and an option row's steps.
+function drawArrow(g: CanvasRenderingContext2D, c: Circle, dir: 'left' | 'right', hover: number, { enabled = true, press = 0 } = {}) {
   g.save();
   if (!enabled) g.globalAlpha *= 0.35;
-  drawGlassCircle(g, c, enabled ? hover : 0);
+  const at = { ...c, y: c.y + press * 3 };
+  drawGlassCircle(g, at, enabled ? hover : 0);
   g.strokeStyle = '#ffffff';
-  g.lineWidth = 5;
+  g.lineWidth = c.r < 30 ? 4 : 5;
   g.lineCap = 'round';
   g.lineJoin = 'round';
-  ICONS[dir](g, c.x, c.y, c.r * 1.3);
+  ICONS[dir](g, at.x, at.y, c.r * 1.3);
   g.restore();
+}
+
+// One line of white type in maxW: 26 units, shrinking to 22 before it's cut short.
+function fitText(g: CanvasRenderingContext2D, str: string, x: number, y: number, maxW: number, weight: number, align: CanvasTextAlign = 'left') {
+  g.save();
+  g.font = `${weight} 26px ${FONT}`;
+  const w = g.measureText(str).width;
+  if (w > maxW) g.font = `${weight} ${Math.max(22, Math.floor((26 * maxW) / w))}px ${FONT}`;
+  g.textAlign = align;
+  g.textBaseline = 'middle';
+  g.fillStyle = '#ffffff';
+  g.fillText(ellipsize(g, str, maxW), x, y + 1);
+  g.restore();
+}
+
+type PreviewLayout = ReturnType<typeof minigameLayout>;
+// The game's option rows on dark glass under its art, like the settings rows: each its label, then
+// its choice on a dark track between the arrows, which step through the choices and round again
+// (as the camera picker's do). A row lights under the pointer.
+function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number) {
+  if (!l.MG_OPTIONS || !game.options) return;
+  drawDarkGlassPanel(g, l.MG_OPTIONS, 34);
+  game.options.forEach((option, i) => {
+    const row = l.mgOption(i), prev = l.mgOptionPrev(i), next = l.mgOptionNext(i);
+    const id = `option-${option.id}`, cy = row.y + row.h / 2;
+    const lit = Math.max(h[id] ?? 0, h[`${id}-prev`] ?? 0, h[`${id}-next`] ?? 0);
+    if (lit > 0.01) {
+      pill(g, row.x, row.y, row.w, row.h);
+      g.fillStyle = `rgba(255, 255, 255, ${0.1 * lit})`;
+      g.fill();
+    }
+    const labelX = row.x + 22;
+    fitText(g, option.label, labelX, cy, prev.x - prev.r - 14 - labelX, 600);
+    pill(g, prev.x, cy - 19, next.x - prev.x, 38);
+    g.fillStyle = 'rgba(0, 30, 70, 0.45)';
+    g.fill();
+    drawArrow(g, prev, 'left', h[`${id}-prev`] ?? 0, { press: press(`${id}-prev`) });
+    drawArrow(g, next, 'right', h[`${id}-next`] ?? 0, { press: press(`${id}-next`) });
+    const choice = option.choices.find((c) => c.value === values[option.id]) ?? option.choices[0];
+    fitText(g, choice.label, (prev.x + next.x) / 2, cy, next.x - prev.x - prev.r - next.r - 16, 700, 'center');
+  });
 }
 
 interface SelectState {
@@ -138,6 +187,10 @@ interface SelectState {
   /** The game on the preview (or last opened), and each game's dial. */
   chosen: string | null;
   dial: Map<string, PlayerCount>;
+  /** Each game's settings as chosen this visit (read from storage the first time, options.ts). */
+  options: Map<string, MinigameOptionValues>;
+  /** The preview's layouts, by width and option rows. */
+  layouts: Map<string, PreviewLayout>;
   drawnAt: number;
   drawn: string;
   reported: string;
@@ -148,16 +201,45 @@ interface SelectState {
 export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onPlay }: MinigameSelectProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const layout = minigameLayout(displayDesign(size.width, size.height).w);
+  const width = displayDesign(size.width, size.height).w;
+  const layout = minigameLayout(width);
   const props = useRef({ visible, players, onBack, onPlay });
   props.current = { visible, players, onBack, onPlay };
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
-  const st = useRef<SelectState>({ alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), drawnAt: -Infinity, drawn: '', reported: '', bests: new Map() }).current;
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const st = useRef<SelectState>({
+    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawnAt: -Infinity, drawn: '', reported: '', bests: new Map(),
+  }).current;
 
   const pages = Math.max(1, Math.ceil(MINIGAMES.length / MG_PER_PAGE));
   const onPage = () => MINIGAMES.slice(st.page * MG_PER_PAGE, (st.page + 1) * MG_PER_PAGE);
   const chosen = () => MINIGAMES.find((game) => game.id === st.chosen) ?? null;
+  // A game's preview makes room for its option rows.
+  const previewLayout = (game: MinigameDefinition | null) => {
+    const n = game?.options?.length ?? 0;
+    if (!n) return layoutRef.current;
+    const key = `${widthRef.current}|${n}`;
+    let l = st.layouts.get(key);
+    if (!l) { l = minigameLayout(widthRef.current, n); st.layouts.set(key, l); }
+    return l;
+  };
+  // A game's settings: what was chosen this visit, else what this browser remembers, else its defaults.
+  const optionsOf = (game: MinigameDefinition): MinigameOptionValues => {
+    let values = st.options.get(game.id);
+    if (!values) { values = minigameOptions(game); st.options.set(game.id, values); }
+    return values;
+  };
+  // An option row steps through its choices, round and round, and the game remembers the choice.
+  const stepRow = (id: string, dir: -1 | 1) => {
+    const game = chosen();
+    if (!game) return;
+    const values = optionsOf(game), value = stepOption(game, values, id, dir);
+    if (value === null || value === values[id]) return;
+    st.options.set(game.id, { ...values, [id]: value });
+    saveMinigameOption(game, id, value);
+  };
   // A game's dial: what was picked for it, else the menu's count where it supports that, else its first.
   const dialOf = (game: MinigameDefinition): PlayerCount => {
     const picked = st.dial.get(game.id);
@@ -219,12 +301,18 @@ export default function MinigameSelect({ visible = false, open = null, players =
     keyNav: true,
     widgets: () => {
       if (st.screen === 'preview') {
-        const game = chosen();
+        const game = chosen(), l = previewLayout(game);
         const counts = game ? [...game.players].sort((a, b) => a - b) : [];
         return [
-          { id: 'back', circle: layoutRef.current.MG_BACK },
-          ...(counts.length > 1 ? [{ id: 'minus', circle: layoutRef.current.MG_MINUS }, { id: 'plus', circle: layoutRef.current.MG_PLUS }] : []),
-          { id: 'play', rect: layoutRef.current.MG_PLAY, corner: glassCorner(layoutRef.current.MG_PLAY.h), primary: true },
+          { id: 'back', circle: l.MG_BACK },
+          // The option rows, each one stop for the keyboard (its arrows first, so a press on one is the arrow's).
+          ...(game?.options ?? []).flatMap((option, i): SelectWidget[] => [
+            { id: `option-${option.id}-prev`, option: option.id, step: -1, circle: l.mgOptionPrev(i), nav: false },
+            { id: `option-${option.id}-next`, option: option.id, step: 1, circle: l.mgOptionNext(i), nav: false },
+            { id: `option-${option.id}`, option: option.id, rect: l.mgOption(i) },
+          ]),
+          ...(counts.length > 1 ? [{ id: 'minus', circle: l.MG_MINUS }, { id: 'plus', circle: l.MG_PLUS }] : []),
+          { id: 'play', rect: l.MG_PLAY, corner: glassCorner(l.MG_PLAY.h), primary: true },
         ];
       }
       return [
@@ -235,6 +323,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
     },
     onActivate: (wdg, s) => {
       if (wdg.game) choose(wdg.game);
+      else if (wdg.option) stepRow(wdg.option, wdg.step ?? 1);
       else if (wdg.id === 'back') back();
       else if (wdg.id === 'page-prev') turnPage(-1);
       else if (wdg.id === 'page-next') turnPage(1);
@@ -242,12 +331,17 @@ export default function MinigameSelect({ visible = false, open = null, players =
       else if (wdg.id === 'plus') stepDial(1);
       else if (wdg.id === 'play') {
         const game = chosen();
-        if (game) props.current.onPlay?.(game, dialOf(game));
+        if (game) props.current.onPlay?.(game, dialOf(game), optionsOf(game));
       }
       s.invalidate();
     },
-    // Left/Right across a row of tiles, on to the next page at its end.
-    onStep: (wdg, dir, s) => {
+    // Left/Right step an option row (a held key doesn't spin it round), or go across a row of
+    // tiles, on to the next page at its end.
+    onStep: (wdg, dir, s, repeat) => {
+      if (wdg.option) {
+        if (!repeat) stepRow(wdg.option, dir);
+        return true;
+      }
       if (!wdg.game) return false;
       const games = onPage(), i = games.indexOf(wdg.game), col = i % 3;
       if ((dir < 0 && col === 0) || (dir > 0 && (col === 2 || i === games.length - 1))) {
@@ -280,7 +374,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
       // The art moves: redraw now and then while showing.
       if (p.visible && s.time - st.drawnAt >= 1 / ART_FPS) s.invalidate();
       const game = chosen();
-      const key = [st.screen, st.page, st.chosen, game ? dialOf(game) : ''].join('~');
+      const settings = game ? optionsText(optionsOf(game)) : '';
+      const key = [st.screen, st.page, st.chosen, game ? dialOf(game) : '', settings].join('~');
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
       const report = {
         minigameScreen: st.screen,
@@ -289,6 +384,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
         minigamePage: `${st.page + 1}/${pages}`,
         minigameChosen: st.screen === 'preview' ? st.chosen ?? '' : '',
         minigameDial: game && st.screen === 'preview' ? String(dialOf(game)) : '',
+        minigameOptions: st.screen === 'preview' ? settings : '',
       };
       const json = JSON.stringify(report);
       if (json !== st.reported) {
@@ -318,8 +414,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
         // The page's empty places, like the Wii's unused channels: faint glass waiting for a game.
         for (let i = games.length; i < MG_PER_PAGE && st.page === pages - 1; i++) drawEmptyTile(g, l.mgTile(i));
         if (pages > 1) {
-          drawPageArrow(g, l.MG_PAGE_PREV, 'left', h['page-prev'] ?? 0, st.page > 0);
-          drawPageArrow(g, l.MG_PAGE_NEXT, 'right', h['page-next'] ?? 0, st.page < pages - 1);
+          drawArrow(g, l.MG_PAGE_PREV, 'left', h['page-prev'] ?? 0, { enabled: st.page > 0 });
+          drawArrow(g, l.MG_PAGE_NEXT, 'right', h['page-next'] ?? 0, { enabled: st.page < pages - 1 });
           for (let i = 0; i < pages; i++) {
             g.beginPath();
             g.arc(s.w / 2 + (i - (pages - 1) / 2) * 26, l.MG_PAGE_DOTS_Y, i === st.page ? 7 : 5, 0, TAU);
@@ -337,7 +433,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
 
   // The preview: words on the left, the art on the right, the dial over Play.
   function drawPreview(g: CanvasRenderingContext2D, game: MinigameDefinition, time: number, count: PlayerCount, h: Record<string, number>, press: (id: string) => number) {
-    const l = layoutRef.current;
+    const l = previewLayout(game);
     drawHeader(g, l.MG_BACK, 'MINIGAMES', h.back ?? 0);
     const x = l.MG_BACK.x - 38, w = l.MG_TEXT.w;
     // A long title shrinks to fit (down to 48) before it's cut short.
@@ -356,15 +452,16 @@ export default function MinigameSelect({ visible = false, open = null, players =
     // The best for this many players.
     const best = bestOf(game, count);
     const counts = [...game.players].sort((a, b) => a - b);
+    const dial = counts.length > 1;
     drawShadowText(g, best ? `Best ${fmt(game, best.score)} with ${COUNT_NAMES[count - 1].toLowerCase()}` : `No best yet with ${COUNT_NAMES[count - 1].toLowerCase()}`,
-      x + 2, l.MG_MINUS.y - 72, { size: 22, weight: 700, color: best ? '#fff2bf' : '#bff4ff' });
-    // The players dial (just the count when the game plays with one only).
-    drawCaps(g, 'PLAYERS', x + 2, l.MG_MINUS.y, { size: 20 });
-    if (counts.length > 1) {
+      x + 2, dial ? l.MG_BEST_Y : l.MG_BEST_Y_NO_DIAL, { size: 22, weight: 700, color: best ? '#fff2bf' : '#bff4ff' });
+    // The players dial, for a game with more than one count (Play says how many either way).
+    if (dial) {
+      drawCaps(g, 'PLAYERS', x + 2, l.MG_MINUS.y, { size: 20 });
       drawDialStep(g, l.MG_MINUS, false, h.minus ?? 0, press('minus'), count > counts[0]);
       drawDialStep(g, l.MG_PLUS, true, h.plus ?? 0, press('plus'), count < counts.at(-1)!);
+      drawDialCount(g, count, l.MG_COUNT_X, l.MG_MINUS.y, 96);
     }
-    drawDialCount(g, count, l.MG_COUNT_X, l.MG_MINUS.y, 96);
     drawGlassButton(g, l.MG_PLAY, { label: 'Play', sub: COUNT_NAMES[count - 1], icon: 'play', hover: h.play ?? 0, press: press('play'), chevron: false });
     // The art, large, in its glass, and what it plays with under it.
     const art = l.MG_ART;
@@ -377,14 +474,15 @@ export default function MinigameSelect({ visible = false, open = null, players =
     g.restore();
     const facts = [playersLabel(game.players), game.durationMs ? `${Math.round(game.durationMs / 1000)} seconds` : null].filter(Boolean).join(' · ');
     drawShadowText(g, facts, art.x + art.w / 2, art.y + art.h + 36, { size: 22, weight: 700, align: 'center', color: '#bff4ff' });
+    drawOptions(g, game, optionsOf(game), l, h, press);
   }
 
-  // Frosted glass in the tiles, and the preview's art panel and Play.
+  // Frosted glass in the tiles, and the preview's art panel, options and Play.
   useGlassBlur(() => {
-    const l = layoutRef.current;
+    const l = st.screen === 'list' ? layoutRef.current : previewLayout(chosen());
     const panes = st.screen === 'list'
       ? onPage().map((game, i) => ({ ...buttonPane(ui, `game-${game.id}`, l.mgTile(i)), corner: TILE_CORNER }))
-      : [panelPane(l.MG_ART), buttonPane(ui, 'play', l.MG_PLAY)];
+      : [panelPane(l.MG_ART), ...(l.MG_OPTIONS ? [panelPane(l.MG_OPTIONS)] : []), buttonPane(ui, 'play', l.MG_PLAY)];
     return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
   });
 
@@ -396,6 +494,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
     if (game && open) {
       st.chosen = game.id;
       st.dial.set(game.id, open.players);
+      // (The round may have changed a setting: ctx.setOption.)
+      if (open.options) st.options.set(game.id, resolveOptions(game, open.options));
       st.page = Math.floor(MINIGAMES.indexOf(game) / MG_PER_PAGE);
     }
     st.screen = st.next = game ? 'preview' : 'list';

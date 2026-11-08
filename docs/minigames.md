@@ -1,11 +1,11 @@
 # Minigames
 
 Short games played with the body, from the main menu's **Minigames** (beside Start): a list of
-glass tiles in the spirit of the Wii's channels, each game's preview with its players dial, then
-the game. The platform around the games (`apps/web/src/minigames/`) does everything they share:
-the list, the camera and its calibration, the how-to card, the 3, 2, 1, pausing, the HUD, the
-results and best scores, sound, a pose API built for games, and a puppet camera to test them
-with. A game is one folder; adding one changes no other file.
+glass tiles in the spirit of the Wii's channels, each game's preview with its settings and players
+dial, then the game. The platform around the games (`apps/web/src/minigames/`) does everything
+they share: the list, each game's settings, the camera and its calibration, the how-to card, the
+3, 2, 1, pausing, the HUD, the results and best scores, a pose API built for games, and a puppet
+camera to test them with. A game is one folder; adding one changes no other file.
 
 The **Minigames** button only shows while there's a game to play. The platform's own reference
 game, **Bubble Pop** (`minigames/reference/`), is listed in development builds only (and in a
@@ -23,8 +23,9 @@ results → Play again or Minigames.**
   six games page with the arrows beside the grid. Up and Down move down and up a column (on to the
   back button), Left and Right across a row (on to the next page at its end).
 - **The preview**: the art large in a glass panel, the description, the best for this many
-  players, and the players dial (only the counts the game supports) over **Play**. Back from a
-  round lands here, with the same players.
+  players, the game's settings in rows under the art ([options](#settings-options)), and the
+  players dial (only the counts the game supports, and none for a game that plays with one count)
+  over **Play**. Back from a round lands here, with the same players and settings.
 - **Calibration** (`minigames/MinigameScreen.tsx`): the song game's camera setup card
   (`game/calibrationCard.ts`): the preview starts the camera, the arrows pick a webcam, a phone
   or the puppet, and every player holds still together for 2.5 seconds, which measures each
@@ -72,6 +73,9 @@ const highFive: MinigameDefinition = {
   score: { unit: 'fives' },              // or { better: 'lower', format: (ms) => `${(ms / 1000).toFixed(2)} s` }
   durationMs: 45000,                     // a timed round: the host counts down and ends it
   scene: 'menu',                         // what's behind the game (below)
+  options: [                             // settings chosen on the preview (below)
+    { id: 'speed', label: 'Hand speed', choices: [{ value: 'slow', label: 'Slow' }, { value: 'fast', label: 'Fast' }], default: 'slow' },
+  ],
   load: () => import('./Game.tsx'),      // the game itself, fetched when it's picked
 };
 export default highFive;
@@ -81,9 +85,11 @@ The definition loads with the menus, so keep it small: the art and any drawing i
 `.ts` files (Node runs the tests that import it); the game, its 3D and its assets come in through
 `load`. The fields are in `minigames/types.ts`: also `tint` (the tile's glass colours), `hud` (turn
 the host's scores or timer off to draw your own), `fullBody` (calibrate only with feet in view, for
-games about legs), `coop` (the players are a team: give everyone the team's score, and the results
-show it as one instead of naming a winner; a game whose players choose together or versus once
-it's started says so with `ctx.setCoop`), `order` (lower lists first, then by title) and `devOnly`.
+games about legs), `tracking: 'hands'` (MediaPipe's 3D world landmarks and the tracked hands too,
+for a game that does its own geometry), `coop` (the players are a team: give everyone the team's
+score, and the results show it as one instead of naming a winner; a game whose players choose
+together or versus once it's started says so with `ctx.setCoop`), `order` (lower lists first, then
+by title) and `devOnly`.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
 calibration to results, with the session's `MinigameContext` as its `ctx` prop (or
@@ -91,23 +97,21 @@ calibration to results, with the session's `MinigameContext` as its `ctx` prop (
 
 ```tsx
 // apps/web/src/minigames/high-five/Game.tsx
-import { playSfx } from '../../audio/sfx.ts';
-import { synthLoop } from '../../audio/gameMusic.ts';
-import { useMinigameFrame, useMinigameMusic, useMinigameOverlay } from '../hooks.ts';
+import { useMinigameFrame, useMinigameOverlay } from '../hooks.ts';
 import { MirrorCharacters, cameraArea, toDesign } from '../scene.tsx';
 import { handAt } from '../pose/gestures.ts';
 import type { MinigameContext } from '../types.ts';
 
 export default function HighFive({ ctx }: { ctx: MinigameContext }) {
-  useMinigameMusic(synthLoop);
   useMinigameFrame((frame) => {
     if (frame.phase !== 'playing') return;          // frame.dt is 0 otherwise
+    const fast = ctx.options.speed === 'fast';       // the preview's setting
     for (const p of frame.players) {
       if (!p.present) continue;
       const hand = handAt(p, 'right');               // body space: torso lengths from the hips
-      if (hand.y > 1.6) { ctx.addScore(p.id, 1); playSfx('chime'); }
+      if (hand.y > 1.6) ctx.addScore(p.id, fast ? 2 : 1);
     }
-    for (const e of frame.events) if (e.type === 'clap') playSfx('sparkle');
+    for (const e of frame.events) if (e.type === 'clap') { /* a clap: e.player */ }
     ctx.report({ targets: 3 });                      // data-mg-targets, for play.ts and tests
   });
   useMinigameOverlay({ draw: (g, ui, frame) => { /* design units, as the menus */ } });
@@ -116,8 +120,36 @@ export default function HighFive({ ctx }: { ctx: MinigameContext }) {
 ```
 
 `minigames/reference/` is a complete small game to copy from: it uses every part of the contract
-(the overlay and the mirror mapped together, hand contact, a gesture, scores, sound, music and
+but settings (the overlay and the mirror mapped together, hand contact, a gesture, scores and
 reported state). Delete the folder when real games make it redundant.
+
+### Settings: `options`
+
+A game with settings (a difficulty, an aim assist, which hand holds the paddle) lists them in its
+definition's `options`, up to four, and its preview shows a row for each under the art: the
+label, then the choice between two arrows that step through the choices and round again, as the
+camera picker's do. A press on an arrow steps it, and a press on the row steps it on; with the
+keyboard or the Siri Remote, Up and Down go through the rows, the players dial and Play, and
+Left/Right step the row with the focus ring (Enter steps it on). The art gives up some height to
+make room, so its drawing should cope with a wider rect, as it does on its tile.
+
+```ts
+options: [
+  { id: 'bot', label: 'Opponent', choices: [{ value: 'easy', label: 'Easy' }, { value: 'medium', label: 'Medium' }, { value: 'hard', label: 'Hard' }], default: 'medium' },
+  { id: 'hand', label: 'Paddle hand', choices: [{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }], default: 'right' },
+],
+```
+
+Ids and values are letters, digits, hyphens and underscores; no two options share an id, and each
+has two or more choices (no two with the same value) with its default among them. The definition
+test checks all that. Keep the labels short: in 4:3 a row's label has about 200 design units and
+its choice about 150, shrinking a little before they're cut short. Each game's choices are remembered in the browser (`minigames/options.ts`): a saved
+option the game no longer has is dropped, and a value it no longer offers is back at its default.
+
+The round has them as `ctx.options`, every option present, as chosen when Play was pressed:
+`ctx.options.bot === 'hard'`. `ctx.setOption('bot', 'easy')` changes one at once, for a key that
+changes a setting mid-round; it's saved, so Play again and the game's next preview start on it.
+An id or value the game doesn't offer is ignored.
 
 ### What the host does, and what the game does
 
@@ -137,6 +169,7 @@ The game:
   team score, for a game whose modes differ round to round), `best: false` to keep a round
   (a match's points) out of the best scores, `timeUp` for a round its own clock ended ("Time's
   up!" rather than "Finish!", as a `durationMs` round says);
+- reads its settings in `ctx.options` ([settings](#settings-options));
 - keeps its per-frame state in refs, not React state (the component re-renders only when the
   phase changes);
 - reports what a test needs with `ctx.report({ key: value })` (`data-mg-<key>`; `null` clears it);
@@ -162,8 +195,8 @@ targets clear of the top corners (the HUD's scores) and the top centre (the paus
 
 | `scene` | Behind the game | Use it with |
 | --- | --- | --- |
-| `'menu'` (default) | Whatever the menus show (Settings → Graphics → Background), carrying on | 2D games, `MirrorCharacters`, `MinigameLayer` |
-| `{ background: 'koi' }` | The skyline flight (`'skyline'`) or one of the [menu backdrops](../packages/backdrops/README.md) | the same |
+| `'menu'` (default) | What the menus show, carrying on: the skyline flight (or the backdrop a `?background=<id>` visit shows behind the menus) | 2D games, `MirrorCharacters`, `MinigameLayer` |
+| `{ background: 'koi' }` | The skyline flight (`'skyline'`) or one of the [menu backdrops](../packages/backdrops/README.md), the game's own choice | the same |
 | `{ stage: 'club' }` | A [dance stage](../packages/stages/README.md), without its dancers; the game's component renders inside the stage's scene, with its camera, lights and post-processing | `LiveCharacter`, the game's own 3D things |
 | `'custom'` | Nothing: the menu's world stands down and the game draws its own | `MinigameWorld` |
 
@@ -211,6 +244,7 @@ mirror, so everything is from the player's side: their right hand is on the righ
 | `offset`, `offsetVelocity` | The hip centre from where the player stood for calibration, in torso lengths: a step right is +x, a jump +y, a crouch −y |
 | `capturedAt`, `ageMs` | When the newest pose's frame was captured (performance.now()), and how long ago |
 | `aspect`, `torso`, `samples` | The picture's width over its height, the torso's share of its height, poses so far |
+| `raw` | The newest pose as it arrived, for games that do their own geometry (below) |
 
 Landmarks are MediaPipe's 33, by name in `JOINT` (`JOINT.rightWrist` is 16; `leftHand` and
 `rightFoot` name the wrist and ankle). Body space reads the same for a child near the camera and
@@ -226,6 +260,39 @@ model is unsure of holds its last sure place for half a second, then follows the
 its confidence low. Feet are often out of the picture in a living room: don't depend on them, and
 check `jointConfidence` before trusting a wrist. Design for slack: generous targets, effects a
 beat behind the movement, nothing that needs a 50 ms reaction.
+
+### Doing your own geometry: `raw` and `tracking: 'hands'`
+
+`p.raw` is the newest pose exactly as the camera sent it, replaced (a new object) with each one
+and null before the first: `landmarks` (the 33 in the unmirrored picture, 0–1, unfiltered, with
+their confidences), `world`, `hands`, `input` (the picture's size, always unmirrored) and
+`capturedAt`. Its picture is the camera's, not the mirror: the player's right hand is on its left.
+
+A game with `tracking: 'hands'` in its definition (Table Tennis's first-person paddle) gets more
+in it, for as long as its session lives (`PoseSource.setDetail`); the songs never ask for it:
+
+- `world`: MediaPipe's 33 world landmarks, in metres from the hips' centre: x to the unmirrored
+  picture's right, y down, z away from the camera. Their depths are the model's weakest output
+  (flattened: a forearm pointing at the camera measures short there too); what holds up is the
+  body's size across the picture, in metres, and a joint that's surely behind another. Null
+  without the detail.
+- `hands`: with one player, the Hand Landmarker's hands, found in a square cut round each of the
+  pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`): `side` (the player's own
+  hand, put on its side by the Hand Landmarker's handedness when the pose mixes up crossed
+  wrists), 21 `landmarks` in the picture (unmirrored, z from the wrist, confidence null),
+  21 `world` points in metres round the hand's middle, and `score` (how sure it is of the side).
+  An empty list is no hand found; null is no Hand Landmarker running.
+
+`ctx.handTracking()` says how the hands are doing: `'loading'` (the 7.8 MB model downloads the
+first time it's asked for), `'on'`, `'dropped'` (a paired phone that couldn't keep 15 poses a
+second with it gave it up; the world landmarks carry on) or `'unavailable'` (more than one
+player, a replay, a phone page too old for it, a model that wouldn't load); null for games
+without the detail. Without hands, fall back on the pose's own wrist, index and pinky. Measure
+latency from `raw.capturedAt`. The hand model costs a phone or slow laptop tracking time, so
+only ask for it in a game that needs it. The puppet camera answers with world landmarks and
+hands from its dolls' own 3D bodies (open hands, fingers on from the forearm); its arms are
+shorter than a real body's (0.97 torso lengths, not about 1.1), which geometry that assumes real
+proportions reads as reaching forward.
 
 ### Measures (`minigames/pose/gestures.ts`)
 
@@ -274,25 +341,6 @@ useMinigameFrame((frame) => {
 });
 ```
 
-## Sound
-
-`playSfx(name, { volume, pitch, pan })` (`audio/sfx.ts`) plays a synthesized effect on the mixer's
-Effects channel (Settings → Sound → Effects, Master and Mute all apply): `blip`, `select`, `back`,
-`pop`, `chime`, `sparkle`, `whoosh`, `swish`, `tick`, `go`, `score`, `miss`, `success`, `fanfare`.
-`pitch` is in semitones, `pan` from −1 (left) to 1. Each is rendered once into a buffer the first
-time it plays (`preloadSfx(names)` does it ahead); a repeat within 25 ms is skipped and at most 12
-play at once. The platform already plays the Minigames screens' blips, the countdown's ticks and go,
-pausing, Time's up and the results' fanfare.
-
-Music: `useMinigameMusic(from, { volume, loopStart, loopEnd })` (`minigames/hooks.ts`) loops a
-track on the Music channel for the round: from the countdown, pausing with the game, stopping at
-Time's up. `from` is a file's URL (import it with `?url` from the game's folder), an `AudioBuffer`,
-or a function that makes one: `synthLoop(ctx, { bpm, chords })` (`audio/gameMusic.ts`) makes a soft
-aero loop of pad chords, a plucked arpeggio and bass, for games without a file. The Apple TV app's
-audio has only buffer sources and gains (`apps/tvos/runtime/audio.ts`), which is why everything
-here is buffers; it loops a whole buffer and ignores `loopStart` / `loopEnd`, so trim loop files to
-the loop.
-
 ## Testing with the puppet camera
 
 `?input=puppet` makes the camera a **puppet camera**: up to four pretend people, posed from the
@@ -318,6 +366,8 @@ node scripts/play.ts wait minigameScreen=list minigameSelectReady=true
 node scripts/play.ts click mgTile.0                    # the first game's tile
 node scripts/play.ts wait minigameScreen=preview minigameSelectReady=true
 node scripts/play.ts click MG_PLUS                     # one more player (MG_MINUS fewer)
+node scripts/play.ts click mgOptionNext.0              # the first setting's next choice (mgOptionPrev.0 back)
+node scripts/play.ts wait minigameOptions~bot=hard     # the preview's settings, id=value|id=value
 node scripts/play.ts click MG_PLAY
 node scripts/play.ts wait minigamePhase=calibrating minigameReady=true
 node scripts/play.ts click GAME_CALIBRATION_PREVIEW    # Start camera: the puppets hold still
@@ -371,10 +421,13 @@ stalls or gestures go missing, `node scripts/play.ts status` shows the page's fr
 What to read back: `minigamePhase`, `minigameScores` (`3|5`), `minigameTimeMs`,
 `minigameRemainingMs`, `minigameCountdown`, `minigamePresent` (`1|0`), `minigameGesture` (the last
 gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to card's raise to start,
-0–1), `minigameCameraStatus`, `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
+0–1), `minigameCameraStatus`, `minigameHands` (`ctx.handTracking()`, for a game with
+`tracking: 'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
 results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `minigameScreen`,
-`minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, and the game's own `mg*`
-keys. The puppet works for the song game too: its calibration and scoring run on it.
+`minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
+preview's settings, `bot=hard|hand=right`), and the game's own `mg*` keys; a round's settings are
+`eval "minigame.options"`. The puppet works for the song game too: its calibration and scoring
+run on it.
 
 ### In unit tests
 
@@ -394,7 +447,7 @@ clock and call `session.advance()`, and assert on `session.scores()` and what th
   in that order. Rounded everything; no hard black outlines.
 - **Readable on a TV across a room.** Text at least 20 design units, 26 or more for anything that
   matters mid-round; one idea per line; big targets.
-- **Calm.** Wii-like: friendly sounds at sensible volumes, short celebrations, no flashing.
+- **Calm.** Wii-like: short celebrations, no flashing.
 - **Fair to every player.** Mirror each player's world around where they stand; with three or
   four, nobody should need more room than a quarter of the picture.
 
@@ -433,6 +486,7 @@ Before handing it in:
 - [ ] Its gestures fire from the puppet's (`minigameGesture`, `data-mg-*`), on `realism rough` too,
       and not while standing still
 - [ ] Pause and resume mid-round (Escape and the pause icon), Restart, quit to Minigames
+- [ ] Each setting does what it says, and its preview's rows fit in 16:9 and 4:3
 - [ ] A new best shows on the results and on its tile
 - [ ] 60 fps with `?diag=stats`, and draw calls and triangles within the budget
 - [ ] Tried with a real camera, if there's one to hand

@@ -44,6 +44,7 @@ import type { MinigamePhase } from './types.ts';
  * -minigame-scores, -minigame-time-ms, -minigame-remaining-ms, -minigame-countdown,
  * -minigame-present, -minigame-gesture (the last gesture seen: player:type[:direction][:hand]),
  * -minigame-raise (the how-to card's raise-to-start, 0-1), the camera's -minigame-camera-status,
+ * -minigame-hands (ctx.handTracking(), for a game with `tracking: 'hands'`),
  * while calibrating -minigame-calibration-players / -progress, and the game's own data-mg-*.
  *
  * <MinigameScreen visible session={session} camera={source} onQuit onRetry />
@@ -65,7 +66,7 @@ const NUDGE_MS = 1500;
 const TIMES_UP_SLACK_MS = 250;
 const READY_FACE: Face = ['#ffffff', '#7fd0ff', '#0a7fd8'];
 const DATA_KEYS = ['minigamePhase', 'minigameId', 'minigameReady', 'minigamePlayers', 'minigameScores', 'minigameTimeMs', 'minigameRemainingMs',
-  'minigameCountdown', 'minigamePresent', 'minigameGesture', 'minigameRaise', 'minigameCameraStatus', 'minigameCalibrationPlayers', 'minigameCalibrationProgress', 'minigameError'];
+  'minigameCountdown', 'minigamePresent', 'minigameGesture', 'minigameRaise', 'minigameCameraStatus', 'minigameHands', 'minigameCalibrationPlayers', 'minigameCalibrationProgress', 'minigameError'];
 
 export default function MinigameScreen({ visible = false, session, camera: source, onQuit, onRetry }: MinigameScreenProps) {
   const gl = useThree((state) => state.gl);
@@ -165,6 +166,7 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
         minigameGesture: last ? [last.player, last.type, last.direction, last.hand].filter((v) => v !== undefined).join(':') : '',
         minigameRaise: ph === 'howto' && session.raisedSince !== null ? clamp01((now - session.raisedSince) / RAISE_START_MS).toFixed(2) : '',
         minigameCameraStatus: p.source.view.status,
+        minigameHands: session.handTracking() ?? '',
         minigameCalibrationPlayers: calibration?.players.join('|') ?? '',
         minigameCalibrationProgress: calibration ? calibration.progress.toFixed(3) : '',
         minigameError: session.error,

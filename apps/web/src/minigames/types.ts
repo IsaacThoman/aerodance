@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import type { PlayerCount, Pose, TrackCalibration } from '../../../../packages/pose/choreography.ts';
+import type { HandTracking } from '../../../../packages/pose/webcamRecord.ts';
 import type { StageId } from '../../../../packages/stages/catalog.ts';
 import type { BackgroundId } from '../backdrop/backgrounds.ts';
 import type { IconDraw, IconName, Rect } from '../ui/draw.ts';
@@ -31,7 +32,7 @@ export type MinigamePhase = 'loading' | 'calibrating' | 'howto' | 'countdown' | 
 
 /** What's behind a game. */
 export type MinigameScene =
-  /** Whatever the menus show (the player's chosen background), carrying on. */
+  /** What the menus show (the skyline flight, or a ?background= backdrop), carrying on. */
   | 'menu'
   /** The skyline flight or one of the menu backdrops (packages/backdrops). */
   | { background: BackgroundId }
@@ -55,6 +56,21 @@ export interface ScoreFormat {
   format?: (score: number) => string;
   /** A word after it on the results and the list's best ('pops', 'm'). */
   unit?: string;
+}
+
+/**
+ * A setting chosen on the game's preview: a row with its label and the choice between two arrows
+ * ("Opponent  ‹ Medium ›"), remembered for the game in this browser (options.ts). The game gets
+ * the choice's value as ctx.options[id]. Ids and values are letters, digits, hyphens and
+ * underscores: the canvas lists them as data-minigame-options="assist=max|bot=medium".
+ */
+export interface MinigameOption {
+  id: string;
+  label: string;
+  /** Two or more, in the order the arrows step through them. */
+  choices: readonly { value: string; label: string }[];
+  /** The value it starts on, one of the choices'. */
+  default: string;
 }
 
 export interface MinigameDefinition {
@@ -87,12 +103,22 @@ export interface MinigameDefinition {
    */
   fullBody?: boolean;
   /**
+   * More from the camera than the pose API's landmarks, for a game that does its own geometry:
+   * 'hands' asks the camera for MediaPipe's 3D world landmarks with every pose and, with one
+   * player, the Hand Landmarker's hands at their wrists (PlayerPose.raw), for as long as the
+   * round lasts (ctx.handTracking() says how the hands are doing). It costs tracking time, so
+   * only the games that need it ask.
+   */
+  tracking?: 'hands';
+  /**
    * The players play together, as a team: every player's score is the team's, and the results
    * show it as one score instead of naming a winner (or a tie).
    */
   coop?: boolean;
   /** The host's HUD: each player's score in the top corners, and the round's time left (both on by default). */
   hud?: { scores?: boolean; timer?: boolean };
+  /** Settings the players choose on its preview, a row each (up to four); the game reads them in ctx.options. */
+  options?: readonly MinigameOption[];
   /** Listed in development builds only (the reference game). */
   devOnly?: boolean;
   /** Where it sits on the list: lower first, then by title. */
@@ -148,12 +174,29 @@ export interface MinigameContext {
    * players choose (together or versus) once it has started. The results follow it.
    */
   setCoop(coop: boolean): void;
+  /**
+   * The game's settings (definition.options) by id, every one present: what the preview had chosen
+   * when the round started, as setOption changes them.
+   */
+  readonly options: Readonly<Record<string, string>>;
+  /**
+   * Changes a setting at once (a key pressed mid-round, say), and saves it: Play again and the
+   * game's next preview start on it. An id or value the definition doesn't offer is ignored.
+   */
+  setOption(id: string, value: string): void;
   /** Ends the round (its results come up), with final scores if given, and how it ended if the scores don't say. */
   finish(scores?: readonly number[], outcome?: MinigameOutcome): void;
   /** The pose to draw a player's glass character with (smoothed for display), or null while they're missing. */
   livePose(player: number, now?: number): Pose | null;
   /** The calibration a player's character is drawn with. */
   calibration(player: number): TrackCalibration | null;
+  /**
+   * How the hands are doing, for a game with `tracking: 'hands'` (null for others): their model
+   * loading, on, dropped by a paired phone too slow for it, or not to be had (more than one
+   * player, a replay, a phone page too old for it). Without them, PlayerPose.raw has no hands and
+   * the pose's own wrist, index and pinky points are all there is.
+   */
+  handTracking(): HandTracking | null;
   /** Reports the game's own state on the canvas as data-mg-<key> (mgBubbles=3), for play.ts and tests. */
   report(state: Record<string, string | number | boolean | null>): void;
 }

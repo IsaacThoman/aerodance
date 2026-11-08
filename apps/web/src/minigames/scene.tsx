@@ -69,6 +69,8 @@ export interface MinigameWorldProps {
   post?: PostOverrides;
   /** Shadows from lights that cast them (they cost a pass each). */
   shadows?: boolean;
+  /** The reflections glass shows (default the studio's, StageEnvironment preset="room"). */
+  environment?: ReactNode;
   children?: ReactNode;
 }
 
@@ -76,9 +78,9 @@ export interface MinigameWorldProps {
  * The game's own world (scene 'custom'), drawn through the stages' pipeline at priority 1 while
  * the menu's background stands down (screenOwner.ts). Inside, useThree's camera is the world's;
  * move it from a game frame to fly it. Studio reflections for glass unless it brings its own
- * environment.
+ * (`environment`).
  */
-export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff', post, shadows = false, children }: MinigameWorldProps) {
+export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff', post, shadows = false, environment, children }: MinigameWorldProps) {
   const gl = useThree((s) => s.gl);
   const scene = useMemo(() => new THREE.Scene(), []);
   const camera = useSceneCamera(cameraProps);
@@ -99,7 +101,7 @@ export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff'
   return createPortal(
     <>
       <RenderPipeline samples={0} bloom={!diagnostic('nobloom')} settings={settings} />
-      <StageEnvironment preset="room" />
+      {environment ?? <StageEnvironment preset="room" />}
       {children}
     </>,
     scene,

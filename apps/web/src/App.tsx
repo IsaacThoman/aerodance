@@ -35,6 +35,7 @@ import { isBackgroundId } from './backdrop/backgrounds.ts';
 import type { DisplayMode } from './display.ts';
 import { transferCode } from './songs/transferLink.ts';
 import MinigameSelect from './minigames/MinigameSelect.tsx';
+import type { MinigameSelectProps } from './minigames/MinigameSelect.tsx';
 import MinigameScreen from './minigames/MinigameScreen.tsx';
 import MinigameResults from './minigames/MinigameResults.tsx';
 import type { MinigameResultsShow } from './minigames/MinigameResults.tsx';
@@ -42,6 +43,7 @@ import MinigameView from './minigames/MinigameView.tsx';
 import { MinigameSession } from './minigames/MinigameSession.ts';
 import { recordMinigameBest } from './minigames/bestScores.ts';
 import type { MinigameDefinition, MinigamePhase } from './minigames/types.ts';
+import type { MinigameOptionValues } from './minigames/options.ts';
 import { createPuppetInput } from './pose/puppet/puppetCamera.ts';
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
@@ -123,7 +125,7 @@ export default function App() {
   const [minigame, setMinigame] = useState<MinigameSession | null>(null);
   const [minigamePhase, setMinigamePhase] = useState<MinigamePhase | null>(null);
   const minigameResults = useRef<MinigameResultsShow | null>(null);
-  const [minigameOpen, setMinigameOpen] = useState<{ id: string; players: PlayerCount } | null>(null);
+  const [minigameOpen, setMinigameOpen] = useState<MinigameSelectProps['open']>(null);
   // The main menu's button a keyboard cursor goes back to (Minigames, coming back from their list).
   const [menuRefocus, setMenuRefocus] = useState<string | undefined>(undefined);
   const [sound, setSound] = useState(loadSound);
@@ -169,11 +171,11 @@ export default function App() {
     setMenuRefocus('minigames');
     setScreen('menu');
   }, []);
-  // Play on a game's preview: a session with that many players, the camera set up for them.
-  const startMinigame = useCallback((game: MinigameDefinition, count: PlayerCount) => {
+  // Play on a game's preview: a session with that many players and its settings, the camera set up for them.
+  const startMinigame = useCallback((game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
     replay?.setPlayerCount(count);
     source.setPlayerCount(count).catch(() => {});
-    const session = new MinigameSession({ game, playerCount: count, source: activeSource });
+    const session = new MinigameSession({ game, playerCount: count, source: activeSource, options });
     // In development (and with the puppet camera), window.minigame is the round, for poking at
     // from play.ts: `eval "minigame.players[0].body[16]"`.
     if (import.meta.env.DEV || params.get('input') === 'puppet') Reflect.set(window, 'minigame', session);
@@ -190,15 +192,15 @@ export default function App() {
     duckMenuMusic(false);
   }, []);
   const quitMinigame = useCallback(() => {
-    if (minigame) setMinigameOpen({ id: minigame.game.id, players: minigame.playerCount });
+    if (minigame) setMinigameOpen({ id: minigame.game.id, players: minigame.playerCount, options: minigame.options });
     endMinigame();
     setScreen('minigames');
   }, [minigame, endMinigame]);
   const retryMinigame = useCallback(() => {
     if (!minigame) return;
-    const { game, playerCount: count } = minigame;
+    const { game, playerCount: count, options } = minigame;
     endMinigame();
-    startMinigame(game, count);
+    startMinigame(game, count, options);
   }, [minigame, endMinigame, startMinigame]);
   // A round's results: its best saved, and the results screen's reveal.
   useEffect(() => {
