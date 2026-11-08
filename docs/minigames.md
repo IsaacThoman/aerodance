@@ -7,10 +7,7 @@ they share: the list, each game's settings, the camera and its calibration, the 
 3, 2, 1, pausing, the HUD, the results and best scores, a pose API built for games, and a puppet
 camera to test them with. A game is one folder; adding one changes no other file.
 
-The **Minigames** button only shows while there's a game to play. The platform's own reference
-game, **Bubble Pop** (`minigames/reference/`), is listed in development builds only (and in a
-production build with `?devgames`), so until a real game lands, production players don't see the
-button at all.
+The **Minigames** button only shows while there's a game to play. **Table Tennis** is the first game.
 
 ## The flow
 
@@ -19,8 +16,7 @@ results → Play again or Minigames.**
 
 - **The list** (`minigames/MinigameSelect.tsx`): six tiles a page, three across and two down,
   each with the game's art, title, blurb, supported players and best score for the players
-  last picked; empty places show as faint dashed glass, like the Wii's unused channels. More than
-  six games page with the arrows beside the grid. Up and Down move down and up a column (on to the
+  last picked. More than six games page with the arrows beside the grid. Up and Down move down and up a column (on to the
   back button), Left and Right across a row (on to the next page at its end).
 - **The preview**: the art large in a glass panel, the description, the best for this many
   players, the game's settings in rows under the art ([options](#settings-options)), and the
@@ -119,10 +115,6 @@ export default function HighFive({ ctx }: { ctx: MinigameContext }) {
   return <MirrorCharacters scale={0.8} />;           // everyone's glass self, as a mirror
 }
 ```
-
-`minigames/reference/` is a complete small game to copy from: it uses every part of the contract
-but settings (the overlay and the mirror mapped together, hand contact, a gesture, scores and
-reported state). Delete the folder when real games make it redundant.
 
 ### Settings: `options`
 
@@ -367,9 +359,8 @@ machine in a dim room, missing people and joints now and then).
 node scripts/play.ts start --url '/?input=puppet'
 node scripts/play.ts click MINIGAMES
 node scripts/play.ts wait minigameScreen=list minigameSelectReady=true
-node scripts/play.ts click mgTile.1                    # Bubble Pop, the reference game (dev-only: listed in development, or with ?devgames)
+node scripts/play.ts click mgTile.0                    # Table Tennis
 node scripts/play.ts wait minigameScreen=preview minigameSelectReady=true
-node scripts/play.ts click MG_PLUS                     # one more player (MG_MINUS fewer)
 node scripts/play.ts click MG_PLAY
 node scripts/play.ts wait minigamePhase=calibrating minigameReady=true
 node scripts/play.ts click GAME_CALIBRATION_PREVIEW    # Start camera: the puppets hold still
@@ -377,14 +368,14 @@ node scripts/play.ts wait minigamePhase=howto --timeout 20000
 node scripts/play.ts puppet pose 0 rightUp             # P1 raises a hand to start (or click MG_HOWTO_START)
 node scripts/play.ts wait minigamePhase=playing --timeout 8000
 node scripts/play.ts puppet pose all stand
-node scripts/play.ts puppet gesture 1 swipeLeft        # P2 swipes
-node scripts/play.ts wait minigameGesture~1:swipe:left
+node scripts/play.ts puppet gesture 0 swipeLeft        # P1 swipes
+node scripts/play.ts wait minigameGesture~0:swipe:left
 node scripts/play.ts puppet play all tpose:400+300 armsUp:400+300 --loop
 node scripts/play.ts shot --frame
 node scripts/play.ts key Escape                        # pause; click GAME_RESUME, GAME_RESTART or GAME_QUIT
 node scripts/play.ts click GAME_RESUME
-node scripts/play.ts wait minigamePhase=results --timeout 60000
-node scripts/play.ts state                             # minigameScores, minigameWinner, minigameNewBest, mg*
+node scripts/play.ts wait minigamePhase=playing --timeout 8000
+node scripts/play.ts state                             # Table Tennis is open play: pause and quit to leave
 ```
 
 `node scripts/play.ts puppet <command>` runs a puppet command in the page (so does

@@ -143,7 +143,7 @@ test('a game can finish its own round, report its state, and fail', async () => 
 test('every game folder has a valid definition whose id is its folder', async () => {
   const dir = new URL('../src/minigames/', import.meta.url);
   const folders = readdirSync(dir).filter((name) => statSync(new URL(name, dir)).isDirectory() && name !== 'pose');
-  assert.ok(folders.includes('reference'));
+  assert.ok(folders.includes('table-tennis'));
   for (const folder of folders) {
     const def = (await import(new URL(`${folder}/index.ts`, dir).href) as { default: unknown }).default;
     assert.equal(definitionProblem(def, folder), '', folder);

@@ -113,19 +113,6 @@ function drawTile(g: CanvasRenderingContext2D, rect: Rect, game: MinigameDefinit
   g.restore();
 }
 
-// An empty place on the grid: a faint frosted outline.
-function drawEmptyTile(g: CanvasRenderingContext2D, r: Rect) {
-  g.save();
-  roundRect(g, r.x, r.y, r.w, r.h, TILE_CORNER);
-  g.fillStyle = 'rgba(255, 255, 255, 0.1)';
-  g.fill();
-  g.setLineDash([10, 10]);
-  g.lineWidth = 2.5;
-  g.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-  g.stroke();
-  g.restore();
-}
-
 // An arrow, a glass circle with a chevron: the list's page arrows, and an option row's steps.
 function drawArrow(g: CanvasRenderingContext2D, c: Circle, dir: 'left' | 'right', hover: number, { enabled = true, press = 0 } = {}) {
   g.save();
@@ -420,8 +407,6 @@ export default function MinigameSelect({ visible = false, open = null, players =
           drawShadowText(g, 'The first minigames are on their way', l.MG_BACK.x - 38, 300, { size: 36, weight: 800 });
         }
         games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`), s.time, bestOf(game, game.players.includes(props.current.players) ? props.current.players : game.players[0])));
-        // The page's empty places, like the Wii's unused channels: faint glass waiting for a game.
-        for (let i = games.length; i < MG_PER_PAGE && st.page === pages - 1; i++) drawEmptyTile(g, l.mgTile(i));
         if (pages > 1) {
           drawArrow(g, l.MG_PAGE_PREV, 'left', h['page-prev'] ?? 0, { enabled: st.page > 0 });
           drawArrow(g, l.MG_PAGE_NEXT, 'right', h['page-next'] ?? 0, { enabled: st.page < pages - 1 });

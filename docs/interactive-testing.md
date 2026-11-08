@@ -171,21 +171,23 @@ node scripts/play.ts wait gamePhase=results --timeout 90000   # prints gameScore
 node scripts/play.ts shot --frame
 ```
 
-A two-player minigame with the puppet camera, from the main menu (Bubble Pop, the dev-only reference game, is the second tile in development):
+Table Tennis with the puppet camera, from the main menu:
 
 ```sh
 node scripts/play.ts goto '/?input=puppet'
 node scripts/play.ts click MINIGAMES
 node scripts/play.ts wait minigameScreen=list minigameSelectReady=true
-node scripts/play.ts click mgTile.1
+node scripts/play.ts click mgTile.0
 node scripts/play.ts wait minigameScreen=preview minigameSelectReady=true
-node scripts/play.ts click MG_PLAY                   # the dial starts on the menu's count, here 2
+node scripts/play.ts click MG_PLAY                   # Table Tennis is single-player
 node scripts/play.ts wait minigamePhase=calibrating minigameReady=true
 node scripts/play.ts click GAME_CALIBRATION_PREVIEW  # Start camera
 node scripts/play.ts wait minigamePhase=howto --timeout 20000
 node scripts/play.ts click MG_HOWTO_START
 node scripts/play.ts puppet play all armsOut:500+200 vUp:500+200 --loop
-node scripts/play.ts wait minigamePhase=results --timeout 60000
+node scripts/play.ts wait minigamePhase=playing --timeout 8000
+node scripts/play.ts key Escape
+node scripts/play.ts click GAME_QUIT                  # open play: pause and quit to leave
 ```
 
 Calibrating one player with the fixture camera, from a song's preview:

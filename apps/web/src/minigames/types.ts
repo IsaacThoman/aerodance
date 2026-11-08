@@ -121,7 +121,7 @@ export interface MinigameDefinition {
   hud?: { scores?: boolean; timer?: boolean };
   /** Settings the players choose on its preview, a row each (up to four); the game reads them in ctx.options. */
   options?: readonly MinigameOption[];
-  /** Listed in development builds only (the reference game). */
+  /** Listed in development builds only. */
   devOnly?: boolean;
   /** Where it sits on the list: lower first, then by title. */
   order?: number;
