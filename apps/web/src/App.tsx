@@ -220,7 +220,7 @@ export default function App() {
             onState={setStage}
           />
           <MenuDancers
-            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen) && !stage.showing && !diagnostic('nodancers')}
+            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen) && !diagnostic('nodancers')}
             raised={songsOpen}
             // One dancer per player: the dial's count on the players screen, the chosen count on
             // Song Select, and the duet everywhere else.
