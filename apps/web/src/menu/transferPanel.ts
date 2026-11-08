@@ -3,7 +3,7 @@ import type { Rect } from '../ui/draw.ts';
 import type { CanvasUI, Widget } from '../ui/useCanvasUI.ts';
 import { drawQr } from '../connect/pairing.ts';
 import { CODE_DIGITS, codeDigits, spacedCode } from '../../../../packages/pairing/signals.ts';
-import { canPickSongs } from '../songs/customSongs.ts';
+import { client } from '../host.ts';
 import { createSongTransfer, listSongSummaries } from '../songs/songTransfer.ts';
 import type { SongSummary, SongTransfer, TransferChannel, TransferItem, TransferView } from '../songs/songTransfer.ts';
 import { hostTransfer, joinTransfer, transferDeviceName } from '../songs/transferLink.ts';
@@ -17,17 +17,18 @@ import type { menuLayout } from './layout.ts';
  * the songs it sends (songs/songTransfer.ts, over songs/transferLink.ts). Two panels:
  *
  *   Connect (left)  this device's code and a QR code for the other device to join (the QR code
- *                   opens the game there at /?transfer=<code>), or, except on Apple TV, a keypad
- *                   to enter another device's code instead; then who it's connected to, and
- *                   Disconnect. A host whose guest leaves waits on the same code again.
+ *                   opens the game there at /?transfer=<code>), or a keypad to enter another
+ *                   device's code instead (the default except on Apple TV); then who it's
+ *                   connected to, and Disconnect. A host whose guest leaves waits on the
+ *                   same code again.
  *   Send (right)    this device's songs a page at a time, each with a send button, or a tick
  *                   where the other device has the song already (or a later revision), or how
  *                   far it's got; Send all; and what the last song sent or received did.
  *
  * MainMenu shows it as its own screen, from the Songs panel's Transfer songs, and passes its
- * widgets, presses and key presses on: open(code) as it shows (joining that code, or showing
- * this device's), close() as it goes, which ends the transfer. report() is data-transfer-status
- * (the link's: starting / waiting / connecting / connected / ended), -mode (code / enter),
+ * widgets, presses and key presses on: open(code) as it shows (joining that code, or starting
+ * with the platform's default), close() as it goes, which ends the transfer. report() is
+ * data-transfer-status (the link's: starting / waiting / connecting / connected / ended), -mode (code / enter),
  * -code, -device (the other one), -transport, -songs (this device's, once listed), -sent and
  * -received (how many songs went each way) and -notice for tests.
  */
@@ -35,7 +36,7 @@ import type { menuLayout } from './layout.ts';
 type Layout = ReturnType<typeof menuLayout>;
 export type TransferWidget = Widget & { song?: SongSummary; key?: string };
 export interface TransferPanel {
-  /** Shows this device's code, or with a code, joins it. */
+  /** Starts with the platform's default screen, or joins a supplied code directly. */
   open(code?: string): void;
   close(): void;
   widgets(): TransferWidget[];
@@ -52,7 +53,6 @@ export interface TransferPanel {
 }
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'delete', '0', 'join'];
-const CAN_ENTER = canPickSongs();
 const DEVICE = transferDeviceName();
 const sendId = (song: SongSummary) => `send-${song.id}`;
 const percent = (item: TransferItem) => (item.size ? Math.floor((item.done / item.size) * 100) : 0);
@@ -306,9 +306,7 @@ export function createTransferPanel({ layout, ui, onReceived }: {
     paragraph(g, waiting, tx, Q.y + 176, tw, { size: 20, weight: 700, lineH: 26 });
     paragraph(g, 'On the other device, scan the QR code, or open Settings → Songs → Transfer songs there and enter this code.',
       x, Q.y + Q.h + 44, w, { size: 22 });
-    if (CAN_ENTER) {
-      drawPanelLink(g, TRANSFER_LINK, { icon: 'phone', label: 'Enter a code from another device', hover: hover['transfer-link'] ?? 0, press: press('transfer-link') });
-    }
+    drawPanelLink(g, TRANSFER_LINK, { icon: 'phone', label: 'Enter a code from another device', hover: hover['transfer-link'] ?? 0, press: press('transfer-link') });
   };
 
   const drawSongs = (g: CanvasRenderingContext2D, hover: Record<string, number>, press: (id: string) => number, dots: string) => {
@@ -413,7 +411,8 @@ export function createTransferPanel({ layout, ui, onReceived }: {
       st.listed = false;
       list();
       if (code) join(code);
-      else showCode();
+      else if (client() === 'tvos') showCode();
+      else enterCode();
     },
     close() {
       st.open = false;
@@ -428,7 +427,7 @@ export function createTransferPanel({ layout, ui, onReceived }: {
       const { SONG_TRASH, SONGS_UP, SONGS_DOWN, SONG_ACTIONS, TRANSFER_KEY, TRANSFER_LINK } = layout();
       const list: TransferWidget[] = [];
       const ended = st.linkView?.status === 'ended';
-      if (connected() || ended || (st.mode === 'enter') || CAN_ENTER) list.push({ id: 'transfer-link', rect: TRANSFER_LINK });
+      list.push({ id: 'transfer-link', rect: TRANSFER_LINK });
       if (!connected() && !ended && st.mode === 'enter' && !st.link) KEYS.forEach((key, i) => list.push({ id: `key-${key}`, key, rect: TRANSFER_KEY(i), corner: 18 }));
       if (connected()) {
         pageSongs().forEach((song, i) => {
@@ -452,7 +451,7 @@ export function createTransferPanel({ layout, ui, onReceived }: {
         if (connected()) { if (st.mode === 'enter') enterCode(); else showCode(); }
         else if (ended) { if (st.mode === 'enter') enterCode(); else showCode(); }
         else if (st.mode === 'enter') showCode();
-        else if (CAN_ENTER) enterCode();
+        else enterCode();
       } else return false;
       invalidate();
       return true;
