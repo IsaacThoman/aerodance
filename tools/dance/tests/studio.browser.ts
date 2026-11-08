@@ -33,7 +33,15 @@ assert.ok(dance.sources.audio, 'the fixture\'s audio becomes the song');
 await project.apply({ ops: [{ op: 'dancer', dancer: 'P1', home: [0.5, 0.52] }, { op: 'pose', dancer: 'P1', t: 0, from: 'neutral' },
   { op: 'key', dancer: 'P1', t: 400, set: { leftWrist: { dy: -0.2 } } }] });
 const bridge = await Bridge.start(project, { dist: process.env.DANCE_DIST === '1' });
-const browser = await chromium.launch({ headless: true, executablePath: chromiumPath(false), args: gpuFlags() });
+// Native fake capture supplies frames independently of canvas paints on the Studio's
+// main thread, which can be starved by software-rendered 3D views on CI runners.
+const webcam = path.join(dir, 'webcam.y4m');
+const photo = fileURLToPath(new URL('../../../apps/web/tests/fixtures/mediapipe-pose.jpg', import.meta.url));
+await run(process.env.FFMPEG_PATH || 'ffmpeg', ['-v', 'error', '-y', '-loop', '1', '-i', photo,
+  '-vf', 'crop=600:667:200:0,scale=320:356,pad=640:480:160:40:white', '-r', '20', '-t', '3', '-pix_fmt', 'yuv420p', '-f', 'yuv4mpegpipe', webcam]);
+const browser = await chromium.launch({ headless: true, executablePath: chromiumPath(false), args: [
+  ...gpuFlags(), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-video-capture=${webcam}`,
+] });
 const page = await browser.newPage({ viewport: { width: 1360, height: 860 } });
 const errors: string[] = [];
 page.on('pageerror', e => errors.push(e.message));
@@ -258,25 +266,6 @@ try {
   camera.on('pageerror', e => cameraErrors.push(e.message));
   camera.on('console', m => { if (m.type() === 'error') cameraErrors.push(m.text()); });
   camera.setDefaultTimeout(120000);
-  // A webcam that shows the MediaPipe fixture photo, as scripts/play.ts fakes it.
-  const photo = `data:image/jpeg;base64,${(await readFile(fileURLToPath(new URL('../../../apps/web/tests/fixtures/mediapipe-pose.jpg', import.meta.url)))).toString('base64')}`;
-  await camera.addInitScript((image: string) => {
-    Object.defineProperty(navigator, 'mediaDevices', { value: {
-      enumerateDevices: async () => [{ kind: 'videoinput', deviceId: 'fixture', label: 'Fixture camera', groupId: '' }],
-      getUserMedia: async () => {
-        const picture = new Image(); picture.src = image; await picture.decode();
-        const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
-        const g = canvas.getContext('2d')!;
-        let count = 0;
-        const draw = () => { g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480); g.drawImage(picture, 200, 0, 600, 667, 160 + Math.sin(count++ / 5) * 4, 40, 320, 356); };
-        draw();
-        const stream = canvas.captureStream(20), timer = setInterval(draw, 50);
-        for (const track of stream.getTracks()) { const stop = track.stop.bind(track); track.stop = () => { clearInterval(timer); stop(); }; }
-        return stream;
-      },
-      addEventListener() {}, removeEventListener() {},
-    } });
-  }, photo);
   await camera.goto(freshBridge.url);
   await camera.getByRole('form', { name: 'New dance' }).waitFor();
   await camera.getByLabel('Title', { exact: true }).fill('Made in the Studio');
@@ -323,7 +312,12 @@ try {
   step('recording the webcam makes the video, lined up with the song');
   await fresh.apply({ ops: [{ op: 'song', set: { durationMs: 1500, playableEndMs: 1500 } }] });
   await camera.waitForSelector(`.studio[data-revision="${created + 2}"]`);
+  await camera.bringToFront();
   await camera.getByRole('button', { name: 'Start the camera' }).click();
+  await camera.waitForFunction(() => {
+    const video = document.querySelector<HTMLVideoElement>('video[aria-label="Camera preview"]');
+    return video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0;
+  });
   await camera.getByLabel('Countdown seconds').fill('0');
   // The browser can deliver the recorder's start event after this short song has
   // ended. Delay it deterministically so recording must observe the clock immediately.
@@ -349,8 +343,7 @@ try {
   assert.equal(recorded.width, 640);
   assert.equal(recorded.fps, 20);
   assert.equal(recorded.proxy, null, 'a recording plays in the browser as it is');
-  // It stops with the 1.5 s song, and keeps no more than it recorded. How much of that a browser
-  // starved by software rendering gets is up to it: this fake camera draws on the main thread.
+  // It stops with the 1.5 s song and keeps no more than it recorded.
   assert.ok(recorded.durationMs > 0 && recorded.durationMs <= 2000, `recorded ${recorded.durationMs} ms of a 1500 ms song`);
   assert.ok(recorded.startMs >= 0 && recorded.startMs < 400, `starts at ${recorded.startMs} ms of the song`);
 
