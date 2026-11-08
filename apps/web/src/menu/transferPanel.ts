@@ -290,7 +290,13 @@ export function createTransferPanel({ layout, ui, onReceived }: {
     g.save();
     g.font = `800 56px ${FONT}`;
     if ('letterSpacing' in g) g.letterSpacing = '4px';
-    text(g, lv?.code ? spacedCode(lv.code) : `–––${dots.length ? ' ' : ''}–––`, tx, Q.y + 72, { size: 56, weight: 800 });
+    // Reserve room for the widest possible code so the font stays the same when a
+    // code arrives or changes. The compact panel has less room beside the QR code.
+    const widest = Math.max(...[...'0123456789'].map(d => g.measureText(spacedCode(d.repeat(CODE_DIGITS))).width),
+      g.measureText('––– –––').width);
+    const codeSize = Math.min(56, Math.floor(56 * tw / widest));
+    if ('letterSpacing' in g) g.letterSpacing = `${4 * codeSize / 56}px`;
+    text(g, lv?.code ? spacedCode(lv.code) : `–––${dots.length ? ' ' : ''}–––`, tx, Q.y + 72, { size: codeSize, weight: 800 });
     g.restore();
     if (url) {
       g.font = `800 22px ${FONT}`;
