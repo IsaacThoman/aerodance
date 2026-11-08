@@ -126,7 +126,7 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 - Stage: `stage`, `stageReady`
 - Walk mode (`goto '/?walk=club'`): `walkScene`, `walkReady`, `walkPaused`, `walkMode`, `walkGrounded`, `walkPosition`; `click walk.RESUME` walks, `key w:1500` holds W ([walk mode](walk-mode.md#testing-it))
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
-- Minigames: the list's `minigameScreen` (`list`, `preview`), `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the preview's settings, e.g. `assist=max|bot=medium`); a round's `minigamePhase` (`calibrating`, `howto`, `countdown`, `playing`, `paused`, `finishing`, `results`), `minigameReady`, `minigameScores`, `minigameTimeMs`, `minigameRemainingMs`, `minigamePresent`, `minigameGesture` (the last gesture seen, e.g. `1:swipe:left:right`), the results' `minigameWinner` and `minigameNewBest`, and the game's own `mg*` keys ([minigames](minigames.md#testing-with-the-puppet-camera)). A round calibrates on the song game's targets (`GAME_CALIBRATION_PREVIEW`) and pauses on them (`GAME_PAUSE`, `GAME_RESUME`, `GAME_RESTART`, `GAME_QUIT`)
+- Minigames: the list's `minigameScreen` (`list`, `preview`), `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the preview's settings, e.g. `assist=max|botShots=medium`); a round's `minigamePhase` (`calibrating`, `howto`, `countdown`, `playing`, `paused`, `finishing`, `results`), `minigameReady`, `minigameScores`, `minigameTimeMs`, `minigameRemainingMs`, `minigamePresent`, `minigameGesture` (the last gesture seen, e.g. `1:swipe:left:right`), the results' `minigameWinner` and `minigameNewBest`, and the game's own `mg*` keys ([minigames](minigames.md#testing-with-the-puppet-camera)). A round calibrates on the song game's targets (`GAME_CALIBRATION_PREVIEW`) and pauses on them (`GAME_PAUSE`, `GAME_RESUME`, `GAME_RESTART`, `GAME_QUIT`)
 - Performance, while the stats overlay is on (Settings → Graphics → Stats: `click STATS.1` for Basic, `STATS.2` for Full, `STATS.0` for Off; or open `/?diag=stats`): `statsMode`, `statsFps`, `statsFrameMs`, `statsP99Ms`, `statsMaxMs`, `statsCpuMs`, `statsGpuMs` (Full only, and `--` without timer queries), `statsDrawCalls`, `statsTriangles`, `statsPoseHz`, `statsPoseAgeMs`. They update four times a second, e.g. `wait 'statsFps>55'`.
 
 Wait on `menuReady=true` or `songReady=true` after changing screens: these become `true`
@@ -171,13 +171,13 @@ node scripts/play.ts wait gamePhase=results --timeout 90000   # prints gameScore
 node scripts/play.ts shot --frame
 ```
 
-A two-player minigame with the puppet camera, from the main menu:
+A two-player minigame with the puppet camera, from the main menu (Bubble Pop, the dev-only reference game, is the second tile in development):
 
 ```sh
 node scripts/play.ts goto '/?input=puppet'
 node scripts/play.ts click MINIGAMES
 node scripts/play.ts wait minigameScreen=list minigameSelectReady=true
-node scripts/play.ts click mgTile.0
+node scripts/play.ts click mgTile.1
 node scripts/play.ts wait minigameScreen=preview minigameSelectReady=true
 node scripts/play.ts click MG_PLAY                   # the dial starts on the menu's count, here 2
 node scripts/play.ts wait minigamePhase=calibrating minigameReady=true

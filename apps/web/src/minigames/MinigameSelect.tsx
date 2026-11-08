@@ -157,12 +157,14 @@ type PreviewLayout = ReturnType<typeof minigameLayout>;
 // The game's option rows on dark glass under its art, like the settings rows: each its label, then
 // its choice on a dark track between the arrows, which step through the choices and round again
 // (as the camera picker's do). A row lights under the pointer.
-function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number) {
+function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number, keyed: string | null) {
   if (!l.MG_OPTIONS || !game.options) return;
   drawDarkGlassPanel(g, l.MG_OPTIONS, 34);
   game.options.forEach((option, i) => {
     const row = l.mgOption(i), prev = l.mgOptionPrev(i), next = l.mgOptionNext(i);
     const id = `option-${option.id}`, cy = row.y + row.h / 2;
+    // The keyboard cursor on the row lights the row, not whichever arrow its middle falls in.
+    const arrow = (side: 'prev' | 'next') => (keyed === id ? { hover: 0, press: 0 } : { hover: h[`${id}-${side}`] ?? 0, press: press(`${id}-${side}`) });
     const lit = Math.max(h[id] ?? 0, h[`${id}-prev`] ?? 0, h[`${id}-next`] ?? 0);
     if (lit > 0.01) {
       pill(g, row.x, row.y, row.w, row.h);
@@ -174,8 +176,8 @@ function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, valu
     pill(g, prev.x, cy - 19, next.x - prev.x, 38);
     g.fillStyle = 'rgba(0, 30, 70, 0.45)';
     g.fill();
-    drawArrow(g, prev, 'left', h[`${id}-prev`] ?? 0, { press: press(`${id}-prev`) });
-    drawArrow(g, next, 'right', h[`${id}-next`] ?? 0, { press: press(`${id}-next`) });
+    drawArrow(g, prev, 'left', arrow('prev').hover, { press: arrow('prev').press });
+    drawArrow(g, next, 'right', arrow('next').hover, { press: arrow('next').press });
     const choice = option.choices.find((c) => c.value === values[option.id]) ?? option.choices[0];
     fitText(g, choice.label, (prev.x + next.x) / 2, cy, next.x - prev.x - prev.r - next.r - 16, 700, 'center');
   });
@@ -249,6 +251,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
   // (The list redraws often: storage is read once a game and count.)
   const bestOf = (game: MinigameDefinition, count: PlayerCount) => {
+    if (game.best === false) return null;
     const key = `${game.id}|${count}`;
     if (!st.bests.has(key)) st.bests.set(key, minigameBest(game.id, count));
     return st.bests.get(key) ?? null;
@@ -305,12 +308,18 @@ export default function MinigameSelect({ visible = false, open = null, players =
         const counts = game ? [...game.players].sort((a, b) => a - b) : [];
         return [
           { id: 'back', circle: l.MG_BACK },
-          // The option rows, each one stop for the keyboard (its arrows first, so a press on one is the arrow's).
-          ...(game?.options ?? []).flatMap((option, i): SelectWidget[] => [
-            { id: `option-${option.id}-prev`, option: option.id, step: -1, circle: l.mgOptionPrev(i), nav: false },
-            { id: `option-${option.id}-next`, option: option.id, step: 1, circle: l.mgOptionNext(i), nav: false },
-            { id: `option-${option.id}`, option: option.id, rect: l.mgOption(i) },
-          ]),
+          // The option rows, each one stop for the keyboard. Each arrow takes its half of the
+          // choice's track (listed first, so a press there is the arrow's, near misses too); the
+          // row takes the rest, its label, and steps forward.
+          ...(game?.options ?? []).flatMap((option, i): SelectWidget[] => {
+            const row = l.mgOption(i), prev = l.mgOptionPrev(i), next = l.mgOptionNext(i);
+            const left = prev.x - prev.r - 14, mid = (prev.x + next.x) / 2;
+            return [
+              { id: `option-${option.id}-prev`, option: option.id, step: -1, rect: { x: left, y: row.y, w: mid - left, h: row.h }, nav: false },
+              { id: `option-${option.id}-next`, option: option.id, step: 1, rect: { x: mid, y: row.y, w: row.x + row.w - mid, h: row.h }, nav: false },
+              { id: `option-${option.id}`, option: option.id, rect: row },
+            ];
+          }),
           ...(counts.length > 1 ? [{ id: 'minus', circle: l.MG_MINUS }, { id: 'plus', circle: l.MG_PLUS }] : []),
           { id: 'play', rect: l.MG_PLAY, corner: glassCorner(l.MG_PLAY.h), primary: true },
         ];
@@ -453,8 +462,10 @@ export default function MinigameSelect({ visible = false, open = null, players =
     const best = bestOf(game, count);
     const counts = [...game.players].sort((a, b) => a - b);
     const dial = counts.length > 1;
-    drawShadowText(g, best ? `Best ${fmt(game, best.score)} with ${COUNT_NAMES[count - 1].toLowerCase()}` : `No best yet with ${COUNT_NAMES[count - 1].toLowerCase()}`,
-      x + 2, dial ? l.MG_BEST_Y : l.MG_BEST_Y_NO_DIAL, { size: 22, weight: 700, color: best ? '#fff2bf' : '#bff4ff' });
+    if (game.best !== false) {
+      drawShadowText(g, best ? `Best ${fmt(game, best.score)} with ${COUNT_NAMES[count - 1].toLowerCase()}` : `No best yet with ${COUNT_NAMES[count - 1].toLowerCase()}`,
+        x + 2, dial ? l.MG_BEST_Y : l.MG_BEST_Y_NO_DIAL, { size: 22, weight: 700, color: best ? '#fff2bf' : '#bff4ff' });
+    }
     // The players dial, for a game with more than one count (Play says how many either way).
     if (dial) {
       drawCaps(g, 'PLAYERS', x + 2, l.MG_MINUS.y, { size: 20 });
@@ -474,7 +485,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
     g.restore();
     const facts = [playersLabel(game.players), game.durationMs ? `${Math.round(game.durationMs / 1000)} seconds` : null].filter(Boolean).join(' · ');
     drawShadowText(g, facts, art.x + art.w / 2, art.y + art.h + 36, { size: 22, weight: 700, align: 'center', color: '#bff4ff' });
-    drawOptions(g, game, optionsOf(game), l, h, press);
+    drawOptions(g, game, optionsOf(game), l, h, press, ui.keyFocus);
   }
 
   // Frosted glass in the tiles, and the preview's art panel, options and Play.

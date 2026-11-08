@@ -88,8 +88,9 @@ the host's scores or timer off to draw your own), `fullBody` (calibrate only wit
 games about legs), `tracking: 'hands'` (MediaPipe's 3D world landmarks and the tracked hands too,
 for a game that does its own geometry), `coop` (the players are a team: give everyone the team's
 score, and the results show it as one instead of naming a winner; a game whose players choose
-together or versus once it's started says so with `ctx.setCoop`), `order` (lower lists first, then
-by title) and `devOnly`.
+together or versus once it's started says so with `ctx.setCoop`), `best: false` (open play: a
+game that never finishes a round with a score, so its tile and preview show no best), `order`
+(lower lists first, then by title) and `devOnly`.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
 calibration to results, with the session's `MinigameContext` as its `ctx` prop (or
@@ -150,6 +151,9 @@ The round has them as `ctx.options`, every option present, as chosen when Play w
 `ctx.options.bot === 'hard'`. `ctx.setOption('bot', 'easy')` changes one at once, for a key that
 changes a setting mid-round; it's saved, so Play again and the game's next preview start on it.
 An id or value the game doesn't offer is ignored.
+
+With play.ts, `click mgOptionNext.<i>` (or `mgOptionPrev.<i>`, or the row, `mgOption.<i>`) steps
+the preview's row i, and the canvas reports them all: `wait minigameOptions~botShots=hard`.
 
 ### What the host does, and what the game does
 
@@ -363,11 +367,9 @@ machine in a dim room, missing people and joints now and then).
 node scripts/play.ts start --url '/?input=puppet'
 node scripts/play.ts click MINIGAMES
 node scripts/play.ts wait minigameScreen=list minigameSelectReady=true
-node scripts/play.ts click mgTile.0                    # the first game's tile
+node scripts/play.ts click mgTile.1                    # Bubble Pop, the reference game (dev-only: listed in development, or with ?devgames)
 node scripts/play.ts wait minigameScreen=preview minigameSelectReady=true
 node scripts/play.ts click MG_PLUS                     # one more player (MG_MINUS fewer)
-node scripts/play.ts click mgOptionNext.0              # the first setting's next choice (mgOptionPrev.0 back)
-node scripts/play.ts wait minigameOptions~bot=hard     # the preview's settings, id=value|id=value
 node scripts/play.ts click MG_PLAY
 node scripts/play.ts wait minigamePhase=calibrating minigameReady=true
 node scripts/play.ts click GAME_CALIBRATION_PREVIEW    # Start camera: the puppets hold still
@@ -425,7 +427,8 @@ gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to car
 `tracking: 'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
 results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `minigameScreen`,
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
-preview's settings, `bot=hard|hand=right`), and the game's own `mg*` keys; a round's settings are
+preview's settings, e.g. `assist=max|botShots=medium|botReturns=everything|calibrate=on` for
+Table Tennis), and the game's own `mg*` keys; a round's settings are
 `eval "minigame.options"`. The puppet works for the song game too: its calibration and scoring
 run on it.
 

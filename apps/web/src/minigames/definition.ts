@@ -22,6 +22,7 @@ export function definitionProblem(def: unknown, folder?: string): string {
   if (typeof d.load !== 'function') return 'load must import the game';
   if (d.durationMs !== undefined && !(d.durationMs > 0)) return 'durationMs must be positive';
   if (d.tracking !== undefined && d.tracking !== 'hands') return "tracking must be 'hands' (or left out)";
+  if (d.best !== undefined && d.best !== false) return 'best can only be false (a game that keeps no best)';
   return d.options === undefined ? '' : optionsProblem(d.options);
 }
 

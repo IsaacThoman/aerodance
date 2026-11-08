@@ -213,7 +213,7 @@ export default function App() {
         : recordMinigameBest(session.game.id, session.playerCount, session.results, session.game.score?.better);
       // (A game whose players chose to play together says so as it goes: setCoop.)
       const game = session.coop === !!session.game.coop ? session.game : { ...session.game, coop: session.coop };
-      minigameResults.current = { key: `${session.game.id}|${performance.now()}`, game, scores: session.results, start: performance.now() / 1000 + 0.2, best, outcome: session.outcome };
+      minigameResults.current = { game, scores: session.results, start: performance.now() / 1000 + 0.2, best, outcome: session.outcome };
     });
   }, [minigame]);
 

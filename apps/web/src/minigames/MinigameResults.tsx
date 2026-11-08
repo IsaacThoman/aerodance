@@ -28,7 +28,6 @@ import type { MinigameDefinition, MinigameOutcome } from './types.ts';
 
 /** A round's results, as App hands them over when the session reaches results. */
 export interface MinigameResultsShow {
-  key: string;
   game: MinigameDefinition;
   scores: number[];
   /** Seconds on the performance.now() clock when the reveal starts. */

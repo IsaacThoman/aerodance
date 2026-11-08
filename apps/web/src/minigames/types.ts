@@ -93,6 +93,8 @@ export interface MinigameDefinition {
   /** The tile's glass behind the art, top and bottom colours (default a deep aero blue). */
   tint?: readonly [top: string, bottom: string];
   score?: ScoreFormat;
+  /** false for open play, a game that never finishes a round with a score: its tile and preview show no best. */
+  best?: false;
   /** A timed round's length: the HUD counts it down and the host ends the round. Without it the game calls finish(). */
   durationMs?: number;
   /** What's behind it (default 'menu'). */

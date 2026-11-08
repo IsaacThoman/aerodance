@@ -35,7 +35,7 @@ import type { MinigamePhase } from './types.ts';
  *                view; Escape, the pause icon, a hidden tab or an interruption (the audio taken
  *                for a call, the camera muted: game/interruptions.ts) pauses
  *   paused       Resume (counting down again), Restart and Minigames, and why the game can't go
- *                on yet: the audio didn't start again, or the camera is muted
+ *                on yet: the camera is muted
  *   finishing    Time's up! (or Finish!), then MinigameResults takes over
  *   error        the game wouldn't load or crashed: say so, and go back
  *
@@ -248,11 +248,7 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
         drawGlassButton(g, G.GAME_RESUME, { label: 'Resume', icon: 'play', hover: h.resume ?? 0, press: press('resume') });
         drawGlassButton(g, G.GAME_RESTART, { label: 'Restart', icon: 'replay', hover: h.restart ?? 0, press: press('restart') });
         drawGlassButton(g, G.GAME_QUIT, { label: 'Minigames', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
-        let y = G.GAME_PAUSE_PANEL.y + G.GAME_PAUSE_PANEL.h + 44;
-        if (getMixer().ctx.state !== 'running') {
-          drawShadowText(g, 'Waiting for the audio…', s.w / 2, y, { size: 24, weight: 700, align: 'center' });
-          y += 44;
-        }
+        const y = G.GAME_PAUSE_PANEL.y + G.GAME_PAUSE_PANEL.h + 44;
         if (usesCamera() && camera.interrupted()) drawCameraInterrupted(g, camera, props.current.source.view.status, y, s.w);
       }
     },
