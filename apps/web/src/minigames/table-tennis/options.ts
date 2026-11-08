@@ -24,11 +24,10 @@ export const OPTIONS = [
   { id: 'assist', label: 'Aim assist', choices: ASSIST_CHOICES, default: 'max' },
   { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium' },
   { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything' },
-  { id: 'calibrate', label: 'Calibrate paddle', choices: [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], default: 'on' },
 ] as const;
 export type OptionId = (typeof OPTIONS)[number]['id'];
 
-export interface TableTennisOptions { assist: AssistLevel; botShots: BotLevel; botAlways: boolean; calibrate: boolean; }
+export interface TableTennisOptions { assist: AssistLevel; botShots: BotLevel; botAlways: boolean; }
 
 const pick = <T extends string>(choices: readonly { value: T }[], value: string | undefined, fallback: T): T =>
   choices.find((c) => c.value === value)?.value ?? fallback;
@@ -39,7 +38,6 @@ export function optionsOf(values: Readonly<Record<string, string>>): TableTennis
     assist: pick(ASSIST_CHOICES, values.assist, 'max'),
     botShots: pick(BOT_CHOICES, values.botShots, 'medium'),
     botAlways: values.botReturns !== 'fair',
-    calibrate: values.calibrate !== 'off',
   };
 }
 

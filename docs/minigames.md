@@ -416,7 +416,7 @@ gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to car
 `tracking: 'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
 results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `minigameScreen`,
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
-preview's settings, e.g. `assist=max|botShots=medium|botReturns=everything|calibrate=on` for
+preview's settings, e.g. `assist=max|botShots=medium|botReturns=everything` for
 Table Tennis), and the game's own `mg*` keys; a round's settings are
 `eval "minigame.options"`. The puppet works for the song game too: its calibration and scoring
 run on it.

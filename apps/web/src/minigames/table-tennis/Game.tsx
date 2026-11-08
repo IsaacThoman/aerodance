@@ -122,8 +122,7 @@ interface Rig {
   nudge: THREE.Vector3;
   /** The slide the right hand was drawn with this frame. */
   nudged: THREE.Vector3;
-  /** Whether the paddle calibrates itself; its shift (in the room), set by the ball's passes, and as drawn this frame (eased onto it). */
-  calibrating: boolean;
+  /** The paddle's calibration shift (in the room), set by the ball's passes, and as drawn this frame (eased onto it). */
   shift: THREE.Vector3;
   shifted: THREE.Vector3;
   /** How hard the bot's shots are, and whether it returns the player's misses too. */
@@ -518,7 +517,7 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
       if (!st.pass) return;
       const pass = endPass(st.pass, hit, SWING.minSpeed);
       st.pass = null;
-      if (rig.calibrating) { const s = recalibrate(rig.shift, pass); rig.shift.set(s.x, s.y, s.z); }
+      const s = recalibrate(rig.shift, pass); rig.shift.set(s.x, s.y, s.z);
       hud.pass = pass;
     };
     if (serve) {
@@ -624,7 +623,7 @@ function TableTennisHud({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud
         { text: `Rally ${hud.rally}   ·   Best ${hud.best}   ·   Returns ${hud.returns}`, size: 28, weight: 800 },
         { text: !hud.flying ? 'Raise your left hand to serve' : hud.pass ? describePass(hud.pass) : 'Swing through the ball', size: 22 },
         { text: `Aim assist ${choiceLabel('assist', rig.assist)}  ·  Bot ${choiceLabel('botShots', rig.botLevel)}, returns ${rig.botAlways ? 'everything' : 'fair shots'}`, size: 18, color: '#dff4ff' },
-        { text: `Paddle calibration ${rig.calibrating ? `on (shifted ${shiftWords(rig.shift)})` : 'off'}`, size: 18, color: '#dff4ff' },
+        { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
       ];
       // Tracking that isn't all there, said plainly.
       const warning = rig.flat ? 'This camera sends no 3D tracking: your arms\' depth is a guess'
@@ -632,7 +631,7 @@ function TableTennisHud({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud
           : tracking === 'dropped' ? 'Hand tracking is off (the phone was too slow): the paddle follows your arm'
             : tracking === 'unavailable' ? 'No hand tracking: the paddle follows your arm' : null;
       if (warning) lines.push({ text: warning, size: 18, color: '#ffe08a' });
-      lines.push({ text: 'Keys: Space serve · A assist · B bot shots · R bot returns · C calibration', size: 16, color: '#cfe3f5' });
+      lines.push({ text: 'Keys: Space serve · A assist · B bot shots · R bot returns', size: 16, color: '#cfe3f5' });
       if (DEV) lines.push({ text: `Development: T time ${rig.timeScale === 1 ? '1×' : rig.timeScale === 0.5 ? '½×' : '¼×'} · F forgiving ${rig.forgiving ? 'on' : 'off'} · L hit timing ${lagWords(rig)}`, size: 16, color: '#cfe3f5' });
       // A dark glass panel in the top left (the host's scores are off, so the corner is free),
       // sized to its widest line and kept clear of the pause icon at the top centre: a line
@@ -672,28 +671,25 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
     return {
       hands: { left: null, right: null }, tracked: false, flat: false, blade: null, forgiving: false, serve: false, timeScale: 1,
       assist: chosen.assist, hitLag: 'auto', latency: 0, nudge: new THREE.Vector3(), nudged: new THREE.Vector3(),
-      calibrating: chosen.calibrate, shift: new THREE.Vector3(), shifted: new THREE.Vector3(), botLevel: chosen.botShots, botAlways: chosen.botAlways,
+      shift: new THREE.Vector3(), shifted: new THREE.Vector3(), botLevel: chosen.botShots, botAlways: chosen.botAlways,
     };
   });
   const [forgiving, setForgiving] = useState(false);
   const hud = useMemo<Hud>(() => ({ flying: false, returns: 0, rally: 0, best: 0, pass: null }), []);
   usePlayerHands(rig);
 
-  // Space serves; A, B, R and C step the settings (and save them, as the preview would); in
+  // Space serves; A, B and R step the settings (and save them, as the preview would); in
   // development, T steps time's speed, F makes the paddle forgiving and L steps the hit timing.
   useEffect(() => {
     const step = (id: OptionId, value: string) => { const next = nextChoice(id, value); ctx.setOption(id, next); return next; };
     const key = (e: KeyboardEvent) => {
-      // Not with a modifier (Cmd+C is a copy, not calibration), nor a key something else took.
+      // Not with a modifier, nor a key something else took.
       if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || ctx.phase() !== 'playing') return;
       if (e.code === 'Space') { e.preventDefault(); rig.serve = true; }
       else if (e.code === 'KeyA') rig.assist = optionsOf({ assist: step('assist', rig.assist) }).assist;
       else if (e.code === 'KeyB') rig.botLevel = optionsOf({ botShots: step('botShots', rig.botLevel) }).botShots;
       else if (e.code === 'KeyR') rig.botAlways = step('botReturns', rig.botAlways ? 'everything' : 'fair') === 'everything';
-      else if (e.code === 'KeyC') {
-        rig.calibrating = step('calibrate', rig.calibrating ? 'on' : 'off') === 'on';
-        if (!rig.calibrating) rig.shift.set(0, 0, 0);
-      } else if (DEV && e.code === 'KeyF') setForgiving((on) => { rig.forgiving = !on; return !on; });
+      else if (DEV && e.code === 'KeyF') setForgiving((on) => { rig.forgiving = !on; return !on; });
       else if (DEV && e.code === 'KeyT') rig.timeScale = TIME_SCALES[(TIME_SCALES.indexOf(rig.timeScale as typeof TIME_SCALES[number]) + 1) % TIME_SCALES.length];
       else if (DEV && e.code === 'KeyL') rig.hitLag = HIT_LAGS[(HIT_LAGS.indexOf(rig.hitLag) + 1) % HIT_LAGS.length];
     };
