@@ -94,7 +94,7 @@ function fitText(g: CanvasRenderingContext2D, str: string, x: number, y: number,
 
 type PreviewLayout = ReturnType<typeof minigameLayout>;
 // The game's option rows on dark glass, like the settings rows: each its label, then
-// its choice on a dark track between the arrows, which step through the choices and round again
+// its choice between the arrows, which step through the choices and round again
 // (as the camera picker's do). A row lights under the pointer.
 function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number, keyed: string | null) {
   if (!l.MG_OPTIONS || !game.options) return;
@@ -112,9 +112,6 @@ function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, valu
     }
     const labelX = row.x + 22;
     fitText(g, option.label, labelX, cy, prev.x - prev.r - 14 - labelX, 600);
-    pill(g, prev.x, cy - 19, next.x - prev.x, 38);
-    g.fillStyle = 'rgba(0, 30, 70, 0.45)';
-    g.fill();
     drawArrow(g, prev, 'left', arrow('prev').hover, { press: arrow('prev').press });
     drawArrow(g, next, 'right', arrow('next').hover, { press: arrow('next').press });
     const choice = option.choices.find((c) => c.value === values[option.id]) ?? option.choices[0];
