@@ -4,16 +4,8 @@
  * them back with optionsOf.
  */
 
-import type { AssistLevel } from './assist.ts';
 import type { BotLevel } from './bot.ts';
 
-export const ASSIST_CHOICES: readonly { value: AssistLevel; label: string }[] = [
-  { value: 'off', label: 'Off' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'max', label: 'Max' },
-];
 export const BOT_CHOICES: readonly { value: BotLevel; label: string }[] = [
   { value: 'easy', label: 'Easy' },
   { value: 'medium', label: 'Medium' },
@@ -21,13 +13,12 @@ export const BOT_CHOICES: readonly { value: BotLevel; label: string }[] = [
 ];
 
 export const OPTIONS = [
-  { id: 'assist', label: 'Aim assist', choices: ASSIST_CHOICES, default: 'max' },
   { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium' },
   { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything' },
 ] as const;
 export type OptionId = (typeof OPTIONS)[number]['id'];
 
-export interface TableTennisOptions { assist: AssistLevel; botShots: BotLevel; botAlways: boolean; }
+export interface TableTennisOptions { botShots: BotLevel; botAlways: boolean; }
 
 const pick = <T extends string>(choices: readonly { value: T }[], value: string | undefined, fallback: T): T =>
   choices.find((c) => c.value === value)?.value ?? fallback;
@@ -35,7 +26,6 @@ const pick = <T extends string>(choices: readonly { value: T }[], value: string 
 /** The settings from the minigame's chosen options (anything missing or unknown at its default). */
 export function optionsOf(values: Readonly<Record<string, string>>): TableTennisOptions {
   return {
-    assist: pick(ASSIST_CHOICES, values.assist, 'max'),
     botShots: pick(BOT_CHOICES, values.botShots, 'medium'),
     botAlways: values.botReturns !== 'fair',
   };

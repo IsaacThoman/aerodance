@@ -37,7 +37,7 @@ import type { MinigameDefinition } from './types.ts';
  * or a press on the row steps it on). The canvas reports
  * data-minigame-screen (list, preview), -minigame-select-ready, -minigame-list (the ids in
  * order), -minigame-page, -minigame-chosen, -minigame-dial and -minigame-options (the preview's
- * settings, assist=max|bot=medium) for tests.
+ * settings, botShots=medium|botReturns=everything) for tests.
  *
  * <MinigameSelect visible open={{ id, players, options }} onBack onPlay={(game, players, options) => ...} />
  */

@@ -16,7 +16,6 @@ import { DEFAULT_FOV, flatWorld, handPose } from './arms.ts';
 import type { HandPose, Side, Vec3 } from './arms.ts';
 import { OneEuro } from './oneEuro.ts';
 import { ASSIST, SWING, assistReturn, contactNudge, interceptNudge, strongestSwing, swingHit } from './assist.ts';
-import type { AssistLevel } from './assist.ts';
 import { LaggedBall } from './lagged.ts';
 import { BOT, botShot, planReturn } from './bot.ts';
 import type { BotLevel } from './bot.ts';
@@ -35,10 +34,10 @@ import type { OptionId } from './options.ts';
  * end serve a ball; the ball's physics (ball.ts) meet the paddle as it really moves, and the bot
  * (bot.ts), a floating paddle at the far end, plays back what the player returns.
  *
- * The settings are the minigame's options (options.ts), and keys step them while playing: A the
- * aim assist (assist.ts), B the bot's shots, R whether it returns everything, C the paddle's
- * calibration (calibrate.ts: it shifts the paddle by the way its swings keep missing, and the HUD
- * says how each ball went by it). In development, T slows time (the player's swing keeps its own
+ * The settings are the minigame's options (options.ts), and keys step them while playing:
+ * B the bot's shots, R whether it returns everything. Aim assist (assist.ts) always runs at Max,
+ * and paddle calibration (calibrate.ts) shifts the paddle by the way its swings keep missing;
+ * the HUD says how each ball went by it. In development, T slows time (the swing keeps its own
  * speed), F makes the paddle forgiving (it reaches further than it looks) and L steps the hits'
  * lag compensation (the paddle, seen late through the camera, meets the ball as it was then:
  * LaggedBall; 'auto' measures the delay from each pose's capture time).
@@ -113,7 +112,6 @@ interface Rig {
   serve: boolean;
   /** How fast the ball's world runs (1: real time). */
   timeScale: number;
-  assist: AssistLevel;
   /** How late the paddle is to the ball (hits are judged against the ball as it was then). */
   hitLag: HitLag;
   /** The tracker's measured delay, camera to result, in seconds. */
@@ -491,7 +489,7 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
     // The paddle swings at the player's own speed, whatever the time's (and neither the assist's
     // slide nor the calibration's shift is a swing).
     const paddleVel = st.moved && moved && dt > 0 ? v3((moved.x - st.moved.x) / dt, (moved.y - st.moved.y) / dt, (moved.z - st.moved.z) / dt) : undefined;
-    const help = ASSIST[rig.assist];
+    const help = ASSIST.max;
     st.real += dt;
     // Only a hand being tracked swings (one lost drifts down to its rest, which is no swing).
     const right = rig.hands.right;
@@ -622,7 +620,7 @@ function TableTennisHud({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud
       const lines: { text: string; size: number; weight?: number; color?: string }[] = [
         { text: `Rally ${hud.rally}   ·   Best ${hud.best}   ·   Returns ${hud.returns}`, size: 28, weight: 800 },
         { text: !hud.flying ? 'Raise your left hand to serve' : hud.pass ? describePass(hud.pass) : 'Swing through the ball', size: 22 },
-        { text: `Aim assist ${choiceLabel('assist', rig.assist)}  ·  Bot ${choiceLabel('botShots', rig.botLevel)}, returns ${rig.botAlways ? 'everything' : 'fair shots'}`, size: 18, color: '#dff4ff' },
+        { text: `Aim assist Max  ·  Bot ${choiceLabel('botShots', rig.botLevel)}, returns ${rig.botAlways ? 'everything' : 'fair shots'}`, size: 18, color: '#dff4ff' },
         { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
       ];
       // Tracking that isn't all there, said plainly.
@@ -631,7 +629,7 @@ function TableTennisHud({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud
           : tracking === 'dropped' ? 'Hand tracking is off (the phone was too slow): the paddle follows your arm'
             : tracking === 'unavailable' ? 'No hand tracking: the paddle follows your arm' : null;
       if (warning) lines.push({ text: warning, size: 18, color: '#ffe08a' });
-      lines.push({ text: 'Keys: Space serve · A assist · B bot shots · R bot returns', size: 16, color: '#cfe3f5' });
+      lines.push({ text: 'Keys: Space serve · B bot shots · R bot returns', size: 16, color: '#cfe3f5' });
       if (DEV) lines.push({ text: `Development: T time ${rig.timeScale === 1 ? '1×' : rig.timeScale === 0.5 ? '½×' : '¼×'} · F forgiving ${rig.forgiving ? 'on' : 'off'} · L hit timing ${lagWords(rig)}`, size: 16, color: '#cfe3f5' });
       // A dark glass panel in the top left (the host's scores are off, so the corner is free),
       // sized to its widest line and kept clear of the pause icon at the top centre: a line
@@ -670,7 +668,7 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
     const chosen = optionsOf(ctx.options);
     return {
       hands: { left: null, right: null }, tracked: false, flat: false, blade: null, forgiving: false, serve: false, timeScale: 1,
-      assist: chosen.assist, hitLag: 'auto', latency: 0, nudge: new THREE.Vector3(), nudged: new THREE.Vector3(),
+      hitLag: 'auto', latency: 0, nudge: new THREE.Vector3(), nudged: new THREE.Vector3(),
       shift: new THREE.Vector3(), shifted: new THREE.Vector3(), botLevel: chosen.botShots, botAlways: chosen.botAlways,
     };
   });
@@ -678,7 +676,7 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   const hud = useMemo<Hud>(() => ({ flying: false, returns: 0, rally: 0, best: 0, pass: null }), []);
   usePlayerHands(rig);
 
-  // Space serves; A, B and R step the settings (and save them, as the preview would); in
+  // Space serves; B and R step the settings (and save them, as the preview would); in
   // development, T steps time's speed, F makes the paddle forgiving and L steps the hit timing.
   useEffect(() => {
     const step = (id: OptionId, value: string) => { const next = nextChoice(id, value); ctx.setOption(id, next); return next; };
@@ -686,7 +684,6 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
       // Not with a modifier, nor a key something else took.
       if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || ctx.phase() !== 'playing') return;
       if (e.code === 'Space') { e.preventDefault(); rig.serve = true; }
-      else if (e.code === 'KeyA') rig.assist = optionsOf({ assist: step('assist', rig.assist) }).assist;
       else if (e.code === 'KeyB') rig.botLevel = optionsOf({ botShots: step('botShots', rig.botLevel) }).botShots;
       else if (e.code === 'KeyR') rig.botAlways = step('botReturns', rig.botAlways ? 'everything' : 'fair') === 'everything';
       else if (DEV && e.code === 'KeyF') setForgiving((on) => { rig.forgiving = !on; return !on; });
