@@ -130,7 +130,9 @@ try {
   await mac.importZip(firstZip);
   await mac.shot('transfer-settings');
   await mac.click(SONG_TRANSFER);
-  await mac.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'waiting', transferCode: /^\d{6}$/, transferSongs: '1' });
+  await mac.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'entering', transferMode: 'enter' });
+  await mac.click(TRANSFER_LINK);
+  await mac.until({ transferStatus: 'waiting', transferMode: 'code', transferCode: /^\d{6}$/, transferSongs: '1' });
   const code = await mac.data('transferCode');
   await mac.shot('transfer-code');
 
@@ -169,9 +171,7 @@ try {
   await phone.until({ menuScreen: 'settings', menuReady: 'true', savedSongs: '1' });
   await phone.importZip(secondZip);
   await phone.click(SONG_TRANSFER);
-  await phone.until({ menuScreen: 'transfer', transferStatus: 'waiting', transferSongs: '2' });
-  await phone.click(TRANSFER_LINK);
-  await phone.until({ transferStatus: 'entering', transferMode: 'enter' });
+  await phone.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'entering', transferMode: 'enter', transferSongs: '2' });
   await phone.page.keyboard.type(code.slice(0, 4));
   await phone.until({ menuReady: 'true' });
   await phone.shot('transfer-keypad');
