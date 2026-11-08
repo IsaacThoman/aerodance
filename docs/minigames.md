@@ -18,10 +18,11 @@ results → Play again or Minigames.**
   each with the game's art, title, blurb, supported players and best score for the players
   last picked. More than six games page with the arrows beside the grid. Up and Down move down and up a column (on to the
   back button), Left and Right across a row (on to the next page at its end).
-- **The preview**: the art large in a glass panel, the description, the best for this many
-  players, the game's settings in rows under the art ([options](#settings-options)), and the
-  players dial (only the counts the game supports, and none for a game that plays with one count)
-  over **Play**. Back from a round lands here, with the same players and settings.
+- **The preview**: the game's title, its settings on the left ([options](#settings-options)),
+  a players dial and **Play** below them, and the menu's glass dancer platform on the right,
+  showing the selected player count. The dial only permits counts the game supports; for a solo
+  game it shows one with both arrows dimmed. Scored games show the best under the title.
+  Back from a round lands here, with the same players and settings.
 - **Calibration** (`minigames/MinigameScreen.tsx`): the song game's camera setup card
   (`game/calibrationCard.ts`): the preview starts the camera, the arrows pick a webcam, a phone
   or the puppet, and every player holds still together for 2.5 seconds, which measures each
@@ -119,12 +120,11 @@ export default function HighFive({ ctx }: { ctx: MinigameContext }) {
 ### Settings: `options`
 
 A game with settings (a difficulty, an aim assist, which hand holds the paddle) lists them in its
-definition's `options`, up to four, and its preview shows a row for each under the art: the
+definition's `options`, up to four, and its preview shows a row for each on the left: the
 label, then the choice between two arrows that step through the choices and round again, as the
 camera picker's do. A press on an arrow steps it, and a press on the row steps it on; with the
 keyboard or the Siri Remote, Up and Down go through the rows, the players dial and Play, and
-Left/Right step the row with the focus ring (Enter steps it on). The art gives up some height to
-make room, so its drawing should cope with a wider rect, as it does on its tile.
+Left/Right step the row with the focus ring (Enter steps it on). The game's art appears on its list tile.
 
 ```ts
 options: [

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
   FONT, TAU, drawCaps, drawDarkGlassPanel, drawDialCount, drawDialStep, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText,
-  ellipsize, glassCorner, ICONS, paragraph, pill, roundRect,
+  ellipsize, glassCorner, ICONS, pill, roundRect,
 } from '../ui/draw.ts';
 import type { Circle, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
@@ -25,10 +25,9 @@ import type { MinigameDefinition } from './types.ts';
  *   list     a glass tile per game (minigames/registry.ts), three across and two down, each with
  *            its art, title, blurb, players and best score; more than six page with the arrows
  *            beside the grid. Like the Wii's channels
- *   preview  the chosen game: its art large, its description, its best for the players picked,
- *            its options (a row each under the art, the choice between arrows), and the players
- *            dial (only the counts it supports; none for a game with just one) over Play, which
- *            starts it (onPlay) with that many players and those settings
+ *   preview  the chosen game's title, options and players dial on the left, Play below,
+ *            and the menu's glass dancer platform on the right. The dial only steps through
+ *            supported player counts; solo games show one with both steps disabled.
  *
  * Mouse, touch and the keyboard (or a Siri Remote) as on the other menus: the pearl focus ring
  * starts on the main action, Up/Down move down and up a column of tiles (on to the back button),
@@ -51,6 +50,8 @@ export interface MinigameSelectProps {
   /** The player count to start a game's dial on, where the game supports it. */
   players?: PlayerCount;
   onBack?: () => void;
+  /** The preview's player count, or null while the preview is hidden (for the menu platform). */
+  onPreviewPlayersChange?: (players: PlayerCount | null) => void;
   onPlay?: (game: MinigameDefinition, players: PlayerCount, options: MinigameOptionValues) => void;
 }
 /** A tile; an option row, or one of its arrows (step). */
@@ -183,23 +184,24 @@ interface SelectState {
   drawnAt: number;
   drawn: string;
   reported: string;
+  previewPlayers: PlayerCount | null;
   /** Best scores read from storage, by game and players (read again each time the list opens). */
   bests: Map<string, MinigameBest | null>;
 }
 
-export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onPlay }: MinigameSelectProps) {
+export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onPlay, onPreviewPlayersChange }: MinigameSelectProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const width = displayDesign(size.width, size.height).w;
   const layout = minigameLayout(width);
-  const props = useRef({ visible, players, onBack, onPlay });
-  props.current = { visible, players, onBack, onPlay };
+  const props = useRef({ visible, players, onBack, onPlay, onPreviewPlayersChange });
+  props.current = { visible, players, onBack, onPlay, onPreviewPlayersChange };
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   const widthRef = useRef(width);
   widthRef.current = width;
   const st = useRef<SelectState>({
-    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawnAt: -Infinity, drawn: '', reported: '', bests: new Map(),
+    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawnAt: -Infinity, drawn: '', reported: '', previewPlayers: null, bests: new Map(),
   }).current;
 
   const pages = Math.max(1, Math.ceil(MINIGAMES.length / MG_PER_PAGE));
@@ -370,6 +372,11 @@ export default function MinigameSelect({ visible = false, open = null, players =
       // The art moves: redraw now and then while showing.
       if (p.visible && s.time - st.drawnAt >= 1 / ART_FPS) s.invalidate();
       const game = chosen();
+      const previewPlayers = p.visible && st.screen === 'preview' && game ? dialOf(game) : null;
+      if (previewPlayers !== st.previewPlayers) {
+        st.previewPlayers = previewPlayers;
+        p.onPreviewPlayersChange?.(previewPlayers);
+      }
       const settings = game ? optionsText(optionsOf(game)) : '';
       const key = [st.screen, st.page, st.chosen, game ? dialOf(game) : '', settings].join('~');
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
@@ -419,14 +426,14 @@ export default function MinigameSelect({ visible = false, open = null, players =
         }
       } else {
         const game = chosen();
-        if (game) drawPreview(g, game, s.time, dialOf(game), h, press);
+        if (game) drawPreview(g, game, dialOf(game), h, press);
       }
       g.restore();
     },
   });
 
-  // The preview: words on the left, the art on the right, the dial over Play.
-  function drawPreview(g: CanvasRenderingContext2D, game: MinigameDefinition, time: number, count: PlayerCount, h: Record<string, number>, press: (id: string) => number) {
+  // The preview: options and the players dial on the left, the shared menu platform on the right.
+  function drawPreview(g: CanvasRenderingContext2D, game: MinigameDefinition, count: PlayerCount, h: Record<string, number>, press: (id: string) => number) {
     const l = previewLayout(game);
     drawHeader(g, l.MG_BACK, 'MINIGAMES', h.back ?? 0);
     const x = l.MG_BACK.x - 38, w = l.MG_TEXT.w;
@@ -435,50 +442,28 @@ export default function MinigameSelect({ visible = false, open = null, players =
     const titleSize = Math.max(48, Math.min(64, Math.floor((64 * w) / g.measureText(game.title).width)));
     g.font = `800 ${titleSize}px ${FONT}`;
     drawShadowText(g, ellipsize(g, game.title, w), x, l.MG_BACK.y + 84, { size: titleSize, weight: 800 });
-    g.font = `700 28px ${FONT}`;
-    drawShadowText(g, ellipsize(g, game.blurb, w), x + 2, l.MG_BACK.y + 138, { size: 28, color: '#d8f6ff' });
-    g.save();
-    g.shadowColor = 'rgba(0, 34, 84, 0.75)';
-    g.shadowBlur = 5;
-    g.shadowOffsetY = 2;
-    paragraph(g, game.description, x + 2, l.MG_BACK.y + 200, w, { size: 24, color: '#ffffff', lineH: 33 });
-    g.restore();
     // The best for this many players.
     const best = bestOf(game, count);
     const counts = [...game.players].sort((a, b) => a - b);
-    const dial = counts.length > 1;
     if (game.best !== false) {
       drawShadowText(g, best ? `Best ${fmt(game, best.score)} with ${COUNT_NAMES[count - 1].toLowerCase()}` : `No best yet with ${COUNT_NAMES[count - 1].toLowerCase()}`,
-        x + 2, dial ? l.MG_BEST_Y : l.MG_BEST_Y_NO_DIAL, { size: 22, weight: 700, color: best ? '#fff2bf' : '#bff4ff' });
+        x + 2, l.MG_BEST_Y, { size: 22, weight: 700, color: best ? '#fff2bf' : '#bff4ff' });
     }
-    // The players dial, for a game with more than one count (Play says how many either way).
-    if (dial) {
-      drawCaps(g, 'PLAYERS', x + 2, l.MG_MINUS.y, { size: 20 });
-      drawDialStep(g, l.MG_MINUS, false, h.minus ?? 0, press('minus'), count > counts[0]);
-      drawDialStep(g, l.MG_PLUS, true, h.plus ?? 0, press('plus'), count < counts.at(-1)!);
-      drawDialCount(g, count, l.MG_COUNT_X, l.MG_MINUS.y, 96);
-    }
+    // Always show the players dial; unavailable steps are dimmed, including both for solo games.
+    drawCaps(g, 'PLAYERS', x + 2, l.MG_MINUS.y, { size: 20 });
+    drawDialStep(g, l.MG_MINUS, false, h.minus ?? 0, press('minus'), count > counts[0]);
+    drawDialStep(g, l.MG_PLUS, true, h.plus ?? 0, press('plus'), count < counts.at(-1)!);
+    drawDialCount(g, count, l.MG_COUNT_X, l.MG_MINUS.y, 120);
     drawGlassButton(g, l.MG_PLAY, { label: 'Play', sub: COUNT_NAMES[count - 1], icon: 'play', hover: h.play ?? 0, press: press('play'), chevron: false });
-    // The art, large, in its glass, and what it plays with under it.
-    const art = l.MG_ART;
-    drawDarkGlassPanel(g, art, 34);
-    const inner = { x: art.x + 14, y: art.y + 14, w: art.w - 28, h: art.h - 28 };
-    g.save();
-    roundRect(g, inner.x, inner.y, inner.w, inner.h, 24);
-    g.clip();
-    game.art(g, inner, time);
-    g.restore();
-    const facts = [playersLabel(game.players), game.durationMs ? `${Math.round(game.durationMs / 1000)} seconds` : null].filter(Boolean).join(' · ');
-    drawShadowText(g, facts, art.x + art.w / 2, art.y + art.h + 36, { size: 22, weight: 700, align: 'center', color: '#bff4ff' });
     drawOptions(g, game, optionsOf(game), l, h, press, ui.keyFocus);
   }
 
-  // Frosted glass in the tiles, and the preview's art panel, options and Play.
+  // Frosted glass in the tiles, and the preview's options and Play.
   useGlassBlur(() => {
     const l = st.screen === 'list' ? layoutRef.current : previewLayout(chosen());
     const panes = st.screen === 'list'
       ? onPage().map((game, i) => ({ ...buttonPane(ui, `game-${game.id}`, l.mgTile(i)), corner: TILE_CORNER }))
-      : [panelPane(l.MG_ART), ...(l.MG_OPTIONS ? [panelPane(l.MG_OPTIONS)] : []), buttonPane(ui, 'play', l.MG_PLAY)];
+      : [...(l.MG_OPTIONS ? [panelPane(l.MG_OPTIONS)] : []), buttonPane(ui, 'play', l.MG_PLAY)];
     return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
   });
 

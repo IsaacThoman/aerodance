@@ -126,6 +126,7 @@ export default function App() {
   const [minigamePhase, setMinigamePhase] = useState<MinigamePhase | null>(null);
   const minigameResults = useRef<MinigameResultsShow | null>(null);
   const [minigameOpen, setMinigameOpen] = useState<MinigameSelectProps['open']>(null);
+  const [minigamePreviewPlayers, setMinigamePreviewPlayers] = useState<PlayerCount | null>(null);
   // The main menu's button a keyboard cursor goes back to (Minigames, coming back from their list).
   const [menuRefocus, setMenuRefocus] = useState<string | undefined>(undefined);
   const [sound, setSound] = useState(loadSound);
@@ -309,11 +310,11 @@ export default function App() {
           </StageView>
           {!minigameStage && minigameView}
           <MenuDancers
-            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen) && !stage.showing && !diagnostic('nodancers')}
+            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen || (screen === 'minigames' && minigamePreviewPlayers !== null)) && !stage.showing && !diagnostic('nodancers')}
             raised={songsOpen}
             // One dancer per player: the dial's count on the players screen, the chosen count on
-            // Song Select, and the duet everywhere else.
-            count={songsOpen ? playerCount : menuOpen && menuShown === 'players' ? dialCount : 2}
+            // Song Select and minigame previews, and the duet everywhere else.
+            count={screen === 'minigames' ? minigamePreviewPlayers ?? 1 : songsOpen ? playerCount : menuOpen && menuShown === 'players' ? dialCount : 2}
           />
           <MainMenu
             visible={menuOpen}
@@ -358,6 +359,7 @@ export default function App() {
             visible={screen === 'minigames'}
             open={minigameOpen}
             players={playerCount}
+            onPreviewPlayersChange={setMinigamePreviewPlayers}
             onBack={leaveMinigames}
             onPlay={startMinigame}
           />

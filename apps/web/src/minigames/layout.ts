@@ -23,8 +23,8 @@ export const tileArt = (tile: Rect): Rect => ({ x: tile.x + 10, y: tile.y + 10, 
 /** The most option rows a game's preview has room for (definition.ts holds games to it). */
 export const MG_MAX_OPTIONS = 4;
 // An option row: as tall as a settings row (menu/layout.ts), with the glass panel's padding round
-// the rows, and the room between the art and the rows for the line under the art.
-const OPTION = { h: 52, gap: 8, pad: 12, arrow: 20, facts: 68 };
+// the rows.
+const OPTION = { h: 52, gap: 8, pad: 12, arrow: 20 };
 
 /**
  * The list, the preview, the how-to card, the HUD and the results, laid out for a display's width.
@@ -36,22 +36,18 @@ export function minigameLayout(width = 1600, options = 0) {
   const left = compact ? 72 : 128;
   const t = tileSize(compact);
   const gridBottom = GRID.y + 2 * t.h + t.gap;
-  // The preview: the game's art in a glass panel on the right, its words on the left, and the
-  // players dial over Play, bottom left like the players screen's.
-  const fullArt = compact ? { x: 616, y: 236, w: 512, h: 342 } : { x: 828, y: 236, w: 644, h: 430 };
+  // Preview: options on the left, a player-count dial below them, and the menu's dancer
+  // platform on the right. Keep the controls in the same places for every option count.
+  const columnW = compact ? 512 : 644;
   const play = { x: left, y: 726, w: 370, h: 92 };
-  const dialY = 638;
-  const countX = left + (compact ? 330 : 340);
-  // The game's options: a glass panel of rows under the art, its foot level with Play's, the art
-  // giving up height (keeping its width) to make room. Each row is its label, then the choice
-  // between a back and a forward arrow at the row's end.
+  const dialY = 646;
+  const countX = left + 340;
   const n = Math.max(0, Math.min(MG_MAX_OPTIONS, Math.floor(options)));
   const panelH = 2 * OPTION.pad + n * OPTION.h + Math.max(0, n - 1) * OPTION.gap;
-  const panel = { x: fullArt.x, y: play.y + play.h - panelH, w: fullArt.w, h: panelH };
-  const art = n ? { ...fullArt, h: Math.min(fullArt.h, panel.y - OPTION.facts - fullArt.y) } : fullArt;
+  const panel = { x: left, y: 310, w: columnW, h: panelH };
   const row = (i: number): Rect => ({ x: panel.x + OPTION.pad, y: panel.y + OPTION.pad + i * (OPTION.h + OPTION.gap), w: panel.w - 2 * OPTION.pad, h: OPTION.h });
   // The room between the arrows for the choice's name.
-  const choiceW = compact ? 150 : 200;
+  const choiceW = compact ? 140 : 200;
   const next = (i: number): Circle => { const r = row(i); return { x: r.x + r.w - 8 - OPTION.arrow, y: r.y + r.h / 2, r: OPTION.arrow }; };
   const prev = (i: number): Circle => { const c = next(i); return { ...c, x: c.x - choiceW - 2 * OPTION.arrow - 12 }; };
   // The how-to card, centred, with Start at its foot.
@@ -65,15 +61,12 @@ export function minigameLayout(width = 1600, options = 0) {
     MG_PAGE_NEXT: { x: width - gridX(width) + (compact ? 34 : 56), y: GRID.y + (gridBottom - GRID.y) / 2, r: 30 } as Circle,
     /** Under the grid: the page dots. */
     MG_PAGE_DOTS_Y: gridBottom + 30,
-    MG_TEXT: { x: left, w: art.x - left - (compact ? 36 : 60) },
-    MG_ART: art,
+    MG_TEXT: { x: left, w: columnW },
     MG_PLAY: play,
     MG_COUNT_X: countX,
     MG_MINUS: { x: countX - 104, y: dialY, r: 36 } as Circle,
     MG_PLUS: { x: countX + 104, y: dialY, r: 36 } as Circle,
-    /** The preview's best score line: over the players dial, or, for a game with one player count (no dial), over Play. */
-    MG_BEST_Y: dialY - 72,
-    MG_BEST_Y_NO_DIAL: play.y - 46,
+    MG_BEST_Y: 282,
     /** The preview's option rows (with `options`): their panel, each row, and the arrows at its end. */
     MG_OPTIONS: n ? panel : null,
     mgOption: row,

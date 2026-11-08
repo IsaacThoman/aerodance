@@ -215,7 +215,6 @@ test('the list fits six tiles in either display, clear of the back button and th
     assert.deepEqual(tiles[0], mgTile(0, width));
     assert.ok(tiles.every((t) => t.x >= 0 && t.x + t.w <= width && t.y > l.MG_BACK.y + l.MG_BACK.r && t.y + t.h <= 900 - 40), `${width}`);
     assert.ok(tiles[1].x >= tiles[0].x + tiles[0].w && tiles[3].y >= tiles[0].y + tiles[0].h, 'no overlaps');
-    assert.ok(l.MG_ART.x >= l.MG_TEXT.x + l.MG_TEXT.w && l.MG_ART.x + l.MG_ART.w <= width);
     assert.ok(l.MG_MINUS.x - l.MG_MINUS.r > l.MG_TEXT.x + 150, 'the dial clears its label');
   }
 });
@@ -296,7 +295,7 @@ test('a round has the preview\'s settings as ctx.options, and the game can chang
   assert.deepEqual(new MinigameSession({ game: game(), playerCount: 1 }).options, {});
 });
 
-test('the preview has room for four option rows in either display, clear of the art, the dial and Play', () => {
+test('the preview has room for four option rows on the left, clear of the title, dial and Play', () => {
   const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const inside = (a: Rect, b: Rect) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
   const box = (c: Circle): Rect => ({ x: c.x - c.r, y: c.y - c.r, w: 2 * c.r, h: 2 * c.r });
@@ -306,14 +305,13 @@ test('the preview has room for four option rows in either display, clear of the 
     for (let n = 1; n <= MG_MAX_OPTIONS; n++) {
       const l = minigameLayout(width, n), panel = l.MG_OPTIONS!, at = `${width}, ${n} rows`;
       const screen = { x: 40, y: l.MG_BACK.y + l.MG_BACK.r + 40, w: width - 80, h: 900 - 40 - (l.MG_BACK.y + l.MG_BACK.r + 40) };
-      assert.ok(inside(panel, screen) && inside(l.MG_ART, screen), `on screen, below the header and clear of the top corners (${at})`);
-      assert.ok(panel.x >= l.MG_TEXT.x + l.MG_TEXT.w, `clear of the words (${at})`);
+      assert.ok(inside(panel, screen), `on screen, below the header and clear of the top corners (${at})`);
+      assert.equal(panel.x, l.MG_TEXT.x, `options in the left column (${at})`);
+      assert.ok(panel.x + panel.w <= width / 2, `room for the platform on the right (${at})`);
+      assert.ok(panel.y > l.MG_BACK.y + 84 + 40, `clear of the title (${at})`);
       assert.ok(!overlaps(panel, l.MG_PLAY) && !overlaps(panel, box(l.MG_PLUS)) && !overlaps(panel, box(l.MG_MINUS)), `clear of the dial and Play (${at})`);
-      assert.equal(panel.y + panel.h, l.MG_PLAY.y + l.MG_PLAY.h, `level with Play's foot (${at})`);
-      // The art gives up height for the rows, keeping room under it for its line of facts.
-      assert.ok(l.MG_ART.y + l.MG_ART.h + 56 <= panel.y && l.MG_ART.h >= 240, `the art and its line above the rows (${at})`);
-      assert.deepEqual({ ...l.MG_ART, h: 0 }, { ...plain.MG_ART, h: 0 });
-      assert.deepEqual([l.MG_PLAY, l.MG_MINUS, l.MG_PLUS, l.MG_BEST_Y], [plain.MG_PLAY, plain.MG_MINUS, plain.MG_PLUS, plain.MG_BEST_Y], 'the left column stays put');
+      assert.ok(panel.y + panel.h < l.MG_MINUS.y - 60, `clear of the count (${at})`);
+      assert.deepEqual([l.MG_PLAY, l.MG_MINUS, l.MG_PLUS], [plain.MG_PLAY, plain.MG_MINUS, plain.MG_PLUS], 'the controls stay put');
       for (let i = 0; i < n; i++) {
         const row = l.mgOption(i), prev = box(l.mgOptionPrev(i)), next = box(l.mgOptionNext(i));
         assert.ok(inside(row, panel) && inside(prev, row) && inside(next, row), `row ${i} and its arrows in the panel (${at})`);
@@ -322,8 +320,7 @@ test('the preview has room for four option rows in either display, clear of the 
         assert.ok(prev.x - (row.x + 22) >= 190, `room for the label (${at})`);
       }
     }
-    assert.equal(minigameLayout(width, 1).MG_ART.h, plain.MG_ART.h, 'one row leaves the art its full size');
-    assert.ok(plain.MG_BEST_Y_NO_DIAL > plain.MG_BEST_Y && plain.MG_BEST_Y_NO_DIAL < plain.MG_PLAY.y - 20, 'without a dial the best sits just over Play');
+    assert.ok(plain.MG_BEST_Y > plain.MG_BACK.y + 84 && plain.MG_BEST_Y < minigameLayout(width, 1).MG_OPTIONS!.y, 'the best fits under the title');
   }
 });
 
