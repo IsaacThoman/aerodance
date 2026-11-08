@@ -4,13 +4,15 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import express from 'express';
 import type { Plugin } from 'vite';
-import { ASSET_PATH, MEDIAPIPE_VERSION, MODELS } from '../packages/pose/browser/models.ts';
+import { ASSET_PATH, MEDIAPIPE_VERSION, MODEL_ASSETS, MODELS } from '../packages/pose/browser/models.ts';
 import { isObject } from '../packages/pose/choreography.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = path.join(root, '.cache', ASSET_PATH);
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 let preparation: Promise<void> | undefined;
+/** A cached pose model that isn't a current one (the hand model's file doesn't start like theirs). */
+export const isRetiredModel = (file: string) => /^pose_landmarker_.*\.task$/.test(file) && !MODELS.some(model => model.file === file);
 export function preparePoseAssets() {
   return preparation ??= (async () => {
     const packageRoot = path.join(root, 'node_modules/@mediapipe/tasks-vision');
@@ -19,11 +21,10 @@ export function preparePoseAssets() {
     await mkdir(path.join(directory, 'wasm'), { recursive: true });
     // An existing checkout may have cached retired models. Never serve or copy them into builds.
     for (const file of await readdir(directory))
-      if (/^pose_landmarker_.*\.task$/.test(file) && !MODELS.some(model => model.file === file))
-        await rm(path.join(directory, file));
+      if (isRetiredModel(file)) await rm(path.join(directory, file));
     for (const file of await readdir(path.join(packageRoot, 'wasm')))
       await copyFile(path.join(packageRoot, 'wasm', file), path.join(directory, 'wasm', file));
-    await Promise.all(MODELS.map(async model => {
+    await Promise.all(MODEL_ASSETS.map(async model => {
       const filename = path.join(directory, model.file);
       let bytes = await readFile(filename).catch((error: unknown) => { if (!isObject(error) || error.code !== 'ENOENT') throw error; });
       if (bytes && (bytes.length !== model.bytes || hash(bytes) !== model.sha256)) throw Error(`Cached ${model.label} model checksum mismatch; remove ${filename} and retry`);

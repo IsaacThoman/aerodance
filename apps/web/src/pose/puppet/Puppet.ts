@@ -1,7 +1,8 @@
 import { MAX_PLAYERS } from '../../../../../packages/pose/choreography.ts';
-import type { FrameSize } from '../../../../../packages/pose/choreography.ts';
+import type { FrameSize, Point3 } from '../../../../../packages/pose/choreography.ts';
+import type { TrackedHand } from '../../../../../packages/pose/webcamRecord.ts';
 import { JOINT_INDEX } from '../joints.ts';
-import { bodyPoints, landmarksOf, STAND, toImage } from './rig.ts';
+import { bodyPoints, handPoints, landmarksOf, STAND, toImage, toWorld } from './rig.ts';
 import type { DetectedPoint, PuppetPose, Vec3 } from './rig.ts';
 import { ease, gestureSteps, namedPose } from './poses.ts';
 import type { EaseName, PosePatch, PuppetStep } from './poses.ts';
@@ -22,6 +23,7 @@ import type { EaseName, PosePatch, PuppetStep } from './poses.ts';
  * puppet.gesture('all', 'jump');                      // everyone jumps
  * puppet.play(1, [{ patch: { lean: 20 }, ms: 300, hold: 500 }, { patch: { lean: 0 }, ms: 300 }], { loop: true });
  * puppet.detect(performance.now());                   // { landmarks: DetectedPoint[][], looks }
+ * puppet.detect(t, { world: true, hands: true });      // and world, hands (the 'hands' detail)
  */
 
 /** How real the camera is: tracking jitter, missed people and joints, and its delays. */
@@ -122,9 +124,12 @@ export class Puppet {
   requested = 1;
   people: Person[];
   rnd: () => number;
+  /** The extras' jitter (detect's world and hands) draws from its own sequence, so the landmarks are the same with them or without. */
+  extraRnd: () => number;
   constructor({ seed = 11, now = () => performance.now(), frame = { width: 640, height: 480 }, realism = REALISM.real }: PuppetOptions = {}) {
     this.now = now; this.frame = frame; this.realism = { ...realism };
     this.rnd = random(seed);
+    this.extraRnd = random(seed + 7919);
     const t = now();
     this.people = Array.from({ length: MAX_PLAYERS }, (_, id) => ({
       id, presence: [{ at: -Infinity, inView: false }], base: copyPose(STAND), segments: [], loop: null,
@@ -294,10 +299,15 @@ export class Puppet {
     return { pose, image: toImage(bodyPoints(pose), pose, this.frame) };
   }
 
-  /** What MediaPipe would report for a frame captured at t: the people it finds, in no order, and their looks. */
-  detect(t: number): { landmarks: DetectedPoint[][]; looks: (number[] | null)[] } {
+  /**
+   * What MediaPipe would report for a frame captured at t: the people it finds, in no order, and
+   * their looks; with world, their world landmarks (rig.ts toWorld); with hands, the hands the
+   * Hand Landmarker would find at each one's wrists (rig.ts handPoints), where the wrist is seen.
+   */
+  detect(t: number, { world = false, hands = false } = {}): { landmarks: DetectedPoint[][]; looks: (number[] | null)[]; world: Point3[][]; hands: TrackedHand[][] } {
     const { jitter, dropout, jointDropout } = this.realism;
-    const found: { landmarks: DetectedPoint[]; looks: number[] }[] = [];
+    const found: { landmarks: DetectedPoint[]; looks: number[]; world: Point3[]; hands: TrackedHand[] }[] = [];
+    const noise = (n: number) => (n ? gaussian(this.extraRnd) * n : 0);
     for (const p of this.people) {
       const clean = this.landmarksAt(p.id, t);
       if (!clean || this.rnd() < dropout) continue;
@@ -312,14 +322,42 @@ export class Puppet {
           visibility: sure(j.visibility), presence: sure(j.presence),
         };
       });
-      found.push({ landmarks, looks: looksOf(p) });
+      const pose = world || hands ? this.poseAt(p, t) : null;
+      const body = pose ? bodyPoints(pose) : [];
+      // A picture's jitter is about twice as many metres (a torso is a quarter of the picture's height, half a metre).
+      const metres = jitter * 2;
+      found.push({
+        landmarks, looks: looksOf(p),
+        world: world ? toWorld(body).map((q, i) => {
+          const n = metres * ((i >= 15 && i <= 22) || i >= 27 ? 2 : 1);
+          return { x: q.x + noise(n), y: q.y + noise(n), z: q.z + noise(n * 3) };
+        }) : [],
+        hands: pose && hands ? this.handsOf(pose, body, landmarks, noise) : [],
+      });
     }
     // MediaPipe lists people in no stable order.
     for (let i = found.length - 1; i > 0; i--) {
       const j = Math.floor(this.rnd() * (i + 1));
       [found[i], found[j]] = [found[j], found[i]];
     }
-    return { landmarks: found.map((f) => f.landmarks), looks: found.map((f) => f.looks) };
+    return { landmarks: found.map((f) => f.landmarks), looks: found.map((f) => f.looks), world: found.map((f) => f.world), hands: found.map((f) => f.hands) };
+  }
+
+  /** The hands the Hand Landmarker would find at a person's wrists: where the pose's wrist is seen, each a little off it as the real one is. */
+  handsOf(pose: PuppetPose, body: readonly Vec3[], landmarks: readonly DetectedPoint[], noise: (n: number) => number): TrackedHand[] {
+    const hands: TrackedHand[] = [];
+    for (const [side, wrist] of [['left', 15], ['right', 16]] as const) {
+      if (landmarks[wrist].visibility < 0.3) continue;
+      const points = handPoints(body, side);
+      const image = toImage(points, pose, this.frame);
+      const dx = noise(this.realism.jitter), dy = noise(this.realism.jitter);
+      if (image.some((q) => q.x < 0 || q.x > 1 || q.y < 0 || q.y > 1)) continue;
+      // (Points round the hand's middle, as the Hand Landmarker's world landmarks are.)
+      const middle = points.reduce((sum, q) => ({ x: sum.x + q.x / points.length, y: sum.y + q.y / points.length, z: sum.z + q.z / points.length }), { x: 0, y: 0, z: 0 });
+      hands.push({ side, score: 0.95, world: toWorld(points, middle),
+        landmarks: image.map((q) => ({ x: q.x + dx, y: q.y + dy, z: q.z - image[0].z, confidence: null })) });
+    }
+    return hands;
   }
 
   /** Where everyone is now, for the window API and play.ts. */

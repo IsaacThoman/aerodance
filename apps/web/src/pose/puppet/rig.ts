@@ -14,6 +14,10 @@ import type { FrameSize } from '../../../../../packages/pose/choreography.ts';
  * The proportions are standingPose's (pose/ReplayPoseSource.ts): a 640x480 picture with the hips
  * at 0.56 of its height and a torso 0.24 of it, the ankles at 0.88. depth moves the person back
  * (smaller, their feet nearer the horizon) or forward (bigger, feet out of the picture).
+ *
+ * For the 'hands' detail (pose/PoseSource.ts) the same body gives MediaPipe's world landmarks
+ * (toWorld: metres, a torso TORSO_METRES long) and the Hand Landmarker's 21 points for each hand
+ * (handPoints: an open hand, flat, the fingers straight on from the forearm).
  */
 
 export interface Vec3 { x: number; y: number; z: number; }
@@ -177,6 +181,46 @@ export function toImage(points: readonly Vec3[], pose: PuppetPose, frame: FrameS
     const inView = x >= -EDGE && x <= 1 + EDGE && y >= -EDGE && y <= 1 + EDGE;
     return { x, y, z, visibility: inView ? SURE[i] : 0.12, presence: inView ? SURE[i] : 0.2 };
   });
+}
+
+/** A person's torso, shoulder centre to hip centre, in metres: about what MediaPipe's world landmarks measure for an adult. */
+export const TORSO_METRES = 0.5;
+/**
+ * Body-space points as MediaPipe's world landmarks: metres from `origin` (the hip centre, where
+ * body space starts), x towards the unmirrored picture's right (the person's left), y down and
+ * z away from the camera.
+ */
+export function toWorld(points: readonly Vec3[], origin: Vec3 = v3()): Vec3[] {
+  return points.map((p) => ({ x: (origin.x - p.x) * TORSO_METRES, y: (origin.y - p.y) * TORSO_METRES, z: (origin.z - p.z) * TORSO_METRES }));
+}
+
+// A hand's 21 points (MediaPipe's: the wrist, then the thumb's four and each finger's four, index
+// to pinky), in torso lengths from the wrist: along the hand (towards the fingers) and across it
+// (towards the thumb). The palm is about 9 cm long and 6 wide, a middle finger 9 cm.
+const HAND: readonly (readonly [along: number, across: number])[] = [
+  [0, 0],
+  [0.05, 0.05], [0.1, 0.09], [0.14, 0.115], [0.18, 0.13],
+  [0.18, 0.065], [0.26, 0.068], [0.31, 0.07], [0.35, 0.071],
+  [0.185, 0.022], [0.275, 0.022], [0.33, 0.022], [0.375, 0.022],
+  [0.175, -0.022], [0.26, -0.024], [0.31, -0.025], [0.35, -0.026],
+  [0.155, -0.06], [0.215, -0.064], [0.255, -0.066], [0.29, -0.068],
+];
+
+/**
+ * The 21 hand points of a side's hand in body space, from the body's wrist, index and thumb
+ * (bodyPoints): open and flat, the fingers pointing where the index does from the wrist.
+ */
+export function handPoints(points: readonly Vec3[], side: 'left' | 'right'): Vec3[] {
+  const [wrist, index, thumb] = side === 'left' ? [15, 19, 21] : [16, 20, 22];
+  const w = points[wrist];
+  let along = norm(sub(points[index], w));
+  if (length(along) < 0.5) along = v3(0, -1, 0);
+  // Across the knuckles towards the thumb, square to along.
+  const t = sub(points[thumb], w);
+  let across = norm(sub(t, scale(along, dot(t, along))));
+  if (length(across) < 0.5) across = norm(cross(along, v3(0, 0, side === 'left' ? -1 : 1)));
+  if (length(across) < 0.5) across = v3(side === 'left' ? 1 : -1, 0, 0);
+  return HAND.map(([a, c]) => add(add(w, scale(along, a)), scale(across, c)));
 }
 
 /** What MediaPipe would report for a person in this pose: 33 landmarks in image space. */

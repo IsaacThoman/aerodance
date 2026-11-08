@@ -1,5 +1,7 @@
-import { validatePoses } from '../choreography.ts';
-import type { FrameSize, Landmark, PlayerCount, Pose } from '../choreography.ts';
+import { finite, validatePoses } from '../choreography.ts';
+import type { FrameSize, Landmark, PlayerCount, Point3 } from '../choreography.ts';
+import { isTrackedHand } from '../webcamRecord.ts';
+import type { LivePose, TrackedHand } from '../webcamRecord.ts';
 import { detectedConfidence } from './slots.ts';
 import type { DetectedLandmark } from './slots.ts';
 
@@ -28,6 +30,9 @@ import type { DetectedLandmark } from './slots.ts';
  * ignored while every player is found, and
  * somebody who has been in view beside all the players is a bystander: they can take a missing
  * player's number only once that player has been gone a while.
+ *
+ * A detection's extras (its world landmarks and hands, for the 'hands' detail) stay with its
+ * body, so they follow their person through all of this to the player's pose.
  */
 
 const TORSO = [11, 12, 23, 24];
@@ -100,6 +105,9 @@ interface Body {
   limbs: ({ x: number; y: number } | null)[];
   /** What the person looks like (appearance.ts), when known. */
   looks: readonly number[] | null;
+  /** The detection's world landmarks and hands, when it came with them. */
+  world: Point3[] | null;
+  hands: TrackedHand[] | null;
   /** When this result was taken. */
   seen: number;
   /** The same number for the same person from result to result (while they stay in view)... */
@@ -138,7 +146,20 @@ const apart = (a: Body, b: Body) => distance(a, b) > APART * Math.max(a.scale, b
 /** Mean absolute difference of two looks. */
 export const looksDistance = (a: readonly number[], b: readonly number[]) => a.reduce((sum, v, i) => sum + Math.abs(v - b[i]), 0) / a.length;
 
-function measure(points: readonly DetectedLandmark[], looks: readonly number[] | null, aspect: number, now: number): Body | null {
+/** A detection's extras, in the detections' order (each may be missing). */
+export interface DetectionExtras {
+  world?: readonly (readonly Point3[] | undefined)[];
+  hands?: readonly (readonly TrackedHand[] | undefined)[];
+}
+/** World landmarks as a pose keeps them: all 33, finite (otherwise none). */
+const worldOf = (points: readonly Point3[] | undefined) =>
+  points?.length === 33 && points.every(p => finite(p.x) && finite(p.y) && finite(p.z)) ? points.map(({ x, y, z }) => ({ x, y, z })) : null;
+/** Hands as a pose keeps them: whole ones, one a side. */
+const handsOf = (hands: readonly TrackedHand[] | undefined) =>
+  hands ? hands.filter((hand, i) => isTrackedHand(hand) && hands.findIndex(other => other.side === hand.side) === i) : null;
+
+function measure(points: readonly DetectedLandmark[], looks: readonly number[] | null, aspect: number, now: number,
+  world: readonly Point3[] | undefined, hands: readonly TrackedHand[] | undefined): Body | null {
   const landmarks = points.map(p => ({ x: p.x, y: p.y, z: p.z, confidence: detectedConfidence(p) }));
   try { validatePoses([{ playerId: 0, landmarks }]); } catch { return null; }
   const [ls, rs, lh, rh] = TORSO.map(i => landmarks[i]);
@@ -151,7 +172,7 @@ function measure(points: readonly DetectedLandmark[], looks: readonly number[] |
   const [top, bottom] = landmarks.filter((p, i) => (i < 13 || i > 22) && reliable(p)).reduce(([lo, hi], p) => [Math.min(lo, p.y), Math.max(hi, p.y)], [Infinity, -Infinity]);
   if (Math.max(torso, shoulders / 0.75) < SQUASHED * (bottom - top)) return null;
   return { landmarks, sure: torsoJoints === 4, x: (ls.x + rs.x + lh.x + rh.x) / 4 * aspect, y: (ls.y + rs.y + lh.y + rh.y) / 4, top, bottom,
-    scale: Math.max(torso, shoulders / 0.75, 0.01), looks, seen: now, chain: 0, hits: 1, extra: 0, since: now,
+    scale: Math.max(torso, shoulders / 0.75, 0.01), looks, world: worldOf(world), hands: handsOf(hands), seen: now, chain: 0, hits: 1, extra: 0, since: now,
     limbs: LIMBS.map(i => reliable(landmarks[i]) ? { x: landmarks[i].x * aspect, y: landmarks[i].y } : null) };
 }
 
@@ -221,12 +242,14 @@ export class PlayerTracker {
 
   /**
    * The players' poses in one result: the detections in MediaPipe's order (with what each
-   * person looks like, when known), the frame they came from and when it was taken.
+   * person looks like, and their extras, when known), the frame they came from and when it was
+   * taken. A pose has world landmarks and hands only when its detection had them.
    */
-  update(detections: readonly (readonly DetectedLandmark[])[], input: FrameSize, now: number, looks: readonly (readonly number[] | null | undefined)[] = []): Pose[] {
+  update(detections: readonly (readonly DetectedLandmark[])[], input: FrameSize, now: number, looks: readonly (readonly number[] | null | undefined)[] = [],
+    extras: DetectionExtras = {}): LivePose[] {
     const aspect = input.width / input.height;
     this.players.forEach((p, id) => { if (!p.track) p.place = (this.playerCount - id - 0.5) / this.playerCount * aspect; });
-    let bodies = detections.map((points, i) => measure(points, looks[i] ?? null, aspect, now)).filter((b): b is Body => b !== null);
+    let bodies = detections.map((points, i) => measure(points, looks[i] ?? null, aspect, now, extras.world?.[i], extras.hands?.[i])).filter((b): b is Body => b !== null);
     // Prefer a fully visible copy to a partial one before removing duplicates.
     bodies.sort((a, b) => Number(b.sure) - Number(a.sure));
     // Two results for one person (the model can add a ghost beside someone): keep the first, its
@@ -259,7 +282,8 @@ export class PlayerTracker {
     if (this.lined) this.witness(bodies, found, now);
     for (const [id, body] of found) this.follow(id, body, now);
     this.tangle(found, now);
-    return [...found].map(([playerId, body]) => ({ playerId, landmarks: body.landmarks })).sort((a, b) => a.playerId - b.playerId);
+    return [...found].map(([playerId, body]): LivePose => ({ playerId, landmarks: body.landmarks, ...(body.world ? { world: body.world } : {}),
+      ...(body.hands ? { hands: body.hands } : {}) })).sort((a, b) => a.playerId - b.playerId);
   }
 
   /**

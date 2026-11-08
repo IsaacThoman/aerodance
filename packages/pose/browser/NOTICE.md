@@ -9,5 +9,10 @@ MediaPipe model distribution. Model documentation and model card:
 https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker#models
 https://storage.googleapis.com/mediapipe-assets/Model%20Card%20BlazePose%20GHUM%203D.pdf
 
+The Hand Landmarker float16 version 1 bundle comes from the same distribution.
+Model documentation and model card:
+https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker#models
+https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Hand%20Tracking%20(Lite_Full)%20with%20Fairness%20Oct%202021.pdf
+
 The application pins model sizes and SHA-256 checksums in models.ts. The build
 copies these notices with the locally served models and WASM runtime.

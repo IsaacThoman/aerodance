@@ -3,6 +3,7 @@ import { WebcamPoseSource } from '../../../../packages/pose/browser/WebcamPoseSo
 import { cameraTurner, inApp } from '../host.ts';
 import type { CameraInfo, WebcamConfigureOptions, WebcamStatus } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { FrameSize, PlayerCount } from '../../../../packages/pose/choreography.ts';
+import type { PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 import { PhonePoseSource } from './PhonePoseSource.ts';
 import type { PhonePairing } from './PhonePoseSource.ts';
 import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts';
@@ -12,6 +13,7 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
  * The phone and No camera are more entries in the camera picker (PHONE_CAMERA and NO_CAMERA,
  * after the webcams), so the calibration screen chooses between them with the same arrows.
  * Only the chosen one runs, and only its poses reach the game; with No camera nothing runs.
+ * The detail a game asks for (setDetail) goes to whichever is chosen, and moves with the choice.
  *
  * const camera = new CameraInput();
  * camera.configure({ cameraId: PHONE_CAMERA.deviceId }); camera.connect();  // pairing starts
@@ -54,6 +56,8 @@ export class CameraInput implements PoseSource {
   listeners = new Set<Listener<CameraInputView>>();
   recordListeners = new Set<Listener<PoseSourceEvent>>();
   view: CameraInputView;
+  /** The detail a game asked for (setDetail), for whichever camera is chosen now or later. */
+  detail: PoseDetail | null = null;
   // In the iPhone/iPad app, a muted camera is iOS holding it for a call: wait for it to come back.
   // Its picture is turned upright the way the device is held (cameraTurner), so turning the device
   // carries on at the new size, as a phone camera does. It also looks for three or four players in
@@ -111,6 +115,7 @@ export class CameraInput implements PoseSource {
     this.active?.disconnect();
     this.mode = mode;
     save(mode);
+    this.applyDetail();
     if (mode === 'phone') await this.phone.configure({ modelId });
     else if (mode === 'webcam') await this.webcam.configure({ modelId, cameraId });
     else await this.webcam.configure({ modelId });
@@ -123,6 +128,16 @@ export class CameraInput implements PoseSource {
     return this.webcam.setPlayerCount(count);
   }
   refreshCameras() { return this.webcam.refreshCameras(); }
+  /** Extra tracking for a game (PoseSource.setDetail): the chosen camera tracks with it, and the others without. */
+  setDetail(detail: PoseDetail | null) {
+    this.detail = detail;
+    this.applyDetail();
+  }
+  applyDetail() {
+    // (A phone paired later, or reconnecting, is told with its settings: PhonePoseSource.)
+    this.webcam.setDetail(this.mode === 'webcam' ? this.detail : null);
+    this.phone.setDetail(this.mode === 'phone' ? this.detail : null);
+  }
   resetTracking() { this.active?.resetTracking(); }
   /** Whether a song is on (a paired phone dims while one plays). */
   setPlaying(playing: boolean) { this.phone.setPlaying(playing); }
