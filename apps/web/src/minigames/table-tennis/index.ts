@@ -22,7 +22,7 @@ const tableTennis: MinigameDefinition = {
   ],
   art: drawTableTile,
   tint: ['rgba(80, 160, 255, 0.6)', 'rgba(16, 70, 180, 0.74)'],
-  score: { unit: 'returns' },
+  best: false,
   scene: 'custom',
   hud: { scores: false, timer: false },
   tracking: 'hands',

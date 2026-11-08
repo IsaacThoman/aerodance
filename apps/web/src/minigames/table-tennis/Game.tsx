@@ -377,7 +377,8 @@ function Hand({ side, rig, forgiving }: { side: Side; rig: Rig; forgiving: boole
       rig.shifted.lerp(rig.tracked ? rig.shift : NO_SHIFT, 1 - Math.exp(-3 * delta));
       g.position.add(rig.nudged).add(rig.shifted);
     }
-  }, -1);
+    // After the game's frames take in this frame's pose (useMinigameFrame, -0.5), before the ball (0).
+  }, -0.25);
   // The ball looks for the paddle's blade in the rig.
   const blade = useRef<THREE.Group>(null);
   useLayoutEffect(() => {
@@ -443,6 +444,24 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
     Object.assign(window, { tableTennis: { ball: st, rig } });
     return () => { Reflect.deleteProperty(window, 'tableTennis'); };
   }, [st, rig]);
+  // The ball where it's drawn, easing onto a rewound hit's place, and its trail (newest first)
+  // while it flies; then what the HUD and play.ts show.
+  const draw = (dt: number) => {
+    const b = st.ball;
+    const ease = Math.exp(-CATCH_UP * dt);
+    st.drawnOff = st.flying ? v3(st.drawnOff.x * ease, st.drawnOff.y * ease, st.drawnOff.z * ease) : v3();
+    const at = new THREE.Vector3(b.pos.x + st.drawnOff.x, b.pos.y + st.drawnOff.y, b.pos.z + st.drawnOff.z + TABLE_Z);
+    ballMesh.current?.position.copy(at);
+    if (!st.flying) st.trail.length = 0;
+    else if (dt > 0) { st.trail.unshift(at); st.trail.length = Math.min(st.trail.length, TRAIL); }
+    trailGroup.current?.children.forEach((child, i) => {
+      const p = st.trail[i + 1];
+      child.visible = !!p;
+      if (p) { child.position.copy(p); child.scale.setScalar(1 - (i / TRAIL) * 0.6); }
+    });
+    hud.flying = st.flying;
+    ctx.report({ ball: st.flying ? 'flying' : 'ready', hits: st.hits, returns: st.returns, rally: st.rally, best: st.best });
+  };
   useFrame((_, delta) => {
     // Real time (the player's), and the ball's world's.
     // Only while playing: the countdown and a pause hold everything where it is.
@@ -461,6 +480,14 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
       paddle = { center: v3(tmp.p.x, tmp.p.y, tmp.p.z - TABLE_Z), normal: v3(tmp.n.x, tmp.n.y, tmp.n.z), ...(rig.forgiving ? FORGIVING : BLADE) };
       raw = v3(paddle.center.x - rig.nudged.x, paddle.center.y - rig.nudged.y, paddle.center.z - rig.nudged.z);
       moved = v3(raw.x - rig.shifted.x, raw.y - rig.shifted.y, raw.z - rig.shifted.z);
+    }
+    // Held while not playing: the ball, the bot, the score and the paddle's calibration stay as
+    // they are, whatever the paddle does (it's still followed, so play resumes without a jump).
+    if (!playing) {
+      st.paddle = paddle;
+      st.moved = moved;
+      draw(0);
+      return;
     }
     // The paddle swings at the player's own speed, whatever the time's (and neither the assist's
     // slide nor the calibration's shift is a swing).
@@ -570,19 +597,7 @@ function PlayBall({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud: Hud 
     rig.nudge.lerp(tmp.nudge, 1 - Math.exp(-(nudge ? 30 : 5) * dt));
     st.paddle = paddle;
     st.moved = moved;
-    // Draw it, and its trail (newest first) while it flies.
-    const ease = Math.exp(-CATCH_UP * dt);
-    st.drawnOff = st.flying ? v3(st.drawnOff.x * ease, st.drawnOff.y * ease, st.drawnOff.z * ease) : v3();
-    const at = new THREE.Vector3(b.pos.x + st.drawnOff.x, b.pos.y + st.drawnOff.y, b.pos.z + st.drawnOff.z + TABLE_Z);
-    ballMesh.current?.position.copy(at);
-    if (!st.flying) st.trail.length = 0; else { st.trail.unshift(at); st.trail.length = Math.min(st.trail.length, TRAIL); }
-    trailGroup.current?.children.forEach((child, i) => {
-      const p = st.trail[i + 1];
-      child.visible = !!p;
-      if (p) { child.position.copy(p); child.scale.setScalar(1 - (i / TRAIL) * 0.6); }
-    });
-    hud.flying = st.flying;
-    ctx.report({ ball: st.flying ? 'flying' : 'ready', hits: st.hits, returns: st.returns, rally: st.rally, best: st.best });
+    draw(dt);
   });
   return (
     <>
@@ -636,7 +651,7 @@ function TableTennisHud({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud
       drawDarkGlassPanel(g, { x, y: top, w: w + pad * 2, h }, 20);
       let y = top + pad;
       for (const line of sized) {
-        drawShadowText(g, line.text, x + pad, y + line.size * 0.82, { size: line.size, weight: line.weight ?? 700, color: line.color });
+        drawShadowText(g, line.text, x + pad, y + line.size / 2, { size: line.size, weight: line.weight ?? 700, color: line.color });
         y += line.size + gap;
       }
     },
@@ -669,7 +684,8 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   useEffect(() => {
     const step = (id: OptionId, value: string) => { const next = nextChoice(id, value); ctx.setOption(id, next); return next; };
     const key = (e: KeyboardEvent) => {
-      if (e.repeat || ctx.phase() !== 'playing') return;
+      // Not with a modifier (Cmd+C is a copy, not calibration), nor a key something else took.
+      if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || ctx.phase() !== 'playing') return;
       if (e.code === 'Space') { e.preventDefault(); rig.serve = true; }
       else if (e.code === 'KeyA') rig.assist = optionsOf({ assist: step('assist', rig.assist) }).assist;
       else if (e.code === 'KeyB') rig.botLevel = optionsOf({ botShots: step('botShots', rig.botLevel) }).botShots;
