@@ -490,7 +490,7 @@ export default function MainMenu({
       if (m.screen === 'main') {
         // No chevrons on the title menu's buttons (Let's dance's too).
         drawGlassButton(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start'), style: BUTTONS, chevron: false });
-        if (MINIGAMES) drawGlassButton(g, MINIGAMES, { label: 'Minigames', icon: 'bubbles', hover: h.minigames ?? 0, press: press('minigames'), style: BUTTONS, chevron: false });
+        if (MINIGAMES) drawGlassButton(g, MINIGAMES, { label: 'Experiments', icon: 'bubbles', hover: h.minigames ?? 0, press: press('minigames'), style: BUTTONS, chevron: false });
         drawGlassButton(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle, style: BUTTONS, chevron: false });
       } else if (m.screen === 'players') {
         const n = count();

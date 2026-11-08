@@ -355,10 +355,10 @@ export default function MinigameSelect({ visible = false, open = null, players =
       g.globalAlpha = t;
       g.translate((1 - t) * -24, 0);
       if (st.screen === 'list') {
-        drawHeader(g, l.MG_BACK, 'MINIGAMES', h.back ?? 0);
+        drawHeader(g, l.MG_BACK, 'EXPERIMENTS', h.back ?? 0);
         const games = onPage();
         if (!games.length) {
-          drawShadowText(g, 'The first minigames are on their way', l.MG_BACK.x - 38, 300, { size: 36, weight: 800 });
+          drawShadowText(g, 'The first experiments are on their way', l.MG_BACK.x - 38, 300, { size: 36, weight: 800 });
         }
         games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`)));
         if (pages > 1) {
@@ -382,7 +382,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   // The preview: options and the players dial on the left, the shared menu platform on the right.
   function drawPreview(g: CanvasRenderingContext2D, game: MinigameDefinition, count: PlayerCount, h: Record<string, number>, press: (id: string) => number) {
     const l = previewLayout(game);
-    drawHeader(g, l.MG_BACK, 'MINIGAMES', h.back ?? 0);
+    drawHeader(g, l.MG_BACK, 'EXPERIMENTS', h.back ?? 0);
     const x = l.MG_BACK.x - 38, w = l.MG_TEXT.w;
     // A long title shrinks to fit (down to 48) before it's cut short.
     g.font = `800 64px ${FONT}`;

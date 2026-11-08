@@ -1,18 +1,18 @@
-# Minigames
+# Experiments
 
-Short games played with the body, from the main menu's **Minigames** (beside Start): a list of
+Short games played with the body, from the main menu's **Experiments** (beside Start): a list of
 compact glass buttons, each game's preview with its settings and players
 dial, then the game. The platform around the games (`apps/web/src/minigames/`) does everything
 they share: the list, each game's settings, the camera and its calibration, the how-to card, the
 3, 2, 1, pausing, the HUD, the results and best scores, a pose API built for games, and a puppet
 camera to test them with. A game is one folder; adding one changes no other file.
 
-The **Minigames** button only shows while there's a game to play. **Table Tennis** is the first game.
+The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game.
 
 ## The flow
 
-**Minigames → a game's preview → Play → calibration → how to play → 3, 2, 1 → the round →
-results → Play again or Minigames.**
+**Experiments → a game's preview → Play → calibration → how to play → 3, 2, 1 → the round →
+results → Play again or Experiments.**
 
 - **The list** (`minigames/MinigameSelect.tsx`): four compact buttons per page in a left
   column, with a static monochrome icon and the game's title. The menu dancers stay on their
@@ -36,11 +36,11 @@ results → Play again or Minigames.**
   four share them) and a timed round's seconds left under the pause icon at the top centre, and
   nudges anyone out of view. Escape, the pause icon, a hidden tab or an interruption (the audio
   taken for a call, the camera muted: `game/interruptions.ts`) pauses: **Resume** counts down
-  again, **Restart** starts the round over (with calibration), **Minigames** leaves. A timed round
+  again, **Restart** starts the round over (with calibration), **Experiments** leaves. A timed round
   ends itself with **Time's up!**; others end when the game says.
 - **Results** (`minigames/MinigameResults.tsx`): the winner, the solo score or a co-op team's, a scoreboard in
   finishing order, **NEW BEST!** when the top score beat the game's best for this many players
-  (`minigames/bestScores.ts`, saved in the browser), **Play again** and **Minigames**.
+  (`minigames/bestScores.ts`, saved in the browser), **Play again** and **Experiments**.
 
 Everything works with the mouse, touch and the keyboard (the pearl focus ring, Enter, Escape),
 like the other menus, and with the Siri Remote in the Apple TV app.
@@ -170,7 +170,7 @@ The game:
 - doesn't handle Escape, pausing, the camera or the results: those are the host's.
 
 A game that throws is caught (`MinigameView.tsx`): the round stops with an error and a way back
-to Minigames, and the rest of the game carries on.
+to Experiments, and the rest of the game carries on.
 
 Frame order (useFrame priorities): the host's update (−1: this frame's poses, gestures and
 phase), the game's `useMinigameFrame` callbacks (−0.5), the background or the game's world or
@@ -477,7 +477,7 @@ Before handing it in:
       (`resize 1024x768`), with screenshots looked at
 - [ ] Its gestures fire from the puppet's (`minigameGesture`, `data-mg-*`), on `realism rough` too,
       and not while standing still
-- [ ] Pause and resume mid-round (Escape and the pause icon), Restart, quit to Minigames
+- [ ] Pause and resume mid-round (Escape and the pause icon), Restart, quit to Experiments
 - [ ] Each setting does what it says, and its preview's rows fit in 16:9 and 4:3
 - [ ] A new best shows on the results and on its preview
 - [ ] 60 fps with `?diag=stats`, and draw calls and triangles within the budget

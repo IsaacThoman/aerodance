@@ -108,7 +108,7 @@ export default function MinigameResults({ visible = false, show, onRetry, onQuit
       drawBoard(g, shown, s.w, props.current.layout);
       const button = (id: string, rect: Rect, label: string, icon: IconName) => drawGlassButton(g, rect, { label, icon, hover: s.hover[id] ?? 0, press: s.press * (s.hover[id] ?? 0) });
       button('retry', props.current.layout.mgResultsRetry(players()), 'Play again', 'replay');
-      button('quit', props.current.layout.mgResultsQuit(players()), 'Minigames', 'bubbles');
+      button('quit', props.current.layout.mgResultsQuit(players()), 'Experiments', 'bubbles');
     },
   });
 

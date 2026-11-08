@@ -198,14 +198,14 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
         return;
       }
       if (ph === 'loading' || ph === 'error') {
-        drawHeader(g, G.GAME_READY_BACK, 'MINIGAMES', h.quit ?? 0);
+        drawHeader(g, G.GAME_READY_BACK, 'EXPERIMENTS', h.quit ?? 0);
         g.font = `800 64px ${FONT}`;
         drawShadowText(g, ellipsize(g, game.title, s.w - 200), G.GAME_READY_BACK.x - 38, 270, { size: 64, weight: 800 });
         if (ph === 'loading') drawShadowText(g, `Loading${'.'.repeat(1 + (Math.floor(s.time * 3) % 3))}`, s.w / 2, 520, { size: 34, align: 'center' });
         else {
           g.font = `700 28px ${FONT}`;
           drawShadowText(g, ellipsize(g, session.error, s.w - 160), s.w / 2, 500, { size: 28, align: 'center', color: '#ffb38a' });
-          drawGlassButton(g, M.MG_HOWTO_START, { label: 'Minigames', icon: 'list', hover: h.leave ?? 0, press: press('leave') });
+          drawGlassButton(g, M.MG_HOWTO_START, { label: 'Experiments', icon: 'list', hover: h.leave ?? 0, press: press('leave') });
         }
         return;
       }
@@ -247,7 +247,7 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
         drawCaps(g, 'PAUSED', s.w / 2, G.GAME_PAUSE_PANEL.y + 46, { size: 30, align: 'center' });
         drawGlassButton(g, G.GAME_RESUME, { label: 'Resume', icon: 'play', hover: h.resume ?? 0, press: press('resume') });
         drawGlassButton(g, G.GAME_RESTART, { label: 'Restart', icon: 'replay', hover: h.restart ?? 0, press: press('restart') });
-        drawGlassButton(g, G.GAME_QUIT, { label: 'Minigames', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
+        drawGlassButton(g, G.GAME_QUIT, { label: 'Experiments', icon: 'list', hover: h.quit ?? 0, press: press('quit') });
         const y = G.GAME_PAUSE_PANEL.y + G.GAME_PAUSE_PANEL.h + 44;
         if (usesCamera() && camera.interrupted()) drawCameraInterrupted(g, camera, props.current.source.view.status, y, s.w);
       }

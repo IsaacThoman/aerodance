@@ -140,7 +140,7 @@ function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: Ca
   g.restore();
   text(g, failed ? 'Try again' : none ? 'No camera' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
   if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
-  else if (none && !withoutCamera) paragraph(g, 'Minigames are played with your body: pick a camera with the arrows.', cx, top + 86, preview.w - 120, { size: 20, lineH: 26, align: 'center', color: '#e6f8ff' });
+  else if (none && !withoutCamera) paragraph(g, 'Experiments are played with your body: pick a camera with the arrows.', cx, top + 86, preview.w - 120, { size: 20, lineH: 26, align: 'center', color: '#e6f8ff' });
 }
 
 // Under the pause panel while the camera is muted: why nobody is tracked, after its status light
