@@ -15,10 +15,10 @@ export function definitionProblem(def: unknown, folder?: string): string {
   const d = def as Partial<MinigameDefinition>;
   if (typeof d.id !== 'string' || !MINIGAME_ID.test(d.id)) return 'id must be lower-case words joined by hyphens';
   if (folder !== undefined && d.id !== folder) return `id "${d.id}" must match its folder "${folder}"`;
-  for (const key of ['title', 'blurb', 'description'] as const) if (typeof d[key] !== 'string' || !d[key]) return `${key} is missing`;
+  if (typeof d.title !== 'string' || !d.title) return 'title is missing';
   if (!Array.isArray(d.players) || !d.players.length || !d.players.every(isPlayerCount)) return 'players must list player counts from 1 to 4';
   if (!Array.isArray(d.howTo) || !d.howTo.length || d.howTo.length > 4 || !d.howTo.every((s) => typeof s?.text === 'string')) return 'howTo needs one to four steps';
-  if (typeof d.art !== 'function') return 'art must draw the tile';
+  if (typeof d.icon !== 'function') return 'icon must draw the game icon';
   if (typeof d.load !== 'function') return 'load must import the game';
   if (d.durationMs !== undefined && !(d.durationMs > 0)) return 'durationMs must be positive';
   if (d.tracking !== undefined && d.tracking !== 'hands') return "tracking must be 'hands' (or left out)";

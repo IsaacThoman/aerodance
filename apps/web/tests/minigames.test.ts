@@ -18,8 +18,8 @@ import type { PoseDetail } from '../../../packages/pose/webcamRecord.ts';
 
 const INPUT = { width: 640, height: 480, mirrored: false };
 const game = (patch: Partial<MinigameDefinition> = {}): MinigameDefinition => ({
-  id: 'test-game', title: 'Test Game', blurb: 'A test', description: 'Testing.', players: [1, 2], howTo: [{ text: 'Do it' }],
-  art: () => {}, load: async () => ({ default: () => null }), durationMs: 10000, ...patch,
+  id: 'test-game', title: 'Test Game', players: [1, 2], howTo: [{ text: 'Do it' }],
+  icon: () => {}, load: async () => ({ default: () => null }), durationMs: 10000, ...patch,
 });
 function memoryStorage() {
   const data = new Map<string, string>();

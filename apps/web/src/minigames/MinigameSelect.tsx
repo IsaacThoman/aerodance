@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
   FONT, TAU, drawCaps, drawDarkGlassPanel, drawDialCount, drawDialStep, drawGlassButton, drawGlassCircle, drawHeader, drawShadowText,
-  ellipsize, glassCorner, ICONS, pill, roundRect,
+  ellipsize, glassCorner, ICONS, pill,
 } from '../ui/draw.ts';
 import type { Circle, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
@@ -12,8 +12,8 @@ import { displayDesign } from '../display.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { minigameBest } from './bestScores.ts';
 import type { MinigameBest } from './bestScores.ts';
-import { formatScore, playersLabel } from './definition.ts';
-import { MG_COLUMNS, MG_PER_PAGE, minigameLayout, tileArt } from './layout.ts';
+import { formatScore } from './definition.ts';
+import { MG_COLUMNS, MG_PER_PAGE, minigameLayout } from './layout.ts';
 import { minigameOptions, optionsText, resolveOptions, saveMinigameOption, stepOption } from './options.ts';
 import type { MinigameOptionValues } from './options.ts';
 import { MINIGAMES } from './registry.ts';
@@ -22,8 +22,8 @@ import type { MinigameDefinition } from './types.ts';
 /**
  * Minigames' list, drawn in-engine from the main menu's Minigames (menu/MainMenu.tsx):
  *
- *   list     a glass tile per game (minigames/registry.ts), one column on the left, each with
- *            its art, title, blurb, players and best score; two per page, with page controls
+ *   list     a compact glass button per game (minigames/registry.ts), one column on the left, each with
+ *            its monochrome icon and title; four per page, with page controls
  *            below the column and the menu dancers on the right. Like the Wii's channels
  *   preview  the chosen game's title, options and players dial on the left, Play below,
  *            and the menu's glass dancer platform on the right. The dial only steps through
@@ -34,7 +34,7 @@ import type { MinigameDefinition } from './types.ts';
  * Left/Right across a row (on to the next page at its end), Enter or Space press, Escape goes back
  * (from the preview to the list, from the list to the main menu). On the preview, Up/Down go
  * through the option rows, the dial and Play, and Left/Right step the row with the cursor (Enter
- * or a press on the row steps it on). The games' art moves gently. The canvas reports
+ * or a press on the row steps it on). The canvas reports
  * data-minigame-screen (list, preview), -minigame-select-ready, -minigame-list (the ids in
  * order), -minigame-page, -minigame-chosen, -minigame-dial and -minigame-options (the preview's
  * settings, assist=max|bot=medium) for tests.
@@ -58,60 +58,11 @@ export interface MinigameSelectProps {
 type SelectWidget = Widget & { game?: MinigameDefinition; option?: string; step?: -1 | 1 };
 
 const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
-// The deep aero glass a tile's art sits on, unless the game picks its own.
-const TINT = ['rgba(52, 150, 226, 0.62)', 'rgba(8, 58, 132, 0.72)'] as const;
-const TILE_CORNER = 30;
-// The art moves, but the list redraws at most this often (each redraw uploads the overlay).
-const ART_FPS = 20;
 const fmt = (game: MinigameDefinition, score: number) => formatScore(game, score, { unit: true });
 
-// A tile: the game's art in a rounded window, then its title, blurb and players and best below,
-// on frosted glass (useGlassBlur) tinted the game's colours. It lifts under the pointer.
-function drawTile(g: CanvasRenderingContext2D, rect: Rect, game: MinigameDefinition, hover: number, press: number, time: number, best: MinigameBest | null) {
-  const lift = hover * 4 - press * 3;
-  const r = { ...rect, y: rect.y - lift };
-  const [top, bottom] = game.tint ?? TINT;
-  g.save();
-  roundRect(g, r.x, r.y, r.w, r.h, TILE_CORNER);
-  const body = g.createLinearGradient(0, r.y, 0, r.y + r.h);
-  body.addColorStop(0, top);
-  body.addColorStop(1, bottom);
-  g.fillStyle = body;
-  g.fill();
-  if (hover > 0.01) {
-    g.fillStyle = `rgba(255, 255, 255, ${0.08 * hover})`;
-    g.fill();
-  }
-  // The art, clipped to its window, with a gloss over its top half.
-  const art = tileArt(r);
-  g.save();
-  roundRect(g, art.x, art.y, art.w, art.h, TILE_CORNER - 10);
-  g.clip();
-  game.art(g, art, time);
-  const gloss = g.createLinearGradient(0, art.y, 0, art.y + art.h * 0.5);
-  gloss.addColorStop(0, 'rgba(255, 255, 255, 0.32)');
-  gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  g.fillStyle = gloss;
-  g.fillRect(art.x, art.y, art.w, art.h * 0.5);
-  g.restore();
-  roundRect(g, art.x, art.y, art.w, art.h, TILE_CORNER - 10);
-  g.lineWidth = 2;
-  g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-  g.stroke();
-  // Title, blurb, then players and the best for the count last picked.
-  const x = r.x + 22, w = r.w - 44, y0 = art.y + art.h;
-  g.font = `800 ${r.w > 380 ? 30 : 26}px ${FONT}`;
-  drawShadowText(g, ellipsize(g, game.title, w), x, y0 + 32, { size: r.w > 380 ? 30 : 26, weight: 800 });
-  g.font = `600 18px ${FONT}`;
-  drawShadowText(g, ellipsize(g, game.blurb, w), x, y0 + 62, { size: 18, weight: 600, color: '#d8f6ff' });
-  drawShadowText(g, playersLabel(game.players), x, y0 + 92, { size: 17, weight: 700, color: '#bff4ff' });
-  if (best) drawShadowText(g, `Best ${fmt(game, best.score)}`, r.x + r.w - 22, y0 + 92, { size: 17, weight: 800, align: 'right', color: '#fff2bf' });
-  // The rim, brightening under the pointer.
-  roundRect(g, r.x, r.y, r.w, r.h, TILE_CORNER);
-  g.lineWidth = 3;
-  g.strokeStyle = `rgba(255, 255, 255, ${0.6 + hover * 0.35})`;
-  g.stroke();
-  g.restore();
+// A compact game button using the same glass, monochrome icons and title as the main menu.
+function drawTile(g: CanvasRenderingContext2D, rect: Rect, game: MinigameDefinition, hover: number, press: number) {
+  drawGlassButton(g, rect, { label: game.title, icon: game.icon, hover, press, chevron: false });
 }
 
 // An arrow, a glass circle with a chevron: the list's page arrows, and an option row's steps.
@@ -142,7 +93,7 @@ function fitText(g: CanvasRenderingContext2D, str: string, x: number, y: number,
 }
 
 type PreviewLayout = ReturnType<typeof minigameLayout>;
-// The game's option rows on dark glass under its art, like the settings rows: each its label, then
+// The game's option rows on dark glass, like the settings rows: each its label, then
 // its choice on a dark track between the arrows, which step through the choices and round again
 // (as the camera picker's do). A row lights under the pointer.
 function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number, keyed: string | null) {
@@ -181,7 +132,6 @@ interface SelectState {
   options: Map<string, MinigameOptionValues>;
   /** The preview's layouts, by width and option rows. */
   layouts: Map<string, PreviewLayout>;
-  drawnAt: number;
   drawn: string;
   reported: string;
   previewPlayers: PlayerCount | null;
@@ -201,7 +151,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   const widthRef = useRef(width);
   widthRef.current = width;
   const st = useRef<SelectState>({
-    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawnAt: -Infinity, drawn: '', reported: '', previewPlayers: null, bests: new Map(),
+    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawn: '', reported: '', previewPlayers: null, bests: new Map(),
   }).current;
 
   const pages = Math.max(1, Math.ceil(MINIGAMES.length / MG_PER_PAGE));
@@ -245,7 +195,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
     if (!st.bests.has(key)) st.bests.set(key, minigameBest(game.id, count));
     return st.bests.get(key) ?? null;
   };
-  const tileWidget = (game: MinigameDefinition, i: number, primary: boolean): SelectWidget => ({ id: `game-${game.id}`, game, rect: layoutRef.current.mgTile(i), corner: TILE_CORNER, primary });
+  const tileWidget = (game: MinigameDefinition, i: number, primary: boolean): SelectWidget => ({ id: `game-${game.id}`, game, rect: layoutRef.current.mgTile(i), corner: glassCorner(layoutRef.current.mgTile(i).h), primary });
   // Tiles in column order, so Up/Down go down and up a column (Left/Right go across, onStep).
   const tileWidgets = () => {
     const games = onPage();
@@ -369,8 +319,6 @@ export default function MinigameSelect({ visible = false, open = null, players =
         s.invalidate();
       }
       st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 3 : 6);
-      // The art moves: redraw now and then while showing.
-      if (p.visible && s.time - st.drawnAt >= 1 / ART_FPS) s.invalidate();
       const game = chosen();
       const previewPlayers = p.visible && st.screen === 'preview' && game ? dialOf(game) : null;
       if (previewPlayers !== st.previewPlayers) {
@@ -399,7 +347,6 @@ export default function MinigameSelect({ visible = false, open = null, players =
     },
     opacity: () => st.alpha,
     draw: (g, s) => {
-      st.drawnAt = s.time;
       const l = layoutRef.current;
       const h = s.hover;
       const press = (id: string) => s.press * (h[id] ?? 0);
@@ -413,7 +360,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
         if (!games.length) {
           drawShadowText(g, 'The first minigames are on their way', l.MG_BACK.x - 38, 300, { size: 36, weight: 800 });
         }
-        games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`), s.time, bestOf(game, game.players.includes(props.current.players) ? props.current.players : game.players[0])));
+        games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`)));
         if (pages > 1) {
           drawArrow(g, l.MG_PAGE_PREV, 'left', h['page-prev'] ?? 0, { enabled: st.page > 0 });
           drawArrow(g, l.MG_PAGE_NEXT, 'right', h['page-next'] ?? 0, { enabled: st.page < pages - 1 });
@@ -462,7 +409,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   useGlassBlur(() => {
     const l = st.screen === 'list' ? layoutRef.current : previewLayout(chosen());
     const panes = st.screen === 'list'
-      ? onPage().map((game, i) => ({ ...buttonPane(ui, `game-${game.id}`, l.mgTile(i)), corner: TILE_CORNER }))
+      ? onPage().map((game, i) => buttonPane(ui, `game-${game.id}`, l.mgTile(i)))
       : [...(l.MG_OPTIONS ? [panelPane(l.MG_OPTIONS)] : []), buttonPane(ui, 'play', l.MG_PLAY)];
     return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
   });

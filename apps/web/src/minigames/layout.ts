@@ -7,20 +7,17 @@ import type { Circle, Rect } from '../ui/draw.ts';
 export const MG_BACK = { x: 166, y: 150, r: 30 };
 /** The list leaves the right half free for the menu dancers. */
 export const MG_COLUMNS = 1;
-export const MG_PER_PAGE = 2;
+export const MG_PER_PAGE = 4;
 
-// The list: a grid of glass tiles, each the game's art over its title, blurb, players and best.
+// The list: compact glass buttons with a monochrome icon and the game title.
 const GRID = { y: 232, cols: MG_COLUMNS };
-const tileSize = (compact: boolean) => ({ w: compact ? 512 : 644, h: 268, gap: 24 });
+const tileSize = (compact: boolean) => ({ w: compact ? 400 : 440, h: 96, gap: 20 });
 const gridX = (width: number) => width === 1200 ? 72 : 128;
 /** The ith tile on the page in view. */
 export const mgTile = (i: number, width = 1600): Rect => {
   const t = tileSize(width === 1200), col = i % GRID.cols, row = Math.floor(i / GRID.cols);
   return { x: gridX(width) + col * (t.w + t.gap), y: GRID.y + row * (t.h + t.gap), w: t.w, h: t.h };
 };
-/** Where a tile's art goes inside it. */
-export const tileArt = (tile: Rect): Rect => ({ x: tile.x + 10, y: tile.y + 10, w: tile.w - 20, h: Math.round(tile.h * 0.56) });
-
 /** The most option rows a game's preview has room for (definition.ts holds games to it). */
 export const MG_MAX_OPTIONS = 4;
 // An option row: as tall as a settings row (menu/layout.ts), with the glass panel's padding round
@@ -36,7 +33,7 @@ export function minigameLayout(width = 1600, options = 0) {
   const compact = width === 1200;
   const left = compact ? 72 : 128;
   const t = tileSize(compact);
-  const gridBottom = GRID.y + 2 * t.h + t.gap;
+  const gridBottom = GRID.y + MG_PER_PAGE * t.h + (MG_PER_PAGE - 1) * t.gap;
   // Preview: options on the left, a player-count dial below them, and the menu's dancer
   // platform on the right. Keep the controls in the same places for every option count.
   const columnW = compact ? 512 : 644;

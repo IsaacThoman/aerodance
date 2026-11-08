@@ -1,7 +1,7 @@
 # Minigames
 
 Short games played with the body, from the main menu's **Minigames** (beside Start): a list of
-glass tiles in the spirit of the Wii's channels, each game's preview with its settings and players
+compact glass buttons, each game's preview with its settings and players
 dial, then the game. The platform around the games (`apps/web/src/minigames/`) does everything
 they share: the list, each game's settings, the camera and its calibration, the how-to card, the
 3, 2, 1, pausing, the HUD, the results and best scores, a pose API built for games, and a puppet
@@ -14,11 +14,10 @@ The **Minigames** button only shows while there's a game to play. **Table Tennis
 **Minigames → a game's preview → Play → calibration → how to play → 3, 2, 1 → the round →
 results → Play again or Minigames.**
 
-- **The list** (`minigames/MinigameSelect.tsx`): two tiles a page in a left column,
-  each with the game's art, title, blurb, supported players and best score for the players
-  last picked. The menu dancers stay on their platform on the right. More than
-  two games page with the arrows under the column. Up and Down move down and up a column (on to the
-  back button), Left and Right across a row (on to the next page at its end).
+- **The list** (`minigames/MinigameSelect.tsx`): four compact buttons per page in a left
+  column, with a static monochrome icon and the game's title. The menu dancers stay on their
+  platform on the right. More than four games page with the arrows under the column.
+  Up and Down move through the buttons; Left and Right change pages.
 - **The preview**: the game's title, its settings on the left ([options](#settings-options)),
   a players dial and **Play** below them, and the menu's glass dancer platform on the right,
   showing the selected player count. The dial only permits counts the game supports; for a solo
@@ -55,19 +54,17 @@ so nothing else needs editing; `apps/web/tests/minigames.test.ts` checks each de
 ```ts
 // apps/web/src/minigames/high-five/index.ts
 import type { MinigameDefinition } from '../types.ts';
-import { drawArt } from './art.ts';
+import { handIcon } from './icons.ts';
 
 const highFive: MinigameDefinition = {
   id: 'high-five',                       // the folder's name; best scores are saved under it
   title: 'High Five',
-  blurb: 'Slap the glowing hands',       // one line on the tile
-  description: 'Hands float in from the edges of the screen …',  // the preview's paragraph
   players: [1, 2],
   howTo: [                               // the how-to card: one to four steps
     { icon: 'bubbles', text: 'Slap each hand as it glows' },
     { icon: 'replay', text: 'Most high fives in 45 seconds wins' },
   ],
-  art: drawArt,                          // (g, rect, seconds) => draws the tile's art
+  icon: handIcon,                        // (g, cx, cy, radius) => draws a static monochrome icon
   score: { unit: 'fives' },              // or { better: 'lower', format: (ms) => `${(ms / 1000).toFixed(2)} s` }
   durationMs: 45000,                     // a timed round: the host counts down and ends it
   scene: 'menu',                         // what's behind the game (below)
@@ -79,15 +76,15 @@ const highFive: MinigameDefinition = {
 export default highFive;
 ```
 
-The definition loads with the menus, so keep it small: the art and any drawing it uses go in
+The definition loads with the menus, so keep it small: the icon and any drawing it uses go in
 `.ts` files (Node runs the tests that import it); the game, its 3D and its assets come in through
-`load`. The fields are in `minigames/types.ts`: also `tint` (the tile's glass colours), `hud` (turn
+`load`. The fields are in `minigames/types.ts`: also `hud` (turn
 the host's scores or timer off to draw your own), `fullBody` (calibrate only with feet in view, for
 games about legs), `tracking: 'hands'` (MediaPipe's 3D world landmarks and the tracked hands too,
 for a game that does its own geometry), `coop` (the players are a team: give everyone the team's
 score, and the results show it as one instead of naming a winner; a game whose players choose
 together or versus once it's started says so with `ctx.setCoop`), `best: false` (open play: a
-game that never finishes a round with a score, so its tile and preview show no best), `order`
+game that never finishes a round with a score, so its preview shows no best), `order`
 (lower lists first, then by title) and `devOnly`.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
@@ -125,7 +122,7 @@ definition's `options`, up to four, and its preview shows a row for each on the 
 label, then the choice between two arrows that step through the choices and round again, as the
 camera picker's do. A press on an arrow steps it, and a press on the row steps it on; with the
 keyboard or the Siri Remote, Up and Down go through the rows, the players dial and Play, and
-Left/Right step the row with the focus ring (Enter steps it on). The game's art appears on its list tile.
+Left/Right step the row with the focus ring (Enter steps it on). The game's icon appears on its list button.
 
 ```ts
 options: [
@@ -467,7 +464,7 @@ glass character is about 8 draw calls and 35k triangles.
 
 Before starting a game:
 
-- [ ] Its folder and `index.ts`, its `id` the folder's name; the art drawn in `.ts`, the game
+- [ ] Its folder and `index.ts`, its `id` the folder's name; the icon drawn in `.ts`, the game
       behind `load`
 - [ ] It plays with the player counts it says, and thresholds are in body space (torso lengths)
 - [ ] It moves only while `playing`, keeps score with `ctx`, and ends (`durationMs` or `ctx.finish`)
@@ -482,6 +479,6 @@ Before handing it in:
       and not while standing still
 - [ ] Pause and resume mid-round (Escape and the pause icon), Restart, quit to Minigames
 - [ ] Each setting does what it says, and its preview's rows fit in 16:9 and 4:3
-- [ ] A new best shows on the results and on its tile
+- [ ] A new best shows on the results and on its preview
 - [ ] 60 fps with `?diag=stats`, and draw calls and triangles within the budget
 - [ ] Tried with a real camera, if there's one to hand

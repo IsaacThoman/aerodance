@@ -3,7 +3,7 @@ import type { PlayerCount, Pose, TrackCalibration } from '../../../../packages/p
 import type { HandTracking } from '../../../../packages/pose/webcamRecord.ts';
 import type { StageId } from '../../../../packages/stages/catalog.ts';
 import type { BackgroundId } from '../backdrop/backgrounds.ts';
-import type { IconDraw, IconName, Rect } from '../ui/draw.ts';
+import type { IconDraw, IconName } from '../ui/draw.ts';
 import type { PlayerPose } from './pose/body.ts';
 import type { GestureEvent } from './pose/gestures.ts';
 
@@ -11,7 +11,7 @@ import type { GestureEvent } from './pose/gestures.ts';
  * The contract between the minigames host and each game (docs/minigames.md). A game is a folder,
  * apps/web/src/minigames/<id>/, whose index.ts default-exports a MinigameDefinition: the
  * registry (registry.ts) finds it there, so adding one touches nothing else. The definition is
- * small and loads with the menus (its tile art is drawn on Minigames' list); the game itself
+ * small and loads with the menus (its icon is drawn on Minigames' list); the game itself
  * (`load`) is fetched when it's picked.
  *
  * The host runs everything around the game: the camera and its calibration, the how-to card,
@@ -77,23 +77,14 @@ export interface MinigameDefinition {
   /** The folder name: lower-case words joined by hyphens. Best scores are saved under it. */
   id: string;
   title: string;
-  /** One line on its tile. */
-  blurb: string;
-  /** A paragraph on its preview. */
-  description: string;
   /** The player counts it plays with, e.g. [1, 2]. */
   players: readonly PlayerCount[];
   /** The how-to card before the countdown: two to four steps. */
   howTo: readonly HowToStep[];
-  /**
-   * Draws its art into rect (design units), clipped to it: its tile on the list, and larger on its
-   * preview. time (seconds) is for gentle movement; keep it cheap, it can draw every frame.
-   */
-  art: (g: CanvasRenderingContext2D, rect: Rect, time: number) => void;
-  /** The tile's glass behind the art, top and bottom colours (default a deep aero blue). */
-  tint?: readonly [top: string, bottom: string];
+  /** Static monochrome icon for the game button, drawn in design units like the menu icons. */
+  icon: IconDraw;
   score?: ScoreFormat;
-  /** false for open play, a game that never finishes a round with a score: its tile and preview show no best. */
+  /** false for open play, a game that never finishes a round with a score: its preview shows no best. */
   best?: false;
   /** A timed round's length: the HUD counts it down and the host ends the round. Without it the game calls finish(). */
   durationMs?: number;
