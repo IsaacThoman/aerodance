@@ -325,8 +325,24 @@ try {
   await camera.waitForSelector(`.studio[data-revision="${created + 2}"]`);
   await camera.getByRole('button', { name: 'Start the camera' }).click();
   await camera.getByLabel('Countdown seconds').fill('0');
+  // The browser can deliver the recorder's start event after this short song has
+  // ended. Delay it deterministically so recording must observe the clock immediately.
+  await camera.evaluate(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(MediaRecorder.prototype, 'onstart')!;
+    Object.defineProperty(MediaRecorder.prototype, 'onstart', {
+      ...descriptor,
+      set(handler: ((e: Event) => void) | null) {
+        descriptor.set!.call(this, handler ? (e: Event) => setTimeout(() => handler.call(this, e), 5000) : null);
+      },
+    });
+  });
   await camera.getByRole('button', { name: 'Record', exact: true }).click();
-  await camera.getByText(/^Recorded /).waitFor();
+  try {
+    await camera.getByText(/^Recorded /).waitFor();
+  } catch (e) {
+    console.error('Recording failed:', await camera.locator('body').innerText(), cameraErrors);
+    throw e;
+  }
   made = await fresh.read();
   const recorded = made.sources.video!;
   assert.notEqual(recorded.sha256, (await fresh.revisionAt(created)).sources.video?.sha256, 'the recording replaces the video');
