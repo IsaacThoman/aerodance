@@ -247,3 +247,19 @@ render's neighbour frames; or rendered with Blender motion blur instead),
 - v1.3 (2026-11-01, single-player suite): generator 1.2 halves the hold's arm drift (GENERATOR.md,
   Timeline segments): with the old ±2° a wrist moved 0.12 torso lengths, so Lite never calibrated
   on base-solo's 4 s hold. Holds rendered with 1.0/1.1 sway more than real people holding still.
+- v1.4 (2026-11-09, ping-pong; additive, all optional). **GT**: a `gt.jsonl` person may carry
+  `"hands": {"left": {"kp": [[x, y, depth_m, vis] x21], "kp3d": [[X, Y, Z] x21]}, "right": {...}}`
+  (MediaPipe hand-21 order, the body's kp/kp3d conventions) and `"paddle": {"hand": "right",
+  "center": [X, Y, Z], "normal": [X, Y, Z]}` (stage metres). A spec's `resolution` may be
+  `[1280, 960]`; `phase` gains `ready`, `swing` and `serve`. **Detections** from a run with a
+  tracking detail (`run-game --detail`) add, per person in `people`'s order, `world: [[X, Y, Z]
+  x33] | null` (MediaPipe world landmarks: metres round the hips, x right in the picture, y down,
+  z away) and, while the hand model runs, `hands: [[{side, score, kp: [[x, y, z] x21], world:
+  [[X, Y, Z] x21]}]]` (webcamRecord.ts TrackedHand: kp in the picture, 0-1 unmirrored, z from the
+  wrist; world metres round the hand). **Tracked** poses then carry `world` and `hands` as the
+  game's `LivePose` has them. `run.json` gains `settings.detail`, `settings.input` (the size fed to
+  the worker, `--input-size`), `hands: {state, events, dropped_at_ms}` and `completed`/`error` (a
+  run whose worker dies keeps what it tracked). **Real clips without GT** live in
+  `$TRACKBENCH_DATA/clips/<id>/` (frames + spec.json, no gt.jsonl), so suite runs that expect GT
+  don't pick them up. `pingpong.json` beside `metrics.json` holds the ping-pong measures
+  (`PINGPONG.md`).

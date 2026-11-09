@@ -431,6 +431,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
   // ---- accuracy, split
   const gtSamples = samples.filter(s => s.gt);
   const paddle = gtSamples.filter(isPaddle);
+  const paddleAll = samples.filter(isPaddle);
   const accuracy = {
     paddle: errorBlock(paddle),
     by_side: Object.fromEntries(SIDES.map(side => [side, errorBlock(gtSamples.filter(s => s.side === side))])),
@@ -642,7 +643,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     blade_bias_cm: [p.blade.x.bias, p.blade.y.bias, p.blade.z.bias], blade_sd_cm: [p.blade.x.sd, p.blade.y.sd, p.blade.z.sd],
     blade_swing_cm: errorBlock(paddle.filter(s => s.state === 'swing' || s.state === 'peak')).blade_filtered.median,
     blade_rest_cm: accuracy.by_motion.rest?.blade_filtered.median ?? null,
-    dir_deg: p.dir_deg.median, from_hand: paddle.length ? round(paddle.filter(s => s.raw.from === 'hand').length / paddle.length) : null,
+    dir_deg: p.dir_deg.median, from_hand: paddleAll.length ? round(paddleAll.filter(s => s.raw.from === 'hand').length / paddleAll.length) : null,
     swing_vel_err_ms: vectorStats(swingVel.raw, 1).median, swing_vel_err_filtered_ms: vectorStats(swingVel.filt, 1).median,
     swing_speed_ratio: round(quantile(velErrs.ratioRaw, 0.5), 3), swing_speed_ratio_filtered: round(quantile(velErrs.ratioFilt, 0.5), 3),
     lag_ms: round(quantile(lags.raw, 0.5), 1), lag_filtered_ms: round(quantile(lags.filt, 0.5), 1), latency_ms: round(meanOf(latency), 1),

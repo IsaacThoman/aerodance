@@ -12,7 +12,7 @@ than copying them.
 ```sh
 H=tools/trackbench/harness
 # The game's own pipeline: the built pose worker in Chromium on the GPU, tracker in the loop.
-node $H/run-game.ts <scene> [--model lite|full|heavy] [--realtime] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--id <estimator-id>] [--no-session] [--running-mode IMAGE]
+node $H/run-game.ts <scene> [--model lite|full|heavy] [--realtime] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--id <estimator-id>] [--no-session] [--running-mode IMAGE] [--detail none|world|hands|hands:<side>/...|minigame:<id>] [--input-size WxH]
 # The same over every ready scene (or those with these prefixes), several at once, then metrics.
 node $H/run-suite.ts --id <estimator-id> [--jobs N] [--browsers N] [--force] [--no-metrics] [prefix...] [-- run-game flags]
 # Whether two runs' detections and tracking are the same, scene by scene (timing left out).
@@ -23,6 +23,9 @@ node $H/track.ts <estimator> <scene> [--no-session] [--no-looks]
 node $H/metrics.ts <estimator> [scene...] [--jobs N]
 # Report across scenes and estimators: $TRACKBENCH_DATA/reports/<name>.md and .json.
 node $H/report.ts [--estimators a,b] [--baseline mp-lite-game] [--scenes <prefix>[,<prefix>...]] [--name <name>] [--worst 5]
+# Ping-pong (Table Tennis paddle) metrics of a run made with --detail, and their report (../PINGPONG.md).
+node $H/pingpong.ts <estimator-id> [scene...] [--jobs N]
+node $H/pp-report.ts <run> [--compare <run-b>] [--scenes p1,p2] [--exclude p1,p2] [--name <name>]
 # Tests (synthetic fixtures, no frames or browser needed).
 node --test $H/*.test.ts
 ```
@@ -56,11 +59,25 @@ and serves the copy, so rebuilding can't change a running eval. `run.json` recor
 to SwiftShader). It fails unless the WebGL renderer is a GPU and the worker reports the `GPU`
 delegate (`--allow-cpu` overrides); `run.json` records both.
 
-- **Worker settings**: exactly `WebcamPoseSource.connect`'s for the scene's `players`: one or two
+- **Worker settings**: exactly `WebcamPoseSource.connect`'s for the scene's `players` (both use
+  its exported `workerSettings`, and a test fails if connect stops using it): one or two
   players ask for that many people on the whole picture; three or four get `evenTiles(players)`
   strips (and `players + 1` for the fallback), and the run fails if the strips don't start;
   two players also get `search: true`, and one player gets `zoom: true`. Looks when
   `players > 1`. VIDEO running mode; the model's SHA-256 is checked by the worker.
+- **Tracking detail** (`--detail`, default none, as the songs play): sent once the worker is
+  ready with `WebcamPoseSource`'s own `detailRequest`, as `sendDetail` sends it; `minigame:<id>`
+  asks what that minigame's `tracking` asks for with the scene's player count and default options
+  (Table Tennis: `hands` alone, `hands:right/right` for two). With hands, the run waits for the
+  worker's answer (`hands` on or unavailable, kept in `run.json`) before warming up. Each frame
+  message then carries `lined` (the tracker's), the result's world landmarks and hands are
+  recorded and go to `PlayerTracker.update` as `WebcamPoseSource.extras` gives them (hands only
+  while wanted), and `GameLoop` drops two players' hands as `watchHands` does (under 15 poses a
+  second for 4 s), telling the worker. A worker that dies mid-scene leaves its partial outputs and
+  `run.json` with `error`.
+- **`--input-size WxH`**: each frame scaled to that size as it's decoded (`createImageBitmap`
+  resize, high quality), so a 1280x960 render runs as the game's 640x480 webcam; `run.json`
+  `settings.input` records it and `track.ts` replays at it.
 - **Frames**: each JPEG decoded with `createImageBitmap` and transferred to the worker, as
   `WebcamPoseSource` transfers a bitmap of the video. VIDEO timestamps are the frame's `t_ms`
   plus 1000: before the scene the model is warmed up on frame 1 and then shown four grey frames,
@@ -263,4 +280,5 @@ the worst scenes per headline metric. The JSON has the same plus every row.
 | `score.ts` | reference SongBundle from GT; GameSession-style scoring |
 | `metrics.ts` | every metric above |
 | `report.ts` | aggregation |
+| `pingpong.ts`, `pp-report.ts`, `pingpong.test.ts` | the Table Tennis paddle's measures (game's arms.ts), their report and paired comparison ([`../PINGPONG.md`](../PINGPONG.md)) |
 | `fixtures.ts`, `harness.test.ts` | synthetic scenes (pinhole-projected stick dancers) and the tests |
