@@ -154,7 +154,7 @@ In single-player scenes the zoom can pick a player up a little earlier, from the
 picture, as they walk in; MediaPipe then follows a slightly different path for the rest of the
 scene. Apart from the ultrawide and two large gains (`mp1-passerby-front` −7.8 points, from the
 tracker's home, and `sens-dim-gain-jpeg` −4.7), single-player scenes stay where they were on
-average (−0.02 points): 28 better and 25 worse by more than 0.05, the worst by 0.8 (`mot-floor`;
+average (−0.02 points): 26 better and 25 worse by more than 0.05, the worst by 0.8 (`mot-floor`;
 `cam-yaw-55` 0.5, `light-party` 0.4). Of the scenes with two or more players only
 `mp3-arm-overlap` loses more than 0.1 (+0.4).
 
@@ -218,8 +218,8 @@ few multiplayer and setup scenes (`mp4-small-room`, `setup-too-close`, `mp4-dim`
 more than a point, and 9 lose more than a point. The gap between the right dance (about 92%) and
 the wrong one stays. Joints off the picture's own edges, such as feet below the frame, now count
 when the model gives them 0.1 or more: standing still gains over a point on perfect tracking in
-seven scenes, most where the legs are out of the picture (`setup-too-close` 6.3,
-`mp4-small-room` 4.6).
+seven scenes: the most where the legs are out of the picture (`setup-too-close` 6.3,
+`mp4-small-room` 4.6), and 1-3 points in the close-together pairs and the gained-up dark scenes.
 
 ### Setup: calibration that never completes
 
@@ -269,9 +269,9 @@ little sway later restarted the hold: three scenes `dev` calibrates didn't), and
 the fix letting the end of a walk count, and the median outvoting a number swap in the last
 result before completion.
 
-- **Accuracy:** the same as `dev`'s rule on the scenes both complete (torso length 0.00 points
-  [−0.03, +0.02], floor the same).
 End to end, over the 133 scenes (131 with a calibratable hold), with this branch's detections:
+- **Accuracy:** the same as `dev`'s rule on the scenes both complete (torso length 0.00 points
+  [−0.03, +0.03], floor the same).
 - **Speed:** a median of 2.7 s from "everyone still" to calibrated, for MediaPipe Lite. One
   scene completes 0.1 s short of 2.5 s after the ground truth's stop; none early or falsely. The
   two scenes built so they must not calibrate (ankles out of view, behind a table) don't.
@@ -401,20 +401,20 @@ overlapping arms, close and off-centre pairs, and slow passers-by
 ([SUITE.md](scenes/SUITE.md#crossings-crowding-and-off-centre)). Three players: 14.9% → 8.2%,
 four: 14.3% → 7.9%, most of it the scorer's (8.8% and 8.2% with dev's tracking on the new
 scorer); the gain beyond that is in the look-alike crossings. The strips (unchanged) keep
-everybody found (98% or more of player-frames in every crossing). One crossing still ends with
+everybody detected (in 98% or more of player-frames in every crossing). One crossing still ends with
 two numbers swapped: `mp4-cross-adjacent`, distinct players 2 and 3 crossing the middle strips'
 edge (identity 80%, as on `dev`).
 
 ### Where tracking still fails
 
-With everything in this branch, Lite's worst scenes:
+With everything in this branch, a selection of Lite's worst scenes:
 
 | scene | score lost: dev → this branch | why |
 |---|---|---|
 | `mp2-arm-overlap` | 61.1% → 35.1% | two players close, arms across each other: they swap while they overlap |
 | `sens-dim-gain`, `-jpeg` (dark room pushed up, noisy) | 36-40% → 32% | joints wander (limb error ~20°), and calibration never finishes |
 | `mp2-offcentre-near`, `mp2-tight`, `mp2-close-*` | 50-69% → 20-27% | both players tracked in 65-79% of frames (none on `dev`); swaps while overlapping |
-| `look-long-skirt`, `look-dress` | 25-31% → 17-26% | hidden knees and hips |
+| `look-long-skirt`, `look-dress` | 24-31% → 17-26% | hidden knees and hips |
 | `mp2-passerby-front-slow` | 43.9% → 17.0% | somebody standing a second in front of a player |
 | `mp4-dim` | 22.4% → 16.6% | four players in dim light |
 | `setup-dim-far` | 26.6% → 15.2% | two players far back in dim light |

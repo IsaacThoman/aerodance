@@ -17,8 +17,8 @@ How the webcam (or a paired phone's camera) turns people into players.
      while the first finds only one person, is shown the picture with that person hidden
      (their head, torso and legs) and follows whoever else is there. It costs a second
      inference only while somebody is missing. In trackbench's close-together scenes it tracked
-     both players in 65-79% of frames instead of none, and, on the same scorer, cut the score
-     lost to tracking from 41-59% to 20-35% ([trackbench
+     both players in 65-79% of frames instead of almost none, and, on the same scorer, cut the
+     score lost to tracking from 40-59% to 20-35% ([trackbench
      report](../tools/trackbench/REPORT.md#two-players-close-together-a-search-for-the-missing-one)).
      Like the strips, it needs the GPU and an extra landmarker, so the iPhone/iPad app goes
      without.
