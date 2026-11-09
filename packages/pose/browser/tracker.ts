@@ -328,11 +328,11 @@ export class PlayerTracker {
     const givenUp = (p: Player) => !!p.track && now - p.track.seen > LONG_MS;
     const superseded = (p: Player, q: Player) => givenUp(p) && !givenUp(q) && Math.abs(p.place - q.place) < CLOSE * q.track!.body.scale;
     const fromPlace = (p: Player, body: Body) => Math.min(Math.abs(body.x - p.place), Number.isFinite(p.home) ? Math.abs(body.x - p.home) : Infinity);
-    // (A missing player's home counts against players who are missing too, not against one being
-    // followed: a followed player walking over it stays themselves.)
+    // (A missing player's home counts against a followed player only where that player couldn't
+    // have moved to: a followed player walking over it stays themselves.)
     const nearest = (p: Player, body: Body) => this.players.every((q, i) => q === p || !q.track
-      || (!superseded(p, q) && (superseded(q, p)
-        || Math.abs(body.x - where[i]) > (now - q.track.seen <= FRESH_MS ? Math.abs(body.x - p.place) : fromPlace(p, body)))));
+      || (!superseded(p, q) && (superseded(q, p) || Math.abs(body.x - where[i])
+        > (now - q.track.seen <= FRESH_MS && Number.isFinite(motion(q.track, body, now)) ? Math.abs(body.x - p.place) : fromPlace(p, body)))));
     // Looks count for a player whose looks tell them from every other player (so not for one player alone).
     const recognisable = this.players.map((p, i) => this.playerCount > 1 && p.samples >= LOOKS_SAMPLES && this.players.every((q, j) => i === j || !q.track || this.distinct(i, j)));
     const biggest = Math.max(...bodies.map(b => b.scale));

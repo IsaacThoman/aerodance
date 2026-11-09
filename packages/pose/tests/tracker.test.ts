@@ -491,6 +491,17 @@ test('a player the model swaps for somebody walking past in front is theirs agai
   assert.deepEqual([...back[9]], [[0, 0.5]], 'P1 is back within 0.3 s');
 });
 
+test('with two players too, a player the model swaps for somebody walking past is theirs again where they dance', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(40, () => ({ people: [person(0.66), person(0.34, { arms: 0.1 })] })));
+  // The passer-by covers P1, the model's following slides onto them, and they carry P1's place
+  // off to the edge, while P2 dances on nearer P1's home than where the passer-by leaves.
+  run(tracker, repeat(4, i => ({ people: [person(0.66, { size: 1 + 0.09 * (i + 1), arms: 0.2 }), person(0.34, { arms: 0.1 })] })), 1400);
+  run(tracker, repeat(23, i => ({ people: [person(0.66 + 0.015 * (i + 1), { size: 1.35, arms: 0.2 }), person(0.34, { arms: 0.1 })] })), 1550);
+  const back = run(tracker, repeat(30, () => ({ people: [person(0.66), person(0.34, { arms: 0.1 })] })), 2350);
+  assert.deepEqual([...back[9]].sort(), [[0, 0.66], [1, 0.34]], 'P1 is back within 0.3 s');
+});
+
 test('somebody beside a player, while the other player is away, doesn\'t take their number when they\'re missed a moment', () => {
   // Never more people in a result than players, as the worker gives them.
   const tracker = new PlayerTracker(2);
