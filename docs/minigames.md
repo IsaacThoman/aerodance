@@ -307,8 +307,9 @@ landmarks otherwise.
 - `world`: MediaPipe's 33 world landmarks, in metres from the hips' centre: x to the unmirrored
   picture's right, y down, z away from the camera. Their depths are the model's weakest output
   (flattened: a forearm pointing at the camera measures short there too); what holds up is the
-  body's size across the picture, in metres, and a joint that's surely behind another. Null
-  without the detail.
+  body's size across the picture, in metres, and which way a bone leans in depth, even when the
+  model squashes how far (an elbow 15 cm behind the shoulder reads a few cm: Table Tennis's
+  `arms.ts upperArmForward`). Null without the detail.
 - `hands`: with one or two players, the Hand Landmarker's hands, found in a square cut round each
   of the pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`); with `'hands:…'`,
   only the ones asked for, each player's by where they stand (Player 1 furthest to the camera's

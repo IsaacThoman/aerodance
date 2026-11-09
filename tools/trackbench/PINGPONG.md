@@ -25,6 +25,10 @@ node $H/pingpong.ts pp-tt
 node $H/pp-report.ts pp-tt --exclude real-
 node $H/pp-report.ts pp-world --compare pp-tt --exclude real-     # pp-tt − pp-world, cluster bootstrap
 node --test $H/pingpong.test.ts
+# A change to arms.ts or rig.ts, without the worker: re-read another run's recordings into a new run id.
+node $H/pingpong.ts ppt-mychange --from ppt-tt --jobs 8
+# The blade's noise profile (bias, slow and frame-to-frame per axis, wild poses, lost stretches) per player count:
+node $H/pp-noise.ts ppt-mychange --exclude pp-held
 ```
 
 `--detail` takes `none | world | hands | hands:<left|right|both>/... | minigame:<id>`. The
@@ -220,3 +224,141 @@ numbers); and the realtime timings, which are provisional.
    ratios (`UPPER_ARM`, `FOREARM`).
 6. **Ball compensation**: add the measured filter lag to `lagOf`, and re-take the realtime cost
    table on a quiet machine (`--jobs 1`), with the game's rendering load (`--busy-scale`).
+
+## Results: tracking changes (2026-11-09, branch feat-pingpong-tracking)
+
+The new ping-pong scenes (`pp-*`, 1280x960, 21-point hand GT; SUITE.md on
+feat-trackbench-pingpong-scenes) are the benchmark: 10 one-player tuning scenes had rendered
+(pp1-backlit, -base, -bystander, -clutter, -dim, -far-tv, -fast, -gentle, -lefty, -lefty-paddle;
+**several share one rally's motion**, so they're less independent than the cluster bootstrap
+assumes) and the 4 held-out ones (`pp-held-1..4`, two of them two-player), run once at the end.
+Recordings: `ppt-tt` (the game's 640x480) and `ppt-tt-native`; each game-code variant is
+`pingpong.ts <id> --from <recording>` (the worker never changed: every recording comes from the
+baseline worker, pose.worker-yE2vCQ3b). All comparisons are paired, cluster bootstrap 95%.
+
+### The ping-pong scenes against the dance-scene baseline
+
+At the original code (`ppt-F0`), the tuning scenes read wrist 13.5 cm (dance 21.0), depth bias
+−15 cm, forward-stance wrist 9.4 cm, blade (filtered) 15.4 cm (dance 30.7), hand found 0.85
+(dance 0.53), wrong side 2.4% (8%), and `across` from the hand **12° median** against the
+21-point GT. The dance scenes' 55-66° `across` was mostly their GT: from the body's index and
+pinky points, which the hand's own axes are 78° from; the real problem is the pose-sourced
+`across` (70°). The pp scenes' errors are depth, almost all of it from serves and backswings
+(the elbow behind the shoulder), where the paddle read 25-40 cm nearer the camera.
+
+### Kept
+
+| change | commit | tuning (10 scenes, 640x480) | held-out (4) | worse |
+|---|---|---|---|---|
+| leave out a found hand nearer the other wrist or > 1.5 of its lengths from its own | 5a579474 | wrist −0.24 cm [−0.4, −0.1], blade p90 −0.7, swings −0.5 cm; dance: x sd 11.4 → 7.6, rest jitter 1.19 → 0.50 cm, false swings 5.1 → 2.8/min, false raises 1.55 → 0.63/min | wrist −0.19 [−0.4, −0.0], false swings at rest −3.5/min [−5.4, −2.0], rest jitter −0.23 (n.s.) | swing speed ratio 0.97 → 0.93 (dance), drawn lag +1.6 ms |
+| keep the hand's `across` 0.5 s when it's lost | 17b06951 | filtered `across` p90 89 → 72° (2 scenes at the time), median −0.6° | no measurable change | dance `across` worse against its (unusable) GT |
+| filter by capture time, not arrival | e7de0f2e | offline: none (they're equal); realtime (pp-rt-tt, 3 dance scenes): blade −0.13 cm [−0.22, −0.06], jitter −0.03 | – | simulation: 1 hit in 56 balls for two idle players under rough tracking (0 before) |
+| lean the upper arm as far as the model does: −tanh(dz ÷ 0.16) | 152ae9de | wrist 13.2 → 7.3 cm [−7.3, −4.1], forward stance 9.3 → 6.0 [−4.5, −1.8], blade 15.3 → 9.3 [−7.5, −4.1], p90 36 → 21, swings 17.9 → 14.5, false swings −1.2/min [−2.1, −0.2], false serves −1.1/min; GT-backward bones read forward 100% → 78% | blade 15.9 → 11.1 [−9.7, −2.2], p90 −8.2, swings −2.9; wrist −2.8 [−9.0, +0.8] | drawn lag +2.3 ms (held-out +5.0), swing misses 5 → 6-7%; dance forward-reach 11.6 → 14.4 cm, dance rest jitter +0.1 cm; real clip jitter 0.31 → 0.35 cm; held-1 (left-handed, laptop) forward-stance wrist 4.6 → 6.7 cm, held-4 (two players, low phone, TV glow) wrist 12.1 → 13.1 |
+
+**All together** (`ppt-F0` → `ppt-F4`, the original game code against this branch's):
+
+| | tuning 640x480 | tuning native | held-out 640x480 | held-out native |
+|---|---|---|---|---|
+| wrist cm | 13.5 → 7.3 [−7.5, −4.4] | 13.3 → 7.3 | 11.7 → 8.6 [−9.3, +0.6] | 11.8 → 8.6 |
+| forward-stance wrist | 9.4 → 6.0 [−4.7, −1.9] | 9.2 → 5.9 | 8.5 → 7.5 (n.s.) | 8.6 → 7.5 |
+| blade (filtered) | 15.4 → 9.3 [−7.4, −4.4] | 15.5 → 9.2 | 16.3 → 11.1 [−9.8, −2.6] | 16.4 → 11.1 |
+| blade p90 | 37.0 → 21.4 | 36.8 → 21.8 | 41.5 → 32.3 | 41.6 → 31.7 |
+| blade in swings | 18.4 → 14.5 | 18.5 → 14.4 | 25.8 → 22.9 | 25.7 → 22.7 |
+| false swings /min | 3.5 → 2.3 [−2.1, −0.2] | 3.5 → 2.0 | 5.7 → 3.4 [−5.0, −0.4] | 4.1 → 3.7 |
+| false swings at rest /min | 6.0 → 4.0 (n.s.) | 5.2 → 4.6 | 4.7 → 1.2 [−4.8, −2.3] | 2.7 → 1.2 |
+| rest jitter (filtered) | 0.66 → 0.57 (n.s.) | 0.60 → 0.55 | 0.85 → 0.56 (n.s.) | 1.07 → 0.66 |
+| drawn lag at swing speed | 79 → 83 ms [+2, +6] | 81 → 84 | 88 → 94 [+3, +10] | 85 → 92 |
+| swing misses | 4 → 6% | 6 → 6% | 3 → 1% | 10 → 8% |
+
+On the dance scenes: wrist 21.0 → 11.4 cm, blade 30.7 → 18.2, with the forward-reach frames
+worse (11.6 → 14.4). Play simulation (agency.ts --rounds 24): unchanged by the hand, `across`
+and lean changes (it feeds rig.ts takeHand directly); the capture-time change moved hit rates
+within ±1-3 points (one player good 96 → 97%, two players good 96 → 97%, rough 86 → 86%; rough
+standing still 16 → 13%; the one idle hit above).
+
+### Tried and dropped
+
+- **A hard lower threshold** for the bone direction (0.08, 0.05, 0.03, 0 m): every one traded the
+  forward stance (up to +3 cm) and rest jitter and false swings (frames near the threshold flip
+  the depth by twice the bone's reach) for the backswing. Soft widths below 0.12 did the same,
+  more mildly; 0.16 and 0.25 were best, 0.16 kept.
+- **The soft rule on the forearm too** (θ 0.06, width 0.16): wrist −0.9 cm, blade −1.0 more, but
+  false swings +0.7/min [+0.2, +1.3] at native size and the dance forward-reach +1.4 cm.
+- **Measured arm lengths** (a running 80-90th percentile of each bone's flat length in torso
+  lengths, both arms pooled): the GT bones are 0.53-0.56 (upper) and 0.47-0.52 (forearm) of
+  the torso, not UPPER_ARM 0.62 / FOREARM 0.5, and the percentile is within ±4% for the upper
+  arm, but the paddle forearm is foreshortened most of the time in a ping-pong stance (its
+  percentile comes out 15-25% short). With the hard rule they cut the depth bias (pp −14 → −4 cm)
+  but raised rest jitter 0.6 → 0.9 cm (a right-length bone hanging straight sits where
+  √(L² − flat²) is steepest); a forearm at 0.91 of the measured upper arm and one-euro smoothing
+  of each bone's flat share before the square root took the jitter back down at +3-5 ms. With the
+  soft lean in place they add nothing (pp wrist +0.3, blade +0.5, forward stance +1.0, jitter
+  +0.14 cm), so the fixed ratios stay.
+- **An innovation gate** before the filter (hold a pose more than the gate from a constant-
+  velocity prediction unless the next one bears it out): never fired on the pp scenes (no single
+  wild poses there; their false swings come from backswings read the wrong way, and the walk-in);
+  on the dance scenes a depth-only 0.2 m gate cut false swings 0.4/min for +3 ms and slower
+  swings, and 0.1-0.2 m on all axes added 8-50 ms of lag.
+- **Separate, heavier depth smoothing** (one-euro 0.3-0.6 Hz on z): rest jitter −0.03 to −0.09 cm
+  for +1.7 to +3.6 ms, worse swing speed and +0.1-0.3 cm blade.
+- **Faster screen easing** (followHands 24/s → 40/s, 70/s): −15 / −24 ms of drawn lag, but the
+  swing detector's thresholds were tuned at 24/s (70/s: false serves +2.8/min on the dance scenes).
+  Worth doing together with retuning SWING; not done here.
+- **DRAW_LAG = the measured lag**: the paddle as drawn trails the GT blade by 77-79 ms offline
+  (latency 0) at swing speed (model 2-7 ms, one-euro ~20, holding each 30 Hz pose ~17, the 24/s
+  easing the rest), ~160 ms live with 46 ms latency, against lagOf's latency + 50 ms. In the play
+  simulation 0.075 and 0.1 helped one player (good 96 → 97-98%) and hurt two (good 96 → 93 /
+  89%; 0.035 was best for two), so DRAW_LAG stays 0.05 until the simulation's two-player round
+  says why.
+- **Carrying the hand's wrist offset** onto the pose's wrist while the hand is lost (the source
+  switch steps 3.5 cm median, against 0.45 cm frame to frame on the hand, ~2.7 times a second):
+  no change in jitter, accuracy or false swings (the filter absorbs it), −1 ms lag.
+- **The worker without its handedness swap** (`sorted`, pose.worker.ts; run `ppt-nosort`): more
+  hands kept (+2.6 points pp, +7 dance) but nothing downstream better, `across` p90 +5.5° on pp
+  and false swings +0.3/min on the dance scenes. Kept as is.
+
+### Resolution (item 6: measured, not changed)
+
+Native 1280x960 against the game's 640x480 on the 10 tuning scenes, same code: overall the same
+(wrist +0.05 cm, blade −0.2, hand found +2.7 points n.s., wrong side 2.4 → 1.5%, `across` p90
+86 → 77°). Per scene it matters only for the far player: **pp1-far-tv** (a TV camera) hand found
+0.73 → 0.92, wrong side 3.9 → 1.6%, `across` 17 → 10°, rest jitter 0.47 → 0.39 cm; dim light
+gains nothing (found 0.66 → 0.61). Offline inference +1.5 ms. Realtime cost could not be
+measured: with two Blender renders running, native came out *faster* than 640x480 (36 vs 43 ms,
+pp1-far-tv), i.e. inside the noise. Recommendation: request 1280x720/960 when the players are far
+(the torso under ~1/4 of the picture's height, or a TV setup), keep 640x480 otherwise; re-take the
+realtime cost on a quiet machine (`--realtime`, one at a time) before doing it.
+
+### Noise profile of the tracked blade (item 7)
+
+`pp-noise.ts ppt-F4-pp` (this branch's code; `pingpong.json` `noise`). cm, the player's frame
+(x right, y up, z back); bias: mean of scene biases ± their spread between scenes; slow: sd of a
+±250 ms average (correlated over ~0.5 s and slower); fast: frame to frame. Raw is what the game's
+filter is given, which is what tableTennisSim.ts's cameras should model.
+
+| | state | bias x | bias y | bias z | slow x / y / z | fast x / y / z |
+|---|---|---|---|---|---|---|
+| 1 player, 11 pp scenes | rest | 0.5 ± 1.3 | −1.6 ± 0.6 | −1.9 ± 2.8 | 2.6 / 2.6 / 6.5 | 1.3 / 1.7 / 2.3 |
+| | swing | 0.9 ± 1.9 | −5.9 ± 1.4 | −4.7 ± 4.2 | 2.4 / 3.8 / 8.6 | 4.5 / 4.4 / 9.2 |
+| 2 players, pp-held-2/4 (descriptive only) | rest | 2.5 ± 0.6 | −1.6 ± 2.4 | 1.7 ± 1.1 | 6.7 / 4.1 / 7.6 | 1.8 / 2.1 / 3.0 |
+| | swing | 0.7 ± 2.6 | −10.7 ± 6.0 | −7.6 ± 5.2 | 8.8 / 6.7 / 9.8 | 9.4 / 9.4 / 13.0 |
+| 2 players, 19 dance duo scenes | rest | 1.0 ± 1.8 | 6.7 ± 2.4 | −8.8 ± 2.5 | 4.3 / 3.5 / 8.6 | 2.5 / 1.8 / 3.6 |
+
+Wild raw poses (over 15 cm from their own ±200 ms median; includes swing-time misreads): one
+player 4.3% of poses, median 19 cm (6.3%, 21 cm with the original code); two players 16%, 22 cm
+(pp-held) and 23%, 24 cm (dance duos). Lost stretches (no pose > 100 ms): one player 1.1 a
+minute, 0.7% of the time, median 0.4 s; two players 1.6 a minute (pp-held), 21 a minute and 11%
+of the time on the dance duos (occlusion, identity). Rate and delay (realtime, provisional): one
+player with hands 29 Hz, 30 ms latency; two players 20-25 Hz, 47-62 ms. Versus TRACKING today:
+`good`'s across 1.5 cm and depth 5 cm white noise are about right frame to frame, but the real
+error is mostly slow (depth 6.5 cm sd over half-seconds), with an up bias of −6 cm in swings;
+`rough`'s wild rate (3%) is low for two players (16-23%), and dropouts come in ~0.25-0.4 s
+stretches, not single poses.
+
+### Unfinished
+
+- 2-player tuning scenes (pp2-*) and 11 more pp1 scenes hadn't rendered; the watcher
+  run ends here. Re-run once they exist:
+  `node tools/trackbench/harness/run-game.ts <scene> --id ppt-tt --detail minigame:table-tennis --input-size 640x480`
+  (and without `--input-size` as `ppt-tt-native`), then `pingpong.ts ppt-F4-pp --from ppt-tt`.
+- DRAW_LAG (above), the screen easing with SWING retuned, and the realtime resolution cost.
