@@ -66,7 +66,8 @@ async function main() {
   const { id, prefixes, jobs, browsers: browserCount, requestedJobs, force, metrics, game } = parseSuiteArgs(process.argv.slice(2));
   if (game.realtime) console.log(`--realtime: using --jobs 1 (requested ${requestedJobs}); timing runs must run alone`);
   const scenes = orderScenes(readdirSync(path.join(DATA, 'scenes'), { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && !entry.name.startsWith('_') && !entry.name.startsWith('real-'))
+    // Every ready scene, as matrix.py picks them (sim2real roots' real-* scenes included).
+    .filter(entry => entry.isDirectory() && !entry.name.startsWith('_'))
     .map(entry => entry.name)
     .filter(name => existsSync(path.join(sceneDir(name), 'READY')) && (!prefixes.length || prefixes.some(prefix => name.startsWith(prefix))))
     .filter(name => force || !runDone(path.join(runDir(id, name), 'tracked.jsonl'), path.join(sceneDir(name), 'READY')))
