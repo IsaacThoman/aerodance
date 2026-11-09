@@ -27,7 +27,7 @@ import type { JointName } from '../../pose/joints.ts';
  *
  *   raw       the newest pose as it arrived, for games that do their own geometry: unfiltered,
  *             unmirrored, with the camera's world landmarks and hands when the game asks for
- *             them (`tracking: 'hands'`)
+ *             them (`tracking`: 'world' or 'hands')
  *
  * const follower = createPoseFollower(0);
  * follower.setCalibration(calibration);                     // from the stillness hold
@@ -48,7 +48,7 @@ export interface RawPose {
    */
   world: readonly Point3[] | null;
   /**
-   * With `tracking: 'hands'` and one player, the hands the Hand Landmarker found at their wrists
+   * With `tracking: 'hands'` and one or two players, the hands the Hand Landmarker found at their wrists
    * (none found: empty), each on the player's own side; null while it isn't running (ctx.handTracking()).
    */
   hands: readonly TrackedHand[] | null;

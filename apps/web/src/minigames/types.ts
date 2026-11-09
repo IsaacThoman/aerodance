@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import type { PlayerCount, Pose, TrackCalibration } from '../../../../packages/pose/choreography.ts';
-import type { HandTracking } from '../../../../packages/pose/webcamRecord.ts';
+import type { HandTracking, PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 import type { StageId } from '../../../../packages/stages/catalog.ts';
 import type { BackgroundId } from '../backdrop/backgrounds.ts';
 import type { IconDraw, IconName } from '../ui/draw.ts';
@@ -46,6 +46,8 @@ export interface HowToStep {
   /** One of the drawing kit's icons (ui/draw.ts ICONS) or a drawing of its own, white on a blue disc. */
   icon?: IconName | IconDraw;
   text: string;
+  /** Only for these player counts (default: all of the game's): a game played differently alone and together says so. */
+  players?: readonly PlayerCount[];
 }
 
 /** How a score reads, and which way is better. */
@@ -71,6 +73,18 @@ export interface MinigameOption {
   choices: readonly { value: string; label: string }[];
   /** The value it starts on, one of the choices'. */
   default: string;
+  /**
+   * Only for these player counts (default: all of the game's): with others the preview dims the
+   * row and passes over it (an opponent's settings in a game that's played against the computer
+   * alone and against each other together).
+   */
+  players?: readonly PlayerCount[];
+  /**
+   * Each player chooses their own (a paddle hand): the row has a chip per player, in their
+   * colours, and the game reads each one's as ctx.options['<id>.<player number>'] (options.ts
+   * playerOption).
+   */
+  perPlayer?: boolean;
 }
 
 export interface MinigameDefinition {
@@ -79,7 +93,7 @@ export interface MinigameDefinition {
   title: string;
   /** The player counts it plays with, e.g. [1, 2]. */
   players: readonly PlayerCount[];
-  /** The how-to card before the countdown: two to four steps. */
+  /** The how-to card before the countdown: one to four steps for each player count (HowToStep.players). */
   howTo: readonly HowToStep[];
   /** Static monochrome icon for the game button, drawn in design units like the menu icons. */
   icon: IconDraw;
@@ -97,12 +111,14 @@ export interface MinigameDefinition {
   fullBody?: boolean;
   /**
    * More from the camera than the pose API's landmarks, for a game that does its own geometry:
-   * 'hands' asks the camera for MediaPipe's 3D world landmarks with every pose and, with one
-   * player, the Hand Landmarker's hands at their wrists (PlayerPose.raw), for as long as the
-   * round lasts (ctx.handTracking() says how the hands are doing). It costs tracking time, so
-   * only the games that need it ask.
+   * 'world' asks the camera for MediaPipe's 3D world landmarks with every pose, and 'hands' for
+   * those and, with one or two players, the Hand Landmarker's hands at their wrists ('hands:right'
+   * or 'hands:right/left': only some of each player's, for less: webcamRecord.ts) (PlayerPose.raw), for
+   * as long as the round lasts (ctx.handTracking() says how the hands are doing). The hands cost
+   * tracking time, so only the games that need them ask, and a game can let its players choose:
+   * as a function, the round's player count and settings (options) say which it asks for, if any.
    */
-  tracking?: 'hands';
+  tracking?: PoseDetail | ((round: { playerCount: PlayerCount; options: Readonly<Record<string, string>> }) => PoseDetail | null);
   /**
    * The players play together, as a team: every player's score is the team's, and the results
    * show it as one score instead of naming a winner (or a tie).
@@ -110,7 +126,7 @@ export interface MinigameDefinition {
   coop?: boolean;
   /** The host's HUD: each player's score in the top corners, and the round's time left (both on by default). */
   hud?: { scores?: boolean; timer?: boolean };
-  /** Settings the players choose on its preview, a row each (up to four); the game reads them in ctx.options. */
+  /** Settings the players choose on its preview, a row each (up to five); the game reads them in ctx.options. */
   options?: readonly MinigameOption[];
   /** Listed in development builds only. */
   devOnly?: boolean;
@@ -184,9 +200,9 @@ export interface MinigameContext {
   /** The calibration a player's character is drawn with. */
   calibration(player: number): TrackCalibration | null;
   /**
-   * How the hands are doing, for a game with `tracking: 'hands'` (null for others): their model
-   * loading, on, dropped by a paired phone too slow for it, or not to be had (more than one
-   * player, a replay, a phone page too old for it). Without them, PlayerPose.raw has no hands and
+   * How the hands are doing, for a round tracking 'hands' (null for others): their model
+   * loading, on, dropped because tracking was too slow with it (for both players together), or
+   * not to be had (three or four players, a replay, a phone page too old for it). Without them, PlayerPose.raw has no hands and
    * the pose's own wrist, index and pinky points are all there is.
    */
   handTracking(): HandTracking | null;

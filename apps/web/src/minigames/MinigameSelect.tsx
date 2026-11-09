@@ -12,12 +12,14 @@ import { displayDesign } from '../display.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { minigameBest } from './bestScores.ts';
 import type { MinigameBest } from './bestScores.ts';
-import { formatScore } from './definition.ts';
+import { formatScore, forPlayers } from './definition.ts';
 import { MG_COLUMNS, MG_PER_PAGE, minigameLayout } from './layout.ts';
-import { minigameOptions, optionsText, resolveOptions, saveMinigameOption, stepOption } from './options.ts';
+import { minigameOptions, optionKey, optionsText, resolveOptions, saveMinigameOption, stepOption } from './options.ts';
 import type { MinigameOptionValues } from './options.ts';
 import { MINIGAMES } from './registry.ts';
-import type { MinigameDefinition } from './types.ts';
+import type { MinigameDefinition, MinigameOption } from './types.ts';
+import { PLAYERS } from '../game/results.ts';
+import type { PlayerLook } from '../game/results.ts';
 
 /**
  * Minigames' list, drawn in-engine from the main menu's Minigames (menu/MainMenu.tsx):
@@ -55,7 +57,8 @@ export interface MinigameSelectProps {
   onPlay?: (game: MinigameDefinition, players: PlayerCount, options: MinigameOptionValues) => void;
 }
 /** A tile; an option row, or one of its arrows (step). */
-type SelectWidget = Widget & { game?: MinigameDefinition; option?: string; step?: -1 | 1 };
+/** A widget: a game's tile, or a setting's (its key, options.ts optionKey) arrow, row or player chip. */
+type SelectWidget = Widget & { game?: MinigameDefinition; option?: string; step?: -1 | 1; chip?: { row: number; player: number; count: number } };
 
 const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
 const fmt = (game: MinigameDefinition, score: number) => formatScore(game, score, { unit: true });
@@ -95,12 +98,18 @@ function fitText(g: CanvasRenderingContext2D, str: string, x: number, y: number,
 type PreviewLayout = ReturnType<typeof minigameLayout>;
 // The game's option rows on dark glass, like the settings rows: each its label, then
 // its choice between the arrows, which step through the choices and round again
-// (as the camera picker's do). A row lights under the pointer.
-function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number, keyed: string | null) {
+// (as the camera picker's do). A row lights under the pointer. One that isn't for this
+// many players (MinigameOption.players) is dimmed, as the dial's unavailable steps are.
+// A per-player row has a chip for each player instead, in their colour, which steps on
+// with a press.
+function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, count: PlayerCount, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number, keyed: string | null) {
   if (!l.MG_OPTIONS || !game.options) return;
   drawDarkGlassPanel(g, l.MG_OPTIONS, 34);
   game.options.forEach((option, i) => {
     const row = l.mgOption(i), prev = l.mgOptionPrev(i), next = l.mgOptionNext(i);
+    const off = !forPlayers(option, count);
+    g.save();
+    if (off) g.globalAlpha *= 0.35;
     const id = `option-${option.id}`, cy = row.y + row.h / 2;
     // The keyboard cursor on the row lights the row, not whichever arrow its middle falls in.
     const arrow = (side: 'prev' | 'next') => (keyed === id ? { hover: 0, press: 0 } : { hover: h[`${id}-${side}`] ?? 0, press: press(`${id}-${side}`) });
@@ -111,12 +120,54 @@ function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, valu
       g.fill();
     }
     const labelX = row.x + 22;
+    if (option.perPlayer) {
+      fitText(g, option.label, labelX, cy, l.mgOptionPlayer(i, 0, count).x - 12 - labelX, 600);
+      for (let player = 0; player < count; player++) {
+        const id = `option-${optionKey(option.id, player)}`;
+        drawPlayerChip(g, l.mgOptionPlayer(i, player, count), PLAYERS[player], choiceOf(option, values[optionKey(option.id, player)]).label,
+          off ? 0 : keyed === id ? 1 : h[id] ?? 0, off ? 0 : press(id));
+      }
+      g.restore();
+      return;
+    }
     fitText(g, option.label, labelX, cy, prev.x - prev.r - 14 - labelX, 600);
     drawArrow(g, prev, 'left', arrow('prev').hover, { press: arrow('prev').press });
     drawArrow(g, next, 'right', arrow('next').hover, { press: arrow('next').press });
-    const choice = option.choices.find((c) => c.value === values[option.id]) ?? option.choices[0];
-    fitText(g, choice.label, (prev.x + next.x) / 2, cy, next.x - prev.x - prev.r - next.r - 16, 700, 'center');
+    fitText(g, choiceOf(option, values[option.id]).label, (prev.x + next.x) / 2, cy, next.x - prev.x - prev.r - next.r - 16, 700, 'center');
+    g.restore();
   });
+}
+
+const choiceOf = (option: MinigameOption, value: string | undefined) => option.choices.find((c) => c.value === value) ?? option.choices[0];
+
+// A player's chip on a per-player row: a pill tinted and edged in their colour (their dancer's
+// on the platform), their choice on it in white.
+function drawPlayerChip(g: CanvasRenderingContext2D, rect: Rect, look: PlayerLook, label: string, lit: number, pressed: number) {
+  g.save();
+  const inset = pressed * 2;
+  pill(g, rect.x + inset, rect.y + inset, rect.w - 2 * inset, rect.h - 2 * inset);
+  g.globalAlpha *= 0.32 + 0.2 * lit;
+  g.fillStyle = look.color;
+  g.fill();
+  g.restore();
+  g.save();
+  pill(g, rect.x + inset, rect.y + inset, rect.w - 2 * inset, rect.h - 2 * inset);
+  g.lineWidth = 2.5;
+  g.strokeStyle = look.light;
+  g.globalAlpha *= 0.75 + 0.25 * lit;
+  g.stroke();
+  g.restore();
+  g.save();
+  g.font = `700 24px ${FONT}`;
+  const w = g.measureText(label).width, room = rect.w - 20;
+  if (w > room) g.font = `700 ${Math.max(16, Math.floor((24 * room) / w))}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = '#ffffff';
+  g.shadowColor = 'rgba(0, 20, 60, 0.45)';
+  g.shadowBlur = 4;
+  g.fillText(ellipsize(g, label, room), rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+  g.restore();
 }
 
 interface SelectState {
@@ -192,6 +243,11 @@ export default function MinigameSelect({ visible = false, open = null, players =
     if (!st.bests.has(key)) st.bests.set(key, minigameBest(game.id, count));
     return st.bests.get(key) ?? null;
   };
+  // A player's chip on a per-player option row.
+  const chipWidget = (option: MinigameOption, row: number, player: number, count: number, l: PreviewLayout): SelectWidget => {
+    const rect = l.mgOptionPlayer(row, player, count), key = optionKey(option.id, player);
+    return { id: `option-${key}`, option: key, step: 1, rect, corner: rect.h / 2, chip: { row, player, count } };
+  };
   const tileWidget = (game: MinigameDefinition, i: number, primary: boolean): SelectWidget => ({ id: `game-${game.id}`, game, rect: layoutRef.current.mgTile(i), corner: glassCorner(layoutRef.current.mgTile(i).h), primary });
   // Tiles in column order, so Up/Down go down and up a column (Left/Right go across, onStep).
   const tileWidgets = () => {
@@ -248,6 +304,11 @@ export default function MinigameSelect({ visible = false, open = null, players =
           // choice's track (listed first, so a press there is the arrow's, near misses too); the
           // row takes the rest, its label, and steps forward.
           ...(game?.options ?? []).flatMap((option, i): SelectWidget[] => {
+            // (A row for other player counts takes no presses.)
+            const count = dialOf(game!);
+            if (!forPlayers(option, count)) return [];
+            // A per-player row: a chip each, stepped on by a press.
+            if (option.perPlayer) return Array.from({ length: count }, (_, player) => chipWidget(option, i, player, count, l));
             const row = l.mgOption(i), prev = l.mgOptionPrev(i), next = l.mgOptionNext(i);
             const left = prev.x - prev.r - 14, mid = (prev.x + next.x) / 2;
             return [
@@ -280,9 +341,14 @@ export default function MinigameSelect({ visible = false, open = null, players =
       }
       s.invalidate();
     },
-    // Left/Right step an option row (a held key doesn't spin it round), or go across a row of
-    // tiles, on to the next page at its end.
+    // Left/Right step an option row (a held key doesn't spin it round), go across a per-player
+    // row's chips (a press steps one), or go across a row of tiles, on to the next page at its end.
     onStep: (wdg, dir, s, repeat) => {
+      if (wdg.chip) {
+        const { row, player, count } = wdg.chip, game = chosen(), option = game?.options?.[row];
+        if (option && player + dir >= 0 && player + dir < count) s.focus(chipWidget(option, row, player + dir, count, previewLayout(game)));
+        return true;
+      }
       if (wdg.option) {
         if (!repeat) stepRow(wdg.option, dir);
         return true;
@@ -333,6 +399,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
         minigameChosen: st.screen === 'preview' ? st.chosen ?? '' : '',
         minigameDial: game && st.screen === 'preview' ? String(dialOf(game)) : '',
         minigameOptions: st.screen === 'preview' ? settings : '',
+        // (Rows, as the layout counts them: a per-player setting is a row of several values.)
+        minigameOptionRows: st.screen === 'preview' && game ? String(game.options?.length ?? 0) : '',
       };
       const json = JSON.stringify(report);
       if (json !== st.reported) {
@@ -399,7 +467,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
     drawDialStep(g, l.MG_PLUS, true, h.plus ?? 0, press('plus'), count < counts.at(-1)!);
     drawDialCount(g, count, l.MG_COUNT_X, l.MG_MINUS.y, 120);
     drawGlassButton(g, l.MG_PLAY, { label: 'Play', sub: COUNT_NAMES[count - 1], icon: 'play', hover: h.play ?? 0, press: press('play'), chevron: false });
-    drawOptions(g, game, optionsOf(game), l, h, press, ui.keyFocus);
+    drawOptions(g, game, optionsOf(game), count, l, h, press, ui.keyFocus);
   }
 
   // Frosted glass in the tiles, and the preview's options and Play.

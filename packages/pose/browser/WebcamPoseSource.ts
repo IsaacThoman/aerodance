@@ -2,7 +2,8 @@ import { MEDIAPIPE_VERSION, ASSET_PATH, HAND_MODEL, isPoseModelId, poseModel } f
 import type { PoseModelId } from './models.ts';
 import { PlayerTracker } from './tracker.ts';
 import { evenTiles } from './tiles.ts';
-import { validateWebcamRecord } from '../webcamRecord.ts';
+import { HANDS_MIN_HZ, HANDS_SLOW_MS, MAX_HAND_PEOPLE } from './hands.ts';
+import { detailHands, validateWebcamRecord } from '../webcamRecord.ts';
 import type { HandTracking, PoseDetail, WebcamRecord } from '../webcamRecord.ts';
 import { isPlayerCount } from '../choreography.ts';
 import type { CaptureInput, PlayerCount } from '../choreography.ts';
@@ -178,6 +179,8 @@ export class WebcamPoseSource {
    */
   detail: PoseDetail | null = null;
   handsDropped = false;
+  /** Since when tracking has been too slow for two people's hands (null: it isn't): see watchHands. */
+  handsSlowSince: number | null = null;
   workerReady = false;
   detailSent = false;
   handModel: 'loading' | 'on' | 'unavailable' = 'loading';
@@ -251,15 +254,17 @@ export class WebcamPoseSource {
     if (count === this.playerCount) return;
     const active = ACTIVE.includes(this.view.status);
     this.disconnect(); this.playerCount = count;
+    // The next worker loads the hand model for this many people afresh.
+    this.handModel = 'loading'; this.handsSlowSince = null;
     this.publishHands();
     if (active) await this.connect();
   }
   /**
-   * Extra tracking for a game that asks for it ('hands'), or none (null, as the songs play):
-   * every pose keeps MediaPipe's world landmarks, and with one player the Hand Landmarker runs
-   * on their wrists, its model loaded the first time it's asked for (view.hands says how it's
-   * doing). It lasts through camera restarts until it's set again; without it, the worker does
-   * what it always did.
+   * Extra tracking for a game that asks for it, or none (null, as the songs play): with either
+   * detail every pose keeps MediaPipe's world landmarks, and with 'hands' and one or two players
+   * the Hand Landmarker runs on their wrists too (hands.ts), its model loaded the first time
+   * it's asked for (view.hands says how it's doing; with 'world' it's absent). It lasts through camera restarts
+   * until it's set again; without it, the worker does what it always did.
    */
   setDetail(detail: PoseDetail | null) {
     if (detail === this.detail) return;
@@ -267,6 +272,7 @@ export class WebcamPoseSource {
     // Asked for afresh, dropped hands are tried again.
     this.handsDropped = false;
     this.handModel = 'loading';
+    this.handsSlowSince = null;
     this.sendDetail();
     this.publishHands();
   }
@@ -275,24 +281,39 @@ export class WebcamPoseSource {
    * to run both: PhoneLink), until the detail is asked for afresh.
    */
   dropHands() {
-    if (this.detail !== 'hands' || this.handsDropped) return;
+    if (!detailHands(this.detail).length || this.handsDropped) return;
     this.handsDropped = true;
     this.sendDetail();
     this.publishHands();
   }
-  /** Whether the hand model is to run: the detail asked for, one player, not dropped. */
-  get handsWanted() { return this.detail === 'hands' && this.playerCount === 1 && !this.handsDropped; }
+  /** Whether the hand model is to run: a detail asking for hands, one or two players (MAX_HAND_PEOPLE), not dropped. */
+  get handsWanted() { return detailHands(this.detail).length > 0 && this.playerCount <= MAX_HAND_PEOPLE && !this.handsDropped; }
   handsView(): HandTracking | undefined {
-    if (!this.detail) return undefined;
-    return this.playerCount !== 1 ? 'unavailable' : this.handsDropped ? 'dropped' : this.handModel;
+    if (!detailHands(this.detail).length) return undefined;
+    return this.playerCount > MAX_HAND_PEOPLE ? 'unavailable' : this.handsDropped ? 'dropped' : this.handModel;
+  }
+  /**
+   * Drops the hand model when it can't keep up with two people's hands: tracking slower than
+   * HANDS_MIN_HZ for HANDS_SLOW_MS with it on (as a paired phone does with any number). Both
+   * players' hands go together, so neither has them while the other doesn't. One player's never
+   * drop here, as they never have.
+   */
+  watchHands(poseHz: number, now: number) {
+    const slow = this.handsWanted && this.playerCount > 1 && this.handModel === 'on' && this.resultTimes.length > 1 && poseHz < HANDS_MIN_HZ;
+    if (!slow) { this.handsSlowSince = null; return; }
+    this.handsSlowSince ??= now;
+    if (now - this.handsSlowSince < HANDS_SLOW_MS) return;
+    this.handsSlowSince = null;
+    console.warn(`hand tracking: dropped, tracking ${poseHz.toFixed(1)} poses/s with ${this.playerCount} people's hands`);
+    this.dropHands();
   }
   publishHands() { if (this.detail || this.view.hands) this.publish({ hands: this.handsView() }); }
   /** Tells a ready worker the detail (only once it has been asked for: until then it's told nothing). */
   sendDetail() {
     if (!this.worker || !this.workerReady || (!this.detail && !this.detailSent)) return;
     this.detailSent = !!this.detail;
-    this.worker.postMessage({ type: 'detail', world: this.detail === 'hands',
-      hands: this.handsWanted ? { modelUrl: new URL(HAND_MODEL.file, this.assetUrl()).href, modelHash: HAND_MODEL.sha256 } : null });
+    this.worker.postMessage({ type: 'detail', world: this.detail !== null,
+      hands: this.handsWanted ? { modelUrl: new URL(HAND_MODEL.file, this.assetUrl()).href, modelHash: HAND_MODEL.sha256, people: this.playerCount, sides: detailHands(this.detail) } : null });
   }
   /** A new song starts with a fresh line-up, without restarting the camera or model. */
   resetTracking() {
@@ -481,6 +502,12 @@ export class WebcamPoseSource {
     const receivedBrowserTimeMs = this.now();
     this.lastResult = receivedBrowserTimeMs;
     const frameAgeMs = receivedBrowserTimeMs - pending.frameBrowserTimeMs;
+    // How fast results come, the ones too old to use too: a camera too slow for two people's
+    // hands to give any fresh result must still drop them (watchHands).
+    this.resultTimes.push(receivedBrowserTimeMs);
+    this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
+    const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
+    this.watchHands(poseHz, receivedBrowserTimeMs);
     // Never let a slow result revive expired player readiness or contaminate a take.
     if (frameAgeMs >= 500) { this.dropped++; this.publish({ snapshot: null, message: 'Tracking is too slow. Try Lite or another camera.' }); return; }
     try {
@@ -493,9 +520,6 @@ export class WebcamPoseSource {
       this.completed++;
       this.emit({ record, receivedBrowserTimeMs, captureBrowserTimeMs: record.frameBrowserTimeMs,
         timing: { method: record.timingMethod } });
-      this.resultTimes.push(receivedBrowserTimeMs);
-      this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
-      const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
       this.publish({ status: 'connected', snapshot: { ...record, sourceKind: 'webcam', frameId: record.seq },
         stats: { poseHz, inferenceMs: data.inferenceMs, frameAgeMs, droppedFrames: this.dropped },
         message: `${poseModel(this.view.model).label} · ${this.view.delegate} · ${this.resultTimes.length > 1 ? `${poseHz.toFixed(1)} poses/s` : 'Measuring tracking speed…'}${poseHz < 15 && this.completed > 30 ? ' · Slow tracking; close other apps.' : ' · Step into view.'}` });
@@ -545,7 +569,7 @@ export class WebcamPoseSource {
     void bitmap.then(bitmap => {
       const worker = this.worker;
       if (generation !== this.generation || !worker) { bitmap.close(); return; }
-      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players }, [bitmap]);
+      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players, lined: this.tracker.lined }, [bitmap]);
     }).catch(error => { if (generation === this.generation) this.fail(error); });
   }
   schedule() {

@@ -44,7 +44,7 @@ class FakeCamera {
   setDetail(detail: PoseDetail | null) {
     if (detail === this.detail) return;
     this.detail = detail;
-    this.publish({ hands: detail ? (this.playerCount === 1 ? 'on' : 'unavailable') : undefined });
+    this.publish({ hands: detail === 'hands' ? (this.playerCount <= 2 ? 'on' : 'unavailable') : undefined });
   }
   dropHands() { if (this.view.hands === 'on') { this.dropped++; this.publish({ hands: 'dropped' }); } }
   emit(record: WebcamRecord) {
@@ -173,6 +173,10 @@ test('a game\'s hands detail reaches the phone with its settings, and again when
   host.setDetail(null);
   await until(() => camera.detail === null, 'the detail off on the phone');
   assert.equal(host.view.hands, undefined);
+  // The world landmarks without the hands: the phone hears it, and nobody speaks of hands.
+  host.setDetail('world');
+  await until(() => camera.detail === 'world', 'the world detail on the phone');
+  assert.equal(host.view.hands, undefined);
   // On again, and the connection drops: the phone gets the detail again when it reconnects.
   host.setDetail('hands');
   await until(() => camera.detail === 'hands', 'the detail on again');
@@ -197,6 +201,11 @@ test('a phone page that never says how its hands are doing (too old to know of t
   // A phone that does know says so at once.
   host.onMessage(JSON.stringify({ ...status, hands: 'on' }));
   assert.equal(host.view.hands, 'on');
+  // Asked for the world landmarks alone, there are no hands to wait for.
+  host.setDetail('world');
+  now += HANDS_ANSWER_MS + 1;
+  host.check();
+  assert.equal(host.view.hands, undefined);
   clearInterval(host.watchdog);
 });
 

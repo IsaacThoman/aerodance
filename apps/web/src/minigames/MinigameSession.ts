@@ -12,6 +12,9 @@ import { createGestureSet, handRaised } from './pose/gestures.ts';
 import type { GestureDetector, GestureEvent } from './pose/gestures.ts';
 import type { BestScoreStorage } from '../game/bestScores.ts';
 import { offers, resolveOptions, saveMinigameOption } from './options.ts';
+import { trackingFor } from './definition.ts';
+import { detailHands } from '../../../../packages/pose/webcamRecord.ts';
+import type { PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFrame, MinigameOutcome, MinigamePhase } from './types.ts';
 
 /*
@@ -33,8 +36,10 @@ import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFr
  * pose follower (pose/body.ts) and gesture detectors (pose/gestures.ts) take every record, at
  * the camera frame's capture time; their events reach the game a frame at a time (frame()).
  * Replays (?input=ghost) skip calibrating: their players calibrate themselves as they go.
- * A game that asks for more tracking (`tracking: 'hands'`) has it from the camera for as long as
- * its session lives (PoseSource.setDetail), and the poses' world landmarks and hands in raw.
+ * A game that asks for more tracking (`tracking`: 'world' or 'hands', or chosen per round from
+ * its player count and settings) has it from the camera for as long as its session lives
+ * (PoseSource.setDetail), and the poses' world landmarks and hands in raw; a setting changed
+ * mid-round (setOption) asks again.
  *
  * const session = new MinigameSession({ game, playerCount, source, options });  // options: the preview's settings
  * await session.load(); every frame: session.advance(performance.now());  // update(), then tick = frame()
@@ -107,6 +112,8 @@ export class MinigameSession implements MinigameContext {
   outcome: MinigameOutcome | null = null;
   /** The game's settings (ctx.options): the preview's choices, as setOption changes them. */
   options: Record<string, string>;
+  /** The tracking this round asks the camera for (trackingFor: the game's, for its players and settings). */
+  detail: PoseDetail | null;
   optionStorage: BestScoreStorage | undefined;
   /** The game's own reported state (report()), as data-mg-* keys. */
   reported: Record<string, string> = {};
@@ -116,6 +123,7 @@ export class MinigameSession implements MinigameContext {
     this.game = game; this.playerCount = playerCount; this.source = source; this.now = now;
     this.coop = !!game.coop;
     this.options = resolveOptions(game, options);
+    this.detail = trackingFor(game, playerCount, this.options);
     this.optionStorage = optionStorage;
     this.trackingRefreshAt = now();
     // Live cameras calibrate; replays already know where everyone stands.
@@ -132,7 +140,7 @@ export class MinigameSession implements MinigameContext {
     // The tracking the game asks for (none for most), until it ends.
     if (source?.setDetail) {
       detailHolders.set(source, this);
-      source.setDetail(game.tracking ?? null);
+      source.setDetail(this.detail);
     }
   }
 
@@ -277,6 +285,11 @@ export class MinigameSession implements MinigameContext {
     if (!offers(this.game, id, value) || this.options[id] === value) return;
     this.options[id] = value;
     saveMinigameOption(this.game, id, value, this.optionStorage);
+    // A setting the tracking depends on asks the camera again (while this round holds it).
+    const detail = trackingFor(this.game, this.playerCount, this.options);
+    if (detail === this.detail) return;
+    this.detail = detail;
+    if (this.source && detailHolders.get(this.source) === this) this.source.setDetail?.(detail);
   }
   addScore(player: number, points: number) { this.setScore(player, (this.scoreList[player] ?? 0) + points); }
   finish(scores?: readonly number[], outcome?: MinigameOutcome) {
@@ -291,7 +304,7 @@ export class MinigameSession implements MinigameContext {
     return this.live[player]?.frame(now, now - this.present[player] <= PRESENT_MS) ?? null;
   }
   calibration(player: number) { return this.live[player]?.calibration ?? null; }
-  handTracking() { return this.game.tracking === 'hands' ? this.source?.view.hands ?? 'unavailable' : null; }
+  handTracking() { return detailHands(this.detail).length ? this.source?.view.hands ?? 'unavailable' : null; }
   report(state: Record<string, string | number | boolean | null>) {
     for (const [key, value] of Object.entries(state)) {
       const name = `mg${key.charAt(0).toUpperCase()}${key.slice(1)}`;

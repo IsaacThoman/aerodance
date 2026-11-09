@@ -60,6 +60,8 @@ const GradeShader = {
     uAspect: { value: 16 / 9 },
     uSaturation: { value: 1 },
     uTint: { value: new THREE.Color(1, 1, 1) },
+    // A split screen's grid (columns, rows): each view gets a vignette of its own.
+    uGrid: { value: new THREE.Vector2(1, 1) },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -71,11 +73,12 @@ const GradeShader = {
     uniform float uAspect;
     uniform float uSaturation;
     uniform vec3 uTint;
+    uniform vec2 uGrid;
     varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
-      vec2 d = vUv - 0.5;
-      d.x *= uAspect;
+      vec2 d = fract(vUv * uGrid) - 0.5;
+      d.x *= uAspect * uGrid.y / uGrid.x;
       float v = smoothstep(1.05, 0.3, length(d));
       c.rgb *= mix(1.0, v, uVignette);
       float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -87,6 +90,71 @@ const GradeShader = {
 };
 
 type GradeUniforms = typeof GradeShader.uniforms;
+
+/**
+ * A split screen: an ArrayCamera whose cameras are views, each drawing its own cell of a grid
+ * over the frame (`grid`: columns and rows), in reading order from the top left. Rendered by
+ * RenderPipeline (ViewsRenderPass), with each view culled and sorted for itself.
+ */
+export class SplitCamera extends THREE.ArrayCamera {
+  readonly isSplitCamera = true;
+  grid: readonly [columns: number, rows: number];
+  constructor(cameras: THREE.PerspectiveCamera[], grid: readonly [columns: number, rows: number] = splitGrid(cameras.length)) {
+    super(cameras);
+    this.grid = grid;
+  }
+}
+
+/** The grid n views split the frame into: side by side up to two, then two by two. */
+export function splitGrid(views: number): readonly [columns: number, rows: number] {
+  return views <= 2 ? [Math.max(1, views), 1] : [2, Math.ceil(views / 2)];
+}
+
+/** A view's cell in the frame, as fractions of it from the bottom left (as viewports go). */
+export function splitCell(grid: readonly [number, number], i: number) {
+  const [columns, rows] = grid, column = i % columns, row = Math.floor(i / columns);
+  return { x: column / columns, y: 1 - (row + 1) / rows, w: 1 / columns, h: 1 / rows };
+}
+
+const isSplitCamera = (camera: THREE.Camera): camera is SplitCamera => (camera as Partial<SplitCamera>).isSplitCamera === true;
+
+/**
+ * The scene pass, which also draws a split screen: given a SplitCamera, each of its views draws
+ * its own cell of the buffer. (three's own ArrayCamera rendering culls and sorts for the parent
+ * camera, which is wrong when the views look different ways.) Shadow maps are drawn once, for
+ * the first view: they don't depend on the camera.
+ */
+class ViewsRenderPass extends RenderPass {
+  render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget, deltaTime: number, maskActive: boolean) {
+    const camera = this.camera;
+    if (!isSplitCamera(camera) || this.renderToScreen) {
+      super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+      return;
+    }
+    const saved = { autoClear: renderer.autoClear, shadows: renderer.shadowMap.autoUpdate };
+    const { width, height } = readBuffer;
+    renderer.autoClear = false;
+    renderer.setRenderTarget(readBuffer);
+    renderer.clear();
+    readBuffer.scissorTest = true;
+    camera.cameras.forEach((view, i) => {
+      const cell = splitCell(camera.grid, i);
+      const x = Math.round(cell.x * width), y = Math.round(cell.y * height);
+      const w = Math.round((cell.x + cell.w) * width) - x, h = Math.round((cell.y + cell.h) * height) - y;
+      readBuffer.viewport.set(x, y, w, h);
+      readBuffer.scissor.set(x, y, w, h);
+      renderer.setRenderTarget(readBuffer);
+      if (i > 0) renderer.shadowMap.autoUpdate = false;
+      renderer.render(this.scene, view);
+    });
+    readBuffer.viewport.set(0, 0, width, height);
+    readBuffer.scissor.set(0, 0, width, height);
+    readBuffer.scissorTest = false;
+    renderer.setRenderTarget(readBuffer);
+    renderer.shadowMap.autoUpdate = saved.shadows;
+    renderer.autoClear = saved.autoClear;
+  }
+}
 
 // OutputPass's define for each tone mapping (it builds them from the renderer when it renders).
 const OUTPUT_TONE_DEFINES: Partial<Record<THREE.ToneMapping, string>> = {
@@ -125,7 +193,7 @@ export interface RenderPipelineProps {
  * layer (optional) on top without post-processing so its text stays crisp.
  * width/height: the render buffer; aspect: the frame it is displayed at.
  * It renders the scene and camera of the store it is mounted in, so inside a
- * createPortal it draws that portal's stage.
+ * createPortal it draws that portal's stage. A SplitCamera draws a split screen.
  */
 export function RenderPipeline({
   hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect, samples = 4, bloom: bloomOn = true, enabled = true, isEnabled, settings = post,
@@ -145,7 +213,7 @@ export function RenderPipeline({
     composer.renderTarget1.depthBuffer = false;
     composer.setPixelRatio(1);
     composer.setSize(width, height);
-    const render = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
+    const render = new ViewsRenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
     const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.5, 0.5, 0.8);
     const grade = new ShaderPass(GradeShader);
     // ShaderPass clones GradeShader.uniforms, so its uniforms have the same shape.
@@ -219,6 +287,8 @@ export function RenderPipeline({
     gradeUniforms.uAspect.value = aspect ?? state.size.width / Math.max(1, state.size.height);
     gradeUniforms.uSaturation.value = settings.saturation;
     gradeUniforms.uTint.value.setRGB(...settings.tint);
+    const grid = isSplitCamera(state.camera) ? state.camera.grid : [1, 1] as const;
+    gradeUniforms.uGrid.value.set(grid[0], grid[1]);
     gl.toneMapping = settings.toneMapping;
     gl.toneMappingExposure = settings.exposure;
     gl.info.autoReset = false;
