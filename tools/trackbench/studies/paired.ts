@@ -5,7 +5,7 @@
 //   node tools/trackbench/studies/paired.ts [--estimators a,b,...] [--baseline mp-lite-game] [--scenes p1,p2] [--name out]
 import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { DATA, parseArgs, readJson, writeJson } from '../harness/common.ts';
+import { bootstrap, DATA, parseArgs, readJson, writeJson } from '../harness/common.ts';
 
 const opts = parseArgs(process.argv.slice(2), { estimators: 'string', baseline: 'string', scenes: 'string', name: 'string', exclude: 'string' }).opts;
 const baseline = String(opts.baseline ?? 'mp-lite-game');
@@ -49,16 +49,6 @@ const metrics = new Map<string, M>();
 for (const e of estimators) for (const s of cohort) metrics.set(`${e}|${s}`, readJson<M>(path.join(runsRoot, e, s, 'metrics.json')));
 const categoryOf = (s: string) => metrics.get(`${baseline}|${s}`)!.category as string;
 
-/** Seeded RNG so the bootstrap is reproducible. */
-let seed = 12345;
-const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-function bootstrap(diffs: number[], n = 4000): [number, number] {
-  if (diffs.length < 3) return [NaN, NaN];
-  const means: number[] = [];
-  for (let b = 0; b < n; b++) { let t = 0; for (let i = 0; i < diffs.length; i++) t += diffs[Math.floor(rand() * diffs.length)]; means.push(t / diffs.length); }
-  means.sort((a, b) => a - b);
-  return [means[Math.floor(0.025 * n)], means[Math.floor(0.975 * n)]];
-}
 
 function table(scenes: string[]) {
   const out: Record<string, Record<string, unknown>> = {};

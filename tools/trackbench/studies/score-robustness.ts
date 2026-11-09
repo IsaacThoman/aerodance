@@ -114,8 +114,11 @@ for (const est of estimators) {
     const live = () => tracked.map(r => ({ t: r.t_ms, received: r.received_ms, poses: r.poses.map(p => ({ playerId: p.playerId, landmarks: p.kp.map(([x, y, z, c]: Joint) => ({ x, y, z, confidence: c })) })) }));
     const gtLive: LiveRecord[] = scene.gt.map(f => ({ captureMs: f.t_ms, receivedMs: f.t_ms, poses: mapping.flatMap((id, playerId) => { const p = f.people.find(q => q.id === id); return p && p.in_frame !== false ? [{ playerId, landmarks: gtLandmarks(p) }] : []; }) }));
     const mean = (rs: { score: number }[]) => rs.reduce((n, r) => n + r.score, 0) / rs.length;
+    const gtRight = scoreRecords(right, mapping.length, gtLive, scene.aspect).results;
+    // Score lost to tracking as metrics.ts has it: the mean over players of each one's share.
+    const lostShare = (rs: { score: number }[]) => rs.reduce((n, r, i) => n + (gtRight[i].score - r.score) / Math.max(1, gtRight[i].score), 0) / rs.length;
     const row: Record<string, unknown> = { estimator: est, scene: sid, category: scene.category, players: mapping.length,
-      gt_right: mean(scoreRecords(right, mapping.length, gtLive, scene.aspect).results), gt_wrong: mean(scoreRecords(wrong, mapping.length, gtLive, scene.aspect).results) };
+      gt_right: mean(gtRight), gt_wrong: mean(scoreRecords(wrong, mapping.length, gtLive, scene.aspect).results) };
     // Idle control: the estimator's own output while the players stood still in setup, looped
     // over the dance (somebody standing there instead of dancing).
     const holdFrames = new Set(scene.gt.filter(f => mapping.every(id => f.people.find(p => p.id === id)?.phase === 'hold')).map(f => f.frame));
@@ -134,7 +137,9 @@ for (const est of estimators) {
       const frames = live();
       treat?.(frames);
       const recs: LiveRecord[] = frames.map(f => ({ captureMs: f.t, receivedMs: f.received, poses: f.poses }));
-      row[`${name}:right`] = mean(scoreRecords(right, mapping.length, recs, scene.aspect).results);
+      const rightResults = scoreRecords(right, mapping.length, recs, scene.aspect).results;
+      row[`${name}:right`] = mean(rightResults);
+      row[`${name}:lost_share`] = lostShare(rightResults);
       row[`${name}:wrong`] = mean(scoreRecords(wrong, mapping.length, recs, scene.aspect).results);
       const still = idle();
       if (still) { treat?.(still); row[`${name}:idle`] = mean(scoreRecords(right, mapping.length, still.map(f => ({ captureMs: f.t, receivedMs: f.received, poses: f.poses })), scene.aspect).results); }

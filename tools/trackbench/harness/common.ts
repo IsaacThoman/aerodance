@@ -65,6 +65,25 @@ export interface Scene {
 export const readJsonl = <T>(file: string): T[] => readFileSync(file, 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l) as T);
 export const writeJsonl = (file: string, rows: readonly unknown[]) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, rows.map(r => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '')); };
 export const readJson = <T = unknown>(file: string): T => JSON.parse(readFileSync(file, 'utf8')) as T;
+
+/**
+ * A paired bootstrap 95% interval for the mean of per-scene differences, reproducible (a seeded
+ * mulberry32, exact in JavaScript's integers).
+ */
+export function bootstrap(diffs: readonly number[], n = 4000, seed = 12345): [number, number] {
+  if (diffs.length < 3) return [NaN, NaN];
+  let state = seed >>> 0;
+  const rand = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const means: number[] = [];
+  for (let b = 0; b < n; b++) { let t = 0; for (let i = 0; i < diffs.length; i++) t += diffs[Math.floor(rand() * diffs.length)]; means.push(t / diffs.length); }
+  means.sort((a, b) => a - b);
+  return [means[Math.floor(0.025 * n)], means[Math.floor(0.975 * n)]];
+}
 export const writeJson = (file: string, data: unknown) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, JSON.stringify(data, null, 2) + '\n'); };
 export const round = (v: number | null | undefined, digits = 4) => v === null || v === undefined || !Number.isFinite(v) ? null : Number(v.toFixed(digits));
 
