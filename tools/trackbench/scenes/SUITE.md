@@ -180,3 +180,52 @@ Lite results: `$TRACKBENCH_DATA/reports/single-lite.md` (`report.ts`, all prefix
 | `sens-rolling-shutter` | sensor | `base-solo` | + rolling shutter 8 px | Shear (GT warped with it). |
 | `sens-vignette` | sensor | `base-solo` | + vignette 0.6 | Dark edges where the player walks in. |
 | `sens-wb-3000` | sensor | `base-solo` | + white_balance 3000 K | An orange cast (daylight balance under warm light): clothes/skin colours shift. |
+
+## Crossings, crowding and off-centre
+
+14 additional scenes at 640×480, 30 fps, 24 s, with `setup` from 0–7 s (2 s walk,
+5 s neutral calibration hold) and `dance` from 7–24 s. Crossings are part of the dance
+phase; players resume dancing at their exchanged spots. Front/back walking lanes and
+staggered dancing depths create image overlap without asking people to walk through each
+other. All people are adults; the contrasting look-alikes measure 1.617 m (slim) and
+1.905 m (broad) in the generated metadata. The two passer scenes explicitly retain `players: 1` / `2`
+and give the extra person `role: "bystander"`; their offscreen entrances/exits are intentional.
+The passer's one-second pause is an occlusion event, not a calibration hold.
+
+Cameras retain the bases' frontal, landscape conventions, 1 m height, bright-even light,
+and furnished living room. Distances are 4.5 m for pairs, 5.8 m for trios and 6.1 m for
+quads unless listed below. The near off-centre pair uses a 75° horizontal field of view
+and a 1.05 m look-at height to fit wide arm motions; all other scenes use 65° and 0.95 m.
+Street jazz, pop, lock, LA hip-hop, house and waack clips supply varied motion.
+`mp2-cross-alike-heights` preserves the existing `mp2-cross-alike` camera, entry, clips and
+crossing timing, changing only height/build. The other scenes use shorter entry walks so
+players stay framed during setup. The near scene’s foreground entry is only 0.25 m:
+a longer approach clipped the shoe soles at the bottom of the frame before the hold.
+
+| Scene id | Category | What varies | Hypothesis |
+|---|---|---|---|
+| `mp3-cross-adjacent` | multiplayer | Left neighbours swap at 12–17 s; lock, third player popping | A swap should preserve both moving identities and the stationary third identity. |
+| `mp3-cross-middle` | multiplayer | Outer pair swap at 12–18 s on opposite sides of the centre player's depth; LA hip-hop/pop | Three simultaneous overlapping projections should not exchange the centre player's identity. |
+| `mp4-cross-adjacent` | multiplayer | Players 2 and 3 swap at 12–17 s; street jazz/pop | Crossing the central strip boundary should preserve all four identities. |
+| `mp4-cross-edge` | multiplayer | Two leftmost players swap at 12–17 s near the left edge; pop/lock | Identity recovery should work away from the picture centre. |
+| `mp4-bunched-edge` | multiplayer | Two players 0.7 m apart laterally near the left edge, 0.75 m apart in depth; two others spread out | A pair occupying roughly one fifth of the width should both be found despite a four-player crop layout. |
+| `mp4-cross-alike` | multiplayer | Same crossing as `mp4-cross-adjacent`, with identical bodies and clothes on the middle pair | Old-position reassignment should be exposed when appearance cannot resolve the crossing. |
+| `mp3-cross-alike-heights` | multiplayer | Same crossing as `mp3-cross-adjacent`, matching outfits on a short slim and tall broad pair | Body geometry should help retain identity when clothing matches. |
+| `mp2-cross-alike-heights` | multiplayer | Existing alike-pair crossing, with clearly different heights/builds | Height/build cues should improve on the identical-body crossing's old-order ambiguity. |
+| `mp2-close-offcentre` | multiplayer | 0.7 m lateral spacing, 0.65 m depth stagger, both in right 40%; pop | Finding close neighbours must not rely on one person standing in each picture half. |
+| `mp2-close-far` | multiplayer | Same close spacing at a 5.5 m camera; pop | Small close silhouettes should remain separate and calibratable. |
+| `mp2-offcentre-near` | multiplayer | Both bodies in left half, 3 m camera, 75° FOV, 1 m depth stagger; waack | Large moving arm extents should not make off-centre player crops lose either person. |
+| `mp2-passerby-front-slow` | bystander | 5 m camera; slow foreground passer at 10–19 s, 1 s pause in front of p1; house/lock | Prolonged occlusion must not let a bystander steal a player number. |
+| `mp1-passerby-front` | bystander | Solo LA hip-hop player; foreground passer at 11–16 s | The sole track should return to the dancer after occlusion rather than follow the passer. |
+| `mp3-arm-overlap` | multiplayer | 0.78 m neighbour lateral spacing; centre dancer 1.6 m behind others; street jazz/waack | Overlapping arm projections should not merge people or attach limbs to neighbours. |
+
+Rendered data and GT-overlay videos live in
+`/Volumes/development/aerodance-trackbench/scenes/<id>/`.
+Contact sheets are `contact-sheet.jpg` in each scene directory and emphasize setup, crossing
+or occlusion, and the post-event dance. No estimator results are included in this batch.
+
+Render validation: all 14 scenes have 720 frames, masks and video frames (10,080 frames
+in total), current resolved specs and `READY` markers. Every contact sheet was visually
+reviewed. Adult mesh heights are 1.617–1.905 m; no player landmark or silhouette touches
+an image boundary in the final renders. Bystanders deliberately enter/leave through the
+side edges. The near-scene entrance was shortened and re-rendered; no scenes were dropped.

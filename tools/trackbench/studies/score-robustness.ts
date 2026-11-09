@@ -38,6 +38,8 @@ const hold = (ms: number, threshold = 0.5): Treat => frames => {
 const gate = (threshold: number): Treat => frames => {
   for (const f of frames) for (const p of f.poses) p.landmarks = p.landmarks.map(l => (l.confidence ?? 0) >= threshold ? { ...l, confidence: Math.max(0.5, l.confidence ?? 0) } : l);
 };
+/** Joints outside the picture don't count (the model guesses them). */
+const inFrame: Treat = frames => { for (const f of frames) for (const p of f.poses) p.landmarks = p.landmarks.map(l => l.x < 0 || l.x > 1 || l.y < 0 || l.y > 1 ? { ...l, confidence: 0 } : l); };
 const trustAll: Treat = frames => { for (const f of frames) for (const p of f.poses) p.landmarks = p.landmarks.map(l => ({ ...l, confidence: 1 })); };
 /** Exponential smoothing of positions per player (time constant ms), confidences as they are. */
 const smooth = (ms: number): Treat => frames => {
@@ -68,6 +70,10 @@ const TREATMENTS: Record<string, Treat | null> = {
   'hold-300+gate-0.3': both(hold(300), gate(0.3)),
   'smooth-50': smooth(50),
   'hold-300+smooth-50': both(hold(300), smooth(50)),
+  'hold-300@0.1': hold(300, 0.1),
+  'hold-150@0.1': hold(150, 0.1),
+  'in-frame': inFrame,
+  'hold-300+in-frame': both(hold(300, 0.1), inFrame),
   'trust-all': trustAll,
 };
 
