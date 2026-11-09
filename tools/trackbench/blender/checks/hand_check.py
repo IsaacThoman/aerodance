@@ -15,7 +15,9 @@ vs free hand) and overall:
     and of the wrist alone in pixels of the full frame;
   - handedness agreement (MediaPipe's label, which on unmirrored pictures names the person's own
     hand; see the game's NAMED);
-  - the same split by the GT's phase (ready, swing, serve).
+  - the same split by the GT's phase (ready, swing, serve);
+  - per hand-21 point: median error and mean signed offset along the hand (wrist to middle
+    knuckle) and across it, in palm lengths (a definition difference shows as a steady offset).
 --scale 0.5 runs on the picture downscaled first (1280x960 -> 640x480, the game's webcam size).
 This is a sanity check of the GT, not a benchmark (the harness does that).
 """
@@ -107,8 +109,14 @@ def main():
                     pts = np.array([[x + q.x * s, y + q.y * s] for q in res.hand_landmarks[best]])
                     err = np.linalg.norm(pts - gtk, axis=1)
                     label = res.handedness[best][0].category_name.lower()
+                    # Signed offsets in palm lengths along the hand's own axes (u: wrist to middle
+                    # knuckle; v: square to it), per point: definition differences show as offsets.
+                    ua = (gtk[9] - gtk[0]) / palm
+                    va = np.array([-ua[1], ua[0]])
+                    dlt = (pts - gtk) / palm
                     row.update(found=True, err_palm=float(np.median(err) / palm), wrist_px=float(err[0]),
-                               named_ok=label == side)
+                               named_ok=label == side, pt_err=(err / palm).tolist(),
+                               pt_u=(dlt @ ua).tolist(), pt_v=(dlt @ va).tolist())
                 rows.append(row)
 
     def summ(sel):
@@ -123,6 +131,12 @@ def main():
     out = {'scene': os.path.basename(a.scene_dir.rstrip('/')), 'scale': a.scale, 'all': summ(rows),
            'by_role': {k: summ([r for r in rows if r['role'] == k]) for k in ('paddle', 'free')},
            'by_phase': {k: summ([r for r in rows if r['phase'] == k]) for k in ('ready', 'swing', 'serve', 'walk')}}
+    found = [r for r in rows if r['found']]
+    if found:
+        E, U, V = (np.array([r[k] for r in found]) for k in ('pt_err', 'pt_u', 'pt_v'))
+        out['per_point_palm'] = {'median_err': np.round(np.median(E, 0), 3).tolist(),
+                                 'mean_offset_along': np.round(np.mean(U, 0), 3).tolist(),
+                                 'mean_offset_across': np.round(np.mean(V, 0), 3).tolist()}
     print(json.dumps(out, indent=1))
     if a.json:
         json.dump({'summary': out, 'rows': rows}, open(a.json, 'w'))

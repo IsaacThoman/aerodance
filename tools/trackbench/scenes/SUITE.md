@@ -1,5 +1,85 @@
 # Trackbench scene suite
 
+## Table tennis (`pp-*`)
+
+34 scenes (33 renders and one post-only sensor variant) of the Table Tennis minigame's activity:
+one or two players facing the webcam, swinging a paddle hand (empty, or holding a paddle prop)
+in a rally of serves and strokes, the free hand raised to serve. They exist to measure **paddle
+hand tracking** (hand-21 and wrist accuracy, hand found rate, side swaps, lag, jitter), which
+the dance scenes don't exercise. Motion is the generator's procedural `pingpong` segment
+(GENERATOR.md, Table tennis); hand-21 and paddle GT are in CONTRACT.md (v1.4).
+
+Common to all: **1280×960** (the harness downscales to 640×480 for the game's current webcam
+size; the originals test whether resolution helps), 30 fps, 20 s (0.3 s offstage, a 1.7 s walk
+in, 18 s of play: `setup` 0-2 s, `play` 2-20 s; per-frame GT phases `walk`, `ready`, `swing`,
+`serve`), webcam-like motion blur (shutter 0.5 of a frame in normal light, 0.9 in dim/TV light:
+fast hands smear), 16 EEVEE samples, JPEG q95. Rallies are seeded `auto` rallies (a serve, 3-7
+strokes at irregular 0.15-1.1 s gaps, a 0.8-2 s pause, a serve again) with peak wrist speeds
+2.5-6 m/s unless listed; `meta.json` lists every stroke (kind, contact time, measured peak speed).
+One-factor variants of `pp1-base` keep its seed, so the woman plays **the same rally** and only
+the listed factor changes (still separate renders: compare in pairs). `pp1-lefty`,
+`-lefty-paddle` share one rally, as do `pp1-sleeves-dark` and `-sleeves-wall`.
+
+In two-player scenes each player has their own rally (they overlap in time at random). Side by
+side, nobody lunges into their neighbour: the left player in the picture skips wide backhands
+(wide forehands for a left-hander) and the right one wide forehands; a full-motion clearance check
+(every frame, wrists and elbows against the neighbour's limb and torso axes) keeps ≥ 12 cm between
+axes. Arms still swing into each other's space and cross in front in `pp2-close`,
+`pp2-crossing` and `pp2-lefty-righty`.
+
+**Held out**: `pp-held-*` vary several things at once. Use them only for final checks of a
+change, never while tuning.
+
+Camera column: lens height / distance to the look-at point / horizontal FOV · lighting · paddle
+hand per player (R/L, +paddle if they hold one). Rooms are the living room (clutter 0.5) unless
+the description says otherwise.
+
+| Scene id | Players | Camera · light · hands | What it's for |
+|---|---|---|---|
+| `pp1-base` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R | Baseline for the table-tennis scenes: one right-handed adult woman, bare forearms, empty-handed, walks in and plays an 18 s rally (serves, drives, pushes, blocks, loops, wide reaches; peak wrist speeds 2.5-6 m/s) facing a webcam on the TV stand, 1.0 m high at 2.4 m, 70 deg, in a bright living room. |
+| `pp1-backlit` | 1 | 1.0 m / 2.4 m / 70° · backlit_window · R | pp1-base in front of a bright window (backlit_window): a near silhouette, hands against the light. |
+| `pp1-bystander` | 1 +1 by | 1.0 m / 2.4 m / 70° · bright_even · R | pp1-base with a man sitting on the sofa behind, fidgeting: a second person in the picture (players stays 1). |
+| `pp1-clutter` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R | pp1-base in the open-plan room with patterned wallpaper and full clutter: busy background behind the hands. |
+| `pp1-dim` | 1 | 1.0 m / 2.4 m / 70° · dim_evening · R | pp1-base in a dim evening room (one warm lamp), a 1/30 s shutter: dark, smeared fast hands. |
+| `pp1-far-tv` | 1 | 1.4 m / 3.0 m / 80° · bright_even · R | Webcam on top of a big TV: 1.4 m high at 3.0 m, 80 deg, tilted down: small hands (a palm ~20 px at 640x480). |
+| `pp1-fast` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R | A hard rally: loops and drives at 5-8 m/s peak wrist speed, short gaps: blur and the tracker's motion gates. |
+| `pp1-gentle` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R | A gentle rally: pushes, blocks and soft drives at 1.5-3 m/s. |
+| `pp1-lefty` | 1 | 1.0 m / 2.4 m / 70° · bright_even · L | A left-handed man (dark skin, white tee recoloured red) in the base framing: the paddle hand is the person's left. |
+| `pp1-lefty-paddle` | 1 | 1.0 m / 2.4 m / 70° · bright_even · L+paddle | pp1-lefty holding a paddle in his left hand. |
+| `pp1-near-laptop` | 1 | 1.0 m / 1.2 m / 70° · bright_even · R | Laptop on a desk: camera 1.0 m high at 1.2 m, 70 deg, tilted up a little and rolled 2 deg; the player is cut at the thighs and the raised hands near the top edge. |
+| `pp1-near-laptop-paddle` | 1 | 1.0 m / 1.2 m / 70° · bright_even · R+paddle | pp1-near-laptop with a paddle in hand: large hands, the blade over the fingers. |
+| `pp1-near-phone` | 1 | 0.7 m / 1.5 m / 68° · bright_even · R | Phone propped low on a chair: camera 0.7 m high at 1.5 m, 68 deg, looking up (roll -3 deg); knees at the bottom edge, foreshortened torso. |
+| `pp1-offcentre` | 1 | 1.0 m / 1.9 m / 75° · bright_even · R | The player stands 0.75 m to the camera's right of a centred camera (1.9 m, 75 deg): forehands swing out towards the picture edge. |
+| `pp1-paddle` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R+paddle | pp1-base holding a real paddle (red/black blade, wooden handle): the blade hides part of the hand and fingers, as when players hold one. |
+| `pp1-sensor-cheap` | sensor | post-only on `pp1-base` | Post-only variant of pp1-base (same pixels): a cheap webcam's noise, chroma subsampling and JPEG 45. |
+| `pp1-skin-dark` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R | pp1-base with dark skin (same stature and clothes): hand detection fairness. |
+| `pp1-sleeves-dark` | 1 | 1.0 m / 2.4 m / 70° · dim_evening · R | A man in a near-black long-sleeved top in the dim evening room: dark sleeves on a dark background, only the hands lit. |
+| `pp1-sleeves-wall` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R | A man in a long-sleeved top the colour of the off-white wall behind him: forearms with little contrast, bare hands. |
+| `pp1-tv-glow` | 1 | 1.0 m / 2.4 m / 70° · tv_glow · R | pp1-base lit only by the TV (tv_glow, blue, very dark), 1/30 s shutter. |
+| `pp1-wide-fov` | 1 | 1.1 m / 1.6 m / 95° · bright_even · R | Ultrawide webcam: 95 deg (barrel distortion, GT through the same lens) at 1.6 m, 1.1 m high; hands swing out towards the curved edges. |
+| `pp1-wide-reach` | 1 | 1.0 m / 2.4 m / 70° · bright_even · R | Mostly wide and low balls: steps out to either side, lunges and low pick-ups (hands far from the body, near the hips and knees). |
+| `pp2-base` | 2 | 1.0 m / 3.0 m / 75° · bright_even · R, R | Two right-handed players side by side 1.2 m apart (woman left, man right in the picture), each in their own rally; TV-stand webcam 1.0 m high at 3.0 m, 75 deg. |
+| `pp2-bystander` | 2 +1 by | 1.0 m / 3.0 m / 75° · bright_even · R, R | Two players 1.2 m apart and a man on the sofa between and behind them: a third person whose hands are in the picture. |
+| `pp2-close` | 2 | 1.0 m / 2.0 m / 85° · bright_even · R, R | Two players 0.8 m apart (the right one 0.35 m further back) at a near camera (2.0 m, 85 deg): strokes swing into the neighbour's space, his forehand backswing passes behind her, and the cuts round their wrists overlap. |
+| `pp2-crossing` | 2 | 1.0 m / 2.3 m / 80° · bright_even · R, R | Two right-handers 0.9 m apart, the left one 0.55 m nearer the camera and forehand-heavy: her follow-throughs sweep across in front of the other player. |
+| `pp2-depths` | 2 | 1.0 m / 3.0 m / 75° · bright_even · R, R | Two players 1.4 m apart at different depths (0.7 m): the far one is smaller, the near one's arm passes in front at times. |
+| `pp2-dim` | 2 | 1.0 m / 3.0 m / 75° · dim_evening · R, R | pp2-base's pair in the dim evening room, 1/30 s shutter. |
+| `pp2-lefty-righty` | 2 | 1.0 m / 2.4 m / 80° · bright_even · L, R | A left-hander on the picture's left and a right-hander on its right, 1.0 m apart: both forehand sides are in the middle, where their swings meet. |
+| `pp2-paddles` | 2 | 1.05 m / 1.8 m / 80° · bright_even · R+paddle, R+paddle | Two players with paddles, 1.0 m apart, at a laptop-like near camera (1.8 m, 80 deg, cut at the thighs). |
+| `pp-held-1` | 1 | 0.95 m / 1.3 m / 72° · dim_evening · L+paddle | HELD OUT. A left-handed woman in dark long sleeves with a paddle, dim room, laptop camera (1.3 m, 72 deg, roll 3 deg), a fast rally. |
+| `pp-held-2` | 2 | 1.1 m / 1.7 m / 92° · backlit_window · R, R+paddle | HELD OUT. Two players 0.9 m apart standing off to the left of a 92 deg webcam at 1.7 m, backlit window behind, the right one with a paddle. |
+| `pp-held-3` | 1 | 1.35 m / 2.8 m / 78° · bright_even · R | HELD OUT. Webcam on a TV 1.35 m high at 2.8 m, 78 deg, tilted down, open-plan cluttered room, a dark-skinned man in a wall-coloured long-sleeved top, wide and hard strokes. |
+| `pp-held-4` | 2 +1 by | 0.75 m / 1.9 m / 80° · tv_glow · R, L+paddle | HELD OUT. Two players 1.0 m apart (a right-hander and a left-handed man with a paddle), phone propped low (0.75 m, 1.9 m, 80 deg), TV glow only, someone on the sofa. |
+
+Render checks (`$TRACKBENCH_DATA/scenes/<id>/`): `contact-sheet.jpg` (GT overlay every 40
+frames), `hands-sheet.jpg` (every hand every 60 frames, cut like the game cuts it, GT drawn),
+`preview.mp4`. Low-resolution previews of every scene were looked at before the suite render.
+GT sanity on `pp1-base`: MediaPipe's Hand Landmarker on game-style cuts round the GT wrists finds
+93 % of hands (ready 98 %, swing 81 %) with a median wrist error of 5 px and 0.15 palm lengths
+over the 21 points; Pose Lite finds the player in every frame; hand `kp3d` re-projects to
+0.04 px (`checks/hand_check.py`, `checks/mp_check.py`, `audit/check_gt.py pp1-base`).
+Render log: `$TRACKBENCH_DATA/logs/pingpong/suite.log` (per scene logs beside it).
+
 ## Multiplayer, bystanders and setup
 
 36 variants at 640×480, 30 fps, 23–24 seconds, using the default 24 EEVEE samples (generator 1.2). Bases `base-duo`, `base-trio`, and `base-quad` use distinct adults, living-room furniture, bright-even light, a frontal 1 m camera, 2 s entry, 5 s neutral hold, and 16 s AIST++ dance. Entries approach in separate lanes from the foreground; delayed entrants start beyond the image edge. The dance phase includes any deliberate interruption/crossing. Camera distances are 4.5 m (duo), 5.8 m (trio), and 6.1 m (quad). Duo and trio lanes are 2 m apart; quad lanes are 1.42 m apart with a 0.45 m alternating depth stagger so wide arm motions clear neighbours.
