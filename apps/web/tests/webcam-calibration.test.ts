@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WebcamCalibration, WEBCAM_MISS_MS, WEBCAM_SETTLE_MS, WEBCAM_STILL_MS, WEBCAM_FRAME_GAP_MS } from '../src/game/webcamCalibration.ts';
+import { WebcamCalibration, WEBCAM_MISS_MS, WEBCAM_STILL_MS, WEBCAM_FRAME_GAP_MS } from '../src/game/webcamCalibration.ts';
 import type { CalibrationRecord } from '../src/game/webcamCalibration.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
 import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
@@ -241,20 +241,24 @@ test('without feet, the shoulders and hips are enough to calibrate (the minigame
   }
 });
 
-test('a hold is measured from where a player settles over its first half second, not where they were still slowing', () => {
-  // Arriving at their spot, a player slows over a few results and stops, then sways a little while
-  // they hold. (Shifts are in movement tolerances.)
-  const { calibration, send } = camera(1);
+test('a hold starts when a player stops, and is measured from where they settle, not where they were still slowing', () => {
+  // Arriving at their spot, a player slows to a stop over a few results (the steps are in
+  // movement tolerances), then sways a little while they hold: at 30 results a second, and at 10.
   const [ls, rs, lh, rh] = [11, 12, 23, 24].map(i => standingPose(0.5)[i]);
   const aspect = 1280 / 720, torso = Math.hypot(((ls.x + rs.x - lh.x - rh.x) / 2) * aspect, (ls.y + rs.y - lh.y - rh.y) / 2);
   const tolerance = 0.15 * torso / aspect;
-  const settling = [0, 0.5, 1, 1.3, 1.45];
-  const shift = (time: number) => (time < WEBCAM_SETTLE_MS ? settling[time / 100] : 1.5 + 0.2 * Math.min(1, (time - WEBCAM_SETTLE_MS) / 1500)) * tolerance;
-  for (let time = 0; time < WEBCAM_STILL_MS; time += 100) {
-    send(time, [{ playerId: 0, landmarks: standingPose(0.5 + shift(time)) }]);
-    assert.deepEqual(calibration.status(time).players, ['holding'], `at ${time} ms`);
+  for (const { every, steps } of [{ every: 33, steps: [0, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05] }, { every: 100, steps: [0, 0.5, 0.5, 0.3, 0.15] }]) {
+    const { calibration, send } = camera(1);
+    const stopped = (steps.length - 1) * every, total = steps.reduce((a, b) => a + b, 0);
+    const shift = (n: number) => (n < steps.length ? steps.slice(0, n + 1).reduce((a, b) => a + b, 0) : total + 0.2 * Math.min(1, (n * every - stopped) / 1500)) * tolerance;
+    let done = -1;
+    for (let n = 0; done < 0 && n * every < stopped + WEBCAM_STILL_MS + 500; n++) {
+      if (send(n * every, [{ playerId: 0, landmarks: standingPose(0.5 + shift(n)) }])) done = n * every;
+      else if (n * every > stopped) assert.deepEqual(calibration.status(n * every).players, ['holding'], `${every} ms results: at ${n * every} ms`);
+    }
+    // Not while their walk still counted towards the hold, but soon after they slowed to a stop.
+    assert.ok(done >= WEBCAM_STILL_MS + every && done <= stopped + WEBCAM_STILL_MS, `${every} ms results: completed at ${done} ms`);
   }
-  assert.equal(send(WEBCAM_STILL_MS, [{ playerId: 0, landmarks: standingPose(0.5 + shift(WEBCAM_STILL_MS)) }]), true);
 });
 
 test('a number passing to somebody else in the last result before completion doesn\'t complete with their stance', () => {
@@ -276,4 +280,16 @@ test('one jittery result at the moment of completion only delays it by a result'
   const jitter = poses(1); jitter[0].landmarks[23].x += 0.08; jitter[0].landmarks[24].x += 0.08;
   assert.equal(send(2500, jitter), false);
   assert.equal(send(2600), true);
+});
+
+test('jitter in a still player\'s results delays their hold by half a second at most', () => {
+  // The model's jitter moving the median by most of a tolerance from result to result.
+  const { calibration, send } = camera(1);
+  const [ls, rs, lh, rh] = [11, 12, 23, 24].map(i => standingPose(0.5)[i]);
+  const aspect = 1280 / 720, torso = Math.hypot(((ls.x + rs.x - lh.x - rh.x) / 2) * aspect, (ls.y + rs.y - lh.y - rh.y) / 2);
+  const tolerance = 0.15 * torso / aspect;
+  let done = -1;
+  for (let n = 0; done < 0 && n < 120; n++) if (send(n * 33, [{ playerId: 0, landmarks: standingPose(0.5 + (n % 2 ? 0.45 : -0.45) * tolerance) }])) done = n * 33;
+  assert.ok(done > 0 && done <= 500 + WEBCAM_STILL_MS + 33, `completed at ${done} ms`);
+  assert.equal(calibration.status(done).complete, true);
 });

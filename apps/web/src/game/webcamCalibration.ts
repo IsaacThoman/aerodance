@@ -22,9 +22,12 @@ export const WEBCAM_STILL_FILTER = 5;
 /**
  * The stance a hold is measured from follows the player over its first half second: at the end of
  * a walk to their spot, a player slows over a few results, and a stance taken then sits most of the
- * way to the tolerance from where they stand, so a little sway later restarts the hold.
+ * way to the tolerance from where they stand, so a little sway later restarts the hold. Meanwhile
+ * the hold counts from the last result in which they still moved more than WEBCAM_SETTLE_STEP
+ * tolerances (still walking), so the end of a walk doesn't count as holding still; the half second
+ * itself doesn't start again, so the model's jitter delays a hold by half a second at most.
  */
-export const WEBCAM_SETTLE_MS = 500;
+export const WEBCAM_SETTLE_MS = 500, WEBCAM_SETTLE_STEP = 0.3;
 const MIN_SAMPLES = 6;
 const MOVEMENT_TOLERANCE = 0.15; // Fraction of the initial torso length, independent of camera distance.
 // The joints calibration measures (calibratePoses): shoulders, hips and ankles. Hands don't
@@ -48,11 +51,12 @@ export interface WebcamCalibrationOptions {
 }
 
 /**
- * One player's hold: since when, the stance it started from, its samples, their latest poses, and
- * whether the latest pose itself (not only the median) is near the stance.
+ * One player's hold: its first result and since when it counts (see WEBCAM_SETTLE_MS), the stance
+ * it's measured from, its samples, their latest poses, and whether the latest pose itself (not
+ * only the median) is near the stance.
  */
-interface Hold { startedAt: number | null; anchor: Pose | null; frames: Pose[]; recent: { at: number; pose: Pose }[]; seen: number; near: boolean; }
-const freshHold = (): Hold => ({ startedAt: null, anchor: null, frames: [], recent: [], seen: -Infinity, near: true });
+interface Hold { began: number | null; startedAt: number | null; anchor: Pose | null; frames: Pose[]; recent: { at: number; pose: Pose }[]; seen: number; near: boolean; }
+const freshHold = (): Hold => ({ began: null, startedAt: null, anchor: null, frames: [], recent: [], seen: -Infinity, near: true });
 /**
  * Calibration completes only while each player's latest pose is within this many tolerances of
  * their stance: the median outvotes a number that passed to somebody else for a result or two,
@@ -154,9 +158,17 @@ export class WebcamCalibration {
           this.holds[id] = { ...freshHold(), recent: [{ at: captureTime, pose }] };
           return 'moving';
         }
-      } else hold.startedAt = captureTime;
-      // The stance a hold is measured from settles over its first WEBCAM_SETTLE_MS.
-      if (captureTime - hold.startedAt! < WEBCAM_SETTLE_MS) hold.anchor = { playerId: id, landmarks: stance };
+      } else hold.began = hold.startedAt = captureTime;
+      // The stance a hold is measured from settles over its first WEBCAM_SETTLE_MS, the hold starting
+      // again while the player is still moving.
+      if (captureTime - hold.began! < WEBCAM_SETTLE_MS) {
+        const settling = hold.anchor?.landmarks;
+        if (settling && joints.some(i => distance(stance[i], settling[i], aspect) > WEBCAM_SETTLE_STEP * toleranceOf(settling))) {
+          hold.startedAt = captureTime;
+          hold.frames = [];
+        }
+        hold.anchor = { playerId: id, landmarks: stance };
+      }
       const anchor = hold.anchor!.landmarks;
       hold.near = joints.every(i => distance(pose.landmarks[i], anchor[i], aspect) <= NEAR * toleranceOf(anchor));
       hold.frames.push(pose);
