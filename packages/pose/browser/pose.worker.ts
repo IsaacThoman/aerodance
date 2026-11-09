@@ -199,7 +199,6 @@ async function zoomed(z: NonNullable<typeof zoom>, bitmap: ImageBitmap, timestam
       if (landmarks.some(big)) z.afresh = true;
       else z.crossed = { ...centre(landmarks[0]), until: timestampMs + ZOOM_CROSS_MS };
     }
-    z.seen = landmarks.some(big) ? null : { ...centre(landmarks[0]), at: timestampMs, down: !upright(landmarks[0], width / height, ZOOM_DOWN_DEG) };
     // The glances' landmarker is made the first time the middle is kept.
     if (view === 'middle' && !z.at) {
       z.glanced = timestampMs;
@@ -221,6 +220,8 @@ async function zoomed(z: NonNullable<typeof zoom>, bitmap: ImageBitmap, timestam
       landmarks = landmarks.filter(near);
     }
   }
+  // Where somebody reported was, for finding them again (see ZOOM_DOWN_DEG).
+  if (landmarks.length) z.seen = landmarks.some(big) ? null : { ...centre(landmarks[0]), at: timestampMs, down: !upright(landmarks[0], width / height, ZOOM_DOWN_DEG) };
   return { landmarks, worlds };
 }
 
