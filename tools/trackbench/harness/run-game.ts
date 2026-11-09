@@ -80,10 +80,10 @@ export function nextFrame(frames: readonly { t: number }[], next: number, freeAt
 
 /** Worker timestamps are the frame's t_ms plus this, after the warm-up's (0-400 ms). */
 const TIMESTAMP_OFFSET_MS = 1000;
-interface WorkerResult { landmarks: NormalizedLandmark[][]; inferenceMs: number; looks?: (number[] | null)[]; roundtripMs: number; width: number; height: number; }
+interface WorkerResult { landmarks: NormalizedLandmark[][]; inferenceMs: number; looks?: (number[] | null)[]; searched?: boolean; roundtripMs: number; width: number; height: number; }
 
 async function main() {
-  const { positional: [sceneId], opts } = parseArgs(process.argv.slice(2), { model: 'string', realtime: 'bool', id: 'string', 'busy-scale': 'string', 'no-session': 'bool', 'allow-cpu': 'bool', 'running-mode': 'string', 'strip-width': 'string', 'no-strips': 'bool', 'busy-ms': 'string' });
+  const { positional: [sceneId], opts } = parseArgs(process.argv.slice(2), { model: 'string', realtime: 'bool', id: 'string', 'busy-scale': 'string', 'no-session': 'bool', 'allow-cpu': 'bool', 'running-mode': 'string', 'strip-width': 'string', 'no-strips': 'bool', 'busy-ms': 'string', 'no-search': 'bool', 'no-zoom': 'bool' });
   if (!sceneId) { console.error('usage: node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime] [--id <estimator-id>] [--busy-scale k] [--no-session]'); process.exit(2); }
   const modelId = String(opts.model ?? 'lite'), realtime = !!opts.realtime, busyScale = Number(opts['busy-scale'] ?? 1);
   // IMAGE (a diagnostic, not what the game does): a fresh detection every frame, no strips.
@@ -108,7 +108,7 @@ async function main() {
   const tiles = opts['no-strips'] ? null : stripWidth ? Array.from({ length: players }, (_, i) => ({ x: Math.min(1 - stripWidth, Math.max(0, (i + 0.5) / players - stripWidth / 2)), width: stripWidth })) : evenTiles(players);
   const init = {
     type: 'initialize', sessionId: 'trackbench', playerCount: players <= 2 ? players : players + 1, looks: players > 1,
-    ...(tiles ? { tiles } : {}), modelHash: POSE_MODELS[modelId].sha256, ...(runningMode === 'IMAGE' ? { runningMode } : {}),
+    ...(tiles ? { tiles } : {}), ...(players === 2 && !tiles && !opts['no-strips'] && !opts['no-search'] ? { search: true } : {}), ...(players === 1 && !opts['no-strips'] && !opts['no-zoom'] ? { zoom: true } : {}), modelHash: POSE_MODELS[modelId].sha256, ...(runningMode === 'IMAGE' ? { runningMode } : {}),
   };
   const server = await serve({ '/app': snapshot.dir, '/frames': path.join(scene.dir, 'frames'), '/models': path.dirname(modelFile) });
   const browser = await launchGpu();
@@ -154,7 +154,7 @@ async function main() {
           const start = performance.now();
           const result = await send(bitmap, seq, timestampMs, players);
           if (result.error) throw Error(String(result.error));
-          return { landmarks: result.landmarks, inferenceMs: result.inferenceMs, looks: result.looks, roundtripMs: performance.now() - start, width, height };
+          return { landmarks: result.landmarks, inferenceMs: result.inferenceMs, looks: result.looks, searched: result.searched, roundtripMs: performance.now() - start, width, height };
         },
       };
       return new Promise((resolve, reject) => { onReady = resolve; onError = reject; w.postMessage({ ...init, modelUrl, wasmUrl }); });
@@ -189,7 +189,7 @@ async function main() {
       freeAt = received;
       const record = loop.result(f.n, r.landmarks, r.looks, f.t, received);
       detections.push({
-        frame: f.n, t_ms: f.t, inference_ms: Number(r.inferenceMs.toFixed(3)), roundtrip_ms: Number(r.roundtripMs.toFixed(3)),
+        frame: f.n, t_ms: f.t, inference_ms: Number(r.inferenceMs.toFixed(3)), roundtrip_ms: Number(r.roundtripMs.toFixed(3)), ...(r.searched ? { searched: true } : {}),
         ...(realtime ? { sent_ms: sentAt, received_ms: received, ...(record.dropped ? { dropped: true } : {}) } : {}),
         people: r.landmarks.map(points => ({ kp: points.map(p => [p.x, p.y, p.z, detectedConfidence(p) ?? 0] as [number, number, number, number]), score: null })),
         ...(r.looks ? { looks: r.looks } : {}),

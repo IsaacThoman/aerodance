@@ -20,6 +20,15 @@ How the webcam (or a paired phone's camera) turns people into players.
      found the second player in 85-87% of frames instead of none
      ([trackbench report](../tools/trackbench/REPORT.md)). Like the strips, it needs the GPU and
      an extra landmarker, so the iPhone/iPad app goes without.
+     One player gets a **zoom**: MediaPipe's person detector misses somebody small in the picture
+     (a 120° webcam, or far away) and finds them in its middle, enlarged. So while nobody has
+     been found for a second, every other frame shows the landmarker the middle three quarters
+     instead; whichever view finds somebody is kept, the middle only while their torso is well
+     inside it. Every two seconds on the middle, another landmarker glances at the whole picture
+     afresh, and somebody it finds elsewhere (a player walking in, while the enlarged middle took
+     a mannequin for somebody) brings the whole picture back. On a 120° webcam the player was
+     found in 96% of frames instead of none. The glances cost a landmarker, so the iPhone/iPad
+     app goes without this too.
    - **Three or four players:** on a full-height strip of the picture per player, asking each
      for one person (`tiles.ts`). On the whole picture, MediaPipe found about two people per
      frame with three or four in view: its person detector sees the picture shrunk to a small

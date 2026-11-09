@@ -69,6 +69,18 @@ export function fromTile<P extends Point>(points: readonly P[], tile: Tile): P[]
   });
 }
 
+/** A rectangle of the picture, as fractions of its width and height. */
+export interface Crop { x: number; y: number; width: number; height: number; }
+/** A crop's result in the whole picture's coordinates, with joints beyond its edges (inside the picture) unsure. */
+export function fromCrop<P extends Point>(points: readonly P[], crop: Crop): P[] {
+  return points.map(p => {
+    const x = crop.x + p.x * crop.width, y = crop.y + p.y * crop.height;
+    const cut = p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1;
+    return { ...p, x, y, z: p.z * crop.width,
+      ...(cut ? { visibility: Math.min(p.visibility ?? 0, CUT), ...(p.presence === undefined ? {} : { presence: Math.min(p.presence, CUT) }) } : {}) };
+  });
+}
+
 /** The strips' results as one list, each person once (the copy farthest inside its strip). */
 export function mergeTiles<P extends Point>(found: readonly { points: P[]; tile: Tile }[], aspect: number): P[][] {
   const bodies = found.map(({ points, tile }) => {
