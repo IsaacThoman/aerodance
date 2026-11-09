@@ -71,7 +71,9 @@ rebuild and commit, or delete the snapshot, after changing the worker.)
 ### Studies
 
 - `studies/paired.ts`: every estimator on the same scenes, failures counted, and differences from
-  a baseline with paired bootstrap 95% intervals, overall and per category.
+  a baseline with paired bootstrap 95% intervals (resampling scenes that share a render
+  together), for the tuning and held-out splits separately (`harness/split.ts`), overall, per
+  player count and per category.
 - `studies/calibration.ts`: replays detections through the game's loop with calibration rules
   swapped in. It measures time to calibrate after players start holding still, completions that
   never come, and completions that shouldn't happen.

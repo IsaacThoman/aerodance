@@ -277,6 +277,13 @@ each scene's render (where its `render/` resolves), and `studies/paired.ts` and
 `studies/scorer-share.ts` resample whole clusters in their bootstrap (`clusterBootstrap` in
 `common.ts`).
 
+**The held-out split.** `split.ts`'s `HELD_OUT` is a fixed set of 28 scenes, about a fifth,
+across every category and player count, each with its whole render cluster (so no held-out
+scene shares pixels with a tuning one; `paired.ts` warns if a cluster straddles the split).
+`paired.ts` prints tuning and held-out separately, then all scenes, by player count and by
+category, and a per-scene table of score-lost changes. Tune a change looking at the tuning set
+only; it counts only if the held-out set agrees.
+
 ## Files
 
 | File | |
@@ -289,5 +296,5 @@ each scene's render (where its `render/` resolves), and `studies/paired.ts` and
 | `score.ts` | reference SongBundle from GT; GameSession-style scoring |
 | `metrics.ts` | every metric above |
 | `report.ts` | aggregation |
-| `split.ts` | render clusters |
+| `split.ts` | render clusters, and the held-out split |
 | `fixtures.ts`, `harness.test.ts` | synthetic scenes (pinhole-projected stick dancers) and the tests |
