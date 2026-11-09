@@ -225,58 +225,184 @@ numbers); and the realtime timings, which are provisional.
 6. **Ball compensation**: add the measured filter lag to `lagOf`, and re-take the realtime cost
    table on a quiet machine (`--jobs 1`), with the game's rendering load (`--busy-scale`).
 
-## Results: tracking changes (2026-11-09, branch feat-pingpong-tracking)
+## Results: tracking changes (2026-11-09, branch feat-pingpong-tracking; full-set remeasurement)
 
-The new ping-pong scenes (`pp-*`, 1280x960, 21-point hand GT; SUITE.md on
-feat-trackbench-pingpong-scenes) are the benchmark: 10 one-player tuning scenes had rendered
-(pp1-backlit, -base, -bystander, -clutter, -dim, -far-tv, -fast, -gentle, -lefty, -lefty-paddle;
-**several share one rally's motion**, so they're less independent than the cluster bootstrap
-assumes) and the 4 held-out ones (`pp-held-1..4`, two of them two-player), run once at the end.
-Recordings: `ppt-tt` (the game's 640x480) and `ppt-tt-native`; each game-code variant is
-`pingpong.ts <id> --from <recording>` (the worker never changed: every recording comes from the
-baseline worker, pose.worker-yE2vCQ3b). All comparisons are paired, cluster bootstrap 95%.
+All 34 ping-pong scenes are now measured: **22 one-player tuning** (`pp1-*`), **8 two-player
+tuning** (`pp2-*`), and **4 held-out** (`pp-held-*`, two one-player and two two-player).
+All are 600 frames at 1280x960 with 21-point hand and paddle GT. SUITE.md on
+feat-trackbench-pingpong-scenes describes the factors and shared rallies. The held-out set
+stays separate; nothing was tuned in this pass.
+
+Recordings: `ppt-tt` (640x480) and `ppt-tt-native` (1280x960). Sixteen scenes were already
+complete in each; the missing 18 in each ran offline with `run-suite.ts --jobs 8`,
+`--detail minigame:table-tennis`, and `--input-size 640x480` only for `ppt-tt`.
+All 68 recordings have a completed, error-free run.json, detections and tracking for all
+600 GT frames, and the same GPU worker (`pose.worker-yE2vCQ3b.js`, verified by SHA-256).
+The new dist snapshot is 5732133e; the earlier recordings' snapshots are unchanged.
+
+The original code (`ppt-F0` in the earlier tables) is remeasured as `ppt-remeasure-F0-pp`
+and `ppt-remeasure-F0-ppn`; this branch at 5732133e (`ppt-F4`) as `ppt-remeasure-F4-pp`
+and `ppt-remeasure-F4-ppn`. All use `pingpong.ts <id> --from ppt-tt` (or `ppt-tt-native`)
+over exactly the same recordings. Original arms.ts and rig.ts are loaded from 05e23491
+(the parent of 5a579474), without editing game files. The loader only supplies the old
+hard direction rule to the new metric export and adapts the newer harness's extra swing-age
+argument to the original API. Original and intermediate summaries reproduce every saved
+summary on their overlapping scenes. This branch also includes the merge's later swing
+corroboration rule; that changes a few swing/serve counts from the saved F4 results.
+Loader, recording audit and measurement logs are under `$TRACKBENCH_DATA/reports/ppt-remeasure/`.
+Earlier run outputs are preserved. A concurrent GT-only refresh completed before the final
+metrics pass; GT, meta and spec checksums stayed fixed throughout it (`input-checksums.json`).
+It did not change the report summaries.
+
+**Intervals below are the report's paired 95% cluster bootstrap, not rally-independent
+intervals.** `pp-report.ts` uses only meta.json's `render_key`: 22/8/4 scenes become 21/8/4
+render clusters. It joins `pp1-base` with its post-only `pp1-sensor-cheap`, but does **not**
+join separately rendered scenes sharing a rally: the one-factor pp1-base variants,
+pp1-lefty/-lefty-paddle, or pp1-sleeves-dark/-sleeves-wall. The requested
+report was run without changing its clustering; its intervals can overstate independence.
+The held-out splits have only two scenes each, so the report returns no interval for them.
+
+Reports: `$TRACKBENCH_DATA/reports/ppt-remeasure-{pp,ppn}-{1p,2p,held,held1p,held2p}.md`
+and `.json`; native-minus-640 reports are `ppt-remeasure-resolution-{1p,2p,held,held1p,held2p}`.
+For example:
+
+```sh
+node tools/trackbench/harness/pp-report.ts ppt-remeasure-F0-pp --compare ppt-remeasure-F4-pp --scenes pp2- --name ppt-remeasure-pp-2p
+node tools/trackbench/harness/pp-report.ts ppt-remeasure-F4-pp --compare ppt-remeasure-F4-ppn --scenes pp2- --name ppt-remeasure-resolution-2p
+node tools/trackbench/harness/pp-noise.ts ppt-remeasure-F4-pp --scenes pp1-
+```
 
 ### The ping-pong scenes against the dance-scene baseline
 
-At the original code (`ppt-F0`), the tuning scenes read wrist 13.5 cm (dance 21.0), depth bias
-−15 cm, forward-stance wrist 9.4 cm, blade (filtered) 15.4 cm (dance 30.7), hand found 0.85
-(dance 0.53), wrong side 2.4% (8%), and `across` from the hand **12° median** against the
-21-point GT. The dance scenes' 55-66° `across` was mostly their GT: from the body's index and
-pinky points, which the hand's own axes are 78° from; the real problem is the pose-sourced
-`across` (70°). The pp scenes' errors are depth, almost all of it from serves and backswings
-(the elbow behind the shoulder), where the paddle read 25-40 cm nearer the camera.
+At the original code, means over tuning scenes at 640x480:
+
+| | scenes | wrist cm | depth bias cm | forward-stance wrist cm | blade median, filtered cm | hand found | wrong side |
+|---|---|---|---|---|---|---|---|
+| one player | 22 | 13.02 | −12.94 | 9.03 | 15.30 | 0.863 | 2.11% |
+| two players | 8 | 10.14 | −10.73 | 7.04 | 15.50 | 0.665 | 0.67% |
+
+The dance baseline was wrist 21.0 cm, blade 30.7 cm, hand found 0.53 and wrong side 8%.
+The pp scenes' depth errors are largest in serves and backswings, with the elbow behind the
+shoulder. The earlier 10-scene tuning wrist result was 13.5 → 7.3 cm; the full one-player
+set is 13.02 → 7.13. The dance scenes' 55-66° `across` was mostly their GT: the body's index
+and pinky points do not give the hand's own axis; pp's 21-point hand GT measures it directly.
 
 ### Kept
 
-| change | commit | tuning (10 scenes, 640x480) | held-out (4) | worse |
+The stages are remeasured over the full 640x480 set, one change at a time (`ppt-remeasure-F0`
+through F3, then F4-premerge, then this branch). Each cell gives the change and its paired
+interval. cm unless stated; the clustering limitation above applies throughout.
+
+| change | commit | one-player tuning (22) | two-player tuning (8) | held-out (4) |
 |---|---|---|---|---|
-| leave out a found hand nearer the other wrist or > 1.5 of its lengths from its own | 5a579474 | wrist −0.24 cm [−0.4, −0.1], blade p90 −0.7, swings −0.5 cm; dance: x sd 11.4 → 7.6, rest jitter 1.19 → 0.50 cm, false swings 5.1 → 2.8/min, false raises 1.55 → 0.63/min | wrist −0.19 [−0.4, −0.0], false swings at rest −3.5/min [−5.4, −2.0], rest jitter −0.23 (n.s.) | swing speed ratio 0.97 → 0.93 (dance), drawn lag +1.6 ms |
-| keep the hand's `across` 0.5 s when it's lost | 17b06951 | filtered `across` p90 89 → 72° (2 scenes at the time), median −0.6° | no measurable change | dance `across` worse against its (unusable) GT |
-| filter by capture time, not arrival | e7de0f2e | offline: none (they're equal); realtime (pp-rt-tt, 3 dance scenes): blade −0.13 cm [−0.22, −0.06], jitter −0.03 | – | simulation: 1 hit in 56 balls for two idle players under rough tracking (0 before) |
-| lean the upper arm as far as the model does: −tanh(dz ÷ 0.16) | 152ae9de | wrist 13.2 → 7.3 cm [−7.3, −4.1], forward stance 9.3 → 6.0 [−4.5, −1.8], blade 15.3 → 9.3 [−7.5, −4.1], p90 36 → 21, swings 17.9 → 14.5, false swings −1.2/min [−2.1, −0.2], false serves −1.1/min; GT-backward bones read forward 100% → 78% | blade 15.9 → 11.1 [−9.7, −2.2], p90 −8.2, swings −2.9; wrist −2.8 [−9.0, +0.8] | drawn lag +2.3 ms (held-out +5.0), swing misses 5 → 6-7%; dance forward-reach 11.6 → 14.4 cm, dance rest jitter +0.1 cm; real clip jitter 0.31 → 0.35 cm; held-1 (left-handed, laptop) forward-stance wrist 4.6 → 6.7 cm, held-4 (two players, low phone, TV glow) wrist 12.1 → 13.1 |
+| leave out a found hand nearer the other wrist or > 1.5 of its lengths from its own | 5a579474 | wrist −0.17 [−0.27, −0.08]; blade p90 −0.64 [−0.96, −0.34] | wrist −0.16 [−0.44, 0.00]; blade p90 −0.08 [−0.32, 0.08] | wrist −0.19 [−0.36, −0.03]; blade p90 −1.07 [−2.11, −0.03] |
+| keep the hand's `across` 0.5 s when it's lost | 17b06951 | filtered across p90 ° −6.81 [−12.35, −0.78] | filtered across p90 ° −12.11 [−19.52, −5.15] | filtered across p90 ° +3.50 [−3.40, 14.75] |
+| filter by capture time, not arrival | e7de0f2e | no offline change (capture = arrival) | no offline change (capture = arrival) | no offline change (capture = arrival) |
+| lean the upper arm as far as the model does: −tanh(dz ÷ 0.16) | 152ae9de | wrist −5.72 [−6.74, −4.50]; forward wrist −3.06 [−3.85, −2.14]; blade −5.92 [−6.99, −4.62]; false swings /min −1.18 [−2.13, −0.21] | wrist −2.52 [−4.59, −0.57]; forward wrist +0.32 [−1.38, 2.03]; blade −4.25 [−5.54, −2.82]; false swings /min +0.19 [−0.95, 1.52] | wrist −2.84 [−8.97, 0.83]; forward wrist −0.87 [−5.31, 2.00]; blade −4.80 [−9.68, −2.17]; false swings /min −0.77 [−1.53, 0.00] |
+| later swing corroboration rule included by the merge | 8ec129bc | false swings /min +0.07 [0.00, 0.22] | false swings /min −0.76 [−2.27, 0.00] | false swings /min 0.00 [0.00, 0.00] |
 
-**All together** (`ppt-F0` → `ppt-F4`, the original game code against this branch's):
+The hand gate's one-player wrist improvement remains, but the earlier partial-set false-swing
+reduction from the combined changes (−1.2/min [−2.1, −0.2]) is now −1.10/min [−2.16, +0.01]:
+it no longer excludes zero. The upper-arm change alone reduces one-player false swings,
+but its two-player change is +0.19/min [−0.96, +1.52], rather than a reduction. Across-holding's
+held-out p90 changes by +3.50° [−3.40, +14.75], also inconclusive.
 
-| | tuning 640x480 | tuning native | held-out 640x480 | held-out native |
-|---|---|---|---|---|
-| wrist cm | 13.5 → 7.3 [−7.5, −4.4] | 13.3 → 7.3 | 11.7 → 8.6 [−9.3, +0.6] | 11.8 → 8.6 |
-| forward-stance wrist | 9.4 → 6.0 [−4.7, −1.9] | 9.2 → 5.9 | 8.5 → 7.5 (n.s.) | 8.6 → 7.5 |
-| blade (filtered) | 15.4 → 9.3 [−7.4, −4.4] | 15.5 → 9.2 | 16.3 → 11.1 [−9.8, −2.6] | 16.4 → 11.1 |
-| blade p90 | 37.0 → 21.4 | 36.8 → 21.8 | 41.5 → 32.3 | 41.6 → 31.7 |
-| blade in swings | 18.4 → 14.5 | 18.5 → 14.4 | 25.8 → 22.9 | 25.7 → 22.7 |
-| false swings /min | 3.5 → 2.3 [−2.1, −0.2] | 3.5 → 2.0 | 5.7 → 3.4 [−5.0, −0.4] | 4.1 → 3.7 |
-| false swings at rest /min | 6.0 → 4.0 (n.s.) | 5.2 → 4.6 | 4.7 → 1.2 [−4.8, −2.3] | 2.7 → 1.2 |
-| rest jitter (filtered) | 0.66 → 0.57 (n.s.) | 0.60 → 0.55 | 0.85 → 0.56 (n.s.) | 1.07 → 0.66 |
-| drawn lag at swing speed | 79 → 83 ms [+2, +6] | 81 → 84 | 88 → 94 [+3, +10] | 85 → 92 |
-| swing misses | 4 → 6% | 6 → 6% | 3 → 1% | 10 → 8% |
+**All together**, original → this branch. Parentheses contain Δ and its paired interval.
+Blade median is filtered; blade p90 is raw, as `pingpong.json.summary.blade_p90_cm` reports it.
+Lag is the drawn blade at swing speed, offline (latency zero).
 
-On the dance scenes: wrist 21.0 → 11.4 cm, blade 30.7 → 18.2, with the forward-reach frames
-worse (11.6 → 14.4). Play simulation (agency.ts --rounds 24): unchanged by the hand, `across`
-and lean changes (it feeds rig.ts takeHand directly); the capture-time change moved hit rates
-within ±1-3 points (one player good 96 → 97%, two players good 96 → 97%, rough 86 → 86%; rough
-standing still 16 → 13%; the one idle hit above).
+**640x480:**
+
+| measure | one-player tuning (22) | two-player tuning (8) | held-out (4) |
+|---|---|---|---|
+| wrist cm | 13.02 → 7.13 (−5.89 [−6.91, −4.67]) | 10.14 → 7.46 (−2.68 [−4.84, −0.62]) | 11.69 → 8.65 (−3.04 [−9.32, 0.60]) |
+| forward-stance wrist cm | 9.03 → 5.86 (−3.18 [−4.00, −2.24]) | 7.04 → 7.27 (+0.23 [−1.55, 2.01]) | 8.46 → 7.51 (−0.95 [−5.50, 1.96]) |
+| blade median, filtered cm | 15.30 → 9.27 (−6.03 [−7.03, −4.81]) | 15.50 → 11.22 (−4.28 [−5.62, −2.81]) | 16.29 → 11.05 (−5.24 [−9.83, −2.58]) |
+| blade p90, raw cm | 35.52 → 21.01 (−14.51 [−15.57, −13.37]) | 41.67 → 30.32 (−11.35 [−15.71, −6.45]) | 41.53 → 32.31 (−9.22 [−14.18, −4.86]) |
+| blade in swings, filtered cm | 18.65 → 14.38 (−4.27 [−5.13, −3.39]) | 21.76 → 17.88 (−3.88 [−5.21, −2.47]) | 25.79 → 22.88 (−2.92 [−4.71, −1.13]) |
+| false swings /min | 3.62 → 2.52 (−1.10 [−2.16, 0.01]) | 14.29 → 11.04 (−3.25 [−8.21, −0.18]) | 5.67 → 3.35 (−2.32 [−5.04, −0.38]) |
+| false swings at rest /min | 5.58 → 3.29 (−2.29 [−3.50, −1.08]) | 6.12 → 2.87 (−3.25 [−10.32, 0.76]) | 4.74 → 1.16 (−3.58 [−4.83, −2.29]) |
+| rest jitter, filtered cm | 0.68 → 0.57 (−0.12 [−0.25, −0.01]) | 0.97 → 0.67 (−0.30 [−1.03, 0.16]) | 0.85 → 0.56 (−0.29 [−0.58, 0.01]) |
+| drawn lag at swing speed ms | 77.0 → 81.3 (+4.3 [3.1, 5.5]) | 86.6 → 91.1 (+4.5 [2.5, 6.8]) | 87.7 → 94.1 (+6.4 [3.0, 9.9]) |
+| swing misses (share) | 0.046 → 0.066 (+0.020 [0.008, 0.034]) | 0.024 → 0.022 (−0.002 [−0.019, 0.020]) | 0.034 → 0.015 (−0.019 [−0.058, 0.000]) |
+
+**Native 1280x960:**
+
+| measure | one-player tuning (22) | two-player tuning (8) | held-out (4) |
+|---|---|---|---|
+| wrist cm | 12.91 → 7.16 (−5.76 [−6.76, −4.54]) | 10.12 → 7.46 (−2.66 [−4.68, −0.69]) | 11.75 → 8.59 (−3.17 [−9.70, 0.81]) |
+| forward-stance wrist cm | 8.86 → 5.85 (−3.00 [−3.78, −2.12]) | 6.91 → 7.28 (+0.37 [−1.31, 1.97]) | 8.57 → 7.49 (−1.08 [−5.68, 1.87]) |
+| blade median, filtered cm | 15.37 → 9.27 (−6.10 [−7.20, −4.76]) | 15.36 → 11.23 (−4.14 [−5.81, −2.49]) | 16.43 → 11.07 (−5.36 [−9.80, −2.29]) |
+| blade p90, raw cm | 35.27 → 21.27 (−14.00 [−15.10, −12.78]) | 41.84 → 30.18 (−11.66 [−16.07, −6.57]) | 41.56 → 31.71 (−9.85 [−14.89, −4.65]) |
+| blade in swings, filtered cm | 18.67 → 14.43 (−4.24 [−5.10, −3.35]) | 21.14 → 17.24 (−3.89 [−5.34, −2.61]) | 25.69 → 22.68 (−3.01 [−4.59, −1.43]) |
+| false swings /min | 4.12 → 2.16 (−1.95 [−2.87, −1.16]) | 11.99 → 10.28 (−1.71 [−3.62, 0.00]) | 4.08 → 3.70 (−0.38 [−1.15, 0.00]) |
+| false swings at rest /min | 5.79 → 4.19 (−1.60 [−2.78, −0.45]) | 3.07 → 2.49 (−0.58 [−2.30, 0.77]) | 2.73 → 1.15 (−1.58 [−2.83, −0.38]) |
+| rest jitter, filtered cm | 0.63 → 0.54 (−0.09 [−0.18, 0.00]) | 0.63 → 0.60 (−0.03 [−0.13, 0.06]) | 1.07 → 0.67 (−0.41 [−1.27, 0.18]) |
+| drawn lag at swing speed ms | 77.7 → 82.1 (+4.5 [3.2, 5.9]) | 85.8 → 90.1 (+4.3 [2.5, 6.6]) | 84.9 → 91.5 (+6.7 [4.8, 9.1]) |
+| swing misses (share) | 0.060 → 0.063 (+0.003 [−0.014, 0.018]) | 0.027 → 0.026 (−0.001 [−0.025, 0.017]) | 0.099 → 0.083 (−0.017 [−0.056, 0.007]) |
+
+The two-player tuning forward-stance wrist goes slightly the other way from one-player
+tuning: 7.04 → 7.27 cm, Δ +0.23 [−1.55, +2.01], not a clear change. The new two-player
+tuning false-swing rate is 11.04/min after the changes; the held-out two-player rate is
+6.71/min, so the held-out pair did not describe the tuning pair's full range.
+Held-out wrist and forward-wrist intervals still include zero; blade improves, with more
+drawn lag. One-player rest jitter now excludes zero at 640x480 (−0.115 cm [−0.252, −0.007]);
+at native it does not (−0.090 [−0.180, +0.003]).
+
+**Held-out, split by players, 640x480** (descriptive; two scenes per row, no bootstrap interval):
+
+| measure | one player (held-1/3) | two players (held-2/4) |
+|---|---|---|
+| wrist cm | 12.67 → 6.53 | 10.71 → 10.78 |
+| forward-stance wrist cm | 8.44 → 5.54 | 8.47 → 9.47 |
+| blade median, filtered cm | 16.81 → 8.91 | 15.78 → 13.20 |
+| blade p90, raw cm | 40.16 → 26.69 | 42.91 → 37.93 |
+| blade in swings, filtered cm | 23.16 → 20.31 | 28.42 → 25.44 |
+| false swings /min | 3.87 → 0.00 | 7.47 → 6.71 |
+| false swings at rest /min | 4.63 → 2.31 | 4.83 → 0.00 |
+| rest jitter, filtered cm | 0.82 → 0.55 | 0.89 → 0.57 |
+| drawn lag at swing speed ms | 85.7 → 92.5 | 89.8 → 95.7 |
+| swing misses (share) | 0.038 → 0.000 | 0.029 → 0.029 |
+
+The native split is in the paired reports: wrist 12.98 → 6.42 cm / 10.52 → 10.75,
+forward wrist 8.79 → 5.59 / 8.36 → 9.39, filtered blade 17.54 → 9.10 / 15.32 → 13.04
+(one player / two players). No intervals are available for either two-scene split.
+
+**Scenes worse at the wrist or blade.** Positive changes only; a dash means that measure
+did not get worse. Includes forward stance and raw blade p90, not just overall medians;
+every scene is paired on the same recording. cm, original → this branch (+Δ).
+
+| scene | input | wrist | forward wrist | blade median, filtered | blade p90, raw |
+|---|---|---|---|---|---|
+| pp-held-1 | 640x480 | 7.42 → 7.62 (+0.20) | 4.61 → 6.73 (+2.12) | – | – |
+| pp-held-2 | 640x480 | – | 7.83 → 8.03 (+0.20) | – | – |
+| pp-held-4 | 640x480 | 12.07 → 13.08 (+1.01) | 9.12 → 10.92 (+1.80) | – | – |
+| pp1-lefty-paddle | 640x480 | 7.48 → 8.45 (+0.97) | 5.85 → 8.26 (+2.41) | 10.03 → 10.83 (+0.80) | – |
+| pp1-near-phone | 640x480 | 8.03 → 8.25 (+0.22) | – | 10.03 → 10.38 (+0.35) | – |
+| pp2-base | 640x480 | – | 3.09 → 5.20 (+2.11) | – | – |
+| pp2-bystander | 640x480 | – | 9.01 → 9.10 (+0.09) | – | 54.79 → 55.63 (+0.84) |
+| pp2-close | 640x480 | 8.05 → 9.61 (+1.56) | 6.00 → 10.28 (+4.28) | – | – |
+| pp2-crossing | 640x480 | 6.83 → 6.92 (+0.09) | 3.96 → 6.25 (+2.29) | – | – |
+| pp2-depths | 640x480 | – | 6.29 → 6.95 (+0.66) | – | – |
+| pp-held-1 | native | – | 5.10 → 6.85 (+1.75) | – | – |
+| pp-held-2 | native | – | 7.87 → 7.96 (+0.09) | – | – |
+| pp-held-4 | native | 11.54 → 12.92 (+1.38) | 8.84 → 10.83 (+1.99) | – | – |
+| pp1-lefty-paddle | native | 6.70 → 8.14 (+1.44) | 5.68 → 8.05 (+2.37) | 9.37 → 11.35 (+1.98) | – |
+| pp2-base | native | – | 3.04 → 5.07 (+2.03) | – | – |
+| pp2-bystander | native | – | 9.09 → 10.02 (+0.93) | – | 58.30 → 59.69 (+1.39) |
+| pp2-close | native | 7.95 → 9.29 (+1.34) | 5.88 → 9.89 (+4.01) | – | – |
+| pp2-crossing | native | – | 4.23 → 6.01 (+1.78) | – | – |
+| pp2-depths | native | – | 6.01 → 7.25 (+1.24) | – | – |
+
+On the dance scenes (the earlier measurements): wrist 21.0 → 11.4 cm, blade 30.7 → 18.2,
+with forward reach worse (11.6 → 14.4). Play simulation (agency.ts --rounds 24) was unchanged
+by the hand, `across` and lean changes (it feeds rig.ts takeHand directly); the capture-time
+change moved hit rates within ±1-3 points. Those experiments were not re-run here.
 
 ### Tried and dropped
+
+These are the original exploratory trials on the first 10 tuning scenes (and the dance
+scenes where stated), not full-suite re-tests of the dropped changes.
 
 - **A hard lower threshold** for the bone direction (0.08, 0.05, 0.03, 0 m): every one traded the
   forward stance (up to +3 cm) and rest jitter and false swings (frames near the threshold flip
@@ -319,46 +445,104 @@ standing still 16 → 13%; the one idle hit above).
 
 ### Resolution (item 6: measured, not changed)
 
-Native 1280x960 against the game's 640x480 on the 10 tuning scenes, same code: overall the same
-(wrist +0.05 cm, blade −0.2, hand found +2.7 points n.s., wrong side 2.4 → 1.5%, `across` p90
-86 → 77°). Per scene it matters only for the far player: **pp1-far-tv** (a TV camera) hand found
-0.73 → 0.92, wrong side 3.9 → 1.6%, `across` 17 → 10°, rest jitter 0.47 → 0.39 cm; dim light
-gains nothing (found 0.66 → 0.61). Offline inference +1.5 ms. Realtime cost could not be
-measured: with two Blender renders running, native came out *faster* than 640x480 (36 vs 43 ms,
-pp1-far-tv), i.e. inside the noise. Recommendation: request 1280x720/960 when the players are far
-(the torso under ~1/4 of the picture's height, or a TV setup), keep 640x480 otherwise; re-take the
-realtime cost on a quiet machine (`--realtime`, one at a time) before doing it.
+Native minus 640x480, this branch, paired on every scene in each group. Δ [95% interval];
+cm except found/side shares, degrees, false swings/min and lag ms. Offline inference cost
+from parallel recordings is not a resolution timing measurement; realtime cost is below.
+
+| measure | one-player tuning (22) | two-player tuning (8) | held-out (4) |
+|---|---|---|---|
+| wrist cm | +0.03 [−0.06, 0.10] | +0.01 [−0.21, 0.25] | −0.06 [−0.23, 0.10] |
+| forward-stance wrist cm | 0.00 [−0.11, 0.09] | +0.02 [−0.25, 0.33] | −0.01 [−0.08, 0.07] |
+| blade median, filtered cm | 0.00 [−0.16, 0.18] | +0.01 [−0.70, 0.90] | +0.02 [−0.47, 0.36] |
+| blade p90, raw cm | +0.25 [−0.06, 0.69] | −0.15 [−1.16, 1.22] | −0.60 [−1.61, 0.01] |
+| blade in swings, filtered cm | +0.05 [−0.29, 0.35] | −0.64 [−0.90, −0.33] | −0.20 [−1.02, 0.62] |
+| false swings /min | −0.36 [−0.87, 0.19] | −0.76 [−2.48, 0.38] | +0.34 [−1.26, 2.29] |
+| false swings at rest /min | +0.90 [−0.21, 2.07] | −0.38 [−1.52, 0.58] | −0.01 [−2.33, 3.05] |
+| rest jitter, filtered cm | −0.03 [−0.07, 0.02] | −0.07 [−0.22, 0.06] | +0.11 [0.05, 0.17] |
+| drawn lag at swing speed ms | +0.8 [−0.5, 2.2] | −1.0 [−2.6, 0.4] | −2.6 [−5.0, 1.8] |
+| hand found (share) | +0.0056 [−0.0101, 0.0282] | +0.0642 [0.0316, 0.1010] | +0.0224 [−0.0416, 0.1092] |
+| wrong side (share) | −0.0047 [−0.0077, −0.0022] | −0.0054 [−0.0100, −0.0016] | −0.0048 [−0.0102, −0.0010] |
+| filtered across p90 ° | −5.66 [−12.10, 1.40] | −9.17 [−16.21, −1.90] | −6.70 [−24.47, 4.38] |
+| swing misses (share) | −0.0030 [−0.0175, 0.0100] | +0.0033 [−0.0093, 0.0154] | +0.0681 [0.0135, 0.1317] |
+
+The original partial-set blade resolution change was −0.2 cm; over all one-player tuning
+scenes it is 0.00 [−0.16, +0.18]. Their hand-found gain is now only 0.6 points (interval includes
+zero), rather than the earlier 2.7. Two-player tuning gains 6.4 found points [3.2, 10.1] and
+0.64 cm in swings [0.33, 0.90], with no clear overall wrist or blade median change.
+The far-TV scene still gains hand detection (0.73 → 0.92); resolution is not uniformly better:
+held-out jitter rises 0.108 cm [0.050, 0.165] and swing misses rise 6.8 points [1.4, 13.2].
+
+**Cost, realtime** (`--realtime --jobs 1`, each scene serially, Apple M5 Pro / Metal GPU):
+
+The final pass started after 11.1 minutes waiting for a quiet window;
+no Blender, active competing Chromium benchmark, Python scene check or ffmpeg workload was
+detected during it (5 s process samples). PerfPowerServices still used background CPU.
+An earlier pass overlapped restarted hand checks and is excluded.
+Run ids: `ppt-remeasure-cost-final-{640,native}-{tt,world}`. Each suite used the four requested
+scene prefixes; `pp1-near-laptop-paddle` also ran because the harness matches prefixes, but is
+excluded here. No timings ran in parallel. Latency is mean arrival − capture; dropped camera
+frames are out of 600, and dropped results are shown separately. This is the worker benchmark,
+without an added game-rendering load (`busyScale = 1`).
+
+| scene | input | detail | inference ms (mean / p95) | pose Hz | latency ms | camera frames dropped | results dropped | hands |
+|---|---|---|---|---|---|---|---|---|
+| pp1-base | 640x480 | table-tennis | 17.7 / 32.2 | 29.8 | 18.3 | 5 / 600 | 0 | on, kept |
+| pp1-base | 640x480 | world | 7.7 / 11.4 | 30.0 | 7.8 | 0 / 600 | 0 | – |
+| pp1-base | 1280x960 | table-tennis | 18.5 / 34.3 | 29.6 | 19.4 | 8 / 600 | 0 | on, kept |
+| pp1-base | 1280x960 | world | 7.8 / 12.3 | 30.0 | 7.9 | 0 / 600 | 0 | – |
+| pp1-near-laptop | 640x480 | table-tennis | 18.4 / 35.0 | 29.6 | 19.3 | 7 / 600 | 0 | on, kept |
+| pp1-near-laptop | 640x480 | world | 7.6 / 10.7 | 30.0 | 7.7 | 0 / 600 | 0 | – |
+| pp1-near-laptop | 1280x960 | table-tennis | 18.0 / 35.4 | 29.7 | 19.6 | 6 / 600 | 0 | on, kept |
+| pp1-near-laptop | 1280x960 | world | 7.9 / 11.9 | 30.0 | 8.0 | 0 / 600 | 0 | – |
+| pp2-base | 640x480 | table-tennis | 25.2 / 47.4 | 28.4 | 28.0 | 33 / 600 | 0 | on, kept |
+| pp2-base | 640x480 | world | 12.8 / 19.5 | 30.0 | 13.1 | 0 / 600 | 0 | – |
+| pp2-base | 1280x960 | table-tennis | 25.6 / 48.4 | 28.6 | 28.8 | 29 / 600 | 0 | on, kept |
+| pp2-base | 1280x960 | world | 13.1 / 19.0 | 30.0 | 13.4 | 0 / 600 | 0 | – |
+| pp2-close | 640x480 | table-tennis | 24.2 / 44.1 | 29.0 | 26.4 | 20 / 600 | 0 | on, kept |
+| pp2-close | 640x480 | world | 12.9 / 19.6 | 30.0 | 13.1 | 0 / 600 | 0 | – |
+| pp2-close | 1280x960 | table-tennis | 28.0 / 52.7 | 27.6 | 32.4 | 48 / 600 | 0 | on, kept |
+| pp2-close | 1280x960 | world | 13.7 / 20.2 | 30.0 | 14.0 | 0 / 600 | 0 | – |
 
 ### Noise profile of the tracked blade (item 7)
 
-`pp-noise.ts ppt-F4-pp` (this branch's code; `pingpong.json` `noise`). cm, the player's frame
-(x right, y up, z back); bias: mean of scene biases ± their spread between scenes; slow: sd of a
-±250 ms average (correlated over ~0.5 s and slower); fast: frame to frame. Raw is what the game's
-filter is given, which is what tableTennisSim.ts's cameras should model.
+`pp-noise.ts ppt-remeasure-F4-pp --scenes pp1-` (and `pp2-`, `pp-held-`), this branch at
+640x480. The paddle-hand selection is unchanged: without GT paddle metadata or a single-hand
+detail, both hands enter the profile, as described above. cm, the player's frame (x right, y up, z back). Bias is the sample-weighted mean of
+scene biases ± their unweighted spread between scenes; slow is the sd of a ±250 ms average;
+fast is what remains frame to frame. Raw is what the game's filter receives. Held-out rows
+stay separate from tuning. Filtered and all-motion rows are in the saved noise profiles.
 
 | | state | bias x | bias y | bias z | slow x / y / z | fast x / y / z |
 |---|---|---|---|---|---|---|
-| 1 player, 11 pp scenes | rest | 0.5 ± 1.3 | −1.6 ± 0.6 | −1.9 ± 2.8 | 2.6 / 2.6 / 6.5 | 1.3 / 1.7 / 2.3 |
-| | swing | 0.9 ± 1.9 | −5.9 ± 1.4 | −4.7 ± 4.2 | 2.4 / 3.8 / 8.6 | 4.5 / 4.4 / 9.2 |
-| 2 players, pp-held-2/4 (descriptive only) | rest | 2.5 ± 0.6 | −1.6 ± 2.4 | 1.7 ± 1.1 | 6.7 / 4.1 / 7.6 | 1.8 / 2.1 / 3.0 |
-| | swing | 0.7 ± 2.6 | −10.7 ± 6.0 | −7.6 ± 5.2 | 8.8 / 6.7 / 9.8 | 9.4 / 9.4 / 13.0 |
-| 2 players, 19 dance duo scenes | rest | 1.0 ± 1.8 | 6.7 ± 2.4 | −8.8 ± 2.5 | 4.3 / 3.5 / 8.6 | 2.5 / 1.8 / 3.6 |
+| 1 player, 22 tuning scenes | rest | −0.1 ± 2.0 | −1.7 ± 0.8 | −1.7 ± 2.8 | 2.9 / 2.5 / 6.5 | 1.4 / 1.7 / 2.2 |
+|  | swing | 1.0 ± 1.7 | −5.8 ± 1.3 | −4.5 ± 3.7 | 2.6 / 3.6 / 8.4 | 4.7 / 4.5 / 9.5 |
+| 2 players, 8 tuning scenes | rest | 1.7 ± 2.1 | −2.0 ± 2.4 | 0.8 ± 3.9 | 5.0 / 2.8 / 6.3 | 1.4 / 1.4 / 2.6 |
+|  | swing | 1.7 ± 2.1 | −4.9 ± 1.4 | −5.7 ± 4.4 | 4.8 / 4.2 / 10.3 | 6.4 / 5.1 / 13.3 |
+| 1 player, 2 held-out scenes | rest | 0.4 ± 0.3 | −2.0 ± 1.6 | 0.4 ± 1.4 | 3.7 / 2.1 / 5.6 | 1.3 / 1.2 / 2.5 |
+|  | swing | 2.0 ± 1.6 | −6.3 ± 2.6 | −5.8 ± 6.0 | 2.7 / 4.2 / 12.1 | 6.7 / 4.8 / 14.1 |
+| 2 players, 2 held-out scenes | rest | 2.5 ± 0.6 | −1.6 ± 2.4 | 1.7 ± 1.1 | 6.7 / 4.1 / 7.6 | 1.8 / 2.1 / 3.0 |
+|  | swing | 0.7 ± 2.6 | −10.7 ± 6.0 | −7.6 ± 5.2 | 8.8 / 6.7 / 9.8 | 9.4 / 9.4 / 13.0 |
 
-Wild raw poses (over 15 cm from their own ±200 ms median; includes swing-time misreads): one
-player 4.3% of poses, median 19 cm (6.3%, 21 cm with the original code); two players 16%, 22 cm
-(pp-held) and 23%, 24 cm (dance duos). Lost stretches (no pose > 100 ms): one player 1.1 a
-minute, 0.7% of the time, median 0.4 s; two players 1.6 a minute (pp-held), 21 a minute and 11%
-of the time on the dance duos (occlusion, identity). Rate and delay (realtime, provisional): one
-player with hands 29 Hz, 30 ms latency; two players 20-25 Hz, 47-62 ms. Versus TRACKING today:
-`good`'s across 1.5 cm and depth 5 cm white noise are about right frame to frame, but the real
-error is mostly slow (depth 6.5 cm sd over half-seconds), with an up bias of −6 cm in swings;
-`rough`'s wild rate (3%) is low for two players (16-23%), and dropouts come in ~0.25-0.4 s
-stretches, not single poses.
+Wild raw poses are more than 15 cm from their own ±200 ms median (including swing-time
+misreads). Lost stretches have no pose for > 100 ms. Size and duration are event-weighted
+means of scene medians, as `pp-noise.ts` reports them; lost rate and share are scene means.
+
+| | wild share | wild size cm | lost /min | lost time | lost length ms |
+|---|---|---|---|---|---|
+| 1-player tuning | 4.38% | 19.6 | 1.05 | 0.71% | 391 |
+| 2-player tuning | 9.24% | 21.5 | 1.73 | 0.50% | 174 |
+| 1-player held-out | 8.36% | 21.6 | 5.42 | 3.87% | 392 |
+| 2-player held-out | 15.92% | 22.1 | 1.61 | 0.65% | 250 |
+
+The earlier two-player pp noise rows described only held-2/4 (16% wild poses); the tuning
+set is 9.24%, with different rest and swing scatter. At rest, one-player depth's slow sd is
+6.5 cm against 2.2 fast; two-player tuning is 6.3 against 2.6. In swings the two-player depth
+fast sd is 13.3 cm. All offline recordings are 30 Hz; realtime rates and latency are in the
+cost table. These are measurements for comparing the simulation's camera model, not changes
+to that model.
 
 ### Unfinished
 
-- 2-player tuning scenes (pp2-*) and 11 more pp1 scenes hadn't rendered; the watcher
-  run ends here. Re-run once they exist:
-  `node tools/trackbench/harness/run-game.ts <scene> --id ppt-tt --detail minigame:table-tennis --input-size 640x480`
-  (and without `--input-size` as `ppt-tt-native`), then `pingpong.ts ppt-F4-pp --from ppt-tt`.
-- DRAW_LAG (above), the screen easing with SWING retuned, and the realtime resolution cost.
+- DRAW_LAG (above), and the screen easing with SWING retuned.
+- Rally-aware intervals: the report still clusters only shared renders. The full recording,
+  accuracy, noise and realtime-resolution measurements above are complete.
