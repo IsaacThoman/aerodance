@@ -1,0 +1,9 @@
+{
+  "id": "bg-clutter-1",
+  "base": "base-solo",
+  "category": "background",
+  "description": "Maximum clutter (clutter 1).",
+  "room": {
+    "clutter": 1.0
+  }
+}

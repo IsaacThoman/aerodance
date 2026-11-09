@@ -1,0 +1,54 @@
+{
+  "id": "mot-jumps",
+  "base": "base-solo",
+  "category": "motion",
+  "description": "Jumps: ballet-jazz leaps and krump stomps (feet off the floor up to a third of the time).",
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 0.5
+        },
+        {
+          "type": "walk",
+          "from": [
+            -2.4,
+            0.6
+          ],
+          "to": [
+            0,
+            0
+          ],
+          "duration_s": 2.0
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 4.0
+        },
+        {
+          "type": "dance",
+          "clip": "gJB_sBM_cAll_d09_mJB5_ch07",
+          "clip_start_s": 0.0,
+          "duration_s": 7.4,
+          "speed": 1.0
+        },
+        {
+          "type": "dance",
+          "clip": "gJB_sBM_cAll_d08_mJB5_ch06",
+          "clip_start_s": 0.0,
+          "duration_s": 7.4,
+          "speed": 1.0
+        },
+        {
+          "type": "dance",
+          "clip": "gKR_sBM_cAll_d30_mKR2_ch07",
+          "clip_start_s": 0.0,
+          "duration_s": 1.2,
+          "speed": 1.0
+        }
+      ]
+    }
+  }
+}

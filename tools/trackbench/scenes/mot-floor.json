@@ -1,0 +1,47 @@
+{
+  "id": "mot-floor",
+  "base": "base-solo",
+  "category": "motion",
+  "description": "Break floor work: down on the floor about half the time.",
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 0.5
+        },
+        {
+          "type": "walk",
+          "from": [
+            -2.4,
+            0.6
+          ],
+          "to": [
+            0,
+            0
+          ],
+          "duration_s": 2.0
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 4.0
+        },
+        {
+          "type": "dance",
+          "clip": "gBR_sBM_cAll_d05_mBR0_ch08",
+          "clip_start_s": 0.0,
+          "duration_s": 11.5,
+          "speed": 1.0
+        },
+        {
+          "type": "dance",
+          "clip": "gBR_sBM_cAll_d04_mBR0_ch09",
+          "clip_start_s": 7.5,
+          "duration_s": 4.5,
+          "speed": 1.0
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "cam-near-2.0",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera 2.0 m away: the feet (and overhead hands) leave the frame.",
+  "camera": {
+    "distance_m": 2.0
+  }
+}

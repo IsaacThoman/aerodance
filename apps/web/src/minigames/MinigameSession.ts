@@ -202,6 +202,8 @@ export class MinigameSession implements MinigameContext {
       if (this.calibrationHold.anchors) this.trackingRefreshAt = now;
       else if (now - this.trackingRefreshAt >= SETUP_TRACKING_REFRESH_MS) {
         this.source?.resetTracking?.();
+        // A fresh line-up can number the players differently: their holds start again too.
+        this.calibrationHold.resetHold();
         this.trackingRefreshAt = now;
         this.present.fill(-Infinity);
       }

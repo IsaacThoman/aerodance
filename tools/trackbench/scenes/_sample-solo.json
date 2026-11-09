@@ -1,0 +1,36 @@
+{
+  "id": "_sample-solo",
+  "category": "baseline",
+  "description": "Sample: one player walks in from the left, holds still for calibration, then dances (AIST++ ballet jazz).",
+  "seed": 1,
+  "duration_s": 6,
+  "fps": 30,
+  "resolution": [640, 480],
+  "players": 1,
+  "camera": {"height_m": 1.0, "distance_m": 3.4, "look_at": [0, 0, 0.95], "hfov_deg": 65},
+  "room": {"preset": "living_room", "clutter": 0.4},
+  "lighting": {"preset": "bright_even"},
+  "people": [
+    {
+      "id": "p1",
+      "role": "player",
+      "body": {"gender": 0.0, "age": 0.42, "weight": 0.5, "muscle": 0.5, "height": 0.55, "proportions": 0.5,
+               "race": {"african": 1, "asian": 0, "caucasian": 0}},
+      "skin": "young_african_female",
+      "hair": "ponytail01",
+      "outfit": {"clothes": ["female_casualsuit01", "shoes02"], "recolor": {"top": "#c03030"}},
+      "place": {"x": 0, "y": 0, "facing_deg": 0},
+      "travel": 0.3,
+      "timeline": [
+        {"type": "walk", "from": [-2.3, 0.6], "to": [0, 0], "duration_s": 2.0},
+        {"type": "hold", "pose": "neutral", "duration_s": 1.3},
+        {"type": "dance", "clip": "gJB_sBM_cAll_d07_mJB1_ch02", "clip_start_s": 2.0, "duration_s": 2.7}
+      ]
+    }
+  ],
+  "phases": [
+    {"name": "setup", "start_s": 0, "end_s": 3.3},
+    {"name": "dance", "start_s": 3.3, "end_s": 6}
+  ],
+  "post": []
+}

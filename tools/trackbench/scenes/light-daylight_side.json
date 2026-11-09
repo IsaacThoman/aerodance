@@ -1,0 +1,9 @@
+{
+  "id": "light-daylight_side",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: strong cool daylight from the left, weak fill.",
+  "lighting": {
+    "preset": "daylight_side"
+  }
+}

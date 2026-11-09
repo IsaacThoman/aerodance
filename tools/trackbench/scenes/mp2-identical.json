@@ -1,0 +1,20 @@
+{
+  "id": "mp2-identical",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "Identical garments and colours remove the appearance cue while distinct adults dance in their own lanes.",
+  "people": {
+    "0": {
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#205bb0",
+          "bottom": "#30343f"
+        }
+      }
+    }
+  }
+}

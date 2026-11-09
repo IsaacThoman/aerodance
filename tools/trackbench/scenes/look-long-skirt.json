@@ -1,0 +1,22 @@
+{
+  "id": "look-long-skirt",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "Ankle-length flared skirt: hides the hips, knees and most of the ankles.",
+  "people": {
+    "0": {
+      "outfit": {
+        "clothes": [
+          "tb_long_skirt",
+          "female_casualsuit01",
+          "shoes02"
+        ],
+        "recolor": {
+          "top": "#c8463a",
+          "skirt": "#5a3d7a",
+          "hair": "#2b1d15"
+        }
+      }
+    }
+  }
+}

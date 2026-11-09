@@ -1,0 +1,94 @@
+{
+  "id": "setup-table-feet",
+  "base": "base-duo",
+  "category": "setup",
+  "description": "One player holds 5 s with both ankles hidden by the coffee table while shoulders and hips stay visible; calibration should deliberately fail before dance.",
+  "camera": {
+    "distance_m": 5.5,
+    "look_at": [
+      -0.7,
+      0,
+      0.95
+    ]
+  },
+  "people": {
+    "0": {
+      "place": {
+        "x": -2.58,
+        "y": 1.5
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -2.58,
+            1.5
+          ],
+          "duration_s": 2,
+          "from": [
+            -2.58,
+            2.0
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.95,
+            1.0
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.55
+          ],
+          "duration_s": 1.25
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 14
+        }
+      ]
+    },
+    "1": {
+      "place": {
+        "x": 1.0,
+        "y": -0.55
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "light-backlit_window",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: bright window behind the player, very weak front fill (near silhouette).",
+  "lighting": {
+    "preset": "backlit_window"
+  }
+}

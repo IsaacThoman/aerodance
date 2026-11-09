@@ -49,7 +49,7 @@ export interface Scorer {
   onJudgement(fn: (event: JudgementEvent) => void): () => boolean;
 }
 
-export const SCORER_VERSION = 1;
+export const SCORER_VERSION = 2;
 export const MAX_SCORE = 1_000_000;
 
 export const INTERVAL_MS = 100;        // one score per 100 ms of song time
@@ -59,6 +59,7 @@ const SHIFTS_MS = [0, -50, 50, -100, 100, -150, 150];
 const MOTION_MS = 300;                 // movement is the change in direction over this span
 const MAX_LIVE_GAP_MS = 350;           // interpolate live samples at most this far apart
 const MAX_LIVE_REACH_MS = 120;         // otherwise use the nearest sample this close
+const HOLD_MS = 300;                   // a limb the tracker loses keeps its direction this long
 const SIGMA = 0.8;                     // radians: 15° → 0.90, 30° → 0.66, 60° → 0.18
 const MOVING = 0.2;                    // a reference limb moving less than this is holding still
 const MOTION_SHARE = 0.4;
@@ -184,12 +185,20 @@ function liveAt(track: Track, t: number) {
   let lo = 0, hi = s.length;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (s[mid].t <= t) lo = mid + 1; else hi = mid; }
   const before: LiveSample | undefined = s[lo - 1], after: LiveSample | undefined = s[lo];
-  if (before && after && after.t - before.t <= MAX_LIVE_GAP_MS) {
-    return lerpDirections(before.dirs, after.dirs, (t - before.t) / (after.t - before.t));
+  let dirs: LimbDirections | null;
+  if (before && after && after.t - before.t <= MAX_LIVE_GAP_MS) dirs = lerpDirections(before.dirs, after.dirs, (t - before.t) / (after.t - before.t));
+  else {
+    const near = [before, after].filter((x) => x !== undefined && Math.abs(x.t - t) <= MAX_LIVE_REACH_MS)
+      .sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
+    dirs = near ? near.dirs : null;
   }
-  const near = [before, after].filter((x) => x !== undefined && Math.abs(x.t - t) <= MAX_LIVE_REACH_MS)
-    .sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
-  return near ? near.dirs : null;
+  if (!dirs || dirs.every(Boolean)) return dirs;
+  // A limb the tracker lost for a moment keeps its last direction (from earlier samples only).
+  return dirs.map((d, limb) => {
+    if (d) return d;
+    for (let i = lo - 1; i >= 0 && t - s[i].t <= HOLD_MS; i--) if (s[i].dirs[limb]) return s[i].dirs[limb];
+    return null;
+  });
 }
 
 export function createScorer(bundle: SongBundle, playerCount: PlayerCount, cast: Cast = defaultCast(playerCount, bundle.choreography.tracks.length)): Scorer {

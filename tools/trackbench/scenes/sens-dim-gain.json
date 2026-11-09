@@ -1,0 +1,13 @@
+{
+  "id": "sens-dim-gain",
+  "base": "light-dim_evening",
+  "category": "sensor",
+  "description": "Post only, light-dim_evening render: gain pushed up 2 EV with noise (a dark room on a webcam).",
+  "post": [
+    {
+      "type": "gain",
+      "ev": -2,
+      "noise": 8
+    }
+  ]
+}

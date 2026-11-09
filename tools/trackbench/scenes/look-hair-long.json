@@ -1,0 +1,11 @@
+{
+  "id": "look-hair-long",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "Long loose hair (long01) over the shoulders.",
+  "people": {
+    "0": {
+      "hair": "long01"
+    }
+  }
+}

@@ -416,12 +416,15 @@ export class WebcamPoseSource {
           thresholds: { detection: 0.5, presence: 0.5, tracking: 0.5 }, timingMethod: 'browser-frame-observation' } });
       // One or two players: ask for exactly that many people. Asking for an extra person keeps
       // the detector searching every frame while only the players are present; those searches
-      // can repeatedly lose somebody it was already following. Three or four players use strips
-      // (tiles.ts), with room for one extra person in their whole-picture fallback. Looks tell
-      // players apart, so one player doesn't need them.
+      // can repeatedly lose somebody it was already following. One player may be looked for in
+      // the middle of the picture, enlarged, while nobody is found (zoom), and two players get a
+      // search for whoever the model misses beside the one it found (pose.worker.ts). Three or four
+      // players use strips (tiles.ts), with room for one extra person in their whole-picture
+      // fallback. Strips, the search and the zoom's glances each cost a landmarker, so sources
+      // without strips (the iPhone/iPad app) have none of them. Looks tell players apart, so one player doesn't need them.
       const tiles = this.tiling && evenTiles(this.playerCount);
       worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount <= 2 ? this.playerCount : this.playerCount + 1, looks: this.playerCount > 1,
-        ...(tiles ? { tiles } : {}),
+        ...(tiles ? { tiles } : {}), ...(this.tiling && this.playerCount === 2 ? { search: true } : {}), ...(this.tiling && this.playerCount === 1 ? { zoom: true } : {}),
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }
   }

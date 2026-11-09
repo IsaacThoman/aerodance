@@ -1,0 +1,12 @@
+{
+  "id": "sens-noise",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: sensor noise sigma 8.",
+  "post": [
+    {
+      "type": "noise",
+      "sigma": 8
+    }
+  ]
+}

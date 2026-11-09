@@ -1,0 +1,9 @@
+{
+  "id": "cam-fov-90",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Wide 90 deg lens at the baseline distance (the widest without lens distortion).",
+  "camera": {
+    "hfov_deg": 90
+  }
+}

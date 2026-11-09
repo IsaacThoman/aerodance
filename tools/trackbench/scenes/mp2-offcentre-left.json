@@ -1,0 +1,165 @@
+{
+ "id": "mp2-offcentre-left",
+ "category": "multiplayer",
+ "description": "Both players stand in the left 40% of the picture (a webcam off to one side); tests two-player strips, which assume one player per side.",
+ "seed": 41,
+ "duration_s": 23,
+ "fps": 30,
+ "resolution": [
+  640,
+  480
+ ],
+ "players": 2,
+ "camera": {
+  "height_m": 1,
+  "distance_m": 4.5,
+  "look_at": [
+   0,
+   0,
+   0.95
+  ],
+  "hfov_deg": 65
+ },
+ "room": {
+  "preset": "living_room",
+  "clutter": 0.2
+ },
+ "lighting": {
+  "preset": "bright_even"
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 0,
+    "age": 0.5,
+    "height": 0.7,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 1,
+     "asian": 0,
+     "caucasian": 0
+    }
+   },
+   "skin": "young_african_female",
+   "hair": "ponytail01",
+   "outfit": {
+    "clothes": [
+     "female_casualsuit01",
+     "shoes02"
+    ],
+    "recolor": {
+     "top": "#bd3030",
+     "bottom": "#30343f"
+    }
+   },
+   "travel": 0.12,
+   "place": {
+    "x": -1.9,
+    "y": -0.55,
+    "facing_deg": 0
+   },
+   "timeline": [
+    {
+     "type": "walk",
+     "to": [
+      -1.9,
+      -0.55
+     ],
+     "duration_s": 2,
+     "from": [
+      -1.9,
+      -2.1
+     ]
+    },
+    {
+     "type": "hold",
+     "pose": "neutral",
+     "duration_s": 5
+    },
+    {
+     "type": "dance",
+     "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+     "clip_start_s": 2,
+     "duration_s": 16
+    }
+   ]
+  },
+  {
+   "id": "p2",
+   "role": "player",
+   "body": {
+    "gender": 1,
+    "age": 0.5,
+    "height": 0.6,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0,
+     "asian": 0,
+     "caucasian": 1
+    }
+   },
+   "skin": "young_caucasian_male",
+   "hair": "short02",
+   "outfit": {
+    "clothes": [
+     "male_casualsuit06",
+     "shoes01"
+    ],
+    "recolor": {
+     "top": "#205bb0",
+     "bottom": "#30343f"
+    }
+   },
+   "travel": 0.12,
+   "place": {
+    "x": -0.9,
+    "y": -0.55,
+    "facing_deg": 0
+   },
+   "timeline": [
+    {
+     "type": "walk",
+     "to": [
+      -0.9,
+      -0.55
+     ],
+     "duration_s": 2,
+     "from": [
+      -0.9,
+      -2.1
+     ]
+    },
+    {
+     "type": "hold",
+     "pose": "neutral",
+     "duration_s": 5
+    },
+    {
+     "type": "dance",
+     "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+     "clip_start_s": 2,
+     "duration_s": 16
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "setup",
+   "start_s": 0,
+   "end_s": 7
+  },
+  {
+   "name": "dance",
+   "start_s": 7,
+   "end_s": 23
+  }
+ ],
+ "post": []
+}

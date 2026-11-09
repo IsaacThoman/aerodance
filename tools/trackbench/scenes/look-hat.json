@@ -1,0 +1,21 @@
+{
+  "id": "look-hat",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "A fedora hat.",
+  "people": {
+    "0": {
+      "outfit": {
+        "clothes": [
+          "female_casualsuit01",
+          "shoes02",
+          "fedora01"
+        ],
+        "recolor": {
+          "top": "#c8463a",
+          "hair": "#2b1d15"
+        }
+      }
+    }
+  }
+}
