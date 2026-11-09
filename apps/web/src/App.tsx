@@ -41,6 +41,8 @@ import MinigameResults from './minigames/MinigameResults.tsx';
 import type { MinigameResultsShow } from './minigames/MinigameResults.tsx';
 import MinigameView from './minigames/MinigameView.tsx';
 import { MinigameSession } from './minigames/MinigameSession.ts';
+import { prepareSessionRecording, SessionRecording } from './minigames/sessionRecording.ts';
+import SessionRecordingOverlay from './minigames/SessionRecordingOverlay.tsx';
 import { recordMinigameBest } from './minigames/bestScores.ts';
 import type { MinigameDefinition, MinigamePhase } from './minigames/types.ts';
 import type { MinigameOptionValues } from './minigames/options.ts';
@@ -48,7 +50,8 @@ import { createPuppetInput } from './pose/puppet/puppetCamera.ts';
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
 // late); ?input=recording&recording=<url> replays a pose recording. ?record downloads each
-// song's live poses as a recording on the results screen. ?input=puppet makes the camera a
+// song's live poses as a recording on the results screen. ?record=session saves a minigame's
+// camera video and tracking log locally. ?input=puppet makes the camera a
 // puppet camera: pretend people, posed from window.puppet or `node scripts/play.ts puppet`
 // (pose/puppet/), tracked by the real webcam pipeline.
 const params = new URLSearchParams(location.search);
@@ -173,10 +176,17 @@ export default function App() {
     setScreen('menu');
   }, []);
   // Play on a game's preview: a session with that many players and its settings, the camera set up for them.
-  const startMinigame = useCallback((game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
+  const startingMinigame = useRef(false);
+  const startMinigame = useCallback(async (game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
+    if (startingMinigame.current) return;
+    startingMinigame.current = true;
+    const recording = params.get('record') === 'session' && activeSource === source;
+    const destination = recording ? await prepareSessionRecording() : null;
     replay?.setPlayerCount(count);
-    source.setPlayerCount(count).catch(() => {});
+    await source.setPlayerCount(count).catch(() => {});
     const session = new MinigameSession({ game, playerCount: count, source: activeSource, options });
+    if (recording) new SessionRecording(session, source, destination);
+    startingMinigame.current = false;
     // In development (and with the puppet camera), window.minigame is the round, for poking at
     // from play.ts: `eval "minigame.players[0].body[16]"`.
     if (import.meta.env.DEV || params.get('input') === 'puppet') Reflect.set(window, 'minigame', session);
@@ -221,7 +231,7 @@ export default function App() {
   // Dance! on Song Select: a new GameSession for the bundle and the dancers the players follow,
   // on the song's stage.
   const startGame = useCallback((bundle: LoadedSongBundle, cast: Cast) => {
-    const session = new GameSession({ bundle, playerCount, cast, source: activeSource, record: params.has('record') });
+    const session = new GameSession({ bundle, playerCount, cast, source: activeSource, record: params.has('record') && params.get('record') !== 'session' });
     resultsShow.current = null;
     setGame(session);
     setGamePhase(session.phase);
@@ -363,6 +373,7 @@ export default function App() {
             onBack={leaveMinigames}
             onPlay={startMinigame}
           />
+          {params.get('record') === 'session' && <SessionRecordingOverlay />}
           <MinigameScreen
             visible={screen === 'minigame' && !!minigame}
             session={minigame}

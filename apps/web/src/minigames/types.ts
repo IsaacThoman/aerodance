@@ -207,6 +207,8 @@ export interface MinigameContext {
    */
   handTracking(): HandTracking | null;
   /** Reports the game's own state on the canvas as data-mg-<key> (mgBubbles=3), for play.ts and tests. */
+  /** Adds a timed event to a local session recording; absent without ?record=session. */
+  record?(type: string, data: unknown): void;
   report(state: Record<string, string | number | boolean | null>): void;
 }
 
