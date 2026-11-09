@@ -12,6 +12,34 @@ How the webcam (or a paired phone's camera) turns people into players.
    - **One or two players:** on the whole picture, asking for exactly the selected number of
      people. Asking for an extra person keeps the detector searching every frame while only
      the players are present, which can repeatedly lose someone it was already following.
+     MediaPipe's person detector often finds only one of two people standing close together,
+     and then never the other, so two players also get a **search**: a second landmarker that,
+     while the first finds only one person, is shown the picture with that person hidden
+     (their head, torso and legs) and follows whoever else is there. It costs a second
+     inference only while somebody is missing. In trackbench's close-together scenes it tracked
+     both players in 65-79% of frames instead of almost none, and, on the same scorer, cut the
+     score lost to tracking from 40-59% to 20-35% ([trackbench
+     report](../tools/trackbench/REPORT.md#two-players-close-together-a-search-for-the-missing-one)).
+     Like the strips, it needs the GPU and an extra landmarker.
+     One player gets a **zoom**: MediaPipe's person detector misses somebody small in the picture
+     (a 120° webcam, or far away) and finds them in its middle, enlarged. So while nobody has
+     been found for a second, every other frame shows the landmarker the middle three quarters
+     instead; whichever view finds somebody is kept, the middle only while all of them fits well
+     inside it (somebody too big for it is found again on the whole picture, where the middle
+     would cut off their feet or hands; somebody small at its edge is followed there). Somebody
+     the landmarker finds afresh in the middle counts only standing (enlarged, an empty room's
+     sofa can look like somebody lying on it), unless the player was last seen going down
+     (leaning more than 20°) near there in the last 3 s: a player can lie on the floor in their
+     dance. Every two seconds on the middle, another
+     landmarker glances at the whole picture afresh, and somebody it finds elsewhere (a player
+     walking in, while the enlarged middle took a mannequin for somebody) brings the whole
+     picture back; until then a mannequin in the middle of an empty room can be taken for the
+     player, and a small player who drops to the floor faster than the camera sees them going
+     down isn't found again until they stand. On a 120° webcam the player was found in 96% of
+     frames instead of none. The glances'
+     landmarker is made the first time the middle is kept, and its first glance takes about
+     150 ms (once a session). It runs on the CPU too, where it's the only way to find somebody
+     small.
    - **Three or four players:** on a full-height strip of the picture per player, asking each
      for one person (`tiles.ts`). On the whole picture, MediaPipe found about two people per
      frame with three or four in view: its person detector sees the picture shrunk to a small
@@ -40,11 +68,12 @@ How the webcam (or a paired phone's camera) turns people into players.
      Somebody two strips both see counts once (unless their joints differ: one may stand partly behind the other; torsos in
      the same place are one person whatever the strips make of their arms); joints beyond a
      strip's cut edges are marked unsure.
-     Without a GPU, if the strips can't be set up, or in the iPhone/iPad app (where each
-     strip's extra landmarker, 160-215 MB measured in WebKit, about 100 MB of it in the process
-     the game runs in, hasn't been tried against a device's memory limit), the whole
-     picture is used. A paired phone's page, which runs nothing but the camera, uses strips;
-     how fast a phone runs three or four of them hasn't been measured.
+     Without a GPU, or if the strips can't be set up, the whole picture is used. Every source
+     uses strips, the search and the zoom alike: the iPhone/iPad app's camera and a paired
+     phone's page as well as a browser. Each costs a landmarker, 85-160 MB (about 100 MB in the
+     process the game runs in, measured in the iOS simulator), which trackbench found well worth
+     it in the app ([report](../tools/trackbench/REPORT.md#the-iphoneipad-app-the-same-pipeline-as-a-browser));
+     how a real device's memory limit and speed take three or four strips hasn't been measured.
 
    With two or more players it also samples each person's **looks** (`appearance.ts`): the
    colours of their clothes on the chest, the waist and the thighs, from a 128-pixel-wide copy
@@ -99,8 +128,10 @@ the tracker replaced them.
   paired phones. A progressing hold and the song itself keep their assignments.
 - **Overlaps.** Players who come within 0.6 of a body size of each other (or one vanishes
   beside the other) are tangled: the model may merge or swap them there. When they're all found
-  and apart again, they're told apart by their looks if those differ clearly, and otherwise put
-  back in the order they stood in before, whichever way the model's results went through it.
+  and apart again, they're told apart by their looks if those differ clearly; otherwise, if
+  they were clearly different sizes when they met and are again now (one passed in front of
+  the other, so the nearer stays the bigger), by their sizes; and otherwise put back in the
+  order they stood in before, whichever way the model's results went through it.
 - **Looks.** With two or more players, once their looks are known and differ clearly, they
   count when matching, and they put mistakes right: a player whose person has looked like
   another player (not merely less unlike them) for a few results becomes that player (both swap
@@ -119,8 +150,12 @@ the tracker replaced them.
   follow somebody else, who is then just another person for the tracker. Extra people are
   ignored while every player is found. Somebody seen
   in ten results beside every player just seen (not overlapping one, and nowhere near a missing
-  player's place) is a bystander: they can't take a player's number until that player has been
-  gone five seconds. When there are more new people than free numbers, the bigger ones (nearer
+  player's place or home) is a bystander: they can't take a player's number until that player
+  has been gone five seconds. A player's **home** is
+  where they last stood clear while going no faster than 1.5 body sizes a second for half a
+  second: where they dance. Their place follows whoever they're followed as, and the model can
+  slide from a player onto somebody walking past in front of them, taking the place along; the
+  home stays, so the player is found again where they dance once the passer-by has gone. When there are more new people than free numbers, the bigger ones (nearer
   the camera) come first. A player missing for a second and a half can be found again anywhere;
   until then their number is kept for them.
 - **Giving numbers back.** For 30 seconds after somebody new takes a missing player's number

@@ -1,0 +1,11 @@
+{
+  "id": "bg-window",
+  "base": "base-solo",
+  "category": "background",
+  "description": "A bright window behind the player (bright_even light).",
+  "room": {
+    "features": [
+      "window_behind"
+    ]
+  }
+}

@@ -1,0 +1,180 @@
+{
+ "id": "twin-c1",
+ "category": "sim2real",
+ "description": "Twin of real-c1: three women side by side ~0.65 m apart in jeans, bright room, portrait phone.",
+ "seed": 31,
+ "duration_s": 11.0,
+ "fps": 30,
+ "resolution": [
+  640,
+  360
+ ],
+ "players": 3,
+ "camera": {
+  "height_m": 1.2,
+  "distance_m": 2.3,
+  "look_at": [
+   0,
+   0,
+   0.85
+  ],
+  "hfov_deg": 45,
+  "orientation": "portrait",
+  "roll_deg": 0,
+  "shake": null,
+  "events": []
+ },
+ "room": {
+  "preset": "plain_wall",
+  "clutter": 0.3,
+  "features": []
+ },
+ "lighting": {
+  "preset": "bright_even",
+  "exposure_ev": 0.3,
+  "color_temp_k": 5000,
+  "flicker_hz": 0
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.42,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0.0,
+     "asian": 0.0,
+     "caucasian": 1.0
+    }
+   },
+   "skin": "young_caucasian_female",
+   "hair": "long01",
+   "outfit": {
+    "clothes": [
+     "female_casualsuit01",
+     "shoes02"
+    ],
+    "recolor": {
+     "top": "#e8508a",
+     "bottom": "#4a6ea8"
+    }
+   },
+   "place": {
+    "x": -0.65,
+    "y": 0,
+    "facing_deg": 0
+   },
+   "travel": 0.1,
+   "timeline": [
+    {
+     "type": "dance",
+     "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+     "clip_start_s": 4.0,
+     "duration_s": 11.0,
+     "mirror": false
+    }
+   ]
+  },
+  {
+   "id": "p2",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.42,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0.0,
+     "asian": 0.0,
+     "caucasian": 1.0
+    }
+   },
+   "skin": "young_caucasian_female2",
+   "hair": "long01",
+   "outfit": {
+    "clothes": [
+     "female_casualsuit01",
+     "shoes02"
+    ],
+    "recolor": {
+     "top": "#1a1a1a",
+     "bottom": "#5a7eb8"
+    }
+   },
+   "place": {
+    "x": 0,
+    "y": 0,
+    "facing_deg": 0
+   },
+   "travel": 0.1,
+   "timeline": [
+    {
+     "type": "dance",
+     "clip": "gJS_sFM_cAll_d02_mJS3_ch04",
+     "clip_start_s": 4.0,
+     "duration_s": 11.0,
+     "mirror": false
+    }
+   ]
+  },
+  {
+   "id": "p3",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.42,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0.0,
+     "asian": 1.0,
+     "caucasian": 0.0
+    }
+   },
+   "skin": "young_asian_female",
+   "hair": "long01",
+   "outfit": {
+    "clothes": [
+     "female_casualsuit01",
+     "shoes01"
+    ],
+    "recolor": {
+     "top": "#f2f2f2",
+     "bottom": "#4a6ea8"
+    }
+   },
+   "place": {
+    "x": 0.65,
+    "y": 0,
+    "facing_deg": 0
+   },
+   "travel": 0.1,
+   "timeline": [
+    {
+     "type": "dance",
+     "clip": "gJS_sFM_cAll_d03_mJS3_ch04",
+     "clip_start_s": 4.0,
+     "duration_s": 11.0,
+     "mirror": false
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "dance",
+   "start_s": 0,
+   "end_s": 11.0
+  }
+ ],
+ "post": []
+}

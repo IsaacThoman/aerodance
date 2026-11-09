@@ -1,0 +1,73 @@
+{
+  "id": "setup-too-close",
+  "base": "base-duo",
+  "category": "setup",
+  "description": "One still player is too close for ankles to fit; calibration should deliberately fail despite the 5 s hold.",
+  "people": {
+    "0": {
+      "place": {
+        "x": -0.6,
+        "y": -0.55
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -0.6,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -0.6,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "1": {
+      "place": {
+        "x": 0.6,
+        "y": -2.3
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0.6,
+            -2.3
+          ],
+          "duration_s": 2,
+          "from": [
+            0.6,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    }
+  },
+  "camera": {
+    "distance_m": 4.0
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "id": "setup-sequential",
+  "base": "base-duo",
+  "category": "setup",
+  "description": "Players arrive two seconds apart, then share a 5 s hold; ideal calibration should complete before dance.",
+  "duration_s": 24,
+  "phases": [
+    {
+      "name": "setup",
+      "start_s": 0,
+      "end_s": 9
+    },
+    {
+      "name": "dance",
+      "start_s": 9,
+      "end_s": 24
+    }
+  ],
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 7
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 15
+        }
+      ]
+    },
+    "1": {
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 2
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            2.4,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 15
+        }
+      ]
+    }
+  }
+}

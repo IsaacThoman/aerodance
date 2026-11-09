@@ -229,7 +229,10 @@ either one is null, `c` is null.
 Values 0–254 encode `round(c × 254)`, so the decoded value is `q / 254`. The
 value 255 encodes `null`, for unknown confidence.
 
-The 0.5 threshold every caller uses encodes as exactly 127. Derived eligibility
+The 0.5 threshold (reference eligibility, calibration, the character's held joints) encodes as
+exactly 127. The live scorer's lower threshold (0.1, `MIN_CONFIDENCE` in
+`packages/score/features.ts`) isn't exact, so the scorer compares it in these same steps (25),
+and a recording replays with the same joints counted. Derived eligibility
 (below) compares the quantized bytes, so encoding and decoding always agree. A
 confidence just under 0.5, such as 0.499, rounds up to 127 and counts as
 confident. That shift is accepted.

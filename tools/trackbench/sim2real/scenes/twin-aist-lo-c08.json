@@ -1,0 +1,95 @@
+{
+ "id": "twin-aist-lo-c08",
+ "category": "sim2real-aist",
+ "seed": 112,
+ "description": "Twin of real-aist-lo-c08: gLO_sFM_cAll_d13_mLO2_ch03 seconds 4.0-19.0, camera like AIST c08 (diagonal).",
+ "duration_s": 15.0,
+ "fps": 30,
+ "resolution": [
+  640,
+  480
+ ],
+ "players": 1,
+ "camera": {
+  "height_m": 1.11,
+  "distance_m": 5.8,
+  "yaw_deg": 0,
+  "look_at": [
+   0,
+   0,
+   0.784
+  ],
+  "hfov_deg": 34.24,
+  "roll_deg": 0,
+  "orientation": "landscape",
+  "shake": null,
+  "events": []
+ },
+ "room": {
+  "preset": "plain_wall",
+  "clutter": 0.0,
+  "features": []
+ },
+ "lighting": {
+  "preset": "bright_even",
+  "exposure_ev": 0.7,
+  "color_temp_k": 5500,
+  "flicker_hz": 0
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.45,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0.0,
+     "asian": 1.0,
+     "caucasian": 0.0
+    }
+   },
+   "skin": "young_asian_female",
+   "hair": "bob01",
+   "outfit": {
+    "clothes": [
+     "female_elegantsuit01",
+     "shoes03",
+     "fedora01"
+    ],
+    "recolor": {
+     "top": "#8c8c8c",
+     "bottom": "#8c8c8c",
+     "hat": "#151515"
+    }
+   },
+   "place": {
+    "x": 0,
+    "y": 0,
+    "facing_deg": -32.8
+   },
+   "travel": 1.0,
+   "timeline": [
+    {
+     "type": "dance",
+     "clip": "gLO_sFM_cAll_d13_mLO2_ch03",
+     "clip_start_s": 4.0,
+     "duration_s": 15.0,
+     "mirror": false
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "dance",
+   "start_s": 0,
+   "end_s": 15.0
+  }
+ ],
+ "post": []
+}

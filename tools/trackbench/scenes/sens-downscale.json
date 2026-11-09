@@ -1,0 +1,12 @@
+{
+  "id": "sens-downscale",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: half-resolution sensor, upscaled.",
+  "post": [
+    {
+      "type": "downscale",
+      "factor": 0.5
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "id": "setup-return",
+  "category": "setup",
+  "description": "After a calibratable 5 s hold, one player leaves and returns during dance; tests retained numbering after setup.",
+  "base": "mp2-leave-return"
+}

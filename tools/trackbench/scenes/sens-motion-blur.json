@@ -1,0 +1,12 @@
+{
+  "id": "sens-motion-blur",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: extra motion blur (80% shutter, neighbouring frames).",
+  "post": [
+    {
+      "type": "motion_blur",
+      "shutter_frac": 0.8
+    }
+  ]
+}

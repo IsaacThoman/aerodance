@@ -1,0 +1,154 @@
+{
+  "id": "mp4-small-room",
+  "base": "base-quad",
+  "category": "multiplayer",
+  "description": "Four adults in a small room perform compact pop with 0.7 m depth staggering and deliberate edge cropping; tests lost joints and incomplete calibration.",
+  "room": {
+    "preset": "small_room"
+  },
+  "camera": {
+    "height_m": 1,
+    "distance_m": 3.65,
+    "look_at": [
+      0,
+      0,
+      0.95
+    ],
+    "hfov_deg": 65,
+    "yaw_deg": 0,
+    "roll_deg": 0,
+    "orientation": "landscape",
+    "shake": null,
+    "events": []
+  },
+  "people": {
+    "0": {
+      "place": {
+        "x": -1.2,
+        "y": -1.45,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.2,
+            -1.45
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.2,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d11_mPO1_ch09",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "1": {
+      "place": {
+        "x": -0.4,
+        "y": -0.75,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -0.4,
+            -0.75
+          ],
+          "duration_s": 2,
+          "from": [
+            -0.4,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d11_mPO1_ch09",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "2": {
+      "place": {
+        "x": 0.4,
+        "y": -1.45,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0.4,
+            -1.45
+          ],
+          "duration_s": 2,
+          "from": [
+            0.4,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d11_mPO1_ch09",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "3": {
+      "place": {
+        "x": 1.2,
+        "y": -0.75,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.2,
+            -0.75
+          ],
+          "duration_s": 2,
+          "from": [
+            1.2,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d11_mPO1_ch09",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    }
+  }
+}

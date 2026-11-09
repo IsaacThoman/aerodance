@@ -1,0 +1,11 @@
+{
+  "id": "bg-wallpaper",
+  "base": "base-solo",
+  "category": "background",
+  "description": "Patterned wallpaper on the walls.",
+  "room": {
+    "features": [
+      "patterned_wallpaper"
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evenTiles, fromTile, hidden, mergeTiles, StripHiding } from '../browser/tiles.ts';
+import { CUT, evenTiles, fromCrop, fromTile, hidden, mergeTiles, StripHiding } from '../browser/tiles.ts';
 
 // Somebody standing with their torso centred at x (a fraction of the strip or picture), arms
 // reaching `reach` to each side.
@@ -150,4 +150,12 @@ test('a strip that looks and finds nobody takes over somebody it shares, so the 
     assert.equal(hiding.handoff, null);
     assert.equal(hiding.hide[1].length, 0);
   }
+});
+
+test('a crop\'s result is put back into the picture, with joints beyond its edges unsure', () => {
+  const crop = { x: 0.125, y: 0.125, width: 0.75, height: 0.75 };
+  const points = fromCrop([{ x: 0.5, y: 0.5, z: 0.2, visibility: 0.9, presence: 0.9 }, { x: 1.1, y: 0.5, z: 0, visibility: 0.9, presence: 0.9 }, { x: 0.5, y: -0.1, z: 0, visibility: 0.9 }], crop);
+  assert.ok(near(points[0].x, 0.5) && near(points[0].y, 0.5) && near(points[0].z, 0.15) && points[0].visibility === 0.9);
+  assert.ok(near(points[1].x, 0.125 + 1.1 * 0.75) && points[1].visibility <= CUT && points[1].presence! <= CUT, 'past the right edge');
+  assert.ok(near(points[2].y, 0.125 - 0.075) && points[2].visibility <= CUT, 'past the top');
 });

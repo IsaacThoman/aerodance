@@ -1,0 +1,70 @@
+{
+  "id": "mp2-wide",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "Two players near opposite frame edges test reacquisition and arm cropping at wide spacing.",
+  "people": {
+    "0": {
+      "place": {
+        "x": -1.9,
+        "y": -0.55
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.9,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.9,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "1": {
+      "place": {
+        "x": 1.9,
+        "y": -0.55
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.9,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            1.9,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    }
+  }
+}

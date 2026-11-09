@@ -1,0 +1,9 @@
+{
+  "id": "cam-dist-2.6",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera 2.6 m away (a typical small living room).",
+  "camera": {
+    "distance_m": 2.6
+  }
+}

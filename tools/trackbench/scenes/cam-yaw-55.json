@@ -1,0 +1,9 @@
+{
+  "id": "cam-yaw-55",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera 55 deg off to the side: the player is seen three-quarter to side-on.",
+  "camera": {
+    "yaw_deg": 55
+  }
+}

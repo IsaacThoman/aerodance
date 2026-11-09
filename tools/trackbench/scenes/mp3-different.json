@@ -1,0 +1,89 @@
+{
+  "id": "mp3-different",
+  "base": "base-trio",
+  "category": "multiplayer",
+  "description": "3 distinct adults perform different genres, testing strip merging and independent limb scoring.",
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -2.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -2.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "1": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gHO_sFM_cAll_d19_mHO5_ch06",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "2": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            2.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            2.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d10_mPO1_ch02",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    }
+  }
+}

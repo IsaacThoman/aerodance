@@ -7,6 +7,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { PoseRecordEvent } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { LivePoseRecord, PoseSource, PoseSourceEvent } from '../src/pose/PoseSource.ts';
 import { COUNTDOWN_MS, FINISH_MS, MinigameSession, RAISE_START_MS } from '../src/minigames/MinigameSession.ts';
+import { SETUP_TRACKING_REFRESH_MS } from '../src/game/GameSession.ts';
 import { definitionProblem, formatScore, forPlayers, howToFor, listMinigames, playersLabel } from '../src/minigames/definition.ts';
 import { minigameBest, recordMinigameBest } from '../src/minigames/bestScores.ts';
 import { cameraArea, fromDesign, toDesign } from '../src/minigames/cameraArea.ts';
@@ -59,6 +60,24 @@ function puppetCamera(playerCount: PlayerCount) {
   };
   return { clock, puppet, source, run };
 }
+
+test('a stuck line-up retries, and each retry starts the players\' holds again', async () => {
+  const cam = puppetCamera(2);
+  const session = new MinigameSession({ game: game(), playerCount: 2, source: cam.source, now: () => cam.clock.t });
+  await session.load();
+  const step = (ms: number) => cam.run(ms, () => session.advance());
+  // One player is out of the picture: the other holds still all along, but calibration waits.
+  cam.puppet.leave(1);
+  step(SETUP_TRACKING_REFRESH_MS * 2 + 200);
+  assert.equal(session.phase(), 'calibrating');
+  const hold = session.calibrationHold!.holds.find(h => h.startedAt !== null);
+  assert.ok(hold && cam.clock.t - hold.startedAt! < SETUP_TRACKING_REFRESH_MS, 'the holding player started again at the last retry');
+  assert.ok(hold.frames.length <= SETUP_TRACKING_REFRESH_MS / 40 + 1, 'so their samples don\'t pile up');
+  // Back in the picture, everyone calibrates.
+  cam.puppet.enter(1);
+  step(3200);
+  assert.equal(session.phase(), 'howto');
+});
 
 test('a round runs: calibration, the how-to card, raise to start, 3-2-1, play, pause, a timed finish and results', async () => {
   const cam = puppetCamera(2);

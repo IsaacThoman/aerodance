@@ -1,0 +1,12 @@
+{
+  "id": "sens-jpeg30",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: JPEG quality 30.",
+  "post": [
+    {
+      "type": "jpeg",
+      "quality": 30
+    }
+  ]
+}

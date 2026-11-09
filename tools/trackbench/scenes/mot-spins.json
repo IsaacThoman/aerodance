@@ -1,0 +1,47 @@
+{
+  "id": "mot-spins",
+  "base": "base-solo",
+  "category": "motion",
+  "description": "Ballet-jazz turn sequences: repeated spins.",
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 0.5
+        },
+        {
+          "type": "walk",
+          "from": [
+            -2.4,
+            0.6
+          ],
+          "to": [
+            0,
+            0
+          ],
+          "duration_s": 2.0
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 4.0
+        },
+        {
+          "type": "dance",
+          "clip": "gJB_sBM_cAll_d07_mJB2_ch01",
+          "clip_start_s": 0.8,
+          "duration_s": 8.0,
+          "speed": 1.0
+        },
+        {
+          "type": "dance",
+          "clip": "gJB_sBM_cAll_d07_mJB1_ch01",
+          "clip_start_s": 1.0,
+          "duration_s": 8.0,
+          "speed": 1.0
+        }
+      ]
+    }
+  }
+}

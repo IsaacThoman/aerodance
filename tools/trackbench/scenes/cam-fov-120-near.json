@@ -1,0 +1,10 @@
+{
+  "id": "cam-fov-120-near",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Ultrawide 120 deg lens with barrel distortion at 2.0 m (how an ultrawide is used): about the base's pixel size, but warped (two factors: lens and distance).",
+  "camera": {
+    "hfov_deg": 120,
+    "distance_m": 2.0
+  }
+}

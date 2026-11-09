@@ -1,0 +1,263 @@
+{
+ "note": "Real sim2real sequences (sources outside the repo in ~/aerodance-tracking-eval; never commit them or anything derived from their pixels) and their synthetic twins. Twins are rendered at the real source's picture size and go through the same reframe op. Identity GT is the reference ensemble's continuous tracks (checked by eye); the tracking eval's colour oracle (gt-c*.json) did not separate the dancers when sampled at the reference keypoints.",
+ "sources": {
+  "stage": {
+   "path": "~/aerodance-tracking-eval/cand/5xjhNvbSkNU.mp4",
+   "what": "one woman dancing on a stage, fixed camera, 640x360 30 fps",
+   "size": [
+    640,
+    360
+   ],
+   "op": {
+    "op": "crop_scale",
+    "crop": [
+     80,
+     0,
+     480,
+     360
+    ],
+    "out": [
+     640,
+     480
+    ]
+   },
+   "twin_op": {
+    "op": "crop_scale",
+    "crop": [
+     0,
+     0,
+     480,
+     360
+    ],
+    "out": [
+     640,
+     480
+    ]
+   }
+  },
+  "living": {
+   "path": "~/aerodance-tracking-eval/videos2/yFOZPk-SATc.mp4",
+   "what": "a child dancing in a living room, seated bystanders at the edges, portrait phone, 406x720 30 fps",
+   "size": [
+    406,
+    720
+   ],
+   "op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   },
+   "twin_op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   }
+  },
+  "c1": {
+   "path": "~/aerodance-tracking-eval/videos2/qeHCR__47rM.mp4",
+   "what": "three women close together in a hallway, portrait phone, 720x1280 30 fps",
+   "size": [
+    720,
+    1280
+   ],
+   "op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   },
+   "twin_op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   }
+  },
+  "c2": {
+   "path": "~/aerodance-tracking-eval/videos2/x4F2khz0Le0.mp4",
+   "what": "four women outdoors, people far behind, portrait phone, 720x1280 30 fps",
+   "size": [
+    720,
+    1280
+   ],
+   "op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   },
+   "twin_op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   }
+  },
+  "c3": {
+   "path": "~/aerodance-tracking-eval/videos2/zDp0tXfCJEY.mp4",
+   "what": "four or five men in suits in a living room, text overlay, portrait phone, 720x1280 30 fps",
+   "size": [
+    720,
+    1280
+   ],
+   "op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   },
+   "twin_op": {
+    "op": "scale_pad",
+    "scale": [
+     360,
+     640
+    ],
+    "out": [
+     480,
+     640
+    ]
+   }
+  },
+  "atd": {
+   "path": "~/aerodance-tracking-eval/cand/aTdEk-HfdH4.mp4",
+   "what": "four look-alikes (orange shirts, white bottoms) outdoors, logo overlay, 640x360 30 fps",
+   "size": [
+    640,
+    360
+   ],
+   "op": {
+    "op": "pad",
+    "out": [
+     640,
+     480
+    ]
+   },
+   "twin_op": {
+    "op": "pad",
+    "out": [
+     640,
+     480
+    ]
+   }
+  }
+ },
+ "sequences": [
+  {
+   "id": "stage-1",
+   "source": "stage",
+   "start_s": 0,
+   "duration_s": 20,
+   "players": 1,
+   "twin": "twin-stage-1"
+  },
+  {
+   "id": "stage-2",
+   "source": "stage",
+   "start_s": 20,
+   "duration_s": 20,
+   "players": 1,
+   "twin": "twin-stage-2"
+  },
+  {
+   "id": "living-1",
+   "source": "living",
+   "start_s": 0,
+   "duration_s": 20,
+   "players": 1,
+   "twin": "twin-living-1"
+  },
+  {
+   "id": "living-2",
+   "source": "living",
+   "start_s": 20,
+   "duration_s": 20,
+   "players": 1,
+   "twin": "twin-living-2"
+  },
+  {
+   "id": "c1",
+   "source": "c1",
+   "start_s": 0,
+   "duration_s": 11.0,
+   "players": 3,
+   "twin": "twin-c1"
+  },
+  {
+   "id": "c2",
+   "source": "c2",
+   "start_s": 0,
+   "duration_s": 19.9,
+   "players": 4,
+   "twin": "twin-c2"
+  },
+  {
+   "id": "c3",
+   "source": "c3",
+   "start_s": 0,
+   "duration_s": 21.6,
+   "players": 4,
+   "twin": "twin-c3"
+  },
+  {
+   "id": "atd-1",
+   "source": "atd",
+   "start_s": 0,
+   "duration_s": 20,
+   "players": 4,
+   "twin": "twin-atd-1"
+  },
+  {
+   "id": "atd-2",
+   "source": "atd",
+   "start_s": 20,
+   "duration_s": 20,
+   "players": 4,
+   "twin": "twin-atd-2"
+  },
+  {
+   "id": "atd-3",
+   "source": "atd",
+   "start_s": 40,
+   "duration_s": 20,
+   "players": 4,
+   "twin": "twin-atd-3"
+  }
+ ]
+}
