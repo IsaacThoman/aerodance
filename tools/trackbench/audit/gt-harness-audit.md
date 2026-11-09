@@ -16,6 +16,8 @@ The code correctly intersects scene IDs for baseline deltas, **but then filters 
 
 Summary/category means also use each estimator's own scene set (112 versus 82 versus 79 here). They are not comparable rankings, even though fully finite baseline deltas use shared scenes.
 
+**Status (2026-11-09): fixed in `report.ts`.** Failures are counted beside each mean, head the worst lists, and deltas are means of per-scene differences over the pairs where both have a value, with each side's failures (`studies/paired.ts` already counted them).
+
 **Fix:** expose success/failure/eligible counts per metric; show failed scenes explicitly in worst cases. Compute finite-value deltas from pairwise differences on the same eligible pairs, report their N, and separately compare failure rates. Use a common scene cohort for ranking tables or prominently label different coverage. Treat setup timeouts as censored failures, not ordinary missing data.
 
 ### 2. The 120° distortion bypasses the intended focal-length correction

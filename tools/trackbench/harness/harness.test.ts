@@ -6,7 +6,7 @@ import { gaussian, perfectDetections, writeFixtureScene } from './fixtures.ts';
 import type { FixtureOptions } from './fixtures.ts';
 import { accumulateOffsets, finishOffsets, sceneMetrics, zeroOffsets } from './metrics.ts';
 import { trackDetections } from './track.ts';
-import { COLUMNS, buildReport } from './report.ts';
+import { COLUMNS, buildReport, rowOf } from './report.ts';
 import { GameLoop } from './gameloop.ts';
 import { nextFrame } from './run-game.ts';
 
@@ -165,13 +165,12 @@ test('realtime records the game drops as too old are not tracked', () => {
 test('the report aggregates scenes and estimators, with deltas and worst scenes', () => {
   const s = scene(duo);
   const good = run(s).m, bad = run(s, perfectDetections(s.gt, { drop: (p, f) => p.id === 'a' && f.t_ms > 5000 })).m;
-  const row = (estimator: string, m: typeof good, sceneId: string) => ({ scene: sceneId, category: m.category, players: m.players, estimator,
-    values: Object.fromEntries(COLUMNS.map(c => [c.key, c.get(m)])) });
+  const row = (estimator: string, m: typeof good, sceneId: string) => rowOf(estimator, sceneId, m);
   const rows = [row('perfect', good, 'duo'), row('dropping', bad, 'duo'), row('perfect', good, 'duo2')];
   const { markdown, json } = buildReport(rows, 'perfect', 3);
   const dropping = json.summary.find(x => x.estimator === 'dropping')!;
-  assert.ok(dropping.deltas!.score_lost! > 100_000);
-  assert.ok(dropping.deltas!.lost! > 0.1);
+  assert.ok(dropping.deltas!.score_lost.delta! > 100_000);
+  assert.ok(dropping.deltas!.lost.delta! > 0.1);
   assert.equal(json.summary.find(x => x.estimator === 'perfect')!.scenes, 2);
   assert.match(markdown, /## By category/);
   assert.equal(json.worst.dropping.score_lost[0].scene, 'duo');
@@ -204,3 +203,22 @@ test('a setup line-up retry clears a partial calibration hold with the old playe
   assert.ok(loop.calibration.holds.every(h => h.startedAt === null && h.frames.length === 0));
   assert.deepEqual(loop.calibration.players, ['missing', 'missing']);
 });
+
+test('report: a failure is counted and listed, and deltas are paired over the scenes both have', () => {
+  const s = scene(solo);
+  const m = run(s).m;
+  const row = (estimator: string, sceneId: string, calib: number | null) => {
+    const r = rowOf(estimator, sceneId, m);
+    return { ...r, values: { ...r.values, calib }, failed: { ...r.failed, calib: calib === null } };
+  };
+  // The audit's counterexample: the candidate fails scene a, and is the same on b.
+  const { markdown, json } = buildReport([row('base', 'a', 1000), row('base', 'b', 3000), row('candidate', 'a', null), row('candidate', 'b', 3000)], 'base', 3);
+  const cand = json.summary.find(x => x.estimator === 'candidate')!;
+  assert.equal(cand.deltas!.calib.delta, 0);
+  assert.equal(cand.deltas!.calib.pairs, 1);
+  assert.equal(cand.deltas!.calib.fails, 1);
+  assert.equal(cand.fails.calib, 1);
+  assert.deepEqual(json.worst.candidate.calib[0], { scene: 'a', value: null, failed: true });
+  assert.match(markdown, /\(\+1 fail\)/);
+});
+

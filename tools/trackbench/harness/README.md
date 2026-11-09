@@ -251,6 +251,14 @@ deltas against the baseline over the scenes both ran), per category, a per-scene
 score lost (identity accuracy, recall), per-scene score-lost deltas against the baseline, and
 the worst scenes per headline metric. The JSON has the same plus every row.
 
+**Failures count.** A metric with no value because tracking never got there (identity or
+numbering when the players were never numbered, all-tracked time when they never all were,
+calibration time in a scene with a calibratable hold that never calibrated) is a failure: means
+are over the scenes with a value and say `(+n fail)` beside them, failed scenes head the worst
+lists, and a delta is the mean of per-scene differences over the scenes where *both* have a
+value, with each side's failures beside it. (Before, a failure vanished from the means and the
+worst lists, and deltas compared two different sets of scenes.)
+
 ## Files
 
 | File | |
