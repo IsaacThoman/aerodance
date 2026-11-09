@@ -29,6 +29,8 @@ const H = { wrist: 0, index: 5, middle: 9, pinky: 17 } as const;
 export const MOTION = { rest: 0.15, swing: 1.0, peak: 1.5, peakWindowMs: 100 } as const;
 /** A bone counts as clearly towards or away from the camera when its GT depth change is at least this (m). */
 export const CLEAR_DEPTH = 0.08;
+/** A GT wrist this far (m) in front of its shoulder is reaching forward, as a ping-pong stance holds the paddle. */
+export const FORWARD_REACH = 0.2;
 /** Lag search range and step (ms): positive means the tracked path trails the GT. */
 export const LAG = { min: -200, max: 400, step: 5 } as const;
 /** Half-width (ms) of the moving average jitter is measured against. */
@@ -439,6 +441,8 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     by_visibility: Object.fromEntries(Object.entries(groupBy(paddle, s => String(s.vis))).map(([k, v]) => [k, errorBlock(v)])),
     by_source: Object.fromEntries(Object.entries(groupBy(paddle, s => s.raw.from)).map(([k, v]) => [k, errorBlock(v)])),
     by_phase: Object.fromEntries(Object.entries(groupBy(paddle, s => s.phase ?? 'none')).map(([k, v]) => [k, errorBlock(v)])),
+    // Reaching forward (the GT wrist FORWARD_REACH in front of the shoulder), as a ping-pong stance does, or not.
+    by_reach: Object.fromEntries(Object.entries(groupBy(paddle, s => s.gt!.wrist.z < -FORWARD_REACH ? 'forward' : 'not_forward')).map(([k, v]) => [k, errorBlock(v)])),
     by_player: Object.fromEntries(Object.entries(groupBy(paddle, s => s.person ?? '?')).map(([k, v]) => [k, errorBlock(v)])),
   };
 
@@ -643,6 +647,12 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     blade_bias_cm: [p.blade.x.bias, p.blade.y.bias, p.blade.z.bias], blade_sd_cm: [p.blade.x.sd, p.blade.y.sd, p.blade.z.sd],
     blade_swing_cm: errorBlock(paddle.filter(s => s.state === 'swing' || s.state === 'peak')).blade_filtered.median,
     blade_rest_cm: accuracy.by_motion.rest?.blade_filtered.median ?? null,
+    forward_share: paddle.length ? round(paddle.filter(s => s.gt!.wrist.z < -FORWARD_REACH).length / paddle.length) : null,
+    wrist_forward_cm: accuracy.by_reach.forward?.wrist.median ?? null,
+    wrist_forward_bias_cm: accuracy.by_reach.forward ? [accuracy.by_reach.forward.wrist.x.bias, accuracy.by_reach.forward.wrist.y.bias, accuracy.by_reach.forward.wrist.z.bias] : null,
+    wrist_forward_sd_cm: accuracy.by_reach.forward ? [accuracy.by_reach.forward.wrist.x.sd, accuracy.by_reach.forward.wrist.y.sd, accuracy.by_reach.forward.wrist.z.sd] : null,
+    blade_forward_cm: accuracy.by_reach.forward?.blade_filtered.median ?? null,
+    across_deg: p.across_deg.median,
     dir_deg: p.dir_deg.median, from_hand: paddleAll.length ? round(paddleAll.filter(s => s.raw.from === 'hand').length / paddleAll.length) : null,
     swing_vel_err_ms: vectorStats(swingVel.raw, 1).median, swing_vel_err_filtered_ms: vectorStats(swingVel.filt, 1).median,
     swing_speed_ratio: round(quantile(velErrs.ratioRaw, 0.5), 3), swing_speed_ratio_filtered: round(quantile(velErrs.ratioFilt, 0.5), 3),

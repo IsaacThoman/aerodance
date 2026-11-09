@@ -31,7 +31,13 @@ export const COLUMNS: Column[] = [
   { key: 'blade_filtered_cm', label: 'blade filt', get: at('blade_filtered_cm'), digits: 1, better: 'lower' },
   { key: 'blade_p90_cm', label: 'blade p90', get: at('blade_p90_cm'), digits: 1, better: 'lower' },
   { key: 'blade_swing_cm', label: 'blade swing', get: at('blade_swing_cm'), digits: 1, better: 'lower' },
+  { key: 'forward_share', label: 'forward share', get: at('forward_share'), digits: 3, better: 'higher' },
+  { key: 'wrist_forward_cm', label: 'wrist fwd cm', get: at('wrist_forward_cm'), digits: 1, better: 'lower' },
+  { key: 'wrist_forward_bias_z', label: 'fwd bias z', get: (s: Summary) => s.wrist_forward_bias_cm?.[2] ?? null, digits: 1, better: 'closer0' },
+  { key: 'wrist_forward_sd_z', label: 'fwd sd z', get: (s: Summary) => s.wrist_forward_sd_cm?.[2] ?? null, digits: 1, better: 'lower' },
+  { key: 'blade_forward_cm', label: 'blade fwd filt', get: at('blade_forward_cm'), digits: 1, better: 'lower' },
   { key: 'dir_deg', label: 'dir °', get: at('dir_deg'), digits: 1, better: 'lower' },
+  { key: 'across_deg', label: 'across °', get: at('across_deg'), digits: 1, better: 'lower' },
   { key: 'swing_speed_ratio_filtered', label: 'swing speed ×', get: at('swing_speed_ratio_filtered'), digits: 2, better: 'closer1' },
   { key: 'swing_vel_err_filtered_ms', label: 'swing vel err m/s', get: at('swing_vel_err_filtered_ms'), digits: 2, better: 'lower' },
   { key: 'lag_ms', label: 'lag ms', get: at('lag_ms'), digits: 0, better: 'closer0' },
@@ -53,7 +59,7 @@ export const COLUMNS: Column[] = [
   { key: 'pose_hz', label: 'pose Hz', get: at('pose_hz'), digits: 1, better: 'higher' },
 ];
 /** The columns the compact class table prints (the JSON has every one). */
-export const COMPACT = ['paddle_tracked', 'wrist_cm', 'wrist_bias_x', 'wrist_bias_y', 'wrist_bias_z', 'wrist_sd_x', 'wrist_sd_y', 'wrist_sd_z', 'blade_filtered_cm', 'blade_swing_cm',
+export const COMPACT = ['paddle_tracked', 'wrist_cm', 'wrist_bias_x', 'wrist_bias_y', 'wrist_bias_z', 'wrist_sd_x', 'wrist_sd_y', 'wrist_sd_z', 'blade_filtered_cm', 'blade_swing_cm', 'wrist_forward_cm', 'wrist_forward_bias_z',
   'lag_filtered_ms', 'jitter_rest_filtered_cm', 'hand_found', 'hand_wrong_side', 'back_read_forward', 'raise_false_per_min', 'inference_ms', 'pose_hz'];
 
 /** Scenes sharing a render (post-only variants) are one cluster: meta.json's render_key, else the scene. */

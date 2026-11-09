@@ -17,6 +17,7 @@ The findings, and the changes made because of them, are in [REPORT.md](REPORT.md
 | [`harness/`](harness/) | The game's worker in Chromium/Metal, its tracker, calibration and scorer; metrics; reports | [`harness/README.md`](harness/README.md) |
 | [`estimators/`](estimators/) | Runners for candidate pose estimators (MediaPipe, RTMO, RTMPose, MoveNet, Apple Vision, YOLO references), browser latency probes | [`README.md`](estimators/README.md), [`CANDIDATES.md`](estimators/CANDIDATES.md) |
 | [`matrix.py`](matrix.py), [`finalize.sh`](finalize.sh) | Every estimator over every scene, skipping work that's done | |
+| [`PINGPONG.md`](PINGPONG.md) | The Table Tennis paddle's meter (`--detail`, `pingpong.ts`, `pp-report.ts`) and its first baseline | |
 | [`studies/`](studies/) | Paired comparisons, calibration rules, scoring treatments | below |
 | [`sim2real/`](sim2real/) | Checks that synthetic conclusions hold on real footage (AIST++ videos) | [`README.md`](sim2real/README.md) |
 | [`audit/`](audit/) | Independent audits of the GT, harness and runners, with their check scripts | [`gt-harness-audit.md`](audit/gt-harness-audit.md), [`estimators-audit.md`](audit/estimators-audit.md) |
