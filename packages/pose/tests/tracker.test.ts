@@ -541,3 +541,18 @@ test('a player\'s home moves only after they\'ve stood somewhere for half a seco
   run(tracker, repeat(20, () => ({ people: [person(0.82, { arms: 0.05 }), person(0.3, { arms: 0.1 })] })), 1815);
   assert.ok(Math.abs(tracker.players[0].home - 0.82 * 4 / 3) < 1e-6, 'after half a second');
 });
+
+test('a player\'s home doesn\'t move while they\'re tangled with somebody, only once they\'ve stood clear for half a second', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(40, () => ({ people: [person(0.7), person(0.3, { arms: 0.1 })] })));
+  const home = tracker.players[0].home;
+  // P2 comes to stand beside P1, overlapping them, while P1 drifts slowly to one side; then P2
+  // goes back.
+  run(tracker, repeat(20, i => ({ people: [person(0.7), person(0.3 + 0.0175 * (i + 1), { arms: 0.1 })] })), 1320);
+  run(tracker, repeat(30, i => ({ people: [person(0.7 - 0.002 * (i + 1)), person(0.65, { arms: 0.1 })] })), 1980);
+  run(tracker, repeat(20, i => ({ people: [person(0.64), person(0.65 - 0.0175 * (i + 1), { arms: 0.1 })] })), 2970);
+  run(tracker, repeat(3, () => ({ people: [person(0.64), person(0.3, { arms: 0.1 })] })), 3630);
+  assert.equal(tracker.players[0].home, home, 'not at once');
+  run(tracker, repeat(25, () => ({ people: [person(0.64), person(0.3, { arms: 0.1 })] })), 3729);
+  assert.ok(Math.abs(tracker.players[0].home - 0.64 * 4 / 3) < 1e-6, 'after half a second clear');
+});
