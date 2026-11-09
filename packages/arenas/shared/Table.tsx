@@ -56,6 +56,8 @@ export interface TableProps {
   netTape?: THREE.ColorRepresentation;
   /** How glossy the top is: the clearcoat over its paint (0 = matte, 1 = lacquer). */
   gloss?: number;
+  /** How rough the top's paint is under that: satin by default; a real table's is matte, about 0.8. */
+  roughness?: number;
   children?: ReactNode;
 }
 
@@ -176,12 +178,13 @@ export function Table({
   net = '#16223b',
   netTape = '#ffffff',
   gloss = 0.7,
+  roughness = 0.38,
   children,
 }: TableProps) {
-  const key = JSON.stringify([top, lines, edge, legs, legColor, legMetalness, trim, trimIntensity, net, netTape, gloss]);
+  const key = JSON.stringify([top, lines, edge, legs, legColor, legMetalness, trim, trimIntensity, net, netTape, gloss, roughness]);
   const parts = useDisposable(() => {
     const surfaceMap = surfaceTexture(top, lines);
-    const surface = new THREE.MeshPhysicalMaterial({ map: surfaceMap, roughness: 0.38, clearcoat: gloss, clearcoatRoughness: 0.1 });
+    const surface = new THREE.MeshPhysicalMaterial({ map: surfaceMap, roughness, clearcoat: gloss, clearcoatRoughness: 0.1 });
     const band = new THREE.MeshPhysicalMaterial({ color: edge, roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.08 });
     const leg = new THREE.MeshPhysicalMaterial({ color: legColor, metalness: legMetalness, roughness: 0.18 + 0.1 * (1 - legMetalness), clearcoat: 0.6, clearcoatRoughness: 0.1 });
     const netMap = netTexture(net, netTape);

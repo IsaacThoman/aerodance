@@ -109,7 +109,7 @@ export default function BiodomeArena({ children }: { children?: ReactNode }) {
       <Butterflies />
       <Hummingbirds />
       <Birds />
-      <Table top="#06704a" lines="#ffffff" edge="#f4fbf8" legs="arch" legColor="#ffffff" trim="#b8ff7a" trimIntensity={1.6} net="#0b3a28" netTape="#ffffff" gloss={0.6}>
+      <Table top="#06704a" lines="#ffffff" edge="#f4fbf8" legs="arch" legColor="#ffffff" trim="#b8ff7a" trimIntensity={1.6} net="#0b3a28" netTape="#ffffff" gloss={0} roughness={0.8}>
         {children}
       </Table>
     </>
