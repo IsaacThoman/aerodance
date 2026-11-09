@@ -10,10 +10,13 @@
  *
  * So the torso's size in the picture (its real size from the model's world landmarks, turned as
  * it's turned) puts the shoulders in the room: depth = focal length × metres ÷ pixels. Down the
- * arm, each bone's far end is as much nearer the camera (forward, for the player facing it) than
- * its near end as its length allows after what the picture shows of it, unless the pose model is
- * sure the bone points back; it sits on its own ray through the picture at that depth. The Hand Landmarker gives the wrist's place in the
- * picture more exactly than the pose, and the hand's angles.
+ * arm, each bone's far end is as much nearer the camera (forward, for the player facing it) or
+ * further than its near end as its length allows after what the picture shows of it; it sits on
+ * its own ray through the picture at that depth. Which way is the model's call: the forearm is
+ * taken as forward unless the model is sure it points back; the upper arm (its elbow behind the
+ * shoulder in a backswing or a serve, where the model says so only faintly) as far forward or
+ * back as the model leans, and flat when it can't say. The Hand Landmarker gives the wrist's
+ * place in the picture more exactly than the pose, and the hand's angles.
  *
  * Camera space: x towards the picture's right, y down, z away from the camera, in metres. The
  * player faces the camera, so their own frame is that turned half round: x right, y up, z back
@@ -56,8 +59,17 @@ export const ARM = 0.68;
 const UPPER_ARM = 0.62, FOREARM = 0.5;
 /** The torso's length (metres, as the model's world landmarks measure it) when its hips aren't seen, and the range it's believed in. */
 const TORSO_LENGTH = { usual: 0.5, min: 0.4, max: 0.6 };
-/** The pose model has to think a bone points back by this much (metres) to be believed. */
+/** The pose model has to think a forearm points back by this much (metres) to be believed. */
 export const SURELY_BACK = 0.12;
+/**
+ * How far forward (1) or back (−1) an upper arm is taken to point, from the depth the pose model
+ * gives it (its elbow's from its shoulder, metres; + is away from the camera): −tanh((dz − at) ÷
+ * width). The model's depths are squashed (an elbow 15 cm behind the shoulder reads a few cm),
+ * but their sign is right nineteen times in twenty on the ping-pong scenes; where it's unsure the
+ * bone is taken as lying flat, between its two readings, rather than flipping from one to the other.
+ */
+export const UPPER_ARM_LEAN = { at: 0, width: 0.16 };
+export const upperArmForward = (dz: number) => -Math.tanh((dz - UPPER_ARM_LEAN.at) / UPPER_ARM_LEAN.width);
 /** The webcam's horizontal field of view when nothing says otherwise (laptop cameras are about 60-75°). */
 export const DEFAULT_FOV = 65;
 
@@ -93,13 +105,15 @@ export function depthOf(world: readonly WorldPoint[], image: readonly PicturePoi
  * The depth of a bone's far end, from its near end's (`from`, camera space) and where the far end
  * is in the picture (`rayAt1`, its ray's point at depth 1): what's left of the bone's length after
  * the length the picture shows (measured at the near end's depth) points towards the camera
- * (forward), or away if `back`. (Measured that way, not where the ray meets a sphere of the bone's
- * length: in perspective, a bone lying flat across the picture meets it twice, once nearer.)
+ * (forward), or away if `back`; or, given a number from 1 (forward) to −1 (back), that share of
+ * it. (Measured that way, not where the ray meets a sphere of the bone's length: in perspective,
+ * a bone lying flat across the picture meets it twice, once nearer.)
  */
-export function boneEnd(rayAt1: Vec3, from: Vec3, length: number, back = false): number {
+export function boneEnd(rayAt1: Vec3, from: Vec3, length: number, back: boolean | number = false): number {
   const flat = Math.hypot(rayAt1.x * from.z - from.x, rayAt1.y * from.z - from.y);
   const along = Math.sqrt(Math.max(0, length * length - flat * flat));
-  return from.z + (back ? along : -along);
+  const forward = typeof back === 'number' ? back : back ? -1 : 1;
+  return from.z - forward * along;
 }
 
 /**
@@ -166,7 +180,9 @@ export function handPose(pose: { landmarks: PicturePoint[]; world: WorldPoint[] 
   let wristDepth: number;
   if (seen(elbowAt)) {
     const elbowRay = ray(image[elbowAt], size, f);
-    const elbow = scale(elbowRay, boneEnd(elbowRay, shoulder, upper, world[elbowAt].z - world[j.shoulder].z > SURELY_BACK));
+    // (Stand-ins with no depths at all, flatWorld's, can't lean: the arm is taken as out in front.)
+    const lean = world[elbowAt].z === 0 && world[j.shoulder].z === 0 ? 1 : upperArmForward(world[elbowAt].z - world[j.shoulder].z);
+    const elbow = scale(elbowRay, boneEnd(elbowRay, shoulder, upper, lean));
     wristDepth = boneEnd(wristRay, elbow, fore, world[j.wrist].z - world[elbowAt].z > SURELY_BACK);
   } else {
     // No elbow: the wrist a bent arm's reach from the shoulder.

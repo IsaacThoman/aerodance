@@ -11,7 +11,7 @@
 // per-frame camera_to_world (Blender: the camera looks down its -Z, +Y up).
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_FOV, SURELY_BACK, flatWorld } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
+import { DEFAULT_FOV, SURELY_BACK, flatWorld, upperArmForward } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
 import { SERVE_SWING, SWING, strongestSwing } from '../../../apps/web/src/minigames/table-tennis/assist.ts';
 import { BLADE_UP, MITT, RAISED, REACH, borneOut, followHands, intake, newHandIntake, newRig, readHands } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
 import type { FoundHand } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
@@ -684,9 +684,11 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
       if (Math.abs(dzG) < CLEAR_DEPTH) continue;
       depth.clear++;
       if (Math.sign(dzG) !== Math.sign(dzT)) depth.sign_wrong++;
-      // arms.ts takes a bone as pointing forward unless the model says back by SURELY_BACK.
-      if (dzG > 0) { depth.gt_back++; if (!(dzT > SURELY_BACK)) depth.back_read_forward++; }
-      else { depth.gt_forward++; if (dzT > SURELY_BACK) depth.forward_read_back++; }
+      // arms.ts takes a forearm as pointing forward unless the model says back by SURELY_BACK, and
+      // an upper arm as leaning whichever way the model leans it (upperArmForward).
+      const readBack = a === 11 || a === 12 ? upperArmForward(dzT) < 0 : dzT > SURELY_BACK;
+      if (dzG > 0) { depth.gt_back++; if (!readBack) depth.back_read_forward++; }
+      else { depth.gt_forward++; if (readBack) depth.forward_read_back++; }
     }
   }
 

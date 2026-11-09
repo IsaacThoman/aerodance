@@ -224,8 +224,11 @@ test('pingpong metrics: an exactly tracked player scores (near) zero error and l
   const s = exact.summary;
   assert.equal(s.gt, true);
   assert.equal(s.paddle_tracked, 1);
-  assert.ok(s.wrist_cm! < 0.5, `wrist ${s.wrist_cm} cm`);
-  assert.ok(s.blade_cm! < 0.5, `blade ${s.blade_cm} cm`);
+  // arms.ts leans an upper arm only as far as -tanh(dz / 0.16) of the way forward (upperArmForward):
+  // this one, 24 cm forward with exact depths, reads 90% forward, its elbow and wrist ~2 cm short.
+  assert.ok(s.wrist_cm! < 3, `wrist ${s.wrist_cm} cm`);
+  assert.ok(s.blade_cm! < 3, `blade ${s.blade_cm} cm`);
+  assert.ok(Math.abs(s.wrist_bias_cm[0]!) < 0.5 && Math.abs(s.wrist_bias_cm[1]!) < 0.5, `across and up exact: ${s.wrist_bias_cm}`);
   assert.ok(s.dir_deg! < 1, `dir ${s.dir_deg}°`);
   assert.ok(Math.abs(s.lag_ms!) < 3, `lag ${s.lag_ms}`);
   assert.ok(s.world_arm_cm! < 0.1);
@@ -236,8 +239,9 @@ test('pingpong metrics: an exactly tracked player scores (near) zero error and l
   assert.ok(Math.abs(late.summary.lag_ms! - 100) < 8, `lag ${late.summary.lag_ms}`);
   assert.ok(late.accuracy.by_side.right.wrist.median! > 1, `late wrist ${late.accuracy.by_side.right.wrist.median}`);
   // (arms.ts measures a bone's spread across the picture at its near end's depth: on a forearm
-  // sweeping across the body that leaves about a centimetre, three at worst, even from exact input.)
-  assert.ok(exact.accuracy.by_side.right.wrist.median! < 1.5 && exact.accuracy.by_side.right.wrist.p90! < 4, JSON.stringify(exact.accuracy.by_side.right.wrist));
+  // sweeping across the body that leaves about a centimetre, three at worst, even from exact input;
+  // and the upper arm's lean (above) adds ~2 cm, in depth.)
+  assert.ok(exact.accuracy.by_side.right.wrist.median! < 3 && exact.accuracy.by_side.right.wrist.p90! < 7, JSON.stringify(exact.accuracy.by_side.right.wrist));
   // The same at the camera's true field of view (65°, the game's): no difference.
   assert.equal(exact.fov.true, 65);
   assert.equal(s.wrist_true_fov_cm, s.wrist_cm);

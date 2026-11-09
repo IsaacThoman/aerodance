@@ -74,8 +74,9 @@ the hand is**). Each record's poses are matched to GT people per frame, as metri
   other wrist.
 - **World landmarks**: root-aligned arm MPJPE (11-16), and for upper arms and forearms whose GT
   depth changes by ≥ 8 cm: the sign error rate, the share of GT-backward bones that arms.ts takes
-  as forward (it takes every bone as forward unless the model says back by `SURELY_BACK`, 12 cm),
-  and the reverse.
+  as forward (a forearm is forward unless the model says back by `SURELY_BACK`, 12 cm; an upper
+  arm leans the way the model leans it, `upperArmForward`; until 2026-11-09 every bone went by
+  `SURELY_BACK`), and the reverse.
 - **Serve raise** (the free hand; both hands when no paddle hand is known): the game's state
   from the filtered wrist height with `RAISED`'s hysteresis, and the hand lost after 500 ms,
   against the same rule on the GT: false triggers per minute, the share of GT raises missed
