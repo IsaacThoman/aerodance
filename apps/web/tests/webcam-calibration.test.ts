@@ -166,13 +166,18 @@ test('one unsure result is like a moment missed, not a restart', () => {
 });
 
 test('with two results in the window, jitter either way is treated the same', () => {
-  for (const dx of [0.1, -0.1]) {
+  const statuses = [];
+  for (const dx of [0.04, -0.04]) {
     const { calibration, send } = camera(1);
-    for (let time = 0; time <= 1200; time += 150) send(time);
+    for (let time = 0; time <= 1200; time += 200) send(time);
     const jitter = poses(1); jitter[0].landmarks[23].x += dx; jitter[0].landmarks[24].x += dx;
-    send(1350, jitter);
-    assert.equal(calibration.status(1350).players[0], 'holding', `hips ${dx > 0 ? 'right' : 'left'}`);
+    send(1400, jitter);
+    const status = calibration.status(1400);
+    statuses.push(status);
+    assert.equal(status.players[0], 'holding', `hips ${dx > 0 ? 'right' : 'left'}`);
+    assert.equal(calibration.holds[0].recent.length, 2, 'only one earlier result is within 300 ms');
   }
+  assert.deepEqual(statuses[0], statuses[1]);
 });
 
 test('a player the model misses for a moment is still holding', () => {
@@ -250,4 +255,25 @@ test('a hold is measured from where a player settles over its first half second,
     assert.deepEqual(calibration.status(time).players, ['holding'], `at ${time} ms`);
   }
   assert.equal(send(WEBCAM_STILL_MS, [{ playerId: 0, landmarks: standingPose(0.5 + shift(WEBCAM_STILL_MS)) }]), true);
+});
+
+test('a number passing to somebody else in the last result before completion doesn\'t complete with their stance', () => {
+  const { calibration, send, hold } = camera();
+  hold(0, 2400);
+  const swapped = (p: Pose[]) => [{ playerId: 0, landmarks: p[1].landmarks }, { playerId: 1, landmarks: p[0].landmarks }];
+  // The median of the last few results still says everyone is where they were.
+  assert.equal(send(2500, swapped(poses())), false);
+  assert.equal(calibration.status(2500).complete, false);
+  // As the swap carries on, both holds start again.
+  hold(2600, 2800, swapped);
+  assert.ok(calibration.status(2800).players.every(p => p === 'moving' || p === 'holding'));
+  assert.equal(calibration.status(2800).complete, false);
+});
+
+test('one jittery result at the moment of completion only delays it by a result', () => {
+  const { send, hold } = camera(1);
+  hold(0, 2400);
+  const jitter = poses(1); jitter[0].landmarks[23].x += 0.08; jitter[0].landmarks[24].x += 0.08;
+  assert.equal(send(2500, jitter), false);
+  assert.equal(send(2600), true);
 });

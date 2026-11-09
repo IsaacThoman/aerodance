@@ -47,9 +47,18 @@ export interface WebcamCalibrationOptions {
   feet?: boolean;
 }
 
-/** One player's hold: since when, the stance it started from, its samples, and their latest poses. */
-interface Hold { startedAt: number | null; anchor: Pose | null; frames: Pose[]; recent: { at: number; pose: Pose }[]; seen: number; }
-const freshHold = (): Hold => ({ startedAt: null, anchor: null, frames: [], recent: [], seen: -Infinity });
+/**
+ * One player's hold: since when, the stance it started from, its samples, their latest poses, and
+ * whether the latest pose itself (not only the median) is near the stance.
+ */
+interface Hold { startedAt: number | null; anchor: Pose | null; frames: Pose[]; recent: { at: number; pose: Pose }[]; seen: number; near: boolean; }
+const freshHold = (): Hold => ({ startedAt: null, anchor: null, frames: [], recent: [], seen: -Infinity, near: true });
+/**
+ * Calibration completes only while each player's latest pose is within this many tolerances of
+ * their stance: the median outvotes a number that passed to somebody else for a result or two,
+ * and one jittery result only delays completion by a result.
+ */
+const NEAR = 2;
 
 /**
  * Each player's hold runs on its own: a player who moves, steps out or is missed for long
@@ -135,12 +144,12 @@ export class WebcamCalibration {
         this.holds[id] = freshHold();
         return 'body';
       }
-      const stance = this.stance(hold, pose, captureTime);
+      const stance = this.stance(hold, pose, captureTime), joints = this.feet ? BODY : TORSO;
+      const toleranceOf = (anchor: readonly Landmark[]) => Math.max(0.02, distance(mid(anchor, 11, 12), mid(anchor, 23, 24), aspect)) * MOVEMENT_TOLERANCE;
       if (hold.anchor) {
-        const anchor = hold.anchor.landmarks;
-        const tolerance = Math.max(0.02, distance(mid(anchor, 11, 12), mid(anchor, 23, 24), aspect)) * MOVEMENT_TOLERANCE;
+        const anchor = hold.anchor.landmarks, tolerance = toleranceOf(anchor);
         // (A number that passed to somebody else standing elsewhere shows as a move too.)
-        if ((this.feet ? BODY : TORSO).some(i => distance(stance[i], anchor[i], aspect) > tolerance)) {
+        if (joints.some(i => distance(stance[i], anchor[i], aspect) > tolerance)) {
           // Their hold starts again from where they are now.
           this.holds[id] = { ...freshHold(), recent: [{ at: captureTime, pose }] };
           return 'moving';
@@ -148,12 +157,14 @@ export class WebcamCalibration {
       } else hold.startedAt = captureTime;
       // The stance a hold is measured from settles over its first WEBCAM_SETTLE_MS.
       if (captureTime - hold.startedAt! < WEBCAM_SETTLE_MS) hold.anchor = { playerId: id, landmarks: stance };
+      const anchor = hold.anchor!.landmarks;
+      hold.near = joints.every(i => distance(pose.landmarks[i], anchor[i], aspect) <= NEAR * toleranceOf(anchor));
       hold.frames.push(pose);
       hold.seen = captureTime;
       return 'holding';
     });
     const done = this.players.every(p => p === 'holding')
-      && this.holds.every(h => captureTime - h.startedAt! >= WEBCAM_STILL_MS && h.frames.length >= MIN_SAMPLES);
+      && this.holds.every(h => captureTime - h.startedAt! >= WEBCAM_STILL_MS && h.frames.length >= MIN_SAMPLES && h.near);
     if (done) {
       this.tracks = this.holds.map(h => calibratePoses(h.frames, record.input, { adaptiveDistance: true }));
       this.players = Array(this.playerCount).fill('ready');
