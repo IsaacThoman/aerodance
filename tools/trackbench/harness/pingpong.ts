@@ -218,7 +218,7 @@ export function sampleAt(times: readonly number[], points: readonly Vec3[], t: n
  * parabola through the best three. Positive: the tracked path trails. Null with too little
  * movement to tell (the GT's spread under 2 cm) or too few samples.
  */
-export function bestLag(trackedTimes: readonly number[], tracked: readonly Vec3[], gtTimes: readonly number[], gt: readonly Vec3[], range = LAG): { lag_ms: number; rms_cm: number; n: number } | null {
+export function bestLag(trackedTimes: readonly number[], tracked: readonly Vec3[], gtTimes: readonly number[], gt: readonly Vec3[], range: { min: number; max: number; step: number } = LAG): { lag_ms: number; rms_cm: number; n: number } | null {
   const costs: { lag: number; cost: number; n: number }[] = [];
   for (let lag = range.min; lag <= range.max; lag += range.step) {
     const pairs: [Vec3, Vec3][] = [];
