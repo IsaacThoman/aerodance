@@ -78,7 +78,14 @@ GT sanity on `pp1-base`: MediaPipe's Hand Landmarker on game-style cuts round th
 93 % of hands (ready 98 %, swing 81 %) with a median wrist error of 5 px and 0.15 palm lengths
 over the 21 points; Pose Lite finds the player in every frame; hand `kp3d` re-projects to
 0.04 px (`checks/hand_check.py`, `checks/mp_check.py`, `audit/check_gt.py pp1-base`).
-Render log: `$TRACKBENCH_DATA/logs/pingpong/suite.log` (per scene logs beside it).
+Across the suite (`$TRACKBENCH_DATA/reports/pingpong/SUMMARY.md`, per-scene JSON beside it):
+every vis-0 point lies on its person's mask; body and hand `kp3d` re-project to ≤ 0.13 px; Pose
+Lite finds the players in 93-100 % of frames; the Hand Landmarker's found rate on GT-cut hands
+ranges from 0.95 (`pp1-gentle`, `pp1-base`) through 0.85-0.87 with a paddle in hand, 0.71 in dark
+sleeves, 0.52-0.58 in dim/TV light, to 0.32 (`pp-held-1`), and is lowest mid-swing: the suite
+separates the conditions it was built for. Render log: `$TRACKBENCH_DATA/logs/pingpong/suite.log`
+(per-scene logs beside it; the suite took 2 h 2 min at ~3.3 min a scene, 37 GB with `render/`
+PNGs kept).
 
 ## Multiplayer, bystanders and setup
 

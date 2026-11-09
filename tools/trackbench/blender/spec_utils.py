@@ -13,7 +13,7 @@ GENERATOR_VERSION = 'trackbench-gen 1.2'  # 1.1: Standard view transform + per-p
 
 # Table-tennis motion/paddle/hand-GT version: part of the render key of scenes with a pingpong
 # segment only (other scenes' keys are unchanged).
-PINGPONG_VERSION = 'pingpong 1.0'
+PINGPONG_VERSION = 'pingpong 1.0'  # GT-only fixes don't change it (render.py --gt-only)
 
 # Keys that don't change the rendered pixels or GT.
 NON_RENDER_KEYS = ('id', 'description', 'category', 'phases', 'post', 'base', 'players')

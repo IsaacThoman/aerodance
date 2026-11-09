@@ -209,6 +209,23 @@ class PersonGT:
         return out
 
 
+def _world_bvh(o, deps):
+    """BVH of an object's evaluated mesh in world space. (BVHTree.FromObject works in the object's
+    own space: right for the people, whose meshes sit at the origin, wrong for a paddle carried by
+    a wrist bone.)"""
+    ev = o.evaluated_get(deps)
+    me = ev.to_mesh()
+    co = np.empty(len(me.vertices) * 3, np.float32)
+    me.vertices.foreach_get('co', co)
+    M = np.array(ev.matrix_world)
+    co = co.reshape(-1, 3) @ M[:3, :3].T + M[:3, 3]
+    me.calc_loop_triangles()
+    t = np.empty(len(me.loop_triangles) * 3, np.int64)
+    me.loop_triangles.foreach_get('vertices', t)
+    ev.to_mesh_clear()
+    return BVHTree.FromPolygons(co.tolist(), t.reshape(-1, 3).tolist(), all_triangles=True)
+
+
 def _ray_first(bvhs, origin, d, maxdist):
     """Nearest hit over [(tag, obj_name, bvh)]: (distance, tag, obj_name, face) or None."""
     best = None
@@ -288,7 +305,7 @@ class FrameGT:
             bvhs[pg.p.index] = [('self', o.name, BVHTree.FromObject(o, deps)) for o in pg.occluders]
         # Paddles move with their hands: rebuilt every frame, an occluder for everyone (their
         # holder included: the blade over the fingers is vis 2).
-        props = [('other', o.name, BVHTree.FromObject(o, deps)) for o in self.props
+        props = [('other', o.name, _world_bvh(o, deps)) for o in self.props
                  if self.people[o['tb_person']].m['visible'][f - 1]]
         self._props_now = props
         out = {'frame': f, 't_ms': round((f - 1) * 1000.0 / fps, 3), 'people': []}

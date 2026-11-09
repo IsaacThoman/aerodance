@@ -318,7 +318,13 @@ coordinates.
 vis codes use the joint rule below with each point's own bones (the bones meeting at that joint)
 and a reach of 2-3.5 cm (6 cm for the wrist): another finger in front is 1. A paddle blade more
 than 4 mm in front of a point is 2 (the 2 cm other-surface margin would miss a blade lying on the
-fingers). The paddle's `center`/`normal` come from the prop's world matrix. `preview.py` draws
+fingers). The paddle's BVH is built in world space every frame (`BVHTree.FromObject` works in an
+object's own space, which is only right for the people, whose meshes sit at the origin; the
+first suite render used it for the paddle, missed every blade occlusion, and the paddle scenes'
+GT was recomputed with `render.py --gt-only`). The paddle's `center`/`normal` come from the
+prop's world matrix. `post/geometric_gt.py` warps the hand points with the body's (lens and
+rolling-shutter scenes). On paddle scenes `checks/vis_check.py` reports some vis-2 points "on the
+own mask": blade edges, where its 3x3 window touches the hand behind. `preview.py` draws
 the hands (`--hands out.jpg`: close-ups of every hand, cut like the game cuts them) and the
 paddle's normal; `checks/hand_check.py` runs the Hand Landmarker on those cuts against the GT;
 `audit/check_gt.py <scene>` re-projects hand `kp3d`, checks hand vis against the masks and the
