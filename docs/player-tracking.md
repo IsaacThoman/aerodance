@@ -93,8 +93,8 @@ that dies on every frame still ends in its error.
 A minigame that does its own geometry can ask for more (`PoseSource.setDetail('hands')`, while
 its session lasts; the songs never do). The source then tells its worker, once it's ready, to
 keep MediaPipe's 3D world landmarks with each person (metres from the hips' centre), which the
-tracker carries with that person's body to their player's pose. With one player, the worker
-also runs MediaPipe's Hand Landmarker (`hand_landmarker.task`, 7.8 MB, fetched the first time
+tracker carries with that person's body to their player's pose. With one or two players
+(`MAX_HAND_PEOPLE`, `hands.ts`), the worker also runs MediaPipe's Hand Landmarker (`hand_landmarker.task`, 7.8 MB, fetched the first time
 it's asked for and checked like the pose model) on a 256-pixel square cut round each of the
 pose's wrists, one landmarker per side so each follows its hand from frame to frame; the Hand
 Landmarker's own handedness puts each hand on its side when the pose mixes up crossed wrists
@@ -187,7 +187,7 @@ the tracker replaced them.
 |---|---|---|---|---|
 | People asked for | 1 | 2 | 1 in each of 3 strips | 1 in each of 4 strips |
 | A new person counts after | 1 result | 2 results | 2 results | 2 results |
-| Numbered | at once | left to right, once all are in view | left to right, once all are in view | left to right, once all are in view |
+| Numbered | once in view for 10 results | left to right, once all are in view for 10 results | left to right, once all are in view for 10 results | left to right, once all are in view for 10 results |
 
 With one player, MediaPipe keeps following one person by itself, and looking for a second
 would make it search the whole picture every frame, about three times the work. The tracker
