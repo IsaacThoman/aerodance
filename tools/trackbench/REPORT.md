@@ -41,6 +41,9 @@ What changed, and why:
   swapped back. A player now has a home that passers-by can't take, and tangled players of
   clearly different sizes are told apart by size
   ([tracker](#passers-by-and-look-alikes-the-tracker)).
+- **The iPhone/iPad app tracked with less.** It went without the strips, the search and the
+  zoom, to save memory: with four players it lost 18.0% of score against 7.9%. It now tracks
+  as a browser does ([the app](#the-iphoneipad-app-the-same-pipeline-as-a-browser)).
 - **A better model is available, at a price.** RTMO-s (an open multi-person model) loses about
   half of what Lite does, but needs WebGPU, has no depth for the character, and its weights need
   a licence check. MediaPipe **Full** is the cheap step where a device is fast enough
@@ -301,8 +304,7 @@ of where people dance is common.
 **Changed in this branch: a search.** Two players get a second landmarker. While the first finds
 only one person, the second is shown the picture with that person's head, torso and legs greyed
 out, and follows whoever else is there; results that are the same person are merged as strips'
-are. It runs only while somebody is missing, and needs the GPU and an extra landmarker, so the
-iPhone/iPad app goes without.
+are. It runs only while somebody is missing, and needs the GPU and an extra landmarker.
 
 | scene, Lite: score lost (frames with both players tracked) | dev | dev, scorer v2 | this branch |
 |---|---|---|---|
@@ -338,8 +340,7 @@ finds somebody is kept.
 - Every two seconds on the middle, a second landmarker glances at the whole picture afresh;
   somebody it finds elsewhere brings the whole picture back. It's made the first time the middle
   is kept, and its first glance takes about 150 ms, once.
-- Like the search, the iPhone/iPad app goes without. It runs on the CPU too, where it's the only
-  way to find somebody small.
+- It runs on the CPU too, where it's the only way to find somebody small.
 
 `cam-fov-120`: 100% of score lost → **5.1%**, the player found in 96% of frames, and calibrated.
 Elsewhere it changes little: on the same scorer the farther cameras lose slightly more with it
@@ -426,6 +427,31 @@ skin families for any model. In dim light the darker-skinned dancer loses more s
 model but Apple Vision: with this branch, Lite 13.0% against 12.5%; with scorer version 2's gate
 only, Full 17.4% against 13.2% and RTMO-s 10.6% against 4.6% (Apple Vision 14.8% against 17.8%).
 That's one scene per skin tone; it needs a proper sweep before anything is concluded.
+
+### The iPhone/iPad app: the same pipeline as a browser
+
+The app's camera ran without the strips, the search and the zoom, to save their landmarkers'
+memory in the process the game runs in; a paired phone's page, on the same phones, ran them all.
+With the app's settings (`runs/app-game`, `run-game.ts --no-strips --no-search --no-zoom`) against
+this branch's (`runs/final5-game`), same code and scorer, 133 scenes:
+
+| players (scenes) | what the app went without | score lost, app → full | players found | calibrated before the dance |
+|---|---|---|---|---|
+| 1 (79) | zoom | 7.7% → 6.4% | 97.9% → 99.0% | 76 → 77 |
+| 2 (36) | search | 15.3% → 11.4% [+1.2, +7.2] | 90.9% → 96.6% | 29 → 31 |
+| 3 (8) | strips | 15.5% → 8.2% [+2.6, +13.7] | 92.0% → 99.6% | 8 → 8 |
+| 4 (10) | strips | 18.0% → 7.9% [+5.7, +15.7] | 87.9% → 99.7% | 4 → 10 |
+
+(Brackets: paired 95% intervals of the difference, in points. One player's difference is the
+ultrawide, which the app never found.) Peak physical footprint of the harness's Chromium on this
+Mac, whole picture → the full pipeline: one player ~740 → ~880 MB, only once the zoom's glances
+start (otherwise no more); two ~750 → ~840 MB; three ~775 → ~1,090 MB; four ~800 → ~1,250 MB.
+That's 85-160 MB a landmarker, as measured in the iOS simulator (about 100 MB in the process the
+game runs in).
+
+**Changed in this branch:** every source tracks the same way, the app's included; the option
+to go without is gone. Not yet tried against a real device's memory limit: if iOS turns out to
+end the game for it, a budget from the device's memory, not a platform switch, is the fix.
 
 ### Should another pose estimator replace Lite?
 
@@ -550,6 +576,8 @@ On a phone, also watch heat over a whole song. This simulation doesn't model the
   two-player search, the one-player zoom, and strips' cut-edge joints below the scoring gate.
 - `packages/pose/browser/tracker.ts` and its tests: players' homes, and look-alikes told apart by
   size.
+- `apps/web/src/pose/CameraInput.ts`, `WebcamPoseSource.ts` and the webcam test: the iPhone/iPad
+  app's camera tracks as every other source does.
 - `docs/player-tracking.md`, `docs/three-and-four-players.md`, `docs/pose-binary-format.md`.
 
 Before release, check on devices what the benchmark can't:
