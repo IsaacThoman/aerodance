@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Landmark, NormalizedLandmark } from '@mediapipe/tasks-vision';
-import { ARM, depthOf, focalLength, handPose, reachable } from '../src/minigames/table-tennis/arms.ts';
+import { ARM, bodyTurn, depthOf, focalLength, handPose, reachable } from '../src/minigames/table-tennis/arms.ts';
 import type { HandInput, Side, Vec3 } from '../src/minigames/table-tennis/arms.ts';
 
 /*
@@ -103,4 +103,29 @@ test('lateral position follows the picture: the right forearm out to the side is
   assert.ok(Math.abs(r.wrist.x - FORE) < 0.03, `a forearm out to the player's right (${r.wrist.x.toFixed(2)})`);
   assert.ok(Math.abs(r.wrist.z) < 0.08, `and not forward (${r.wrist.z.toFixed(2)})`);
   assert.equal(r.from, 'hand');
+});
+
+test("bodyTurn reads the torso's and head's turns, the player's own way round", () => {
+  // MediaPipe's world landmarks: metres from the hips, x to the unmirrored picture's right (the player's left), y down, z away from the camera.
+  const body = (patch: Record<number, { x: number; y: number; z: number }> = {}) => {
+    const w = Array.from({ length: 33 }, () => ({ x: 0, y: 0, z: 0 }));
+    Object.assign(w, {
+      11: { x: 0.18, y: -0.5, z: 0 }, 12: { x: -0.18, y: -0.5, z: 0 }, 23: { x: 0.1, y: 0, z: 0 }, 24: { x: -0.1, y: 0, z: 0 },
+      0: { x: 0, y: -0.7, z: -0.1 }, 7: { x: 0.07, y: -0.68, z: 0 }, 8: { x: -0.07, y: -0.68, z: 0 },
+    }, patch);
+    return w;
+  };
+  const image = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, visibility: 1 }));
+  const square = bodyTurn(body(), image)!;
+  for (const v of Object.values(square)) assert.ok(Math.abs(v) < 1e-9);
+  // The right shoulder (12) nearer the camera: turned to their left, positive yaw.
+  assert.ok(bodyTurn(body({ 12: { x: -0.16, y: -0.5, z: -0.15 } }), image)!.yaw > 0.3);
+  // The right shoulder higher (y is down): positive roll.
+  assert.ok(bodyTurn(body({ 12: { x: -0.18, y: -0.56, z: 0 } }), image)!.roll > 0.1);
+  // The shoulders behind the hips: leaning back.
+  assert.ok(bodyTurn(body({ 11: { x: 0.18, y: -0.5, z: 0.15 }, 12: { x: -0.18, y: -0.5, z: 0.15 } }), image)!.pitch > 0.2);
+  // The nose to the picture's right (the player's left): the head turned to their left.
+  assert.ok(bodyTurn(body({ 0: { x: 0.08, y: -0.7, z: -0.07 } }), image)!.headYaw > 0.3);
+  // No shoulders seen, no turn.
+  assert.equal(bodyTurn(body(), image.map((p, i) => (i === 12 ? { ...p, visibility: 0 } : p))), null);
 });

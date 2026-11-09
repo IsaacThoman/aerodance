@@ -8,8 +8,10 @@ they share: the list, each game's settings, the camera and its calibration, the 
 camera to test them with. A game is one folder; adding one changes no other file.
 
 The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game;
-its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room,
-and the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns.
+its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room.
+Alone, the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns.
+Two players split the screen, one at each end of the table in first person, and rally with each other,
+each seeing the other as their glass dancer holding the paddle (`table-tennis/rally.ts`).
 
 ## The flow
 
@@ -64,7 +66,7 @@ const highFive: MinigameDefinition = {
   players: [1, 2],
   howTo: [                               // the how-to card: one to four steps
     { icon: 'bubbles', text: 'Slap each hand as it glows' },
-    { icon: 'replay', text: 'Most high fives in 45 seconds wins' },
+    { icon: 'replay', text: 'Most high fives in 45 seconds wins', players: [2] },  // only with two
   ],
   icon: handIcon,                        // (g, cx, cy, radius) => draws a static monochrome icon
   score: { unit: 'fives' },              // or { better: 'lower', format: (ms) => `${(ms / 1000).toFixed(2)} s` }
@@ -87,7 +89,9 @@ for a game that does its own geometry), `coop` (the players are a team: give eve
 score, and the results show it as one instead of naming a winner; a game whose players choose
 together or versus once it's started says so with `ctx.setCoop`), `best: false` (open play: a
 game that never finishes a round with a score, so its preview shows no best), `order`
-(lower lists first, then by title) and `devOnly`.
+(lower lists first, then by title) and `devOnly`. A how-to step with `players` shows only
+with those player counts, for a game played differently alone and together; every count needs
+one to four steps.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
 calibration to results, with the session's `MinigameContext` as its `ctx` prop (or
@@ -143,6 +147,11 @@ The round has them as `ctx.options`, every option present, as chosen when Play w
 `ctx.options.bot === 'hard'`. `ctx.setOption('bot', 'easy')` changes one at once, for a key that
 changes a setting mid-round; it's saved, so Play again and the game's next preview start on it.
 An id or value the game doesn't offer is ignored.
+
+An option with `players` (some of the game's counts) is for those counts only: with others the
+preview dims its row and the focus passes over it, and the game should ignore it. Table Tennis's
+robot settings are `players: [1]`. Its row stays where it is, so the dial and Play don't move as
+the count changes.
 
 With play.ts, `click mgOptionNext.<i>` (or `mgOptionPrev.<i>`, or the row, `mgOption.<i>`) steps
 the preview's row i, and the canvas reports them all: `wait minigameOptions~botShots=hard`.
@@ -222,6 +231,18 @@ floor is where its dancers stand (`meta.dancers` in `packages/stages/<id>/meta.t
   their own camera, studio reflections and lights, drawn in ACES like the menu dancers.
 - **`<MinigameWorld camera background post shadows>`**: a world of its own (scene `'custom'`),
   drawn through the stages' pipeline (bloom, grade, ACES; `post` changes it) at priority 1.
+- **`<MinigameWorld views={[cameraA, cameraB]}>`**: a split screen, a camera each (set up as
+  `camera` is) for two to four views: two side by side, left to right, three or four in a two by
+  two grid. Inside, `useThree`'s camera is a `SplitCamera` (`packages/stages/shared/post.tsx`)
+  whose `cameras` are the views (`viewCamera(camera, i)`); each is culled for itself, gets its own
+  vignette, and costs the world's draw calls again (shadow maps are drawn once, with the first
+  view). Put player 1 in the left view: they stand on the left of the mirror.
+- **`<SeenBy views={[1]}>`**: things only some views draw, such as a first-person player's own
+  body, which the others see but which would fill its owner's view from inside. A world with one
+  view is view 0. They go on the views' own layers, so they cast no shadows: give anything whose
+  shadow matters a stand-in that draws nothing (`colorWrite: false`) but casts it. Table Tennis
+  does this for each player's first-person hands and gives the other player a bigger mitt in their
+  dancer's proportions, holding the same paddle.
 
 ## The pose API
 
@@ -420,7 +441,12 @@ results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
 preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything` for
 Table Tennis), and the game's own `mg*` keys; a round's settings are
-`eval "minigame.options"`. The puppet works for the song game too: its calibration and scoring
+`eval "minigame.options"`. Table Tennis reports `mgRally`, `mgBest`, `mgHits` and, with two,
+`mgServer`, `mgHits1` and `mgHits2`; in development its O and P keys put a stand-in
+(`table-tennis/autoplay.ts`) in for the first and last player, which plays through the real
+paddle and aim assist (`mgAutoplay` says who), so a two-player rally can run with puppets standing
+still, and `window.tableTennis` has the ball, the players and the camera (a split screen's views in
+`camera.cameras`) for staged shots. The puppet works for the song game too: its calibration and scoring
 run on it.
 
 ### In unit tests
@@ -469,6 +495,7 @@ Before starting a game:
 - [ ] Its folder and `index.ts`, its `id` the folder's name; the icon drawn in `.ts`, the game
       behind `load`
 - [ ] It plays with the player counts it says, and thresholds are in body space (torso lengths)
+- [ ] With a split screen, the views and its draw calls are counted against the budget
 - [ ] It moves only while `playing`, keeps score with `ctx`, and ends (`durationMs` or `ctx.finish`)
 
 Before handing it in:

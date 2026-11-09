@@ -21,8 +21,9 @@ export const SCENE_CHOICES: readonly { value: SceneId; label: string }[] = [
 
 export const OPTIONS = [
   { id: 'scene', label: 'Scene', choices: SCENE_CHOICES, default: 'biodome' },
-  { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium' },
-  { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything' },
+  // The robot's settings: alone only (two players play each other).
+  { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium', players: [1] },
+  { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything', players: [1] },
 ] as const;
 export type OptionId = (typeof OPTIONS)[number]['id'];
 

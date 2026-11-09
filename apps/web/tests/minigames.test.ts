@@ -7,7 +7,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { PoseRecordEvent } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { LivePoseRecord, PoseSource, PoseSourceEvent } from '../src/pose/PoseSource.ts';
 import { COUNTDOWN_MS, FINISH_MS, MinigameSession, RAISE_START_MS } from '../src/minigames/MinigameSession.ts';
-import { definitionProblem, formatScore, listMinigames, playersLabel } from '../src/minigames/definition.ts';
+import { definitionProblem, formatScore, forPlayers, howToFor, listMinigames, playersLabel } from '../src/minigames/definition.ts';
 import { minigameBest, recordMinigameBest } from '../src/minigames/bestScores.ts';
 import { cameraArea, fromDesign, toDesign } from '../src/minigames/cameraArea.ts';
 import { MG_MAX_OPTIONS, MG_PER_PAGE, minigameLayout, mgTile } from '../src/minigames/layout.ts';
@@ -248,6 +248,25 @@ test('options are checked: their ids, labels, choices and defaults, and only as 
     assert.deepEqual(listMinigames([{ folder: 'odd', def: game({ id: 'odd', options: [option({ default: 'nope' })] }) }, { folder: 'fine', def: game({ id: 'fine', options: OPTIONS }) }]).map((g) => g.id), ['fine']);
   } finally { console.error = error; }
   assert.ok(errors.some((e) => e.includes('odd') && e.includes('default')));
+});
+
+test('how-to steps and options can be for some player counts only, of the ones the game plays with', () => {
+  const steps = [{ text: 'Alone' , players: [1] as const }, { text: 'Together', players: [2] as const }, { text: 'Always' }];
+  assert.equal(definitionProblem(game({ howTo: steps })), '');
+  assert.deepEqual(howToFor(game({ howTo: steps }), 1).map((s) => s.text), ['Alone', 'Always']);
+  assert.deepEqual(howToFor(game({ howTo: steps }), 2).map((s) => s.text), ['Together', 'Always']);
+  // Every count the game plays with needs one to four steps.
+  assert.match(definitionProblem(game({ howTo: [{ text: 'Alone', players: [1] }] })), /howTo needs one to four steps with 2 players/);
+  assert.match(definitionProblem(game({ howTo: Array.from({ length: 5 }, (_, i) => ({ text: `Step ${i}`, players: [2] as const })) })), /with 1 player\b/);
+  assert.equal(definitionProblem(game({ howTo: [{ text: 'A', players: [1] }, ...Array.from({ length: 4 }, (_, i) => ({ text: `Step ${i}`, players: [2] as const }))] })), '');
+  assert.match(definitionProblem(game({ howTo: [{ text: 'Four', players: [4] }, { text: 'Any' }] })), /player counts the game plays with/);
+  // An option for some counts.
+  assert.equal(definitionProblem(game({ options: [option({ players: [1] })] })), '');
+  assert.match(definitionProblem(game({ options: [option({ players: [3] })] })), /"level": its players must be some of the counts/);
+  assert.match(definitionProblem(game({ options: [option({ players: [] })] })), /"level": its players/);
+  assert.ok(forPlayers(option({ players: [1] }), 1));
+  assert.ok(!forPlayers(option({ players: [1] }), 2));
+  assert.ok(forPlayers(option(), 2));
 });
 
 test('a game\'s options are remembered per game, anything unknown back at its default', () => {

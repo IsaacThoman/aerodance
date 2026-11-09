@@ -179,3 +179,48 @@ export function handPose(pose: { landmarks: PicturePoint[]; world: WorldPoint[] 
   const fromPose = axes(world[j.wrist], world[j.index], world[j.pinky], mid(world[j.index], world[j.pinky]));
   return fromPose ? { wrist: fromShoulder, ...fromPose, from: 'pose' } : null;
 }
+
+/** How a player's torso and head are turned, in radians in their own frame (x right, y up, z back), to draw their body with. */
+export interface BodyTurn {
+  /** About the vertical (y): positive brings the right shoulder forward, turning them to their left. */
+  yaw: number;
+  /** About z, sideways: positive lifts the right shoulder. */
+  roll: number;
+  /** About x: positive leans back (the shoulders behind the hips). */
+  pitch: number;
+  /** The head's own turn (from the camera, not the body) and tilt, the same ways round. */
+  headYaw: number;
+  headRoll: number;
+}
+export const STRAIGHT: Readonly<BodyTurn> = { yaw: 0, roll: 0, pitch: 0, headYaw: 0, headRoll: 0 };
+const clampTo = (x: number, limit: number) => Math.min(limit, Math.max(-limit, x));
+
+/**
+ * The torso's and head's turns from the world landmarks: the shoulders' line (and the hips', for
+ * leaning) and the nose from the ears. The model's depths are its weakest output, so the turns are
+ * kept modest; null when the shoulders aren't seen.
+ */
+export function bodyTurn(world: readonly WorldPoint[], image: readonly PicturePoint[]): BodyTurn | null {
+  const seen = (i: number) => !!world[i] && (image[i]?.visibility ?? 1) >= SEEN;
+  if (!seen(11) || !seen(12)) return null;
+  // Left shoulder to right: the player's right (+x) when they're square to the camera.
+  const across = view(sub(world[12], world[11]));
+  const turn: BodyTurn = {
+    yaw: clampTo(Math.atan2(-across.z, across.x), 0.9),
+    roll: clampTo(Math.atan2(across.y, Math.hypot(across.x, across.z)), 0.6),
+    pitch: 0, headYaw: 0, headRoll: 0,
+  };
+  if ([23, 24].every(seen)) {
+    const up = view(sub(mid(world[11], world[12]), mid(world[23], world[24])));
+    turn.pitch = clampTo(Math.atan2(up.z, up.y), 0.45);
+  }
+  if ([0, 7, 8].every(seen)) {
+    const face = view(sub(world[0], mid(world[7], world[8])));
+    const ears = view(sub(world[8], world[7]));
+    turn.headYaw = clampTo(Math.atan2(-face.x, -face.z), 1.1);
+    turn.headRoll = clampTo(Math.atan2(ears.y, Math.hypot(ears.x, ears.z)), 0.6);
+  } else {
+    turn.headYaw = turn.yaw;
+  }
+  return turn;
+}

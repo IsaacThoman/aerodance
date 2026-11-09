@@ -46,6 +46,8 @@ export interface HowToStep {
   /** One of the drawing kit's icons (ui/draw.ts ICONS) or a drawing of its own, white on a blue disc. */
   icon?: IconName | IconDraw;
   text: string;
+  /** Only for these player counts (default: all of the game's): a game played differently alone and together says so. */
+  players?: readonly PlayerCount[];
 }
 
 /** How a score reads, and which way is better. */
@@ -71,6 +73,12 @@ export interface MinigameOption {
   choices: readonly { value: string; label: string }[];
   /** The value it starts on, one of the choices'. */
   default: string;
+  /**
+   * Only for these player counts (default: all of the game's): with others the preview dims the
+   * row and passes over it (an opponent's settings in a game that's played against the computer
+   * alone and against each other together).
+   */
+  players?: readonly PlayerCount[];
 }
 
 export interface MinigameDefinition {
@@ -79,7 +87,7 @@ export interface MinigameDefinition {
   title: string;
   /** The player counts it plays with, e.g. [1, 2]. */
   players: readonly PlayerCount[];
-  /** The how-to card before the countdown: two to four steps. */
+  /** The how-to card before the countdown: one to four steps for each player count (HowToStep.players). */
   howTo: readonly HowToStep[];
   /** Static monochrome icon for the game button, drawn in design units like the menu icons. */
   icon: IconDraw;

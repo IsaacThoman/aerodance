@@ -12,7 +12,7 @@ import { displayDesign } from '../display.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import { minigameBest } from './bestScores.ts';
 import type { MinigameBest } from './bestScores.ts';
-import { formatScore } from './definition.ts';
+import { formatScore, forPlayers } from './definition.ts';
 import { MG_COLUMNS, MG_PER_PAGE, minigameLayout } from './layout.ts';
 import { minigameOptions, optionsText, resolveOptions, saveMinigameOption, stepOption } from './options.ts';
 import type { MinigameOptionValues } from './options.ts';
@@ -95,12 +95,16 @@ function fitText(g: CanvasRenderingContext2D, str: string, x: number, y: number,
 type PreviewLayout = ReturnType<typeof minigameLayout>;
 // The game's option rows on dark glass, like the settings rows: each its label, then
 // its choice between the arrows, which step through the choices and round again
-// (as the camera picker's do). A row lights under the pointer.
-function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number, keyed: string | null) {
+// (as the camera picker's do). A row lights under the pointer. One that isn't for this
+// many players (MinigameOption.players) is dimmed, as the dial's unavailable steps are.
+function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, values: MinigameOptionValues, count: PlayerCount, l: PreviewLayout, h: Record<string, number>, press: (id: string) => number, keyed: string | null) {
   if (!l.MG_OPTIONS || !game.options) return;
   drawDarkGlassPanel(g, l.MG_OPTIONS, 34);
   game.options.forEach((option, i) => {
     const row = l.mgOption(i), prev = l.mgOptionPrev(i), next = l.mgOptionNext(i);
+    const off = !forPlayers(option, count);
+    g.save();
+    if (off) g.globalAlpha *= 0.35;
     const id = `option-${option.id}`, cy = row.y + row.h / 2;
     // The keyboard cursor on the row lights the row, not whichever arrow its middle falls in.
     const arrow = (side: 'prev' | 'next') => (keyed === id ? { hover: 0, press: 0 } : { hover: h[`${id}-${side}`] ?? 0, press: press(`${id}-${side}`) });
@@ -116,6 +120,7 @@ function drawOptions(g: CanvasRenderingContext2D, game: MinigameDefinition, valu
     drawArrow(g, next, 'right', arrow('next').hover, { press: arrow('next').press });
     const choice = option.choices.find((c) => c.value === values[option.id]) ?? option.choices[0];
     fitText(g, choice.label, (prev.x + next.x) / 2, cy, next.x - prev.x - prev.r - next.r - 16, 700, 'center');
+    g.restore();
   });
 }
 
@@ -248,6 +253,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
           // choice's track (listed first, so a press there is the arrow's, near misses too); the
           // row takes the rest, its label, and steps forward.
           ...(game?.options ?? []).flatMap((option, i): SelectWidget[] => {
+            // (A row for other player counts takes no presses.)
+            if (!forPlayers(option, dialOf(game!))) return [];
             const row = l.mgOption(i), prev = l.mgOptionPrev(i), next = l.mgOptionNext(i);
             const left = prev.x - prev.r - 14, mid = (prev.x + next.x) / 2;
             return [
@@ -399,7 +406,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
     drawDialStep(g, l.MG_PLUS, true, h.plus ?? 0, press('plus'), count < counts.at(-1)!);
     drawDialCount(g, count, l.MG_COUNT_X, l.MG_MINUS.y, 120);
     drawGlassButton(g, l.MG_PLAY, { label: 'Play', sub: COUNT_NAMES[count - 1], icon: 'play', hover: h.play ?? 0, press: press('play'), chevron: false });
-    drawOptions(g, game, optionsOf(game), l, h, press, ui.keyFocus);
+    drawOptions(g, game, optionsOf(game), count, l, h, press, ui.keyFocus);
   }
 
   // Frosted glass in the tiles, and the preview's options and Play.

@@ -19,7 +19,7 @@ import { displayDesign } from '../display.ts';
 import { minigameLayout } from './layout.ts';
 import { COUNTDOWN_MS, FINISH_MS, RAISE_START_MS } from './MinigameSession.ts';
 import type { MinigameSession } from './MinigameSession.ts';
-import { formatScore } from './definition.ts';
+import { formatScore, howToFor } from './definition.ts';
 import type { MinigamePhase } from './types.ts';
 
 /**
@@ -261,7 +261,7 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
     drawHeader(g, G.GAME_READY_BACK, game.title.toUpperCase(), h.quit ?? 0);
     drawDarkGlassPanel(g, card, 34);
     drawCaps(g, 'HOW TO PLAY', w / 2, card.y + 46, { size: 24, align: 'center' });
-    const steps = game.howTo.slice(0, 4);
+    const steps = howToFor(game, session.playerCount).slice(0, 4);
     const rowH = Math.min(96, (card.h - 250) / steps.length);
     steps.forEach((step, i) => {
       const cy = card.y + 110 + rowH * (i + 0.5);
