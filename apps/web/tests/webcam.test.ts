@@ -270,7 +270,7 @@ test('three or four players are each looked for in a strip of the picture', asyn
   assert.ok(init?.type === 'initialize');
   assert.deepEqual(init.tiles?.map(tile => +(tile.x + tile.width / 2).toFixed(3)), [0.225, 0.5, 0.775], 'evenly spread, covering the picture');
   assert.equal(init.playerCount, 4, 'a whole-picture fallback looks for one more person than there are players');
-  // Two players use the whole picture, and so do sources asked not to use strips.
+  // Two players use the whole picture.
   const two = fixture(t);
   await two.source.setPlayerCount(2); await two.source.connect();
   const twoInit = two.messages.find(m => m.type === 'initialize');
@@ -278,24 +278,18 @@ test('three or four players are each looked for in a strip of the picture', asyn
   assert.equal(twoInit.playerCount, 2, 'two players must not keep the detector searching for a third person');
   assert.equal(twoInit.search, true, 'two players get a search for whoever the model misses');
   assert.ok(!init.search, 'strips have no search');
-  const whole = fixture(t, { tiles: false });
-  await whole.source.setPlayerCount(4); await whole.source.connect();
-  const wholeInit = whole.messages.find(m => m.type === 'initialize');
-  assert.ok(wholeInit?.type === 'initialize' && !wholeInit.tiles);
   const solo = fixture(t);
   await solo.source.setPlayerCount(1); await solo.source.connect();
   const soloInit = solo.messages.find(m => m.type === 'initialize');
   assert.ok(soloInit?.type === 'initialize' && soloInit.zoom === true && !soloInit.search, 'one player may be looked for in the middle of the picture');
   assert.ok(!twoInit.zoom && !init.zoom);
-  // Sources without strips (the iPhone/iPad app) can't afford the search's or the zoom's landmarker either.
-  const app = fixture(t, { tiles: false });
-  await app.source.setPlayerCount(2); await app.source.connect();
-  const appInit = app.messages.find(m => m.type === 'initialize');
-  assert.ok(appInit?.type === 'initialize' && !appInit.search);
-  const appSolo = fixture(t, { tiles: false });
-  await appSolo.source.setPlayerCount(1); await appSolo.source.connect();
-  const appSoloInit = appSolo.messages.find(m => m.type === 'initialize');
-  assert.ok(appSoloInit?.type === 'initialize' && !appSoloInit.zoom);
+  // The iPhone/iPad app's camera (as CameraInput sets it up, upright) tracks just the same.
+  for (const [players, expect] of [[1, 'zoom'], [2, 'search'], [4, 'tiles']] as const) {
+    const app = fixture(t, { interruptedTimeoutMs: Infinity, adaptToResize: true });
+    await app.source.setPlayerCount(players); await app.source.connect();
+    const appInit = app.messages.find(m => m.type === 'initialize');
+    assert.ok(appInit?.type === 'initialize' && appInit[expect], `the app's ${players} player(s) get ${expect}`);
+  }
 });
 test('each frame tells the worker how many players the last result found, for its strips', async t => {
   // Somebody standing at x, as MediaPipe reports them.
