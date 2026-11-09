@@ -38,8 +38,12 @@ export const SERVE = {
   arm: 0.35,
   /** Left waiting this long (s), the ball goes to the other player to serve. */
   pass: 6,
-  /** A player who hasn't swung or hit for this long (s) isn't playing: a dead ball at their end goes to the other, if they are. */
-  away: 12,
+  /**
+   * A player who hasn't served or hit the ball for this long (s) isn't playing: a dead ball at their
+   * end goes to the other, if they are. (Swings don't count: the tracker's jitter makes them of a
+   * hand hanging still, with two players in the picture.)
+   */
+  away: 20,
   /** Space's serve (development, or no camera), in the server's own frame. */
   key: v3(0, 1.4, -4.4),
 } as const;

@@ -4,7 +4,9 @@
  * and the tables say how they got on. Someone doing nothing should get nothing; someone playing
  * well should nearly always hit, and the better the player the better the numbers.
  *
- *   node tools/table-tennis/agency.ts [--seconds 120] [--rounds 6] [--assist off,low,normal,high]
+ *   node tools/table-tennis/agency.ts [--seconds 120] [--rounds 6] [--assist default,off,low,normal,high]
+ *
+ * (`default`: the level the game starts each round at for its player count.)
  */
 
 import { ASSIST_LEVELS } from '../../apps/web/src/minigames/table-tennis/assist.ts';
@@ -14,7 +16,7 @@ import type { SimResult } from '../../apps/web/tests/helpers/tableTennisSim.ts';
 
 const arg = (name: string, fallback: string) => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : fallback; };
 const seconds = Number(arg('seconds', '120')), rounds = Number(arg('rounds', '6'));
-const levels = arg('assist', 'normal').split(',').filter((l): l is AssistLevel => (ASSIST_LEVELS as readonly string[]).includes(l));
+const levels = arg('assist', 'default').split(',').filter((l): l is AssistLevel | 'default' => l === 'default' || (ASSIST_LEVELS as readonly string[]).includes(l)).map((l) => (l === 'default' ? undefined : l));
 
 const pct = (n: number, of: number) => (of ? `${Math.round((100 * n) / of)}%`.padStart(5) : '    –');
 const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -26,12 +28,14 @@ function row(name: string, r: SimResult, i = 0) {
 }
 
 for (const assist of levels) {
-  for (const [trackingName, tracking] of Object.entries(TRACKING)) {
-    console.log(`\n== One player against the robot · assist ${assist} · tracking ${trackingName} ==`);
+  for (const trackingName of ['perfect', 'one'] as const) {
+    const tracking = TRACKING[trackingName];
+    console.log(`\n== One player against the robot · assist ${assist ?? 'default'} · camera ${trackingName} ==`);
     for (const [name, skill] of Object.entries(SKILLS)) console.log(row(name, simulateMany({ players: [{ skill, tracking }], seconds, assist }, rounds)));
   }
-  for (const [trackingName, tracking] of Object.entries(TRACKING)) {
-    console.log(`\n== Two players · assist ${assist} · tracking ${trackingName} ==`);
+  for (const trackingName of ['perfect', 'one', 'two'] as const) {
+    const tracking = TRACKING[trackingName];
+    console.log(`\n== Two players · assist ${assist ?? 'default'} · camera ${trackingName} ==`);
     for (const [name, skill] of Object.entries(SKILLS)) {
       const r = simulateMany({ players: [{ skill, tracking }, { skill, tracking }], seconds, assist }, rounds);
       console.log(`${row(`${name} v ${name}`, r)}  serves/min ${((r.serves[0] + r.serves[1]) / minutes).toFixed(1)}`);

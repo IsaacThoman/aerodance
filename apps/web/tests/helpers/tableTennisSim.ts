@@ -5,14 +5,16 @@
  *
  * A person (Person) moves their real paddle hand, in their own frame (rally.ts mine), by what
  * they see of the ball now. A camera (Camera) sees the hand late and wrongly: sampled at its
- * rate, each sample arriving a delay later with noise on it (little across and up the picture,
- * more in depth, as arms.ts reads it), now and then a wild one or none at all. What arrives goes
+ * rate, each sample arriving a delay later, off by a steady error, a slowly wandering one and a
+ * pose-to-pose one (most in depth, and more in a swing: TRACKING, as measured), now and then a
+ * wild one, or none at all for a stretch. What arrives goes
  * through the game's own filters (rig.ts takeHand), eased hands and paddle, and the round's
  * frames at the screen's rate.
  */
 
 import { TABLE, v3 } from '../../src/minigames/table-tennis/ball.ts';
 import type { Ball, V3 } from '../../src/minigames/table-tennis/ball.ts';
+import { defaultAssist } from '../../src/minigames/table-tennis/assist.ts';
 import type { AssistLevel } from '../../src/minigames/table-tennis/assist.ts';
 import { AUTOPLAY, arrival } from '../../src/minigames/table-tennis/autoplay.ts';
 import type { BotLevel } from '../../src/minigames/table-tennis/bot.ts';
@@ -68,29 +70,55 @@ export const SKILLS = {
   good: { kind: 'play', aim: 0.03, depth: 0.06, timing: 0.02, swing: 0.15, lapse: 0.01 },
 } as const satisfies Record<string, Skill>;
 
-/** How a camera and its tracking see a hand. */
+/** A hand's error as the tracker reads it (m, the player's own frame: x right, y up, z back): steady, slowly wandering, and from pose to pose. */
+export interface Noise { bias: V3; slow: V3; fast: V3; }
+/** How a camera and its tracking see a paddle hand. */
 export interface Tracking {
   /** Poses a second, and how long after the hand was there each arrives (s), give or take `jitter`. */
   hz: number;
   delay: number;
   jitter: number;
-  /** Each pose's error (m, standard deviation): across and up the picture, and in depth. */
-  across: number;
-  depth: number;
-  /** A steady error on top (m, the player's own frame). */
-  bias: V3;
-  /** The share of poses that are wild (the depth read the wrong way round: `wild` metres off), and of those with no hand at all. */
+  /** The blade's error with the hand at rest and in a swing (in between, in between). */
+  rest: Noise;
+  swing: Noise;
+  /** How much the steady error differs from one round to the next (m, standard deviation per axis). */
+  biasSpread: V3;
+  /** The share of poses that are wild, and how far off (m, any direction). */
   wildRate: number;
   wild: number;
-  dropout: number;
+  /** How often the hand is lost for a stretch (a minute), and for how long (s). */
+  lostPerMinute: number;
+  lostS: number;
 }
+const cm = (x: number, y: number, z: number): V3 => v3(x / 100, y / 100, z / 100);
+const NONE: Noise = { bias: v3(), slow: v3(), fast: v3() };
+/** The slow error wanders over about this long (s). */
+const SLOW_S = 0.4;
+/**
+ * The cameras. `one` and `two` are measured: the tracked blade's error on trackbench's ping-pong
+ * scenes with the game's own tracking (tools/trackbench/PINGPONG.md, "Noise profile of the
+ * tracked blade": one player on 11 scenes; two players on two held-out scenes, so roughly), the
+ * tracker's rate and delay from its realtime runs with 50 ms more for a webcam's own. Its wild
+ * poses are counted at half their measured share, the pose-to-pose error in swings holding the
+ * rest of them. Measured on renders, not on people: real footage will say more.
+ */
 export const TRACKING = {
   /** A camera that sees everything exactly, at once. */
-  perfect: { hz: 60, delay: 0, jitter: 0, across: 0, depth: 0, bias: v3(), wildRate: 0, wild: 0, dropout: 0 },
-  /** A good webcam and a fast machine, one player. */
-  good: { hz: 30, delay: 0.09, jitter: 0.01, across: 0.015, depth: 0.05, bias: v3(0.02, -0.02, 0.04), wildRate: 0.005, wild: 0.25, dropout: 0.01 },
-  /** What two players at one webcam get: slower, later, smaller in the picture. */
-  rough: { hz: 20, delay: 0.14, jitter: 0.02, across: 0.03, depth: 0.1, bias: v3(0.04, -0.05, 0.1), wildRate: 0.03, wild: 0.3, dropout: 0.04 },
+  perfect: { hz: 60, delay: 0, jitter: 0, rest: NONE, swing: NONE, biasSpread: v3(), wildRate: 0, wild: 0, lostPerMinute: 0, lostS: 0 },
+  /** One player at a webcam. */
+  one: {
+    hz: 29, delay: 0.08, jitter: 0.01,
+    rest: { bias: cm(0.5, -1.6, -1.9), slow: cm(2.6, 2.6, 6.5), fast: cm(1.3, 1.7, 2.3) },
+    swing: { bias: cm(0.9, -5.9, -4.7), slow: cm(2.4, 3.8, 8.6), fast: cm(4.5, 4.4, 9.2) },
+    biasSpread: cm(1.3, 0.6, 2.8), wildRate: 0.02, wild: 0.19, lostPerMinute: 1.1, lostS: 0.4,
+  },
+  /** Two players at one webcam: slower, later, each smaller in the picture. */
+  two: {
+    hz: 22, delay: 0.105, jitter: 0.02,
+    rest: { bias: cm(2.5, -1.6, 1.7), slow: cm(6.7, 4.1, 7.6), fast: cm(1.8, 2.1, 3.0) },
+    swing: { bias: cm(0.7, -10.7, -7.6), slow: cm(8.8, 6.7, 9.8), fast: cm(9.4, 9.4, 13.0) },
+    biasSpread: cm(0.6, 2.4, 1.1), wildRate: 0.08, wild: 0.23, lostPerMinute: 1.6, lostS: 0.4,
+  },
 } as const satisfies Record<string, Tracking>;
 
 const add = (a: V3, b: V3, k = 1): V3 => v3(a.x + b.x * k, a.y + b.y * k, a.z + b.z * k);
@@ -222,17 +250,47 @@ class Camera {
   private next = 0;
   private queue: { at: number; taken: number; wrist: V3 | null; raised: boolean }[] = [];
   private filters: HandFilters = newHandFilters();
-  constructor(tracking: Tracking, random: Random) { this.tracking = tracking; this.random = random; this.next = random.rand() / tracking.hz; }
+  /** This round's share of the steady error, the slow error as it wanders (in standard deviations), and until when the hand is lost. */
+  private offset: V3;
+  private slow = v3();
+  private lostUntil = -Infinity;
+  /** The blade a frame ago, and how fast it's really moving (m/s, smoothed). */
+  private was: { at: V3; t: number } | null = null;
+  private speed = 0;
+  constructor(tracking: Tracking, random: Random) {
+    this.tracking = tracking; this.random = random; this.next = random.rand() / tracking.hz;
+    this.offset = v3(random.normal() * tracking.biasSpread.x, random.normal() * tracking.biasSpread.y, random.normal() * tracking.biasSpread.z);
+    this.slow = v3(random.normal(), random.normal(), random.normal());
+  }
 
   /** Takes a picture if one's due at `now` (s), and gives the rig any poses that have arrived. */
   see(rig: Rig, person: Person, blade: V3, now: number) {
     const { tracking: k, random } = this;
+    if (this.was && now > this.was.t) {
+      const speed = Math.hypot(blade.x - this.was.at.x, blade.y - this.was.at.y, blade.z - this.was.at.z) / (now - this.was.t);
+      this.speed += (speed - this.speed) * 0.5;
+    }
+    this.was = { at: { ...blade }, t: now };
     if (now >= this.next) {
-      this.next += 1 / k.hz;
-      const lost = random.rand() < k.dropout;
-      const wild = random.rand() < k.wildRate ? (random.rand() < 0.5 ? -k.wild : k.wild) : 0;
-      const seen = add(blade, v3(k.bias.x + random.normal() * k.across, k.bias.y + random.normal() * k.across, k.bias.z + random.normal() * k.depth + wild));
-      this.queue.push({ at: now + Math.max(0, k.delay + random.normal() * k.jitter), taken: now, wrist: lost ? null : wristOf(person.hand, seen), raised: person.raised });
+      const dt = 1 / k.hz;
+      this.next += dt;
+      // The slow error wanders (each axis its own way), and the hand is lost for a stretch now and then.
+      const keep = Math.exp(-dt / SLOW_S), fresh = Math.sqrt(1 - keep * keep);
+      this.slow = v3(this.slow.x * keep + random.normal() * fresh, this.slow.y * keep + random.normal() * fresh, this.slow.z * keep + random.normal() * fresh);
+      if (random.rand() < (k.lostPerMinute / 60) * dt) this.lostUntil = now + k.lostS * (0.5 + random.rand());
+      // In a swing by how fast the hand really moves: at rest below half a metre a second, swinging above two.
+      const u = Math.min(1, Math.max(0, (this.speed - 0.5) / 1.5));
+      const part = (pick: (n: Noise) => V3) => mix(pick(k.rest), pick(k.swing), u);
+      const bias = part((n) => n.bias), slow = part((n) => n.slow), fast = part((n) => n.fast);
+      let seen = add(blade, v3(
+        bias.x + this.offset.x + slow.x * this.slow.x + fast.x * random.normal(),
+        bias.y + this.offset.y + slow.y * this.slow.y + fast.y * random.normal(),
+        bias.z + this.offset.z + slow.z * this.slow.z + fast.z * random.normal()));
+      if (random.rand() < k.wildRate) {
+        const way = v3(random.normal(), random.normal(), random.normal()), l = Math.hypot(way.x, way.y, way.z) || 1;
+        seen = add(seen, way, k.wild / l);
+      }
+      this.queue.push({ at: now + Math.max(0, k.delay + random.normal() * k.jitter), taken: now, wrist: now < this.lostUntil ? null : wristOf(person.hand, seen), raised: person.raised });
     }
     while (this.queue.length && this.queue[0].at <= now) {
       const pose = this.queue.shift()!;
@@ -251,6 +309,7 @@ export interface SimOptions {
   players: readonly { skill: Skill; tracking: Tracking; hand?: Side }[];
   seconds: number;
   seed?: number;
+  /** The aim assist's level (the game's own for that many players, unless given). */
   assist?: AssistLevel;
   botLevel?: BotLevel;
   botAlways?: boolean;
@@ -279,7 +338,7 @@ export function simulate(options: SimOptions): SimResult {
   const random = seeded(seed);
   const two = players.length > 1;
   const rigs = players.map((p, i) => newRig(i as End, p.hand ?? 'right'));
-  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? 'normal', botLevel: options.botLevel ?? 'medium', botAlways: options.botAlways ?? true };
+  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? defaultAssist(players.length), botLevel: options.botLevel ?? 'medium', botAlways: options.botAlways ?? true };
   const round = new Round(rigs, play, random.rand);
   const people = players.map((p, i) => new Person(i as End, rigs[i].paddle, p.skill, seeded(seed * 7919 + i * 104729 + 1)));
   const cameras = players.map((p, i) => new Camera(p.tracking, seeded(seed * 31337 + i * 15485863 + 2)));

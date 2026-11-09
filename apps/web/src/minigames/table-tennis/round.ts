@@ -73,7 +73,7 @@ const lagOf = (rig: Rig, play: Play) => (!rig.tracked ? 0 : (play.hitLag === 'au
 /** Each player's part of the ball's frame: their paddle last frame (the table's frame) and where they'd moved it (their own), their swings, the ball's pass, their free hand. */
 interface Player {
   paddle: PaddlePose | null; moved: V3 | null; speeds: { t: number; vel: V3 }[]; pass: Pass | null; raised: boolean;
-  /** When they last swung or hit (their own seconds; never: -Infinity). */
+  /** When they last served or hit the ball (their own seconds; never: -Infinity). */
   active: number;
 }
 
@@ -150,7 +150,7 @@ export class Round {
   /** Who's waiting to serve: alone, the player (for the robot to serve), while the ball's held. */
   server(): End { return this.two ? this.duel.server : 0; }
   holding() { return !this.flying && !this.serve; }
-  /** Whether a player has swung or hit lately (SERVE.away). */
+  /** Whether a player has served or hit the ball lately (SERVE.away). */
   playing(end: End) { return this.real - this.players[end].active <= SERVE.away; }
   /** With two: the waiting ball can be served (it has waited long enough). */
   armed() { return this.two && this.holding() && this.time - this.heldSince >= SERVE.arm * this.play.timeScale; }
@@ -300,7 +300,6 @@ export class Round {
         return swung && borneOut(rig, rig.paddle, swung.vel, this.real - swung.t, SWING.sprung, now) ? swung.vel : v3();
       };
       const swing = borne();
-      if (swing.x || swing.y || swing.z) p.active = this.real;
       // (A serve's swing is a longer one than a rally's.)
       return { paddleVel, live, wasRaised, lag: lagOf(rig, play), swing, serveSwing: () => borne(SERVE_SWING.travel) };
     });
