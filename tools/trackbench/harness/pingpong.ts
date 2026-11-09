@@ -1,8 +1,9 @@
 // Ping-pong metrics: how well the Table Tennis minigame's first-person paddle follows the player,
 // computed from a run's tracked.jsonl by the game's own arms.ts (handPose), with its filters and
 // constants, against the scene's 3D GT. Real clips without GT get what can be measured without it.
-//   node tools/trackbench/harness/pingpong.ts <estimator-id> [scene-id...] [--jobs N]
-// Writes runs/<estimator>/<scene>/pingpong.json. PINGPONG.md describes every measure.
+//   node tools/trackbench/harness/pingpong.ts <estimator-id> [scene-id...] [--jobs N] [--from <run>]
+// Writes runs/<estimator>/<scene>/pingpong.json; with --from, reads that run's recordings instead
+// (to measure a change to the game's arms.ts or rig.ts without running the worker again). PINGPONG.md describes every measure.
 //
 // Frames: camera space is arms.ts's (x picture right, y down, z away, metres); the player's frame
 // is that turned half round (x their right, y up, z back: forward is -z), as handPose reports the
@@ -10,10 +11,11 @@
 // per-frame camera_to_world (Blender: the camera looks down its -Z, +Y up).
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_FOV, SURELY_BACK, flatWorld, handPose } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
-import { BLADE_UP, HAND_FILTERS, MITT, RAISED, REACH } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
-import type { HandInput, HandPose, PicturePoint, Side, Vec3, WorldPoint } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
-import { OneEuro } from '../../../apps/web/src/minigames/table-tennis/oneEuro.ts';
+import { DEFAULT_FOV, SURELY_BACK, flatWorld } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
+import { SERVE_SWING, SWING, strongestSwing } from '../../../apps/web/src/minigames/table-tennis/assist.ts';
+import { BLADE_UP, MITT, RAISED, REACH, borneOut, followHands, intake, newHandIntake, newRig, readHands } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
+import type { FoundHand } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
+import type { HandPose, PicturePoint, Side, Vec3, WorldPoint } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
 import { detailHands } from '../../../packages/pose/webcamRecord.ts';
 import type { HandSide, PoseDetail } from '../../../packages/pose/webcamRecord.ts';
 import { DATA, loadScene, matchPoses, parseArgs, readJson, readJsonl, round, runDir, writeJson } from './common.ts';
@@ -288,11 +290,56 @@ export function raiseAgreement(times: readonly number[], gt: readonly boolean[],
   };
 }
 
-/** The game's one-euro filters (HAND_FILTERS) over one hand's poses, each at its arrival time (s). */
+/** The game's intake (rig.ts intake: its filters) over one hand's poses, each at its arrival time (s). */
 export function filterHandPoses(poses: readonly { t: number; pose: HandPose }[]): HandPose[] {
-  const f = { wrist: new OneEuro(...HAND_FILTERS.wrist), dir: new OneEuro(...HAND_FILTERS.dir), across: new OneEuro(...HAND_FILTERS.across) };
-  const arr = (v: Vec3) => [v.x, v.y, v.z];
-  return poses.map(({ t, pose }) => ({ from: pose.from, wrist: vec(f.wrist.filter(arr(pose.wrist), t)), dir: vec(f.dir.filter(arr(pose.dir), t)), across: vec(f.across.filter(arr(pose.across), t)) }));
+  const f = newHandIntake();
+  return poses.map(({ t, pose }) => intake(f, pose, t));
+}
+
+/** The screen's rate (Hz) the game's swing detection is run at here. */
+export const SCREEN_HZ = 60;
+/** A swing (or a miss of one) counts as the same within this (ms). */
+export const SWING_TOLERANCE_MS = 300;
+
+/**
+ * The game's swings from one paddle hand's poses (each at the time the game gets it, ms): the
+ * hand eased onto them at the screen's rate (rig.ts followHands), the blade's velocities, and
+ * round.ts's rule (assist.ts strongestSwing, borne out by the latest pose: rig.ts borneOut), per
+ * screen frame: whether a swing is on, and a serve's (SERVE_SWING) too.
+ */
+export function gameSwings(side: Side, poses: readonly { t: number; pose: HandPose }[]): { times: number[]; swing: boolean[]; serve: boolean[] } {
+  const out = { times: [] as number[], swing: [] as boolean[], serve: [] as boolean[] };
+  if (!poses.length) return out;
+  const rig = newRig(0, side);
+  rig.tracked = true;
+  const speeds: { t: number; vel: Vec3 }[] = [];
+  let prev: Vec3 | null = null, next = 0;
+  const dt = 1 / SCREEN_HZ;
+  for (let now = poses[0].t; now <= poses[poses.length - 1].t + 500; now += 1000 * dt) {
+    while (next < poses.length && poses[next].t <= now) { rig.before[side] = rig.hands[side]; rig.hands[side] = { at: poses[next].t, pose: poses[next].pose }; next++; }
+    followHands(rig, now, dt);
+    const c = rig.blade!.center;
+    const live = now - rig.hands[side]!.at < 500;
+    const at = { x: c.x, y: c.y, z: c.z };
+    if (prev && live) speeds.push({ t: now / 1000, vel: scale(sub(at, prev), 1 / dt) });
+    prev = at;
+    while (speeds.length && now / 1000 - speeds[0].t > 0.5) speeds.shift();
+    const swung = live ? strongestSwing(speeds, now / 1000) : { x: 0, y: 0, z: 0 };
+    const on = norm(swung) > 0 && borneOut(rig, side, swung, SWING.sprung, now);
+    out.times.push(now); out.swing.push(on);
+    out.serve.push(on && norm(strongestSwing(speeds, now / 1000, SERVE_SWING.travel)) >= SERVE_SWING.minSpeed);
+  }
+  return out;
+}
+
+/** Swings the game sees against the GT's (both gameSwings): false ones a minute, and the share of the GT's it misses. */
+export function swingAgreement(gt: ReturnType<typeof gameSwings>, game: ReturnType<typeof gameSwings>, key: 'swing' | 'serve', toleranceMs = SWING_TOLERANCE_MS) {
+  const gOn = gt.times.filter((_, i) => gt[key][i]);
+  const onsets = (s: ReturnType<typeof gameSwings>) => s.times.filter((_, i) => s[key][i] && (i === 0 || !s[key][i - 1]));
+  const near = (t: number, list: readonly number[]) => { let lo = 0, hi = list.length; while (lo < hi) { const m = (lo + hi) >> 1; if (list[m] < t - toleranceMs) lo = m + 1; else hi = m; } return lo < list.length && list[lo] <= t + toleranceMs; };
+  const mOn = game.times.filter((_, i) => game[key][i]);
+  const g = onsets(gt), m = onsets(game);
+  return { gt: g.length, game: m.length, false: m.filter(t => !near(t, gOn)).length, missed: g.filter(t => !near(t, mOn)).length };
 }
 
 // ---------------------------------------------------------------- the game's view of a tracked pose
@@ -303,7 +350,7 @@ export function gameInputs(pose: TrackedPose, size: { width: number; height: num
   const world: WorldPoint[] = pose.world ? pose.world.map(vec) : flatWorld(image, size);
   return { image, world, flat: !pose.world };
 }
-const handInput = (h: DetHand): HandInput => ({ landmarks: h.kp.map(([x, y, z]) => ({ x, y, z })), world: h.world.map(vec) });
+const handInput = (h: DetHand): FoundHand => ({ side: h.side, score: h.score, landmarks: h.kp.map(([x, y, z]) => ({ x, y, z })), world: h.world.map(vec) });
 
 /** Which hands each player's detail asks the Hand Landmarker for (player k: the k-th list, or the last). */
 export function wantedSides(detail: PoseDetail | null, playerId: number): HandSide[] {
@@ -380,12 +427,13 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
       handsLog.push({ pid: pose.playerId, frame: r.frame, recv: r.received_ms, person, gtf, pose });
       const { image, world } = gameInputs(pose, size);
       if (person && toCam && gtf && pose.world) worldRows.push({ pose, cam: toCam(gtf, person).body });
+      const found = pose.hands?.map(handInput) ?? null;
+      const read = readHands({ landmarks: image, world }, found, size, DEFAULT_FOV);
+      const readFov = fov ? readHands({ landmarks: image, world }, found, size, fov) : null;
       for (const side of SIDES) {
-        const det = pose.hands?.find(h => h.side === side);
-        const hand = det ? handInput(det) : undefined;
-        const raw = handPose({ landmarks: image, world }, hand, side, size, DEFAULT_FOV);
+        const raw = read[side];
         if (!raw) continue;
-        const atFov = fov ? handPose({ landmarks: image, world }, hand, side, size, fov) : null;
+        const atFov = readFov?.[side] ?? null;
         const key = `${pose.playerId}|${side}`;
         if (!perHand.has(key)) perHand.set(key, []);
         perHand.get(key)!.push({ t: r.received_ms / 1000, pose: raw, trueFov: atFov, r, person });
@@ -497,6 +545,38 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
   }
   const swingIdx = velErrs.state.map((s, i) => (s === 'swing' || s === 'peak') ? i : -1).filter(i => i >= 0);
   const latency = records.map(r => r.received_ms - r.t_ms);
+
+  // ---- the game's swings (and serves) from the paddle hand, against the same rule on the GT hand
+  const swingTotals = { swing: { gt: 0, game: 0, false: 0, missed: 0 }, serve: { gt: 0, game: 0, false: 0, missed: 0 }, rest_false: 0, rest_minutes: 0, minutes: 0 };
+  for (const group of Object.values(groupBy(samples.filter(isPaddle), s => `${s.pid}|${s.side}`))) {
+    const g = group.sort((a, b) => a.recv - b.recv);
+    const count = new Map<string, number>();
+    for (const x of g) if (x.person) count.set(x.person, (count.get(x.person) ?? 0) + 1);
+    const person = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!person || !toCam) continue;
+    const side = g[0].side;
+    const game = gameSwings(side, g.map(x => ({ t: x.recv, pose: x.filt })));
+    const gtPoses: { t: number; pose: HandPose }[] = [];
+    for (const f of scene.gt) {
+      if (f.t_ms < g[0].t - 1000 || f.t_ms > g[g.length - 1].t) continue;
+      const p = f.people.find(q => q.id === person);
+      const arm = p && p.phase !== 'offstage' ? gtArmAt(f, p, side) : null;
+      if (arm) gtPoses.push({ t: f.t_ms, pose: { wrist: arm.wrist, dir: arm.dir, across: arm.across, from: 'pose' } });
+    }
+    const gt = gameSwings(side, gtPoses);
+    for (const key of ['swing', 'serve'] as const) {
+      const a = swingAgreement(gt, game, key);
+      swingTotals[key].gt += a.gt; swingTotals[key].game += a.game; swingTotals[key].false += a.false; swingTotals[key].missed += a.missed;
+    }
+    // False swings while the GT hand is at rest (no GT swing within the tolerance, and slow).
+    const gtState = gtPaths.get(`${person}|${side}`);
+    if (gtState) {
+      const restAt = (t: number) => { const i = gtState.times.findIndex(u => u >= t); return i >= 0 && gtState.state.get(scene.gt.find(f => f.t_ms === gtState.times[i])?.frame ?? -1) === 'rest'; };
+      const onsets = game.times.filter((t, i) => game.swing[i] && (i === 0 || !game.swing[i - 1]));
+      swingTotals.rest_false += onsets.filter(t => restAt(t)).length;
+    }
+    swingTotals.minutes += (g[g.length - 1].recv - g[0].recv) / 60000;
+  }
 
   // ---- jitter at rest (GT rest, or still by the tracked path itself without GT)
   const jitterOf = (list: Sample[], pick: (s: Sample) => Vec3, mask: boolean[]) => jitter(list.map(s => s.t), list.map(pick), mask);
@@ -669,6 +749,11 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     depth_sign_wrong: depth.clear ? round(depth.sign_wrong / depth.clear) : null,
     back_read_forward: depth.gt_back ? round(depth.back_read_forward / depth.gt_back) : null,
     forward_read_back: depth.gt_forward ? round(depth.forward_read_back / depth.gt_forward) : null,
+    swing_false_per_min: swingTotals.minutes ? round(swingTotals.swing.false / swingTotals.minutes, 2) : null,
+    swing_miss: swingTotals.swing.gt ? round(swingTotals.swing.missed / swingTotals.swing.gt) : null,
+    swing_rest_false_per_min: swingTotals.minutes ? round(swingTotals.rest_false / swingTotals.minutes, 2) : null,
+    serve_false_per_min: swingTotals.minutes ? round(swingTotals.serve.false / swingTotals.minutes, 2) : null,
+    serve_miss: swingTotals.serve.gt ? round(swingTotals.serve.missed / swingTotals.serve.gt) : null,
     raise_false_per_min: raiseTotals.minutes ? round(raiseTotals.false_triggers / raiseTotals.minutes, 2) : null,
     raise_miss: raiseTotals.gt_raises ? round(raiseTotals.misses / raiseTotals.gt_raises) : null,
     inference_ms: cost.inference_ms.mean, pose_hz: cost.pose_hz, completed: cost.completed,
@@ -684,6 +769,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     hands: { ...handStats, kp21_px: stats(handStats.kp21_px), kp21_rel: stats(handStats.kp21_rel, 1, 3), wrist_px: stats(handStats.wrist_px), pose_wrist_px: stats(handStats.pose_wrist_px), index_px: stats(handStats.index_px), pinky_px: stats(handStats.pinky_px) },
     world: { arm_cm: stats(worldErr, 100), depth },
     raise: { per_hand: raise, ...raiseTotals },
+    swings: swingTotals,
     cost,
   };
 }
@@ -698,19 +784,20 @@ function mean21(kp: readonly number[][], gt: readonly number[][], px: (a: readon
 export type PingpongMetrics = ReturnType<typeof pingpongScene>;
 
 /** One scene's ping-pong metrics from its run's files. */
-export function pingpongRun({ estimator, id }: { estimator: string; id: string }): PingpongMetrics {
-  const dir = runDir(estimator, id);
+export function pingpongRun({ estimator, id, from }: { estimator: string; id: string; from?: string }): PingpongMetrics {
+  const dir = runDir(from ?? estimator, id);
   const run = existsSync(path.join(dir, 'run.json')) ? readJson<RunInfo>(path.join(dir, 'run.json')) : {};
   const dets = existsSync(path.join(dir, 'detections.jsonl')) ? readJsonl<DetFrame>(path.join(dir, 'detections.jsonl')) : [];
   return pingpongScene(loadScene(id), dets, readJsonl<TrackedFrame>(path.join(dir, 'tracked.jsonl')), run, estimator);
 }
 
 if (import.meta.main) {
-  const { positional: [estimator, ...scenes], opts } = parseArgs(process.argv.slice(2), { jobs: 'string' });
-  if (!estimator) { console.error('usage: node tools/trackbench/harness/pingpong.ts <estimator-id> [scene-id...] [--jobs N]'); process.exit(2); }
-  const root = path.join(DATA, 'runs', estimator);
+  const { positional: [estimator, ...scenes], opts } = parseArgs(process.argv.slice(2), { jobs: 'string', from: 'string' });
+  if (!estimator) { console.error('usage: node tools/trackbench/harness/pingpong.ts <estimator-id> [scene-id...] [--jobs N] [--from <run>]'); process.exit(2); }
+  const from = opts.from ? String(opts.from) : undefined;
+  const root = path.join(DATA, 'runs', from ?? estimator);
   const ids = scenes.length ? scenes : readdirSync(root).filter(s => existsSync(path.join(root, s, 'tracked.jsonl')));
-  const results = await scenePool<{ estimator: string; id: string }, PingpongMetrics>(new URL(import.meta.url), pingpongRun, ids.map(id => ({ estimator, id })), jobsOption(opts.jobs));
+  const results = await scenePool<{ estimator: string; id: string; from?: string }, PingpongMetrics>(new URL(import.meta.url), pingpongRun, ids.map(id => ({ estimator, id, from })), jobsOption(opts.jobs));
   for (const m of results) {
     writeJson(path.join(runDir(estimator, m.scene), 'pingpong.json'), m);
     const s = m.summary;

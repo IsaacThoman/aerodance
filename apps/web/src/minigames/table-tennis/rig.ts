@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import type { RawPose } from '../pose/body.ts';
 import { DEFAULT_FOV, bodyTurn, flatWorld, handPose } from './arms.ts';
-import type { BodyTurn, HandPose, Side, Vec3 } from './arms.ts';
+import type { BodyTurn, FrameSize, HandInput, HandPose, PicturePoint, Side, Vec3, WorldPoint } from './arms.ts';
 import { TABLE, v3 } from './ball.ts';
 import type { PaddlePose } from './ball.ts';
 import { OneEuro } from './oneEuro.ts';
@@ -122,12 +122,34 @@ const arr = (a: Vec3) => [a.x, a.y, a.z];
 
 /** The one-euro filters (minCutoff Hz, beta) each hand's wrist, dir and across go through (oneEuro.ts). */
 export const HAND_FILTERS = { wrist: [1.2, 3], dir: [1, 1.2], across: [1, 1.2] } as const satisfies Record<string, readonly [number, number]>;
+/** One hand's intake (intake): its filters. */
+export interface HandIntake { wrist: OneEuro; dir: OneEuro; across: OneEuro; }
 /** A player's hands' filters (trackHands): one-euro, on the wrist and the hand's two axes. */
-export interface HandFilters { seen: RawPose | null; sides: Record<Side, Record<'wrist' | 'dir' | 'across', OneEuro>>; }
+export interface HandFilters { seen: RawPose | null; sides: Record<Side, HandIntake>; }
+export const newHandIntake = (): HandIntake => ({ wrist: new OneEuro(...HAND_FILTERS.wrist), dir: new OneEuro(...HAND_FILTERS.dir), across: new OneEuro(...HAND_FILTERS.across) });
 export const newHandFilters = (): HandFilters => ({
   seen: null,
-  sides: Object.fromEntries(SIDES.map((side) => [side, { wrist: new OneEuro(...HAND_FILTERS.wrist), dir: new OneEuro(...HAND_FILTERS.dir), across: new OneEuro(...HAND_FILTERS.across) }])) as HandFilters['sides'],
+  sides: { left: newHandIntake(), right: newHandIntake() },
 });
+
+/** A hand the tracker found, as readHands takes it: its side and points (RawPose's hands, or a recording's). */
+export interface FoundHand extends HandInput { side: Side; score?: number; }
+
+/**
+ * Each side's hand from one pose (arms.ts handPose on its picture and world landmarks, with the
+ * hand found at that wrist), before any filtering; null for a side the camera doesn't see.
+ * (The trackbench's ping-pong metrics read recordings through this too.)
+ */
+export function readHands(pose: { landmarks: PicturePoint[]; world: WorldPoint[] }, hands: readonly FoundHand[] | null | undefined, size: FrameSize, fov = DEFAULT_FOV): Record<Side, HandPose | null> {
+  const out = { left: null, right: null } as Record<Side, HandPose | null>;
+  for (const side of SIDES) out[side] = handPose(pose, hands?.find((h) => h.side === side), side, size, fov);
+  return out;
+}
+
+/** One hand's pose from readHands, taken in at `t` (seconds): what the game follows, filtered. */
+export function intake(f: HandIntake, next: HandPose, t: number): HandPose {
+  return { from: next.from, wrist: vec(f.wrist.filter(arr(next.wrist), t)), dir: vec(f.dir.filter(arr(next.dir), t)), across: vec(f.across.filter(arr(next.across), t)) };
+}
 
 /**
  * A player's hands from a pose as it arrives (`now`, ms): arms.ts on its picture and world
@@ -144,21 +166,17 @@ export function trackHands(rig: Rig, raw: RawPose | null | undefined, now: numbe
   const pose = { landmarks: image, world: raw.world ? [...raw.world] : flatWorld(image, raw.input) };
   rig.flat = !raw.world;
   rig.body = bodyTurn(pose.world, image);
-  for (const side of SIDES) {
-    if (rig.autoplay) break;
-    const hand = raw.hands?.find((h) => h.side === side);
-    const next = handPose(pose, hand, side, raw.input, fov);
-    if (next) takeHand(rig, side, next, now, filters);
+  if (!rig.autoplay) {
+    const read = readHands(pose, raw.hands, raw.input, fov);
+    for (const side of SIDES) { const next = read[side]; if (next) takeHand(rig, side, next, now, filters); }
   }
   takeAge(rig, now - raw.capturedAt);
 }
 
 /** A hand as the tracker found it at `now` (ms), filtered, for the scene's hand to follow. */
 export function takeHand(rig: Rig, side: Side, next: HandPose, now: number, filters: HandFilters) {
-  const f = filters.sides[side], t = now / 1000;
   rig.before[side] = rig.hands[side];
-  rig.hands[side] = { at: now, pose: { from: next.from,
-    wrist: vec(f.wrist.filter(arr(next.wrist), t)), dir: vec(f.dir.filter(arr(next.dir), t)), across: vec(f.across.filter(arr(next.across), t)) } };
+  rig.hands[side] = { at: now, pose: intake(filters.sides[side], next, now / 1000) };
 }
 
 /** A pose's age (ms) when it was first seen: the tracking's delay, averaged. */

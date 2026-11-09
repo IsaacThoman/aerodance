@@ -53,6 +53,11 @@ export const COLUMNS: Column[] = [
   { key: 'world_arm_cm', label: 'world arm cm', get: at('world_arm_cm'), digits: 1, better: 'lower' },
   { key: 'depth_sign_wrong', label: 'depth sign wrong', get: at('depth_sign_wrong'), digits: 3, better: 'lower' },
   { key: 'back_read_forward', label: 'back read fwd', get: at('back_read_forward'), digits: 3, better: 'lower' },
+  { key: 'swing_false_per_min', label: 'false swings/min', get: at('swing_false_per_min'), digits: 2, better: 'lower' },
+  { key: 'swing_rest_false_per_min', label: 'rest false swings/min', get: at('swing_rest_false_per_min'), digits: 2, better: 'lower' },
+  { key: 'swing_miss', label: 'swing miss', get: at('swing_miss'), digits: 3, better: 'lower' },
+  { key: 'serve_false_per_min', label: 'false serves/min', get: at('serve_false_per_min'), digits: 2, better: 'lower' },
+  { key: 'serve_miss', label: 'serve miss', get: at('serve_miss'), digits: 3, better: 'lower' },
   { key: 'raise_false_per_min', label: 'raise false/min', get: at('raise_false_per_min'), digits: 2, better: 'lower' },
   { key: 'raise_miss', label: 'raise miss', get: at('raise_miss'), digits: 3, better: 'lower' },
   { key: 'inference_ms', label: 'infer ms', get: at('inference_ms'), digits: 1, better: 'lower' },
@@ -60,7 +65,7 @@ export const COLUMNS: Column[] = [
 ];
 /** The columns the compact class table prints (the JSON has every one). */
 export const COMPACT = ['paddle_tracked', 'wrist_cm', 'wrist_bias_x', 'wrist_bias_y', 'wrist_bias_z', 'wrist_sd_x', 'wrist_sd_y', 'wrist_sd_z', 'blade_filtered_cm', 'blade_swing_cm', 'wrist_forward_cm', 'wrist_forward_bias_z',
-  'lag_filtered_ms', 'jitter_rest_filtered_cm', 'hand_found', 'hand_wrong_side', 'back_read_forward', 'raise_false_per_min', 'inference_ms', 'pose_hz'];
+  'lag_filtered_ms', 'jitter_rest_filtered_cm', 'hand_found', 'hand_wrong_side', 'back_read_forward', 'swing_false_per_min', 'swing_miss', 'raise_false_per_min', 'inference_ms', 'pose_hz'];
 
 /** Scenes sharing a render (post-only variants) are one cluster: meta.json's render_key, else the scene. */
 export function clusterOf(scene: string): string {
