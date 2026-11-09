@@ -4,15 +4,18 @@ What [trackbench](README.md) found about aerodance's tracking, what this branch 
 it, and what to do next. Numbers are means over scenes. Brackets are paired bootstrap 95%
 intervals over scenes. The reports they come from are in `$TRACKBENCH_DATA/reports/`. The
 end-to-end comparison is the game's own pipeline on every scene, from `dev` (`runs/dev-final`,
-at 61414651) and from this branch (`runs/final3-game`), in `reports/final3-game-vs-dev.md`.
+at 61414651) and from this branch (`runs/final4-game`), in `reports/final4-game-vs-dev.md`.
 Re-running either gives identical detections, so differences between them come from the code.
 
 ## Summary
 
 Over all 133 scenes, with the shipping model (MediaPipe Lite), this branch takes the score that
-players lose to tracking from **15.9% to 8.0%** [−9.5, −6.0 points]. No scene loses more, and
-132 of the 133 lose less. Calibration finishes before the dance in **77% → 95%** of scenes, and
-players are numbered correctly in 89% → 98% of the multiplayer scenes.
+players lose to tracking from **15.9% to 8.0%** [−9.5, −6.0 points], and every one of the 133
+scenes loses less. Most of that is the scorer: scored with this branch's scorer, `dev`'s own
+tracking loses 10.4%, so the scorer accounts for 5.6 points [4.8, 6.3] of the gain and the
+tracking and calibration changes for 2.4 [1.0, 4.1], mostly in the scenes they were made for.
+Calibration finishes before the dance in **77% → 95%** of scenes, and players are numbered
+correctly in 89% → 98% of the scenes with two or more players.
 
 What changed, and why:
 
@@ -77,7 +80,7 @@ ground truth, and replays the footage through the game's own pipeline.
   the tracked poses against the same scorer given the dancer's ground truth.
 - **Candidates:** 18 estimator configurations, including MediaPipe Lite/Full/Heavy, RTMO, RTMPose,
   MoveNet, Apple Vision, YOLO11/26-pose (references only: AGPL) and RTMW. Each runs over the same
-  scenes, through the game's own tracker. 7 cover the whole suite and 3 more a 39-scene subset.
+  scenes, through the game's own tracker. 7 cover the first 117 scenes and 3 more a 39-scene subset.
 
 Two models built it in parallel: Claude Opus 5.5 (generator, harness, solo scenes, sim-to-real,
 the game changes) and GPT-6 Astra (environments and sensors, estimator survey and runners,
@@ -111,7 +114,7 @@ multiplayer and setup scenes, the crossing scenes). Each audited the other's hal
   - they weren't capped to the player count, as the game's MediaPipe is;
   - Apple Vision's missing joints were written at (0, 0).
 
-  Both are fixed, and every comparison here uses the same 117 scenes with paired intervals
+  Both are fixed, and every estimator comparison here uses the same 117 scenes with paired intervals
   ([audit](audit/estimators-audit.md)).
 - **Repeatable:** the game's pipeline gives identical detections when a scene is run again, and
   `dev` run today gives the same detections as `dev` a week earlier, so a difference between two
@@ -125,38 +128,48 @@ multiplayer and setup scenes, the crossing scenes). Each audited the other's hal
 
 ## Findings and changes
 
-End to end, `dev` against this branch, over the 133 scenes:
+End to end, `dev` against this branch, over the 133 scenes. "dev, scorer v2" is `dev`'s own
+tracking scored with this branch's scorer (`studies/score-robustness.ts`), which separates the
+scorer's share from the tracking and calibration changes':
 
-| | dev | this branch |
-|---|---|---|
-| score lost to tracking | 15.9% | **8.0%** [−9.5, −6.0] |
-| judgement windows downgraded | 38.7% | **19.4%** [−22.0, −16.5] |
-| players numbered correctly (multiplayer scenes) | 88.9% | **98.1%** [+3.7, +18.5] |
-| identity after numbering | 94.8% (5 scenes never numbered) | **96.8%** |
-| player-frames lost | 3.9% | **1.6%** |
-| calibrated before the dance | 76.7% | **94.7%** [+11.3, +25.6] |
-| calibration time after everyone holds still (completed only) | 2.8 s | 2.7 s |
-| scored-limb angle error | 7.3° | 7.8° |
+| | dev | dev, scorer v2 | this branch |
+|---|---|---|---|
+| score lost to tracking | 15.9% | 10.4% | **8.0%** [−9.5, −6.0] |
+| judgement windows downgraded | 38.7% | | **19.4%** [−22.0, −16.5] |
+| players numbered correctly (54 scenes with two or more players) | 88.9% | 88.9% | **98.1%** [+3.7, +18.5] |
+| identity after numbering | 94.8% (5 scenes never numbered) | 94.8% | **96.8%** |
+| player-frames lost | 3.9% | 3.9% | **1.6%** |
+| calibrated before the dance | 76.7% | 76.7% | **94.7%** [+11.3, +25.6] |
+| calibration time after everyone holds still (completed only) | 2.8 s | 2.8 s | 2.7 s |
+| scored-limb angle error | 7.3° | | 7.8° |
 
 The scored-limb error rises because 99.7% of scored limbs now count, against 96.6%: the
 unsure ones version 1 threw away (and scored 0) are a little less accurate than the rest.
 
-| Score lost, by category | dev | this branch |
-|---|---|---|
-| bystander (10 scenes) | 24.8% | 10.6% |
-| multiplayer (31) | 24.7% | 11.1% |
-| setup (11) | 18.6% | 8.4% |
-| motion (8) | 18.0% | 7.7% |
-| camera (14) | 13.4% | 4.1% |
-| appearance (13) | 11.4% | 8.6% |
-| sensor (13) | 10.7% | 8.5% |
-| baseline (14) | 10.4% | 5.8% |
-| lighting (9) | 9.3% | 6.8% |
-| background (10) | 5.2% | 3.5% |
-| one player (79) | 11.1% | 6.4% |
-| two players (36) | 27.2% | 11.4% |
-| three players (8) | 14.9% | 8.2% |
-| four players (10) | 14.3% | 7.9% |
+On the same scorer the tracking changes help on average, and a lot where they were aimed (the
+ultrawide, close-together pairs, passers-by, look-alikes), but they aren't free in every scene.
+In single-player scenes the zoom can pick a player up a little earlier, from the middle of the
+picture, as they walk in; MediaPipe then follows a slightly different path for the rest of the
+scene. Apart from the ultrawide, single-player scenes move by −0.2 points on average, 28 better
+and 25 worse, by at most 0.8 (`mot-floor`, `cam-yaw-55`, `sens-wb-3000`). Of the multiplayer
+scenes only `mp3-arm-overlap` loses more (+0.4).
+
+| Score lost, by category | dev | dev, scorer v2 | this branch |
+|---|---|---|---|
+| bystander (10 scenes) | 24.8% | 15.6% | 10.6% |
+| multiplayer (31) | 24.7% | 16.3% | 11.1% |
+| setup (11) | 18.6% | 9.0% | 8.4% |
+| motion (8) | 18.0% | 7.7% | 7.7% |
+| camera (14) | 13.4% | 10.8% | 4.1% |
+| appearance (13) | 11.4% | 8.6% | 8.6% |
+| sensor (13) | 10.7% | 8.7% | 8.5% |
+| baseline (14) | 10.4% | 5.9% | 5.8% |
+| lighting (9) | 9.3% | 7.0% | 6.8% |
+| background (10) | 5.2% | 3.5% | 3.5% |
+| one player (79) | 11.1% | 7.8% | 6.4% |
+| two players (36) | 27.2% | 16.9% | 11.4% |
+| three players (8) | 14.9% | 8.8% | 8.2% |
+| four players (10) | 14.3% | 8.4% | 7.9% |
 
 ### Scoring: unsure joints were thrown away
 
@@ -192,14 +205,16 @@ mark joints beyond their cut edges at 0.05, below the gate, since those are the 
 Best scores are stored per version, so they start afresh. The character's own joint hold
 (`livePose.ts`, 0.5) is unchanged.
 
-With everything in this branch (`final3-game`, 133 scenes), the controls against ground truth:
+With everything in this branch (`final4-game`, 133 scenes), the controls against ground truth:
 the right dance loses 8.0% to tracking; dancing the wrong moves scores 25.8% (25.3% with perfect
 tracking); standing still scores 29.8% (29.7% with perfect tracking, over 132 scenes). Tracking
-errors pull a wrong dance slightly towards chance; it's most of a point only where tracking
-follows somebody else for a while (`by-old-place`), and the gap between the right dance (about
-92%) and the wrong one stays. Joints off the picture's own edges, such as feet below the frame,
-now count when the model gives them 0.1 or more: standing still gains over a point on perfect
-tracking in seven scenes, most where the legs are out of the picture (`setup-too-close` 6.3,
+errors pull a wrong dance towards chance by 0.4 points on average: by 9 points in `by-old-place`
+(24.5% against 15.3%), where tracking follows somebody else for a while, and by 2-4 points in a
+few multiplayer and setup scenes (`mp4-small-room`, `setup-too-close`, `mp4-dim`); 37 scenes gain
+more than a point, and 9 lose more than a point. The gap between the right dance (about 92%) and
+the wrong one stays. Joints off the picture's own edges, such as feet below the frame, now count
+when the model gives them 0.1 or more: standing still gains over a point on perfect tracking in
+seven scenes, most where the legs are out of the picture (`setup-too-close` 6.3,
 `mp4-small-room` 4.6).
 
 ### Setup: calibration that never completes
@@ -216,8 +231,8 @@ run at 69-75 results, just short of the 75 needed. In practice it's luck, and pl
 again.
 
 `studies/calibration.ts` replays every run's detections through the game's loop with other rules
-swapped in. It counts the scenes, of the 115 with a calibratable 5 s hold, where calibration
-completes during the hold:
+swapped in. It counts the scenes, of the 115 with a calibratable still hold (4-9 s: mostly 4 s
+with one player, 5 s with more), where calibration completes by half a second after the hold ends:
 
 | rule | MP Lite | MP Full | MP Heavy | RTMO-s | RTMPose-s | MoveNet | Apple Vision |
 |---|---|---|---|---|---|---|---|
@@ -281,18 +296,19 @@ out, and follows whoever else is there; results that are the same person are mer
 are. It runs only while somebody is missing, and needs the GPU and an extra landmarker, so the
 iPhone/iPad app goes without.
 
-| scene, Lite | dev: score lost, frames with both tracked | this branch |
-|---|---|---|
-| `mp2-tight` | 65.8%, 0% | 25.4%, 65% |
-| `mp2-close-offcentre` (both in the right 40%) | 68.6%, 0% | 22.2%, 79% |
-| `mp2-close-far` | 49.6%, 0% | 20.0%, 67% |
-| `mp2-offcentre-near` | 61.4%, 0% | 27.4%, 71% |
-| `mp2-arm-overlap` | 61.1%, 0.4% | 35.1%, 66% |
-| `mp2-offcentre-left` | 23.1% | 13.5% |
-| `mp2-offcentre-right` | 18.3% | 7.9% |
+| scene, Lite: score lost (frames with both players tracked) | dev | dev, scorer v2 | this branch |
+|---|---|---|---|
+| `mp2-tight` | 65.8% (0%) | 51.0% | 25.4% (65%) |
+| `mp2-close-offcentre` (both in the right 40%) | 68.6% (0%) | 58.9% | 22.2% (79%) |
+| `mp2-close-far` | 49.6% (0%) | 40.5% | 20.0% (67%) |
+| `mp2-offcentre-near` | 61.4% (0%) | 55.2% | 27.4% (71%) |
+| `mp2-arm-overlap` | 61.1% (0.4%) | 55.9% | 35.1% (66%) |
+| `mp2-offcentre-left` | 23.1% | 14.1% | 13.5% |
+| `mp2-offcentre-right` | 18.3% | 7.9% | 7.9% |
 
-All two-player scenes together: 27.2% → 11.4%. What's left in these scenes is mostly the two
-players swapping while they overlap (identity 79-88%), and calibration in three of them.
+All two-player scenes together: 27.2% → 11.4% (16.9% with dev's tracking on the new scorer).
+What's left in these scenes is mostly the two players swapping while they overlap (identity
+79-88%), and calibration in three of them.
 
 ### One player far away, or on an ultrawide webcam: the zoom
 
@@ -318,11 +334,17 @@ finds somebody is kept.
   way to find somebody small.
 
 `cam-fov-120`: 100% of score lost → **5.1%**, the player found in 96% of frames, and calibrated.
-The farther cameras gain a little (`cam-far-5.0` and `cam-far-6.5` 5.0% → 3.6%), and the other
-single-player scenes are unchanged by it. **Known limit:** a mannequin in the middle of an empty
-room is upright and person-shaped, so it can be taken for the player until they walk in and a
-glance brings the whole picture back (`bg-mannequin-coats`: the player found in 94% of frames
-instead of 99.5%, and numbered a moment late; score lost still falls, 5.1% → 3.5%).
+Elsewhere it changes little: on the same scorer the farther cameras lose slightly more with it
+(`cam-far-5.0` 3.3% → 3.6%, `cam-far-6.5` 3.4% → 3.6%), and the other single-player scenes move
+a little either way ([above](#findings-and-changes)).
+
+**Known limits:**
+- A mannequin in the middle of an empty room is upright and person-shaped, so it can be taken
+  for the player until they walk in and a glance brings the whole picture back
+  (`bg-mannequin-coats`: the player found in 94% of frames instead of 99.5%, and numbered a
+  moment late; 3.4% → 3.5% of score lost on the same scorer).
+- A small player who drops to the floor faster than the camera sees them going down isn't found
+  again until they stand up.
 
 Two reviews of the zoom found cases the suite didn't have (a close player stuck on the middle
 without their feet, a small player dropped at its edge, a floor dancer not found again), and a
@@ -343,37 +365,39 @@ Two tracker problems showed up in the scenes, with every model, so they were the
   different sizes when they met and are again when they part, they're now told apart by size
   (the nearer stays the bigger).
 
-| scene, Lite | dev: score lost, identity | this branch |
-|---|---|---|
-| `by-walk-front` (somebody walks between the camera and two players) | 41.3%, 82% | 11.9%, 96% |
-| `mp2-passerby-front-slow` | 43.9%, 72% | 17.0%, 88% |
-| `mp1-passerby-front` (one player) | 22.1%, 86% | 12.7%, 91% |
-| `by-old-place` | 25.9%, 94% | 11.3%, 96% |
-| `mp2-cross-alike` (dressed alike, crossing) | 25.9%, 57% | 7.4%, 99.7% |
-| `mp2-cross-alike-heights` | 27.2%, 58% | 9.0%, 97% |
-| `mp3-cross-alike-heights` | 20.3%, 73% | 7.3%, 99% |
-| `mp4-cross-alike` | 21.4%, 80% | 9.7%, 99% |
+| scene, Lite: score lost (identity) | dev | dev, scorer v2 | this branch |
+|---|---|---|---|
+| `by-walk-front` (somebody walks between the camera and two players) | 41.3% (82%) | 31.9% | 11.9% (96%) |
+| `mp2-passerby-front-slow` | 43.9% (72%) | 36.5% | 17.0% (88%) |
+| `mp1-passerby-front` (one player) | 22.1% (86%) | 20.4% | 12.7% (91%) |
+| `by-old-place` | 25.9% (94%) | 14.0% | 11.3% (96%) |
+| `mp2-cross-alike` (dressed alike, crossing) | 25.9% (57%) | 15.8% | 7.4% (99.7%) |
+| `mp2-cross-alike-heights` | 27.2% (58%) | 16.2% | 9.0% (97%) |
+| `mp3-cross-alike-heights` | 20.3% (73%) | 13.2% | 7.3% (99%) |
+| `mp4-cross-alike` | 21.4% (80%) | 12.3% | 9.7% (99%) |
 
 Reviews took one part back out: an exemption from the bystander rule at a missing player's home
 changed no scene, but let somebody standing beside a player take their number the moment the
-model missed them. Every tracker change has a test that fails without it, with no more people
-per result than the worker gives for that many players.
+model missed them. The tracker changes are tested, each fix with a test that fails without it,
+with no more people per result than the worker gives for that many players.
 
 ### Three and four players
 
 Fourteen scenes were added to test the tracker where the suite was thin: three- and four-player
 crossings (look-alikes among them), a pair bunched at the picture's edge with four players,
 overlapping arms, close and off-centre pairs, and slow passers-by
-([SUITE.md](scenes/SUITE.md#crossings-crowding-and-off-centre)). Three players: 14.9% → 8.2%;
-four: 14.3% → 7.9%. The strips (unchanged) keep everybody found (98% or more of player-frames in every
-crossing). One crossing still ends with two numbers swapped: `mp4-cross-adjacent`, distinct
-players 2 and 3 crossing the middle strips' edge (identity 80%, as on `dev`).
+([SUITE.md](scenes/SUITE.md#crossings-crowding-and-off-centre)). Three players: 14.9% → 8.2%,
+four: 14.3% → 7.9%, most of it the scorer's (8.8% and 8.4% with dev's tracking on the new
+scorer); the gain beyond that is in the look-alike crossings. The strips (unchanged) keep
+everybody found (98% or more of player-frames in every crossing). One crossing still ends with
+two numbers swapped: `mp4-cross-adjacent`, distinct players 2 and 3 crossing the middle strips'
+edge (identity 80%, as on `dev`).
 
 ### Where tracking still fails
 
 With everything in this branch, Lite's worst scenes:
 
-| scene | score lost (dev → this branch) | why |
+| scene | score lost: dev → this branch | why |
 |---|---|---|
 | `mp2-arm-overlap` | 61.1% → 35.1% | two players close, arms across each other: they swap while they overlap |
 | `sens-dim-gain`, `-jpeg` (dark room pushed up, noisy) | 36-40% → 32% | joints wander (limb error ~20°), and calibration never finishes |
@@ -381,12 +405,15 @@ With everything in this branch, Lite's worst scenes:
 | `look-long-skirt`, `look-dress` | 25-31% → 17-26% | hidden knees and hips |
 | `mp2-passerby-front-slow` | 43.9% → 17.0% | somebody standing a second in front of a player |
 | `mp4-dim` | 22.4% → 16.6% | four players in dim light |
+| `setup-dim-far` | 26.6% → 15.2% | two players far back in dim light |
 | `mot-floor`, `mot-side` | 37-41% → 13-15% | upside-down and lying poses; dancing side-on |
+| `look-dark-on-dark` | 17.6% → 14.2% | dark clothes against a dark background |
 
 **Skin tone (a flag, not a conclusion).** In bright light there's no difference between the three
-skin families for any model. In dim light the darker-skinned dancer lost more score with every
-model: Lite 16.4% vs 14.9%, Full 24.3% vs 17.5%, RTMO-s 12.0% vs 5.9% (scorer version 2's gate
-only). That's one scene per skin tone; it needs a proper sweep before anything is concluded.
+skin families for any model. In dim light the darker-skinned dancer loses more score with every
+model but Apple Vision: with this branch, Lite 13.0% against 12.5%; with scorer version 2's gate
+only, Full 17.4% against 13.2% and RTMO-s 10.6% against 4.6% (Apple Vision 14.8% against 17.8%).
+That's one scene per skin tone; it needs a proper sweep before anything is concluded.
 
 ### Should another pose estimator replace Lite?
 
@@ -401,7 +428,7 @@ calibration for all:
 | PCK@0.2 torso | 0.895 | 0.926 | 0.948 | 0.947 | 0.948 | 0.865 | 0.851 |
 | scored-limb angle error | 7.7° | 6.3° | 5.3° | 5.1° | 5.8° | 10.1° | 8.7° |
 | player recall | 97.3% | 97.3% | 97.3% | 99.9% | 99.9% | 99.9% | 99.5% |
-| calibrates during a 5 s still hold (the final rule) | 96% | 95% | 95% | 99% | 96% | 90% | 84% |
+| calibrates during the setup still hold (the final rule) | 96% | 95% | 95% | 99% | 96% | 90% | 84% |
 | browser, M5 Pro (Chromium) | 6 ms WebGL | 9 ms WebGL | 20 ms WebGL | 21-25 ms WebGPU, 440 ms WASM | not ported | 19-21 ms WebGL | native only |
 | download | 5.8 MB | 9.4 MB | 30.7 MB | 39.6 MB | 21.9 + 20.3 MB detector | 9.7 MB | in the OS |
 | depth (z) for the character | yes | yes | yes | no | no | no | no (3D API: one person) |
@@ -419,7 +446,7 @@ On a 39-scene subset (genres, motion, camera, multiplayer bases, four players): 
 1. **Now: MediaPipe Full where it's fast enough.** It wins until results take ~100 ms (see
    [slower devices](#full-vs-lite-on-slower-devices)), so choose by measured speed. It's the
    same API, output and z, and it shows the same gain on real footage. One catch: Full is
-   jumpier than Lite in still holds, but the new calibration absorbs that (64% → 95%).
+   jumpier than Lite in still holds, but the new calibration absorbs that (63% → 95%).
 2. **Next: prototype RTMO-s (or RTMPose-s with a light detector) behind WebGPU.** It halves score
    lost again, finds close-together players and the ultrawide dancer without the search and the
    zoom, and its confidences are well calibrated. Before it can ship:

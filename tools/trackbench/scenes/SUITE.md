@@ -183,7 +183,8 @@ Lite results: `$TRACKBENCH_DATA/reports/single-lite.md` (`report.ts`, all prefix
 
 ## Crossings, crowding and off-centre
 
-14 additional scenes at 640×480, 30 fps, 24 s, with `setup` from 0–7 s (2 s walk,
+Two off-centre pairs (`mp2-offcentre-left`, `-right`, the first two rows below) came from the first
+review of two-player strips; then 14 additional scenes at 640×480, 30 fps, 24 s, with `setup` from 0–7 s (2 s walk,
 5 s neutral calibration hold) and `dance` from 7–24 s. Crossings are part of the dance
 phase; players resume dancing at their exchanged spots. Front/back walking lanes and
 staggered dancing depths create image overlap without asking people to walk through each
@@ -212,6 +213,8 @@ a longer approach clipped the shoe soles at the bottom of the frame before the h
 | `mp4-cross-alike` | multiplayer | Same crossing as `mp4-cross-adjacent`, with identical bodies and clothes on the middle pair | Old-position reassignment should be exposed when appearance cannot resolve the crossing. |
 | `mp3-cross-alike-heights` | multiplayer | Same crossing as `mp3-cross-adjacent`, matching outfits on a short slim and tall broad pair | Body geometry should help retain identity when clothing matches. |
 | `mp2-cross-alike-heights` | multiplayer | Existing alike-pair crossing, with clearly different heights/builds | Height/build cues should improve on the identical-body crossing's old-order ambiguity. |
+| `mp2-offcentre-left` | multiplayer | Both players in the left 40% of the picture (a webcam off to one side) | Two-player strips, which assume one player per side, must not lose either player. |
+| `mp2-offcentre-right` | multiplayer | Players at about 55% and 80% of the picture's width, one across the left strip's cut edge | A player standing on a strip's cut edge must stay whole and found. |
 | `mp2-close-offcentre` | multiplayer | 0.7 m lateral spacing, 0.65 m depth stagger, both in right 40%; pop | Finding close neighbours must not rely on one person standing in each picture half. |
 | `mp2-close-far` | multiplayer | Same close spacing at a 5.5 m camera; pop | Small close silhouettes should remain separate and calibratable. |
 | `mp2-offcentre-near` | multiplayer | Both bodies in left half, 3 m camera, 75° FOV, 1 m depth stagger; waack | Large moving arm extents should not make off-centre player crops lose either person. |

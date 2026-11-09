@@ -17,9 +17,11 @@ How the webcam (or a paired phone's camera) turns people into players.
      while the first finds only one person, is shown the picture with that person hidden
      (their head, torso and legs) and follows whoever else is there. It costs a second
      inference only while somebody is missing. In trackbench's close-together scenes it tracked
-     both players in 65-79% of frames instead of none, and cut the score lost to tracking from
-     50-69% to 20-35% ([trackbench report](../tools/trackbench/REPORT.md)). Like the strips, it
-     needs the GPU and an extra landmarker, so the iPhone/iPad app goes without.
+     both players in 65-79% of frames instead of none, and, on the same scorer, cut the score
+     lost to tracking from 41-59% to 20-35% ([trackbench
+     report](../tools/trackbench/REPORT.md#two-players-close-together-a-search-for-the-missing-one)).
+     Like the strips, it needs the GPU and an extra landmarker, so the iPhone/iPad app goes
+     without.
      One player gets a **zoom**: MediaPipe's person detector misses somebody small in the picture
      (a 120° webcam, or far away) and finds them in its middle, enlarged. So while nobody has
      been found for a second, every other frame shows the landmarker the middle three quarters
@@ -32,7 +34,9 @@ How the webcam (or a paired phone's camera) turns people into players.
      landmarker glances at the whole picture afresh, and somebody it finds elsewhere (a player
      walking in, while the enlarged middle took a mannequin for somebody) brings the whole
      picture back; until then a mannequin in the middle of an empty room can be taken for the
-     player. On a 120° webcam the player was found in 96% of frames instead of none. The glances'
+     player, and a small player who drops to the floor faster than the camera sees them going
+     down isn't found again until they stand. On a 120° webcam the player was found in 96% of
+     frames instead of none. The glances'
      landmarker is made the first time the middle is kept, and its first glance takes about
      150 ms (once a session). The glances cost a landmarker, so the iPhone/iPad app goes without
      this too; it runs on the CPU too, where it's the only way to find somebody small.
