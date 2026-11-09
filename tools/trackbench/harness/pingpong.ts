@@ -305,10 +305,10 @@ export const SWING_TOLERANCE_MS = 300;
  * The game's swings from one paddle hand's poses (each at the time the game gets it, ms): the
  * hand eased onto them at the screen's rate (rig.ts followHands), the blade's velocities, and
  * round.ts's rule (assist.ts strongestSwing, borne out by the latest pose: rig.ts borneOut), per
- * screen frame: whether a swing is on, and a serve's (SERVE_SWING) too.
+ * screen frame: whether a swing is on, and a serve's (SERVE_SWING) too, and the blade's centre (the room's frame).
  */
-export function gameSwings(side: Side, poses: readonly { t: number; pose: HandPose }[]): { times: number[]; swing: boolean[]; serve: boolean[] } {
-  const out = { times: [] as number[], swing: [] as boolean[], serve: [] as boolean[] };
+export function gameSwings(side: Side, poses: readonly { t: number; pose: HandPose }[]): { times: number[]; swing: boolean[]; serve: boolean[]; blade: Vec3[] } {
+  const out = { times: [] as number[], swing: [] as boolean[], serve: [] as boolean[], blade: [] as Vec3[] };
   if (!poses.length) return out;
   const rig = newRig(0, side);
   rig.tracked = true;
@@ -326,7 +326,7 @@ export function gameSwings(side: Side, poses: readonly { t: number; pose: HandPo
     while (speeds.length && now / 1000 - speeds[0].t > 0.5) speeds.shift();
     const swung = live ? strongestSwing(speeds, now / 1000) : { x: 0, y: 0, z: 0 };
     const on = norm(swung) > 0 && borneOut(rig, side, swung, SWING.sprung, now);
-    out.times.push(now); out.swing.push(on);
+    out.times.push(now); out.swing.push(on); out.blade.push(at);
     out.serve.push(on && norm(strongestSwing(speeds, now / 1000, SERVE_SWING.travel)) >= SERVE_SWING.minSpeed);
   }
   return out;
@@ -383,6 +383,8 @@ function errorBlock(samples: readonly Sample[]) {
     blade_filtered: vectorStats(s.map(x => b(x.filt, x.gt!))),
     dir_deg: stats(s.map(x => angleDeg(x.raw.dir, x.gt!.dir)).filter(Number.isFinite), 1, 1),
     across_deg: stats(s.map(x => angleDeg(x.raw.across, x.gt!.across)).filter(Number.isFinite), 1, 1),
+    dir_filtered_deg: stats(s.map(x => angleDeg(x.filt.dir, x.gt!.dir)).filter(Number.isFinite), 1, 1),
+    across_filtered_deg: stats(s.map(x => angleDeg(x.filt.across, x.gt!.across)).filter(Number.isFinite), 1, 1),
   };
 }
 
@@ -442,6 +444,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
   }
   // Per GT person and side: the GT path (wrist from shoulder) over every GT frame, its speeds and motion states.
   const gtPaths = new Map<string, { times: number[]; wrist: Vec3[]; state: Map<number, string> }>();
+  const gtRest = new Map<string, boolean[]>();
   if (toCam) {
     const people = new Set(scene.gt.flatMap(f => f.people.filter(p => p.role === 'player').map(p => p.id)));
     for (const id of people) for (const side of SIDES) {
@@ -455,6 +458,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
       }
       const st = motionStates(times, speeds(times, wrist));
       gtPaths.set(`${id}|${side}`, { times, wrist, state: new Map(frames.map((fr, i) => [fr, st[i]])) });
+      gtRest.set(`${id}|${side}`, st.map(x => x === 'rest'));
     }
   }
   for (const [key, list] of perHand) {
@@ -547,7 +551,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
   const latency = records.map(r => r.received_ms - r.t_ms);
 
   // ---- the game's swings (and serves) from the paddle hand, against the same rule on the GT hand
-  const swingTotals = { swing: { gt: 0, game: 0, false: 0, missed: 0 }, serve: { gt: 0, game: 0, false: 0, missed: 0 }, rest_false: 0, rest_minutes: 0, minutes: 0 };
+  const swingTotals = { swing: { gt: 0, game: 0, false: 0, missed: 0 }, serve: { gt: 0, game: 0, false: 0, missed: 0 }, rest_false: 0, minutes: 0, drawn_lag: [] as number[], drawn_swing_lag: [] as number[], drawn_jitter: [] as number[] };
   for (const group of Object.values(groupBy(samples.filter(isPaddle), s => `${s.pid}|${s.side}`))) {
     const g = group.sort((a, b) => a.recv - b.recv);
     const count = new Map<string, number>();
@@ -564,6 +568,22 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
       if (arm) gtPoses.push({ t: f.t_ms, pose: { wrist: arm.wrist, dir: arm.dir, across: arm.across, from: 'pose' } });
     }
     const gt = gameSwings(side, gtPoses);
+    // The paddle as drawn (filtered, eased) against the GT blade: the lag the game's ball has to make up for, besides latency.
+    const drawn = bestLag(game.times, game.blade, gtPoses.map(x => x.t), gtPoses.map(x => bladeOf(x.pose.wrist, x.pose.dir)));
+    if (drawn) swingTotals.drawn_lag.push(drawn.lag_ms);
+    // And only while the GT blade moves at a swing's speed (where the one-euro filter opens up): what a hit sees.
+    const gtSpeed = speeds(gtPoses.map(x => x.t), gtPoses.map(x => bladeOf(x.pose.wrist, x.pose.dir)));
+    const fast = (t: number) => { let lo = 0, hi = gtPoses.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (gtPoses[m].t <= t) lo = m; else hi = m; } return gtSpeed[lo] >= MOTION.swing; };
+    const keep = game.times.map(t => fast(t - 80));
+    const swingDrawn = bestLag(game.times.filter((_, i) => keep[i]), game.blade.filter((_, i) => keep[i]), gtPoses.map(x => x.t), gtPoses.map(x => bladeOf(x.pose.wrist, x.pose.dir)), { ...LAG, min: -100, max: 250 });
+    if (swingDrawn) swingTotals.drawn_swing_lag.push(swingDrawn.lag_ms);
+    // The drawn blade's shake at the screen's rate while the GT hand rests.
+    const gtPath = gtPaths.get(`${person}|${side}`);
+    if (gtPath) {
+      const restAt = (t: number) => { let lo = 0, hi = gtPath.times.length - 1; if (hi < 0) return false; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (gtPath.times[m] <= t) lo = m; else hi = m; } return gtRest.get(`${person}|${side}`)?.[lo] ?? false; };
+      const j = jitter(game.times, game.blade, game.times.map(restAt));
+      if (j.rms !== null) swingTotals.drawn_jitter.push(j.rms);
+    }
     for (const key of ['swing', 'serve'] as const) {
       const a = swingAgreement(gt, game, key);
       swingTotals[key].gt += a.gt; swingTotals[key].game += a.game; swingTotals[key].false += a.false; swingTotals[key].missed += a.missed;
@@ -733,11 +753,11 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     wrist_forward_bias_cm: accuracy.by_reach.forward ? [accuracy.by_reach.forward.wrist.x.bias, accuracy.by_reach.forward.wrist.y.bias, accuracy.by_reach.forward.wrist.z.bias] : null,
     wrist_forward_sd_cm: accuracy.by_reach.forward ? [accuracy.by_reach.forward.wrist.x.sd, accuracy.by_reach.forward.wrist.y.sd, accuracy.by_reach.forward.wrist.z.sd] : null,
     blade_forward_cm: accuracy.by_reach.forward?.blade_filtered.median ?? null,
-    across_deg: p.across_deg.median,
+    across_deg: p.across_deg.median, across_filtered_deg: p.across_filtered_deg.median, across_filtered_p90_deg: p.across_filtered_deg.p90, dir_filtered_deg: p.dir_filtered_deg.median,
     dir_deg: p.dir_deg.median, from_hand: paddleAll.length ? round(paddleAll.filter(s => s.raw.from === 'hand').length / paddleAll.length) : null,
     swing_vel_err_ms: vectorStats(swingVel.raw, 1).median, swing_vel_err_filtered_ms: vectorStats(swingVel.filt, 1).median,
     swing_speed_ratio: round(quantile(velErrs.ratioRaw, 0.5), 3), swing_speed_ratio_filtered: round(quantile(velErrs.ratioFilt, 0.5), 3),
-    lag_ms: round(quantile(lags.raw, 0.5), 1), lag_filtered_ms: round(quantile(lags.filt, 0.5), 1), latency_ms: round(meanOf(latency), 1),
+    lag_ms: round(quantile(lags.raw, 0.5), 1), lag_filtered_ms: round(quantile(lags.filt, 0.5), 1), lag_drawn_ms: round(quantile(swingTotals.drawn_lag, 0.5), 1), lag_drawn_swing_ms: round(quantile(swingTotals.drawn_swing_lag, 0.5), 1), jitter_drawn_cm: round((quantile(swingTotals.drawn_jitter, 0.5) ?? NaN) * 100, 2), latency_ms: round(meanOf(latency), 1),
     jitter_rest_cm: round((quantile(jit.raw, 0.5) ?? NaN) * 100, 2), jitter_rest_filtered_cm: round((quantile(jit.filtered, 0.5) ?? NaN) * 100, 2),
     jitter_blade_filtered_cm: round((quantile(jit.blade_filtered, 0.5) ?? NaN) * 100, 2),
     hand_found: handStats.wanted ? round(handStats.found / handStats.wanted) : null,
