@@ -24,6 +24,9 @@ export const EYE = new THREE.Vector3(0, 1.6, 1.6);
 export const SHOULDER: Record<Side, THREE.Vector3> = { right: new THREE.Vector3(0.2, -0.05, 0.05), left: new THREE.Vector3(-0.2, -0.05, 0.05) };
 // Where a hand rests while it's lost: down by the side, out of view.
 export const REST: Record<Side, Vec3> = { right: { x: 0.02, y: -0.55, z: -0.1 }, left: { x: -0.02, y: -0.55, z: -0.1 } };
+// The free wrist this far above its shoulder raises the hand (and back below the lower mark, lowers
+// it: alone, that asks the robot to serve); held up, the robot serves again this often (s).
+export const RAISED = { up: 0.02, down: -0.1, again: 2.5 } as const;
 /** A hand not heard of for this long is lost. */
 export const LOST_MS = 500;
 // Tracked reach is scaled up a little: arms held out read better a touch longer.
@@ -36,7 +39,7 @@ export const TABLE_Z = EYE.z - 0.45 - TABLE.halfLength;
 // Each end's eye in the room: Player 1's at the near end, Player 2's the same at the far end,
 // facing back down the table; and the body's turn there.
 export const EYES: Record<End, THREE.Vector3> = { 0: EYE, 1: new THREE.Vector3(-EYE.x, EYE.y, 2 * TABLE_Z - EYE.z) };
-export const YAW: Record<End, number> = { 0: 0, 1: Math.PI };
+const YAW: Record<End, number> = { 0: 0, 1: Math.PI };
 // The eye in each player's own frame (rally.ts mine: the table's frame, them at +z).
 export const OWN_EYE = v3(EYE.x, EYE.y, EYE.z - TABLE_Z);
 // The paddle's blade: its radius, and half its thickness, as drawn and when forgiving.
@@ -47,10 +50,10 @@ const UP = new THREE.Vector3(0, 1, 0);
 const NO_SHIFT = new THREE.Vector3();
 const SIDES = ['left', 'right'] as const;
 
-export interface HandTarget { pose: HandPose; at: number; }
+interface HandTarget { pose: HandPose; at: number; }
 
 /** A hand as it's drawn this frame, in the room: the mitt's place and turn (y along the hand, z out of the palm). */
-export interface DrawnHand {
+interface DrawnHand {
   position: THREE.Vector3;
   quaternion: THREE.Quaternion;
   /** The wrist from its shoulder as eased so far (the body's frame, with the reach), and the hand's own turn. */
@@ -105,7 +108,7 @@ export const newRig = (end: End, paddle: Side): Rig => ({
 });
 
 /** A direction in a player's own frame, turned into the room's (or back). */
-export function toRoom(end: End, v: THREE.Vector3, out: THREE.Vector3) {
+function toRoom(end: End, v: THREE.Vector3, out: THREE.Vector3) {
   return end === 0 ? out.copy(v) : out.set(-v.x, v.y, -v.z);
 }
 
@@ -117,11 +120,13 @@ export const heldPose = (side: Side, wrist: Vec3): HandPose => ({
 const vec = (a: number[]): Vec3 => ({ x: a[0], y: a[1], z: a[2] });
 const arr = (a: Vec3) => [a.x, a.y, a.z];
 
+/** The one-euro filters (minCutoff Hz, beta) each hand's wrist, dir and across go through (oneEuro.ts). */
+export const HAND_FILTERS = { wrist: [1.2, 3], dir: [1, 1.2], across: [1, 1.2] } as const satisfies Record<string, readonly [number, number]>;
 /** A player's hands' filters (trackHands): one-euro, on the wrist and the hand's two axes. */
 export interface HandFilters { seen: RawPose | null; sides: Record<Side, Record<'wrist' | 'dir' | 'across', OneEuro>>; }
 export const newHandFilters = (): HandFilters => ({
   seen: null,
-  sides: Object.fromEntries(SIDES.map((side) => [side, { wrist: new OneEuro(1.2, 3), dir: new OneEuro(1, 1.2), across: new OneEuro(1, 1.2) }])) as HandFilters['sides'],
+  sides: Object.fromEntries(SIDES.map((side) => [side, { wrist: new OneEuro(...HAND_FILTERS.wrist), dir: new OneEuro(...HAND_FILTERS.dir), across: new OneEuro(...HAND_FILTERS.across) }])) as HandFilters['sides'],
 });
 
 /**
@@ -163,18 +168,24 @@ export function takeAge(rig: Rig, ms: number) {
 }
 
 /**
- * Whether the tracker's latest pose bears out a swing going `way` (the player's own frame): the
- * hand hasn't just sprung back against it by `sprung` metres or more. One wild pose (an arm's
- * depth read the wrong way round, say) throws the hand out and the next brings it back, which
- * looks like a swing to anything watching the eased hand.
+ * Whether the tracker's poses bear out a swing going `way` (the player's own frame) that was at
+ * its fastest `ago` seconds back: the pose that came next hasn't sprung back against it by
+ * `sprung` metres or more. One wild pose (an arm's depth read the wrong way round, say) throws
+ * the hand out and the next brings it back, which looks like a swing to anything watching the
+ * eased hand. Only the pose straight after the swing's own tells: a real stroke comes back too,
+ * a moment later, and that's its recovery.
  */
-export function borneOut(rig: Rig, side: Side, way: Vec3, sprung: number, now: number): boolean {
+export function borneOut(rig: Rig, side: Side, way: Vec3, ago: number, sprung: number, now: number): boolean {
   const pose = rig.hands[side], was = rig.before[side];
   const l = Math.hypot(way.x, way.y, way.z);
   if (!pose || !was || !l || now - was.at >= LOST_MS) return true;
+  // The swing was the pose before's doing if that pose came about when the swing was fastest.
+  if (Math.abs((now - was.at) / 1000 - ago) > BORNE_S) return true;
   const a = pose.pose.wrist, b = was.pose.wrist;
   return ((a.x - b.x) * way.x + (a.y - b.y) * way.y + (a.z - b.z) * way.z) / l > -sprung;
 }
+/** A pose within this long (s) of a swing's fastest moment is the pose that made it. */
+const BORNE_S = 0.12;
 
 /** Whether a side's hand is being tracked now (not lost, nor waiting for the camera). */
 export const handLive = (rig: Rig, side: Side, now: number) => {

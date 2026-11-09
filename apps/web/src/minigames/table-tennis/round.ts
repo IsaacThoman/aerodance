@@ -20,7 +20,7 @@
  */
 
 import * as THREE from 'three';
-import { ASSIST, SERVE_SWING, SWING, assistReturn, interceptNudge, serveHit, strongestSwing } from './assist.ts';
+import { ASSIST, SERVE_SWING, SWING, assistReturn, interceptNudge, serveHit, swingOf } from './assist.ts';
 import type { AssistLevel } from './assist.ts';
 import { arrival, autoplayBlade, autoplayRaised, autoplayServe } from './autoplay.ts';
 import { PADDLE_COOLDOWN, v3 } from './ball.ts';
@@ -34,18 +34,15 @@ import type { FlightEvent, Swinger } from './flight.ts';
 import { LaggedBall } from './lagged.ts';
 import { SERVE, bounced, dead, endOf, heldBall, hit, mine, mineBall, newRally, otherEnd, served } from './rally.ts';
 import type { End } from './rally.ts';
-import { REST, bladePose, borneOut, followHands, handLive, heldPose, wristFor } from './rig.ts';
+import { RAISED, REST, bladePose, borneOut, followHands, handLive, heldPose, wristFor } from './rig.ts';
 import type { Rig } from './rig.ts';
 import { GAP, HOLD_NORMAL, faceNormal, forehand, heading, holdPose, onPaddle, planServe, serveBall, servePose, serveStrike, strokeOffset } from './robot.ts';
 import type { ArmPose, ServeMotion } from './robot.ts';
 
-// The free wrist this far above its shoulder raises the hand (and back below the lower mark, lowers it);
-// held up, the robot serves again this often.
-export const RAISED = { up: 0.02, down: -0.1, again: 2.5 };
 /**
- * A ball out of play is taken back this long (s) after it: bounces on the floor, catches in the
- * net, bounces a second time on one half with nobody hitting it, or has lain still; and one
- * that's been in the air this long with nobody touching it.
+ * A ball out of play is taken back this long (the players' seconds) after it: bounces on the
+ * floor, catches in the net, bounces a second time on one half with nobody hitting it, or has
+ * lain still; and one that's been in the air this long with nobody touching it.
  */
 export const DEAD = { floor: 0.35, net: 0.6, second: 0.3, still: 0.4, stalled: 12 } as const;
 // How late the paddle is to the ball, stepped through with L: 'auto' is the tracker's measured
@@ -71,10 +68,14 @@ export interface Play {
 }
 
 /** How late a player's paddle is to the ball, in the ball's time (the camera off: not at all). */
-export const lagOf = (rig: Rig, play: Play) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + DRAW_LAG : 0) : play.hitLag) * play.timeScale);
+const lagOf = (rig: Rig, play: Play) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + DRAW_LAG : 0) : play.hitLag) * play.timeScale);
 
 /** Each player's part of the ball's frame: their paddle last frame (the table's frame) and where they'd moved it (their own), their swings, the ball's pass, their free hand. */
-interface Player { paddle: PaddlePose | null; moved: V3 | null; speeds: { t: number; vel: V3 }[]; pass: Pass | null; raised: boolean; }
+interface Player {
+  paddle: PaddlePose | null; moved: V3 | null; speeds: { t: number; vel: V3 }[]; pass: Pass | null; raised: boolean;
+  /** When they last swung or hit (their own seconds; never: -Infinity). */
+  active: number;
+}
 
 const dist = (a: V3, b: V3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const tmp = new THREE.Vector3();
@@ -142,13 +143,15 @@ export class Round {
     this.two = rigs.length > 1;
     this.rand = rand;
     this.ball = this.two ? heldBall(0, 0, rigs[0].paddle) : { pos: onPaddle(this.arm), vel: v3(), cooldown: 0 };
-    this.players = rigs.map((): Player => ({ paddle: null, moved: null, speeds: [], pass: null, raised: false }));
+    this.players = rigs.map((): Player => ({ paddle: null, moved: null, speeds: [], pass: null, raised: false, active: -Infinity }));
     this.passes = rigs.map(() => null);
   }
 
   /** Who's waiting to serve: alone, the player (for the robot to serve), while the ball's held. */
   server(): End { return this.two ? this.duel.server : 0; }
   holding() { return !this.flying && !this.serve; }
+  /** Whether a player has swung or hit lately (SERVE.away). */
+  playing(end: End) { return this.real - this.players[end].active <= SERVE.away; }
   /** With two: the waiting ball can be served (it has waited long enough). */
   armed() { return this.two && this.holding() && this.time - this.heldSince >= SERVE.arm * this.play.timeScale; }
 
@@ -229,7 +232,11 @@ export class Round {
     this.bot.aim = null;
     this.heldSince = this.time;
     this.serveSeen = null;
-    if (this.two) dead(this.duel, endOf(this.ball.pos.z)); else this.endRally();
+    if (this.two) {
+      // To whoever's end it finished at; unless they aren't playing (away, or not looking) and the other is.
+      const at = endOf(this.ball.pos.z), other = otherEnd(at);
+      dead(this.duel, this.playing(at) || !this.playing(other) ? at : other);
+    } else this.endRally();
     this.rigs.forEach((_, i) => this.finishPass(i, false));
   }
 
@@ -255,6 +262,7 @@ export class Round {
     for (const rig of rigs) followHands(rig, now, delta);
     // Real time (the players'), and the ball's world's.
     const dt = playing ? Math.min(delta, 1 / 20) : 0;
+    const span = Math.min(Math.max(delta, dt), 0.25);
     const worldDt = dt * play.timeScale;
     this.time += worldDt;
     // Each paddle where it's drawn now, in the table's frame (with the reach it has), where the
@@ -277,7 +285,8 @@ export class Round {
     // above its shoulder (from the tracker), with some give before it counts as lowered.
     const you = rigs.map((rig, i) => {
       const p = this.players[i], moved = pads[i].moved;
-      const paddleVel = p.moved && moved && dt > 0 ? v3((moved.x - p.moved.x) / dt, (moved.y - p.moved.y) / dt, (moved.z - p.moved.z) / dt) : undefined;
+      // (By the frame's real length: `dt` is capped, and a slow frame's move isn't a fast one.)
+      const paddleVel = p.moved && moved && dt > 0 ? v3((moved.x - p.moved.x) / span, (moved.y - p.moved.y) / span, (moved.z - p.moved.z) / span) : undefined;
       // Only a hand being tracked swings (one lost drifts down to its rest, which is no swing).
       const live = handLive(rig, rig.paddle, now);
       if (paddleVel && live) p.speeds.push({ t: this.real, vel: paddleVel });
@@ -286,24 +295,28 @@ export class Round {
       const wasRaised = p.raised;
       p.raised = handLive(rig, rig.free, now) && free!.pose.wrist.y > (p.raised ? RAISED.down : RAISED.up);
       // (A hand thrown out and back by one wild pose is no swing.)
-      const swung = live ? strongestSwing(p.speeds, this.real) : v3();
-      return { paddleVel, live, wasRaised, lag: lagOf(rig, play), swing: borneOut(rig, rig.paddle, swung, SWING.sprung, now) ? swung : v3() };
+      const borne = (travel?: number) => {
+        const swung = live ? swingOf(p.speeds, this.real, travel) : null;
+        return swung && borneOut(rig, rig.paddle, swung.vel, this.real - swung.t, SWING.sprung, now) ? swung.vel : v3();
+      };
+      const swing = borne();
+      if (swing.x || swing.y || swing.z) p.active = this.real;
+      // (A serve's swing is a longer one than a rally's.)
+      return { paddleVel, live, wasRaised, lag: lagOf(rig, play), swing, serveSwing: () => borne(SERVE_SWING.travel) };
     });
     const s = this.server();
     let plan: { t: number; at: V3 } | null = null;
     if (two) {
-      // Space takes a stalled rally's ball back to the server; with the ball waiting, it serves.
-      if (play.serve && this.flying) { this.over(); this.duel.server = s; }
-      else if (!this.flying) {
+      // Space serves (a stalled rally's ball taken back to the server first).
+      if (play.serve && this.flying) { this.over(); this.duel.server = s; this.heldSince = this.time; }
+      if (!this.flying) {
         // Left waiting too long, the ball goes to the other player to serve.
         if (this.time - this.heldSince > SERVE.pass * play.timeScale) { this.duel.server = otherEnd(s); this.heldSince = this.time; this.serveSeen = null; }
         const server = this.server(), rig = rigs[server];
         const held = heldBall(server, this.time, rig.paddle);
         this.ball.pos = held.pos; this.ball.vel = held.vel;
         const from = mine(server, held.pos);
-        const { raw } = pads[server], { paddleVel, live } = you[server];
-        // (A serve's swing is a longer one than a rally's.)
-        const swing = live && you[server].swing.x ** 2 + you[server].swing.y ** 2 + you[server].swing.z ** 2 > 0 ? strongestSwing(this.players[server].speeds, this.real, SERVE_SWING.travel) : v3();
+        const { raw } = pads[server], { live } = you[server];
         const pose = rig.hands[rig.paddle];
         let vel: V3 | null = play.serve ? { ...SERVE.key } : null;
         if (!vel && (!live || !pose)) this.serveSeen = null;
@@ -313,8 +326,9 @@ export class Round {
           const w = pose.pose.wrist, was = this.serveSeen.wrist, way = this.serveSeen.way;
           if ((w.x - was.x) * way.x + (w.y - was.y) * way.y + (w.z - was.z) * way.z > -SWING.sprung) vel = this.serveSeen.vel;
           this.serveSeen = null;
-        } else if (!vel && !this.serveSeen && pose && this.armed() && raw && paddleVel) {
-          const seen = serveHit(from, raw, paddleVel, swing, help);
+        } else if (!vel && !this.serveSeen && pose && this.armed() && raw) {
+          const swing = you[server].serveSwing();
+          const seen = serveHit(from, raw, swing, help);
           const l = Math.hypot(swing.x, swing.y, swing.z) || 1;
           if (seen) this.serveSeen = { vel: seen, at: pose.at, wrist: { ...pose.pose.wrist }, way: v3(swing.x / l, swing.y / l, swing.z / l) };
         }
@@ -323,7 +337,7 @@ export class Round {
           this.serveSeen = null;
           this.launch(mine(server, assistReturn(from, vel, play.assist === 'off' && !play.serve ? 0 : 1)), PADDLE_COOLDOWN);
           served(this.duel);
-          this.hits += 1; this.hitsBy[server] += 1; this.touchedAt = this.time;
+          this.hits += 1; this.hitsBy[server] += 1; this.touchedAt = this.time; this.players[server].active = this.real;
           this.events.push({ type: 'paddle', at: { ...this.ball.pos }, speed: Math.hypot(vel.x, vel.y, vel.z), by: server });
         }
       }
@@ -368,8 +382,9 @@ export class Round {
       });
       const before = { ...ball.pos };
       const swingers: Swinger[] = rigs.map((rig, i) => ({
+        // (A lost hand's paddle, sinking to its rest, is still there for the ball to meet, as it's drawn; it swings at nothing.)
         end: rig.end, raw: you[i].live ? pads[i].raw : null, paddleVel: you[i].paddleVel, swing: you[i].swing, lag: you[i].lag,
-        from: you[i].live ? this.players[i].paddle ?? pads[i].paddle : null, to: you[i].live ? pads[i].paddle : null,
+        from: this.players[i].paddle ?? pads[i].paddle, to: pads[i].paddle,
       }));
       const flight = flightStep(lagged, worldDt, swingers, help, play.timeScale);
       this.events.push(...flight.events);
@@ -380,7 +395,7 @@ export class Round {
       for (const e of flight.events) {
         if (e.type === 'paddle') { this.deadAt = Infinity; this.bouncedOn = null; }
         if (two) {
-          if (e.type === 'paddle' && e.by !== undefined) { this.hits += 1; this.hitsBy[e.by] += 1; hit(this.duel, e.by); this.touchedAt = this.time; this.finishPass(e.by, true); }
+          if (e.type === 'paddle' && e.by !== undefined) { this.hits += 1; this.hitsBy[e.by] += 1; hit(this.duel, e.by); this.touchedAt = this.time; this.players[e.by].active = this.real; this.finishPass(e.by, true); }
           if (e.type === 'table' && bounced(this.duel, endOf(e.at.z)) === 'fair') this.returns += 1;
         } else {
           if (e.type === 'paddle') { this.hits += 1; this.hitThisServe = true; this.yours = true; this.touchedAt = this.time; this.farBounce = false; this.finishPass(0, true); }
@@ -408,7 +423,7 @@ export class Round {
       });
       // Settled anywhere (on the table too): still or barely rolling for a while.
       if (Math.hypot(ball.vel.x, ball.vel.y, ball.vel.z) < 0.25) this.slowSince ??= this.time; else this.slowSince = null;
-      const settled = this.slowSince !== null && this.time - this.slowSince > DEAD.still;
+      const settled = this.slowSince !== null && this.time - this.slowSince > DEAD.still * play.timeScale;
       if (!two) {
         // The bot goes to where it will meet the player's return (a fair one, or any it can get to if
         // it returns everything), and hits it as it gets there. Returning a miss ends the rally's count.
@@ -433,7 +448,7 @@ export class Round {
           this.bot.pos = v3(bot.x + (goal.x - bot.x) * move, bot.y + (goal.y - bot.y) * move, bot.z + (goal.z - bot.z) * move);
         }
       }
-      if (settled || this.time > this.deadAt || this.time - Math.max(this.servedAt, this.touchedAt) > DEAD.stalled) this.over();
+      if (settled || this.time > this.deadAt || this.time - Math.max(this.servedAt, this.touchedAt) > DEAD.stalled * play.timeScale) this.over();
     } else if (!two && !this.serve) {
       // Back home between rallies, to hold the ball.
       const bot = this.bot.pos, k = 1 - Math.exp(-5 * worldDt);
