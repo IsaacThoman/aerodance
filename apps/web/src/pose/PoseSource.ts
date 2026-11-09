@@ -70,9 +70,9 @@ export interface PoseSource {
   /** Sources that play back poses follow the song; the webcam ignores it. */
   attachSong?(song: SongClock | null): void;
   /**
-   * Extra tracking for a game that asks for it, or none (null): with 'hands', a live camera's
-   * poses keep MediaPipe's world landmarks and, with one player, the hands found at their
-   * wrists (view.hands says how they're doing). A minigame session asks for it while it lasts
+   * Extra tracking for a game that asks for it, or none (null): with 'world' or 'hands', a live
+   * camera's poses keep MediaPipe's world landmarks and, with 'hands' and one or two players, the
+   * hands found at their wrists (view.hands says how they're doing). A minigame session asks for it while it lasts
    * (MinigameSession); the songs never do. Replays have neither.
    */
   setDetail?(detail: PoseDetail | null): void;

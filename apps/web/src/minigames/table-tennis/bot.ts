@@ -85,10 +85,16 @@ export function planReturn(ball: Ball, bounced = false, always = false): { t: nu
   return null;
 }
 
-/** Where the bot aims a shot, as its level does: a spot on the near half (x across, z from the net) that rand picks. */
-export function botTarget(level: BotLevel = 'medium', rand: () => number = Math.random): V3 {
+/** The side of the player's forehand, across the table: their paddle hand's (+x for the right). */
+const forehandX = (hand: 'left' | 'right') => (hand === 'left' ? -1 : 1);
+
+/**
+ * Where the bot aims a shot, as its level does: a spot on the near half (x across, z from the
+ * net) that rand picks, its easy ones to the forehand of a player whose paddle is in `hand`.
+ */
+export function botTarget(level: BotLevel = 'medium', rand: () => number = Math.random, hand: 'left' | 'right' = 'right'): V3 {
   const { aim } = BOT_SHOTS[level];
-  return v3(aim.x + (rand() * 2 - 1) * aim.spread, 0, aim.near + rand() * (aim.far - aim.near));
+  return v3(aim.x * forehandX(hand) + (rand() * 2 - 1) * aim.spread, 0, aim.near + rand() * (aim.far - aim.near));
 }
 
 /** The bot's shot from where it meets the ball, as hard as its level: onto the near half, at `target` (botTarget). */
@@ -140,9 +146,9 @@ export function serveFlight(from: V3, vel: V3): ServeFlight | null {
  * spot; it searches that bounce's place and the time to it for the serve that lands nearest. Null
  * if none does (from somewhere it can't serve from).
  */
-export function botServe(from: V3, level: BotLevel = 'medium', rand: () => number = Math.random): ServeFlight | null {
+export function botServe(from: V3, level: BotLevel = 'medium', rand: () => number = Math.random, hand: 'left' | 'right' = 'right'): ServeFlight | null {
   const { time, aim } = BOT_SERVES[level];
-  const target = v3(aim.x + (rand() * 2 - 1) * aim.spread, 0, aim.near + rand() * (aim.far - aim.near));
+  const target = v3(aim.x * forehandX(hand) + (rand() * 2 - 1) * aim.spread, 0, aim.near + rand() * (aim.far - aim.near));
   let best: { serve: ServeFlight; score: number } | null = null;
   for (let share = 0.2; share <= 0.75; share += 0.05) {
     // The first bounce, a share of the way from `from` to the spot (along z), on the far half.

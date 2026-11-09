@@ -12,6 +12,7 @@ import { WebcamPoseSource } from '../../../../packages/pose/browser/WebcamPoseSo
 import type { CameraInfo, WebcamRecordEvent, WebcamView } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PoseModelId } from '../../../../packages/pose/browser/models.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
+import { HANDS_MIN_HZ, HANDS_SLOW_MS } from '../../../../packages/pose/browser/hands.ts';
 
 /*
  * The phone's end of a pairing: it joins the game's room with the code, answers the game's
@@ -32,8 +33,9 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
  * (a phone on a stand has no one to press anything), waiting longer each time it fails
  * without tracking; a camera that never worked (permission denied) waits for the player.
  *
- * A minigame can ask for more (config's detail, 'hands'): the camera then keeps the world
- * landmarks and, with one player, runs the Hand Landmarker too, and the poses carry them. A
+ * A minigame can ask for more (config's detail): the camera then keeps the world landmarks
+ * ('world' or 'hands') and, with 'hands' and one or two players, runs the Hand Landmarker too, and the
+ * poses carry them. A
  * phone that can't keep up with both (fewer than HANDS_MIN_HZ poses a second for HANDS_SLOW_MS
  * with the hand model on) drops the hand model by itself, keeping the world landmarks, and says
  * so in its status ('dropped'); the game carries on with the pose's own hand points.
@@ -91,10 +93,8 @@ const RELAY_OPEN_MS = 5000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const MAX_CAMERA_RETRY_MS = 30_000;
-// Tracking slower than this for this long with the hand model on drops it (see the top).
-// (Measured over the last two seconds, so a dip while the model loads has passed by then.)
-export const HANDS_MIN_HZ = 15;
-export const HANDS_SLOW_MS = 4000;
+// Tracking slower than this for this long with the hand model on drops it (see the top; hands.ts).
+export { HANDS_MIN_HZ, HANDS_SLOW_MS };
 // A camera to choose from (PhoneLink.cameras()).
 export interface PhoneCamera { id: string; label: string; }
 

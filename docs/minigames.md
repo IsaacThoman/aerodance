@@ -8,8 +8,10 @@ they share: the list, each game's settings, the camera and its calibration, the 
 camera to test them with. A game is one folder; adding one changes no other file.
 
 The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game;
-its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room,
-and the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns.
+its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room.
+Alone, the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns.
+Two players split the screen, one at each end of the table in first person, and rally with each other,
+each seeing the other as their glass dancer holding the paddle (`table-tennis/rally.ts`).
 
 ## The flow
 
@@ -64,7 +66,7 @@ const highFive: MinigameDefinition = {
   players: [1, 2],
   howTo: [                               // the how-to card: one to four steps
     { icon: 'bubbles', text: 'Slap each hand as it glows' },
-    { icon: 'replay', text: 'Most high fives in 45 seconds wins' },
+    { icon: 'replay', text: 'Most high fives in 45 seconds wins', players: [2] },  // only with two
   ],
   icon: handIcon,                        // (g, cx, cy, radius) => draws a static monochrome icon
   score: { unit: 'fives' },              // or { better: 'lower', format: (ms) => `${(ms / 1000).toFixed(2)} s` }
@@ -82,12 +84,15 @@ The definition loads with the menus, so keep it small: the icon and any drawing 
 `.ts` files (Node runs the tests that import it); the game, its 3D and its assets come in through
 `load`. The fields are in `minigames/types.ts`: also `hud` (turn
 the host's scores or timer off to draw your own), `fullBody` (calibrate only with feet in view, for
-games about legs), `tracking: 'hands'` (MediaPipe's 3D world landmarks and the tracked hands too,
-for a game that does its own geometry), `coop` (the players are a team: give everyone the team's
+games about legs), `tracking` (`'world'`: MediaPipe's 3D world landmarks; `'hands'`: those and
+the tracked hands too, for a game that does its own geometry; or a function choosing per round
+from its player count and settings), `coop` (the players are a team: give everyone the team's
 score, and the results show it as one instead of naming a winner; a game whose players choose
 together or versus once it's started says so with `ctx.setCoop`), `best: false` (open play: a
 game that never finishes a round with a score, so its preview shows no best), `order`
-(lower lists first, then by title) and `devOnly`.
+(lower lists first, then by title) and `devOnly`. A how-to step with `players` shows only
+with those player counts, for a game played differently alone and together; every count needs
+one to four steps.
 
 The game is a component rendered inside the game's one `<Canvas>` for the whole session, from
 calibration to results, with the session's `MinigameContext` as its `ctx` prop (or
@@ -120,7 +125,7 @@ export default function HighFive({ ctx }: { ctx: MinigameContext }) {
 ### Settings: `options`
 
 A game with settings (a difficulty, an aim assist, which hand holds the paddle) lists them in its
-definition's `options`, up to four, and its preview shows a row for each on the left: the
+definition's `options`, up to five, and its preview shows a row for each on the left: the
 label, then the choice between two arrows that step through the choices and round again, as the
 camera picker's do. A press on an arrow steps it, and a press on the row steps it on; with the
 keyboard or the Siri Remote, Up and Down go through the rows, the players dial and Play, and
@@ -144,8 +149,20 @@ The round has them as `ctx.options`, every option present, as chosen when Play w
 changes a setting mid-round; it's saved, so Play again and the game's next preview start on it.
 An id or value the game doesn't offer is ignored.
 
+An option with `players` (some of the game's counts) is for those counts only: with others the
+preview dims its row and the focus passes over it, and the game should ignore it. Table Tennis's
+robot settings are `players: [1]`. Its row stays where it is, so the dial and Play don't move as
+the count changes.
+
+An option with `perPlayer: true` is each player's own (Table Tennis's **Paddle hand**): its row
+has a chip per player in their colour, which a press (or Enter) steps on; Left and Right go
+between the chips. Each player's choice is `ctx.options['<id>.<player number>']`
+(`paddleHand.2`; `playerOption(game, ctx.options, id, player)` in `minigames/options.ts` reads it
+with the player 0-based), remembered in the browser like any other. A preview has room for five
+rows (five sit a little closer than four).
+
 With play.ts, `click mgOptionNext.<i>` (or `mgOptionPrev.<i>`, or the row, `mgOption.<i>`) steps
-the preview's row i, and the canvas reports them all: `wait minigameOptions~botShots=hard`.
+the preview's row i (a per-player row's chip: `mgOptionPlayer.<i>.<player>.<players>`), and the canvas reports them all: `wait minigameOptions~botShots=hard`.
 
 ### What the host does, and what the game does
 
@@ -222,6 +239,19 @@ floor is where its dancers stand (`meta.dancers` in `packages/stages/<id>/meta.t
   their own camera, studio reflections and lights, drawn in ACES like the menu dancers.
 - **`<MinigameWorld camera background post shadows>`**: a world of its own (scene `'custom'`),
   drawn through the stages' pipeline (bloom, grade, ACES; `post` changes it) at priority 1.
+- **`<MinigameWorld views={[cameraA, cameraB]}>`**: a split screen, a camera each (set up as
+  `camera` is) for two to four views: two side by side, left to right, three or four in a two by
+  two grid. Inside, `useThree`'s camera is a `SplitCamera` (`packages/stages/shared/post.tsx`)
+  whose `cameras` are the views (`viewCamera(camera, i)`); each is culled for itself, gets its own
+  vignette, and costs the world's draw calls again (shadow maps are drawn once, with the first
+  view). Put player 1 in the left view: they stand on the left of the mirror.
+- **`<SeenBy views={[1]}>`**: things only some views draw, such as a first-person player's own
+  body, which the others see but which would fill its owner's view from inside. A world with one
+  view is view 0. They go on the views' own layers and cast no shadows (the shadow maps are drawn
+  once, for every view): give anything whose shadow matters a stand-in outside it that draws
+  nothing (`colorWrite: false`) but casts it. Table Tennis
+  does this for each player's first-person hands and gives the other player a bigger mitt in their
+  dancer's proportions, holding the same paddle.
 
 ## The pose API
 
@@ -257,35 +287,52 @@ its confidence low. Feet are often out of the picture in a living room: don't de
 check `jointConfidence` before trusting a wrist. Design for slack: generous targets, effects a
 beat behind the movement, nothing that needs a 50 ms reaction.
 
-### Doing your own geometry: `raw` and `tracking: 'hands'`
+### Doing your own geometry: `raw` and `tracking`
 
 `p.raw` is the newest pose exactly as the camera sent it, replaced (a new object) with each one
 and null before the first: `landmarks` (the 33 in the unmirrored picture, 0–1, unfiltered, with
 their confidences), `world`, `hands`, `input` (the picture's size, always unmirrored) and
 `capturedAt`. Its picture is the camera's, not the mirror: the player's right hand is on its left.
 
-A game with `tracking: 'hands'` in its definition (Table Tennis's first-person paddle) gets more
-in it, for as long as its session lives (`PoseSource.setDetail`); the songs never ask for it:
+A game with `tracking` in its definition (Table Tennis's first-person paddle) gets more in it,
+for as long as its session lives (`PoseSource.setDetail`); the songs never ask for it. `'world'`
+brings the world landmarks, and `'hands'` those and the hands. `'hands:right'` asks for only
+every player's right hand, and `'hands:right/left'` for Player 1's right and Player 2's left
+(`handsDetail(['right', 'left'])` in `packages/pose/webcamRecord.ts`; `'both'` for both). As a
+function, `({ playerCount, options }) => 'hands' | 'world' | null` chooses per round, and a setting changed
+mid-round (`ctx.setOption`) asks the camera again: Table Tennis asks for the hands with its
+**Hand tracking** setting on (one player's both, two players' paddle hands), and for the world
+landmarks otherwise.
 
 - `world`: MediaPipe's 33 world landmarks, in metres from the hips' centre: x to the unmirrored
   picture's right, y down, z away from the camera. Their depths are the model's weakest output
   (flattened: a forearm pointing at the camera measures short there too); what holds up is the
   body's size across the picture, in metres, and a joint that's surely behind another. Null
   without the detail.
-- `hands`: with one player, the Hand Landmarker's hands, found in a square cut round each of the
-  pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`): `side` (the player's own
+- `hands`: with one or two players, the Hand Landmarker's hands, found in a square cut round each
+  of the pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`); with `'hands:…'`,
+  only the ones asked for, each player's by where they stand (Player 1 furthest to the camera's
+  right, as the mirror shows them on the left). Each Hand Landmarker needs a WebGL context, and Chrome keeps
+  at most four in a worker, and the pose landmarkers can take two (`packages/pose/browser/hands.ts`): one
+  player's two hands, or two players' one each, are each followed from frame to frame, but two
+  players' both hands share a pair that looks afresh every frame, which costs about half again
+  per hand and finds fewer. Ask for only the hands the game needs. A hand nearer the other
+  person's wrist is left out. Each has `side` (the player's own
   hand, put on its side by the Hand Landmarker's handedness when the pose mixes up crossed
   wrists), 21 `landmarks` in the picture (unmirrored, z from the wrist, confidence null),
   21 `world` points in metres round the hand's middle, and `score` (how sure it is of the side).
   An empty list is no hand found; null is no Hand Landmarker running.
 
 `ctx.handTracking()` says how the hands are doing: `'loading'` (the 7.8 MB model downloads the
-first time it's asked for), `'on'`, `'dropped'` (a paired phone that couldn't keep 15 poses a
-second with it gave it up; the world landmarks carry on) or `'unavailable'` (more than one
-player, a replay, a phone page too old for it, a model that wouldn't load); null for games
-without the detail. Without hands, fall back on the pose's own wrist, index and pinky. Measure
+first time it's asked for), `'on'`, `'dropped'` (tracking couldn't keep 15 poses a second with
+it for 4 seconds, so it stood down and the world landmarks carry on: a paired phone, or a webcam
+looking for two people's hands, both players' together; one player's never drop on a webcam) or
+`'unavailable'` (three or four players, a replay, a phone page too old for it, a model that
+wouldn't load); null for a round
+that didn't ask for the hands. Without hands, fall back on the pose's own wrist, index and pinky. Measure
 latency from `raw.capturedAt`. The hand model costs a phone or slow laptop tracking time, so
-only ask for it in a game that needs it. The puppet camera answers with world landmarks and
+only ask for it in a game that needs it, and consider letting players turn it off. A phone page
+too old to know of `'world'` sends no world landmarks for it (`world` stays null). The puppet camera answers with world landmarks and
 hands from its dolls' own 3D bodies (open hands, fingers on from the forearm); its arms are
 shorter than a real body's (0.97 torso lengths, not about 1.1), which geometry that assumes real
 proportions reads as reaching forward.
@@ -414,13 +461,18 @@ stalls or gestures go missing, `node scripts/play.ts status` shows the page's fr
 What to read back: `minigamePhase`, `minigameScores` (`3|5`), `minigameTimeMs`,
 `minigameRemainingMs`, `minigameCountdown`, `minigamePresent` (`1|0`), `minigameGesture` (the last
 gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to card's raise to start,
-0–1), `minigameCameraStatus`, `minigameHands` (`ctx.handTracking()`, for a game with
-`tracking: 'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
+0–1), `minigameCameraStatus`, `minigameHands` (`ctx.handTracking()`, for a round tracking
+`'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
 results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `minigameScreen`,
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
 preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything` for
 Table Tennis), and the game's own `mg*` keys; a round's settings are
-`eval "minigame.options"`. The puppet works for the song game too: its calibration and scoring
+`eval "minigame.options"`. Table Tennis reports `mgRally`, `mgBest`, `mgHits` and, with two,
+`mgServer`, `mgHits1` and `mgHits2`; in development its O and P keys put a stand-in
+(`table-tennis/autoplay.ts`) in for the first and last player, which plays through the real
+paddle and aim assist (`mgAutoplay` says who), so a two-player rally can run with puppets standing
+still, and `window.tableTennis` has the ball, the players and the camera (a split screen's views in
+`camera.cameras`) for staged shots. The puppet works for the song game too: its calibration and scoring
 run on it.
 
 ### In unit tests
@@ -469,6 +521,7 @@ Before starting a game:
 - [ ] Its folder and `index.ts`, its `id` the folder's name; the icon drawn in `.ts`, the game
       behind `load`
 - [ ] It plays with the player counts it says, and thresholds are in body space (torso lengths)
+- [ ] With a split screen, the views and its draw calls are counted against the budget
 - [ ] It moves only while `playing`, keeps score with `ctx`, and ends (`durationMs` or `ctx.finish`)
 
 Before handing it in:

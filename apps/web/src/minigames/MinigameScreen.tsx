@@ -19,7 +19,7 @@ import { displayDesign } from '../display.ts';
 import { minigameLayout } from './layout.ts';
 import { COUNTDOWN_MS, FINISH_MS, RAISE_START_MS } from './MinigameSession.ts';
 import type { MinigameSession } from './MinigameSession.ts';
-import { formatScore } from './definition.ts';
+import { formatScore, howToFor } from './definition.ts';
 import type { MinigamePhase } from './types.ts';
 
 /**
@@ -44,7 +44,7 @@ import type { MinigamePhase } from './types.ts';
  * -minigame-scores, -minigame-time-ms, -minigame-remaining-ms, -minigame-countdown,
  * -minigame-present, -minigame-gesture (the last gesture seen: player:type[:direction][:hand]),
  * -minigame-raise (the how-to card's raise-to-start, 0-1), the camera's -minigame-camera-status,
- * -minigame-hands (ctx.handTracking(), for a game with `tracking: 'hands'`),
+ * -minigame-hands (ctx.handTracking(), for a round tracking 'hands'),
  * while calibrating -minigame-calibration-players / -progress, and the game's own data-mg-*.
  *
  * <MinigameScreen visible session={session} camera={source} onQuit onRetry />
@@ -261,7 +261,7 @@ export default function MinigameScreen({ visible = false, session, camera: sourc
     drawHeader(g, G.GAME_READY_BACK, game.title.toUpperCase(), h.quit ?? 0);
     drawDarkGlassPanel(g, card, 34);
     drawCaps(g, 'HOW TO PLAY', w / 2, card.y + 46, { size: 24, align: 'center' });
-    const steps = game.howTo.slice(0, 4);
+    const steps = howToFor(game, session.playerCount).slice(0, 4);
     const rowH = Math.min(96, (card.h - 250) / steps.length);
     steps.forEach((step, i) => {
       const cy = card.y + 110 + rowH * (i + 0.5);

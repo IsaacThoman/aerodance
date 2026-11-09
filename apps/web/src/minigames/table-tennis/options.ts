@@ -5,6 +5,8 @@
  */
 
 import type { BotLevel } from './bot.ts';
+import type { Side } from './arms.ts';
+import { optionKey } from '../options.ts';
 
 export const BOT_CHOICES: readonly { value: BotLevel; label: string }[] = [
   { value: 'easy', label: 'Easy' },
@@ -21,12 +23,23 @@ export const SCENE_CHOICES: readonly { value: SceneId; label: string }[] = [
 
 export const OPTIONS = [
   { id: 'scene', label: 'Scene', choices: SCENE_CHOICES, default: 'biodome' },
-  { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium' },
-  { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything' },
+  // Each player's: the hand that holds their paddle (the other serves).
+  { id: 'paddleHand', label: 'Paddle hand', choices: [{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }], default: 'right', perPlayer: true },
+  // The Hand Landmarker (index.ts tracking): the paddle's angle and a surer wrist, for tracking
+  // time; off, the paddle follows the pose's own wrist and fingers. With two players it runs on
+  // both paddle hands, and stands down for both if tracking can't keep up.
+  { id: 'handTracking', label: 'Hand tracking', choices: [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], default: 'on' },
+  // The robot's settings: alone only (two players play each other).
+  { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium', players: [1] },
+  { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything', players: [1] },
 ] as const;
 export type OptionId = (typeof OPTIONS)[number]['id'];
 
-export interface TableTennisOptions { scene: SceneId; botShots: BotLevel; botAlways: boolean; }
+export interface TableTennisOptions {
+  scene: SceneId; botShots: BotLevel; botAlways: boolean; handTracking: boolean;
+  /** Each player's paddle hand (four of them, by player). */
+  paddleHands: Side[];
+}
 
 const pick = <T extends string>(choices: readonly { value: T }[], value: string | undefined, fallback: T): T =>
   choices.find((c) => c.value === value)?.value ?? fallback;
@@ -37,6 +50,8 @@ export function optionsOf(values: Readonly<Record<string, string>>): TableTennis
     scene: pick(SCENE_CHOICES, values.scene, 'biodome'),
     botShots: pick(BOT_CHOICES, values.botShots, 'medium'),
     botAlways: values.botReturns !== 'fair',
+    handTracking: values.handTracking !== 'off',
+    paddleHands: [0, 1, 2, 3].map((player): Side => (values[optionKey('paddleHand', player)] === 'left' ? 'left' : 'right')),
   };
 }
 

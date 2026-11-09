@@ -7,7 +7,7 @@ import type { CharacterAppearance } from '../../../../packages/character/Charact
 import type { Pose, TrackCalibration } from '../../../../packages/pose/choreography.ts';
 import { DANCER_LOOKS } from '../../../../packages/stages/shared/Dancers.tsx';
 import { StageEnvironment } from '../../../../packages/stages/shared/Environment.tsx';
-import { POST_DEFAULTS, RenderPipeline } from '../../../../packages/stages/shared/post.tsx';
+import { POST_DEFAULTS, RenderPipeline, SplitCamera, splitCell } from '../../../../packages/stages/shared/post.tsx';
 import type { PostOverrides, PostSettings } from '../../../../packages/stages/shared/post.tsx';
 import { diagnostic } from '../diagnostics.ts';
 import { displayDesign } from '../display.ts';
@@ -28,6 +28,8 @@ import { cameraArea } from './cameraArea.ts';
  *                         over the screen like a mirror (the pose API's screen space, cameraArea)
  *   <LiveCharacter>       one player's glass character, copying them, to place in a world, a layer
  *                         or on a stage (scene { stage }: the game is mounted inside the stage's scene)
+ *   <SeenBy>              things a split-screen world (MinigameWorld's `views`) draws in some views
+ *                         only: a first-person player's own body, kept out of their own eyes
  *
  * The camera's picture is 4:3 and the screen 16:9 or 4:3: cameraArea fits one to the other, and
  * toDesign / fromDesign map the pose API's screen points (pose/body.ts) to design units and back.
@@ -47,18 +49,59 @@ export interface MinigameCameraProps {
   far?: number;
 }
 
+// A camera set up as the props say, for a view of this shape (width over height, in design units).
+function setUpCamera(camera: THREE.PerspectiveCamera, { position = [0, 1.6, 7], target = [0, 1.2, 0], fov = 40, near = 0.1, far = 500 }: MinigameCameraProps, aspect: number) {
+  Object.assign(camera, { fov, near, far, aspect });
+  camera.position.set(...position);
+  camera.lookAt(...target);
+  camera.updateProjectionMatrix();
+}
+
 // A perspective camera for the display's shape (anamorphic 16:9 in the same buffer), looking at target.
-function useSceneCamera({ position = [0, 1.6, 7], target = [0, 1.2, 0], fov = 40, near = 0.1, far = 500 }: MinigameCameraProps) {
+// It's the only view, so it sees what view 0 does (SeenBy).
+function useSceneCamera(props: MinigameCameraProps) {
   const size = useThree((s) => s.size);
   const design = displayDesign(size.width, size.height);
   const camera = useMemo(() => new THREE.PerspectiveCamera(), []);
+  const { position = [0, 1.6, 7], target = [0, 1.2, 0], fov = 40, near = 0.1, far = 500 } = props;
   useLayoutEffect(() => {
-    Object.assign(camera, { fov, near, far, aspect: design.w / design.h });
-    camera.position.set(...position);
-    camera.lookAt(...target);
-    camera.updateProjectionMatrix();
+    setUpCamera(camera, { position, target, fov, near, far }, design.w / design.h);
+    camera.layers.enable(VIEW_LAYER);
   }, [camera, fov, near, far, design.w, design.h, ...position, ...target]); // eslint-disable-line react-hooks/exhaustive-deps
   return camera;
+}
+
+/** The first of the layers SeenBy puts things on: view i sees VIEW_LAYER + i (and layer 0, as every camera does). */
+const VIEW_LAYER = 8;
+/** The most views a split screen has (a two by two grid). */
+const MAX_VIEWS = 4;
+
+// A split screen's camera (two or more views; null for fewer): its views set up as their props
+// say, each shaped for its cell of the grid and seeing its own layer.
+function useSplitCamera(views: readonly MinigameCameraProps[] | undefined) {
+  const size = useThree((s) => s.size);
+  const design = displayDesign(size.width, size.height);
+  const count = views && views.length > 1 ? Math.min(views.length, MAX_VIEWS) : 0;
+  const split = useMemo(() => (count ? new SplitCamera(Array.from({ length: count }, () => new THREE.PerspectiveCamera())) : null), [count]);
+  const key = JSON.stringify(views ?? null);
+  useLayoutEffect(() => {
+    if (!split || !views) return;
+    split.cameras.forEach((view, i) => {
+      const cell = splitCell(split.grid, i);
+      setUpCamera(view, views[i], (design.w * cell.w) / (design.h * cell.h));
+      view.layers.set(0);
+      view.layers.enable(VIEW_LAYER + i);
+    });
+  }, [split, key, design.w, design.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  return split;
+}
+
+/**
+ * View i of a world's camera (useThree's, inside a MinigameWorld): one of a split screen's views,
+ * or the camera itself when there's only the one.
+ */
+export function viewCamera(camera: THREE.Camera, i: number): THREE.Camera {
+  return camera instanceof SplitCamera ? camera.cameras[Math.min(i, camera.cameras.length - 1)] : camera;
 }
 
 export interface MinigameWorldProps {
@@ -71,6 +114,14 @@ export interface MinigameWorldProps {
   shadows?: boolean;
   /** The reflections glass shows (default the studio's, StageEnvironment preset="room"); false when the world brings its own. */
   environment?: ReactNode;
+  /**
+   * A split screen: a camera for each view (two to four), set up as `camera` would be. Two sit
+   * side by side, left to right; three or four make a two by two grid, in reading order. Inside,
+   * useThree's camera is then a SplitCamera (packages/stages/shared/post.tsx) whose `cameras`
+   * are the views (viewCamera(camera, i)); fly each one. Every view draws the whole world, so
+   * each costs its draw calls again (shadow maps are drawn once). `camera` is then unused.
+   */
+  views?: readonly MinigameCameraProps[];
   children?: ReactNode;
 }
 
@@ -78,12 +129,13 @@ export interface MinigameWorldProps {
  * The game's own world (scene 'custom'), drawn through the stages' pipeline at priority 1 while
  * the menu's background stands down (screenOwner.ts). Inside, useThree's camera is the world's;
  * move it from a game frame to fly it. Studio reflections for glass unless it brings its own
- * (`environment`).
+ * (`environment`). `views` splits the screen.
  */
-export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff', post, shadows = false, environment, children }: MinigameWorldProps) {
+export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff', post, shadows = false, environment, views, children }: MinigameWorldProps) {
   const gl = useThree((s) => s.gl);
   const scene = useMemo(() => new THREE.Scene(), []);
-  const camera = useSceneCamera(cameraProps);
+  const single = useSceneCamera(cameraProps);
+  const camera = useSplitCamera(views) ?? single;
   const settings = useMemo<PostSettings>(() => ({ ...POST_DEFAULTS, ...post }), [post]);
   useEffect(() => { scene.background = new THREE.Color(background); }, [scene, background]);
   // Borrows the renderer's settings while it has the screen, as a dance stage does (stage/StageView.tsx).
@@ -100,6 +152,7 @@ export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff'
   }, [gl, shadows]);
   return createPortal(
     <>
+      <PortalCamera camera={camera} />
       <RenderPipeline samples={0} bloom={!diagnostic('nobloom')} settings={settings} />
       {environment ?? <StageEnvironment preset="room" />}
       {children}
@@ -107,6 +160,41 @@ export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff'
     scene,
     { camera },
   );
+}
+
+export interface SeenByProps {
+  /** The views (MinigameWorld's `views`, by index) that draw these; a world with one view is view 0. */
+  views: readonly number[];
+  children?: ReactNode;
+}
+
+/**
+ * Its children, drawn only in some of a split screen's views: a first-person player's own body,
+ * say, which the other players see but which would fill its owner's view from inside. Its things
+ * go on the views' own layers (whatever they load later included), and cast no shadows: shadow
+ * maps are drawn once, for all the views, so a shadow can't be for some of them only. Give
+ * anything whose shadow matters a stand-in outside that draws nothing (colorWrite: false) but
+ * casts it.
+ */
+export function SeenBy({ views, children }: SeenByProps) {
+  const group = useRef<THREE.Group>(null);
+  const mask = views.reduce((m, i) => m | (1 << (VIEW_LAYER + i)), 0);
+  useFrame(() => {
+    group.current?.traverse((o) => {
+      o.layers.mask = mask;
+      o.castShadow = false;
+    });
+  });
+  return <group ref={group}>{children}</group>;
+}
+
+// The portal takes the camera it was made with; a camera that changes later (a world splitting,
+// or its views' count changing) is handed to it.
+function PortalCamera({ camera }: { camera: THREE.PerspectiveCamera }) {
+  const set = useThree((s) => s.set);
+  const current = useThree((s) => s.camera);
+  useLayoutEffect(() => { if (current !== camera) set({ camera }); }, [camera, current, set]);
+  return null;
 }
 
 export interface MinigameLayerProps {

@@ -245,7 +245,8 @@ async function daemon(options: Options) {
     const design = displayDesign(frame.width, frame.height);
     const { minigames, options } = await page.evaluate(() => {
       const data = document.querySelector<HTMLElement>('.canvas-frame canvas')?.dataset;
-      return { minigames: data?.menuMinigames === 'true', options: data?.minigameOptions ? data.minigameOptions.split('|').length : 0 };
+      // (The rows: a per-player setting lists a value for each player but is one row.)
+      return { minigames: data?.menuMinigames === 'true', options: data?.minigameOptionRows ? Number(data.minigameOptionRows) : data?.minigameOptions ? data.minigameOptions.split('|').length : 0 };
     });
     const { x, y } = resolveTarget(target, design.w, minigames, options);
     return { x: frame.x + (x / design.w) * frame.width, y: frame.y + (y / design.h) * frame.height };

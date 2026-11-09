@@ -1,6 +1,9 @@
 import { isPlayerCount } from '../../../../packages/pose/choreography.ts';
+import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
+import { isPoseDetail } from '../../../../packages/pose/webcamRecord.ts';
+import type { PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 import { MG_MAX_OPTIONS } from './layout.ts';
-import type { MinigameDefinition, MinigameOption } from './types.ts';
+import type { HowToStep, MinigameDefinition, MinigameOption } from './types.ts';
 
 /*
  * Checks a game's definition (types.ts) and puts the list in order: registry.ts runs every game
@@ -17,13 +20,37 @@ export function definitionProblem(def: unknown, folder?: string): string {
   if (folder !== undefined && d.id !== folder) return `id "${d.id}" must match its folder "${folder}"`;
   if (typeof d.title !== 'string' || !d.title) return 'title is missing';
   if (!Array.isArray(d.players) || !d.players.length || !d.players.every(isPlayerCount)) return 'players must list player counts from 1 to 4';
-  if (!Array.isArray(d.howTo) || !d.howTo.length || d.howTo.length > 4 || !d.howTo.every((s) => typeof s?.text === 'string')) return 'howTo needs one to four steps';
+  if (!Array.isArray(d.howTo) || !d.howTo.every((s) => typeof s?.text === 'string' && countsProblem(s.players, d.players!) === '')) return 'howTo steps need text, and player counts the game plays with';
+  for (const count of d.players) {
+    const steps = howToFor(d as Pick<MinigameDefinition, 'howTo'>, count).length;
+    if (steps < 1 || steps > 4) return d.players.length > 1 ? `howTo needs one to four steps with ${count} player${count > 1 ? 's' : ''}` : 'howTo needs one to four steps';
+  }
   if (typeof d.icon !== 'function') return 'icon must draw the game icon';
   if (typeof d.load !== 'function') return 'load must import the game';
   if (d.durationMs !== undefined && !(d.durationMs > 0)) return 'durationMs must be positive';
-  if (d.tracking !== undefined && d.tracking !== 'hands') return "tracking must be 'hands' (or left out)";
+  if (d.tracking !== undefined && typeof d.tracking !== 'function' && !isPoseDetail(d.tracking)) return "tracking must be 'world', 'hands' or a function choosing per round (or left out)";
   if (d.best !== undefined && d.best !== false) return 'best can only be false (a game that keeps no best)';
-  return d.options === undefined ? '' : optionsProblem(d.options);
+  return d.options === undefined ? '' : optionsProblem(d.options, d.players);
+}
+
+// What's wrong with a step's or an option's player counts: some of the game's, if given.
+function countsProblem(players: unknown, game: readonly PlayerCount[]): string {
+  if (players === undefined) return '';
+  return Array.isArray(players) && players.length && players.every((n) => game.includes(n)) ? '' : 'its players must be some of the counts the game plays with';
+}
+
+/** The tracking a round asks the camera for (MinigameDefinition.tracking), with this many players and these settings. */
+export function trackingFor(game: Pick<MinigameDefinition, 'tracking'>, playerCount: PlayerCount, options: Readonly<Record<string, string>>): PoseDetail | null {
+  const asked = typeof game.tracking === 'function' ? game.tracking({ playerCount, options }) : game.tracking;
+  return isPoseDetail(asked) ? asked : null;
+}
+
+/** Which a step or an option is for: this many players, unless it says otherwise. */
+export const forPlayers = (item: { players?: readonly PlayerCount[] }, count: PlayerCount) => !item.players || item.players.includes(count);
+
+/** The how-to card's steps with this many players. */
+export function howToFor(game: Pick<MinigameDefinition, 'howTo'>, count: PlayerCount): readonly HowToStep[] {
+  return game.howTo.filter((step) => forPlayers(step, count));
 }
 
 /** An option's id and its choices' values: letters, digits, hyphens and underscores (data-minigame-options lists them as id=value|…). */
@@ -31,7 +58,7 @@ export const OPTION_KEY = /^[A-Za-z0-9_-]+$/;
 
 // What's wrong with a game's options: as many as its preview has rows for, each with its own id,
 // a label, two or more choices of their own, and a default among them.
-function optionsProblem(options: unknown): string {
+function optionsProblem(options: unknown, players: readonly PlayerCount[]): string {
   if (!Array.isArray(options) || options.length > MG_MAX_OPTIONS) return `options must list at most ${MG_MAX_OPTIONS} settings`;
   const ids = new Set<string>();
   for (const option of options as Partial<MinigameOption>[]) {
@@ -49,6 +76,8 @@ function optionsProblem(options: unknown): string {
       values.add(choice.value);
     }
     if (typeof option.default !== 'string' || !values.has(option.default)) return `option "${id}"'s default must be one of its choices`;
+    if (countsProblem(option.players, players)) return `option "${id}": ${countsProblem(option.players, players)}`;
+    if (option.perPlayer !== undefined && typeof option.perPlayer !== 'boolean') return `option "${id}": perPlayer is true or false`;
   }
   return '';
 }
