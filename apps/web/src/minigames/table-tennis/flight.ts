@@ -5,7 +5,7 @@
  *
  * A swing that passes the ball within the assist's zone, as that player saw it a lag ago, hits it
  * (swingHit), the first player's to do so this frame; otherwise the paddle at the end the ball is
- * over meets it as it really moves (LaggedBall.step), if its hand is being tracked. Either way a
+ * over meets it as it really moves (LaggedBall.step). Either way a
  * return is bent towards the other half as it leaves the paddle: a swing's by the assist's
  * landing share, a block's (no swing) by less.
  */
@@ -28,7 +28,7 @@ export interface Swinger {
   swing: V3;
   /** How late their paddle is to the ball, in the ball's seconds. */
   lag: number;
-  /** The blade as drawn last frame and this one, in the table's frame (null: its hand isn't tracked, and meets nothing). */
+  /** The blade as drawn last frame and this one, in the table's frame. */
   from: PaddlePose | null;
   to: PaddlePose | null;
 }
