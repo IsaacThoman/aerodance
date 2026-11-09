@@ -146,6 +146,10 @@ test('the confidence gate is the same live and replayed, and strips\' cut-off gu
   assert.equal(at(MIN_CONFIDENCE), true);
   assert.equal(at(0.09), false);
   for (let c = 0.05; c < 0.15; c += 0.0007) assert.equal(at(c), at(confidenceValue(quantizeConfidence(c))!), `confidence ${c} replays the same`);
+  // Raw and recorded confidence straddle the gate at these boundaries.
+  for (const c of [0.1001, 0.1003, (25 - 0.5) / 254 + 1e-9]) {
+    assert.equal(at(c), at(confidenceValue(quantizeConfidence(c))!), `boundary ${c} replays the same`);
+  }
   // A wrist past a strip's left edge is the model's guess.
   const cut = fromTile([{ x: -0.2, y: 0.5, z: 0, visibility: 0.99, presence: 0.99 }], { x: 0.4, width: 0.3 })[0];
   assert.equal(liveUsable([{ x: cut.x, y: cut.y, z: cut.z, confidence: Math.min(cut.visibility, cut.presence) }])[0], false);
