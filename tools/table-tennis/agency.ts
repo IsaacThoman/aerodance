@@ -6,7 +6,7 @@
  *
  *   node tools/table-tennis/agency.ts [--seconds 120] [--rounds 6] [--assist default,off,low,normal,high]
  *
- * (`default`: the level the game starts each round at for its player count.)
+ * (`default`: the level the game starts each round at.)
  */
 
 import { ASSIST_LEVELS } from '../../apps/web/src/minigames/table-tennis/assist.ts';

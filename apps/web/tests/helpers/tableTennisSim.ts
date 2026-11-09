@@ -14,7 +14,7 @@
 
 import { TABLE, v3 } from '../../src/minigames/table-tennis/ball.ts';
 import type { Ball, V3 } from '../../src/minigames/table-tennis/ball.ts';
-import { defaultAssist } from '../../src/minigames/table-tennis/assist.ts';
+import { DEFAULT_ASSIST } from '../../src/minigames/table-tennis/assist.ts';
 import type { AssistLevel } from '../../src/minigames/table-tennis/assist.ts';
 import { AUTOPLAY, arrival } from '../../src/minigames/table-tennis/autoplay.ts';
 import type { BotLevel } from '../../src/minigames/table-tennis/bot.ts';
@@ -96,28 +96,29 @@ const NONE: Noise = { bias: v3(), slow: v3(), fast: v3() };
 const SLOW_S = 0.4;
 /**
  * The cameras. `one` and `two` are measured: the tracked blade's error on trackbench's ping-pong
- * scenes with the game's own tracking (tools/trackbench/PINGPONG.md, "Noise profile of the
- * tracked blade": one player on 11 scenes; two players on two held-out scenes, so roughly), the
- * tracker's rate and delay from its realtime runs with 50 ms more for a webcam's own. Its wild
- * poses are counted at half their measured share, the pose-to-pose error in swings holding the
- * rest of them. Measured on renders, not on people: real footage will say more.
+ * tuning scenes with the game's own tracking (tools/trackbench/PINGPONG.md, "Noise profile of the
+ * tracked blade": 22 one-player scenes and 8 two-player ones), the tracker's rate and delay from
+ * its realtime runs on a quiet M5 Pro, with 50 ms more for a webcam's own delay (a guess: nothing
+ * has measured a real camera's yet). Its wild poses are counted at half their measured share, the
+ * pose-to-pose error in swings holding the rest of them. Measured on renders, not on people, and
+ * without the game's own drawing taking its share of the machine: real footage will say more.
  */
 export const TRACKING = {
   /** A camera that sees everything exactly, at once. */
   perfect: { hz: 60, delay: 0, jitter: 0, rest: NONE, swing: NONE, biasSpread: v3(), wildRate: 0, wild: 0, lostPerMinute: 0, lostS: 0 },
   /** One player at a webcam. */
   one: {
-    hz: 29, delay: 0.08, jitter: 0.01,
-    rest: { bias: cm(0.5, -1.6, -1.9), slow: cm(2.6, 2.6, 6.5), fast: cm(1.3, 1.7, 2.3) },
-    swing: { bias: cm(0.9, -5.9, -4.7), slow: cm(2.4, 3.8, 8.6), fast: cm(4.5, 4.4, 9.2) },
-    biasSpread: cm(1.3, 0.6, 2.8), wildRate: 0.02, wild: 0.19, lostPerMinute: 1.1, lostS: 0.4,
+    hz: 29.7, delay: 0.07, jitter: 0.008,
+    rest: { bias: cm(-0.1, -1.7, -1.7), slow: cm(2.9, 2.5, 6.5), fast: cm(1.4, 1.7, 2.2) },
+    swing: { bias: cm(1.0, -5.8, -4.5), slow: cm(2.6, 3.6, 8.4), fast: cm(4.7, 4.5, 9.5) },
+    biasSpread: cm(2.0, 0.8, 2.8), wildRate: 0.022, wild: 0.196, lostPerMinute: 1.05, lostS: 0.39,
   },
-  /** Two players at one webcam: slower, later, each smaller in the picture. */
+  /** Two players at one webcam: each smaller in the picture, a little later. */
   two: {
-    hz: 22, delay: 0.105, jitter: 0.02,
-    rest: { bias: cm(2.5, -1.6, 1.7), slow: cm(6.7, 4.1, 7.6), fast: cm(1.8, 2.1, 3.0) },
-    swing: { bias: cm(0.7, -10.7, -7.6), slow: cm(8.8, 6.7, 9.8), fast: cm(9.4, 9.4, 13.0) },
-    biasSpread: cm(0.6, 2.4, 1.1), wildRate: 0.08, wild: 0.23, lostPerMinute: 1.6, lostS: 0.4,
+    hz: 28.5, delay: 0.078, jitter: 0.011,
+    rest: { bias: cm(1.7, -2.0, 0.8), slow: cm(5.0, 2.8, 6.3), fast: cm(1.4, 1.4, 2.6) },
+    swing: { bias: cm(1.7, -4.9, -5.7), slow: cm(4.8, 4.2, 10.3), fast: cm(6.4, 5.1, 13.3) },
+    biasSpread: cm(2.1, 2.4, 3.9), wildRate: 0.046, wild: 0.215, lostPerMinute: 1.73, lostS: 0.17,
   },
 } as const satisfies Record<string, Tracking>;
 
@@ -309,7 +310,7 @@ export interface SimOptions {
   players: readonly { skill: Skill; tracking: Tracking; hand?: Side }[];
   seconds: number;
   seed?: number;
-  /** The aim assist's level (the game's own for that many players, unless given). */
+  /** The aim assist's level (the game's own, unless given). */
   assist?: AssistLevel;
   botLevel?: BotLevel;
   botAlways?: boolean;
@@ -338,7 +339,7 @@ export function simulate(options: SimOptions): SimResult {
   const random = seeded(seed);
   const two = players.length > 1;
   const rigs = players.map((p, i) => newRig(i as End, p.hand ?? 'right'));
-  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? defaultAssist(players.length), botLevel: options.botLevel ?? 'medium', botAlways: options.botAlways ?? true };
+  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? DEFAULT_ASSIST, botLevel: options.botLevel ?? 'medium', botAlways: options.botAlways ?? true };
   const round = new Round(rigs, play, random.rand);
   const people = players.map((p, i) => new Person(i as End, rigs[i].paddle, p.skill, seeded(seed * 7919 + i * 104729 + 1)));
   const cameras = players.map((p, i) => new Camera(p.tracking, seeded(seed * 31337 + i * 15485863 + 2)));

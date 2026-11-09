@@ -20,7 +20,7 @@ const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length
 const perMinute = (n: number) => n / ((SECONDS * ROUNDS) / 60);
 type Skill = keyof typeof SKILLS;
 type Camera = keyof typeof TRACKING;
-// Alone and together, at the game's own assist for each, seen as a webcam sees one player and two
+// Alone and together, at the game's own assist, seen as a webcam sees one player and two
 // (TRACKING: measured on trackbench's ping-pong scenes).
 const alone = (skill: Skill, camera: Camera = 'one') => simulateMany({ players: [{ skill: SKILLS[skill], tracking: TRACKING[camera] }], seconds: SECONDS }, ROUNDS);
 const pair = (a: Skill, b: Skill = a, camera: Camera = 'two') =>
@@ -49,7 +49,7 @@ test('a player who does nothing gets nothing', () => {
 test('swinging at nothing hits now and then, and never keeps a rally going', () => {
   const one = alone('flail'), two = pair('flail');
   assert.ok(hitRate(one) < 0.45, `alone ${hitRate(one).toFixed(2)}`);
-  assert.ok(hitRates(two) < 0.35, `together ${hitRates(two).toFixed(2)}`);
+  assert.ok(hitRates(two) < 0.25, `together ${hitRates(two).toFixed(2)}`);
   assert.ok(Math.max(one.best, two.best) <= 7, `rallies of ${one.best} and ${two.best}`);
   assert.ok(mean(one.rallies) < 2 && mean(two.rallies) < 2);
 });
@@ -58,9 +58,8 @@ test('a player who plays well nearly always hits, and their returns land', () =>
   const one = alone('good'), two = pair('good');
   assert.ok(hitRate(one) > 0.85, `alone, hits ${hitRate(one).toFixed(2)}`);
   assert.ok(rate(one.fair[0], one.hits[0]) > 0.85, `alone, fair ${rate(one.fair[0], one.hits[0]).toFixed(2)}`);
-  // Two at one webcam are tracked later and less surely: it costs a good player some hits.
-  assert.ok(hitRates(two) > 0.8, `together, hits ${hitRates(two).toFixed(2)}`);
-  assert.ok(mean(two.rallies) > 3.5, `together, rallies of ${mean(two.rallies).toFixed(1)}`);
+  assert.ok(hitRates(two) > 0.88, `together, hits ${hitRates(two).toFixed(2)}`);
+  assert.ok(mean(two.rallies) > 5, `together, rallies of ${mean(two.rallies).toFixed(1)}`);
   // Seen exactly, they hardly miss.
   assert.ok(hitRates(pair('good', 'good', 'perfect')) > 0.95);
 });
@@ -72,8 +71,8 @@ test('the better the player, the better they do', () => {
   assert.ok(hitRate(casual) < hitRate(good) + 0.03, `casual ${hitRate(casual).toFixed(2)}, good ${hitRate(good).toFixed(2)}`);
   assert.ok(mean(novice.rallies) < mean(casual.rallies) && mean(casual.rallies) < mean(good.rallies));
   const [a, b, c] = (['novice', 'casual', 'good'] as const).map((skill) => pair(skill));
-  assert.ok(hitRates(a) < hitRates(c) - 0.05 && hitRates(b) < hitRates(c) + 0.03, `together ${hitRates(a).toFixed(2)}, ${hitRates(b).toFixed(2)}, ${hitRates(c).toFixed(2)}`);
-  assert.ok(mean(a.rallies) < mean(c.rallies), `rallies ${mean(a.rallies).toFixed(1)} < ${mean(c.rallies).toFixed(1)}`);
+  assert.ok(hitRates(a) < hitRates(b) - 0.08 && hitRates(b) < hitRates(c) + 0.03, `together ${hitRates(a).toFixed(2)}, ${hitRates(b).toFixed(2)}, ${hitRates(c).toFixed(2)}`);
+  assert.ok(mean(a.rallies) < mean(b.rallies) && mean(b.rallies) < mean(c.rallies), `rallies ${mean(a.rallies).toFixed(1)} < ${mean(b.rallies).toFixed(1)} < ${mean(c.rallies).toFixed(1)}`);
 });
 
 test('the ball is soon back in play, and one player away does not stall the other', () => {

@@ -34,12 +34,8 @@ export const ASSIST: Record<AssistLevel, Assist> = {
   normal: { across: 0.22, depth: 0.45, landing: 1, block: 0.5 },
   high: { across: 0.32, depth: 0.6, landing: 1, block: 0.7 },
 };
-/**
- * The level a round starts at: Normal alone, High with two. Two players at one webcam are each
- * tracked later and less surely (tools/trackbench/PINGPONG.md), and High gives a good player back
- * most of what that costs them (tools/table-tennis/agency.ts).
- */
-export const defaultAssist = (players: number): AssistLevel => (players > 1 ? 'high' : 'normal');
+/** The level a round starts at. */
+export const DEFAULT_ASSIST: AssistLevel = 'normal';
 /**
  * A swing: the blade moving at least `minSpeed` (m/s, the player's own) within the last `recent`
  * seconds, as part of a move of at least `travel` metres one way (a twitch of the tracking isn't

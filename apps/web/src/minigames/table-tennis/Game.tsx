@@ -20,7 +20,7 @@ import type { MinigameContext, MinigamePhase } from '../types.ts';
 import type { HandTracking } from '../../../../../packages/pose/webcamRecord.ts';
 import { DEFAULT_FOV } from './arms.ts';
 import type { BodyTurn, Side } from './arms.ts';
-import { ASSIST_LEVELS, defaultAssist } from './assist.ts';
+import { ASSIST_LEVELS, DEFAULT_ASSIST } from './assist.ts';
 import type { AssistLevel } from './assist.ts';
 import { describePass, shiftWords } from './calibrate.ts';
 import { BALL_R, NET, ROOM, TABLE } from './ball.ts';
@@ -64,9 +64,9 @@ import type { OptionId, SceneId } from './options.ts';
  * pose's wrists and fingers).
  *
  * The settings are the minigame's options (options.ts), and keys step them while playing:
- * A the aim assist (assist.ts: Normal alone and High with two, unless ?assist= says otherwise; it
- * helps a swing meet the ball and land, and does nothing for a paddle that isn't swung), B the
- * bot's shots, R whether it returns everything (alone). Paddle calibration (calibrate.ts) shifts each paddle by the way its
+ * A the aim assist (assist.ts: Normal unless ?assist= says otherwise; it helps a swing meet the
+ * ball and land, and does nothing for a paddle that isn't swung), B the bot's shots, R whether it
+ * returns everything (alone). Paddle calibration (calibrate.ts) shifts each paddle by the way its
  * swings keep missing; the HUD says how each ball went by it. In development, T slows time (the
  * swing keeps its own speed), F makes the paddles forgiving (they reach further than they look),
  * L steps the hits' lag compensation (the paddle, seen late through the camera, meets the ball as
@@ -119,9 +119,8 @@ const ENV_LIGHTS: readonly EnvironmentLight[] = [
   { position: [0, 5, 22], color: '#8feaff', intensity: 1.0, size: [14, 7] },
 ];
 
-// ?assist=off|low|normal|high: how much the aim assist helps (assist.ts), until the A key steps it;
-// otherwise the level for that many players (defaultAssist).
-const ASSIST_PARAM = ASSIST_LEVELS.find((level) => level === new URLSearchParams(location.search).get('assist'));
+// ?assist=off|low|normal|high: how much the aim assist helps (assist.ts), until the A key steps it.
+const ASSIST_PARAM = ASSIST_LEVELS.find((level) => level === new URLSearchParams(location.search).get('assist')) ?? DEFAULT_ASSIST;
 // ?fov=<degrees>: the webcam's horizontal field of view, which sets how depth is read (arms.ts).
 const FOV_PARAM = Number(new URLSearchParams(location.search).get('fov')) || DEFAULT_FOV;
 /**
@@ -612,7 +611,7 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   });
   const [play] = useState<Play>(() => {
     const chosen = optionsOf(ctx.options);
-    return { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: ASSIST_PARAM ?? defaultAssist(ctx.playerCount), botLevel: chosen.botShots, botAlways: chosen.botAlways };
+    return { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: ASSIST_PARAM, botLevel: chosen.botShots, botAlways: chosen.botAlways };
   });
   const [round] = useState(() => new Round(rigs, play));
   const [forgiving, setForgiving] = useState(false);

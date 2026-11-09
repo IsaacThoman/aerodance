@@ -475,7 +475,7 @@ paddle and aim assist (`mgAutoplay` says who), so a two-player rally can run wit
 still (the stand-ins serve too, by swinging through the waiting ball; puppets standing still serve
 and hit nothing), and `window.tableTennis` has the round (`round`: its ball, players and settings)
 and the camera (a split screen's views in `camera.cameras`) for staged shots. `?assist=off|low|normal|high`
-sets its aim assist (Normal alone and High with two otherwise; the A key steps it). The puppet works for the song game too: its calibration and scoring
+sets its aim assist (Normal otherwise; the A key steps it). The puppet works for the song game too: its calibration and scoring
 run on it.
 
 ### In unit tests
