@@ -175,18 +175,9 @@ export default function App() {
     setMenuRefocus('minigames');
     setScreen('menu');
   }, []);
-  // Play on a game's preview: a session with that many players and its settings, the camera set up for them.
-  const startingMinigame = useRef(false);
-  const startMinigame = useCallback(async (game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
-    if (startingMinigame.current) return;
-    startingMinigame.current = true;
-    const recording = params.get('record') === 'session' && activeSource === source;
-    const destination = recording ? await prepareSessionRecording() : null;
-    replay?.setPlayerCount(count);
-    await source.setPlayerCount(count).catch(() => {});
+  // The round itself: a session with that many players and its settings, shown.
+  const beginMinigame = useCallback((game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
     const session = new MinigameSession({ game, playerCount: count, source: activeSource, options });
-    if (recording) new SessionRecording(session, source, destination);
-    startingMinigame.current = false;
     // In development (and with the puppet camera), window.minigame is the round, for poking at
     // from play.ts: `eval "minigame.players[0].body[16]"`.
     if (import.meta.env.DEV || params.get('input') === 'puppet') Reflect.set(window, 'minigame', session);
@@ -196,7 +187,30 @@ export default function App() {
     setScreen('minigame');
     duckMenuMusic(true);
     void session.load();
-  }, [source, replay, activeSource]);
+    return session;
+  }, [activeSource]);
+  // Play on a game's preview: the camera set up for that many players, and the round begun.
+  const startingMinigame = useRef(false);
+  const startMinigame = useCallback((game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
+    // ?record=session asks where to save first (from Play's own click), and waits for the camera
+    // to settle on the player count so the video is one stream; otherwise the round starts at once.
+    if (params.get('record') === 'session' && activeSource === source) {
+      if (startingMinigame.current) return;
+      startingMinigame.current = true;
+      replay?.setPlayerCount(count);
+      void (async () => {
+        try {
+          const destination = await prepareSessionRecording();
+          await source.setPlayerCount(count).catch(() => {});
+          new SessionRecording(beginMinigame(game, count, options), source, destination);
+        } finally { startingMinigame.current = false; }
+      })();
+      return;
+    }
+    replay?.setPlayerCount(count);
+    source.setPlayerCount(count).catch(() => {});
+    beginMinigame(game, count, options);
+  }, [source, replay, activeSource, beginMinigame]);
   const endMinigame = useCallback(() => {
     setMinigame((session) => { session?.dispose(); return null; });
     setMinigamePhase(null);
