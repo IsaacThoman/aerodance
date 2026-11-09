@@ -57,7 +57,7 @@ const UPPER_ARM = 0.62, FOREARM = 0.5;
 /** The torso's length (metres, as the model's world landmarks measure it) when its hips aren't seen, and the range it's believed in. */
 const TORSO_LENGTH = { usual: 0.5, min: 0.4, max: 0.6 };
 /** The pose model has to think a bone points back by this much (metres) to be believed. */
-const SURELY_BACK = 0.12;
+export const SURELY_BACK = 0.12;
 /** The webcam's horizontal field of view when nothing says otherwise (laptop cameras are about 60-75°). */
 export const DEFAULT_FOV = 65;
 
