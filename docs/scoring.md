@@ -43,22 +43,22 @@ direction vectors, in image space corrected for aspect ratio, for ten limbs:
 | Torso | shoulder midpoint to hip midpoint | 0.6 |
 | Shoulder line | 11-12 | 0.4 |
 
-Directions don't depend on height, distance from the camera or where the player stands,
-so no torso scaling or calibration is needed. Arms carry the most weight because they
-carry most of the choreography and are tracked most reliably. A live joint counts unless its
-confidence (min of visibility and presence) is below 0.1 (`MIN_CONFIDENCE` in `features.ts`),
-compared in the recording format's quantised confidence steps so live and replayed poses count
-the same joints. Version 1 dropped joints below 0.5. Untracked limbs score 0, and the tracker
-is unsure of many joints that are in the right place, so 0.5 cost players points for tracking
-rather than dancing. On trackbench's first 117 synthetic scenes, 0.1 alone cut MediaPipe Lite's
-score lost to tracking from 14.2% to 9.4%, and no scene scored worse. With everything in this
-branch, over 133 scenes, dancing the wrong moves scores about what it would with perfect
-tracking (25.8% against 25.3%), and so does standing still (29.8% against 29.7%; a few points
+Directions don't depend on height, distance from the camera or where the player stands, so no
+torso scaling or calibration is needed. Arms carry the most weight because they carry most of
+the choreography and are tracked most reliably. A live joint counts unless its confidence (min
+of visibility and presence) is below 0.1 (`MIN_CONFIDENCE` in `features.ts`), compared in the
+recording format's quantised confidence steps so live and replayed poses count the same joints.
+Version 1 dropped joints below 0.5. Untracked limbs score 0, and the tracker is unsure of many
+joints that are in the right place, so 0.5 cost players points for tracking rather than
+dancing. On trackbench's first 117 synthetic scenes, 0.1 alone cut MediaPipe Lite's score lost
+to tracking from 14.2% to 9.4%, and no scene scored worse. With everything in this branch, over
+133 scenes, dancing the wrong moves scores about what it would with perfect tracking (25.8%
+against 25.3%), and so does standing still (29.8% against 29.7%, over 132 scenes; a few points
 more where the legs are off the picture) ([trackbench
 report](../tools/trackbench/REPORT.md#scoring-unsure-joints-were-thrown-away)). Version 2 also
 keeps a limb the tracker loses for a moment (below). Players compare directly with the stored,
-unmirrored pose: the coach is only mirrored on screen
-(`coachMode: "mirror-player"`), and dancing the mirror image loses points.
+unmirrored pose: the coach is only mirrored on screen (`coachMode: "mirror-player"`), and
+dancing the mirror image loses points.
 
 ## One interval (100 ms)
 

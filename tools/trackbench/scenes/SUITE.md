@@ -183,7 +183,7 @@ Lite results: `$TRACKBENCH_DATA/reports/single-lite.md` (`report.ts`, all prefix
 
 ## Crossings, crowding and off-centre
 
-Two off-centre pairs (`mp2-offcentre-left`, `-right`, the first two rows below) came from the first
+Two off-centre pairs (`mp2-offcentre-left`, `-right`, the two rows before `mp2-close-offcentre` below) came from the first
 review of two-player strips; then 14 additional scenes at 640×480, 30 fps, 24 s, with `setup` from 0–7 s (2 s walk,
 5 s neutral calibration hold) and `dance` from 7–24 s. Crossings are part of the dance
 phase; players resume dancing at their exchanged spots. Front/back walking lanes and

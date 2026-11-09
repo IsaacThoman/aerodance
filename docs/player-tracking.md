@@ -28,9 +28,10 @@ How the webcam (or a paired phone's camera) turns people into players.
      instead; whichever view finds somebody is kept, the middle only while all of them fits well
      inside it (somebody too big for it is found again on the whole picture, where the middle
      would cut off their feet or hands; somebody small at its edge is followed there). Somebody
-     first found in the middle counts only standing (enlarged, an empty room's sofa can look like
-     somebody lying on it), unless they're found again near where the middle lost them a moment
-     ago: a player can lie on the floor in their dance. Every two seconds on the middle, another
+     the landmarker finds afresh in the middle counts only standing (enlarged, an empty room's
+     sofa can look like somebody lying on it), unless the player was last seen going down
+     (leaning more than 20°) near there in the last 3 s: a player can lie on the floor in their
+     dance. Every two seconds on the middle, another
      landmarker glances at the whole picture afresh, and somebody it finds elsewhere (a player
      walking in, while the enlarged middle took a mannequin for somebody) brings the whole
      picture back; until then a mannequin in the middle of an empty room can be taken for the
