@@ -24,15 +24,18 @@ How the webcam (or a paired phone's camera) turns people into players.
      (a 120° webcam, or far away) and finds them in its middle, enlarged. So while nobody has
      been found for a second, every other frame shows the landmarker the middle three quarters
      instead; whichever view finds somebody is kept, the middle only while all of them fits well
-     inside it (anybody bigger is found on the whole picture, and the middle would cut off their
-     feet or hands). Somebody first found in the middle counts only standing: enlarged, an empty
-     room's sofa can look like somebody lying on it. Every two seconds on the middle, another
+     inside it (somebody too big for it is found again on the whole picture, where the middle
+     would cut off their feet or hands; somebody small at its edge is followed there). Somebody
+     first found in the middle counts only standing (enlarged, an empty room's sofa can look like
+     somebody lying on it), unless they're found again near where the middle lost them a moment
+     ago: a player can lie on the floor in their dance. Every two seconds on the middle, another
      landmarker glances at the whole picture afresh, and somebody it finds elsewhere (a player
      walking in, while the enlarged middle took a mannequin for somebody) brings the whole
      picture back; until then a mannequin in the middle of an empty room can be taken for the
-     player. On a 120° webcam the player was found in 96% of frames instead of none. The glances
-     cost a landmarker, so the iPhone/iPad app goes without this too; it runs on the CPU too,
-     where it's the only way to find somebody small.
+     player. On a 120° webcam the player was found in 96% of frames instead of none. The glances'
+     landmarker is made the first time the middle is kept, and its first glance takes about
+     150 ms (once a session). The glances cost a landmarker, so the iPhone/iPad app goes without
+     this too; it runs on the CPU too, where it's the only way to find somebody small.
    - **Three or four players:** on a full-height strip of the picture per player, asking each
      for one person (`tiles.ts`). On the whole picture, MediaPipe found about two people per
      frame with three or four in view: its person detector sees the picture shrunk to a small
@@ -143,7 +146,7 @@ the tracker replaced them.
   ignored while every player is found. Somebody seen
   in ten results beside every player just seen (not overlapping one, and nowhere near a missing
   player's place or home) is a bystander: they can't take a player's number until that player
-  has been gone five seconds, unless they're back at the player's home. A player's **home** is
+  has been gone five seconds. A player's **home** is
   where they last stood clear while going no faster than 1.5 body sizes a second for half a
   second: where they dance. Their place follows whoever they're followed as, and the model can
   slide from a player onto somebody walking past in front of them, taking the place along; the
