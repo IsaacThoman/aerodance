@@ -122,11 +122,11 @@ const arr = (a: Vec3) => [a.x, a.y, a.z];
 
 /** The one-euro filters (minCutoff Hz, beta) each hand's wrist, dir and across go through (oneEuro.ts). */
 export const HAND_FILTERS = { wrist: [1.2, 3], dir: [1, 1.2], across: [1, 1.2] } as const satisfies Record<string, readonly [number, number]>;
-/** One hand's intake (intake): its filters. */
-export interface HandIntake { wrist: OneEuro; dir: OneEuro; across: OneEuro; }
+/** One hand's intake (intake): its filters, and the hand's own across as last seen. */
+export interface HandIntake { wrist: OneEuro; dir: OneEuro; across: OneEuro; handAcross: { across: Vec3; t: number } | null; }
 /** A player's hands' filters (trackHands): one-euro, on the wrist and the hand's two axes. */
 export interface HandFilters { seen: RawPose | null; sides: Record<Side, HandIntake>; }
-export const newHandIntake = (): HandIntake => ({ wrist: new OneEuro(...HAND_FILTERS.wrist), dir: new OneEuro(...HAND_FILTERS.dir), across: new OneEuro(...HAND_FILTERS.across) });
+export const newHandIntake = (): HandIntake => ({ wrist: new OneEuro(...HAND_FILTERS.wrist), dir: new OneEuro(...HAND_FILTERS.dir), across: new OneEuro(...HAND_FILTERS.across), handAcross: null });
 export const newHandFilters = (): HandFilters => ({
   seen: null,
   sides: { left: newHandIntake(), right: newHandIntake() },
@@ -169,7 +169,22 @@ export function handAgrees(image: readonly PicturePoint[], hand: HandInput, side
 
 /** One hand's pose from readHands, taken in at `t` (seconds): what the game follows, filtered. */
 export function intake(f: HandIntake, next: HandPose, t: number): HandPose {
-  return { from: next.from, wrist: vec(f.wrist.filter(arr(next.wrist), t)), dir: vec(f.dir.filter(arr(next.dir), t)), across: vec(f.across.filter(arr(next.across), t)) };
+  let across = next.across;
+  if (next.from === 'hand') f.handAcross = { across: next.across, t };
+  else if (f.handAcross && t - f.handAcross.t < HAND_ACROSS_HOLD) across = squareTo(f.handAcross.across, next.dir) ?? across;
+  return { from: next.from, wrist: vec(f.wrist.filter(arr(next.wrist), t)), dir: vec(f.dir.filter(arr(next.dir), t)), across: vec(f.across.filter(arr(across), t)) };
+}
+/**
+ * How long (s) the hand's own across (the Hand Landmarker's) stands in for the pose's when the
+ * hand is lost: the pose's knuckles turn the paddle's face about at random (70° off, against 12°
+ * from the hand, on the ping-pong scenes' 21-point GT), so the face keeps the hand's turn.
+ */
+export const HAND_ACROSS_HOLD = 0.5;
+/** A unit vector made square to a unit dir (null if it lies along it). */
+function squareTo(a: Vec3, dir: Vec3): Vec3 | null {
+  const k = a.x * dir.x + a.y * dir.y + a.z * dir.z;
+  const v = { x: a.x - dir.x * k, y: a.y - dir.y * k, z: a.z - dir.z * k }, l = Math.hypot(v.x, v.y, v.z);
+  return l > 1e-3 ? { x: v.x / l, y: v.y / l, z: v.z / l } : null;
 }
 
 /**
