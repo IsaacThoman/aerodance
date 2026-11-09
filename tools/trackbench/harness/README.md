@@ -181,9 +181,12 @@ Shared definitions:
   more than 0.2 torso lengths off (offset-corrected) / joints with conf ≥ 0.5; `correct_unsure` = joints
   within 0.2 with conf < 0.5 / joints within 0.2; `outside_sure` = share of GT joints outside
   the picture the pose reports with conf ≥ 0.5 (a guess calibration and the character would trust).
-- `detection.jitter.accel_error`: for body joints matched on three consecutive frames,
-  `|a_pose - a_gt|` with `a = p(n+1) - 2 p(n) + p(n-1)`, in torso lengths per frame² at the
-  scene's fps; `accel_rms_pose`/`accel_rms_gt` for scale.
+- `detection.jitter.accel_error`: for body joints matched in three consecutive delivered samples
+  of a person (consecutive in the detections, whatever the frame rate or drops, each gap at most
+  200 ms), `|a_pose - a_gt|` with `a` the second divided difference over the samples' own
+  timestamps (exact for uneven gaps), the GT taken at the same frames, in torso lengths per s²;
+  `accel_rms_pose`/`accel_rms_gt` for scale. (Metrics versions 1-2 used frame numbers n-1, n, n+1,
+  so a 15 fps scene had no samples, and units of torso lengths per frame².)
 
 ### Tracked players (`tracking`)
 

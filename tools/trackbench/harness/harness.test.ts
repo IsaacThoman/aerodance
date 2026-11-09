@@ -250,3 +250,14 @@ test('the time grid counts a sparse stream as lost between its records, and a dr
   assert.equal(dropped.time_grid.whole_scene.lost, 1);
 });
 
+test('jitter uses consecutive delivered samples and their timestamps, so a 15 fps stream has some', () => {
+  const s = scene(solo);
+  const g = gaussian(11), sigma = 0.02;
+  const noisy = perfectDetections(s.gt, { perturb: p => { const k = torsoScale(p, s); return [g() * sigma * k / s.aspect, g() * sigma * k]; } });
+  const every = run(s, noisy).m.detection.jitter, half = run(s, noisy.filter(f => f.frame % 2 === 1)).m.detection.jitter;
+  assert.ok(half.accel_error.n > 0);
+  assert.equal(half.unit, 'torso lengths per s^2');
+  // The same noise at half the rate is a quarter of the acceleration (gaps twice as long).
+  const ratio = half.accel_error.mean! / every.accel_error.mean!;
+  assert.ok(ratio > 0.18 && ratio < 0.35, `ratio ${ratio}`);
+});

@@ -38,7 +38,7 @@ export const COLUMNS: { key: string; label: string; better: 'higher' | 'lower'; 
   { key: 'limb_usable', label: 'limbs usable', better: 'higher', get: m => m.detection?.keypoints?.limbs?.usable_frac ?? null, digits: 3 },
   { key: 'lr_swap', label: 'L/R swaps', better: 'lower', get: m => m.detection?.keypoints?.swaps?.body ?? null, digits: 4 },
   { key: 'sure_wrong', label: 'sure but wrong', better: 'lower', get: m => m.detection?.keypoints?.confidence?.sure_wrong ?? null, digits: 3 },
-  { key: 'jitter', label: 'jitter', better: 'lower', get: m => m.detection?.jitter?.accel_error?.mean ?? null, digits: 4 },
+  { key: 'jitter', label: 'jitter (torso/s²)', better: 'lower', get: m => m.detection?.jitter?.unit === 'torso lengths per s^2' ? m.detection.jitter.accel_error?.mean ?? null : null, digits: 2 },
   { key: 'inference', label: 'inference ms', better: 'lower', get: m => m.cost?.inference_ms?.mean ?? null, digits: 1 },
   { key: 'pose_hz', label: 'poses/s', better: 'higher', get: m => m.cost?.pose_rate_hz ?? null, digits: 1 },
 ];

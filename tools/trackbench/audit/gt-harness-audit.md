@@ -66,6 +66,8 @@ Executable fixture: confident fixed pose samples every 100 ms through 3000 ms co
 
 Jitter requires numeric frame IDs `n-1,n,n+1`. The 15 fps scene correctly retains original IDs **1,3,5,...,675** (338 JPEGs) against 30 fps source GT. It therefore has **zero jitter samples** for Lite, Heavy, and RTMO-s. Irregular realtime streams similarly measure only consecutive surviving runs, silently selecting the easier/full-rate portions. `camera_fps` remains the source 30 rather than delivered 15.
 
+**Status (2026-11-09): fixed in `metrics.ts` (version 3).** Jitter uses consecutive delivered samples of each person (gaps up to 200 ms) and the second divided difference over their timestamps, in torso lengths/s²; `sens-fps-15` now has samples.
+
 **Fix:** use consecutive delivered samples and actual timestamps, matching GT at those times; report acceleration in torso lengths/s² or resample consistently. State source and output fps separately and expose coverage/sample count. Do not renumber frames: their existing IDs/timestamps are correct.
 
 ### 7. “GT as live input” is an oracle baseline, not an upper bound

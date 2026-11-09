@@ -15,10 +15,15 @@ import { gtLandmarks, judgementChanges, referenceBundle, scoreRecords } from './
 import type { LiveRecord } from './score.ts';
 import { jobsOption, scenePool } from './pool.ts';
 
-/** 2: lost and identity on a time grid (tracking.time_grid). */
-export const METRICS_VERSION = 2;
+/**
+ * 2: lost and identity on a time grid (tracking.time_grid). 3: jitter from consecutive
+ * delivered samples and their timestamps (torso lengths/s²).
+ */
+export const METRICS_VERSION = 3;
 /** On the time grid, a player's last pose stops counting this long after its frame was taken. */
 export const STALE_MS = 300;
+/** Jitter uses three consecutive samples of a person no more than this far apart. */
+export const JITTER_GAP_MS = 200;
 /** A joint this close to the GT (torso lengths, offset-corrected) is correct, for confidence calibration. */
 export const CORRECT = 0.2;
 /** The game's joint confidence threshold. */
@@ -177,8 +182,8 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
   let frames = 0, detections = 0;
   const distractors = scene.features.some(f => DISTRACTOR_FEATURES.test(f));
   const all = new KeypointBucket(), dance = new KeypointBucket();
-  // For jitter: each GT player's matched pose by frame.
-  const tracks = new Map<string, Map<number, (Joint | null)[]>>();
+  // For jitter: each GT player's matched poses, in frame order.
+  const tracks = new Map<string, { frame: number; t: number; kp: (Joint | null)[] }[]>();
   for (const f of dets) {
     const gt = scene.byFrame.get(f.frame);
     if (!gt) continue;
@@ -201,8 +206,8 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
         if (g.role !== 'player') return;
         all.add(kp, g, scene, offsets);
         if (g.phase === 'dance') dance.add(kp, g, scene, offsets);
-        if (!tracks.has(g.id)) tracks.set(g.id, new Map());
-        tracks.get(g.id)!.set(f.frame, kp);
+        if (!tracks.has(g.id)) tracks.set(g.id, []);
+        tracks.get(g.id)!.push({ frame: f.frame, t: gt.t_ms, kp });
         return;
       }
       // An unmatched detection: on a GT person (a second copy of them, or too wrong to match), a distractor, or noise.
@@ -214,19 +219,28 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
       else fp.noise++;
     });
   }
-  // Jitter: acceleration over three consecutive frames, pose against GT.
+  // Jitter: acceleration over three consecutive samples of a person (consecutive in what was
+  // delivered, whatever the frame rate or drops), pose against GT at the same frames, from
+  // their timestamps: torso lengths per second².
   const jitter = { err: new Stat(), det: new Stat(), gt: new Stat() };
-  for (const [id, byFrame] of tracks) for (const [n, kp] of byFrame) {
-    const before = byFrame.get(n - 1), after = byFrame.get(n + 1);
-    const g0 = scene.byFrame.get(n - 1)?.people.find(p => p.id === id), g1 = scene.byFrame.get(n)?.people.find(p => p.id === id), g2 = scene.byFrame.get(n + 1)?.people.find(p => p.id === id);
-    if (!before || !after || !g0 || !g1 || !g2) continue;
-    const s = torsoScale(g1, scene), A = scene.aspect;
-    for (const j of BODY) {
-      const a = before[j], b = kp[j], c = after[j];
-      if (!a || !b || !c || [g0, g1, g2].some(g => g.kp[j][3] === 3)) continue;
-      const ax = (a[0] - 2 * b[0] + c[0]) * A, ay = a[1] - 2 * b[1] + c[1];
-      const gx = (g0.kp[j][0] - 2 * g1.kp[j][0] + g2.kp[j][0]) * A, gy = g0.kp[j][1] - 2 * g1.kp[j][1] + g2.kp[j][1];
-      jitter.err.add(Math.hypot(ax - gx, ay - gy) / s); jitter.det.add(Math.hypot(ax, ay) / s); jitter.gt.add(Math.hypot(gx, gy) / s);
+  for (const [id, samples] of tracks) {
+    samples.sort((a, b) => a.frame - b.frame);
+    for (let i = 1; i + 1 < samples.length; i++) {
+      const [p0, p1, p2] = [samples[i - 1], samples[i], samples[i + 1]];
+      const d1 = (p1.t - p0.t) / 1000, d2 = (p2.t - p1.t) / 1000;
+      if (d1 <= 0 || d2 <= 0 || d1 * 1000 > JITTER_GAP_MS || d2 * 1000 > JITTER_GAP_MS) continue;
+      const [g0, g1, g2] = [p0, p1, p2].map(p => scene.byFrame.get(p.frame)?.people.find(q => q.id === id));
+      if (!g0 || !g1 || !g2) continue;
+      const s = torsoScale(g1, scene), A = scene.aspect;
+      // Second divided difference: exact for uneven gaps.
+      const acc = (a: number, b: number, c: number) => 2 * ((c - b) / d2 - (b - a) / d1) / (d1 + d2);
+      for (const j of BODY) {
+        const a = p0.kp[j], b = p1.kp[j], c = p2.kp[j];
+        if (!a || !b || !c || [g0, g1, g2].some(g => g.kp[j][3] === 3)) continue;
+        const ax = acc(a[0], b[0], c[0]) * A, ay = acc(a[1], b[1], c[1]);
+        const gx = acc(g0.kp[j][0], g1.kp[j][0], g2.kp[j][0]) * A, gy = acc(g0.kp[j][1], g1.kp[j][1], g2.kp[j][1]);
+        jitter.err.add(Math.hypot(ax - gx, ay - gy) / s); jitter.det.add(Math.hypot(ax, ay) / s); jitter.gt.add(Math.hypot(gx, gy) / s);
+      }
     }
   }
   const rms = (v: number[]) => v.length ? round(Math.sqrt(v.reduce((a, b) => a + b * b, 0) / v.length)) : null;
@@ -236,7 +250,7 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
     recall: { players: rate(recall.found, recall.players), player_frames: recall.players, dance: rate(recall.danceF, recall.danceP), fully_visible: rate(recall.fullF, recall.fullP), bystanders: rate(recall.bystFound, recall.byst) },
     false_positives_per_100_frames: { duplicate: per100(fp.duplicate), mislocated: per100(fp.mislocated), distractor: per100(fp.distractor), noise: per100(fp.noise) },
     keypoints: all.summary(), keypoints_dance: dance.summary(),
-    jitter: { accel_error: jitter.err.summary(), accel_rms_pose: rms(jitter.det.v), accel_rms_gt: rms(jitter.gt.v), unit: `torso lengths per frame^2 at ${scene.fps} fps` },
+    jitter: { accel_error: jitter.err.summary(), accel_rms_pose: rms(jitter.det.v), accel_rms_gt: rms(jitter.gt.v), samples: jitter.err.v.length, unit: 'torso lengths per s^2' },
   };
 }
 
