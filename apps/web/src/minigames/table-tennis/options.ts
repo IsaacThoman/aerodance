@@ -24,10 +24,13 @@ export const OPTIONS = [
   // The robot's settings: alone only (two players play each other).
   { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium', players: [1] },
   { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything', players: [1] },
+  // The Hand Landmarker (index.ts tracking): the paddle's angle and a surer wrist, for tracking
+  // time; off, the paddle follows the pose's own wrist and fingers. It runs for one player only.
+  { id: 'handTracking', label: 'Hand tracking', choices: [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], default: 'on', players: [1] },
 ] as const;
 export type OptionId = (typeof OPTIONS)[number]['id'];
 
-export interface TableTennisOptions { scene: SceneId; botShots: BotLevel; botAlways: boolean; }
+export interface TableTennisOptions { scene: SceneId; botShots: BotLevel; botAlways: boolean; handTracking: boolean; }
 
 const pick = <T extends string>(choices: readonly { value: T }[], value: string | undefined, fallback: T): T =>
   choices.find((c) => c.value === value)?.value ?? fallback;
@@ -38,6 +41,7 @@ export function optionsOf(values: Readonly<Record<string, string>>): TableTennis
     scene: pick(SCENE_CHOICES, values.scene, 'biodome'),
     botShots: pick(BOT_CHOICES, values.botShots, 'medium'),
     botAlways: values.botReturns !== 'fair',
+    handTracking: values.handTracking !== 'off',
   };
 }
 

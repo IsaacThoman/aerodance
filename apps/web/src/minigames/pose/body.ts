@@ -27,7 +27,7 @@ import type { JointName } from '../../pose/joints.ts';
  *
  *   raw       the newest pose as it arrived, for games that do their own geometry: unfiltered,
  *             unmirrored, with the camera's world landmarks and hands when the game asks for
- *             them (`tracking: 'hands'`)
+ *             them (`tracking`: 'world' or 'hands')
  *
  * const follower = createPoseFollower(0);
  * follower.setCalibration(calibration);                     // from the stillness hold

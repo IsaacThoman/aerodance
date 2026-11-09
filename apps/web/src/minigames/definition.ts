@@ -1,5 +1,7 @@
 import { isPlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
+import { isPoseDetail } from '../../../../packages/pose/webcamRecord.ts';
+import type { PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 import { MG_MAX_OPTIONS } from './layout.ts';
 import type { HowToStep, MinigameDefinition, MinigameOption } from './types.ts';
 
@@ -26,7 +28,7 @@ export function definitionProblem(def: unknown, folder?: string): string {
   if (typeof d.icon !== 'function') return 'icon must draw the game icon';
   if (typeof d.load !== 'function') return 'load must import the game';
   if (d.durationMs !== undefined && !(d.durationMs > 0)) return 'durationMs must be positive';
-  if (d.tracking !== undefined && d.tracking !== 'hands') return "tracking must be 'hands' (or left out)";
+  if (d.tracking !== undefined && typeof d.tracking !== 'function' && !isPoseDetail(d.tracking)) return "tracking must be 'world', 'hands' or a function choosing per round (or left out)";
   if (d.best !== undefined && d.best !== false) return 'best can only be false (a game that keeps no best)';
   return d.options === undefined ? '' : optionsProblem(d.options, d.players);
 }
@@ -35,6 +37,12 @@ export function definitionProblem(def: unknown, folder?: string): string {
 function countsProblem(players: unknown, game: readonly PlayerCount[]): string {
   if (players === undefined) return '';
   return Array.isArray(players) && players.length && players.every((n) => game.includes(n)) ? '' : 'its players must be some of the counts the game plays with';
+}
+
+/** The tracking a round asks the camera for (MinigameDefinition.tracking), with this many players and these settings. */
+export function trackingFor(game: Pick<MinigameDefinition, 'tracking'>, playerCount: PlayerCount, options: Readonly<Record<string, string>>): PoseDetail | null {
+  const asked = typeof game.tracking === 'function' ? game.tracking({ playerCount, options }) : game.tracking;
+  return isPoseDetail(asked) ? asked : null;
 }
 
 /** Which a step or an option is for: this many players, unless it says otherwise. */

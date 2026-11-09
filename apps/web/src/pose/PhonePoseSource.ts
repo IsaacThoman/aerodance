@@ -55,9 +55,10 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
  *
  * The phone tracks with the model and player count set here (configure, setPlayerCount)
  * or on the phone itself; the view follows what the phone reports. A game's detail (setDetail)
- * goes with them: the phone's own tracker keeps the world landmarks and hands, sends them with
- * its poses and says how its hands are doing in its status (view.hands). A phone page too old
- * to know of it never says, so after HANDS_ANSWER_MS it counts as unavailable.
+ * goes with them: the phone's own tracker keeps the world landmarks (and with 'hands' the hands),
+ * sends them with its poses and says how its hands are doing in its status (view.hands). A phone
+ * page too old to know of the hands never says, so after HANDS_ANSWER_MS they count as
+ * unavailable; one too old to know of 'world' takes it as no detail, and sends no world landmarks.
  */
 
 export interface PhonePairing { code: string; url: string; }
@@ -305,7 +306,7 @@ export class PhonePoseSource implements PoseSource {
   }
   /** How the phone's hands are doing, while they're asked for (see the top). */
   handsState(): HandTracking | undefined {
-    if (!this.detail) return undefined;
+    if (this.detail !== 'hands') return undefined;
     const said = this.phone?.hands;
     if (said) return said;
     return said === undefined && this.phone && this.now() - this.detailSentAt > HANDS_ANSWER_MS ? 'unavailable' : 'loading';

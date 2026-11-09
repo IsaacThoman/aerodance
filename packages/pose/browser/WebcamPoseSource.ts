@@ -258,11 +258,11 @@ export class WebcamPoseSource {
     if (active) await this.connect();
   }
   /**
-   * Extra tracking for a game that asks for it ('hands'), or none (null, as the songs play):
-   * every pose keeps MediaPipe's world landmarks, and with one player the Hand Landmarker runs
-   * on their wrists, its model loaded the first time it's asked for (view.hands says how it's
-   * doing). It lasts through camera restarts until it's set again; without it, the worker does
-   * what it always did.
+   * Extra tracking for a game that asks for it, or none (null, as the songs play): with either
+   * detail every pose keeps MediaPipe's world landmarks, and with 'hands' and one player the Hand
+   * Landmarker runs on their wrists too, its model loaded the first time it's asked for
+   * (view.hands says how it's doing; with 'world' it's absent). It lasts through camera restarts
+   * until it's set again; without it, the worker does what it always did.
    */
   setDetail(detail: PoseDetail | null) {
     if (detail === this.detail) return;
@@ -286,7 +286,7 @@ export class WebcamPoseSource {
   /** Whether the hand model is to run: the detail asked for, one player, not dropped. */
   get handsWanted() { return this.detail === 'hands' && this.playerCount === 1 && !this.handsDropped; }
   handsView(): HandTracking | undefined {
-    if (!this.detail) return undefined;
+    if (this.detail !== 'hands') return undefined;
     return this.playerCount !== 1 ? 'unavailable' : this.handsDropped ? 'dropped' : this.handModel;
   }
   publishHands() { if (this.detail || this.view.hands) this.publish({ hands: this.handsView() }); }
@@ -294,7 +294,7 @@ export class WebcamPoseSource {
   sendDetail() {
     if (!this.worker || !this.workerReady || (!this.detail && !this.detailSent)) return;
     this.detailSent = !!this.detail;
-    this.worker.postMessage({ type: 'detail', world: this.detail === 'hands',
+    this.worker.postMessage({ type: 'detail', world: this.detail !== null,
       hands: this.handsWanted ? { modelUrl: new URL(HAND_MODEL.file, this.assetUrl()).href, modelHash: HAND_MODEL.sha256 } : null });
   }
   /** A new song starts with a fresh line-up, without restarting the camera or model. */

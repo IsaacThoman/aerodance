@@ -44,7 +44,7 @@ import type { MinigamePhase } from './types.ts';
  * -minigame-scores, -minigame-time-ms, -minigame-remaining-ms, -minigame-countdown,
  * -minigame-present, -minigame-gesture (the last gesture seen: player:type[:direction][:hand]),
  * -minigame-raise (the how-to card's raise-to-start, 0-1), the camera's -minigame-camera-status,
- * -minigame-hands (ctx.handTracking(), for a game with `tracking: 'hands'`),
+ * -minigame-hands (ctx.handTracking(), for a round tracking 'hands'),
  * while calibrating -minigame-calibration-players / -progress, and the game's own data-mg-*.
  *
  * <MinigameScreen visible session={session} camera={source} onQuit onRetry />

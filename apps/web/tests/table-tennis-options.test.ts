@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OPTIONS, nextChoice, optionsOf } from '../src/minigames/table-tennis/options.ts';
 
-test('the settings default to the Biodome, medium shots and returning everything', () => {
-  assert.deepEqual(optionsOf({}), { scene: 'biodome', botShots: 'medium', botAlways: true });
-  assert.deepEqual(Object.fromEntries(OPTIONS.map((o) => [o.id, o.default])), { scene: 'biodome', botShots: 'medium', botReturns: 'everything' });
+test('the settings default to the Biodome, medium shots, returning everything and hand tracking on', () => {
+  assert.deepEqual(optionsOf({}), { scene: 'biodome', botShots: 'medium', botAlways: true, handTracking: true });
+  assert.deepEqual(Object.fromEntries(OPTIONS.map((o) => [o.id, o.default])), { scene: 'biodome', botShots: 'medium', botReturns: 'everything', handTracking: 'on' });
+  assert.equal(optionsOf({ handTracking: 'off' }).handTracking, false);
 });
 
 test('a chosen scene is kept, and an unknown one falls back to the Biodome', () => {

@@ -938,12 +938,13 @@ function TableTennisHud({ ctx, rigs, play, hud }: { ctx: MinigameContext; rigs: 
           { text: `Aim assist Max  ·  Bot ${choiceLabel('botShots', play.botLevel)}, returns ${play.botAlways ? 'everything' : 'fair shots'}`, size: 18, color: '#dff4ff' },
           { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
         ];
-        // Tracking that isn't all there, said plainly.
+        // Tracking that isn't all there, said plainly; hand tracking turned off (the setting), calmly.
         const warning = rig.flat ? 'This camera sends no 3D tracking: your arms\' depth is a guess'
           : tracking === 'loading' ? 'Loading hand tracking…'
             : tracking === 'dropped' ? 'Hand tracking is off (the phone was too slow): the paddle follows your arm'
               : tracking === 'unavailable' ? 'No hand tracking: the paddle follows your arm' : null;
         if (warning) lines.push({ text: warning, size: 18, color: '#ffe08a' });
+        else if (tracking === null) lines.push({ text: 'Hand tracking off (the setting): the paddle follows your arm', size: 18, color: '#dff4ff' });
         lines.push({ text: 'Keys: Space serve · B bot shots · R bot returns', size: 16, color: '#cfe3f5' });
         const dev = devLine();
         if (dev) lines.push(dev);

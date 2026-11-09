@@ -12,12 +12,14 @@ export type WebcamTimingMethod = 'browser-frame-observation' | 'remote-clock-syn
 export const WEBCAM_TIMING_METHODS: readonly WebcamTimingMethod[] = ['browser-frame-observation', 'remote-clock-sync'];
 
 /**
- * Extra tracking a game can ask a live source for (PoseSource.setDetail in apps/web). 'hands'
- * keeps MediaPipe's 3D world landmarks with each pose and, with one player, runs the Hand
- * Landmarker on their wrists. The songs never ask for it, so their records stay as they were.
+ * Extra tracking a game can ask a live source for (PoseSource.setDetail in apps/web). 'world'
+ * keeps MediaPipe's 3D world landmarks with each pose; 'hands' does too and, with one player,
+ * runs the Hand Landmarker on their wrists, which costs tracking time. The songs never ask for
+ * either, so their records stay as they were.
  */
-export type PoseDetail = 'hands';
-export const isPoseDetail = (value: unknown): value is PoseDetail => value === 'hands';
+export type PoseDetail = 'world' | 'hands';
+export const POSE_DETAILS: readonly PoseDetail[] = ['world', 'hands'];
+export const isPoseDetail = (value: unknown): value is PoseDetail => POSE_DETAILS.includes(value as PoseDetail);
 /**
  * The hands, while they're asked for: their model loading, running, dropped by a phone too slow
  * to run it (the world landmarks carry on), or not to be had (more than one player, a replay, a

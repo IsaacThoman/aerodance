@@ -84,8 +84,9 @@ The definition loads with the menus, so keep it small: the icon and any drawing 
 `.ts` files (Node runs the tests that import it); the game, its 3D and its assets come in through
 `load`. The fields are in `minigames/types.ts`: also `hud` (turn
 the host's scores or timer off to draw your own), `fullBody` (calibrate only with feet in view, for
-games about legs), `tracking: 'hands'` (MediaPipe's 3D world landmarks and the tracked hands too,
-for a game that does its own geometry), `coop` (the players are a team: give everyone the team's
+games about legs), `tracking` (`'world'`: MediaPipe's 3D world landmarks; `'hands'`: those and
+the tracked hands too, for a game that does its own geometry; or a function choosing per round
+from its player count and settings), `coop` (the players are a team: give everyone the team's
 score, and the results show it as one instead of naming a winner; a game whose players choose
 together or versus once it's started says so with `ctx.setCoop`), `best: false` (open play: a
 game that never finishes a round with a score, so its preview shows no best), `order`
@@ -279,15 +280,19 @@ its confidence low. Feet are often out of the picture in a living room: don't de
 check `jointConfidence` before trusting a wrist. Design for slack: generous targets, effects a
 beat behind the movement, nothing that needs a 50 ms reaction.
 
-### Doing your own geometry: `raw` and `tracking: 'hands'`
+### Doing your own geometry: `raw` and `tracking`
 
 `p.raw` is the newest pose exactly as the camera sent it, replaced (a new object) with each one
 and null before the first: `landmarks` (the 33 in the unmirrored picture, 0–1, unfiltered, with
 their confidences), `world`, `hands`, `input` (the picture's size, always unmirrored) and
 `capturedAt`. Its picture is the camera's, not the mirror: the player's right hand is on its left.
 
-A game with `tracking: 'hands'` in its definition (Table Tennis's first-person paddle) gets more
-in it, for as long as its session lives (`PoseSource.setDetail`); the songs never ask for it:
+A game with `tracking` in its definition (Table Tennis's first-person paddle) gets more in it,
+for as long as its session lives (`PoseSource.setDetail`); the songs never ask for it. `'world'`
+brings the world landmarks, and `'hands'` those and the hands. As a function,
+`({ playerCount, options }) => 'hands' | 'world' | null` chooses per round, and a setting changed
+mid-round (`ctx.setOption`) asks the camera again: Table Tennis asks for the hands with one
+player and its **Hand tracking** setting on, and for the world landmarks otherwise.
 
 - `world`: MediaPipe's 33 world landmarks, in metres from the hips' centre: x to the unmirrored
   picture's right, y down, z away from the camera. Their depths are the model's weakest output
@@ -304,10 +309,11 @@ in it, for as long as its session lives (`PoseSource.setDetail`); the songs neve
 `ctx.handTracking()` says how the hands are doing: `'loading'` (the 7.8 MB model downloads the
 first time it's asked for), `'on'`, `'dropped'` (a paired phone that couldn't keep 15 poses a
 second with it gave it up; the world landmarks carry on) or `'unavailable'` (more than one
-player, a replay, a phone page too old for it, a model that wouldn't load); null for games
-without the detail. Without hands, fall back on the pose's own wrist, index and pinky. Measure
+player, a replay, a phone page too old for it, a model that wouldn't load); null for a round
+that didn't ask for the hands. Without hands, fall back on the pose's own wrist, index and pinky. Measure
 latency from `raw.capturedAt`. The hand model costs a phone or slow laptop tracking time, so
-only ask for it in a game that needs it. The puppet camera answers with world landmarks and
+only ask for it in a game that needs it, and consider letting players turn it off. A phone page
+too old to know of `'world'` sends no world landmarks for it (`world` stays null). The puppet camera answers with world landmarks and
 hands from its dolls' own 3D bodies (open hands, fingers on from the forearm); its arms are
 shorter than a real body's (0.97 torso lengths, not about 1.1), which geometry that assumes real
 proportions reads as reaching forward.
@@ -436,8 +442,8 @@ stalls or gestures go missing, `node scripts/play.ts status` shows the page's fr
 What to read back: `minigamePhase`, `minigameScores` (`3|5`), `minigameTimeMs`,
 `minigameRemainingMs`, `minigameCountdown`, `minigamePresent` (`1|0`), `minigameGesture` (the last
 gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to card's raise to start,
-0–1), `minigameCameraStatus`, `minigameHands` (`ctx.handTracking()`, for a game with
-`tracking: 'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
+0–1), `minigameCameraStatus`, `minigameHands` (`ctx.handTracking()`, for a round tracking
+`'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
 results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `minigameScreen`,
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
 preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything` for

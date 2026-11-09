@@ -32,8 +32,9 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
  * (a phone on a stand has no one to press anything), waiting longer each time it fails
  * without tracking; a camera that never worked (permission denied) waits for the player.
  *
- * A minigame can ask for more (config's detail, 'hands'): the camera then keeps the world
- * landmarks and, with one player, runs the Hand Landmarker too, and the poses carry them. A
+ * A minigame can ask for more (config's detail): the camera then keeps the world landmarks
+ * ('world' or 'hands') and, with 'hands' and one player, runs the Hand Landmarker too, and the
+ * poses carry them. A
  * phone that can't keep up with both (fewer than HANDS_MIN_HZ poses a second for HANDS_SLOW_MS
  * with the hand model on) drops the hand model by itself, keeping the world landmarks, and says
  * so in its status ('dropped'); the game carries on with the pose's own hand points.

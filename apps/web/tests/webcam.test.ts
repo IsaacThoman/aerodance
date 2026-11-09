@@ -666,6 +666,28 @@ test('with the hands detail, one player\'s poses keep their world landmarks and 
   assert.equal(f.source.view.status, 'initializing');
 });
 
+test('with the world detail, poses keep their world landmarks and the hand model is never asked for', async t => {
+  const f = fixture(t); const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  f.source.setDetail('world');
+  assert.equal(f.source.view.hands, undefined, 'no hands asked for, none to say');
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.deepEqual(f.messages.filter(m => m.type === 'detail'), [{ type: 'detail', world: true, hands: null }]);
+  await f.frame(1); f.setTime(1040);
+  f.deliver({ type: 'result', seq: 1, landmarks: [detected(standingPose(0.5))], inferenceMs: 20, world: [worldLandmarks()] });
+  assert.deepEqual(records.at(-1)!.poses[0].world, worldLandmarks());
+  assert.equal(records.at(-1)!.poses[0].hands, undefined);
+  // From the hands to the world: the hand model stops, and the view says nothing of hands.
+  f.source.setDetail('hands');
+  assert.ok((f.messages.at(-1) as { hands?: unknown }).hands);
+  f.source.setDetail('world');
+  assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true, hands: null });
+  assert.equal(f.source.view.hands, undefined);
+  // dropHands has nothing to drop.
+  f.source.dropHands();
+  assert.equal(f.source.view.hands, undefined);
+});
+
 test('with more than one player the hands aren\'t looked for, and each player\'s world landmarks follow their person', async t => {
   const f = fixture(t); const records: WebcamRecord[] = [];
   f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });

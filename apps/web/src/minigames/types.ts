@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import type { PlayerCount, Pose, TrackCalibration } from '../../../../packages/pose/choreography.ts';
-import type { HandTracking } from '../../../../packages/pose/webcamRecord.ts';
+import type { HandTracking, PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 import type { StageId } from '../../../../packages/stages/catalog.ts';
 import type { BackgroundId } from '../backdrop/backgrounds.ts';
 import type { IconDraw, IconName } from '../ui/draw.ts';
@@ -105,12 +105,13 @@ export interface MinigameDefinition {
   fullBody?: boolean;
   /**
    * More from the camera than the pose API's landmarks, for a game that does its own geometry:
-   * 'hands' asks the camera for MediaPipe's 3D world landmarks with every pose and, with one
-   * player, the Hand Landmarker's hands at their wrists (PlayerPose.raw), for as long as the
-   * round lasts (ctx.handTracking() says how the hands are doing). It costs tracking time, so
-   * only the games that need it ask.
+   * 'world' asks the camera for MediaPipe's 3D world landmarks with every pose, and 'hands' for
+   * those and, with one player, the Hand Landmarker's hands at their wrists (PlayerPose.raw), for
+   * as long as the round lasts (ctx.handTracking() says how the hands are doing). The hands cost
+   * tracking time, so only the games that need them ask, and a game can let its players choose:
+   * as a function, the round's player count and settings (options) say which it asks for, if any.
    */
-  tracking?: 'hands';
+  tracking?: PoseDetail | ((round: { playerCount: PlayerCount; options: Readonly<Record<string, string>> }) => PoseDetail | null);
   /**
    * The players play together, as a team: every player's score is the team's, and the results
    * show it as one score instead of naming a winner (or a tie).
@@ -192,7 +193,7 @@ export interface MinigameContext {
   /** The calibration a player's character is drawn with. */
   calibration(player: number): TrackCalibration | null;
   /**
-   * How the hands are doing, for a game with `tracking: 'hands'` (null for others): their model
+   * How the hands are doing, for a round tracking 'hands' (null for others): their model
    * loading, on, dropped by a paired phone too slow for it, or not to be had (more than one
    * player, a replay, a phone page too old for it). Without them, PlayerPose.raw has no hands and
    * the pose's own wrist, index and pinky points are all there is.

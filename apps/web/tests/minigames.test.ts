@@ -156,6 +156,9 @@ test('definitions are checked, listed in order, dev-only ones in development', (
   assert.match(definitionProblem(game(), 'other'), /match its folder/);
   assert.match(definitionProblem(game({ players: [] })), /players/);
   assert.match(definitionProblem(game({ howTo: [] })), /howTo/);
+  assert.equal(definitionProblem(game({ tracking: 'world' })), '');
+  assert.equal(definitionProblem(game({ tracking: () => 'hands' })), '');
+  assert.match(definitionProblem(game({ tracking: 'feet' as unknown as 'hands' })), /tracking must be/);
   assert.match(definitionProblem(null), /default-export/);
   const errors: string[] = [];
   const error = console.error;
@@ -361,7 +364,7 @@ test('a game that asks for hands has them from the camera while its session live
   const source: PoseSource = {
     view: { status: 'connected', message: '', sourceKind: 'webcam', snapshot: null, configuring: false, model: 'lite' },
     subscribeRecords(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
-    setDetail(detail) { details.push(detail); source.view.hands = detail ? 'on' : undefined; },
+    setDetail(detail) { details.push(detail); source.view.hands = detail === 'hands' ? 'on' : undefined; },
   };
   const run = (ms: number, session: MinigameSession) => {
     for (const end = clock.t + ms; clock.t < end;) {
@@ -392,6 +395,21 @@ test('a game that asks for hands has them from the camera while its session live
   next.dispose();
   next.dispose();
   assert.deepEqual(details, ['hands', 'hands', null], 'off once the last round ends, once');
+  // A game that chooses per round: by its player count and settings, asking again when a setting changes mid-round.
+  const choosing = game({ players: [1, 2], options: [option({ id: 'hands', choices: [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], default: 'on' })],
+    tracking: ({ playerCount, options }) => (playerCount === 1 && options.hands === 'on' ? 'hands' : 'world') });
+  const storage = memoryStorage();
+  const solo = new MinigameSession({ game: choosing, playerCount: 1, source, now, optionStorage: storage });
+  assert.equal(details.at(-1), 'hands');
+  assert.equal(solo.handTracking(), 'on');
+  solo.setOption('hands', 'off');
+  assert.equal(details.at(-1), 'world');
+  assert.equal(solo.handTracking(), null, 'no hands asked for');
+  solo.dispose();
+  assert.equal(details.at(-1), null);
+  const pair = new MinigameSession({ game: choosing, playerCount: 2, source, now, options: { hands: 'on' }, optionStorage: storage });
+  assert.equal(details.at(-1), 'world');
+  pair.dispose();
   // A game that doesn't ask has none.
   const plain = new MinigameSession({ game: game(), playerCount: 1, source, now });
   assert.equal(plain.handTracking(), null);

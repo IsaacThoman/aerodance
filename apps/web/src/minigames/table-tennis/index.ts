@@ -1,6 +1,6 @@
 import type { MinigameDefinition } from '../types.ts';
 import { paddleIcon, raiseIcon, swingIcon } from './art.ts';
-import { OPTIONS } from './options.ts';
+import { OPTIONS, optionsOf } from './options.ts';
 
 /*
  * Table Tennis: ping-pong in first person. The players' tracked hands are the dancers' glass
@@ -27,7 +27,9 @@ const tableTennis: MinigameDefinition = {
   best: false,
   scene: 'custom',
   hud: { scores: false, timer: false },
-  tracking: 'hands',
+  // The 3D world landmarks always (for the arms' depth: arms.ts); the hands too for one player
+  // unless the Hand tracking setting is off (with two, the camera has no hands to give).
+  tracking: ({ playerCount, options }) => (playerCount === 1 && optionsOf(options).handTracking ? 'hands' : 'world'),
   options: OPTIONS,
   order: 10,
   load: () => import('./Game.tsx'),
