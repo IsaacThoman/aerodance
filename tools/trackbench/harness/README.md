@@ -198,6 +198,14 @@ Shared definitions:
   `lost`, `wrong_player`, `bystander`, `ghost` likewise; over `after_numbering` (records from
   the first `lined` one), `whole_scene` and `dance`. `phantom_frames`: k has a pose while their
   person isn't present.
+- **`time_grid`** (what the report and `studies/paired.ts` use for lost and identity): the same
+  categories over elapsed time instead of delivered records. At every camera frame (the GT's),
+  each player whose person is present has the pose of the latest record that has *arrived*, if
+  its frame was taken under 300 ms before (`STALE_MS`); otherwise they're `lost`. A slow or
+  sparse stream, or one the game drops, then counts the time it shows nothing (per record, a
+  stream of one perfect pose a second had lost = 0, and one with every result dropped had no
+  value at all). Also `coverage` (present player-time with a fresh pose) and `max_lost_gap_ms`.
+  Offline runs process every frame, so there the grid and the per-record numbers agree.
 - `numbering`: at the first lined record, whether each player's pose is their expected person.
 - `identity_switches`: per player, changes of the GT person behind their pose (ignoring
   records where it matches nobody), summed.

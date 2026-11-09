@@ -46,6 +46,8 @@ Repro on RTMO-s `base-solo`: raw mean **0.0580**, raw PCK@.1 **0.8873**; fitting
 
 Detection recall iterates only processed frames. Tracking discards every `dropped` result and has no representation for skipped camera frames or elapsed gaps. Consequently a slow estimator can look excellent whenever it supplies a pose while being unusable much of the song. The explicit dropped-only fixture produces **records=0, lost=null, identity=null**, not a failure; report aggregation then drops it as in finding 1. A perfect but very sparse stream can have identity=1 and lost=0.
 
+**Status (2026-11-09): fixed in `metrics.ts` (version 2).** `tracking.time_grid` scores every camera frame by the latest *arrived* record, lost when its frame is 300 ms old or more, with coverage and the longest gap; the report and `paired.ts` use it. The dropped-only fixture now gives lost = 1. Offline runs process every frame, so their numbers barely move: on dev-final's tracking and on this branch's base run the grid and per-record means agree to 0.01 points.
+
 **Fix:** preserve the existing metrics as “per processed frame / per delivered record” diagnostics, and add coverage/lost time on a common camera or wall-clock grid with an explicit stale-pose timeout. Report processed fraction and maximum/percentile gaps alongside them. Do not compare offline and realtime record-conditioned rates as user-visible coverage. The score path does account for sparse delivery via the real scorer's gap/reach rules, so this finding is not a claim that score loss ignores gaps.
 
 ### 5. Calibration replay permanently latches success and misses setup timeout transitions

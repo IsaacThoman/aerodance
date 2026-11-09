@@ -4,7 +4,7 @@ import { bootstrap, clusterBootstrap, hungarian, loadScene, round, torsoScale } 
 import type { GtPerson, Scene, TrackedFrame } from './common.ts';
 import { gaussian, perfectDetections, writeFixtureScene } from './fixtures.ts';
 import type { FixtureOptions } from './fixtures.ts';
-import { accumulateOffsets, finishOffsets, sceneMetrics, zeroOffsets } from './metrics.ts';
+import { accumulateOffsets, finishOffsets, sceneMetrics, trackedMetrics, zeroOffsets } from './metrics.ts';
 import { trackDetections } from './track.ts';
 import { COLUMNS, buildReport, rowOf } from './report.ts';
 import { GameLoop } from './gameloop.ts';
@@ -231,3 +231,22 @@ test('cluster bootstrap: singletons give the plain bootstrap; scenes sharing a r
   const [lo1, hi1] = bootstrap(tripled), [lo3, hi3] = clusterBootstrap(tripled, tripled.map((_, i) => i % 10));
   assert.ok(hi3 - lo3 > 1.4 * (hi1 - lo1), `${hi3 - lo3} vs ${hi1 - lo1}`);
 });
+
+test('the time grid counts a sparse stream as lost between its records, and a dropped-only one as lost', () => {
+  const s = scene(solo);
+  // Every tenth frame (a pose every 333 ms): per record nothing is lost, on the grid the gaps are.
+  const sparse = run(s, perfectDetections(s.gt).filter(f => f.frame % 10 === 1)).m;
+  assert.ok(sparse.tracking.whole_scene.lost! < 0.01, JSON.stringify(sparse.tracking.whole_scene));
+  const grid = sparse.tracking.time_grid;
+  assert.ok(grid.whole_scene.lost! > 0.05 && grid.whole_scene.lost! < 0.15, JSON.stringify(grid));
+  assert.ok(grid.max_lost_gap_ms! > 0);
+  // Every frame: the grid and the records agree.
+  const full = run(s).m.tracking;
+  assert.ok(Math.abs(full.time_grid.whole_scene.lost! - full.whole_scene.lost!) < 0.005);
+  assert.equal(full.time_grid.after_numbering.identity_accuracy, 1);
+  // Nothing delivered: everything lost, not a missing value.
+  const dropped = trackedMetrics(s, [{ frame: 181, t_ms: 6000, received_ms: 6600, poses: [], lined: false, dropped: true }], ['p1']);
+  assert.equal(dropped.whole_scene.lost, null);
+  assert.equal(dropped.time_grid.whole_scene.lost, 1);
+});
+

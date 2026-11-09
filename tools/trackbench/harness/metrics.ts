@@ -15,7 +15,10 @@ import { gtLandmarks, judgementChanges, referenceBundle, scoreRecords } from './
 import type { LiveRecord } from './score.ts';
 import { jobsOption, scenePool } from './pool.ts';
 
-export const METRICS_VERSION = 1;
+/** 2: lost and identity on a time grid (tracking.time_grid). */
+export const METRICS_VERSION = 2;
+/** On the time grid, a player's last pose stops counting this long after its frame was taken. */
+export const STALE_MS = 300;
 /** A joint this close to the GT (torso lengths, offset-corrected) is correct, for confidence calibration. */
 export const CORRECT = 0.2;
 /** The game's joint confidence threshold. */
@@ -272,6 +275,8 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
   const bystanderRuns = mapping.map(() => ({ frames: 0, events: 0, inRun: false }));
   let firstAll: number | null = null, firstAllCorrect: number | null = null;
   let numbering: { correct: boolean; players_correct: number } | null = null;
+  // Each delivered record's verdict per player, for the time grid.
+  const delivered: { at: number; taken: number; lined: boolean; cats: (Cat | 'phantom' | null)[] }[] = [];
   for (const r of records) {
     const gt = scene.byFrame.get(r.frame);
     const match = matchPoses(r.poses.map(p => trackedKp(p.kp)), gt, scene);
@@ -279,6 +284,8 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
     const inDance = window ? r.t_ms >= window[0] && r.t_ms <= window[1] : false;
     const allFound = mapping.length > 0 && r.poses.length === mapping.length;
     let allCorrect = allFound;
+    const cats: (Cat | 'phantom' | null)[] = [];
+    delivered.push({ at: r.received_ms ?? r.t_ms, taken: r.t_ms, lined: r.lined, cats });
     mapping.forEach((id, k) => {
       const person = gt?.people.find(p => p.id === id);
       const trackable = !!person && present(person);
@@ -286,6 +293,7 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
       let cat: Cat | 'phantom' | null = null;
       if (trackable) cat = !has ? 'lost' : !got ? 'ghost' : got.id === id ? 'correct' : got.role === 'bystander' ? 'bystander' : 'wrong_player';
       else if (has) cat = got && got.id !== id ? (got.role === 'bystander' ? 'bystander' : 'wrong_player') : 'phantom';
+      cats[k] = cat;
       if (cat !== 'correct') allCorrect = false;
       if (got) sequences[k].push(got.id);
       const b = bystanderRuns[k];
@@ -312,12 +320,59 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
   return {
     records: records.length, lined_at_ms: linedAt, numbering,
     after_numbering: summarize(after), whole_scene: summarize(whole), dance: summarize(dance),
+    time_grid: timeGrid(scene, mapping, delivered, window),
     identity_switches: switches,
     bystander_takeovers: { events: bystanderRuns.reduce((n, b) => n + b.events, 0), frames: bystanderRuns.reduce((n, b) => n + b.frames, 0) },
     all_in_view_ms: inView,
     all_tracked_ms: firstAll, all_tracked_delay_ms: firstAll !== null && inView !== null ? round(firstAll - inView, 1) : null,
     all_correct_ms: firstAllCorrect, all_correct_delay_ms: firstAllCorrect !== null && inView !== null ? round(firstAllCorrect - inView, 1) : null,
   };
+}
+
+/**
+ * Lost and identity over elapsed time rather than over delivered records: at every camera frame
+ * (the GT's), what the game holds for each player whose person is present is its latest
+ * delivered record (by arrival), if that record's frame is under STALE_MS old; otherwise the
+ * player is lost. A slow or sparse stream then counts the time it shows nothing, or something
+ * old. Also: the share of present player-time with a fresh pose, and the longest gap.
+ */
+export function timeGrid(scene: Scene, mapping: readonly string[], delivered: readonly { at: number; taken: number; lined: boolean; cats: (string | null)[] }[], window: [number, number] | null) {
+  const byArrival = [...delivered].sort((a, b) => a.at - b.at);
+  const counts = () => ({ trackable: 0, correct: 0, wrong_player: 0, bystander: 0, ghost: 0, lost: 0, phantom: 0 });
+  const after = counts(), whole = counts(), dance = counts();
+  let next = 0, latest: typeof byArrival[number] | null = null, linedSince: number | null = null;
+  const gap = mapping.map(() => ({ since: null as number | null, max: 0 }));
+  for (const f of scene.gt) {
+    while (next < byArrival.length && byArrival[next].at <= f.t_ms) {
+      latest = byArrival[next++];
+      if (latest.lined && linedSince === null) linedSince = latest.at;
+    }
+    const fresh = latest && f.t_ms - latest.taken < STALE_MS ? latest : null;
+    const inDance = window ? f.t_ms >= window[0] && f.t_ms <= window[1] : false;
+    mapping.forEach((id, k) => {
+      const person = f.people.find(p => p.id === id);
+      const trackable = !!person && present(person);
+      const said = fresh?.cats[k] ?? null;
+      let cat: keyof ReturnType<typeof counts> | null;
+      if (trackable) cat = !said || said === 'phantom' ? 'lost' : said as keyof ReturnType<typeof counts>;
+      else cat = said && said !== 'phantom' && said !== 'lost' ? (said === 'bystander' ? 'bystander' : 'wrong_player') : said === 'phantom' ? 'phantom' : null;
+      if (trackable) {
+        const g = gap[k];
+        if (cat === 'lost') { g.since ??= f.t_ms; g.max = Math.max(g.max, f.t_ms - g.since + 1000 / scene.fps); } else g.since = null;
+      }
+      for (const [bucket, use] of [[whole, true], [after, linedSince !== null], [dance, inDance]] as const) {
+        if (!use || !cat) continue;
+        if (trackable) bucket.trackable++;
+        bucket[cat]++;
+      }
+    });
+  }
+  const summarize = (c: ReturnType<typeof counts>) => ({
+    player_frames: c.trackable, identity_accuracy: rate(c.correct, c.trackable), lost: rate(c.lost, c.trackable),
+    wrong_player: rate(c.wrong_player, c.trackable), bystander: rate(c.bystander, c.trackable), ghost: rate(c.ghost, c.trackable), phantom_frames: c.phantom,
+  });
+  return { stale_ms: STALE_MS, grid_fps: scene.fps, after_numbering: summarize(after), whole_scene: summarize(whole), dance: summarize(dance),
+    coverage: whole.trackable ? round(1 - whole.lost / whole.trackable, 4) : null, max_lost_gap_ms: round(Math.max(0, ...gap.map(g => g.max)), 1) };
 }
 
 export function calibrationMetrics(scene: Scene, tracked: readonly TrackedFrame[]) {

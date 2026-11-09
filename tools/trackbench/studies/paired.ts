@@ -24,11 +24,12 @@ const MEASURES: Measure[] = [
   { key: 'score_lost', label: 'score lost to tracking', higherBetter: false, fmt: pct,
     read: m => { const s = m.score; return s ? (s.players as M[]).reduce((n, p) => n + p.lost / Math.max(1, p.gt_score), 0) / s.players.length : null; } },
   { key: 'downgraded', label: 'judgement windows downgraded', higherBetter: false, fmt: pct, read: m => (get(m, 'score.judgements.downgraded_frac') as number | null) ?? null },
-  { key: 'identity', label: 'identity accuracy (after numbering)', higherBetter: true, fmt: pct,
-    read: m => m.players < 2 ? null : (get(m, 'tracking.after_numbering.identity_accuracy') as number | null) ?? 'fail' },
+  // Identity and lost over elapsed time (metrics version 2's time grid), not per delivered record.
+  { key: 'identity', label: 'identity accuracy (after numbering, over time)', higherBetter: true, fmt: pct,
+    read: m => m.players < 2 ? null : (get(m, 'tracking.time_grid.after_numbering.identity_accuracy') as number | null) ?? 'fail' },
   { key: 'numbered', label: 'numbered correctly', higherBetter: true, fmt: pct,
     read: m => m.players < 2 ? null : get(m, 'tracking.numbering.correct') === true ? 1 : 0 },
-  { key: 'lost', label: 'player-frames lost', higherBetter: false, fmt: pct, read: m => (get(m, 'tracking.whole_scene.lost') as number | null) ?? 'fail' },
+  { key: 'lost', label: 'player time lost', higherBetter: false, fmt: pct, read: m => (get(m, 'tracking.time_grid.whole_scene.lost') as number | null) ?? 'fail' },
   { key: 'recall', label: 'player recall (detections)', higherBetter: true, fmt: pct, read: m => (get(m, 'detection.recall.players') as number | null) ?? null },
   { key: 'pck20', label: 'PCK@0.2 torso (raw)', higherBetter: true, fmt: v => v.toFixed(3), read: m => (get(m, 'detection.keypoints.body.pck20') as number | null) ?? null },
   { key: 'pck20c', label: 'PCK@0.2 torso (offsets from held-out split)', higherBetter: true, fmt: v => v.toFixed(3),
@@ -50,6 +51,8 @@ cohort.sort();
 const metrics = new Map<string, M>();
 for (const e of estimators) for (const s of cohort) metrics.set(`${e}|${s}`, readJson<M>(path.join(runsRoot, e, s, 'metrics.json')));
 const categoryOf = (s: string) => metrics.get(`${baseline}|${s}`)!.category as string;
+const old = [...metrics.entries()].filter(([, m]) => (m.version ?? 1) < 2).map(([k]) => k);
+if (old.length) console.warn(`${old.length} metrics.json are from before metrics version 2 (no time grid: lost and identity count as failures); re-run metrics.ts on: ${[...new Set(old.map(k => k.split('|')[0]))].join(', ')}`);
 
 
 function table(scenes: string[]) {

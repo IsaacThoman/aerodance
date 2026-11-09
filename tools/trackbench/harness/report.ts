@@ -13,15 +13,16 @@ import type { SceneMetrics } from './metrics.ts';
  */
 type Failed = (m: SceneMetrics) => boolean;
 const calibratable = (m: SceneMetrics) => (m.calibration?.gt_hold_ms ?? 0) >= 3000;
-const hasPlayers = (m: SceneMetrics) => (m.tracking?.whole_scene?.player_frames ?? 0) > 0;
+const hasPlayers = (m: SceneMetrics) => (m.tracking?.time_grid?.whole_scene?.player_frames ?? m.tracking?.whole_scene?.player_frames ?? 0) > 0;
 
 /** The report's columns: where each is in metrics.json, which way is better, and what a failure is. */
 export const COLUMNS: { key: string; label: string; better: 'higher' | 'lower'; get: (m: SceneMetrics) => number | null; digits?: number; failed?: Failed }[] = [
   { key: 'score_lost', label: 'score lost', better: 'lower', get: m => m.score?.score_lost ?? null, digits: 0 },
   { key: 'score_lost_frac', label: 'score lost %', better: 'lower', get: m => m.score?.score_lost_frac != null ? 100 * m.score.score_lost_frac : null, digits: 2 },
   { key: 'downgraded', label: 'windows downgraded', better: 'lower', get: m => m.score?.judgements?.downgraded_frac ?? null, digits: 3 },
-  { key: 'identity', label: 'identity acc', better: 'higher', get: m => m.tracking?.after_numbering?.identity_accuracy ?? null, digits: 4, failed: hasPlayers },
-  { key: 'lost', label: 'lost frac', better: 'lower', get: m => m.tracking?.whole_scene?.lost ?? null, digits: 4, failed: hasPlayers },
+  // Identity and lost over elapsed time (the time grid), not per delivered record.
+  { key: 'identity', label: 'identity acc', better: 'higher', get: m => m.tracking?.time_grid?.after_numbering?.identity_accuracy ?? null, digits: 4, failed: hasPlayers },
+  { key: 'lost', label: 'lost frac', better: 'lower', get: m => m.tracking?.time_grid?.whole_scene?.lost ?? null, digits: 4, failed: hasPlayers },
   { key: 'switches', label: 'id switches', better: 'lower', get: m => m.tracking?.identity_switches ?? null, digits: 0 },
   { key: 'numbering', label: 'numbered right', better: 'higher', get: m => m.tracking?.numbering ? Number(m.tracking.numbering.correct) : null, digits: 2, failed: hasPlayers },
   { key: 'all_tracked_delay', label: 'all tracked after (ms)', better: 'lower', get: m => m.tracking?.all_tracked_delay_ms ?? null, digits: 0, failed: hasPlayers },
