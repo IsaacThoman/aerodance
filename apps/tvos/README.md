@@ -150,9 +150,10 @@ not been measured on hardware yet.
 
 ## Songs
 
-The app has no file picker, so Settings → Songs offers only **Transfer songs**: it shows a code
-and a QR code, and another device (a phone, tablet or computer running the game) joins it and
-sends its imported songs, through the pairing server's relay; the app can send them back
+The app has no file picker, so Settings → Songs offers only **Transfer songs**. It shows a code
+and a QR code by default, or can switch to a keypad to enter another device's code. Another
+device (a phone, tablet or computer running the game) can send its imported songs through the
+pairing server's relay; the app can send them back
 ([game-song-bundles.md](../../docs/game-song-bundles.md#transfer-songs-between-devices)). It
 keeps them in `Library/Caches/aerodance/songs/`, one folder each (`apps/web/src/songs/folderSongs.ts`),
 since tvOS gives apps no lasting storage beyond a little in `NSUserDefaults`: tvOS may delete

@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { menuLayout } from '../../web/src/menu/layout.ts';
+import { shipsMinigames } from '../../web/tests/helpers/menu.ts';
 import { gameLayout } from '../../web/src/game/layout.ts';
 import { DISPLAY_MODES } from '../../web/src/display.ts';
 import { makeZip } from '../../../packages/pose/zip.ts';
@@ -115,8 +116,10 @@ for (const file of ['project.yml', 'AerodanceUITests.swift']) cpSync(path.join(h
 const generated = spawnSync('xcodegen', ['generate', '--quiet'], { cwd: work, stdio: 'inherit' });
 if (generated.error || generated.status !== 0) throw Error('XcodeGen is needed to generate the test project: brew install xcodegen');
 
+// The app's main menu has Minigames above Settings while the build lists any.
+const minigames = await shipsMinigames();
 const layout = Object.fromEntries(Object.entries(DISPLAY_MODES).map(([mode, design]) => {
-  const menu = menuLayout(design.w);
+  const menu = menuLayout(design.w, true, minigames);
   const game = gameLayout(design.w);
   const circle = ({ x, y, r }: { x: number; y: number; r: number }) => ({ x: x - r, y: y - r, w: 2 * r, h: 2 * r });
   return [mode, { design: [design.w, design.h], start: menu.START, letsDance: menu.PLAYERS_GO, firstSong: game.rowRect(0), secondSong: game.rowRect(1),

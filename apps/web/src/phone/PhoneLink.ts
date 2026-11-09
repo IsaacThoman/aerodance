@@ -32,6 +32,12 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
  * (a phone on a stand has no one to press anything), waiting longer each time it fails
  * without tracking; a camera that never worked (permission denied) waits for the player.
  *
+ * A minigame can ask for more (config's detail, 'hands'): the camera then keeps the world
+ * landmarks and, with one player, runs the Hand Landmarker too, and the poses carry them. A
+ * phone that can't keep up with both (fewer than HANDS_MIN_HZ poses a second for HANDS_SLOW_MS
+ * with the hand model on) drops the hand model by itself, keeping the world landmarks, and says
+ * so in its status ('dropped'); the game carries on with the pose's own hand points.
+ *
  * While the game shows a setup preview it asks for the camera's picture: the phone puts its
  * camera on the connection's video track, scaled down to PREVIEW_LONG_SIDE at a low frame
  * rate and bitrate, and takes it off again when the preview goes.
@@ -85,6 +91,10 @@ const RELAY_OPEN_MS = 5000;
 // The phone's stats go to the game at most this often; anything else at once.
 const STATS_MS = 1000;
 const MAX_CAMERA_RETRY_MS = 30_000;
+// Tracking slower than this for this long with the hand model on drops it (see the top).
+// (Measured over the last two seconds, so a dip while the model loads has passed by then.)
+export const HANDS_MIN_HZ = 15;
+export const HANDS_SLOW_MS = 4000;
 // A camera to choose from (PhoneLink.cameras()).
 export interface PhoneCamera { id: string; label: string; }
 
@@ -193,6 +203,8 @@ export class PhoneLink {
   frameTimer: ReturnType<typeof setInterval> | undefined;
   capturing = false;
   nextFrameAt = -Infinity;
+  /** Since when tracking has been too slow with the hand model on (null: it isn't). */
+  handsSlowSince: number | null = null;
   constructor({ camera, base = PAIRING_BASE, fetch: fetchFn, createStream, createConnection, now = () => performance.now(), device = deviceName(), cameraRetryMs = 2000,
     createSocket, captureFrame = captureJpeg }: PhoneLinkOptions = {}) {
     this.camera = camera ?? new WebcamPoseSource({ settingsKey: 'aerodance-phone', adaptToResize: true });
@@ -263,6 +275,8 @@ export class PhoneLink {
     clearTimeout(this.cameraRetry);
     this.cameraRetry = undefined;
     this.camera.disconnect('Camera stopped.');
+    // The next game asks for its own detail, if any.
+    this.camera.setDetail(null);
     this.releaseWakeLock();
   }
 
@@ -571,6 +585,8 @@ export class PhoneLink {
     else {
       this.publish({ playerCount: message.playerCount });
       void this.camera.setPlayerCount(message.playerCount).catch(() => {});
+      // A game that doesn't ask for a detail wants none (an older game never does).
+      this.camera.setDetail(message.detail ?? null);
       // Another model stays Lite: the status tells the game which one it got.
       if (message.modelId !== this.camera.view.model) { this.sentStatus = ''; this.sendStatus(this.camera.view); }
     }
@@ -588,12 +604,26 @@ export class PhoneLink {
     if (isFacing(facing) && facing !== view.facing) { this.camera.publish({ facing }); return; }
     // A restarted camera is a new track.
     this.updateVideo();
+    // (Dropping the hand model publishes the camera again, which carries on from there.)
+    if (this.watchHands(view)) return;
     if (view.status === 'connected') { this.cameraTracked = true; this.cameraRetries = 0; void this.keepAwake(); }
     // A failed camera starts again shortly, so the screen stays on meanwhile.
     // (Saying so publishes the camera again, which sends its status.)
     else if (view.status === 'error' && this.cameraTracked && this.view.stage === 'linked') { if (this.retryCamera()) return; }
     else if (view.status !== 'initializing') this.releaseWakeLock();
     this.sendStatus(view);
+  }
+
+  /** Drops the hand model when tracking stays too slow with it (see the top), the world landmarks carrying on; true if it did. */
+  watchHands(view: WebcamView) {
+    const slow = view.hands === 'on' && view.status === 'connected' && !!view.stats && view.stats.poseHz < HANDS_MIN_HZ;
+    if (!slow) { this.handsSlowSince = null; return false; }
+    const now = this.now();
+    this.handsSlowSince ??= now;
+    if (now - this.handsSlowSince < HANDS_SLOW_MS) return false;
+    this.handsSlowSince = null;
+    this.camera.dropHands();
+    return true;
   }
 
   retryCamera() {
@@ -607,9 +637,10 @@ export class PhoneLink {
 
   sendStatus(view: WebcamView) {
     const status: PhoneStatus = { type: 'status', status: view.status, message: view.message, model: view.model,
-      delegate: view.delegate ?? null, facing: view.facing ?? 'user', inferenceMs: view.stats ? Math.round(view.stats.inferenceMs) : null };
+      delegate: view.delegate ?? null, facing: view.facing ?? 'user', inferenceMs: view.stats ? Math.round(view.stats.inferenceMs) : null,
+      ...(view.hands ? { hands: view.hands } : {}) };
     // Everything but the tracking rate and timing goes out at once.
-    const key = `${status.status}|${status.model}|${status.delegate}|${status.facing}|${status.message.replace(/[\d.]+ poses\/s/, '')}`;
+    const key = `${status.status}|${status.model}|${status.delegate}|${status.facing}|${status.hands ?? ''}|${status.message.replace(/[\d.]+ poses\/s/, '')}`;
     const now = this.now();
     if (key === this.sentStatus && now - this.sentStatsAt < STATS_MS) return;
     if (this.send(this.control, status)) { this.sentStatus = key; this.sentStatsAt = now; }

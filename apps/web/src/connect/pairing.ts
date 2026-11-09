@@ -30,23 +30,21 @@ function qrCode(link: string, minVersion = 1) {
 }
 
 /**
- * A QR code for `link`, centred in `box` and as large as fits. Every module is a whole number
- * of render-buffer pixels (anything else smears under the pixelated upscale and stops
- * scanning) and square on screen. Returns the rect it took, in design units. `minVersion` keeps
- * a shorter link's code as many modules across as a longer one's.
+ * A QR code for `link`, centred in `box` and as large as fits. Module edges are snapped to
+ * render-buffer pixels to stay crisp under the pixelated upscale. The overall code is
+ * square on screen to within one buffer pixel. Returns the rect it took, in design units.
+ * `minVersion` keeps a shorter link's code as many modules across as a longer one's.
  */
 export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect, { minVersion = 1 } = {}): Rect {
   const { data } = qrCode(link, minVersion);
   const n = data.length + QUIET * 2;
   const t = g.getTransform();
-  // Design units to buffer pixels; square on screen means width : height = sx : sy pixels.
+  // The buffer is stretched on screen (especially in widescreen). Size the whole code
+  // in design units first: rounding a single module's width/height and repeating it
+  // multiplies the aspect error across the code. Round each edge independently instead.
   const sx = t.a, sy = t.d;
-  let mw = 1, mh = 1;
-  for (let h = 16; h >= 1; h--) {
-    const w = Math.max(1, Math.round(h * sx / sy));
-    if ((n * w) / sx <= box.w && (n * h) / sy <= box.h) { mw = w; mh = h; break; }
-  }
-  const W = n * mw, H = n * mh;
+  const side = Math.min(box.w, box.h);
+  const W = Math.floor(side * sx), H = Math.floor(side * sy);
   const bx = Math.round(t.e + (box.x + box.w / 2) * sx - W / 2);
   const by = Math.round(t.f + (box.y + box.h / 2) * sy - H / 2);
   g.save();
@@ -54,7 +52,13 @@ export function drawQr(g: CanvasRenderingContext2D, link: string, box: Rect, { m
   g.fillStyle = '#ffffff';
   g.fillRect(bx, by, W, H);
   g.fillStyle = DARK;
-  data.forEach((row, y) => row.forEach((dark, x) => { if (dark) g.fillRect(bx + (x + QUIET) * mw, by + (y + QUIET) * mh, mw, mh); }));
+  const edgeX = (i: number) => bx + Math.round(i * W / n);
+  const edgeY = (i: number) => by + Math.round(i * H / n);
+  data.forEach((row, y) => row.forEach((dark, x) => {
+    if (!dark) return;
+    const left = edgeX(x + QUIET), top = edgeY(y + QUIET);
+    g.fillRect(left, top, edgeX(x + QUIET + 1) - left, edgeY(y + QUIET + 1) - top);
+  }));
   g.restore();
   return { x: (bx - t.e) / sx, y: (by - t.f) / sy, w: W / sx, h: H / sy };
 }

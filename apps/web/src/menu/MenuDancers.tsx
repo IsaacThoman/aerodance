@@ -12,13 +12,15 @@ import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
 import DancerEntrance, { DURATION as ENTRANCE_END, LEAD_SECONDS as ENTRANCE_LEAD } from '../../../../packages/stages/shared/DancerEntrance.tsx';
 import { PLAYER_COLORS } from './layout.ts';
+import { screenOwner } from '../screenOwner.ts';
 
 /**
  * The captured Frutiger dancers on a glass puck, pinned to the right of the screen: one per
  * player (`count`, 1-4) in the player colours, spaced evenly and centred on the puck. They
  * live in their own scene with a fixed camera, so they ride along with the drone flight
  * instead of being left behind in the city. Drawn after the world and before the menu
- * (useFrame priority 1.5); they slide off to the right while the menu is hidden.
+ * (useFrame priority 1.5); they slide off to the right while the menu is hidden. Scene
+ * changes cover them with the world's veil, then stop drawing them until the world returns.
  *
  * When the count goes up, the new dancer makes the same entrance as at the start of a song
  * (stages/shared/DancerEntrance.tsx), without the floor ripple: bubbles rising around it and
@@ -173,8 +175,11 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
-    shown.current += ((visible ? 1 : 0) - shown.current) * Math.min(1, dt * (visible ? 2.5 : 5));
-    active.current = !!motion && !!rig.current && shown.current >= 0.005;
+    // Scene swaps happen behind the opaque veil. Settle visibility there so the puck
+    // returns with the world, without sliding across the incoming or outgoing scene.
+    if (screenOwner.stage) shown.current = visible ? 1 : 0;
+    else shown.current += ((visible ? 1 : 0) - shown.current) * Math.min(1, dt * (visible ? 2.5 : 5));
+    active.current = !screenOwner.stage && !!motion && !!rig.current && shown.current >= 0.005;
     if (!active.current || !rig.current) return;
 
     const t = state.clock.elapsedTime;
@@ -268,7 +273,7 @@ export default function MenuDancers({ visible = true, raised = false, count = 2 
   }, 0.5);
 
   useFrame(() => {
-    if (!motion || !rig.current || shown.current < 0.005) return;
+    if (screenOwner.stage || !motion || !rig.current || shown.current < 0.005) return;
     // Match the world's selected display aspect, including anamorphic widescreen.
     if ('aspect' in camera && cam.aspect !== camera.aspect) { cam.aspect = camera.aspect; cam.updateProjectionMatrix(); }
     const ac = gl.autoClear;

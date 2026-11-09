@@ -24,9 +24,22 @@ const MOVEMENT_TOLERANCE = 0.15; // Fraction of the initial torso length, indepe
 // The joints calibration measures (calibratePoses): shoulders, hips and ankles. Hands don't
 // change the calibration, so moving them doesn't restart a hold.
 const BODY = [11, 12, 23, 24, 27, 28];
+const TORSO = [11, 12, 23, 24];
+const reliable = (j: Landmark | undefined) => !!j && (j.confidence ?? 0) >= 0.5;
 const distance = (a: { x: number; y: number }, b: { x: number; y: number }, aspect: number) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
 const mid = (p: readonly Landmark[], a: number, b: number) => ({ x: (p[a].x + p[b].x) / 2, y: (p[a].y + p[b].y) / 2 });
 const median = (v: number[]) => { const s = v.toSorted((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+// The shoulders and hips are in the picture and confidently tracked.
+const reliableTorso = (pose: Pose) => TORSO.every(i => { const j = pose.landmarks[i]; return reliable(j) && j.x >= 0 && j.x <= 1 && j.y >= 0 && j.y <= 1; });
+
+export interface WebcamCalibrationOptions {
+  /**
+   * Everyone's whole body in view, ankles too (the songs: the characters stand on the floor and
+   * legs are scored). false asks only for the shoulders and hips (the minigames, played close to
+   * the camera in a living room); the floor is then wherever MediaPipe guesses the ankles are.
+   */
+  feet?: boolean;
+}
 
 /** One player's hold: since when, the stance it started from, its samples, and their latest poses. */
 interface Hold { startedAt: number | null; anchor: Pose | null; frames: Pose[]; recent: { at: number; pose: Pose }[]; seen: number; }
@@ -41,6 +54,7 @@ const freshHold = (): Hold => ({ startedAt: null, anchor: null, frames: [], rece
  */
 export class WebcamCalibration {
   playerCount: PlayerCount;
+  feet: boolean;
   boundary: string | null = null;
   seq: number | null = null;
   lastCapture = -Infinity;
@@ -55,8 +69,9 @@ export class WebcamCalibration {
   progress = 0;
   /** One calibration per player, once everyone has held still. */
   tracks: TrackCalibration[] | null = null;
-  constructor(playerCount: PlayerCount) {
+  constructor(playerCount: PlayerCount, { feet = true }: WebcamCalibrationOptions = {}) {
     this.playerCount = playerCount;
+    this.feet = feet;
     this.resetHold();
   }
 
@@ -109,7 +124,7 @@ export class WebcamCalibration {
         this.holds[id] = freshHold();
         return 'missing';
       }
-      if (!reliableBodyPose(pose)) {
+      if (!(this.feet ? reliableBodyPose(pose) : reliableTorso(pose))) {
         if (brief) return 'holding';
         this.holds[id] = freshHold();
         return 'body';
@@ -119,7 +134,7 @@ export class WebcamCalibration {
         const anchor = hold.anchor.landmarks;
         const tolerance = Math.max(0.02, distance(mid(anchor, 11, 12), mid(anchor, 23, 24), aspect)) * MOVEMENT_TOLERANCE;
         // (A number that passed to somebody else standing elsewhere shows as a move too.)
-        if (BODY.some(i => distance(stance[i], anchor[i], aspect) > tolerance)) {
+        if ((this.feet ? BODY : TORSO).some(i => distance(stance[i], anchor[i], aspect) > tolerance)) {
           // Their hold starts again from where they are now.
           this.holds[id] = { ...freshHold(), recent: [{ at: captureTime, pose }] };
           return 'moving';

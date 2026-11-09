@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
-import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawGlassButton, drawGlassCircle, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
-import type { Circle, GlassStyle, Point, Rect } from '../ui/draw.ts';
+import { FONT, GLASS_STYLES, NAVY, TAU, drawCaps, drawDarkGlassPanel, drawDialCount, drawDialStep, drawGlassButton, drawHeader, drawTitle, glassCorner, pill } from '../ui/draw.ts';
+import type { GlassStyle, Point, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { CanvasUI } from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
@@ -9,7 +9,6 @@ import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import type { AspectSetting, GraphicsSettings, StatsSetting } from './graphicsSettings.ts';
-import { BACKGROUND_SETTINGS } from '../backdrop/backgrounds.ts';
 import AirPlayButton from './AirPlayButton.tsx';
 import useFullscreen from './useFullscreen.ts';
 import type { Fullscreen } from './useFullscreen.ts';
@@ -17,6 +16,7 @@ import type { Fullscreen } from './useFullscreen.ts';
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
 import { HAS_SONGS, createSongsPanel } from './songsPanel.ts';
+import { MINIGAMES as GAMES } from '../minigames/registry.ts';
 import type { SongsPanel, SongsWidget } from './songsPanel.ts';
 import { createTransferPanel } from './transferPanel.ts';
 import type { TransferPanel, TransferWidget } from './transferPanel.ts';
@@ -25,13 +25,12 @@ import type { TransferPanel, TransferWidget } from './transferPanel.ts';
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in the selected display mode and
  * drawn after the world (useFrame priority 2).
  *
- * Screens: main (Start, Settings), players (a 1-4 dial, shown by that many dancers on the
+ * Screens: main (Start, Minigames while there are any (minigames/registry.ts; it opens their list,
+ * minigames/MinigameSelect.tsx), Settings), players (a 1-4 dial, shown by that many dancers on the
  * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
- * audio/mixer.ts applies; a Graphics panel: Background, what's behind the menus (Skyline, one of
- * the menu backdrops or Shuffle, stepped through with arrows or Left/Right), Aspect ratio Auto /
- * 4:3 / 16:9, and Stats Off / Basic / Full for the performance overlay (stats/StatsOverlay.tsx),
- * which App.tsx applies, then
+ * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
+ * Basic / Full for the performance overlay (stats/StatsOverlay.tsx), which App.tsx applies, then
  * a Fullscreen switch where the page can go fullscreen (menu/useFullscreen.ts; it isn't there in
  * iPhone Safari, the tvOS app, the iPhone/iPad app or iframes without allowfullscreen);
  * where the browser or app can save songs, a Songs panel beside them: the songs imported into it,
@@ -48,11 +47,12 @@ import type { TransferPanel, TransferWidget } from './transferPanel.ts';
  * the count changes by pressing minus or plus.
  * The dial is controlled (playerCount / onPlayerCountChange); Start always turns it back to 2
  * (Back from Song Select keeps the count picked last). onScreenChange reports the
- * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players
- * (and the Songs and Transfer panels', songsPanel.ts and transferPanel.ts) for tests.
+ * screen showing. The canvas reports data-menu-screen / data-menu-ready / data-menu-players /
+ * data-menu-minigames (and the Songs and Transfer panels', songsPanel.ts and transferPanel.ts)
+ * for tests. `refocus` names the button a keyboard cursor comes back to when the menu reopens.
  *
  * <MainMenu visible initialScreen="main" playerCount={n} onPlayerCountChange={setN}
- *   onStart={(playerCount) => ...} onScreenChange={setShown} sound={sound} onSoundChange={setSound}
+ *   onStart={(playerCount) => ...} onMinigames={() => ...} onScreenChange={setShown} sound={sound} onSoundChange={setSound}
  *   graphics={graphics} onGraphicsChange={setGraphics} />
  */
 
@@ -67,6 +67,10 @@ export interface MainMenuProps {
   playerCount?: PlayerCount;
   onPlayerCountChange?: (count: PlayerCount) => void;
   onStart?: (playerCount: PlayerCount) => void;
+  /** Minigames: their list (shown only while there are minigames). */
+  onMinigames?: () => void;
+  /** The button a keyboard cursor comes back to when the menu reopens on the main screen ('minigames'). */
+  refocus?: string;
   onSettingsOpen?: () => void;
   onScreenChange?: (screen: MenuScreen) => void;
   sound: SoundSettings;
@@ -77,7 +81,7 @@ export interface MainMenuProps {
 type SliderKey = 'master' | 'music' | 'sfx';
 type ToggleKey = 'menuMusic' | 'muted';
 interface Toggle { key: ToggleKey; label: string; audio?: boolean; on: (p: MainMenuProps) => boolean; }
-type MenuWidget = SongsWidget & TransferWidget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting; background?: true; fullscreen?: boolean };
+type MenuWidget = SongsWidget & TransferWidget & { slider?: SliderKey; toggle?: Toggle; aspect?: AspectSetting; stats?: StatsSetting; fullscreen?: boolean };
 
 const SLIDERS: readonly { key: SliderKey; label: string }[] = [
   { key: 'master', label: 'Master' },
@@ -115,46 +119,6 @@ const clampCount = (n: number) => Math.min(MAX_PLAYERS, Math.max(1, n)) as Playe
 // The dial's count each time Start opens the players screen.
 export const DEFAULT_PLAYERS: PlayerCount = 2;
 
-// The dial's count: heavy white type with the title's embossed shadow and cool glossy face.
-function drawCount(g: CanvasRenderingContext2D, n: number, x: number, cy: number, size = 150) {
-  const y = cy + size * 0.36;
-  g.save();
-  g.font = `800 ${size}px ${FONT}`;
-  g.textAlign = 'center';
-  g.textBaseline = 'alphabetic';
-  g.shadowColor = 'rgba(0, 34, 84, 0.75)';
-  g.shadowBlur = 4;
-  g.shadowOffsetY = 7;
-  g.fillStyle = '#ffffff';
-  g.fillText(String(n), x, y);
-  g.shadowColor = 'transparent';
-  const face = g.createLinearGradient(0, y - size * 0.75, 0, y);
-  face.addColorStop(0, '#ffffff');
-  face.addColorStop(0.55, '#ffffff');
-  face.addColorStop(1, '#d5f3ff');
-  g.fillStyle = face;
-  g.fillText(String(n), x, y);
-  g.restore();
-}
-
-// A glass dial button with a white minus or plus, dimmed at the end of the range.
-function drawStep(g: CanvasRenderingContext2D, c: Circle, plus: boolean, hover: number, press: number, enabled: boolean) {
-  g.save();
-  if (!enabled) { g.globalAlpha *= 0.4; hover = 0; press = 0; }
-  const y = c.y + press * 3;
-  drawGlassCircle(g, { ...c, y }, hover);
-  const a = c.r * 0.38;
-  g.beginPath();
-  g.moveTo(c.x - a, y);
-  g.lineTo(c.x + a, y);
-  if (plus) { g.moveTo(c.x, y - a); g.lineTo(c.x, y + a); }
-  g.lineCap = 'round';
-  g.lineWidth = 6;
-  g.strokeStyle = '#ffffff';
-  g.stroke();
-  g.restore();
-}
-
 // A switch, right-aligned in its row and filled when on.
 function drawSwitch(g: CanvasRenderingContext2D, { w: tw, h: th, x: tx }: { w: number; h: number; x: number }, cy: number, on: boolean, hover: number) {
   pill(g, tx, cy - th / 2, tw, th);
@@ -170,54 +134,8 @@ function drawSwitch(g: CanvasRenderingContext2D, { w: tw, h: th, x: tx }: { w: n
   g.fill();
 }
 
-// The Background picker: the setting's name on a track like the segmented switches', between
-// back and next arrows in knobs like the sliders'. `side` is the arrow the pointer is over.
-function drawPicker(g: CanvasRenderingContext2D, r: Rect, prev: Circle, next: Circle, label: string, hover: number, side: -1 | 0 | 1) {
-  pill(g, r.x - 4, r.y - 4, r.w + 8, r.h + 8);
-  g.fillStyle = 'rgba(0, 30, 70, 0.45)';
-  g.fill();
-  if (hover > 0.01) {
-    pill(g, r.x, r.y, r.w, r.h);
-    g.lineWidth = 3;
-    g.strokeStyle = `rgba(255,255,255,${hover * 0.6})`;
-    g.stroke();
-  }
-  for (const [c, dir] of [[prev, -1], [next, 1]] as const) {
-    const lit = hover * (side === dir ? 1 : side === 0 ? 0.6 : 0.25);
-    g.save();
-    g.shadowColor = 'rgba(0, 30, 70, 0.5)';
-    g.shadowBlur = 6;
-    g.shadowOffsetY = 2;
-    g.beginPath();
-    g.arc(c.x, c.y, c.r + lit * 2, 0, TAU);
-    const knob = g.createLinearGradient(0, c.y - c.r, 0, c.y + c.r);
-    knob.addColorStop(0, '#b8fff0');
-    knob.addColorStop(1, '#4fd8e8');
-    g.fillStyle = knob;
-    g.globalAlpha *= 0.75 + lit * 0.25;
-    g.fill();
-    g.restore();
-    const a = c.r * 0.34;
-    g.beginPath();
-    g.moveTo(c.x - dir * a * 0.5, c.y - a);
-    g.lineTo(c.x + dir * a * 0.6, c.y);
-    g.lineTo(c.x - dir * a * 0.5, c.y + a);
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
-    g.lineWidth = 4.5;
-    g.strokeStyle = NAVY;
-    g.stroke();
-  }
-  g.font = `700 24px ${FONT}`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillStyle = '#ffffff';
-  g.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 1);
-  g.textAlign = 'left';
-}
-
 function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, fs: Fullscreen, hover: Record<string, number>,
-  layout: ReturnType<typeof menuLayout>, pickerSide: -1 | 0 | 1) {
+  layout: ReturnType<typeof menuLayout>) {
   const { SOUND, GRAPHICS, TRACK, ROW_Y, SWITCH, ASPECT, ASPECT_ROW_Y, STATS: STATS_RECT, STATS_ROW_Y, FULLSCREEN } = layout;
   const { sound } = p;
   const { x, w } = SOUND;
@@ -284,9 +202,6 @@ function drawSettingsPanel(g: CanvasRenderingContext2D, p: MainMenuProps, fs: Fu
 
   drawDarkGlassPanel(g, GRAPHICS, 34);
   drawCaps(g, 'GRAPHICS', x + 40, GRAPHICS.y + 44, { size: 22 });
-  label('Background', layout.BACKGROUND_ROW_Y);
-  const background = BACKGROUND_SETTINGS.find((b) => b.value === p.graphics.background) ?? BACKGROUND_SETTINGS[0];
-  drawPicker(g, layout.BACKGROUND, layout.BACKGROUND_PREV, layout.BACKGROUND_NEXT, background.label, hover.background ?? 0, pickerSide);
   label('Aspect ratio', ASPECT_ROW_Y);
   drawSegments(g, ASPECTS, ASPECT, p.graphics.aspect, (v) => hover[`aspect-${v}`] ?? 0);
   label('Stats', STATS_ROW_Y);
@@ -349,8 +264,6 @@ interface MenuState {
   drawnFullscreen: Fullscreen | null;
   drawnCount: PlayerCount | null;
   drawnSongs: string;
-  /** The Background picker's arrow lit last draw. */
-  drawnSide: -1 | 0 | 1;
   /** The title's baseline, easing up on the players screen. */
   titleY: number;
   /** The title's opacity, fading out on the settings and transfer screens. */
@@ -360,18 +273,22 @@ interface MenuState {
   reported?: MenuScreen;
 }
 
+// The main screen has Minigames while there are any to play.
+const HAS_MINIGAMES = GAMES.length > 0;
+
 export default function MainMenu({
-  visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
+  visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onMinigames, refocus, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const fullscreen = useFullscreen();
-  const layout = menuLayout(displayDesign(size.width, size.height).w, fullscreen.supported);
-  const { ASPECT, BACK, COUNT_X, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, SOUND, START, TITLE, TRACK, ROW_Y } = layout;
+  const layout = menuLayout(displayDesign(size.width, size.height).w, fullscreen.supported, HAS_MINIGAMES);
+  const { ASPECT, BACK, COUNT_X, FULLSCREEN, MINIGAMES, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, SOUND, START, TITLE, TRACK, ROW_Y } = layout;
   const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
   const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
     main: [
       { id: 'start', rect: START, corner: glassCorner(START.h), primary: true },
+      ...(MINIGAMES ? [{ id: 'minigames', rect: MINIGAMES, corner: glassCorner(MINIGAMES.h) }] : []),
       { id: 'settings', rect: SETTINGS, corner: glassCorner(SETTINGS.h) },
     ],
     players: [
@@ -385,17 +302,16 @@ export default function MainMenu({
       { id: 'back', circle: BACK },
       ...SLIDERS.map((sl, i) => ({ id: sl.key, slider: sl.key, drag: true, rect: { x: TRACK.x0 - 24, y: ROW_Y(i) - 25, w: TRACK.x1 - TRACK.x0 + 48, h: 50 } })),
       ...TOGGLES.map((tg, i) => ({ id: tg.key, toggle: tg, rect: { x: SOUND.x + 16, y: ROW_Y(SLIDERS.length + i) - 24, w: SOUND.w - 32, h: 48 } })),
-      { id: 'background', background: true, rect: layout.BACKGROUND },
       ...ASPECTS.map((a, i) => ({ id: `aspect-${a.value}`, aspect: a.value, rect: ASPECT(i) })),
       ...STATS.map((a, i) => ({ id: `stats-${a.value}`, stats: a.value, rect: layout.STATS(i) })),
       ...(FULLSCREEN ? [{ id: 'fullscreen', fullscreen: true, rect: FULLSCREEN }] : []),
     ],
   };
   const menu = useRef<MenuState>({
-    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnFullscreen: null, drawnCount: null, drawnSongs: '', drawnSide: 0, titleY: TITLE.y, titleAlpha: 1, refocus: null,
+    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnFullscreen: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
   });
   const props = useRef<MainMenuProps>({ sound, graphics });
-  props.current = { visible, playerCount, onPlayerCountChange, onStart, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
+  props.current = { visible, playerCount, onPlayerCountChange, onStart, onMinigames, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
   const count = () => props.current.playerCount ?? 1;
   const fullscreenRef = useRef(fullscreen);
   fullscreenRef.current = fullscreen;
@@ -443,19 +359,6 @@ export default function MainMenu({
     const { sound: cur, onSoundChange: cb } = props.current;
     cb?.({ ...cur, ...patch });
   };
-  // The Background picker steps through BACKGROUND_SETTINGS, round and round.
-  const stepBackground = (dir: -1 | 1) => {
-    const { graphics: cur, onGraphicsChange: cb } = props.current;
-    const n = BACKGROUND_SETTINGS.length;
-    const i = BACKGROUND_SETTINGS.findIndex((b) => b.value === cur.background);
-    cb?.({ ...cur, background: BACKGROUND_SETTINGS[(Math.max(0, i) + dir + n) % n].value });
-  };
-  // Which of the picker's arrows the pointer is over: its left half goes back, the rest on.
-  const pickerSide = (s: CanvasUI<MenuWidget>): -1 | 0 | 1 => {
-    const { BACKGROUND } = layoutRef.current;
-    if (s.pointerKind === 'key' || !s.pointer) return 0;
-    return s.pointer.x < BACKGROUND.x + BACKGROUND.w / 2 ? -1 : 1;
-  };
 
   const ui = useCanvasUI<MenuWidget>({
     priority: 2,
@@ -470,7 +373,6 @@ export default function MainMenu({
       setSound(patch);
     },
     onStep: (wdg, dir) => {
-      if (wdg.background) { stepBackground(dir); return true; }
       if (!wdg.slider) return false;
       const patch: Partial<SoundSettings> = {};
       const step = Math.round(props.current.sound[wdg.slider] * SLIDER_STEPS) + dir;
@@ -499,11 +401,6 @@ export default function MainMenu({
         s.invalidate();
         return;
       }
-      if (wdg.background) {
-        stepBackground(pickerSide(s) === -1 ? -1 : 1);
-        s.invalidate();
-        return;
-      }
       // Straight from the input handler: browsers only enter fullscreen from the user's input.
       if (wdg.fullscreen) {
         fullscreenRef.current.toggle();
@@ -512,6 +409,7 @@ export default function MainMenu({
       }
       switch (wdg.id) {
         case 'start': setCount(DEFAULT_PLAYERS); go('players'); break;
+        case 'minigames': props.current.onMinigames?.(); break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
         case 'minus': setCount(count() - 1); break;
@@ -551,7 +449,6 @@ export default function MainMenu({
       m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' || m.next === 'transfer' ? 0 : 1, 8);
       const { sound: drawSound, graphics: drawGraphics } = props.current;
       if (drawSound !== m.drawnSound || drawGraphics !== m.drawnGraphics || fullscreenRef.current !== m.drawnFullscreen || count() !== m.drawnCount) s.invalidate();
-      if (m.screen === 'settings' && pickerSide(s) !== m.drawnSide) s.invalidate();
       if (m.screen !== m.reported) {
         if (m.reported === 'settings') songs.close();
         if (m.reported === 'transfer') transfer.close();
@@ -568,6 +465,7 @@ export default function MainMenu({
       for (const [key, value] of Object.entries(transfer.report())) { if (value) dataset[key] = value; else delete dataset[key]; }
       dataset.menuScreen = m.screen;
       dataset.menuPlayers = String(count());
+      dataset.menuMinigames = String(HAS_MINIGAMES);
       dataset.menuReady = String(shown && m.alpha > 0.5 && m.screen === m.next && m.swap > 0.95);
     },
     opacity: () => m.alpha,
@@ -592,21 +490,21 @@ export default function MainMenu({
       if (m.screen === 'main') {
         // No chevrons on the title menu's buttons (Let's dance's too).
         drawGlassButton(g, START, { label: 'Start', icon: 'play', hover: h.start ?? 0, press: press('start'), style: BUTTONS, chevron: false });
+        if (MINIGAMES) drawGlassButton(g, MINIGAMES, { label: 'Experiments', icon: 'bubbles', hover: h.minigames ?? 0, press: press('minigames'), style: BUTTONS, chevron: false });
         drawGlassButton(g, SETTINGS, { label: 'Settings', icon: 'gear', hover: h.settings ?? 0, press: press('settings'), angle: m.gearAngle, style: BUTTONS, chevron: false });
       } else if (m.screen === 'players') {
         const n = count();
         drawHeader(g, PLAYERS_BACK, 'PLAYERS', h.back ?? 0);
-        drawStep(g, MINUS, false, h.minus ?? 0, press('minus'), n > 1);
-        drawCount(g, n, COUNT_X, MINUS.y);
-        drawStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
+        drawDialStep(g, MINUS, false, h.minus ?? 0, press('minus'), n > 1);
+        drawDialCount(g, n, COUNT_X, MINUS.y);
+        drawDialStep(g, PLUS, true, h.plus ?? 0, press('plus'), n < MAX_PLAYERS);
         drawGlassButton(g, PLAYERS_GO, { label: "Let's dance", icon: 'play', hover: h.go ?? 0, press: press('go'), style: BUTTONS, chevron: false });
       } else if (m.screen === 'transfer') {
         drawHeader(g, BACK, 'TRANSFER SONGS', h.back ?? 0);
         transfer.draw(g, h, press, s.time);
       } else {
         drawHeader(g, BACK, 'SETTINGS', h.back ?? 0);
-        m.drawnSide = pickerSide(s);
-        drawSettingsPanel(g, props.current, fullscreenRef.current, h, layout, m.drawnSide);
+        drawSettingsPanel(g, props.current, fullscreenRef.current, h, layout);
         songs.draw(g, h, press, s.time);
       }
       g.restore();
@@ -616,7 +514,7 @@ export default function MainMenu({
   // Frosted glass: the world blurred inside the glass buttons and Settings' panels only,
   // lifting, fading and sliding with them (drawn just before the overlay).
   useGlassBlur(() => {
-    const panes = m.screen === 'main' ? [buttonPane(ui, 'start', START), buttonPane(ui, 'settings', SETTINGS)]
+    const panes = m.screen === 'main' ? [buttonPane(ui, 'start', START), ...(MINIGAMES ? [buttonPane(ui, 'minigames', MINIGAMES)] : []), buttonPane(ui, 'settings', SETTINGS)]
       : m.screen === 'players' ? [buttonPane(ui, 'go', PLAYERS_GO)]
         : m.screen === 'transfer' ? [panelPane(layout.TRANSFER_CONNECT), panelPane(layout.SONGS)]
           : [panelPane(SOUND), panelPane(layout.GRAPHICS), ...(HAS_SONGS ? [panelPane(layout.SONGS)] : [])];
@@ -631,9 +529,9 @@ export default function MainMenu({
     m.swap = 1;
     m.titleY = initialScreen === 'players' ? PLAYERS_TITLE_Y : HOME_TITLE.y;
     m.titleAlpha = initialScreen === 'settings' || initialScreen === 'transfer' ? 0 : 1;
-    m.refocus = ui.keyboard && initialScreen === 'players' ? 'go' : null;
+    m.refocus = !ui.keyboard ? null : initialScreen === 'players' ? 'go' : initialScreen === 'main' ? refocus ?? null : null;
     ui.invalidate();
-  }, [visible, initialScreen, m, ui]);
+  }, [visible, initialScreen, refocus, m, ui]);
 
   useEffect(() => () => songs.dispose(), [songs]);
   useEffect(() => () => transfer.dispose(), [transfer]);

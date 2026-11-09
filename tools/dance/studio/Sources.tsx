@@ -141,18 +141,19 @@ export function RecordPanel({ dance, clock, time, onChanged }: { dance: Dance; c
     const stopped = new Promise<void>(resolve => { recorder.onstop = () => resolve(); });
     // The song plays first; the video's first frame is where the song is when recording starts.
     await clock.play();
-    const started = new Promise<void>(resolve => { recorder.onstart = () => resolve(); });
     // Where the song is when recording starts, and when that is, to know how long it went on.
     // Recording starts with start(); its start event can come a while later on a busy page.
     const startMs = clock.now(), startedAt = performance.now();
     recorder.start(1000);
-    await started;
     setPhase('recording');
     // Recording ends with the song, or when it's paused (Stop, or Space). The video stays lined up
     // with the song only while the song plays straight on, so seeking stops it too.
     const stop = () => { if (recorder.state === 'recording') { stoppedAt = performance.now(); recorder.stop(); } };
     const unsubscribe = clock.subscribe(stop);
     cancel.current = stop;
+    // start() changes the recorder's state synchronously. Its start event may arrive
+    // after the song ends, so listen immediately and handle an already-ended song.
+    if (!clock.playing) stop();
     await stopped;
     unsubscribe();
     clock.pause();

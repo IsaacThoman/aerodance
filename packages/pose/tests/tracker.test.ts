@@ -407,6 +407,33 @@ test('players back from a while away are told apart by their looks at once', () 
   assert.deepEqual([...back[1]].sort(), [[0, 0.3], [1, 0.7]]);
 });
 
+test('a person\'s world landmarks and hands go with them, whoever they turn out to be, and only when they came with them', () => {
+  const world = (tag: number) => Array.from({ length: 33 }, (_, i) => ({ x: tag, y: -i / 50, z: 0 }));
+  const hand = (side: 'left' | 'right', tag: number) => ({ side, score: tag / 10,
+    landmarks: Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0, confidence: null })), world: Array.from({ length: 21 }, () => ({ x: 0, y: 0, z: 0 })) });
+  const tracker = new PlayerTracker(2);
+  const tags = (poses: ReturnType<PlayerTracker['update']>) => poses.map(p => [p.playerId, p.world?.[0].x, p.hands?.[0]?.score]);
+  // RED (tag 1) and BLUE (tag 2), reported in either order; P1 is on the camera's right (BLUE).
+  for (let i = 0; i < 30; i++) {
+    const red = { points: person(0.3), looks: RED, world: world(1), hands: [hand('left', 1)] }, blue = { points: person(0.7, { arms: 0.1 }), looks: BLUE, world: world(2), hands: [hand('right', 2)] };
+    const people = i % 2 ? [red, blue] : [blue, red];
+    const poses = tracker.update(people.map(p => p.points), INPUT, i * 33, people.map(p => p.looks), { world: people.map(p => p.world), hands: people.map(p => p.hands) });
+    if (i >= 12) assert.deepEqual(tags(poses), [[0, 2, 0.2], [1, 1, 0.1]]);
+  }
+  run(tracker, repeat(60, () => ({ people: [] })), 1000);
+  // Back on each other's sides: told apart by their looks, and their extras with them.
+  const back = (at: number) => tracker.update([person(0.7), person(0.3, { arms: 0.1 })], INPUT, at, [RED, BLUE], { world: [world(1), world(2)], hands: [[hand('left', 1)], undefined] });
+  back(3000);
+  assert.deepEqual(tags(back(3033)), [[0, 2, undefined], [1, 1, 0.1]]);
+  // Without them, a pose is as it always was; malformed ones are left out.
+  const plain = tracker.update([person(0.7), person(0.3, { arms: 0.1 })], INPUT, 3066, [RED, BLUE]);
+  assert.deepEqual(plain.map(p => Object.keys(p)), [['playerId', 'landmarks'], ['playerId', 'landmarks']]);
+  const broken = tracker.update([person(0.7), person(0.3, { arms: 0.1 })], INPUT, 3100, [RED, BLUE],
+    { world: [world(1).slice(2), world(2)], hands: [[hand('left', 1), hand('left', 3), { ...hand('right', 1), score: 7 }], []] });
+  assert.deepEqual(tags(broken), [[0, 2, undefined], [1, undefined, 0.1]]);
+  assert.deepEqual(broken.map(p => p.hands?.length), [0, 1]);
+});
+
 test('ghosts, unreliable torsos, squashed copies and broken landmarks are not players', () => {
   const tracker = new PlayerTracker(2);
   const ghost = person(0.31).map(p => ({ ...p, x: p.x + 0.003 }));

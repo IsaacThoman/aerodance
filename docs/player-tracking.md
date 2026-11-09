@@ -70,6 +70,18 @@ How the webcam (or a paired phone's camera) turns people into players.
    one pose per player found. Everything after it (calibration, the live characters, the scorer,
    recordings) sees players, not detections.
 
+A minigame that does its own geometry can ask for more (`PoseSource.setDetail('hands')`, while
+its session lasts; the songs never do). The source then tells its worker, once it's ready, to
+keep MediaPipe's 3D world landmarks with each person (metres from the hips' centre), which the
+tracker carries with that person's body to their player's pose. With one player, the worker
+also runs MediaPipe's Hand Landmarker (`hand_landmarker.task`, 7.8 MB, fetched the first time
+it's asked for and checked like the pose model) on a 256-pixel square cut round each of the
+pose's wrists, one landmarker per side so each follows its hand from frame to frame; the Hand
+Landmarker's own handedness puts each hand on its side when the pose mixes up crossed wrists
+(on unmirrored pictures its labels match the real hand about nine times in ten). The hands come
+with the pose as `hands` (`TrackedHand`, `packages/pose/webcamRecord.ts`), and `view.hands` says
+how they're doing. Without the detail, the worker does and says exactly what it did before.
+
 MediaPipe reports people in no stable order and often misses one for a few frames, so the
 tracker doesn't trust its order. Earlier versions split the picture into a lane per player;
 the tracker replaced them.

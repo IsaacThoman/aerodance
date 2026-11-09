@@ -22,6 +22,7 @@ import type { FileChooser, Page } from 'playwright';
 import { createPairingServer } from '../../../packages/pairing/server.ts';
 import { makeZip } from '../../../packages/pose/zip.ts';
 import { menuLayout } from '../../web/src/menu/layout.ts';
+import { settingsButton, shipsMinigames } from '../../web/tests/helpers/menu.ts';
 import { DISPLAY_MODES } from '../../web/src/display.ts';
 import type { Circle, Rect } from '../../web/src/ui/draw.ts';
 import { bundleFixture, silentWav } from '../../web/tests/fixtures/songBundle.ts';
@@ -106,13 +107,17 @@ const progress = setInterval(() => {
   log(`… ${['menuScreen', 'menuReady', 'savedSongs', 'transferStatus', 'transferCode', 'transferDevice', 'transferSent', 'transferReceived', 'transferNotice'].map((k) => `${k}=${tv[k] ?? ''}`).join(' ')}`);
 }, 15_000);
 
-// The remote: Settings (Down to Start, Down to Settings), then Up, which from no cursor lands on
-// the last widget there, Transfer songs. Then, once the song has come and the page has joined
-// again without it, Up to the song's send button (the last widget) and send it back. Then Menu
-// back to Settings and the main screen, on to Song Select, and back to Settings to remove it.
+// The remote: Settings (Down to Start, Down past Minigames while the build lists any, Down to
+// Settings), then Up, which from no cursor lands on the last widget there, Transfer songs. Then,
+// once the song has come and the page has joined again without it, Up to the song's send button
+// (the last widget) and send it back. Then Menu back to Settings and the main screen, on to Song
+// Select, and back to Settings to remove it.
 const wait = (state: Record<string, string>) => ['wait', state, 900_000];
+// Presses between Start and Settings on the main screen.
+const toSettings = await shipsMinigames() ? 2 : 1;
+const presses = (key: string, n: number) => Array.from({ length: n }, () => ['key', key]);
 const drive = [
-  wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 1000], ['key', 'ArrowDown'], ['key', 'ArrowDown'], ['key', 'Enter'],
+  wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 1000], ['key', 'ArrowDown'], ...presses('ArrowDown', toSettings), ['key', 'Enter'],
   wait({ menuScreen: 'settings', menuReady: 'true', savedSongs: '0' }), ['sleep', 500], ['key', 'ArrowUp'], ['key', 'Enter'],
   wait({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'waiting' }),
   wait({ transferReceived: '1' }), wait({ transferStatus: 'waiting' }), wait({ transferStatus: 'connected', transferDevice: 'Mac' }),
@@ -121,13 +126,13 @@ const drive = [
   wait({ transferSent: '1' }), ['sleep', 4000], ['key', 'Escape'],
   wait({ menuScreen: 'settings', menuReady: 'true', savedSongs: '1' }), ['sleep', 4000], ['key', 'Escape'],
   // Back on the main screen the cursor is on Settings (where it left): Up to Start.
-  wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 500], ['key', 'ArrowUp'], ['key', 'Enter'],
+  wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 500], ...presses('ArrowUp', toSettings), ['key', 'Enter'],
   wait({ menuScreen: 'players', menuReady: 'true' }), ['sleep', 500], ['key', 'Enter'],
   wait({ songScreen: 'list', songReady: 'true', catalog: 'ready', customSongCount: '1' }), ['sleep', 4000],
   // Back to Settings (the cursor returns to Start, then Down to Settings), Up twice to the song's
   // remove button (before Transfer songs), and two presses remove it (there are no dialogs).
   ['key', 'Escape'], wait({ menuScreen: 'players', menuReady: 'true' }), ['sleep', 500], ['key', 'Escape'],
-  wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 500], ['key', 'ArrowDown'], ['key', 'Enter'],
+  wait({ menuScreen: 'main', menuReady: 'true' }), ['sleep', 500], ...presses('ArrowDown', toSettings), ['key', 'Enter'],
   wait({ menuScreen: 'settings', menuReady: 'true', savedSongs: '1' }), ['sleep', 500], ['key', 'ArrowUp'], ['key', 'ArrowUp'], ['key', 'Enter'],
   wait({ songRemoving: 'tv-routine' }), ['sleep', 2500], ['key', 'Enter'],
   wait({ savedSongs: '0' }),
@@ -158,7 +163,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
   args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const errors: string[] = [];
 const design = DISPLAY_MODES.widescreen;
-const { BACK, SETTINGS, SONG_IMPORT, SONG_TRASH } = menuLayout(design.w);
+const { BACK, SONG_IMPORT, SONG_TRASH } = menuLayout(design.w);
 let page: Page | null = null;
 let frame = { x: 0, y: 0, width: 1, height: 1 };
 let chosen: ((chooser: FileChooser) => void) | null = null;
@@ -206,7 +211,7 @@ try {
   });
   await load();
   await pageUntil({ menuScreen: 'main', menuReady: 'true' });
-  await click(SETTINGS);
+  await click(await settingsButton(page!, design.w));
   await pageUntil({ menuScreen: 'settings', menuReady: 'true', savedSongs: '0' });
   const chooser = new Promise<FileChooser>((resolve) => { chosen = resolve; });
   await click(SONG_IMPORT);

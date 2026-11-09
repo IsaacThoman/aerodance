@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PhonePoseSource } from '../src/pose/PhonePoseSource.ts';
+import { HANDS_ANSWER_MS, PhonePoseSource } from '../src/pose/PhonePoseSource.ts';
 import { CameraInput, NO_CAMERA, PHONE_CAMERA } from '../src/pose/CameraInput.ts';
 import { isPoseRecordEvent } from '../src/pose/PoseSource.ts';
 import type { PoseSourceEvent } from '../src/pose/PoseSource.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
-import { PhoneLink, deviceName, linkCode } from '../src/phone/PhoneLink.ts';
+import { HANDS_MIN_HZ, HANDS_SLOW_MS, PhoneLink, deviceName, linkCode } from '../src/phone/PhoneLink.ts';
 import { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
 import type { WebcamConfigureOptions, WebcamPoseSource, WebcamRecordEvent, WebcamView } from '../../../packages/pose/browser/WebcamPoseSource.ts';
-import type { WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
+import type { PoseDetail, WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import { FakeConnection, createFakeConnection, fakeConnectionOn, fetchEventStream, pairingServer, relayProxy, until } from './fixtures/fakePairing.ts';
 import { SignalChannel } from '../../../packages/pairing/browser/signalChannel.ts';
@@ -38,6 +38,15 @@ class FakeCamera {
       ...(options.cameraId !== undefined ? { cameraId: options.cameraId } : {}) });
   }
   async setPlayerCount(count: PlayerCount) { this.playerCount = count; }
+  /** The detail as WebcamPoseSource takes it: the hands load at once here, and can be dropped. */
+  detail: PoseDetail | null = null;
+  dropped = 0;
+  setDetail(detail: PoseDetail | null) {
+    if (detail === this.detail) return;
+    this.detail = detail;
+    this.publish({ hands: detail ? (this.playerCount === 1 ? 'on' : 'unavailable') : undefined });
+  }
+  dropHands() { if (this.view.hands === 'on') { this.dropped++; this.publish({ hands: 'dropped' }); } }
   emit(record: WebcamRecord) {
     for (const fn of this.recordListeners) fn({ record, receivedBrowserTimeMs: record.resultBrowserTimeMs, captureBrowserTimeMs: record.frameBrowserTimeMs, timing: { method: record.timingMethod } });
   }
@@ -130,6 +139,109 @@ test('a phone pairs with the game, tracks for it on the game’s clock, reconnec
   await until(() => phone.view.stage === 'ended', 'the phone to hear pairing ended');
   assert.match(phone.view.message, /closed the pairing/);
   assert.equal(camera.view.status, 'disconnected');
+});
+
+test('a game\'s hands detail reaches the phone with its settings, and again when it reconnects; the phone\'s extras and hands state come back', async (t) => {
+  const base = await pairingServer(t);
+  const options = { base, createStream: fetchEventStream, createConnection: createFakeConnection };
+  const host = new PhonePoseSource({ ...options, origin: () => 'https://game.test', transport: 'webrtc' });
+  const events: PoseSourceEvent[] = [];
+  host.subscribeRecords((event) => events.push(event));
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ ...options, camera: camera as unknown as WebcamPoseSource, now: phoneNow, device: 'Test phone' });
+  t.after(() => { host.disconnect(); phone.stop(); });
+  // Asked for before the phone pairs.
+  host.setDetail('hands');
+  assert.equal(host.view.hands, 'loading');
+  await host.connect();
+  const pairing = await until(() => host.view.pairing, 'a pairing code');
+  await phone.join(pairing.code);
+  await until(() => camera.detail === 'hands', 'the detail on the phone');
+  await until(() => host.view.hands === 'on', 'the phone to say its hands are on');
+  await until(() => host.clock.ready, 'clock sync', 4000);
+  const world = Array.from({ length: 33 }, (_, i) => ({ x: i / 100, y: -0.5, z: 0.1 }));
+  const hand = { side: 'right' as const, score: 0.93, landmarks: Array.from({ length: 21 }, () => ({ x: 0.3, y: 0.6, z: 0, confidence: null })),
+    world: Array.from({ length: 21 }, (_, i) => ({ x: i / 1000, y: 0, z: 0 })) };
+  camera.emit({ ...phoneRecord(20, 1), poses: [{ playerId: 0, landmarks: standingPose(0.5), world, hands: [hand] }] });
+  const event = await until(() => events.find(isPoseRecordEvent), 'a pose with its extras');
+  assert.deepEqual(event.record.poses[0].world, world);
+  assert.deepEqual(event.record.poses[0].hands, [hand]);
+  // The phone drops its hand model: the game hears so.
+  camera.dropHands();
+  await until(() => host.view.hands === 'dropped', 'the drop');
+  // Off: the phone hears it, and the game's view no longer speaks of hands.
+  host.setDetail(null);
+  await until(() => camera.detail === null, 'the detail off on the phone');
+  assert.equal(host.view.hands, undefined);
+  // On again, and the connection drops: the phone gets the detail again when it reconnects.
+  host.setDetail('hands');
+  await until(() => camera.detail === 'hands', 'the detail on again');
+  camera.setDetail(null);
+  const connection = FakeConnection.all.find((c) => c.localDescription?.sdp?.startsWith('fake-answer') && c.connectionState === 'connected');
+  assert.ok(connection);
+  connection.fail();
+  await until(() => phone.view.stage === 'linked' && host.control?.readyState === 'open' && camera.detail === 'hands', 'the detail after reconnecting');
+});
+
+test('a phone page that never says how its hands are doing (too old to know of them) counts as without them after a while', () => {
+  let now = 1000;
+  const host = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair', now: () => now });
+  host.setDetail('hands');
+  const status = { type: 'status', status: 'connected', message: 'Lite', model: 'lite', delegate: 'GPU', facing: 'environment', inferenceMs: 12 };
+  host.detailSentAt = now;
+  host.onMessage(JSON.stringify(status));
+  assert.equal(host.view.hands, 'loading', 'it may not have taken the detail yet');
+  now += HANDS_ANSWER_MS + 1;
+  host.check();
+  assert.equal(host.view.hands, 'unavailable');
+  // A phone that does know says so at once.
+  host.onMessage(JSON.stringify({ ...status, hands: 'on' }));
+  assert.equal(host.view.hands, 'on');
+  clearInterval(host.watchdog);
+});
+
+test('a phone too slow to run the hand model drops it by itself, keeping the world landmarks; a brief slow spell doesn\'t', () => {
+  let now = 0;
+  const camera = new FakeCamera();
+  const phone = new PhoneLink({ camera: camera as unknown as WebcamPoseSource, now: () => now });
+  camera.setDetail('hands');
+  const result = (poseHz: number) => { now += 50; camera.publish({ status: 'connected', stats: { poseHz, inferenceMs: 40, frameAgeMs: 60, droppedFrames: 0 } }); };
+  // Slow for a moment, then quick again.
+  while (now < HANDS_SLOW_MS - 500) result(HANDS_MIN_HZ - 3);
+  result(HANDS_MIN_HZ + 5);
+  assert.equal(camera.dropped, 0);
+  // Quick enough throughout.
+  for (let i = 0; i < 200; i++) result(HANDS_MIN_HZ + 5);
+  assert.equal(camera.dropped, 0);
+  // Slow for longer than it allows.
+  const start = now;
+  while (now - start < HANDS_SLOW_MS + 100) result(HANDS_MIN_HZ - 3);
+  assert.equal(camera.dropped, 1);
+  assert.equal(camera.view.hands, 'dropped');
+  assert.equal(camera.detail, 'hands', 'the world landmarks carry on');
+  phone.stop();
+});
+
+test('the camera input gives the detail to whichever camera is chosen, and moves it with the choice', async () => {
+  store.clear();
+  const phone = new PhonePoseSource({ base: 'http://127.0.0.1:9/pair' });
+  const input = new CameraInput({ webcam: new PoseSourceController(), phone, webcamSupported: true });
+  const details = () => [input.webcam.source.detail, phone.detail];
+  assert.deepEqual(details(), [null, null]);
+  input.setDetail('hands');
+  assert.deepEqual(details(), ['hands', null]);
+  assert.equal(input.view.hands, 'loading');
+  await input.configure({ cameraId: PHONE_CAMERA.deviceId });
+  assert.deepEqual(details(), [null, 'hands']);
+  assert.equal(input.view.hands, 'loading');
+  await input.configure({ cameraId: NO_CAMERA.deviceId });
+  assert.deepEqual(details(), [null, null]);
+  await input.configure({ cameraId: '' });
+  assert.deepEqual(details(), ['hands', null]);
+  input.setDetail(null);
+  assert.deepEqual(details(), [null, null]);
+  assert.equal(input.view.hands, undefined);
+  phone.disconnect();
 });
 
 test('a wrong code is refused on the phone, and a second phone cannot take over a paired game', async (t) => {
