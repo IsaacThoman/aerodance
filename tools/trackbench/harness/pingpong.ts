@@ -690,6 +690,9 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     }
   }
 
+  // ---- the noise profile of the paddle's blade (raw, as the game's filter gets it, and filtered), for the play simulation's cameras
+  const noise = noiseProfile(samples.filter(isPaddle).filter(s => s.gt), samples.filter(isPaddle));
+
   // ---- the free hand's raise (the serve)
   const raise: Record<string, unknown> = {};
   const raiseTotals = { false_triggers: 0, misses: 0, gt_raises: 0, game_raises: 0, minutes: 0 };
@@ -790,7 +793,70 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     world: { arm_cm: stats(worldErr, 100), depth },
     raise: { per_hand: raise, ...raiseTotals },
     swings: swingTotals,
+    noise,
     cost,
+  };
+}
+
+/** Half-width (ms) of the moving average that splits slowly varying error (correlated over ~0.5 s) from frame-to-frame error. */
+export const SLOW_WINDOW_MS = 250;
+/** A raw blade this far (m) from its own ±200 ms median is a wild pose. */
+export const WILD = { metres: 0.15, windowMs: 200 } as const;
+/** A paddle hand with no pose for longer than this (ms) is lost. */
+export const LOST_GAP_MS = 100;
+
+/**
+ * The paddle blade's error (tracked − GT, the player's frame, metres), raw and filtered, split
+ * into steady (the bias), slowly varying (a centred ±SLOW_WINDOW_MS average, less the bias) and
+ * frame to frame (the rest), at rest, in swings and overall; how often a raw pose is wild and by
+ * how much; and how often and how long the hand goes without a pose.
+ */
+function noiseProfile(withGt: readonly Sample[], all: readonly Sample[]) {
+  type Row = { t: number; raw: Vec3; filt: Vec3; state: string };
+  const series = Object.values(groupBy(withGt, s => `${s.pid}|${s.side}|${s.person}`)).map(g => g.sort((a, b) => a.t - b.t).map((s): Row => ({
+    t: s.t, state: s.state, raw: sub(bladeOf(s.raw.wrist, s.raw.dir), s.gt!.blade), filt: sub(bladeOf(s.filt.wrist, s.filt.dir), s.gt!.blade) })));
+  const parts = (pick: (r: Row) => Vec3, keep: (r: Row) => boolean) => {
+    const errs: Vec3[] = [], slow: Vec3[] = [], fast: Vec3[] = [];
+    for (const rows of series) {
+      rows.forEach((r, i) => {
+        if (!keep(r)) return;
+        let acc = { x: 0, y: 0, z: 0 }, n = 0;
+        for (let j = i; j >= 0 && r.t - rows[j].t <= SLOW_WINDOW_MS; j--) { acc = add(acc, pick(rows[j])); n++; }
+        for (let j = i + 1; j < rows.length && rows[j].t - r.t <= SLOW_WINDOW_MS; j++) { acc = add(acc, pick(rows[j])); n++; }
+        const m = scale(acc, 1 / n);
+        errs.push(pick(r)); slow.push(m); fast.push(sub(pick(r), m));
+      });
+    }
+    const bias = { x: meanOf(errs.map(e => e.x)) ?? NaN, y: meanOf(errs.map(e => e.y)) ?? NaN, z: meanOf(errs.map(e => e.z)) ?? NaN };
+    const cm = (v: number | null) => round((v ?? NaN) * 100, 2);
+    const axes = (list: Vec3[]) => ({ x: cm(sdOf(list.map(e => e.x))), y: cm(sdOf(list.map(e => e.y))), z: cm(sdOf(list.map(e => e.z))) });
+    return { n: errs.length, bias_cm: { x: cm(bias.x), y: cm(bias.y), z: cm(bias.z) }, slow_sd_cm: axes(slow), fast_sd_cm: axes(fast) };
+  };
+  const states = { rest: (r: Row) => r.state === 'rest', swing: (r: Row) => r.state === 'swing' || r.state === 'peak', all: () => true };
+  const block = (pick: (r: Row) => Vec3) => Object.fromEntries(Object.entries(states).map(([k, keep]) => [k, parts(pick, keep)]));
+  // Wild raw poses: far from their own neighbourhood's median, per axis.
+  let wild = 0, total = 0;
+  const wildSize: number[] = [];
+  const med = (v: number[]) => quantile(v, 0.5) ?? 0;
+  for (const rows of series) rows.forEach(r => {
+    const near = rows.filter(q => Math.abs(q.t - r.t) <= WILD.windowMs && q !== r);
+    if (near.length < 4) return;
+    total++;
+    const d = norm(sub(r.raw, { x: med(near.map(q => q.raw.x)), y: med(near.map(q => q.raw.y)), z: med(near.map(q => q.raw.z)) }));
+    if (d > WILD.metres) { wild++; wildSize.push(d); }
+  });
+  // Lost stretches: gaps in the paddle hand's poses.
+  const gaps: number[] = [];
+  let span = 0;
+  for (const g of Object.values(groupBy(all, s => `${s.pid}|${s.side}`))) {
+    const t = g.map(s => s.t).sort((a, b) => a - b);
+    span += t.length > 1 ? t[t.length - 1] - t[0] : 0;
+    for (let i = 1; i < t.length; i++) if (t[i] - t[i - 1] > LOST_GAP_MS) gaps.push(t[i] - t[i - 1]);
+  }
+  return {
+    raw: block(r => r.raw), filtered: block(r => r.filt),
+    wild: { rate: total ? round(wild / total, 4) : null, size_cm: stats(wildSize, 100, 1), n: total },
+    lost: { per_min: span ? round(gaps.length / (span / 60000), 2) : null, share: span ? round(gaps.reduce((a, b) => a + b, 0) / span, 4) : null, ms: stats(gaps, 1, 0) },
   };
 }
 
