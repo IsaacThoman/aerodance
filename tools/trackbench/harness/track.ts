@@ -46,9 +46,10 @@ export function trackDetections(scene: Scene, dets: readonly DetFrame[], { sessi
   });
 }
 
-if (import.meta.main) {
-  const { positional: [estimator, sceneId], opts } = parseArgs(process.argv.slice(2), { 'no-session': 'bool', 'no-looks': 'bool', 'no-cap': 'bool' });
-  if (!estimator || !sceneId) { console.error('usage: node tools/trackbench/harness/track.ts <estimator-id> <scene-id> [--no-session] [--no-looks]'); process.exit(2); }
+/** Prepare a scene's replay for either the single-scene CLI or the parallel retrack command. */
+export async function trackScene({ estimator, sceneId, opts = {} }: {
+  estimator: string; sceneId: string; opts?: Record<string, string | boolean>;
+}) {
   const scene = loadScene(sceneId);
   const dir = runDir(estimator, sceneId);
   const dets = readJsonl<DetFrame>(path.join(dir, 'detections.jsonl'));
@@ -61,7 +62,15 @@ if (import.meta.main) {
   // The game's own worker already asks for the players' number; anything else is cut to it.
   const cap = opts['no-cap'] || /-game(-|$)/.test(estimator) ? Infinity : scene.players;
   const tracked = trackDetections(scene, dets, { session: !opts['no-session'], pixels, cap });
+  return { tracked, metadata: { estimator, scene: sceneId, session: !opts['no-session'], cap: Number.isFinite(cap) ? cap : null, looks: scene.players > 1 ? (needLooks ? 'appearance.ts on 128-wide Chromium copies' : opts['no-looks'] ? 'none' : 'from detections') : 'not used (one player)' }, log: `${estimator}/${sceneId}: ${tracked.length} records, ${tracked.filter(r => r.poses.length === scene.players).length} with every player` };
+}
+
+if (import.meta.main) {
+  const { positional: [estimator, sceneId], opts } = parseArgs(process.argv.slice(2), { 'no-session': 'bool', 'no-looks': 'bool', 'no-cap': 'bool' });
+  if (!estimator || !sceneId) { console.error('usage: node tools/trackbench/harness/track.ts <estimator-id> <scene-id> [--no-session] [--no-looks]'); process.exit(2); }
+  const { tracked, metadata, log } = await trackScene({ estimator, sceneId, opts });
+  const dir = runDir(estimator, sceneId);
   writeJsonl(path.join(dir, 'tracked.jsonl'), tracked);
-  writeJson(path.join(dir, 'track.json'), { estimator, scene: sceneId, session: !opts['no-session'], cap: Number.isFinite(cap) ? cap : null, looks: scene.players > 1 ? (needLooks ? 'appearance.ts on 128-wide Chromium copies' : opts['no-looks'] ? 'none' : 'from detections') : 'not used (one player)', at: new Date().toISOString() });
-  console.log(`${estimator}/${sceneId}: ${tracked.length} records, ${tracked.filter(r => r.poses.length === scene.players).length} with every player`);
+  writeJson(path.join(dir, 'track.json'), { ...metadata, at: new Date().toISOString() });
+  console.log(log);
 }
