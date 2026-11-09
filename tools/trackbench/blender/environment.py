@@ -329,4 +329,9 @@ def render_settings(spec: dict, scene) -> None:
     scene.view_settings.exposure=exposure
     scene.render.use_motion_blur=True
     scene.render.motion_blur_shutter=.85 if lp in ('dim_evening','tv_glow') else .35
+    # Optional per-scene shutter (fraction of a frame): a webcam indoors exposes for 1/60-1/30 s.
+    shutter=spec.get('render',{}).get('motion_blur_shutter')
+    if shutter is not None:
+        if not 0<shutter<=1: raise ValueError('render.motion_blur_shutter must be in (0,1]')
+        scene.render.motion_blur_shutter=float(shutter)
     scene.render.image_settings.file_format='PNG'

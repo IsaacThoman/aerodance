@@ -20,7 +20,11 @@ python3 tools/trackbench/render.py <id-or-spec.json> [...] [--jobs 3] [--preview
   if it's missing), then `post/geometric_gt.py` (warps GT and masks when the lens or a rolling
   shutter moves the picture; see Ground truth), and with `--preview` writes `preview.mp4` with
   the GT skeletons drawn.
-- `READY` is removed at the start and written at the end.
+- `READY` is removed at the start and written at the end. `--skip-done` skips scenes that are
+  `READY` with the spec's current render key (resumable batch runs).
+- A spec's optional `render` block sets `motion_blur_shutter` (fraction of a frame, overriding
+  the lighting preset's 0.35/0.85; a webcam indoors exposes 1/60-1/30 s) and `samples` (EEVEE
+  samples, unless `--samples` is given).
 - `--gt-only` recomputes GT from the existing render's masks (no rendering): use it after GT
   code changes.
 - Each process logs to `logs/generate-<a>-<b>.log`.
@@ -109,6 +113,14 @@ end):
 - `dance` `{clip, clip_start_s, duration_s, speed, mirror, facing_deg?}`: AIST++ motion at the
   person's current spot. Holds and dances happen where the previous walk ended (or at `place`).
 
+- `pingpong` `{duration_s, hand?, events? | auto?, stance_m?, liveliness?, grip?}`: a table-tennis
+  player facing the camera (the Table Tennis minigame): a ready stance with strokes and serves.
+  See **Table tennis** below.
+
+Person keys for table tennis: `hand` (`right` default, or `left`: the paddle hand; the motion is
+mirrored for left-handers) and `paddle` (`true` or `{forehand, backhand, wood}` hex colours):
+a paddle prop in that hand (`humans.make_paddle`).
+
 Segments blend over 0.3 s, centred on the boundary: a per-joint slerp of the SMPL-style local
 rotations and a lerp of the hip position. The blend is longer when the heading changes a lot,
 up to 0.8 s for a half turn, so turning to face the camera after walking in looks natural.
@@ -182,6 +194,69 @@ It compares 3D limb directions with:
 - Mirrored clips have the same errors against mirrored keypoints (no left/right mix-up).
 - The NumPy forward kinematics used for grounding matches Blender's to 0.02 mm.
 
+## Table tennis (`pingpong.py`)
+
+There is no licence-clean full-body racket mocap (CMU has none; AMASS is non-commercial; the
+published table-tennis capture sets aren't downloadable), so the strokes are procedural, keyed
+the way an animator would and solved onto the rig:
+
+- **Channels**, keyed per stroke at its ready start, backswing end, contact, follow-through end
+  and ready again (wide strokes add a mid-recovery key for the step back): torso yaw, forward and
+  side lean (45 % in the pelvis, the rest over the three spine joints; neck and head counter-turn
+  so the face stays to the screen), knee bend (hip drop), weight shift (hip over one foot), each
+  foot's step (wide reaches lift one foot ~7 cm and replant it ~28 cm out), and per arm a wrist
+  target relative to its shoulder in the chest's heading frame, an elbow hint, the palm's facing,
+  wrist flex and deviation, and how open the free hand is. Values are cubic Hermite splines with
+  Catmull-Rom tangents (zero at ready keys): the hand keeps moving through the backswing's turn
+  and is fastest at contact. Small sine noise (crouch ±1 cm, yaw ±2°, wrists ±1.5 cm, 0.35-3 Hz)
+  keeps the ready stance alive. Each stroke perturbs its keys (wrist ±2.5 cm, yaw ±4°) and its
+  timing (backswing ×0.85-1.2, recovery ×0.85-1.25), seeded.
+- **Kinds** (right-handed templates): `forehand` (drive: torso turns ~35° back and ~30° through,
+  elbow out, follow-through up to the left of the face), `backhand` (paddle comes in front of the
+  belly, elbow forward, wrist cocked, unrolls forward), `push` and `block` (compact, gentle),
+  `loop` (deep knee bend and 50° turn, low backswing, finishes above the head), `wide_forehand`
+  and `wide_backhand` (step out, lunge, arm nearly straight), `low` (crouch to a ball at knee
+  height), and `serve` as the game has it: the free hand raised above its shoulder, palm up as if
+  holding the ball, for 0.7-1.3 s, then a short swing as it drops.
+- **Solving**: the torso goes through `RigModel.solve` for the shoulders and hip joints. Legs:
+  two-bone IK with the MPFB bone lengths to the planted feet (stance 0.46 m, right foot 5 cm
+  back, toes out 12°), knees forward and a little out, feet flat; the hips are lowered if a leg
+  can't reach. Arms: two-bone IK to the wrist target with the elbow hint; the forearm turns (85°
+  supination to 95° pronation from the handshake position) to face the palm as keyed, and the
+  wrist bends up to 60° for the rest (a laid-back wrist on forehands). Written for a right-hander
+  at the origin facing the camera, mirrored for a left-hander (`smpl.MIRROR`), then turned to
+  `facing_deg` and moved to the spot. Checked by reading the palm normal back off the evaluated
+  Blender rig at every contact: within ~10° of the key on every stroke kind.
+- **Speed**: each stroke's forward swing (and, less, its backswing and follow-through) is retimed
+  until the paddle wrist's peak speed in the stage frame (on the solved wrist targets, sampled at
+  240 Hz) equals the stroke's `speed_mps` (it converges to ±0.01 m/s; meta records the result).
+- **Rallies**: `events: [{t_s, kind, speed_mps, hold_s?, reach?: [dr, du]}]` (times are when the
+  stroke leaves ready, relative to the segment; a stroke never starts before the last one's
+  recovery ends), or `auto: {start_s, speed_mps: [lo, hi], gap_s: [lo, hi], mix: {kind: weight},
+  rally: [min, max] strokes, pause_s: [lo, hi], serve: true}`: a serve, a run of strokes with
+  irregular gaps (pushes and blocks capped at 1.6-2.8 m/s, loops pushed to the top of the range),
+  a pause, a serve again.
+- **Fingers** (animated only in `pingpong` segments; every other scene keeps unkeyed rest-pose
+  fingers): curls about each finger bone's local x. The paddle hand is closed round a handle,
+  `paddle` (shakehand: middle, ring and little fingers wrapped 72-90°, index 40° along the blade,
+  thumb on the face) or a looser empty `fist`; the free hand is `relaxed`, slerped to `open` as
+  it's raised to serve. They blend over 0.3 s from and to the rest hands of walk segments.
+- **Paddle prop**: a 15 x 15.8 x 0.7 cm blade (red forehand rubber on the palm side, black
+  backhand) and a 10 x 2.8 x 2.3 cm wooden handle, parented to the wrist bone, the handle
+  across the palm's diagonal inside the curled fingers, the blade beyond the thumb-index web.
+  Tagged `tb_kind = "prop"`; not in the masks; an occluder in GT (rebuilt per frame).
+- **Phases** (GT `phase`): `swing`, `serve`, `ready` (see CONTRACT.md).
+
+How realistic: at webcam scale the strokes read as table tennis (weight shift, torso rotation,
+elbow leading, follow-through, wrist laid back on forehands; contact sheets in
+`$TRACKBENCH_DATA/scenes/pp*/contact-sheet.jpg`). It is still keyframed motion: smoother and more
+repeatable than a person's, the forearm twists as one piece from the elbow, the shoulder girdle
+(clavicles) doesn't move, and fingers only curl (no spread). Close up, the grip is plausible but
+the handle and fingers can intersect a little. MediaPipe's Hand Landmarker finds 93 % of the GT
+hands on `pp1-base` (98 % in ready, 81 % mid-swing) with a median wrist error of 5 px at
+1280x960, and Pose Lite finds the player in every frame (`checks/hand_check.py`,
+`checks/mp_check.py`).
+
 ## Humans (`humans.py`)
 
 - MPFB `deserialize_from_dict` builds each person with the `default` rig, high-poly eyes and
@@ -237,6 +312,17 @@ Checked by overlay on `cam-fov-120` and `sens-rolling-shutter` (`preview.py` dra
 resolution, so portrait frames are right). x, y are normalized to the full unmirrored frame
 with (0, 0) at the top left. depth is the distance along the view axis. `kp3d` is stage
 coordinates.
+
+**Hands (table-tennis scenes).** Hand-21 points are pose-bone heads (`wrist`, `finger1-1..3`,
+`finger2..5-1..3`) and the last finger bones' tails (tips), read from the evaluated rig. Their
+vis codes use the joint rule below with each point's own bones (the bones meeting at that joint)
+and a reach of 2-3.5 cm (6 cm for the wrist): another finger in front is 1. A paddle blade more
+than 4 mm in front of a point is 2 (the 2 cm other-surface margin would miss a blade lying on the
+fingers). The paddle's `center`/`normal` come from the prop's world matrix. `preview.py` draws
+the hands (`--hands out.jpg`: close-ups of every hand, cut like the game cuts them) and the
+paddle's normal; `checks/hand_check.py` runs the Hand Landmarker on those cuts against the GT;
+`audit/check_gt.py <scene>` re-projects hand `kp3d`, checks hand vis against the masks and the
+paddle against its hand.
 
 **Visibility.**
 - 3: outside the frame or behind the camera.
@@ -305,7 +391,8 @@ with four people. Subdivision used to be (see Humans).
 - Hair isn't an occluder in the ray test (its cards are alpha-textured), so ears under long
   hair count as visible. The masks do include hair.
 - The procedural skirt is skinned, not simulated: it doesn't swing on spins.
-- Finger poses aren't animated (AIST++ has no hand motion); hands stay relaxed.
+- Finger poses aren't animated outside `pingpong` segments (AIST++ has no hand motion); hands
+  stay relaxed.
 - Gait is procedural: fine at webcam scale, but no mocap walk.
 - (Fixed in generator 1.1: dark skins rendered lighter and colours washed out under the bright
   presets; see ENVIRONMENT.md, Lights and EEVEE.)

@@ -11,6 +11,10 @@ SCENES_DIR = os.path.join(TB_DIR, 'scenes')
 DATA_ROOT = os.environ.get('TRACKBENCH_DATA', '/Volumes/development/aerodance-trackbench')
 GENERATOR_VERSION = 'trackbench-gen 1.2'  # 1.1: Standard view transform + per-preset exposure; 1.2: calmer hold arms
 
+# Table-tennis motion/paddle/hand-GT version: part of the render key of scenes with a pingpong
+# segment only (other scenes' keys are unchanged).
+PINGPONG_VERSION = 'pingpong 1.0'
+
 # Keys that don't change the rendered pixels or GT.
 NON_RENDER_KEYS = ('id', 'description', 'category', 'phases', 'post', 'base', 'players')
 
@@ -123,6 +127,8 @@ def render_key(spec):
     """Hash of everything that affects the render and GT."""
     s = {k: v for k, v in spec.items() if k not in NON_RENDER_KEYS}
     s['_generator'] = GENERATOR_VERSION  # renders from an older generator aren't reused
+    if any(seg.get('type') == 'pingpong' for p in spec.get('people', []) for seg in p.get('timeline', [])):
+        s['_pingpong'] = PINGPONG_VERSION
     return hashlib.sha1(json.dumps(s, sort_keys=True).encode()).hexdigest()[:16]
 
 

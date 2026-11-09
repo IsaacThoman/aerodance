@@ -231,9 +231,26 @@ def main():
     ap.add_argument('--samples', type=int)
     ap.add_argument('--no-keep-render', action='store_true', help='delete render/ PNGs after post')
     ap.add_argument('--gt-only', action='store_true', help='recompute GT from the existing render\'s masks')
+    ap.add_argument('--skip-done', action='store_true',
+                    help='skip scenes that are READY with the current render key (resumable batch runs)')
     a = ap.parse_args()
     for s in a.spec:
+        if a.skip_done and is_done(s):
+            log(f'{s}: already rendered with this spec; skipping')
+            continue
         render_scene(s, a.jobs, a.preview, a.force, a.samples, not a.no_keep_render, a.gt_only)
+
+
+def is_done(spec_or_id):
+    spec = spec_utils.load(spec_or_id)
+    out = spec_utils.scene_dir(spec['id'])
+    try:
+        meta = json.load(open(os.path.join(out, 'meta.json')))
+    except (OSError, ValueError):
+        return False
+    base = spec.get('base')
+    key = spec_utils.render_key(spec_utils.load(base) if base and spec_utils.render_key(spec_utils.load(base)) == spec_utils.render_key(spec) else spec)
+    return os.path.exists(os.path.join(out, 'READY')) and meta.get('render_key') == key
 
 
 if __name__ == '__main__':
