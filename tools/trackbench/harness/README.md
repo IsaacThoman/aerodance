@@ -13,10 +13,14 @@ than copying them.
 H=tools/trackbench/harness
 # The game's own pipeline: the built pose worker in Chromium on the GPU, tracker in the loop.
 node $H/run-game.ts <scene> [--model lite|full|heavy] [--realtime] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--id <estimator-id>] [--no-session] [--running-mode IMAGE]
+# The same over every ready scene (or those with these prefixes), several at once, then metrics.
+node $H/run-suite.ts --id <estimator-id> [--jobs N] [--browsers N] [--force] [--no-metrics] [prefix...] [-- run-game flags]
+# Whether two runs' detections and tracking are the same, scene by scene (timing left out).
+node $H/compare-runs.ts <run-a> <run-b> [scene...]
 # Any estimator's detections.jsonl through the game's tracker (and setup) to tracked.jsonl.
 node $H/track.ts <estimator> <scene> [--no-session] [--no-looks]
 # Metrics: learns the estimator's per-joint offsets over every scene it ran, then writes each metrics.json.
-node $H/metrics.ts <estimator> [scene...]
+node $H/metrics.ts <estimator> [scene...] [--jobs N]
 # Report across scenes and estimators: $TRACKBENCH_DATA/reports/<name>.md and .json.
 node $H/report.ts [--estimators a,b] [--baseline mp-lite-game] [--scenes <prefix>[,<prefix>...]] [--name <name>] [--worst 5]
 # Tests (synthetic fixtures, no frames or browser needed).
@@ -25,6 +29,21 @@ node --test $H/*.test.ts
 
 A typical pass over one scene: `run-game.ts s` (writes `runs/mp-lite-game/s/`), then for the
 other estimators `track.ts <est> s`, then `metrics.ts <est>` for each, then `report.ts`.
+
+**Using the machine.** A scene's frames go one after another (the game's tracker feeds each
+result into the next frame, and MediaPipe's video mode follows people from frame to frame), but
+scenes are independent. `run-suite.ts` runs `--jobs` scenes at once (default 8, or half the
+cores on a smaller machine), each in a fresh page and pose worker, with a browser for each job:
+pages of one browser share its GPU process, which serialised their work. On an M5 Pro, 17 mixed
+scenes took 236 s one at a time, 191 s four at a time in one browser, and 42 s eight at a time in
+eight browsers; the whole suite (133 scenes) takes 4.4 minutes instead of 29. It also decodes
+each scene's next frame while the current one is with the model, and launches the longest scenes
+first. Results are identical however many jobs run (`compare-runs.ts`), except the measured
+inference times in `metrics.json`'s `cost`, which run longer while scenes share the GPU: measure
+those with `--jobs 1`. `--realtime` runs alone, since it measures timing. The CPU analyses (`metrics.ts`, `studies/retrack.ts`,
+`studies/calibration.ts`, `studies/score-robustness.ts`) spread scenes over `--jobs` processes
+(default: all cores but one; `pool.ts`), with the same outputs: metrics over 133 scenes take 3 s
+instead of 13, the scoring study 16 s instead of 71.
 
 `npm run build` first: `run-game.ts` copies `dist/` to `$TRACKBENCH_DATA/dist-snapshot-<git
 short sha>` (with the worker's content hash added if `dist/` was rebuilt at the same commit)

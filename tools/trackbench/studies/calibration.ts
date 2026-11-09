@@ -6,7 +6,7 @@
 //     scenes built so that it must not complete (a player's ankles out of view);
 //   - how good the calibration it produced is (torso length and floor vs the same rule on GT poses).
 //
-//   node tools/trackbench/studies/calibration.ts [--estimators a,b] [--scenes p1,p2] [--out file]
+//   node tools/trackbench/studies/calibration.ts [--estimators a,b] [--scenes p1,p2] [--out file] [--jobs n]
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { calibratePoses } from '../../../packages/character/calibration.ts';
@@ -18,6 +18,7 @@ import type { Pixels } from '../../../packages/pose/browser/appearance.ts';
 import { DATA, danceWindow, loadScene, parseArgs, readJsonl, runDir, writeJson } from '../harness/common.ts';
 import type { DetFrame, GtFrame, Scene } from '../harness/common.ts';
 import { GameLoop } from '../harness/gameloop.ts';
+import { jobsOption, scenePool } from '../harness/pool.ts';
 import { looksOf } from '../harness/track.ts';
 
 /** Ablations of the shared-hold rule before this branch (dev at 61414651). */
@@ -158,16 +159,13 @@ function calibratable(scene: Scene, hold: { start: number; end: number }): boole
   return ok.length * (1000 / scene.fps) >= SHARED_HOLD_DEV.stillMs + 500;
 }
 
-const opts = parseArgs(process.argv.slice(2), { estimators: 'string', scenes: 'string', out: 'string' }).opts;
-const estimators = opts.estimators ? String(opts.estimators).split(',') : ['mp-lite-game', 'mp-full-game', 'mp-heavy-game', 'rtmo-s', 'rtmpose-s', 'movenet-multipose', 'apple-vision'];
-const prefixes = opts.scenes ? String(opts.scenes).split(',') : [];
-const rows: Record<string, unknown>[] = [];
-const sceneIds = readdirSync(path.join(DATA, 'scenes')).filter(s => !s.startsWith('_') && existsSync(path.join(DATA, 'scenes', s, 'READY')) && (!prefixes.length || prefixes.some(p => s.startsWith(p)))).sort();
-for (const sid of sceneIds) {
+/** All estimators for one scene share its frame pixels, as in the sequential study. */
+export async function calibrationScene({ sid, estimators }: { sid: string; estimators: string[] }) {
+  const rows: Record<string, unknown>[] = [];
   let scene: Scene;
-  try { scene = loadScene(sid); } catch { continue; }
+  try { scene = loadScene(sid); } catch { return []; }
   const hold = sharedHold(scene.gt);
-  if (!hold) continue;
+  if (!hold) return [];
   const expect = calibratable(scene, hold) && hold.end - hold.start >= SHARED_HOLD_DEV.stillMs + 300;
   let pixels: Map<number, Pixels> | null | undefined;
   for (const est of estimators) {
@@ -205,40 +203,52 @@ for (const sid of sceneIds) {
       row[name] = { complete_ms: complete, after_hold_ms: complete === null ? null : complete - hold.start, holds, early: before, torso_err: torsoErr, floor_err: floorErr };
     }
     rows.push(row);
+  }
+  return rows;
+}
+
+if (import.meta.main) {
+  const opts = parseArgs(process.argv.slice(2), { estimators: 'string', scenes: 'string', out: 'string', jobs: 'string' }).opts;
+  const estimators = opts.estimators ? String(opts.estimators).split(',') : ['mp-lite-game', 'mp-full-game', 'mp-heavy-game', 'rtmo-s', 'rtmpose-s', 'movenet-multipose', 'apple-vision'];
+  const prefixes = opts.scenes ? String(opts.scenes).split(',') : [];
+  const sceneIds = readdirSync(path.join(DATA, 'scenes')).filter(s => !s.startsWith('_') && existsSync(path.join(DATA, 'scenes', s, 'READY')) && (!prefixes.length || prefixes.some(p => s.startsWith(p)))).sort();
+  const rows = (await scenePool<Parameters<typeof calibrationScene>[0], Awaited<ReturnType<typeof calibrationScene>>>(
+    new URL(import.meta.url), calibrationScene, sceneIds.map(sid => ({ sid, estimators })), jobsOption(opts.jobs))).flat();
+  for (const row of rows) {
     const g = row.game as { after_hold_ms: number | null }, r = row['robust+per-player'] as { after_hold_ms: number | null };
-    console.log(`${sid} ${est}: expect ${expect ? 'yes' : 'no'}; game ${g.after_hold_ms ?? 'never'}; robust+per-player ${r.after_hold_ms ?? 'never'}`);
+    console.log(`${row.scene} ${row.estimator}: expect ${row.expect_complete ? 'yes' : 'no'}; game ${g.after_hold_ms ?? 'never'}; robust+per-player ${r.after_hold_ms ?? 'never'}`);
   }
-}
-// Summary per estimator × rule over scenes that should calibrate, and false completions in ones that shouldn't.
-const summary: Record<string, Record<string, unknown>> = {};
-for (const est of estimators) {
-  const mine = rows.filter(r => r.estimator === est);
-  if (!mine.length) continue;
-  for (const name of Object.keys(RULES)) {
-    const should = mine.filter(r => r.expect_complete), shouldnt = mine.filter(r => !r.expect_complete);
-    const res = (r: Record<string, unknown>) => r[name] as { after_hold_ms: number | null; early: boolean; torso_err: number | null };
-    const done = should.filter(r => res(r).after_hold_ms !== null && res(r).after_hold_ms! <= (r.hold_ms as number) + 500);
-    const t = done.map(r => res(r).after_hold_ms!).sort((a, b) => a - b);
-    (summary[est] ??= {})[name] = {
-      should: should.length, completed_in_hold: done.length, completed_frac: should.length ? done.length / should.length : null,
-      median_after_hold_ms: t.length ? t[Math.floor(t.length / 2)] : null, p90_after_hold_ms: t.length ? t[Math.floor(t.length * 0.9)] : null,
-      early: mine.filter(r => res(r).early).length, false_complete: shouldnt.filter(r => res(r).after_hold_ms !== null && res(r).after_hold_ms! <= (r.hold_ms as number)).length, shouldnt: shouldnt.length,
-      torso_err_median: (() => { const v = mine.map(r => res(r).torso_err).filter((x): x is number => x !== null).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; })(),
-    };
+  // Summary per estimator × rule over scenes that should calibrate, and false completions in ones that shouldn't.
+  const summary: Record<string, Record<string, unknown>> = {};
+  for (const est of estimators) {
+    const mine = rows.filter(r => r.estimator === est);
+    if (!mine.length) continue;
+    for (const name of Object.keys(RULES)) {
+      const should = mine.filter(r => r.expect_complete), shouldnt = mine.filter(r => !r.expect_complete);
+      const res = (r: Record<string, unknown>) => r[name] as { after_hold_ms: number | null; early: boolean; torso_err: number | null };
+      const done = should.filter(r => res(r).after_hold_ms !== null && res(r).after_hold_ms! <= (r.hold_ms as number) + 500);
+      const t = done.map(r => res(r).after_hold_ms!).sort((a, b) => a - b);
+      (summary[est] ??= {})[name] = {
+        should: should.length, completed_in_hold: done.length, completed_frac: should.length ? done.length / should.length : null,
+        median_after_hold_ms: t.length ? t[Math.floor(t.length / 2)] : null, p90_after_hold_ms: t.length ? t[Math.floor(t.length * 0.9)] : null,
+        early: mine.filter(r => res(r).early).length, false_complete: shouldnt.filter(r => res(r).after_hold_ms !== null && res(r).after_hold_ms! <= (r.hold_ms as number)).length, shouldnt: shouldnt.length,
+        torso_err_median: (() => { const v = mine.map(r => res(r).torso_err).filter((x): x is number => x !== null).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; })(),
+      };
+    }
   }
+  // Check completion times against the unmodified dev rule, not this branch's per-player rule.
+  // The ablations retain the original study's behaviour: a shared reset can start a partial
+  // hold in the same record. dev clears everyone's hold and waits for the next record.
+  const mismatches = rows.filter(r => (r.dev as { complete_ms: number | null }).complete_ms !== (r['shared-hold (dev)'] as { complete_ms: number | null }).complete_ms).map(r => ({
+    scene: r.scene, estimator: r.estimator,
+    dev_ms: (r.dev as { complete_ms: number | null }).complete_ms,
+    shared_hold_ms: (r['shared-hold (dev)'] as { complete_ms: number | null }).complete_ms,
+  }));
+  const selfCheck = { reference: '61414651:apps/web/src/game/webcamCalibration.ts', compared: rows.length, matched: rows.length - mismatches.length, mismatches };
+  writeJson(String(opts.out ?? path.join(DATA, 'reports', 'calibration.json')), { rules: RULES, summary, rows, self_check: selfCheck });
+  for (const [est, s] of Object.entries(summary)) {
+    console.log(`\n${est}`);
+    for (const [name, v] of Object.entries(s)) console.log(`  ${name.padEnd(24)} ${JSON.stringify(v)}`);
+  }
+  console.log(`\nshared-hold (dev) vs dev WebcamCalibration (61414651): ${selfCheck.matched}/${selfCheck.compared} same completion time` + (mismatches.length ? ` (differ: ${mismatches.map(r => `${r.scene}/${r.estimator}: ${r.shared_hold_ms} vs dev ${r.dev_ms} ms`).join(', ')})` : ''));
 }
-// Check completion times against the unmodified dev rule, not this branch's per-player rule.
-// The ablations retain the original study's behaviour: a shared reset can start a partial
-// hold in the same record. dev clears everyone's hold and waits for the next record.
-const mismatches = rows.filter(r => (r.dev as { complete_ms: number | null }).complete_ms !== (r['shared-hold (dev)'] as { complete_ms: number | null }).complete_ms).map(r => ({
-  scene: r.scene, estimator: r.estimator,
-  dev_ms: (r.dev as { complete_ms: number | null }).complete_ms,
-  shared_hold_ms: (r['shared-hold (dev)'] as { complete_ms: number | null }).complete_ms,
-}));
-const selfCheck = { reference: '61414651:apps/web/src/game/webcamCalibration.ts', compared: rows.length, matched: rows.length - mismatches.length, mismatches };
-writeJson(String(opts.out ?? path.join(DATA, 'reports', 'calibration.json')), { rules: RULES, summary, rows, self_check: selfCheck });
-for (const [est, s] of Object.entries(summary)) {
-  console.log(`\n${est}`);
-  for (const [name, v] of Object.entries(s)) console.log(`  ${name.padEnd(24)} ${JSON.stringify(v)}`);
-}
-console.log(`\nshared-hold (dev) vs dev WebcamCalibration (61414651): ${selfCheck.matched}/${selfCheck.compared} same completion time` + (mismatches.length ? ` (differ: ${mismatches.map(r => `${r.scene}/${r.estimator}: ${r.shared_hold_ms} vs dev ${r.dev_ms} ms`).join(', ')})` : ''));

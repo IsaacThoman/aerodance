@@ -1,5 +1,5 @@
 // Metrics for one estimator on one scene (README.md defines each one). As a command:
-//   node tools/trackbench/harness/metrics.ts <estimator-id> [scene-id...]   (no scenes: every scene the estimator has run)
+//   node tools/trackbench/harness/metrics.ts <estimator-id> [scene-id...] [--jobs n]   (no scenes: every scene the estimator has run)
 // First a pass over every scene the estimator has detections for learns its mean per-joint
 // offset from the GT (runs/<estimator>/_offsets.json), then each scene's metrics.json is written.
 import { existsSync, readdirSync } from 'node:fs';
@@ -8,11 +8,12 @@ import { limbDirections, liveUsable, LIMBS, angleBetween } from '../../../packag
 import type { Landmark } from '../../../packages/pose/choreography.ts';
 import {
   BODY, DATA, JOINT_GROUPS, MIRROR, TORSO, danceWindow, fullyVisible, loadScene, matchPoses, mean, percentile, present, readJsonl,
-  round, runDir, sceneDir, torsoScale, writeJson,
+  round, runDir, sceneDir, torsoScale, writeJson, parseArgs,
 } from './common.ts';
 import type { DetFrame, GtFrame, GtPerson, Joint, PoseKp, Scene, TrackedFrame } from './common.ts';
 import { gtLandmarks, judgementChanges, referenceBundle, scoreRecords } from './score.ts';
 import type { LiveRecord } from './score.ts';
+import { jobsOption, scenePool } from './pool.ts';
 
 export const METRICS_VERSION = 1;
 /** A joint this close to the GT (torso lengths, offset-corrected) is correct, for confidence calibration. */
@@ -437,19 +438,31 @@ export function suiteOffsets(estimator: string): Offsets {
   return offsets;
 }
 
-if (import.meta.main) {
-  const [estimator, ...scenes] = process.argv.slice(2);
-  if (!estimator) { console.error('usage: node tools/trackbench/harness/metrics.ts <estimator-id> [scene-id...]'); process.exit(2); }
+/** Compute one scene using the offsets fitted once by the parent. */
+export function metricsScene({ estimator, id, offsets }: { estimator: string; id: string; offsets: Offsets }) {
+  const dir = runDir(estimator, id);
+  const tracked = existsSync(path.join(dir, 'tracked.jsonl')) ? readJsonl<TrackedFrame>(path.join(dir, 'tracked.jsonl')) : [];
+  const metrics = sceneMetrics(loadScene(id), readJsonl<DetFrame>(path.join(dir, 'detections.jsonl')), tracked, offsets, estimator);
+  return { metrics, missingTracked: !tracked.length };
+}
+
+export async function runMetrics(estimator: string, scenes: string[], jobs: number) {
   const offsets = suiteOffsets(estimator);
   console.log(`${estimator}: offsets from ${offsets.scenes.length} scenes`);
-  for (const id of scenes.length ? scenes : scenesWithRuns(estimator)) {
-    const dir = runDir(estimator, id);
-    const tracked = existsSync(path.join(dir, 'tracked.jsonl')) ? readJsonl<TrackedFrame>(path.join(dir, 'tracked.jsonl')) : [];
-    if (!tracked.length) console.warn(`${id}: no tracked.jsonl (run track.ts first); tracking metrics will be empty`);
-    const m = sceneMetrics(loadScene(id), readJsonl<DetFrame>(path.join(dir, 'detections.jsonl')), tracked, offsets, estimator);
-    writeJson(path.join(dir, 'metrics.json'), m);
+  const results = await scenePool<Parameters<typeof metricsScene>[0], ReturnType<typeof metricsScene>>(
+    new URL(import.meta.url), metricsScene, (scenes.length ? scenes : scenesWithRuns(estimator)).map(id => ({ estimator, id, offsets })), jobs);
+  for (const { metrics: m, missingTracked } of results) {
+    const id = m.scene;
+    if (missingTracked) console.warn(`${id}: no tracked.jsonl (run track.ts first); tracking metrics will be empty`);
+    writeJson(path.join(runDir(estimator, id), 'metrics.json'), m);
     const s = m.score;
     console.log(`${id}: recall ${m.detection.recall.players} pck20c ${m.detection.keypoints.body.pck20_corrected} limb ${m.detection.keypoints.limbs.mean_deg_weighted}° id ${m.tracking.after_numbering.identity_accuracy} lost ${m.tracking.whole_scene.lost}` +
       (s ? ` score ${s.tracked_score}/${s.gt_score} (lost ${s.score_lost})` : '') + (m.calibration ? ` calib ${m.calibration.complete_ms ?? 'never'}` : ''));
   }
+}
+
+if (import.meta.main) {
+  const { positional: [estimator, ...scenes], opts } = parseArgs(process.argv.slice(2), { jobs: 'string' });
+  if (!estimator) { console.error('usage: node tools/trackbench/harness/metrics.ts <estimator-id> [scene-id...] [--jobs n]'); process.exit(2); }
+  await runMetrics(estimator, scenes, jobsOption(opts.jobs));
 }

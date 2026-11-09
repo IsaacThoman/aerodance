@@ -55,6 +55,9 @@ $TRACKBENCH_DATA/.venv/bin/python tools/trackbench/estimators/run.py rtmo-s base
 node tools/trackbench/harness/track.ts rtmo-s base-solo
 node tools/trackbench/harness/metrics.ts rtmo-s base-solo
 
+# The game's pipeline over every rendered scene, several at once (see harness/README.md).
+caffeinate -dimsu node tools/trackbench/harness/run-suite.ts --id mp-lite-game
+
 # Everything over every rendered scene, then the paired comparison.
 caffeinate -dimsu python3 tools/trackbench/matrix.py --cpu-jobs 3
 node tools/trackbench/studies/paired.ts --name my-comparison

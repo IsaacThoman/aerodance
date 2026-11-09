@@ -7,7 +7,7 @@
 //     hands out points.
 // GT poses as live input give the controls for the right dance, wrong moves and standing still.
 //
-//   node tools/trackbench/studies/score-robustness.ts [--estimators a,b] [--scenes prefix,...] [--out file]
+//   node tools/trackbench/studies/score-robustness.ts [--estimators a,b] [--scenes prefix,...] [--out file] [--jobs n]
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Landmark } from '../../../packages/pose/choreography.ts';
@@ -15,6 +15,7 @@ import { DATA, danceWindow, loadScene, parseArgs, readJson, readJsonl, runDir, w
 import type { GtFrame, Joint, Scene, TrackedFrame } from '../harness/common.ts';
 import { gtLandmarks, referenceBundle, scoreRecords } from '../harness/score.ts';
 import type { LiveRecord } from '../harness/score.ts';
+import { jobsOption, scenePool } from '../harness/pool.ts';
 
 const WRONG_SHIFT_MS = 4000;
 
@@ -90,84 +91,95 @@ function shifted(scene: Scene, window: [number, number], shift: number): Scene {
   return { ...scene, gt, byFrame: new Map(gt.map(f => [f.frame, f])) };
 }
 
-const args = parseArgs(process.argv.slice(2), { estimators: "string", scenes: "string", out: "string" }).opts;
-const runs = path.join(DATA, 'runs');
-const estimators = args.estimators ? String(args.estimators).split(',') : readdirSync(runs).filter(e => !e.startsWith('_'));
-const prefixes = args.scenes ? String(args.scenes).split(',') : [];
-const rows: Record<string, unknown>[] = [];
-const sceneCache = new Map<string, Scene>();
-for (const est of estimators) {
-  if (!existsSync(path.join(runs, est))) continue;
-  for (const sid of readdirSync(path.join(runs, est)).sort()) {
-    if (sid.startsWith('_') || (prefixes.length && !prefixes.some(p => sid.startsWith(p)))) continue;
-    const dir = runDir(est, sid);
-    if (!existsSync(path.join(dir, 'tracked.jsonl')) || !existsSync(path.join(dir, 'metrics.json'))) continue;
-    const metrics = readJson<{ expected_numbering?: { mapping: string[] } }>(path.join(dir, 'metrics.json'));
-    const mapping = metrics.expected_numbering?.mapping ?? [];
-    let scene = sceneCache.get(sid);
-    if (!scene) { try { scene = loadScene(sid); } catch { continue; } sceneCache.set(sid, scene); }
-    const window = danceWindow(scene);
-    if (!window || !mapping.length || window[1] - window[0] < WRONG_SHIFT_MS + 2000) continue;
-    const right = referenceBundle(scene, mapping, window);
-    const wrong = referenceBundle(shifted(scene, window, WRONG_SHIFT_MS), mapping, window);
-    const tracked = readJsonl<TrackedFrame>(path.join(dir, 'tracked.jsonl')).filter(r => !r.dropped);
-    const live = () => tracked.map(r => ({ t: r.t_ms, received: r.received_ms, poses: r.poses.map(p => ({ playerId: p.playerId, landmarks: p.kp.map(([x, y, z, c]: Joint) => ({ x, y, z, confidence: c })) })) }));
-    const gtLive: LiveRecord[] = scene.gt.map(f => ({ captureMs: f.t_ms, receivedMs: f.t_ms, poses: mapping.flatMap((id, playerId) => { const p = f.people.find(q => q.id === id); return p && p.in_frame !== false ? [{ playerId, landmarks: gtLandmarks(p) }] : []; }) }));
-    const mean = (rs: { score: number }[]) => rs.reduce((n, r) => n + r.score, 0) / rs.length;
-    const gtRight = scoreRecords(right, mapping.length, gtLive, scene.aspect).results;
-    // Score lost to tracking as metrics.ts has it: the mean over players of each one's share.
-    const lostShare = (rs: { score: number }[]) => rs.reduce((n, r, i) => n + (gtRight[i].score - r.score) / Math.max(1, gtRight[i].score), 0) / rs.length;
-    const row: Record<string, unknown> = { estimator: est, scene: sid, category: scene.category, players: mapping.length,
-      gt_right: mean(gtRight), gt_wrong: mean(scoreRecords(wrong, mapping.length, gtLive, scene.aspect).results) };
-    // Idle control: the estimator's own output while the players stood still in setup, looped
-    // over the dance (somebody standing there instead of dancing).
-    const holdFrames = new Set(scene.gt.filter(f => mapping.every(id => f.people.find(p => p.id === id)?.phase === 'hold')).map(f => f.frame));
-    const idleSrc = tracked.filter(r => holdFrames.has(r.frame) && r.poses.length === mapping.length);
-    const idle = () => idleSrc.length < 30 ? null : live().filter(f => f.t >= window[0] - 1000).map((f, i) => {
-      const src = idleSrc[i % idleSrc.length];
-      return { ...f, poses: src.poses.map(p => ({ playerId: p.playerId, landmarks: p.kp.map(([x, y, z, c]: Joint) => ({ x, y, z, confidence: c })) })) };
-    });
-    // The same still-player control with GT poses, at the GT frame rate.
-    const gtIdleSrc = gtLive.filter((f, i) => holdFrames.has(scene.gt[i].frame) && f.poses.length === mapping.length);
-    if (gtIdleSrc.length >= 30) {
-      const gtIdle = gtLive.filter(f => f.captureMs >= window[0] - 1000).map((f, i) => ({ ...f, poses: gtIdleSrc[i % gtIdleSrc.length].poses }));
-      row.gt_idle = mean(scoreRecords(right, mapping.length, gtIdle, scene.aspect).results);
-    }
-    for (const [name, treat] of Object.entries(TREATMENTS)) {
-      const frames = live();
-      treat?.(frames);
-      const recs: LiveRecord[] = frames.map(f => ({ captureMs: f.t, receivedMs: f.received, poses: f.poses }));
-      const rightResults = scoreRecords(right, mapping.length, recs, scene.aspect).results;
-      row[`${name}:right`] = mean(rightResults);
-      row[`${name}:lost_share`] = lostShare(rightResults);
-      row[`${name}:wrong`] = mean(scoreRecords(wrong, mapping.length, recs, scene.aspect).results);
-      const still = idle();
-      if (still) { treat?.(still); row[`${name}:idle`] = mean(scoreRecords(right, mapping.length, still.map(f => ({ captureMs: f.t, receivedMs: f.received, poses: f.poses })), scene.aspect).results); }
-    }
-    rows.push(row);
-    console.log(est, sid, `baseline ${Math.round(row['baseline:right'] as number)} / wrong ${Math.round(row['baseline:wrong'] as number)}`, `hold-300 ${Math.round(row['hold-300:right'] as number)}`);
+/** Score every treatment and control for one estimator and scene. */
+export function robustnessScene({ est, sid }: { est: string; sid: string }) {
+  const dir = runDir(est, sid);
+  const metrics = readJson<{ expected_numbering?: { mapping: string[] } }>(path.join(dir, 'metrics.json'));
+  const mapping = metrics.expected_numbering?.mapping ?? [];
+  let scene: Scene;
+  try { scene = loadScene(sid); } catch { return null; }
+  const window = danceWindow(scene);
+  if (!window || !mapping.length || window[1] - window[0] < WRONG_SHIFT_MS + 2000) return null;
+  const right = referenceBundle(scene, mapping, window);
+  const wrong = referenceBundle(shifted(scene, window, WRONG_SHIFT_MS), mapping, window);
+  const tracked = readJsonl<TrackedFrame>(path.join(dir, 'tracked.jsonl')).filter(r => !r.dropped);
+  const live = () => tracked.map(r => ({ t: r.t_ms, received: r.received_ms, poses: r.poses.map(p => ({ playerId: p.playerId, landmarks: p.kp.map(([x, y, z, c]: Joint) => ({ x, y, z, confidence: c })) })) }));
+  const gtLive: LiveRecord[] = scene.gt.map(f => ({ captureMs: f.t_ms, receivedMs: f.t_ms, poses: mapping.flatMap((id, playerId) => { const p = f.people.find(q => q.id === id); return p && p.in_frame !== false ? [{ playerId, landmarks: gtLandmarks(p) }] : []; }) }));
+  const mean = (rs: { score: number }[]) => rs.reduce((n, r) => n + r.score, 0) / rs.length;
+  const gtRight = scoreRecords(right, mapping.length, gtLive, scene.aspect).results;
+  // Score lost to tracking as metrics.ts has it: the mean over players of each one's share.
+  const lostShare = (rs: { score: number }[]) => rs.reduce((n, r, i) => n + (gtRight[i].score - r.score) / Math.max(1, gtRight[i].score), 0) / rs.length;
+  const row: Record<string, unknown> = { estimator: est, scene: sid, category: scene.category, players: mapping.length,
+    gt_right: mean(gtRight), gt_wrong: mean(scoreRecords(wrong, mapping.length, gtLive, scene.aspect).results) };
+  // Idle control: the estimator's own output while the players stood still in setup, looped
+  // over the dance (somebody standing there instead of dancing).
+  const holdFrames = new Set(scene.gt.filter(f => mapping.every(id => f.people.find(p => p.id === id)?.phase === 'hold')).map(f => f.frame));
+  const idleSrc = tracked.filter(r => holdFrames.has(r.frame) && r.poses.length === mapping.length);
+  const idle = () => idleSrc.length < 30 ? null : live().filter(f => f.t >= window[0] - 1000).map((f, i) => {
+    const src = idleSrc[i % idleSrc.length];
+    return { ...f, poses: src.poses.map(p => ({ playerId: p.playerId, landmarks: p.kp.map(([x, y, z, c]: Joint) => ({ x, y, z, confidence: c })) })) };
+  });
+  // The same still-player control with GT poses, at the GT frame rate.
+  const gtIdleSrc = gtLive.filter((f, i) => holdFrames.has(scene.gt[i].frame) && f.poses.length === mapping.length);
+  if (gtIdleSrc.length >= 30) {
+    const gtIdle = gtLive.filter(f => f.captureMs >= window[0] - 1000).map((f, i) => ({ ...f, poses: gtIdleSrc[i % gtIdleSrc.length].poses }));
+    row.gt_idle = mean(scoreRecords(right, mapping.length, gtIdle, scene.aspect).results);
   }
+  for (const [name, treat] of Object.entries(TREATMENTS)) {
+    const frames = live();
+    treat?.(frames);
+    const recs: LiveRecord[] = frames.map(f => ({ captureMs: f.t, receivedMs: f.received, poses: f.poses }));
+    const rightResults = scoreRecords(right, mapping.length, recs, scene.aspect).results;
+    row[`${name}:right`] = mean(rightResults);
+    row[`${name}:lost_share`] = lostShare(rightResults);
+    row[`${name}:wrong`] = mean(scoreRecords(wrong, mapping.length, recs, scene.aspect).results);
+    const still = idle();
+    if (still) { treat?.(still); row[`${name}:idle`] = mean(scoreRecords(right, mapping.length, still.map(f => ({ captureMs: f.t, receivedMs: f.received, poses: f.poses })), scene.aspect).results); }
+  }
+  return row;
 }
-// Summary: per estimator and treatment, mean points kept vs GT (right) and mean wrong-dance score.
-const summary: Record<string, Record<string, { right_lost: number; wrong: number; idle: number; gt_idle: number; n: number; idle_n: number; gt_idle_n: number }>> = {};
-for (const r of rows) {
-  const s = summary[r.estimator as string] ??= {};
-  for (const name of Object.keys(TREATMENTS)) {
-    const e = s[name] ??= { right_lost: 0, wrong: 0, idle: 0, gt_idle: 0, n: 0, idle_n: 0, gt_idle_n: 0 };
-    e.right_lost += (r.gt_right as number) - (r[`${name}:right`] as number);
-    e.wrong += r[`${name}:wrong`] as number;
-    e.n++;
-    if (typeof r[`${name}:idle`] === 'number') { e.idle += r[`${name}:idle`] as number; e.idle_n++;
-      if (typeof r.gt_idle === 'number') { e.gt_idle += r.gt_idle; e.gt_idle_n++; }
+
+if (import.meta.main) {
+  const args = parseArgs(process.argv.slice(2), { estimators: "string", scenes: "string", out: "string", jobs: "string" }).opts;
+  const runs = path.join(DATA, 'runs');
+  const estimators = args.estimators ? String(args.estimators).split(',') : readdirSync(runs).filter(e => !e.startsWith('_'));
+  const prefixes = args.scenes ? String(args.scenes).split(',') : [];
+  const tasks: { est: string; sid: string }[] = [];
+  for (const est of estimators) {
+    if (!existsSync(path.join(runs, est))) continue;
+    for (const sid of readdirSync(path.join(runs, est)).sort()) {
+      if (sid.startsWith('_') || (prefixes.length && !prefixes.some(p => sid.startsWith(p)))) continue;
+      const dir = runDir(est, sid);
+      if (!existsSync(path.join(dir, 'tracked.jsonl')) || !existsSync(path.join(dir, 'metrics.json'))) continue;
+      tasks.push({ est, sid });
     }
   }
-}
-for (const s of Object.values(summary)) for (const e of Object.values(s)) { e.right_lost = Math.round(e.right_lost / e.n); e.wrong = Math.round(e.wrong / e.n); e.idle = e.idle_n ? Math.round(e.idle / e.idle_n) : NaN; e.gt_idle = e.gt_idle_n ? Math.round(e.gt_idle / e.gt_idle_n) : NaN; }
-const gtIdleRows = rows.filter(r => typeof r.gt_idle === 'number');
-const gtIdle = Math.round(gtIdleRows.reduce((n, r) => n + (r.gt_idle as number), 0) / Math.max(1, gtIdleRows.length));
-const gtWrong = Math.round(rows.reduce((n, r) => n + (r.gt_wrong as number), 0) / Math.max(1, rows.length));
-writeJson(String(args.out ?? path.join(DATA, 'reports', 'score-robustness.json')), { wrong_shift_ms: WRONG_SHIFT_MS, gt_wrong_mean: gtWrong, gt_idle_mean: gtIdle, summary, rows });
-console.log(`\nGT live vs wrong dance: ${gtWrong}; GT idle (all available scenes): ${gtIdle}`);
-for (const [est, s] of Object.entries(summary)) {
-  console.log(est, Object.entries(s).map(([k, v]) => `${k}: lost ${v.right_lost} wrong ${v.wrong} idle ${v.idle} GT idle (paired) ${v.gt_idle}`).join(' | '));
+  const rows = (await scenePool<Parameters<typeof robustnessScene>[0], ReturnType<typeof robustnessScene>>(
+    new URL(import.meta.url), robustnessScene, tasks, jobsOption(args.jobs))).filter(r => r !== null);
+  for (const row of rows) {
+    console.log(row.estimator, row.scene, `baseline ${Math.round(row['baseline:right'] as number)} / wrong ${Math.round(row['baseline:wrong'] as number)}`, `hold-300 ${Math.round(row['hold-300:right'] as number)}`);
+  }
+  // Summary: per estimator and treatment, mean points kept vs GT (right) and mean wrong-dance score.
+  const summary: Record<string, Record<string, { right_lost: number; wrong: number; idle: number; gt_idle: number; n: number; idle_n: number; gt_idle_n: number }>> = {};
+  for (const r of rows) {
+    const s = summary[r.estimator as string] ??= {};
+    for (const name of Object.keys(TREATMENTS)) {
+      const e = s[name] ??= { right_lost: 0, wrong: 0, idle: 0, gt_idle: 0, n: 0, idle_n: 0, gt_idle_n: 0 };
+      e.right_lost += (r.gt_right as number) - (r[`${name}:right`] as number);
+      e.wrong += r[`${name}:wrong`] as number;
+      e.n++;
+      if (typeof r[`${name}:idle`] === 'number') { e.idle += r[`${name}:idle`] as number; e.idle_n++;
+        if (typeof r.gt_idle === 'number') { e.gt_idle += r.gt_idle; e.gt_idle_n++; }
+      }
+    }
+  }
+  for (const s of Object.values(summary)) for (const e of Object.values(s)) { e.right_lost = Math.round(e.right_lost / e.n); e.wrong = Math.round(e.wrong / e.n); e.idle = e.idle_n ? Math.round(e.idle / e.idle_n) : NaN; e.gt_idle = e.gt_idle_n ? Math.round(e.gt_idle / e.gt_idle_n) : NaN; }
+  const gtIdleRows = rows.filter(r => typeof r.gt_idle === 'number');
+  const gtIdle = Math.round(gtIdleRows.reduce((n, r) => n + (r.gt_idle as number), 0) / Math.max(1, gtIdleRows.length));
+  const gtWrong = Math.round(rows.reduce((n, r) => n + (r.gt_wrong as number), 0) / Math.max(1, rows.length));
+  writeJson(String(args.out ?? path.join(DATA, 'reports', 'score-robustness.json')), { wrong_shift_ms: WRONG_SHIFT_MS, gt_wrong_mean: gtWrong, gt_idle_mean: gtIdle, summary, rows });
+  console.log(`\nGT live vs wrong dance: ${gtWrong}; GT idle (all available scenes): ${gtIdle}`);
+  for (const [est, s] of Object.entries(summary)) {
+    console.log(est, Object.entries(s).map(([k, v]) => `${k}: lost ${v.right_lost} wrong ${v.wrong} idle ${v.idle} GT idle (paired) ${v.gt_idle}`).join(' | '));
+  }
 }
