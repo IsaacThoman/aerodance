@@ -6,7 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 export const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 export const DATA = process.env.TRACKBENCH_DATA || '/Volumes/development/aerodance-trackbench';
-export const sceneDir = (id: string) => path.join(DATA, 'scenes', id);
+/**
+ * A scene's folder: scenes/<id>, or clips/<id> for a real clip without GT (kept out of scenes/ so
+ * suite runs that expect GT don't pick it up; run-game, track and pingpong.ts take it by name).
+ */
+export const sceneDir = (id: string) => {
+  const scene = path.join(DATA, 'scenes', id), clip = path.join(DATA, 'clips', id);
+  return !existsSync(scene) && existsSync(clip) ? clip : scene;
+};
 export const runDir = (estimator: string, scene: string) => path.join(DATA, 'runs', estimator, scene);
 
 // ---------------------------------------------------------------- formats
@@ -100,15 +107,39 @@ export const readJson = <T = unknown>(file: string): T => JSON.parse(readFileSyn
  */
 export function bootstrap(diffs: readonly number[], n = 4000, seed = 12345): [number, number] {
   if (diffs.length < 3) return [NaN, NaN];
+  const rand = mulberry32(seed);
+  const means: number[] = [];
+  for (let b = 0; b < n; b++) { let t = 0; for (let i = 0; i < diffs.length; i++) t += diffs[Math.floor(rand() * diffs.length)]; means.push(t / diffs.length); }
+  means.sort((a, b) => a - b);
+  return [means[Math.floor(0.025 * n)], means[Math.floor(0.975 * n)]];
+}
+function mulberry32(seed: number) {
   let state = seed >>> 0;
-  const rand = () => {
+  return () => {
     state = (state + 0x6d2b79f5) >>> 0;
     let t = Math.imul(state ^ (state >>> 15), 1 | state);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+/**
+ * bootstrap with clusters: scenes that share a render (post-only variants of one take: the same
+ * motion, framing and people) aren't independent, so whole clusters are resampled, and each
+ * resample's mean is over the scenes in it. With every cluster a single scene it is bootstrap.
+ * Fewer than three clusters: no interval.
+ */
+export function clusterBootstrap(diffs: readonly number[], clusters: readonly string[], n = 4000, seed = 12345): [number, number] {
+  const byCluster = new Map<string, number[]>();
+  diffs.forEach((d, i) => { const g = byCluster.get(clusters[i]); if (g) g.push(d); else byCluster.set(clusters[i], [d]); });
+  const groups = [...byCluster.values()];
+  if (groups.length < 3) return [NaN, NaN];
+  const rand = mulberry32(seed);
   const means: number[] = [];
-  for (let b = 0; b < n; b++) { let t = 0; for (let i = 0; i < diffs.length; i++) t += diffs[Math.floor(rand() * diffs.length)]; means.push(t / diffs.length); }
+  for (let b = 0; b < n; b++) {
+    let t = 0, k = 0;
+    for (let i = 0; i < groups.length; i++) { const g = groups[Math.floor(rand() * groups.length)]; for (const d of g) t += d; k += g.length; }
+    means.push(t / k);
+  }
   means.sort((a, b) => a - b);
   return [means[Math.floor(0.025 * n)], means[Math.floor(0.975 * n)]];
 }

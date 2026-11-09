@@ -4,14 +4,16 @@ import { readFileSync } from 'node:fs';
 import { focalLength } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
 import type { Vec3 } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
 import { workerSettings } from '../../../packages/pose/browser/WebcamPoseSource.ts';
-import { REPO } from './common.ts';
+import { REPO, bootstrap, clusterBootstrap } from './common.ts';
+import { compare } from './pp-report.ts';
+import type { Row } from './pp-report.ts';
 import type { DetFrame, GtFrame, GtJoint, GtPerson, Joint, Point3, Scene, TrackedFrame } from './common.ts';
 import { GameLoop, toDetected } from './gameloop.ts';
 import {
   bestLag, bladeOf, gtArm, invertRigid, jitter, motionStates, pingpongScene, quantile, raiseAgreement, raisedStates,
   speeds, stageToCamera, vectorStats, wantedSides,
 } from './pingpong.ts';
-import { gameInit, parseDetail, parseInputSize } from './run-game.ts';
+import { gameInit, parseDetail, parseInputSize, resolveDetail } from './run-game.ts';
 
 // ---------------------------------------------------------------- the worker's messages
 
@@ -29,6 +31,13 @@ test('run-game sets the worker up as WebcamPoseSource.connect does, unless an ex
   assert.match(source, /type: 'initialize', sessionId: this\.sessionId, \.\.\.workerSettings\(this\.playerCount\)/);
   assert.match(source, /postMessage\(detailRequest\(this\.detail, this\.playerCount, this\.handsWanted,/);
   assert.match(source, /type: 'frame', bitmap, seq: pending\.seq, timestampMs: mediaTimeMs, players: this\.players, lined: this\.tracker\.lined/);
+});
+
+test('--detail minigame:table-tennis asks what the minigame asks for', async () => {
+  assert.equal(await resolveDetail('minigame:table-tennis', 1), 'hands');
+  assert.equal(await resolveDetail('minigame:table-tennis', 2), 'hands:right/right');
+  assert.equal(await resolveDetail('world', 2), 'world');
+  await assert.rejects(resolveDetail('minigame:nope', 1));
 });
 
 test('--detail and --input-size parse as the game names them', () => {
@@ -242,4 +251,26 @@ test('pingpong metrics run on a clip without GT: found rate, jitter and rate onl
   assert.equal(m.summary.wrist_cm, null);
   assert.equal(m.summary.hand_found, 0);
   assert.equal(m.summary.pose_hz, 30);
+});
+
+test('the cluster bootstrap is the plain one with single-scene clusters, and wider when variants of one render move together', () => {
+  const d = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(x => x / 10);
+  assert.deepEqual(clusterBootstrap(d, d.map((_, i) => String(i))), bootstrap(d));
+  // Three renders, each with four identical variants: the interval is the three renders', not twelve scenes'.
+  const v = [0.1, 0.1, 0.1, 0.1, 0.5, 0.5, 0.5, 0.5, 0.9, 0.9, 0.9, 0.9], c = v.map((_, i) => String(Math.floor(i / 4)));
+  const [lo, hi] = clusterBootstrap(v, c), [plo, phi] = bootstrap(v);
+  assert.ok(hi - lo > phi - plo, `${lo}..${hi} vs ${plo}..${phi}`);
+  assert.deepEqual(clusterBootstrap([1, 2, 3], ['a', 'a', 'b']), [NaN, NaN]);
+});
+
+test('paired comparison: a paddle bias made smaller is better, a lower found rate worse', () => {
+  const row = (scene: string, bz: number, found: number): Row => ({ scene, cls: 'x/1p', cluster: scene,
+    summary: { wrist_bias_cm: [0, 0, bz], hand_found: found } as unknown as Row['summary'] });
+  const a = ['s1', 's2', 's3', 's4', 's5'].map((s, i) => row(s, -20 - i, 0.9));
+  const b = ['s1', 's2', 's3', 's4', 's5'].map((s, i) => row(s, 5 + i * 0.1, 0.5 + i * 0.01));
+  const cmp = compare(a, b);
+  const bias = cmp.columns.wrist_bias_z as { verdict: string; delta: number };
+  assert.equal(bias.verdict, 'better');
+  assert.ok(bias.delta < -10);
+  assert.equal((cmp.columns.hand_found as { verdict: string }).verdict, 'worse');
 });

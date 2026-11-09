@@ -3,9 +3,10 @@
 // tracker and setup (gameloop.ts) in the loop.
 //   node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime]
 //        [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--no-session] [--allow-cpu] [--running-mode IMAGE]
-//        [--detail none|world|hands|hands:<side>/<side>] [--input-size WxH]
+//        [--detail none|world|hands|hands:<side>/<side>|minigame:<id>] [--input-size WxH]
 // --detail asks the worker for what a minigame asks for (MinigameDefinition.tracking: Table Tennis
-// is 'hands' with one player, 'hands:right/right' with two), as WebcamPoseSource.setDetail does;
+// is 'hands' with one player, 'hands:right/right' with two; minigame:table-tennis asks it), as
+// WebcamPoseSource.setDetail does;
 // --input-size feeds the worker each frame scaled to that size (a 1280x960 render as the game's
 // 640x480 webcam).
 // Writes $TRACKBENCH_DATA/runs/<id>/<scene>/{detections.jsonl,tracked.jsonl,run.json}; the id is
@@ -117,8 +118,22 @@ export function gameInit(players: number, opts: RunOptions = {}) {
 /** --detail: none (the songs' default) or a PoseDetail. */
 export function parseDetail(value: unknown): PoseDetail | null {
   if (value === undefined || value === 'none') return null;
-  if (!isPoseDetail(value)) throw Error(`--detail is none, world, hands or hands:<left|right|both>/... (got ${String(value)})`);
+  if (!isPoseDetail(value)) throw Error(`--detail is none, world, hands, hands:<left|right|both>/... or minigame:<id> (got ${String(value)})`);
   return value;
+}
+
+/**
+ * --detail minigame:<id>: what that minigame's `tracking` asks for with this many players and
+ * its default options (Table Tennis: 'hands' alone, 'hands:right/right' for two); else parseDetail.
+ */
+export async function resolveDetail(value: unknown, players: number): Promise<PoseDetail | null> {
+  const m = typeof value === 'string' ? /^minigame:([a-z0-9-]+)$/.exec(value) : null;
+  if (!m) return parseDetail(value);
+  const file = path.join(REPO, 'apps/web/src/minigames', m[1], 'index.ts');
+  if (!existsSync(file)) throw Error(`No minigame ${m[1]}`);
+  const game = (await import(file)).default as { tracking?: PoseDetail | ((round: { playerCount: number; options: Record<string, string> }) => PoseDetail | null) };
+  const tracking = typeof game.tracking === 'function' ? game.tracking({ playerCount: players, options: {} }) : game.tracking ?? null;
+  return parseDetail(tracking ?? undefined);
 }
 
 /** --input-size WxH, or null for the frames' own size. */
@@ -168,7 +183,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
   const settings = gameInit(players, opts);
   const tiles = settings.tiles ?? null;
   const init = { type: 'initialize', sessionId: 'trackbench', ...settings, modelHash: POSE_MODELS[modelId].sha256, ...(runningMode === 'IMAGE' ? { runningMode } : {}) };
-  const detail = parseDetail(opts.detail);
+  const detail = await resolveDetail(opts.detail, players);
   const resize = parseInputSize(opts['input-size']);
   const input = resize ?? { width: scene.width, height: scene.height };
   if (resize && Math.abs(resize.width / resize.height - scene.aspect) > 0.01) log(`warning: --input-size ${resize.width}x${resize.height} changes the picture's shape (${scene.width}x${scene.height})`);
@@ -314,7 +329,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
       renderer, delegate: ready.delegate, fallback: ready.fallback, tiled: !!ready.tiled,
       dist: { snapshot: snapshot.dir, worker: snapshot.worker, commit: snapshot.commit },
       settings: { players, init: { ...init, tiles: tiles ?? null }, runningMode, timestamps: `frame t_ms + ${TIMESTAMP_OFFSET_MS}`, warmup_ms: Number(warmupMs.toFixed(1)), realtime, busyScale, session: !opts['no-session'],
-        detail, input, frame_size: { width: scene.width, height: scene.height }, hands_wanted: detail ? loop.handsWanted || loop.handsDropped : false },
+        detail, detail_asked: opts.detail ?? null, input, frame_size: { width: scene.width, height: scene.height }, hands_wanted: detail ? loop.handsWanted || loop.handsDropped : false },
       hands: { state: handsState, events: handsEvents, dropped_at_ms: loop.handsDroppedAt },
       ...(failure ? { error: failure, completed: false } : { completed: true }),
       machine: { host: os.hostname(), cpu: os.cpus()[0]?.model, platform: `${os.platform()} ${os.release()}` },
@@ -335,7 +350,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
 
 async function main() {
   const { positional: [sceneId], opts } = parseArgs(process.argv.slice(2), RUN_GAME_FLAGS);
-  if (!sceneId) { console.error('usage: node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime] [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--no-session] [--allow-cpu] [--running-mode IMAGE] [--detail none|world|hands|hands:<side>/<side>] [--input-size WxH]'); process.exit(2); }
+  if (!sceneId) { console.error('usage: node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime] [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--no-session] [--allow-cpu] [--running-mode IMAGE] [--detail none|world|hands|hands:<side>/<side>|minigame:<id>] [--input-size WxH]'); process.exit(2); }
   await runScene(sceneId, opts);
 }
 
