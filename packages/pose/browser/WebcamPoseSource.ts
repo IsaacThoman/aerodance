@@ -502,6 +502,12 @@ export class WebcamPoseSource {
     const receivedBrowserTimeMs = this.now();
     this.lastResult = receivedBrowserTimeMs;
     const frameAgeMs = receivedBrowserTimeMs - pending.frameBrowserTimeMs;
+    // How fast results come, the ones too old to use too: a camera too slow for two people's
+    // hands to give any fresh result must still drop them (watchHands).
+    this.resultTimes.push(receivedBrowserTimeMs);
+    this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
+    const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
+    this.watchHands(poseHz, receivedBrowserTimeMs);
     // Never let a slow result revive expired player readiness or contaminate a take.
     if (frameAgeMs >= 500) { this.dropped++; this.publish({ snapshot: null, message: 'Tracking is too slow. Try Lite or another camera.' }); return; }
     try {
@@ -514,10 +520,6 @@ export class WebcamPoseSource {
       this.completed++;
       this.emit({ record, receivedBrowserTimeMs, captureBrowserTimeMs: record.frameBrowserTimeMs,
         timing: { method: record.timingMethod } });
-      this.resultTimes.push(receivedBrowserTimeMs);
-      this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
-      const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
-      this.watchHands(poseHz, receivedBrowserTimeMs);
       this.publish({ status: 'connected', snapshot: { ...record, sourceKind: 'webcam', frameId: record.seq },
         stats: { poseHz, inferenceMs: data.inferenceMs, frameAgeMs, droppedFrames: this.dropped },
         message: `${poseModel(this.view.model).label} · ${this.view.delegate} · ${this.resultTimes.length > 1 ? `${poseHz.toFixed(1)} poses/s` : 'Measuring tracking speed…'}${poseHz < 15 && this.completed > 30 ? ' · Slow tracking; close other apps.' : ' · Step into view.'}` });
@@ -567,7 +569,7 @@ export class WebcamPoseSource {
     void bitmap.then(bitmap => {
       const worker = this.worker;
       if (generation !== this.generation || !worker) { bitmap.close(); return; }
-      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players }, [bitmap]);
+      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players, lined: this.tracker.lined }, [bitmap]);
     }).catch(error => { if (generation === this.generation) this.fail(error); });
   }
   schedule() {

@@ -6,11 +6,12 @@
  *
  *  - When the hands asked for fit (one person's two, or two people's paddle hands), each hand has
  *    a landmarker of its own in VIDEO mode, which follows it from frame to frame and skips the
- *    palm search while it keeps it. The pose model reports people in no lasting order, so each
- *    frame's people are matched to their landmarkers by where they stood last (their shoulders'
- *    middle in the picture: assignSlots), and when first seen by where they stand: each player
- *    may want a different hand (a left-handed player's paddle), and Player 1 stands furthest to
- *    the camera's right (playerRanks), as the player tracker numbers them.
+ *    palm search while it keeps it. Each player may want a different hand (a left-handed
+ *    player's paddle), so each person's are their player's, as the player tracker numbers them:
+ *    until it has lined them up (the first time they're all in view), by where they stand, Player
+ *    1 furthest to the camera's right (playerRanks); after that, the pose model reporting people
+ *    in no lasting order, by where they stood last (their shoulders' middle in the picture:
+ *    slotsFor).
  *  - When they don't (two people's both hands), one landmarker per side is shared, in IMAGE mode,
  *    looking afresh in each person's cuts: about half again the cost per hand, and it finds
  *    fewer.
@@ -110,6 +111,16 @@ export function assignSlots(slots: readonly (PicturePoint | null)[], people: rea
   };
   walk(0, [], 0, 0);
   return people.map((_, i) => best[i] ?? -1);
+}
+
+/**
+ * Which slot each person goes to (assignSlots), given whether the player tracker has lined the
+ * players up yet. Until then its numbers go by where people stand now (the first one in view isn't
+ * Player 1 if they stand to Player 2's side), so slots do too, and only after that by where their
+ * people stood last.
+ */
+export function slotsFor(slots: readonly (PicturePoint | null)[], people: readonly (PicturePoint | null)[], fresh: number, ranks: readonly number[], lined: boolean): number[] {
+  return assignSlots(lined ? slots : slots.map(() => null), people, fresh, ranks);
 }
 
 /** Whether a hand (its wrist, pixels) is its own person's: no nearer any other person's wrist than to its own. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TRACKED_HANDS, assignSlots, ownHand, personAt, playerRanks, tracksHands, wristsAt } from '../browser/hands.ts';
+import { TRACKED_HANDS, assignSlots, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from '../browser/hands.ts';
 import { detailHands, handsDetail, isPoseDetail } from '../webcamRecord.ts';
 
 const W = 640, H = 480;
@@ -32,6 +32,19 @@ test('fresh slots go to the players people stand as; after that, people keep the
   assert.deepEqual(assignSlots([null, null], [at(100), at(500)], 160, playerRanks([at(100), at(500)])), [1, 0]);
   // Once placed, where they stood last wins over where they stand now (they crossed over).
   assert.deepEqual(assignSlots([at(330), at(310)], [at(335), at(305)], 160, playerRanks([at(335), at(305)])), [0, 1]);
+});
+
+test('until the players are lined up, each person\'s slot is the player they stand as; after that, they keep it', () => {
+  // Player 2 (on the camera's left) steps in first and takes a slot; then Player 1 joins on the right.
+  const slots: (ReturnType<typeof at> | null)[] = [null, null];
+  const alone = slotsFor(slots, [at(100)], 160, playerRanks([at(100)]), false);
+  slots[alone[0]] = at(100);
+  const both = [at(100), at(500)];
+  assert.deepEqual(slotsFor(slots, both, 160, playerRanks(both), false), [1, 0], 'not yet lined up: Player 1\'s slot goes to the person on the right');
+  assert.deepEqual(assignSlots(slots, both, 160, playerRanks(both)), [0, 1], '(where they stood last would have kept the first one in it)');
+  // Lined up, people keep their slots as they cross.
+  assert.deepEqual(slotsFor([at(500), at(100)], [at(330), at(310)], 160, playerRanks([at(330), at(310)]), true), [0, 1]);
+  assert.deepEqual(slotsFor([at(500), at(100)], [at(310), at(330)], 160, playerRanks([at(310), at(330)]), false), [1, 0], 'not lined up: by where they stand now');
 });
 
 test('a detail asks for each player\'s hands', () => {

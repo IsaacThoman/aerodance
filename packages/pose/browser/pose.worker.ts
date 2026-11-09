@@ -3,7 +3,7 @@ import type { Landmark as WorldLandmark, NormalizedLandmark } from '@mediapipe/t
 import type { Point3 } from '../choreography.ts';
 import type { HandSide, TrackedHand } from '../webcamRecord.ts';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { MAX_HAND_PEOPLE, assignSlots, ownHand, personAt, playerRanks, tracksHands, wristsAt } from './hands.ts';
+import { MAX_HAND_PEOPLE, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from './hands.ts';
 import type { PicturePoint } from './hands.ts';
 import { fromCrop, fromTile, mergeTiles, outline, StripHiding } from './tiles.ts';
 import type { Crop, Tile } from './tiles.ts';
@@ -27,8 +27,12 @@ export type PoseWorkerRequest =
    * zoom lets one player be looked for in the middle of the picture (see MIDDLE).
    */
   | { type: 'initialize'; sessionId: string; playerCount: number; modelUrl: string; modelHash: string; wasmUrl: string; runningMode?: PoseRunningMode; looks?: boolean; tiles?: Tile[]; search?: boolean; zoom?: boolean }
-  /** players: how many players were found in the last result, which steers the strips (tiles.ts). */
-  | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number; players?: number }
+  /**
+   * players: how many players were found in the last result, which steers the strips (tiles.ts);
+   * lined: whether the player tracker has numbered them in line-up order yet (by default it has),
+   * until when each person's hands are those of the player they stand as (slotsFor in hands.ts).
+   */
+  | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number; players?: number; lined?: boolean }
   /**
    * The detail (WebcamPoseSource.setDetail), once the worker is ready: world keeps each person's
    * world landmarks with their result, and hands runs the Hand Landmarker on the wrists of the
@@ -405,11 +409,11 @@ function closeHands() {
 /**
  * The hands of each person found this frame, in their order, each person's being their player's
  * (playerRanks: Player 1 furthest to the camera's right). Following, each person goes to their
- * player's slot (assignSlots: where they stood last, whatever order the pose model reports them
- * in, and where they stand when first seen); shared, each looks with the one slot. (The pose
- * model looks for no more people than the players, so that's everyone.)
+ * player's slot (slotsFor: by where they stand until the players are lined up, then by where they
+ * stood last, whatever order the pose model reports them in); shared, each looks with the one
+ * slot. (The pose model looks for no more people than the players, so that's everyone.)
  */
-async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLandmark[][], timestampMs: number, running: Hands): Promise<TrackedHand[][]> {
+async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLandmark[][], timestampMs: number, running: Hands, lined: boolean): Promise<TrackedHand[][]> {
   const { width, height } = bitmap;
   const wrists = people.map((points) => wristsAt(points, width, height));
   const others = (i: number) => wrists.flatMap((w, j) => (j === i ? [] : w));
@@ -423,7 +427,7 @@ async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLand
     }
     return found;
   }
-  const order = assignSlots(running.slots.map((slot) => slot.at), at, width * 0.25, ranks);
+  const order = slotsFor(running.slots.map((slot) => slot.at), at, width * 0.25, ranks, lined);
   for (const [i, points] of people.entries()) {
     const slot = running.slots[order[i]];
     if (!slot) continue;
@@ -592,7 +596,7 @@ scope.onmessage = async ({ data }) => {
         let found: TrackedHand[][] | undefined;
         const running = hands;
         if (running && handModel) {
-          try { found = await findAllHands(data.bitmap, landmarks, data.timestampMs, running); }
+          try { found = await findAllHands(data.bitmap, landmarks, data.timestampMs, running, data.lined ?? true); }
           catch (error) {
             found = undefined;
             // (Unless they were turned off while it looked: closed under it.)

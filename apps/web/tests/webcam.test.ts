@@ -153,6 +153,9 @@ test('a fresh setup line-up renumbers two dancers without restarting the camera 
   assert.equal(f.opened, 1, 'camera stays open');
   assert.equal(f.terminated, 0, 'worker stays running');
   assert.equal(f.messages.filter(m => m.type === 'initialize').length, 1, 'model stays loaded');
+  // Each frame tells the worker whether the players are lined up, so whose hands are whose follows the numbering.
+  const lined = f.messages.flatMap(m => (m.type === 'frame' ? [m.lined] : []));
+  assert.deepEqual([lined[0], lined[11], lined[12], lined[23]], [false, true, false, true], 'until each line-up, and after it');
 });
 test('the newest frame that comes while one is in flight is sent as soon as its result is in', async t => {
   const f = fixture(t);
@@ -759,15 +762,16 @@ test('with three or four players the hands aren\'t looked for; the world landmar
 });
 
 test('two people\'s hands drop together when tracking stays too slow with them; one person\'s never drop on a webcam', async t => {
-  // Results at 10 a second (under HANDS_MIN_HZ) with the hand model on, for longer than HANDS_SLOW_MS.
-  const slowly = async (players: PlayerCount) => {
+  // Results at 10 a second (under HANDS_MIN_HZ) with the hand model on, for longer than HANDS_SLOW_MS
+  // (or, every one too old to use, at 1.5 a second).
+  const slowly = async (players: PlayerCount, { every = 100, age = 30 } = {}) => {
     const f = fixture(t);
     await f.source.setPlayerCount(players);
     f.source.setDetail('hands');
     await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
     f.deliver({ type: 'hands', state: 'on' });
-    for (let i = 0; i < 80; i++) {
-      await f.frame(1 + i / 10, 1000 + i * 100); f.setTime(1000 + i * 100 + 30);
+    for (let i = 0; i < 80 * 100 / every; i++) {
+      await f.frame(1 + i * every / 1000, 1000 + i * every); f.setTime(1000 + i * every + age);
       f.deliver({ type: 'result', seq: f.source.seq, landmarks: [detected(standingPose(0.5))], world: [worldLandmarks()], hands: [[]], inferenceMs: 20 });
     }
     return f;
@@ -781,6 +785,9 @@ test('two people\'s hands drop together when tracking stays too slow with them; 
     const one = await slowly(1);
     assert.equal(one.source.view.hands, 'on');
     assert.ok(!one.messages.some(m => m.type === 'detail' && !m.hands), 'one person\'s hands are never dropped here');
+    const stale = await slowly(2, { every: 650, age: 600 });
+    assert.equal(stale.source.view.snapshot, null, 'no result is fresh enough to use');
+    assert.equal(stale.source.view.hands, 'dropped', 'but they still drop the hands');
   } finally { console.warn = warn; }
   assert.ok(HANDS_MIN_HZ > 10 && HANDS_SLOW_MS < 8000, 'the test runs slower than the limit for longer than it allows');
 });
