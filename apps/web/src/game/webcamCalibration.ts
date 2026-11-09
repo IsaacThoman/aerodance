@@ -19,6 +19,12 @@ export const WEBCAM_MISS_MS = 200;
  */
 export const WEBCAM_STILL_FILTER_MS = 300;
 export const WEBCAM_STILL_FILTER = 5;
+/**
+ * The stance a hold is measured from follows the player over its first half second: at the end of
+ * a walk to their spot, a player slows over a few results, and a stance taken then sits most of the
+ * way to the tolerance from where they stand, so a little sway later restarts the hold.
+ */
+export const WEBCAM_SETTLE_MS = 500;
 const MIN_SAMPLES = 6;
 const MOVEMENT_TOLERANCE = 0.15; // Fraction of the initial torso length, independent of camera distance.
 // The joints calibration measures (calibratePoses): shoulders, hips and ankles. Hands don't
@@ -140,8 +146,8 @@ export class WebcamCalibration {
           return 'moving';
         }
       } else hold.startedAt = captureTime;
-      // The stance a hold is measured from settles over its first few results.
-      if (hold.frames.length < 3) hold.anchor = { playerId: id, landmarks: stance };
+      // The stance a hold is measured from settles over its first WEBCAM_SETTLE_MS.
+      if (captureTime - hold.startedAt! < WEBCAM_SETTLE_MS) hold.anchor = { playerId: id, landmarks: stance };
       hold.frames.push(pose);
       hold.seen = captureTime;
       return 'holding';

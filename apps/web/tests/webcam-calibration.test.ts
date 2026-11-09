@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WebcamCalibration, WEBCAM_MISS_MS, WEBCAM_STILL_MS, WEBCAM_FRAME_GAP_MS } from '../src/game/webcamCalibration.ts';
+import { WebcamCalibration, WEBCAM_MISS_MS, WEBCAM_SETTLE_MS, WEBCAM_STILL_MS, WEBCAM_FRAME_GAP_MS } from '../src/game/webcamCalibration.ts';
 import type { CalibrationRecord } from '../src/game/webcamCalibration.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
 import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
@@ -234,4 +234,20 @@ test('without feet, the shoulders and hips are enough to calibrate (the minigame
     assert.equal(status.complete, !feet);
     assert.deepEqual(status.players, feet ? ['body', 'body'] : ['ready', 'ready']);
   }
+});
+
+test('a hold is measured from where a player settles over its first half second, not where they were still slowing', () => {
+  // Arriving at their spot, a player slows over a few results and stops, then sways a little while
+  // they hold. (Shifts are in movement tolerances.)
+  const { calibration, send } = camera(1);
+  const [ls, rs, lh, rh] = [11, 12, 23, 24].map(i => standingPose(0.5)[i]);
+  const aspect = 1280 / 720, torso = Math.hypot(((ls.x + rs.x - lh.x - rh.x) / 2) * aspect, (ls.y + rs.y - lh.y - rh.y) / 2);
+  const tolerance = 0.15 * torso / aspect;
+  const settling = [0, 0.5, 1, 1.3, 1.45];
+  const shift = (time: number) => (time < WEBCAM_SETTLE_MS ? settling[time / 100] : 1.5 + 0.2 * Math.min(1, (time - WEBCAM_SETTLE_MS) / 1500)) * tolerance;
+  for (let time = 0; time < WEBCAM_STILL_MS; time += 100) {
+    send(time, [{ playerId: 0, landmarks: standingPose(0.5 + shift(time)) }]);
+    assert.deepEqual(calibration.status(time).players, ['holding'], `at ${time} ms`);
+  }
+  assert.equal(send(WEBCAM_STILL_MS, [{ playerId: 0, landmarks: standingPose(0.5 + shift(WEBCAM_STILL_MS)) }]), true);
 });
