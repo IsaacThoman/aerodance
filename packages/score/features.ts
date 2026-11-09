@@ -30,9 +30,9 @@ export const TOTAL_WEIGHT = LIMBS.reduce((n, l) => n + l.weight, 0);
 /**
  * A live joint below this confidence counts as untracked. It's well below the bundles' sampling
  * threshold (0.5) because an untracked limb scores 0, which costs more than one the tracker is
- * merely unsure of: on trackbench's 117 scenes, MediaPipe Lite's score lost to tracking falls
- * from 14.2% to 9.4% at 0.1, no scene scores worse, and dancing the wrong moves or standing
- * still gains no more than with perfect tracking (tools/trackbench/REPORT.md).
+ * merely unsure of: on trackbench's scenes, MediaPipe Lite's score lost to tracking falls from
+ * 14.2% to 9.4% at 0.1, no scene scores worse, and dancing the wrong moves or standing still
+ * scores about what it would with perfect tracking (tools/trackbench/REPORT.md).
  */
 export const MIN_CONFIDENCE = 0.1;
 

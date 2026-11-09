@@ -45,16 +45,18 @@ direction vectors, in image space corrected for aspect ratio, for ten limbs:
 
 Directions don't depend on height, distance from the camera or where the player stands,
 so no torso scaling or calibration is needed. Arms carry the most weight because they
-carry most of the choreography and are tracked most reliably. A live joint counts unless
-its confidence (min of visibility and presence) is below 0.1 (`MIN_CONFIDENCE` in
-`features.ts`). Version 1 dropped joints below 0.5. Untracked limbs score 0, and the tracker
-is unsure of many joints that are in the right place, so 0.5 cost players points for
-tracking rather than dancing. On trackbench's 117 synthetic scenes, 0.1 cut MediaPipe Lite's
-score lost to tracking from 14.2% to 9.4%, and no scene scored worse. Dancing the wrong moves
-or standing still gained no more than with perfect tracking
-([trackbench report](../tools/trackbench/REPORT.md)). Version 2 also keeps a limb the tracker loses
-for a moment (below): 0.6 points more kept, with the same two checks. Players compare
-directly with the stored, unmirrored pose: the coach is only mirrored on screen
+carry most of the choreography and are tracked most reliably. A live joint counts unless its
+confidence (min of visibility and presence) is below 0.1 (`MIN_CONFIDENCE` in `features.ts`),
+compared in the recording format's quantised confidence steps so live and replayed poses count
+the same joints. Version 1 dropped joints below 0.5. Untracked limbs score 0, and the tracker
+is unsure of many joints that are in the right place, so 0.5 cost players points for tracking
+rather than dancing. On trackbench's synthetic scenes, 0.1 cut MediaPipe Lite's score lost to
+tracking from 14.2% to 9.4%, and no scene scored worse. Dancing the wrong moves scores about
+what it would with perfect tracking (25.8% against 25.3%), and so does standing still (29.8%
+against 29.7%; a few points more where the legs are off the picture) ([trackbench
+report](../tools/trackbench/REPORT.md#scoring-unsure-joints-were-thrown-away)). Version 2 also
+keeps a limb the tracker loses for a moment (below). Players compare directly with the stored,
+unmirrored pose: the coach is only mirrored on screen
 (`coachMode: "mirror-player"`), and dancing the mirror image loses points.
 
 ## One interval (100 ms)
@@ -98,17 +100,18 @@ limb weight is **lost**: it scores 0.
 ## Evidence and limits
 
 [`packages/score/tests/scorer.test.ts`](../packages/score/tests/scorer.test.ts) uses the
-captured test routine's real tracking data. It checks these orderings:
+captured test routine's real tracking data. It checks these orderings. At 9 poses/s,
+timing jitter 30 ms and seed 1 (except the frame-rate comparison), the scores rounded to 0.1% are:
 
-| Attempt (both tracks) | Scorer v1 |
+| Attempt (both tracks) | Scorer v2 |
 | --- | --- |
-| Copying the routine exactly, at 5, 9 or 30 poses/s | 99–100%, S |
-| 100 ms late | about 99%, with the offset measured |
-| 200 ms late | 83–94% |
-| 400 ms late | 48–77% |
-| Mirror image of the routine | 71–81% |
-| Holding one pose throughout | 32–53% |
-| Half the song out of view | about 49% |
+| Copying the routine exactly, at 5, 9 or 30 poses/s | 99.1–100%, S |
+| 100 ms late | 98.9–99.5%, with the offset measured |
+| 200 ms late | 83.2–94.7% |
+| 400 ms late | 48.4–78.2% |
+| Mirror image of the routine | 71.0–81.8% |
+| Holding one pose throughout | 32.5–53.4% |
+| Half the song out of view | 47.7–48.5% |
 | Nobody in view | 0 |
 
 The tests also check that frame rate, duplicate records and out-of-order delivery leave

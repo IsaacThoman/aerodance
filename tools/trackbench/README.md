@@ -11,7 +11,7 @@ The findings, and the changes made because of them, are in [REPORT.md](REPORT.md
 | Part | What it does | Docs |
 |---|---|---|
 | [`CONTRACT.md`](CONTRACT.md) | Scene spec, ground-truth and detection formats, coordinates | |
-| [`scenes/`](scenes/) | The suite: one hand-editable JSON spec per scene, ~117 of them | [`SUITE.md`](scenes/SUITE.md) |
+| [`scenes/`](scenes/) | The suite: one hand-editable JSON spec per scene, 133 of them | [`SUITE.md`](scenes/SUITE.md) |
 | [`render.py`](render.py), [`blender/`](blender/) | Spec → frames, masks, `gt.jsonl` | [`GENERATOR.md`](blender/GENERATOR.md), [`ENVIRONMENT.md`](blender/ENVIRONMENT.md) |
 | [`post/`](post/) | Sensor and lens effects (noise, low light, blur, JPEG, ultrawide, rolling shutter) | [`ENVIRONMENT.md`](blender/ENVIRONMENT.md) |
 | [`harness/`](harness/) | The game's worker in Chromium/Metal, its tracker, calibration and scorer; metrics; reports | [`harness/README.md`](harness/README.md) |

@@ -16,10 +16,10 @@ How the webcam (or a paired phone's camera) turns people into players.
      and then never the other, so two players also get a **search**: a second landmarker that,
      while the first finds only one person, is shown the picture with that person hidden
      (their head, torso and legs) and follows whoever else is there. It costs a second
-     inference only while somebody is missing. In trackbench's two close-together scenes it
-     found the second player in 85-87% of frames instead of none
-     ([trackbench report](../tools/trackbench/REPORT.md)). Like the strips, it needs the GPU and
-     an extra landmarker, so the iPhone/iPad app goes without.
+     inference only while somebody is missing. In trackbench's close-together scenes it tracked
+     both players in 65-79% of frames instead of none, and cut the score lost to tracking from
+     50-69% to 20-35% ([trackbench report](../tools/trackbench/REPORT.md)). Like the strips, it
+     needs the GPU and an extra landmarker, so the iPhone/iPad app goes without.
      One player gets a **zoom**: MediaPipe's person detector misses somebody small in the picture
      (a 120° webcam, or far away) and finds them in its middle, enlarged. So while nobody has
      been found for a second, every other frame shows the landmarker the middle three quarters
