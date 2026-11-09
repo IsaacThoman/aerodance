@@ -10,7 +10,8 @@
 // per-frame camera_to_world (Blender: the camera looks down its -Z, +Y up).
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { BLADE_UP, DEFAULT_FOV, HAND_FILTERS, MITT, RAISED, REACH, SURELY_BACK, flatWorld, handPose } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
+import { DEFAULT_FOV, SURELY_BACK, flatWorld, handPose } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
+import { BLADE_UP, HAND_FILTERS, MITT, RAISED, REACH } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
 import type { HandInput, HandPose, PicturePoint, Side, Vec3, WorldPoint } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
 import { OneEuro } from '../../../apps/web/src/minigames/table-tennis/oneEuro.ts';
 import { detailHands } from '../../../packages/pose/webcamRecord.ts';
@@ -115,7 +116,7 @@ export function stageToCamera(worldToCamera: readonly number[], [X, Y, Z]: reado
 export interface GtArm { wrist: Vec3; dir: Vec3; across: Vec3; blade: Vec3; elbow: Vec3; shoulderCam: Vec3; wristCam: Vec3; }
 
 /**
- * Where Game.tsx draws the blade's centre from a HandPose, relative to the shoulder in the
+ * Where rig.ts (followHands) puts the blade's centre from a HandPose, relative to the shoulder in the
  * player's frame: the wrist (its reach scaled by REACH), then MITT and BLADE_UP along the hand.
  * (The game also eases it to the screen's rate and adds the aim assist's slide and its paddle
  * calibration's shift: a shift of the x and y bias, not depth; calibrate.ts.)
@@ -262,7 +263,7 @@ export function jitter(times: readonly number[], points: readonly Vec3[], mask: 
   return { rms: n ? Math.sqrt(sum / n) : null, n };
 }
 
-/** A hand raised (Game.tsx): its wrist above RAISED.up from its shoulder raises it, below RAISED.down lowers it; null (lost) lowers it. */
+/** A hand raised (round.ts): its wrist above RAISED.up from its shoulder raises it, below RAISED.down lowers it; null (lost) lowers it. */
 export function raisedStates(ys: readonly (number | null)[]): boolean[] {
   let up = false;
   return ys.map(y => (up = y !== null && y > (up ? RAISED.down : RAISED.up)));
@@ -296,7 +297,7 @@ export function filterHandPoses(poses: readonly { t: number; pose: HandPose }[])
 
 // ---------------------------------------------------------------- the game's view of a tracked pose
 
-/** A tracked pose as Game.tsx usePlayerHands reads it: landmarks with confidence as visibility, world (or flatWorld stand-ins). */
+/** A tracked pose as rig.ts trackHands reads it: landmarks with confidence as visibility, world (or flatWorld stand-ins). */
 export function gameInputs(pose: TrackedPose, size: { width: number; height: number }) {
   const image: PicturePoint[] = pose.kp.map(([x, y, z, c]) => ({ x, y, z, visibility: c ?? 1 }));
   const world: WorldPoint[] = pose.world ? pose.world.map(vec) : flatWorld(image, size);

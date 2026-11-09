@@ -2,7 +2,7 @@
 
 The Table Tennis minigame turns each tracked player into a first-person paddle: `arms.ts handPose`
 puts the wrist in the room from the pose, its world landmarks and the Hand Landmarker, the hand's
-axes give the paddle's turn, a one-euro filter smooths it, and Game.tsx draws the blade
+axes give the paddle's turn, a one-euro filter smooths it, and rig.ts puts the blade
 `REACH × wrist + (MITT + BLADE_UP) × dir` from the shoulder. This file is how to measure that
 against ground truth, and what the existing (dance) scenes say about it today.
 
@@ -39,8 +39,7 @@ stops sharing them).
 ## What pingpong.ts measures
 
 Everything is computed from `tracked.jsonl` with the game's own code: `handPose`, `flatWorld`,
-`OneEuro` with `HAND_FILTERS`, and `REACH`, `MITT`, `BLADE_UP` and `RAISED` (moved from Game.tsx
-into arms.ts so the harness can import them). Arrival times feed the filter, as in the game. GT
+`OneEuro` with `HAND_FILTERS`, and `REACH`, `MITT`, `BLADE_UP` and `RAISED` (in rig.ts). Arrival times feed the filter, as in the game. GT
 joints go to camera space through meta.json's per-frame `camera_to_world` (checked: 0.02 px
 reprojection, 0.1 mm depth on the pinhole scenes). Frame: the player's, as `handPose` reports it
 (x their right, y up, z back, so **bias z < 0 means the paddle is read nearer the camera than
@@ -51,7 +50,7 @@ the hand is**). Each record's poses are matched to GT people per frame, as metri
   length, its median and p90, and `unbiased_median` (the length once each axis's bias is gone).
   The same at the camera's true FOV instead of the assumed 65° (`wrist_true_fov`), and after the
   game's filter.
-- **Blade**: the blade centre Game.tsx draws, from tracked and GT wrist and `dir`. It leaves out
+- **Blade**: the blade centre rig.ts gives, from tracked and GT wrist and `dir`. It leaves out
   the screen-rate easing, the aim assist's slide and the paddle calibration's x/y shift. GT `dir`
   runs from the wrist to the middle knuckle: hand point 9 when the GT has 21 hand points, else
   midway between the index and pinky knuckles, as arms.ts does from the pose.
