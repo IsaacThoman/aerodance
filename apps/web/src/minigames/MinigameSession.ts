@@ -13,6 +13,7 @@ import type { GestureDetector, GestureEvent } from './pose/gestures.ts';
 import type { BestScoreStorage } from '../game/bestScores.ts';
 import { offers, resolveOptions, saveMinigameOption } from './options.ts';
 import { trackingFor } from './definition.ts';
+import { detailSides } from '../../../../packages/pose/webcamRecord.ts';
 import type { PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 import type { MinigameComponent, MinigameContext, MinigameDefinition, MinigameFrame, MinigameOutcome, MinigamePhase } from './types.ts';
 
@@ -301,7 +302,7 @@ export class MinigameSession implements MinigameContext {
     return this.live[player]?.frame(now, now - this.present[player] <= PRESENT_MS) ?? null;
   }
   calibration(player: number) { return this.live[player]?.calibration ?? null; }
-  handTracking() { return this.detail === 'hands' ? this.source?.view.hands ?? 'unavailable' : null; }
+  handTracking() { return detailSides(this.detail).length ? this.source?.view.hands ?? 'unavailable' : null; }
   report(state: Record<string, string | number | boolean | null>) {
     for (const [key, value] of Object.entries(state)) {
       const name = `mg${key.charAt(0).toUpperCase()}${key.slice(1)}`;

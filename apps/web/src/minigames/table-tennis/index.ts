@@ -27,9 +27,11 @@ const tableTennis: MinigameDefinition = {
   best: false,
   scene: 'custom',
   hud: { scores: false, timer: false },
-  // The 3D world landmarks always (for the arms' depth: arms.ts); the hands too for one player
-  // unless the Hand tracking setting is off (with two, the camera has no hands to give).
-  tracking: ({ playerCount, options }) => (playerCount === 1 && optionsOf(options).handTracking ? 'hands' : 'world'),
+  // The 3D world landmarks always (for the arms' depth: arms.ts), and the hands too unless the
+  // Hand tracking setting is off: both of one player's, and two players' paddle hands (the left
+  // only serves, which the pose's own wrist sees well enough; both of two players' would cost
+  // twice as much, as the camera can't follow them: packages/pose/browser/hands.ts).
+  tracking: ({ playerCount, options }) => (!optionsOf(options).handTracking ? 'world' : playerCount === 1 ? 'hands' : 'right-hand'),
   options: OPTIONS,
   order: 10,
   load: () => import('./Game.tsx'),

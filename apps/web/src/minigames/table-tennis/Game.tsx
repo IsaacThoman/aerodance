@@ -17,6 +17,7 @@ import { useMinigameFrame, useMinigameOverlay } from '../hooks.ts';
 import { MinigameWorld, SeenBy } from '../scene.tsx';
 import type { MinigameCameraProps } from '../scene.tsx';
 import type { MinigameContext, MinigamePhase } from '../types.ts';
+import type { HandTracking } from '../../../../../packages/pose/webcamRecord.ts';
 import type { RawPose } from '../pose/body.ts';
 import { DEFAULT_FOV, bodyTurn, flatWorld, handPose } from './arms.ts';
 import type { BodyTurn, HandPose, Side, Vec3 } from './arms.ts';
@@ -60,8 +61,9 @@ import type { OptionId, SceneId } from './options.ts';
  * the other as their glass dancer (Dancer, SeenBy the other's view), the dancer's hands the very
  * hands that hold the paddles, so a paddle is where it's seen. The ball waits over the server's
  * end; raising the left hand (or Space) tosses it up, for them to hit. Whoever's end a dead ball
- * finishes at serves next. Hand tracking needs one player in the picture, so with two the paddles
- * follow the pose's wrists and fingers.
+ * finishes at serves next. The camera tracks both players' paddle hands (index.ts tracking),
+ * unless the Hand tracking setting is off or tracking can't keep up with them (then both
+ * players' paddles follow the pose's wrists and fingers).
  *
  * The settings are the minigame's options (options.ts), and keys step them while playing:
  * B the bot's shots, R whether it returns everything (alone). Aim assist (assist.ts) always runs
@@ -938,13 +940,8 @@ function TableTennisHud({ ctx, rigs, play, hud }: { ctx: MinigameContext; rigs: 
           { text: `Aim assist Max  ·  Bot ${choiceLabel('botShots', play.botLevel)}, returns ${play.botAlways ? 'everything' : 'fair shots'}`, size: 18, color: '#dff4ff' },
           { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
         ];
-        // Tracking that isn't all there, said plainly; hand tracking turned off (the setting), calmly.
-        const warning = rig.flat ? 'This camera sends no 3D tracking: your arms\' depth is a guess'
-          : tracking === 'loading' ? 'Loading hand tracking…'
-            : tracking === 'dropped' ? 'Hand tracking is off (the phone was too slow): the paddle follows your arm'
-              : tracking === 'unavailable' ? 'No hand tracking: the paddle follows your arm' : null;
-        if (warning) lines.push({ text: warning, size: 18, color: '#ffe08a' });
-        else if (tracking === null) lines.push({ text: 'Hand tracking off (the setting): the paddle follows your arm', size: 18, color: '#dff4ff' });
+        const note = trackingNote(rig, tracking, false);
+        if (note) lines.push(note);
         lines.push({ text: 'Keys: Space serve · B bot shots · R bot returns', size: 16, color: '#cfe3f5' });
         const dev = devLine();
         if (dev) lines.push(dev);
@@ -966,9 +963,9 @@ function TableTennisHud({ ctx, rigs, play, hud }: { ctx: MinigameContext; rigs: 
           { text: status, size: 22 },
           { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
         ];
-        if (rig.flat) lines.push({ text: 'This camera sends no 3D tracking: your arms\' depth is a guess', size: 18, color: '#ffe08a' });
+        const note = trackingNote(rig, tracking, true);
+        if (note) lines.push(note);
         if (rig.end === 0) {
-          if (tracking !== 'on') lines.push({ text: 'Two players: the paddles follow your arms (no hand tracking)', size: 18, color: '#ffe08a' });
           lines.push({ text: 'Keys: Space serve', size: 16, color: '#cfe3f5' });
           const dev = devLine();
           if (dev) lines.push(dev);
@@ -977,6 +974,22 @@ function TableTennisHud({ ctx, rigs, play, hud }: { ctx: MinigameContext; rigs: 
       });
     },
   });
+  return null;
+}
+
+/**
+ * Tracking that isn't all there, said plainly: no 3D tracking from the camera, the hand model
+ * loading, dropped (too slow) or not to be had; hand tracking turned off (the setting), calmly.
+ * Nothing when it's all there. (With two players the hands come and go for both together.)
+ */
+function trackingNote(rig: Rig, tracking: HandTracking | null, two: boolean): HudLine | null {
+  const warn = (text: string): HudLine => ({ text, size: 18, color: '#ffe08a' });
+  const paddle = two ? 'the paddles follow your arms' : 'the paddle follows your arm';
+  if (rig.flat) return warn('This camera sends no 3D tracking: your arms\' depth is a guess');
+  if (tracking === 'loading') return warn('Loading hand tracking…');
+  if (tracking === 'dropped') return warn(`Hand tracking is off (tracking was too slow${two ? ' for two' : ''}): ${paddle}`);
+  if (tracking === 'unavailable') return warn(`No hand tracking: ${paddle}`);
+  if (tracking === null) return { text: `Hand tracking off (the setting): ${paddle}`, size: 18, color: '#dff4ff' };
   return null;
 }
 

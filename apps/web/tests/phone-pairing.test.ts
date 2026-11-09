@@ -44,7 +44,7 @@ class FakeCamera {
   setDetail(detail: PoseDetail | null) {
     if (detail === this.detail) return;
     this.detail = detail;
-    this.publish({ hands: detail === 'hands' ? (this.playerCount === 1 ? 'on' : 'unavailable') : undefined });
+    this.publish({ hands: detail === 'hands' ? (this.playerCount <= 2 ? 'on' : 'unavailable') : undefined });
   }
   dropHands() { if (this.view.hands === 'on') { this.dropped++; this.publish({ hands: 'dropped' }); } }
   emit(record: WebcamRecord) {

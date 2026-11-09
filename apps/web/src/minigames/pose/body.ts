@@ -48,7 +48,7 @@ export interface RawPose {
    */
   world: readonly Point3[] | null;
   /**
-   * With `tracking: 'hands'` and one player, the hands the Hand Landmarker found at their wrists
+   * With `tracking: 'hands'` and one or two players, the hands the Hand Landmarker found at their wrists
    * (none found: empty), each on the player's own side; null while it isn't running (ctx.handTracking()).
    */
   hands: readonly TrackedHand[] | null;

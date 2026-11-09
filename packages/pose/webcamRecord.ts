@@ -13,22 +13,28 @@ export const WEBCAM_TIMING_METHODS: readonly WebcamTimingMethod[] = ['browser-fr
 
 /**
  * Extra tracking a game can ask a live source for (PoseSource.setDetail in apps/web). 'world'
- * keeps MediaPipe's 3D world landmarks with each pose; 'hands' does too and, with one player,
- * runs the Hand Landmarker on their wrists, which costs tracking time. The songs never ask for
- * either, so their records stay as they were.
+ * keeps MediaPipe's 3D world landmarks with each pose; 'hands' does too and, with one or two
+ * players, runs the Hand Landmarker on both their wrists, which costs tracking time;
+ * 'right-hand' and 'left-hand' run it on that wrist only (a paddle hand), for half the cost.
+ * The songs never ask for any, so their records stay as they were.
  */
-export type PoseDetail = 'world' | 'hands';
-export const POSE_DETAILS: readonly PoseDetail[] = ['world', 'hands'];
+export type PoseDetail = 'world' | 'hands' | 'right-hand' | 'left-hand';
+export const POSE_DETAILS: readonly PoseDetail[] = ['world', 'hands', 'right-hand', 'left-hand'];
 export const isPoseDetail = (value: unknown): value is PoseDetail => POSE_DETAILS.includes(value as PoseDetail);
 /**
- * The hands, while they're asked for: their model loading, running, dropped by a phone too slow
- * to run it (the world landmarks carry on), or not to be had (more than one player, a replay, a
- * model that wouldn't load, a phone page too old to know of it).
+ * The hands, while they're asked for: their model loading, running, dropped because tracking
+ * was too slow with it (a paired phone, or a webcam with two people's hands; the world landmarks
+ * carry on), or not to be had (three or four players, a replay, a model that wouldn't load, a
+ * phone page too old to know of it).
  */
 export type HandTracking = 'loading' | 'on' | 'dropped' | 'unavailable';
 export const HAND_TRACKING: readonly HandTracking[] = ['loading', 'on', 'dropped', 'unavailable'];
 export type HandSide = 'left' | 'right';
 const HAND_SIDES: readonly HandSide[] = ['left', 'right'];
+/** The hands a detail asks the Hand Landmarker for (none for 'world' or none). */
+export function detailSides(detail: PoseDetail | null): HandSide[] {
+  return detail === 'hands' ? ['left', 'right'] : detail === 'right-hand' ? ['right'] : detail === 'left-hand' ? ['left'] : [];
+}
 /** MediaPipe's hand landmarks: the wrist, then four points up each of the thumb and fingers. */
 export const HAND_POINTS = 21;
 
@@ -49,7 +55,7 @@ export interface TrackedHand {
 /**
  * A pose from a live source: a song's Pose and, with the 'hands' detail, MediaPipe's 33 world
  * landmarks (metres from the hips' centre: x to the picture's right, y down, z away from the
- * camera) and, with one player, the hands found at their wrists (an empty list: none found).
+ * camera) and, with one or two players, the hands found at their wrists (an empty list: none found).
  */
 export interface LivePose extends Pose {
   world?: Point3[];

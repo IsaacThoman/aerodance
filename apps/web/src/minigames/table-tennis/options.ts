@@ -25,8 +25,9 @@ export const OPTIONS = [
   { id: 'botShots', label: 'Bot shots', choices: BOT_CHOICES, default: 'medium', players: [1] },
   { id: 'botReturns', label: 'Bot returns', choices: [{ value: 'everything', label: 'Everything' }, { value: 'fair', label: 'Fair shots' }], default: 'everything', players: [1] },
   // The Hand Landmarker (index.ts tracking): the paddle's angle and a surer wrist, for tracking
-  // time; off, the paddle follows the pose's own wrist and fingers. It runs for one player only.
-  { id: 'handTracking', label: 'Hand tracking', choices: [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], default: 'on', players: [1] },
+  // time; off, the paddle follows the pose's own wrist and fingers. With two players it runs on
+  // both paddle hands, and stands down for both if tracking can't keep up.
+  { id: 'handTracking', label: 'Hand tracking', choices: [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], default: 'on' },
 ] as const;
 export type OptionId = (typeof OPTIONS)[number]['id'];
 

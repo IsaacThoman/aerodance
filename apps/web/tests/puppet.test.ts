@@ -7,7 +7,7 @@ import { namedPose } from '../src/pose/puppet/poses.ts';
 import { runPuppetCommand, words } from '../src/pose/puppet/commands.ts';
 import { HANDS_LOAD_MS, puppetWorker } from '../src/pose/puppet/puppetCamera.ts';
 import { standingPose } from '../src/pose/ReplayPoseSource.ts';
-import type { PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
+import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 
 const near = (a: number, b: number, tolerance: number, what = '') => assert.ok(Math.abs(a - b) <= tolerance, `${what} ${a} is not within ${tolerance} of ${b}`);
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -310,6 +310,10 @@ test('asked for the hands detail, the puppet worker loads its hand model and ans
   assert.ok(replies.some((r) => r.type === 'hands' && r.state === 'on'));
   const on = await frame(3);
   assert.deepEqual(on.hands?.[0].map((h) => h.side), ['left', 'right']);
+  // A paddle hand alone: that side only.
+  worker.postMessage({ type: 'detail', world: true, hands: { modelUrl: 'hand_landmarker.task', modelHash: '', sides: ['right'] } });
+  await new Promise((resolve) => setTimeout(resolve, HANDS_LOAD_MS));
+  assert.deepEqual((await frame(5)).hands?.[0].map((h) => h.side), ['right']);
   worker.postMessage({ type: 'detail', world: false, hands: null });
   assert.deepEqual(Object.keys(await frame(4)).sort(), ['inferenceMs', 'landmarks', 'seq', 'sessionId', 'type']);
   worker.terminate();
@@ -347,4 +351,48 @@ test('through a real WebcamPoseSource with the hands detail, one puppet\'s recor
   assert.ok(pose, `${records.length} records`);
   assert.equal(pose.world?.length, 33);
   assert.deepEqual(pose.hands?.map((h) => h.side), ['left', 'right']);
+});
+
+test('through a real WebcamPoseSource with the hands detail, two puppets\' records each carry their own hands', async () => {
+  const { WebcamPoseSource } = await import('../../../packages/pose/browser/WebcamPoseSource.ts');
+  const puppet = new Puppet({ realism: { ...REALISM.clean, inferenceMs: 4 } });
+  const camera: { frame: VideoFrameRequestCallback | null } = { frame: null };
+  const track = { muted: false, stop() {}, getSettings: () => ({ deviceId: 'puppet' }), addEventListener() {} };
+  const stream = { getTracks: () => [track], getVideoTracks: () => [track] } as unknown as MediaStream;
+  const video = {
+    videoWidth: 640, videoHeight: 480, currentTime: 0, play: async () => {}, pause() {}, remove() {}, addEventListener() {},
+    requestVideoFrameCallback(fn: VideoFrameRequestCallback) { camera.frame = fn; return 1; }, cancelVideoFrameCallback() { camera.frame = null; },
+  } as unknown as HTMLVideoElement;
+  const requests: PoseWorkerRequest[] = [];
+  const source = new WebcamPoseSource({
+    mediaDevices: { getUserMedia: async () => stream, enumerateDevices: async () => [{ kind: 'videoinput', deviceId: 'puppet', label: 'Puppet camera' } as MediaDeviceInfo] },
+    createVideo: () => video, bitmap: async () => ({ close() {} }) as ImageBitmap,
+    createWorker: () => { const worker = puppetWorker(puppet); const post = worker.postMessage.bind(worker); worker.postMessage = (m: PoseWorkerRequest) => { requests.push(m); post(m); }; return worker; },
+    assetUrl: () => 'http://127.0.0.1/', settingsKey: 'puppet-test-two',
+  });
+  await source.setPlayerCount(2);
+  source.setDetail('hands');
+  const records: import('../../../packages/pose/webcamRecord.ts').WebcamRecord[] = [];
+  source.subscribeRecords((e) => { if ('record' in e) records.push(e.record); });
+  await source.connect();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const detail = requests.find((m) => m.type === 'detail');
+  assert.ok(detail?.type === 'detail' && detail.hands?.people === 2, 'both people\'s hands asked for');
+  await new Promise((resolve) => setTimeout(resolve, HANDS_LOAD_MS));
+  assert.equal(source.view.hands, 'on');
+  for (let i = 1; i <= 12; i++) {
+    camera.frame?.(i * 33, { mediaTime: i / 30 } as VideoFrameCallbackMetadata);
+    await new Promise((resolve) => setTimeout(resolve, 12));
+  }
+  source.disconnect();
+  const poses = records.at(-1)?.poses ?? [];
+  assert.equal(poses.length, 2, `${records.length} records`);
+  for (const pose of poses) {
+    assert.equal(pose.world?.length, 33);
+    assert.deepEqual(pose.hands?.map((h) => h.side), ['left', 'right'], `player ${pose.playerId}'s hands`);
+    // Each person's hands at their own wrists.
+    const wrist = pose.landmarks[15];
+    const hand = pose.hands!.find((h) => h.side === 'left')!;
+    assert.ok(Math.abs(hand.landmarks[0].x - wrist.x) < 0.1, `player ${pose.playerId}'s left hand at their left wrist`);
+  }
 });

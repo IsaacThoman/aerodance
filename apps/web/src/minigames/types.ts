@@ -106,7 +106,8 @@ export interface MinigameDefinition {
   /**
    * More from the camera than the pose API's landmarks, for a game that does its own geometry:
    * 'world' asks the camera for MediaPipe's 3D world landmarks with every pose, and 'hands' for
-   * those and, with one player, the Hand Landmarker's hands at their wrists (PlayerPose.raw), for
+   * those and, with one or two players, the Hand Landmarker's hands at their wrists ('right-hand'
+   * or 'left-hand': that one only, for half the cost) (PlayerPose.raw), for
    * as long as the round lasts (ctx.handTracking() says how the hands are doing). The hands cost
    * tracking time, so only the games that need them ask, and a game can let its players choose:
    * as a function, the round's player count and settings (options) say which it asks for, if any.
@@ -194,8 +195,8 @@ export interface MinigameContext {
   calibration(player: number): TrackCalibration | null;
   /**
    * How the hands are doing, for a round tracking 'hands' (null for others): their model
-   * loading, on, dropped by a paired phone too slow for it, or not to be had (more than one
-   * player, a replay, a phone page too old for it). Without them, PlayerPose.raw has no hands and
+   * loading, on, dropped because tracking was too slow with it (for both players together), or
+   * not to be had (three or four players, a replay, a phone page too old for it). Without them, PlayerPose.raw has no hands and
    * the pose's own wrist, index and pinky points are all there is.
    */
   handTracking(): HandTracking | null;

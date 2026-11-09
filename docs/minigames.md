@@ -289,27 +289,37 @@ their confidences), `world`, `hands`, `input` (the picture's size, always unmirr
 
 A game with `tracking` in its definition (Table Tennis's first-person paddle) gets more in it,
 for as long as its session lives (`PoseSource.setDetail`); the songs never ask for it. `'world'`
-brings the world landmarks, and `'hands'` those and the hands. As a function,
+brings the world landmarks, and `'hands'` those and the hands (`'right-hand'` or `'left-hand'`:
+one of them). As a function,
 `({ playerCount, options }) => 'hands' | 'world' | null` chooses per round, and a setting changed
-mid-round (`ctx.setOption`) asks the camera again: Table Tennis asks for the hands with one
-player and its **Hand tracking** setting on, and for the world landmarks otherwise.
+mid-round (`ctx.setOption`) asks the camera again: Table Tennis asks for the hands with its
+**Hand tracking** setting on (one player's both, two players' paddle hands), and for the world
+landmarks otherwise.
 
 - `world`: MediaPipe's 33 world landmarks, in metres from the hips' centre: x to the unmirrored
   picture's right, y down, z away from the camera. Their depths are the model's weakest output
   (flattened: a forearm pointing at the camera measures short there too); what holds up is the
   body's size across the picture, in metres, and a joint that's surely behind another. Null
   without the detail.
-- `hands`: with one player, the Hand Landmarker's hands, found in a square cut round each of the
-  pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`): `side` (the player's own
+- `hands`: with one or two players, the Hand Landmarker's hands, found in a square cut round each
+  of the pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`); with `'right-hand'`
+  or `'left-hand'`, that one only. Each Hand Landmarker needs a WebGL context, and Chrome keeps
+  at most four in a worker, the pose model's among them (`packages/pose/browser/hands.ts`): one
+  player's two hands, or two players' one each, are each followed from frame to frame, but two
+  players' both hands share a pair that looks afresh every frame, which costs about half again
+  per hand and finds fewer. Ask for only the hands the game needs. A hand nearer the other
+  person's wrist is left out. Each has `side` (the player's own
   hand, put on its side by the Hand Landmarker's handedness when the pose mixes up crossed
   wrists), 21 `landmarks` in the picture (unmirrored, z from the wrist, confidence null),
   21 `world` points in metres round the hand's middle, and `score` (how sure it is of the side).
   An empty list is no hand found; null is no Hand Landmarker running.
 
 `ctx.handTracking()` says how the hands are doing: `'loading'` (the 7.8 MB model downloads the
-first time it's asked for), `'on'`, `'dropped'` (a paired phone that couldn't keep 15 poses a
-second with it gave it up; the world landmarks carry on) or `'unavailable'` (more than one
-player, a replay, a phone page too old for it, a model that wouldn't load); null for a round
+first time it's asked for), `'on'`, `'dropped'` (tracking couldn't keep 15 poses a second with
+it for 4 seconds, so it stood down and the world landmarks carry on: a paired phone, or a webcam
+looking for two people's hands, both players' together; one player's never drop on a webcam) or
+`'unavailable'` (three or four players, a replay, a phone page too old for it, a model that
+wouldn't load); null for a round
 that didn't ask for the hands. Without hands, fall back on the pose's own wrist, index and pinky. Measure
 latency from `raw.capturedAt`. The hand model costs a phone or slow laptop tracking time, so
 only ask for it in a game that needs it, and consider letting players turn it off. A phone page

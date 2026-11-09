@@ -2,6 +2,7 @@ import { PoseSourceController } from '../../../../../packages/pose/browser/PoseS
 import { WebcamPoseSource } from '../../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PoseWorker } from '../../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../../../packages/pose/browser/pose.worker.ts';
+import { MAX_HAND_PEOPLE } from '../../../../../packages/pose/browser/hands.ts';
 import { CameraInput } from '../CameraInput.ts';
 import { Puppet, REALISM } from './Puppet.ts';
 import { PUPPET_USAGE, runPuppetCommand } from './commands.ts';
@@ -17,9 +18,9 @@ import { PUPPET_USAGE, runPuppetCommand } from './commands.ts';
  *
  * Each frame reports the puppets as they were captureMs before the browser saw it (a webcam's
  * own delay, which the browser can't measure) and arrives inferenceMs later, so latency and the
- * tracking rate are as honest as Puppet.realism makes them. Asked for the 'hands' detail, it
- * answers with world landmarks and hands from the puppets' own bodies (rig.ts), the hand model
- * taking HANDS_LOAD_MS to load.
+ * tracking rate are as honest as Puppet.realism makes them. Asked for a detail, it answers with
+ * world landmarks and (for a detail with hands: the sides asked for, for up to the people asked
+ * for) hands from the puppets' own bodies (rig.ts), the hand model taking HANDS_LOAD_MS to load.
  *
  * The page gets window.puppet: the Puppet, plus run('pose 0 tpose --ms 300') for the command
  * line (commands.ts), which `node scripts/play.ts puppet ...` sends.
@@ -44,8 +45,9 @@ export function puppetWorker(puppet: Puppet, { now = () => performance.now(), ra
   let sessionId: string | undefined;
   let looks = false;
   let closed = false;
-  // The detail: world landmarks kept, the hands asked for, and whether they've loaded.
-  let world = false, hands = false, handsOn = false;
+  // The detail: world landmarks kept, the hands asked for (for how many people, which sides), and whether they've loaded.
+  let world = false, hands = false, handsOn = false, people = 1;
+  let sides: readonly string[] = ['left', 'right'];
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const reply = (ms: number, response: PoseWorkerResponse) => {
     const timer = setTimeout(() => {
@@ -68,6 +70,8 @@ export function puppetWorker(puppet: Puppet, { now = () => performance.now(), ra
       } else if (message.type === 'detail') {
         world = message.world;
         hands = !!message.hands;
+        people = Math.min(MAX_HAND_PEOPLE, Math.max(1, message.hands?.people ?? 1));
+        sides = message.hands?.sides?.length ? message.hands.sides : ['left', 'right'];
         if (!hands) { handsOn = false; return; }
         // The hand model loads (unless it's turned off meanwhile), then says so.
         const timer = setTimeout(() => {
@@ -82,8 +86,8 @@ export function puppetWorker(puppet: Puppet, { now = () => performance.now(), ra
         // The frame shows the puppets a camera delay ago; tracking it takes inferenceMs, give or take.
         const found = puppet.detect(now() - puppet.realism.captureMs, { world, hands: handsOn });
         const inferenceMs = puppet.realism.inferenceMs * (0.85 + random() * 0.3);
-        // As the real worker: hands for the one person looked for.
-        const handsFound = handsOn ? (found.landmarks.length === 1 ? found.hands : found.landmarks.map(() => [])) : undefined;
+        // As the real worker: the sides asked for, for as many people as were asked for (the first ones found), none for anyone else.
+        const handsFound = handsOn ? found.hands.map((h, i) => (i < people ? h.filter((hand) => sides.includes(hand.side)) : [])) : undefined;
         reply(inferenceMs, { type: 'result', sessionId, seq: message.seq, landmarks: found.landmarks, inferenceMs, ...(looks ? { looks: found.looks } : {}),
           ...(world ? { world: found.world } : {}), ...(handsFound ? { hands: handsFound } : {}) });
       } else if (message.type === 'close') {
