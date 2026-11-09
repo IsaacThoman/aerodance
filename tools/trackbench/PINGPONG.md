@@ -39,7 +39,7 @@ stops sharing them).
 ## What pingpong.ts measures
 
 Everything is computed from `tracked.jsonl` with the game's own code: `handPose`, `flatWorld`,
-`OneEuro` with `HAND_FILTERS`, and `REACH`, `MITT`, `BLADE_UP` and `RAISED` (in rig.ts). Arrival times feed the filter, as in the game. GT
+`OneEuro` with `HAND_FILTERS`, and `REACH`, `MITT`, `BLADE_UP` and `RAISED` (in rig.ts). Capture times feed the filter, as in the game (rig.ts takeHand). GT
 joints go to camera space through meta.json's per-frame `camera_to_world` (checked: 0.02 px
 reprojection, 0.1 mm depth on the pinhole scenes). Frame: the player's, as `handPose` reports it
 (x their right, y up, z back, so **bias z < 0 means the paddle is read nearer the camera than

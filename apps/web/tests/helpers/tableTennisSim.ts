@@ -227,9 +227,9 @@ class Camera {
       const pose = this.queue.shift()!;
       rig.tracked = true;
       const ms = now * 1000;
-      if (pose.wrist) takeHand(rig, rig.paddle, heldPose(rig.paddle, pose.wrist), ms, this.filters);
+      if (pose.wrist) takeHand(rig, rig.paddle, heldPose(rig.paddle, pose.wrist), ms, this.filters, pose.taken * 1000);
       const out = rig.free === 'left' ? -0.05 : 0.05;
-      takeHand(rig, rig.free, heldPose(rig.free, pose.raised ? { x: out, y: 0.3, z: -0.15 } : { x: out, y: -0.4, z: -0.1 }), ms, this.filters);
+      takeHand(rig, rig.free, heldPose(rig.free, pose.raised ? { x: out, y: 0.3, z: -0.15 } : { x: out, y: -0.4, z: -0.1 }), ms, this.filters, pose.taken * 1000);
       takeAge(rig, (now - pose.taken) * 1000);
     }
   }

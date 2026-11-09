@@ -190,7 +190,7 @@ function squareTo(a: Vec3, dir: Vec3): Vec3 | null {
 /**
  * A player's hands from a pose as it arrives (`now`, ms): arms.ts on its picture and world
  * landmarks (stand-ins from the picture when the camera sends none) and the hands found, one-euro
- * filtered; and how their torso and head are turned. The tracking's delay is each pose's age
+ * filtered by capture time; and how their torso and head are turned. The tracking's delay is each pose's age
  * when it's first seen. A stand-in's hands (autoplay) are its own. A pose already taken in is
  * left alone.
  */
@@ -204,15 +204,19 @@ export function trackHands(rig: Rig, raw: RawPose | null | undefined, now: numbe
   rig.body = bodyTurn(pose.world, image);
   if (!rig.autoplay) {
     const read = readHands(pose, raw.hands, raw.input, fov);
-    for (const side of SIDES) { const next = read[side]; if (next) takeHand(rig, side, next, now, filters); }
+    for (const side of SIDES) { const next = read[side]; if (next) takeHand(rig, side, next, now, filters, raw.capturedAt); }
   }
   takeAge(rig, now - raw.capturedAt);
 }
 
-/** A hand as the tracker found it at `now` (ms), filtered, for the scene's hand to follow. */
-export function takeHand(rig: Rig, side: Side, next: HandPose, now: number, filters: HandFilters) {
+/**
+ * A hand as the tracker found it, arriving at `now` (ms), filtered, for the scene's hand to follow.
+ * The filters go by when its frame was captured (`capturedAt`, ms, the same clock), so a pose
+ * that took longer to come isn't taken as the hand having moved more slowly.
+ */
+export function takeHand(rig: Rig, side: Side, next: HandPose, now: number, filters: HandFilters, capturedAt = now) {
   rig.before[side] = rig.hands[side];
-  rig.hands[side] = { at: now, pose: intake(filters.sides[side], next, now / 1000) };
+  rig.hands[side] = { at: now, pose: intake(filters.sides[side], next, capturedAt / 1000) };
 }
 
 /** A pose's age (ms) when it was first seen: the tracking's delay, averaged. */

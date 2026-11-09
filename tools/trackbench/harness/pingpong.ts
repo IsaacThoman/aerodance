@@ -290,7 +290,7 @@ export function raiseAgreement(times: readonly number[], gt: readonly boolean[],
   };
 }
 
-/** The game's intake (rig.ts intake: its filters) over one hand's poses, each at its arrival time (s). */
+/** The game's intake (rig.ts intake: its filters) over one hand's poses, each at its capture time (s), as rig.ts takeHand. */
 export function filterHandPoses(poses: readonly { t: number; pose: HandPose }[]): HandPose[] {
   const f = newHandIntake();
   return poses.map(({ t, pose }) => intake(f, pose, t));
@@ -438,7 +438,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
         const atFov = readFov?.[side] ?? null;
         const key = `${pose.playerId}|${side}`;
         if (!perHand.has(key)) perHand.set(key, []);
-        perHand.get(key)!.push({ t: r.received_ms / 1000, pose: raw, trueFov: atFov, r, person });
+        perHand.get(key)!.push({ t: r.t_ms / 1000, pose: raw, trueFov: atFov, r, person });
       }
     });
   }
