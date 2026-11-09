@@ -126,6 +126,10 @@ test("bodyTurn reads the torso's and head's turns, the player's own way round", 
   assert.ok(bodyTurn(body({ 11: { x: 0.18, y: -0.5, z: 0.15 }, 12: { x: -0.18, y: -0.5, z: 0.15 } }), image)!.pitch > 0.2);
   // The nose to the picture's right (the player's left): the head turned to their left.
   assert.ok(bodyTurn(body({ 0: { x: 0.08, y: -0.7, z: -0.07 } }), image)!.headYaw > 0.3);
+  // A flat world (a camera that sends no world landmarks: flatWorld) has no depth to turn the
+  // head by, so it follows the body, however the nose falls in the picture.
+  const flat = (noseX: number) => bodyTurn(body({ 0: { x: noseX, y: -0.7, z: 0 } }), image)!.headYaw;
+  for (const x of [-0.001, 0, 0.001]) assert.ok(Math.abs(flat(x)) < 1e-12);
   // No shoulders seen, no turn.
   assert.equal(bodyTurn(body(), image.map((p, i) => (i === 12 ? { ...p, visibility: 0 } : p))), null);
 });

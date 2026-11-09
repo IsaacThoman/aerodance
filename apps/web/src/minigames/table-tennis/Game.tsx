@@ -350,7 +350,7 @@ function useHandGeometry(side: Side) {
   return geometry;
 }
 
-/** The gel as a look has it (Character's appearance): the first-person hands at the gel's own opacity, the dancers' at their look's. */
+/** The gel as a look has it (Character's appearance), at this opacity (the gel's own, 0.72, by default). */
 function useGel(look: CharacterAppearance, opacity?: number) {
   const gel = useMemo(() => {
     const material = createGelMaterial();
@@ -398,7 +398,7 @@ function Paddle({ rubber, forgiving }: { rubber: string; forgiving: boolean }) {
 function Hand({ side, rig, forgiving, two }: { side: Side; rig: Rig; forgiving: boolean; two: boolean }) {
   const geometry = useHandGeometry(side);
   const gel = useGel(DANCER_LOOKS[rig.end], 0.72);
-  const dancerGel = useGel(DANCER_LOOKS[rig.end]);
+  const dancerGel = useGel(DANCER_LOOKS[rig.end], DANCER_LOOKS[rig.end].opacity);
   const shadowOnly = useMemo(() => new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }), []);
   useEffect(() => () => shadowOnly.dispose(), [shadowOnly]);
   const group = useRef<THREE.Group>(null);

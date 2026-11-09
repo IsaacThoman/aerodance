@@ -239,8 +239,9 @@ floor is where its dancers stand (`meta.dancers` in `packages/stages/<id>/meta.t
   view). Put player 1 in the left view: they stand on the left of the mirror.
 - **`<SeenBy views={[1]}>`**: things only some views draw, such as a first-person player's own
   body, which the others see but which would fill its owner's view from inside. A world with one
-  view is view 0. They go on the views' own layers, so they cast no shadows: give anything whose
-  shadow matters a stand-in that draws nothing (`colorWrite: false`) but casts it. Table Tennis
+  view is view 0. They go on the views' own layers and cast no shadows (the shadow maps are drawn
+  once, for every view): give anything whose shadow matters a stand-in outside it that draws
+  nothing (`colorWrite: false`) but casts it. Table Tennis
   does this for each player's first-person hands and gives the other player a bigger mitt in their
   dancer's proportions, holding the same paddle.
 

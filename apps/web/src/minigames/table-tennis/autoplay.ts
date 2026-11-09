@@ -1,6 +1,6 @@
 /*
- * A stand-in player, for development (window.tableTennis.autoplay in Game.tsx, and the rally
- * tests): where its paddle's blade goes, in its own frame (rally.ts mine: it stands at +z), to
+ * A stand-in player, for development (Game.tsx: the O and P keys, or
+ * window.tableTennis.rigs[i].autoplay; and the rally tests): where its paddle's blade goes, in its own frame (rally.ts mine: it stands at +z), to
  * meet each ball that comes at it. It waits at home, lines up behind where the ball will cross
  * its hitting plane, and swings forward through it as it arrives. The game sets its hands where
  * a tracked player's would be, so it plays through the real paddle, aim assist and all.

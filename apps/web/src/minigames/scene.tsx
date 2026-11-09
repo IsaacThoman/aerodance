@@ -152,6 +152,7 @@ export function MinigameWorld({ camera: cameraProps = {}, background = '#a8dcff'
   }, [gl, shadows]);
   return createPortal(
     <>
+      <PortalCamera camera={camera} />
       <RenderPipeline samples={0} bloom={!diagnostic('nobloom')} settings={settings} />
       {environment ?? <StageEnvironment preset="room" />}
       {children}
@@ -170,13 +171,30 @@ export interface SeenByProps {
 /**
  * Its children, drawn only in some of a split screen's views: a first-person player's own body,
  * say, which the other players see but which would fill its owner's view from inside. Its things
- * go on the views' own layers (whatever they load later included), so they cast no shadows.
+ * go on the views' own layers (whatever they load later included), and cast no shadows: shadow
+ * maps are drawn once, for all the views, so a shadow can't be for some of them only. Give
+ * anything whose shadow matters a stand-in outside that draws nothing (colorWrite: false) but
+ * casts it.
  */
 export function SeenBy({ views, children }: SeenByProps) {
   const group = useRef<THREE.Group>(null);
   const mask = views.reduce((m, i) => m | (1 << (VIEW_LAYER + i)), 0);
-  useFrame(() => { group.current?.traverse((o) => { o.layers.mask = mask; }); });
+  useFrame(() => {
+    group.current?.traverse((o) => {
+      o.layers.mask = mask;
+      o.castShadow = false;
+    });
+  });
   return <group ref={group}>{children}</group>;
+}
+
+// The portal takes the camera it was made with; a camera that changes later (a world splitting,
+// or its views' count changing) is handed to it.
+function PortalCamera({ camera }: { camera: THREE.PerspectiveCamera }) {
+  const set = useThree((s) => s.set);
+  const current = useThree((s) => s.camera);
+  useLayoutEffect(() => { if (current !== camera) set({ camera }); }, [camera, current, set]);
+  return null;
 }
 
 export interface MinigameLayerProps {

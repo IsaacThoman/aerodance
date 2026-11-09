@@ -214,13 +214,14 @@ export function bodyTurn(world: readonly WorldPoint[], image: readonly PicturePo
     const up = view(sub(mid(world[11], world[12]), mid(world[23], world[24])));
     turn.pitch = clampTo(Math.atan2(up.z, up.y), 0.45);
   }
+  // The head's turn needs the face's depth: without it (flatWorld's stand-ins are flat) it
+  // follows the body's.
+  turn.headYaw = turn.yaw;
   if ([0, 7, 8].every(seen)) {
     const face = view(sub(world[0], mid(world[7], world[8])));
     const ears = view(sub(world[8], world[7]));
-    turn.headYaw = clampTo(Math.atan2(-face.x, -face.z), 1.1);
+    if (-face.z > 0.02) turn.headYaw = clampTo(Math.atan2(-face.x, -face.z), 1.1);
     turn.headRoll = clampTo(Math.atan2(ears.y, Math.hypot(ears.x, ears.z)), 0.6);
-  } else {
-    turn.headYaw = turn.yaw;
   }
   return turn;
 }
