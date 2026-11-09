@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import { bundleFixture, choreographyBytes, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
+import { settingsButton } from './helpers/menu.ts';
 import { gameLayout, resultsRetry, resultsSongs } from '../src/game/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
 import { glassLabelX } from '../src/ui/draw.ts';
@@ -23,7 +24,7 @@ import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
 const viewport = mode === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 };
-const { ASPECT, BACK: MENU_BACK, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, START, STATS } = menuLayout(design.w);
+const { ASPECT, BACK: MENU_BACK, FULLSCREEN, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, START, STATS } = menuLayout(design.w);
 const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, GAME_QUIT, GAME_RESUME, SCROLLBAR, castRow, rowRect } = gameLayout(design.w);
 
 /** A layout rect or circle, or a widget with a rect, in design units. */
@@ -129,7 +130,7 @@ try {
   assert.deepEqual(await page.locator('canvas').evaluate((c) => [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height]), [640, 480]);
 
   // Settings holds the sound controls; nothing before the calibration screen asks for the camera.
-  await click(SETTINGS);
+  await click(await settingsButton(page, design.w));
   await menuOn('settings');
   await shot('settings');
   assert.equal(await page.evaluate(() => (window as TestWindow).webcamRequests), 0);

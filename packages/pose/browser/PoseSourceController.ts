@@ -1,6 +1,7 @@
 import { WebcamPoseSource } from './WebcamPoseSource.ts';
 import type { Listener, WebcamConfigureOptions, WebcamRecordEvent, WebcamSnapshot, WebcamView } from './WebcamPoseSource.ts';
 import type { PlayerCount } from '../choreography.ts';
+import type { PoseDetail } from '../webcamRecord.ts';
 
 /** A webcam snapshot with the clock its times are on. */
 export interface PoseSourceSnapshot extends WebcamSnapshot {
@@ -40,6 +41,7 @@ export class PoseSourceController {
   disconnect() { this.source.disconnect(); }
   setPlayerCount(count: PlayerCount) { this.playerCount = count; return this.source.setPlayerCount(count); }
   resetTracking() { this.source.resetTracking(); }
+  setDetail(detail: PoseDetail | null) { this.source.setDetail(detail); }
   configure(options?: WebcamConfigureOptions) { return this.source.configure(options); }
   refreshCameras() { return this.source.refreshCameras(); }
 }

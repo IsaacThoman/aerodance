@@ -17,6 +17,7 @@ import { chromium, webkit } from 'playwright';
 import type { FileChooser } from 'playwright';
 import { silentWav } from './fixtures/songBundle.ts';
 import { menuLayout } from '../src/menu/layout.ts';
+import { settingsButton } from './helpers/menu.ts';
 import { gameLayout, resultsSongs } from '../src/game/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
@@ -26,7 +27,7 @@ import { decodePoseFile, encodePoseFile } from '../../../packages/pose/binary.ts
 // UI_ASPECT=standard runs it in a 4:3 window.
 const mode = process.env.UI_ASPECT === 'standard' ? 'standard' : 'widescreen';
 const design = DISPLAY_MODES[mode];
-const { BACK: MENU_BACK, PLAYERS_GO, SETTINGS, SONGS, SONG_IMPORT, SONG_TRASH, SOUND, START } = menuLayout(design.w);
+const { BACK: MENU_BACK, PLAYERS_GO, SONGS, SONG_IMPORT, SONG_TRASH, SOUND, START } = menuLayout(design.w);
 const { BACK, DANCE, rowRect } = gameLayout(design.w);
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
@@ -147,7 +148,7 @@ try {
   };
   const toSettings = async () => {
     await load();
-    await click(SETTINGS);
+    await click(await settingsButton(page, design.w));
     await until({ menuScreen: 'settings', menuReady: 'true', savedSongs: /^\d+$/ });
   };
   // Start opens the dial on 2.

@@ -3,9 +3,12 @@ export const TITLE = { x: 124, y: 418, size: 156 };
 // On the players screen the title rises to make room for the dial.
 export const PLAYERS_TITLE_Y = 210;
 
-// Main screen.
+// Main screen: Start, then Minigames (while there are any, minigames/registry.ts), then Settings.
 export const START = { x: 128, y: 482, w: 440, h: 104 };
+export const MINIGAMES = { x: 128, y: 602, w: 440, h: 104 };
 export const SETTINGS = { x: 128, y: 602, w: 440, h: 104 };
+// Where Settings goes under Minigames.
+const SETTINGS_BELOW = 722;
 
 // Settings: back button + small caps heading top left, where Song Select has its own
 // (game/layout.ts); the title fades out to make room for the Sound and Graphics panels.
@@ -37,9 +40,10 @@ const GRAPHICS_ROW_H = ROW_H + 10;
 
 /**
  * Compact menus leave a separate area for the dancers on the right. Graphics has a Fullscreen
- * row only where the page can go fullscreen.
+ * row only where the page can go fullscreen, and the main screen a Minigames button only while
+ * there are minigames to play (the canvas reports data-menu-minigames).
  */
-export function menuLayout(width = 1600, fullscreen = true) {
+export function menuLayout(width = 1600, fullscreen = true, minigames = false) {
   const compact = width === 1200;
   const x = compact ? 72 : 128;
   // Shapes from the left edge of the 16:9 layout, moved to this one's.
@@ -70,7 +74,8 @@ export function menuLayout(width = 1600, fullscreen = true) {
   return {
     TITLE: { ...TITLE, x: x - 4, size: compact ? 122 : TITLE.size },
     START: { ...START, x, w: compact ? 400 : START.w },
-    SETTINGS: { ...SETTINGS, x, w: compact ? 400 : SETTINGS.w },
+    MINIGAMES: minigames ? { ...MINIGAMES, x, w: compact ? 400 : MINIGAMES.w } : null,
+    SETTINGS: { ...SETTINGS, x, y: minigames ? SETTINGS_BELOW : SETTINGS.y, w: compact ? 400 : SETTINGS.w },
     BACK: { ...BACK, x: x + 38 },
     PLAYERS_BACK: left(PLAYERS_BACK),
     PLAYERS_GO: left(PLAYERS_GO),
