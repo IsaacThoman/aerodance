@@ -471,8 +471,10 @@ Table Tennis), and the game's own `mg*` keys; a round's settings are
 `mgServer`, `mgHits1` and `mgHits2`; in development its O and P keys put a stand-in
 (`table-tennis/autoplay.ts`) in for the first and last player, which plays through the real
 paddle and aim assist (`mgAutoplay` says who), so a two-player rally can run with puppets standing
-still, and `window.tableTennis` has the ball, the players and the camera (a split screen's views in
-`camera.cameras`) for staged shots. The puppet works for the song game too: its calibration and scoring
+still (the stand-ins serve too, by swinging through the waiting ball; puppets standing still serve
+and hit nothing), and `window.tableTennis` has the round (`round`: its ball, players and settings)
+and the camera (a split screen's views in `camera.cameras`) for staged shots. `?assist=off|low|normal|high`
+sets its aim assist (the A key steps it). The puppet works for the song game too: its calibration and scoring
 run on it.
 
 ### In unit tests
@@ -482,6 +484,14 @@ real player tracker, the webcam calibration and the pose followers on a fake clo
 `apps/web/tests/minigames.test.ts` runs a whole round of `MinigameSession` that way. A game's
 logic can be tested the same way: make a session with a puppet source, move the puppets, step the
 clock and call `session.advance()`, and assert on `session.scores()` and what the game reported.
+
+Table Tennis goes a step further: its round is plain code (`table-tennis/round.ts`, drawn by
+`Game.tsx`), so pretend people of each skill, seen through a pretend webcam's delay and noise, play
+whole rounds in milliseconds (`apps/web/tests/helpers/tableTennisSim.ts`).
+`apps/web/tests/table-tennis-agency.test.ts` holds the game to what that shows (someone doing
+nothing gets nothing, someone playing well nearly always hits, better players do better), and
+`node tools/table-tennis/agency.ts --assist off,low,normal,high` prints the whole table: run it
+before and after changing the aim assist, the serve or how the paddle follows the hand.
 
 ## Style
 
