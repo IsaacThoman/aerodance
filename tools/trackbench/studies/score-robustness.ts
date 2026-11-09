@@ -5,7 +5,7 @@
 //   - against a wrong reference (the same dancer's GT shifted by WRONG_SHIFT_MS in the dance,
 //     i.e. dancing other moves of the same song): should stay LOW, or the treatment just
 //     hands out points.
-// GT poses as live input give the ceiling for both.
+// GT poses as live input give the controls for the right dance, wrong moves and standing still.
 //
 //   node tools/trackbench/studies/score-robustness.ts [--estimators a,b] [--scenes prefix,...] [--out file]
 import { existsSync, readdirSync } from 'node:fs';
@@ -124,6 +124,12 @@ for (const est of estimators) {
       const src = idleSrc[i % idleSrc.length];
       return { ...f, poses: src.poses.map(p => ({ playerId: p.playerId, landmarks: p.kp.map(([x, y, z, c]: Joint) => ({ x, y, z, confidence: c })) })) };
     });
+    // The same still-player control with GT poses, at the GT frame rate.
+    const gtIdleSrc = gtLive.filter((f, i) => holdFrames.has(scene.gt[i].frame) && f.poses.length === mapping.length);
+    if (gtIdleSrc.length >= 30) {
+      const gtIdle = gtLive.filter(f => f.captureMs >= window[0] - 1000).map((f, i) => ({ ...f, poses: gtIdleSrc[i % gtIdleSrc.length].poses }));
+      row.gt_idle = mean(scoreRecords(right, mapping.length, gtIdle, scene.aspect).results);
+    }
     for (const [name, treat] of Object.entries(TREATMENTS)) {
       const frames = live();
       treat?.(frames);
@@ -138,21 +144,25 @@ for (const est of estimators) {
   }
 }
 // Summary: per estimator and treatment, mean points kept vs GT (right) and mean wrong-dance score.
-const summary: Record<string, Record<string, { right_lost: number; wrong: number; idle: number; n: number; idle_n: number }>> = {};
+const summary: Record<string, Record<string, { right_lost: number; wrong: number; idle: number; gt_idle: number; n: number; idle_n: number; gt_idle_n: number }>> = {};
 for (const r of rows) {
   const s = summary[r.estimator as string] ??= {};
   for (const name of Object.keys(TREATMENTS)) {
-    const e = s[name] ??= { right_lost: 0, wrong: 0, idle: 0, n: 0, idle_n: 0 };
+    const e = s[name] ??= { right_lost: 0, wrong: 0, idle: 0, gt_idle: 0, n: 0, idle_n: 0, gt_idle_n: 0 };
     e.right_lost += (r.gt_right as number) - (r[`${name}:right`] as number);
     e.wrong += r[`${name}:wrong`] as number;
     e.n++;
-    if (typeof r[`${name}:idle`] === 'number') { e.idle += r[`${name}:idle`] as number; e.idle_n++; }
+    if (typeof r[`${name}:idle`] === 'number') { e.idle += r[`${name}:idle`] as number; e.idle_n++;
+      if (typeof r.gt_idle === 'number') { e.gt_idle += r.gt_idle; e.gt_idle_n++; }
+    }
   }
 }
-for (const s of Object.values(summary)) for (const e of Object.values(s)) { e.right_lost = Math.round(e.right_lost / e.n); e.wrong = Math.round(e.wrong / e.n); e.idle = e.idle_n ? Math.round(e.idle / e.idle_n) : NaN; }
+for (const s of Object.values(summary)) for (const e of Object.values(s)) { e.right_lost = Math.round(e.right_lost / e.n); e.wrong = Math.round(e.wrong / e.n); e.idle = e.idle_n ? Math.round(e.idle / e.idle_n) : NaN; e.gt_idle = e.gt_idle_n ? Math.round(e.gt_idle / e.gt_idle_n) : NaN; }
+const gtIdleRows = rows.filter(r => typeof r.gt_idle === 'number');
+const gtIdle = Math.round(gtIdleRows.reduce((n, r) => n + (r.gt_idle as number), 0) / Math.max(1, gtIdleRows.length));
 const gtWrong = Math.round(rows.reduce((n, r) => n + (r.gt_wrong as number), 0) / Math.max(1, rows.length));
-writeJson(String(args.out ?? path.join(DATA, 'reports', 'score-robustness.json')), { wrong_shift_ms: WRONG_SHIFT_MS, gt_wrong_mean: gtWrong, summary, rows });
-console.log(`\nGT live vs wrong dance: ${gtWrong}`);
+writeJson(String(args.out ?? path.join(DATA, 'reports', 'score-robustness.json')), { wrong_shift_ms: WRONG_SHIFT_MS, gt_wrong_mean: gtWrong, gt_idle_mean: gtIdle, summary, rows });
+console.log(`\nGT live vs wrong dance: ${gtWrong}; GT idle (all available scenes): ${gtIdle}`);
 for (const [est, s] of Object.entries(summary)) {
-  console.log(est, Object.entries(s).map(([k, v]) => `${k}: lost ${v.right_lost} wrong ${v.wrong} idle ${v.idle}`).join(' | '));
+  console.log(est, Object.entries(s).map(([k, v]) => `${k}: lost ${v.right_lost} wrong ${v.wrong} idle ${v.idle} GT idle (paired) ${v.gt_idle}`).join(' | '));
 }

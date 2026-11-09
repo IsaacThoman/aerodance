@@ -2,7 +2,7 @@
 // set up exactly as WebcamPoseSource sets it up for the scene's player count, with the game's
 // tracker and setup (gameloop.ts) in the loop.
 //   node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime]
-//        [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-session] [--allow-cpu] [--running-mode IMAGE]
+//        [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--no-session] [--allow-cpu] [--running-mode IMAGE]
 // Writes $TRACKBENCH_DATA/runs/<id>/<scene>/{detections.jsonl,tracked.jsonl,run.json}; the id is
 // mp-<model>-game, with -rt for --realtime.
 import { execFileSync } from 'node:child_process';
@@ -84,7 +84,7 @@ interface WorkerResult { landmarks: NormalizedLandmark[][]; inferenceMs: number;
 
 async function main() {
   const { positional: [sceneId], opts } = parseArgs(process.argv.slice(2), { model: 'string', realtime: 'bool', id: 'string', 'busy-scale': 'string', 'no-session': 'bool', 'allow-cpu': 'bool', 'running-mode': 'string', 'strip-width': 'string', 'no-strips': 'bool', 'busy-ms': 'string', 'no-search': 'bool', 'no-zoom': 'bool' });
-  if (!sceneId) { console.error('usage: node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime] [--id <estimator-id>] [--busy-scale k] [--no-session]'); process.exit(2); }
+  if (!sceneId) { console.error('usage: node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime] [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--no-session] [--allow-cpu] [--running-mode IMAGE]'); process.exit(2); }
   const modelId = String(opts.model ?? 'lite'), realtime = !!opts.realtime, busyScale = Number(opts['busy-scale'] ?? 1);
   // IMAGE (a diagnostic, not what the game does): a fresh detection every frame, no strips.
   const runningMode = String(opts['running-mode'] ?? 'VIDEO');
@@ -99,7 +99,7 @@ async function main() {
 
   // As WebcamPoseSource.connect: one or two players ask for that many people in the whole
   // picture; three or four get a strip each (and room for one more in the fallback). Looks
-  // with two or more.
+  // with two or more; search with two, zoom with one.
   const players = scene.players;
   // --strip-width W (an experiment, not what the game does): a strip of that width per player
   // even with one or two players.

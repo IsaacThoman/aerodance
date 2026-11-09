@@ -59,6 +59,7 @@ export class GameLoop {
     if (this.calibration.anchors) this.refreshAt = now;
     else if (now < this.danceStartMs && now - this.refreshAt >= SETUP_TRACKING_REFRESH_MS) {
       this.tracker = new PlayerTracker(this.playerCount);
+      this.calibration.resetHold();
       this.players = 0;
       this.refreshAt = now;
       this.pendingReset = true;

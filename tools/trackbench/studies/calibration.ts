@@ -11,6 +11,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { calibratePoses } from '../../../packages/character/calibration.ts';
 import type { FrameSize, Landmark, PlayerCount, Pose, TrackCalibration } from '../../../packages/pose/choreography.ts';
+import { WebcamCalibration as DevCalibration } from './devCalibration.ts';
 import { WebcamCalibration } from '../../../apps/web/src/game/webcamCalibration.ts';
 import type { CalibrationRecord } from '../../../apps/web/src/game/webcamCalibration.ts';
 import type { Pixels } from '../../../packages/pose/browser/appearance.ts';
@@ -19,7 +20,7 @@ import type { DetFrame, GtFrame, Scene } from '../harness/common.ts';
 import { GameLoop } from '../harness/gameloop.ts';
 import { looksOf } from '../harness/track.ts';
 
-/** A calibration rule, configurable around what WebcamCalibration does. */
+/** Ablations of the shared-hold rule before this branch (dev at 61414651). */
 interface Rule {
   stillMs: number; gapMs: number; missMs: number; tolerance: number;
   wrists: boolean;
@@ -32,19 +33,21 @@ interface Rule {
 }
 const BODY = [11, 12, 23, 24, 27, 28];
 const NO_ANKLES = [11, 12, 23, 24];
-const GAME: Rule = { stillMs: 2500, gapMs: 400, missMs: 200, tolerance: 0.15, wrists: true, filter: 1, perPlayer: false, needs: BODY };
-const RULES: Record<string, Rule | 'game'> = {
+const SHARED_HOLD_DEV: Rule = { stillMs: 2500, gapMs: 400, missMs: 200, tolerance: 0.15, wrists: true, filter: 1, perPlayer: false, needs: BODY };
+const RULES: Record<string, Rule | 'game' | 'dev'> = {
   game: 'game',
-  'game-reimpl': GAME,
-  'no-wrists': { ...GAME, wrists: false },
-  'median5': { ...GAME, filter: 5 },
-  'miss-500': { ...GAME, missMs: 500 },
-  'tol-0.25': { ...GAME, tolerance: 0.25 },
-  'per-player': { ...GAME, perPlayer: true },
-  'robust': { ...GAME, wrists: false, filter: 5, missMs: 500 },
-  'robust+per-player': { ...GAME, wrists: false, filter: 5, missMs: 500, perPlayer: true },
-  'robust+per-player+1.5s': { ...GAME, wrists: false, filter: 5, missMs: 500, perPlayer: true, stillMs: 1500 },
-  'robust+no-ankles': { ...GAME, wrists: false, filter: 5, missMs: 500, needs: NO_ANKLES },
+  // devCalibration.ts is copied from 61414651:apps/web/src/game/webcamCalibration.ts.
+  dev: 'dev',
+  'shared-hold (dev)': SHARED_HOLD_DEV,
+  'no-wrists': { ...SHARED_HOLD_DEV, wrists: false },
+  'median5': { ...SHARED_HOLD_DEV, filter: 5 },
+  'miss-500': { ...SHARED_HOLD_DEV, missMs: 500 },
+  'tol-0.25': { ...SHARED_HOLD_DEV, tolerance: 0.25 },
+  'per-player': { ...SHARED_HOLD_DEV, perPlayer: true },
+  'robust': { ...SHARED_HOLD_DEV, wrists: false, filter: 5, missMs: 500 },
+  'robust+per-player': { ...SHARED_HOLD_DEV, wrists: false, filter: 5, missMs: 500, perPlayer: true },
+  'robust+per-player+1.5s': { ...SHARED_HOLD_DEV, wrists: false, filter: 5, missMs: 500, perPlayer: true, stillMs: 1500 },
+  'robust+no-ankles': { ...SHARED_HOLD_DEV, wrists: false, filter: 5, missMs: 500, needs: NO_ANKLES },
 };
 
 const reliable = (j: Landmark | undefined) => !!j && (j.confidence ?? 0) >= 0.5;
@@ -65,6 +68,7 @@ class RuleCalibration {
   tracks: TrackCalibration[] | null = null;
   constructor(playerCount: PlayerCount, rule: Rule) { this.rule = rule; this.playerCount = playerCount; this.reset(); }
   fresh(): Hold { return { start: null, anchor: null, frames: [], seen: -Infinity, recent: [], done: null }; }
+  resetHold() { this.reset(false); }
   reset(keepDone = this.rule.perPlayer) { this.holds = Array.from({ length: this.playerCount }, (_, i) => keepDone && this.holds[i]?.done ? this.holds[i] : this.fresh()); this.sync(); }
   sync() {
     this.anchors = this.holds.some(h => h.anchor || h.done) ? [] : null;
@@ -151,7 +155,7 @@ function sharedHold(gt: readonly GtFrame[]): { start: number; end: number } | nu
 function calibratable(scene: Scene, hold: { start: number; end: number }): boolean {
   const frames = scene.gt.filter(f => f.t_ms >= hold.start && f.t_ms <= hold.end);
   const ok = frames.filter(f => f.people.filter(p => p.role === 'player').every(p => BODY.every(i => p.kp[i][3] !== 3 && p.kp[i][3] !== 2)));
-  return ok.length * (1000 / scene.fps) >= GAME.stillMs + 500;
+  return ok.length * (1000 / scene.fps) >= SHARED_HOLD_DEV.stillMs + 500;
 }
 
 const opts = parseArgs(process.argv.slice(2), { estimators: 'string', scenes: 'string', out: 'string' }).opts;
@@ -164,7 +168,7 @@ for (const sid of sceneIds) {
   try { scene = loadScene(sid); } catch { continue; }
   const hold = sharedHold(scene.gt);
   if (!hold) continue;
-  const expect = calibratable(scene, hold) && hold.end - hold.start >= GAME.stillMs + 300;
+  const expect = calibratable(scene, hold) && hold.end - hold.start >= SHARED_HOLD_DEV.stillMs + 300;
   let pixels: Map<number, Pixels> | null | undefined;
   for (const est of estimators) {
     const file = path.join(runDir(est, sid), 'detections.jsonl');
@@ -177,7 +181,7 @@ for (const sid of sceneIds) {
     const row: Record<string, unknown> = { scene: sid, estimator: est, players: scene.players, hold_start_ms: hold.start, hold_ms: hold.end - hold.start, expect_complete: expect };
     for (const [name, rule] of Object.entries(RULES)) {
       const loop = new GameLoop(scene.players, { width: scene.width, height: scene.height }, { danceStartMs: danceWindow(scene)?.[0] ?? Infinity });
-      if (rule !== 'game') (loop as unknown as { calibration: unknown }).calibration = new RuleCalibration(scene.players as PlayerCount, rule);
+      if (rule !== 'game') (loop as unknown as { calibration: unknown }).calibration = rule === 'dev' ? new DevCalibration(scene.players as PlayerCount) : new RuleCalibration(scene.players as PlayerCount, rule);
       let complete: number | null = null, holds = 0, was = false;
       for (const line of dets) {
         const looks = line.looks ?? (pixels?.get(line.frame) ? looksOf(pixels.get(line.frame)!, line) : undefined);
@@ -190,14 +194,14 @@ for (const sid of sceneIds) {
       // Calibration error vs GT poses over the same hold.
       let torsoErr: number | null = null, floorErr: number | null = null;
       if (complete !== null && tracks) {
-        const gtFrames = scene.gt.filter(f => f.t_ms >= complete! - GAME.stillMs && f.t_ms <= complete!);
+        const gtFrames = scene.gt.filter(f => f.t_ms >= complete! - SHARED_HOLD_DEV.stillMs && f.t_ms <= complete!);
         const byX = (f: GtFrame) => f.people.filter(p => p.role === 'player').sort((a, b) => b.kp[11][0] + b.kp[12][0] - a.kp[11][0] - a.kp[12][0]);
         const gtCal = byX(gtFrames[0] ?? scene.gt[0]).map((_, k) => calibratePoses(gtFrames.map(f => ({ playerId: k, landmarks: byX(f)[k]?.kp.map(([x, y]) => ({ x, y, z: 0, confidence: 1 })) ?? [] })).filter(p => p.landmarks.length), { width: scene.width, height: scene.height } as FrameSize));
         const ts = tracks.map((t, k) => gtCal[k] ? Math.abs(t.torsoLength / gtCal[k].torsoLength - 1) : NaN).filter(Number.isFinite);
         const fs = tracks.map((t, k) => gtCal[k] ? Math.abs(t.floorY - gtCal[k].floorY) : NaN).filter(Number.isFinite);
         torsoErr = ts.length ? Math.max(...ts) : null; floorErr = fs.length ? Math.max(...fs) : null;
       }
-      const before = complete !== null && complete < hold.start + GAME.stillMs - 300 && name !== 'robust+per-player+1.5s';
+      const before = complete !== null && complete < hold.start + SHARED_HOLD_DEV.stillMs - 300 && name !== 'robust+per-player+1.5s';
       row[name] = { complete_ms: complete, after_hold_ms: complete === null ? null : complete - hold.start, holds, early: before, torso_err: torsoErr, floor_err: floorErr };
     }
     rows.push(row);
@@ -223,11 +227,18 @@ for (const est of estimators) {
     };
   }
 }
-writeJson(String(opts.out ?? path.join(DATA, 'reports', 'calibration.json')), { rules: RULES, summary, rows });
+// Check completion times against the unmodified dev rule, not this branch's per-player rule.
+// The ablations retain the original study's behaviour: a shared reset can start a partial
+// hold in the same record. dev clears everyone's hold and waits for the next record.
+const mismatches = rows.filter(r => (r.dev as { complete_ms: number | null }).complete_ms !== (r['shared-hold (dev)'] as { complete_ms: number | null }).complete_ms).map(r => ({
+  scene: r.scene, estimator: r.estimator,
+  dev_ms: (r.dev as { complete_ms: number | null }).complete_ms,
+  shared_hold_ms: (r['shared-hold (dev)'] as { complete_ms: number | null }).complete_ms,
+}));
+const selfCheck = { reference: '61414651:apps/web/src/game/webcamCalibration.ts', compared: rows.length, matched: rows.length - mismatches.length, mismatches };
+writeJson(String(opts.out ?? path.join(DATA, 'reports', 'calibration.json')), { rules: RULES, summary, rows, self_check: selfCheck });
 for (const [est, s] of Object.entries(summary)) {
   console.log(`\n${est}`);
   for (const [name, v] of Object.entries(s)) console.log(`  ${name.padEnd(24)} ${JSON.stringify(v)}`);
 }
-// Keep the reimplementation honest: with the game's parameters it must match WebcamCalibration.
-const mismatch = rows.filter(r => (r.game as { complete_ms: number | null }).complete_ms !== (r['game-reimpl'] as { complete_ms: number | null }).complete_ms);
-console.log(`\ngame-reimpl vs WebcamCalibration: ${rows.length - mismatch.length}/${rows.length} identical` + (mismatch.length ? ` (differ: ${mismatch.map(r => `${r.scene}/${r.estimator}`).join(', ')})` : ''));
+console.log(`\nshared-hold (dev) vs dev WebcamCalibration (61414651): ${selfCheck.matched}/${selfCheck.compared} same completion time` + (mismatches.length ? ` (differ: ${mismatches.map(r => `${r.scene}/${r.estimator}: ${r.shared_hold_ms} vs dev ${r.dev_ms} ms`).join(', ')})` : ''));

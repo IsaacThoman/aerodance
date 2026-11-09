@@ -7,6 +7,7 @@ import type { FixtureOptions } from './fixtures.ts';
 import { accumulateOffsets, finishOffsets, sceneMetrics, zeroOffsets } from './metrics.ts';
 import { trackDetections } from './track.ts';
 import { COLUMNS, buildReport } from './report.ts';
+import { GameLoop } from './gameloop.ts';
 import { nextFrame } from './run-game.ts';
 
 const solo: FixtureOptions = { id: 'solo', people: [{ id: 'p1', at: () => [0, 0] }] };
@@ -187,4 +188,19 @@ test('realtime: a busy worker gets the newest frame that came meanwhile, as Webc
   assert.deepEqual(nextFrame(frames, 3, 100), { k: 3, sentAt: 100, skipped: 0 });
   // Busy past the end: the last frame.
   assert.deepEqual(nextFrame(frames, 5, 1e6), { k: 9, sentAt: 1e6, skipped: 4 });
+});
+
+test('a setup line-up retry clears a partial calibration hold with the old player numbers', () => {
+  const s = scene(duo);
+  const loop = new GameLoop(2, { width: s.width, height: s.height });
+  loop.tick(0);
+  const tracker = loop.tracker;
+  const landmarks = s.gt[0].people[0].kp.map(([x, y]) => ({ x, y, z: 0, confidence: 1 }));
+  loop.calibration.accept({ sessionId: 'retry', seq: 1, input: loop.input, poses: [{ playerId: 0, landmarks }] }, 1000, 1000);
+  assert.equal(loop.calibration.holds[0].startedAt, 1000);
+  assert.equal(loop.calibration.anchors, null, 'a partial hold does not delay the retry');
+  loop.tick(4000);
+  assert.notEqual(loop.tracker, tracker);
+  assert.ok(loop.calibration.holds.every(h => h.startedAt === null && h.frames.length === 0));
+  assert.deepEqual(loop.calibration.players, ['missing', 'missing']);
 });

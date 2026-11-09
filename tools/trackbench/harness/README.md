@@ -12,7 +12,7 @@ than copying them.
 ```sh
 H=tools/trackbench/harness
 # The game's own pipeline: the built pose worker in Chromium on the GPU, tracker in the loop.
-node $H/run-game.ts <scene> [--model lite|full|heavy] [--realtime] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--id <estimator-id>] [--no-session] [--running-mode IMAGE]
+node $H/run-game.ts <scene> [--model lite|full|heavy] [--realtime] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--id <estimator-id>] [--no-session] [--running-mode IMAGE]
 # Any estimator's detections.jsonl through the game's tracker (and setup) to tracked.jsonl.
 node $H/track.ts <estimator> <scene> [--no-session] [--no-looks]
 # Metrics: learns the estimator's per-joint offsets over every scene it ran, then writes each metrics.json.
@@ -40,7 +40,8 @@ delegate (`--allow-cpu` overrides); `run.json` records both.
 - **Worker settings**: exactly `WebcamPoseSource.connect`'s for the scene's `players`: one or two
   players ask for that many people on the whole picture; three or four get `evenTiles(players)`
   strips (and `players + 1` for the fallback), and the run fails if the strips don't start;
-  looks when `players > 1`. VIDEO running mode; the model's SHA-256 is checked by the worker.
+  two players also get `search: true`, and one player gets `zoom: true`. Looks when
+  `players > 1`. VIDEO running mode; the model's SHA-256 is checked by the worker.
 - **Frames**: each JPEG decoded with `createImageBitmap` and transferred to the worker, as
   `WebcamPoseSource` transfers a bitmap of the video. VIDEO timestamps are the frame's `t_ms`
   plus 1000: before the scene the model is warmed up on frame 1 and then shown four grey frames,
@@ -53,9 +54,9 @@ delegate (`--allow-cpu` overrides); `run.json` records both.
 - **Setup** (`gameloop.ts`, on by default, `--no-session` off): `WebcamCalibration.accept` on
   every record (capture time = frame time, now = arrival), and GameSession's line-up retry: a
   fresh tracker (and `players = 0`) after `SETUP_TRACKING_REFRESH_MS` (4 s) without a
-  calibration hold, until calibration completes. The retry stops at the start of the scene's
-  dance phase, when the song would be playing (the scene's timeline is fixed, so the harness
-  assumes the song starts then whether or not calibration finished; `calibration.
+  calibration hold, clearing calibration holds too, until calibration completes. The retry stops
+  at the start of the scene's dance phase, when the song would be playing (the scene's timeline
+  is fixed, so the harness assumes the song starts then whether or not calibration finished; `calibration.
   complete_before_dance` says whether it did).
 - **Offline** (default): every frame is processed; each result "arrives" the moment its frame
   was taken (so the frame-age drop never applies and results don't depend on machine speed).
@@ -149,17 +150,18 @@ Shared definitions:
   ankles, feet. `per_joint`: [raw, corrected] mean per joint.
 - `limbs`: angle between the pose's and the GT's direction of each of the scorer's 10 limbs
   (`features.ts limbDirections`, aspect-corrected), the GT's limbs inside the picture, the
-  pose's where the game would use them (both ends conf ≥ 0.5): `mean_deg_weighted` (by the
+  pose's where the scorer would use them (`liveUsable`: both ends pass the 0.1 gate in the
+  recording format's quantised steps, or have null confidence): `mean_deg_weighted` (by the
   scorer's limb weights), `mean_deg`, `over30_frac`, `usable_frac` (GT limbs the pose makes
   usable), `per_limb`.
 - `swaps`: share of frames where exchanging the pose's left and right labels brings it nearer
   the GT (the swapped error under 0.6 of the labelled error, which is over 0.25 torso), for the
   whole body, the arms (13-16) and the legs (25-28), among frames where those joints are in the
   picture and the GT's left and right are over 0.3 torso lengths apart.
-- `confidence`: `sure_wrong` = joints with conf ≥ 0.5 (the game's threshold) more than 0.2
-  torso lengths off (offset-corrected) / joints with conf ≥ 0.5; `correct_unsure` = joints
+- `confidence`: `sure_wrong` = joints with conf ≥ 0.5 (the calibration and character threshold)
+  more than 0.2 torso lengths off (offset-corrected) / joints with conf ≥ 0.5; `correct_unsure` = joints
   within 0.2 with conf < 0.5 / joints within 0.2; `outside_sure` = share of GT joints outside
-  the picture the pose reports with conf ≥ 0.5 (a guess the game would trust).
+  the picture the pose reports with conf ≥ 0.5 (a guess calibration and the character would trust).
 - `detection.jitter.accel_error`: for body joints matched on three consecutive frames,
   `|a_pose - a_gt|` with `a = p(n+1) - 2 p(n) + p(n-1)`, in torso lengths per frame² at the
   scene's fps; `accel_rms_pose`/`accel_rms_gt` for scale.
@@ -204,8 +206,9 @@ frame where every player is in a `hold` segment; `complete_before_dance`.
 - **Live input**, fed as `GameSession.onRecord` does: each record's poses at song time = their
   capture time, accepted from 1 s before the song to `LATE_ALLOWANCE_MS` (750) after it, in
   arrival order, `scorer.advance(min(arrival, end) - 750)` after each record, then `finish()`.
-  The tracked joints' confidences go in unchanged (the scorer drops joints below 0.5 and
-  trusts null).
+  The tracked joints' confidences go in unchanged. The scorer's 0.1 gate compares confidence
+  in the recording format's quantised steps and trusts null. A lost limb keeps its last
+  direction for 300 ms (`HOLD_MS` in `scorer.ts`).
 - `gt_score`: the GT itself as live input at every frame (joints outside the picture conf 0,
   others 1): the most a player could get with this framing. `gt_same_times_score`: the GT at
   the tracked records' times (isolates dropped frames and the pose rate). `tracked_score`: the
