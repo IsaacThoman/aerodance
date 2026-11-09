@@ -328,8 +328,11 @@ export class PlayerTracker {
     const givenUp = (p: Player) => !!p.track && now - p.track.seen > LONG_MS;
     const superseded = (p: Player, q: Player) => givenUp(p) && !givenUp(q) && Math.abs(p.place - q.place) < CLOSE * q.track!.body.scale;
     const fromPlace = (p: Player, body: Body) => Math.min(Math.abs(body.x - p.place), Number.isFinite(p.home) ? Math.abs(body.x - p.home) : Infinity);
+    // (A missing player's home counts against players who are missing too, not against one being
+    // followed: a followed player walking over it stays themselves.)
     const nearest = (p: Player, body: Body) => this.players.every((q, i) => q === p || !q.track
-      || (!superseded(p, q) && (superseded(q, p) || Math.abs(body.x - where[i]) > fromPlace(p, body))));
+      || (!superseded(p, q) && (superseded(q, p)
+        || Math.abs(body.x - where[i]) > (now - q.track.seen <= FRESH_MS ? Math.abs(body.x - p.place) : fromPlace(p, body)))));
     // Looks count for a player whose looks tell them from every other player (so not for one player alone).
     const recognisable = this.players.map((p, i) => this.playerCount > 1 && p.samples >= LOOKS_SAMPLES && this.players.every((q, j) => i === j || !q.track || this.distinct(i, j)));
     const biggest = Math.max(...bodies.map(b => b.scale));
@@ -344,10 +347,8 @@ export class PlayerTracker {
       // An unsure shoulder or hip shouldn't drop an already followed dancer. Their position
       // and size still have to pass the motion gate; partial bodies cannot acquire a number.
       if (!body.sure && (!track || now - track.seen > FRESH_MS)) return Infinity;
-      // A bystander isn't a player (unless the player has been gone a while, or is back where they
-      // dance: who was a bystander may be the player, whom the model swapped for somebody passing)...
-      const home = Number.isFinite(p.home) && Math.abs(body.x - p.home) / body.scale <= RETURN && nearest(p, body);
-      if (track && body.extra >= BYSTANDER && now - track.seen <= LONG_MS && !(home && now - track.seen > FRESH_MS)) return Infinity;
+      // A bystander isn't a player (unless the player has been gone a while)...
+      if (track && body.extra >= BYSTANDER && now - track.seen <= LONG_MS) return Infinity;
       if (track && now - track.seen <= FRESH_MS) cost = MOTION * motion(track, body, now);
       else if (body.hits < needed) return Infinity;
       // ...but somebody back near a missing player's place (and nearer it than anyone else's) is them...
@@ -543,13 +544,15 @@ export class PlayerTracker {
         if (!this.tangleSizes.has(b)) this.tangleSizes.set(b, pb.scale);
       }
     }
+    // (Time slow counts towards a home only while a player is seen clear of others, without a gap.)
+    this.players.forEach((p, id) => { if (!found.has(id)) p.slowSince = null; });
     for (const [id, body] of found) {
       const p = this.players[id];
       const clear = this.players.every((q, other) => {
         const there = other === id ? undefined : found.get(other) ?? (q.track && now - q.track.seen <= 2 * FRESH_MS ? q.track.body : undefined);
         return !there || apart(body, there);
       });
-      if (!clear || [...this.tangled.keys()].some(key => key.split(',').includes(String(id)))) continue;
+      if (!clear || [...this.tangled.keys()].some(key => key.split(',').includes(String(id)))) { p.slowSince = null; continue; }
       p.place = body.x;
       const track = p.track;
       if (track && Math.hypot(track.vx, track.vy) * 1000 / body.scale > PLACE_SPEED) p.slowSince = null;
