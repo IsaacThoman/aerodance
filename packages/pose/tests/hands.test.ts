@@ -15,7 +15,7 @@ function person(x: number, unseen: number[] = []) {
 }
 
 test('one person\'s two hands or two people\'s one each are followed; two people\'s both hands share a pair', () => {
-  assert.equal(TRACKED_HANDS, 2, 'a worker\'s four WebGL contexts: the pose model\'s, two hands\', one to spare');
+  assert.equal(TRACKED_HANDS, 2, 'a worker\'s four WebGL contexts: the pose model\'s, its zoom glances\' or search\'s, and two hands\'');
   assert.ok(tracksHands(2), 'one person\'s two, or two people\'s one each');
   assert.ok(!tracksHands(4), 'two people\'s both');
 });

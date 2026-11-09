@@ -1,7 +1,8 @@
 /*
  * Hands for more than one person (pose.worker.ts). Each Hand Landmarker needs a WebGL context of
  * its own, and Chrome keeps at most four in a worker, dropping the oldest (the pose model's) past
- * that. So the pose model leaves room for TRACKED_HANDS more:
+ * that. The pose model has one, and a second pose landmarker may have another (one player's zoom
+ * glances, two players' search), which leaves room for TRACKED_HANDS more:
  *
  *  - When the hands asked for fit (one person's two, or two people's paddle hands), each hand has
  *    a landmarker of its own in VIDEO mode, which follows it from frame to frame and skips the
@@ -20,7 +21,7 @@
 
 /** The most people whose hands are looked for. */
 export const MAX_HAND_PEOPLE = 2;
-/** How many hands can each have a following landmarker (the WebGL contexts a worker has left beside the pose model's). */
+/** How many hands can each have a following landmarker (the WebGL contexts a worker has left beside the pose landmarkers'). */
 export const TRACKED_HANDS = 2;
 
 /**

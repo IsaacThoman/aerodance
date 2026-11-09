@@ -1,0 +1,112 @@
+{
+  "id": "base-solo",
+  "category": "baseline",
+  "description": "Baseline for the single-player sweeps: one adult walks in, holds still 4 s for calibration, then dances 16 s of middle hip-hop in a bright living room, camera 1 m high at 3.2 m, 65 deg, frontal.",
+  "seed": 11,
+  "duration_s": 22.5,
+  "fps": 30,
+  "resolution": [
+    640,
+    480
+  ],
+  "players": 1,
+  "camera": {
+    "height_m": 1.0,
+    "distance_m": 3.2,
+    "yaw_deg": 0,
+    "look_at": [
+      0,
+      0,
+      0.95
+    ],
+    "hfov_deg": 65
+  },
+  "room": {
+    "preset": "living_room",
+    "clutter": 0.5,
+    "features": []
+  },
+  "lighting": {
+    "preset": "bright_even"
+  },
+  "people": [
+    {
+      "id": "p1",
+      "role": "player",
+      "body": {
+        "gender": 0.0,
+        "age": 0.5,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "height": 0.62,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 1,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_asian_female",
+      "hair": "bob02",
+      "outfit": {
+        "clothes": [
+          "female_casualsuit01",
+          "shoes02"
+        ],
+        "recolor": {
+          "top": "#c8463a",
+          "hair": "#2b1d15"
+        }
+      },
+      "place": {
+        "x": 0,
+        "y": 0,
+        "facing_deg": 0
+      },
+      "travel": 0.3,
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 0.5
+        },
+        {
+          "type": "walk",
+          "from": [
+            -2.4,
+            0.6
+          ],
+          "to": [
+            0,
+            0
+          ],
+          "duration_s": 2.0
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 4.0
+        },
+        {
+          "type": "dance",
+          "clip": "gMH_sFM_cAll_d22_mMH3_ch04",
+          "clip_start_s": 4.0,
+          "duration_s": 16.0,
+          "speed": 1.0
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "name": "setup",
+      "start_s": 0,
+      "end_s": 6.5
+    },
+    {
+      "name": "dance",
+      "start_s": 6.5,
+      "end_s": 22.5
+    }
+  ],
+  "post": []
+}

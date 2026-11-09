@@ -313,7 +313,7 @@ landmarks otherwise.
   of the pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`); with `'hands:…'`,
   only the ones asked for, each player's by where they stand (Player 1 furthest to the camera's
   right, as the mirror shows them on the left). Each Hand Landmarker needs a WebGL context, and Chrome keeps
-  at most four in a worker, the pose model's among them (`packages/pose/browser/hands.ts`): one
+  at most four in a worker, and the pose landmarkers can take two (`packages/pose/browser/hands.ts`): one
   player's two hands, or two players' one each, are each followed from frame to frame, but two
   players' both hands share a pair that looks afresh every frame, which costs about half again
   per hand and finds fewer. Ask for only the hands the game needs. A hand nearer the other

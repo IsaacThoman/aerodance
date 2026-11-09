@@ -1,0 +1,12 @@
+{
+  "id": "sens-wb-3000",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: daylight white balance under 3000 K light (orange cast).",
+  "post": [
+    {
+      "type": "white_balance",
+      "kelvin": 3000
+    }
+  ]
+}

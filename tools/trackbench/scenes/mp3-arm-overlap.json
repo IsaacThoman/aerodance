@@ -1,0 +1,225 @@
+{
+  "id": "mp3-arm-overlap",
+  "category": "multiplayer",
+  "description": "Three close projected silhouettes with arms overlapping neighbours should remain separate skeletons and identities; a 1.6 m centre depth offset keeps the bodies physically apart.",
+  "seed": 41,
+  "duration_s": 24,
+  "fps": 30,
+  "resolution": [
+    640,
+    480
+  ],
+  "players": 3,
+  "camera": {
+    "height_m": 1,
+    "distance_m": 5.8,
+    "look_at": [
+      0,
+      0,
+      0.95
+    ],
+    "hfov_deg": 65
+  },
+  "room": {
+    "preset": "living_room",
+    "clutter": 0.2
+  },
+  "lighting": {
+    "preset": "bright_even"
+  },
+  "people": [
+    {
+      "id": "p1",
+      "role": "player",
+      "body": {
+        "gender": 0,
+        "age": 0.5,
+        "height": 0.54,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 1,
+          "asian": 0,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_african_female",
+      "hair": "ponytail01",
+      "outfit": {
+        "clothes": [
+          "female_casualsuit01",
+          "shoes02"
+        ],
+        "recolor": {
+          "top": "#bd3030",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": -0.78,
+        "y": -1.2,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -0.78,
+            -1.2
+          ],
+          "duration_s": 2,
+          "from": [
+            -0.78,
+            -1.7
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 17
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "role": "player",
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.53,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 0,
+          "caucasian": 1
+        }
+      },
+      "skin": "young_caucasian_male",
+      "hair": "short02",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#205bb0",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": 0,
+        "y": 0.4,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0,
+            0.4
+          ],
+          "duration_s": 2,
+          "from": [
+            0,
+            -0.09999999999999998
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gWA_sFM_cAll_d25_mWA0_ch01",
+          "clip_start_s": 4,
+          "duration_s": 17
+        }
+      ]
+    },
+    {
+      "id": "p3",
+      "role": "player",
+      "body": {
+        "gender": 0,
+        "age": 0.5,
+        "height": 0.65,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 1,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_asian_female",
+      "hair": "long01",
+      "outfit": {
+        "clothes": [
+          "female_sportsuit01",
+          "shoes05"
+        ],
+        "recolor": {
+          "top": "#d4a020",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": 0.78,
+        "y": -1.2,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0.78,
+            -1.2
+          ],
+          "duration_s": 2,
+          "from": [
+            0.78,
+            -1.7
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 17
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "name": "setup",
+      "start_s": 0,
+      "end_s": 7
+    },
+    {
+      "name": "dance",
+      "start_s": 7,
+      "end_s": 24
+    }
+  ],
+  "post": []
+}

@@ -1,0 +1,9 @@
+{
+  "id": "light-mixed_temp",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: cool daylight from one side and a warm lamp on the other.",
+  "lighting": {
+    "preset": "mixed_temp"
+  }
+}

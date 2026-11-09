@@ -1,0 +1,6 @@
+{
+  "id": "setup-quad",
+  "base": "base-quad",
+  "category": "setup",
+  "description": "Four adults share a 5 s hold; ideal calibration should complete, testing whether one missed player resets everyone."
+}

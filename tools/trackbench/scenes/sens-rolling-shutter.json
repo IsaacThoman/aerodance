@@ -1,0 +1,13 @@
+{
+  "id": "sens-rolling-shutter",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: rolling-shutter shear (8 px).",
+  "post": [
+    {
+      "type": "rolling_shutter",
+      "strength_px": 8,
+      "frequency_hz": 2
+    }
+  ]
+}

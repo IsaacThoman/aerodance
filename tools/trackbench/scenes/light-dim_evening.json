@@ -1,0 +1,9 @@
+{
+  "id": "light-dim_evening",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: one low warm lamp, dark corners.",
+  "lighting": {
+    "preset": "dim_evening"
+  }
+}

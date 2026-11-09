@@ -1,0 +1,9 @@
+{
+  "id": "cam-far-6.5",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera 6.5 m away: the player is about 130 px tall.",
+  "camera": {
+    "distance_m": 6.5
+  }
+}

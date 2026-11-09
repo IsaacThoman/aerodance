@@ -76,8 +76,6 @@ export interface WebcamPoseSourceOptions {
    * watchdog's). Infinity waits for it: in the iPhone/iPad app, iOS gives it back after a call.
    */
   interruptedTimeoutMs?: number;
-  /** Looks for each of three or four players in a strip of the picture (tiles.ts; default true). */
-  tiles?: boolean;
   /**
    * How far to turn the camera's picture so it's upright, clockwise in degrees (0, 90, 180 or
    * 270), asked on every frame with the picture's size, which way its camera faces and which
@@ -132,7 +130,6 @@ export class WebcamPoseSource {
   settingsKey: string;
   adaptToResize: boolean;
   interruptedTimeoutMs: number;
-  tiling: boolean;
   turn: (frame: { width: number; height: number; facing?: string; capture: number }) => number;
   listeners = new Set<Listener<WebcamView>>();
   recordListeners = new Set<Listener<WebcamRecordEvent>>();
@@ -192,11 +189,11 @@ export class WebcamPoseSource {
     createVideo = () => document.createElement('video'), createCanvas = () => document.createElement('canvas'),
     bitmap = picture => createImageBitmap(picture), now = () => performance.now(),
     assetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href,
-    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS, tiles = true, turn = () => 0,
+    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS, turn = () => 0,
   }: WebcamPoseSourceOptions = {}) {
     this.mediaDevices = mediaDevices; this.createWorker = createWorker; this.createVideo = createVideo; this.createCanvas = createCanvas;
     this.bitmap = bitmap; this.now = now; this.assetUrl = assetUrl; this.settingsKey = settingsKey; this.adaptToResize = adaptToResize;
-    this.interruptedTimeoutMs = interruptedTimeoutMs; this.tiling = tiles; this.turn = turn;
+    this.interruptedTimeoutMs = interruptedTimeoutMs; this.turn = turn;
     const savedModel = saved(`${settingsKey}-model`, 'lite');
     const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
     const facing = saved(`${settingsKey}-facing`, '');
@@ -437,12 +434,16 @@ export class WebcamPoseSource {
           thresholds: { detection: 0.5, presence: 0.5, tracking: 0.5 }, timingMethod: 'browser-frame-observation' } });
       // One or two players: ask for exactly that many people. Asking for an extra person keeps
       // the detector searching every frame while only the players are present; those searches
-      // can repeatedly lose somebody it was already following. Three or four players use strips
-      // (tiles.ts), with room for one extra person in their whole-picture fallback. Looks tell
-      // players apart, so one player doesn't need them.
-      const tiles = this.tiling && evenTiles(this.playerCount);
+      // can repeatedly lose somebody it was already following. One player may be looked for in
+      // the middle of the picture, enlarged, while nobody is found (zoom), and two players get a
+      // search for whoever the model misses beside the one it found (pose.worker.ts). Three or four
+      // players use strips (tiles.ts), with room for one extra person in their whole-picture
+      // fallback. Every source, the iPhone/iPad app's and a paired phone's too, gets all of them:
+      // each costs a landmarker (about 85-160 MB), which trackbench found well worth it
+      // (tools/trackbench/REPORT.md). Looks tell players apart, so one player doesn't need them.
+      const tiles = evenTiles(this.playerCount);
       worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount <= 2 ? this.playerCount : this.playerCount + 1, looks: this.playerCount > 1,
-        ...(tiles ? { tiles } : {}),
+        ...(tiles ? { tiles } : {}), ...(this.playerCount === 2 ? { search: true } : {}), ...(this.playerCount === 1 ? { zoom: true } : {}),
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }
   }

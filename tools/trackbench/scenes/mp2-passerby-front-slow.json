@@ -1,0 +1,236 @@
+{
+  "id": "mp2-passerby-front-slow",
+  "category": "bystander",
+  "description": "A slow foreground bystander pausing in front of one of two dancers for one second should not take a player number; both original identities should recover after occlusion.",
+  "seed": 41,
+  "duration_s": 24,
+  "fps": 30,
+  "resolution": [
+    640,
+    480
+  ],
+  "players": 2,
+  "camera": {
+    "height_m": 1,
+    "distance_m": 5,
+    "look_at": [
+      0,
+      0,
+      0.95
+    ],
+    "hfov_deg": 65
+  },
+  "room": {
+    "preset": "living_room",
+    "clutter": 0.2
+  },
+  "lighting": {
+    "preset": "bright_even"
+  },
+  "people": [
+    {
+      "id": "p1",
+      "role": "player",
+      "body": {
+        "gender": 0,
+        "age": 0.5,
+        "height": 0.54,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 1,
+          "asian": 0,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_african_female",
+      "hair": "ponytail01",
+      "outfit": {
+        "clothes": [
+          "female_casualsuit01",
+          "shoes02"
+        ],
+        "recolor": {
+          "top": "#bd3030",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": -1,
+        "y": -0.2,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1,
+            -0.2
+          ],
+          "duration_s": 2,
+          "from": [
+            -1,
+            -0.7
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gHO_sFM_cAll_d21_mHO5_ch20",
+          "clip_start_s": 4,
+          "duration_s": 17
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "role": "player",
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.53,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 0,
+          "caucasian": 1
+        }
+      },
+      "skin": "young_caucasian_male",
+      "hair": "short02",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#205bb0",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": 1,
+        "y": -0.2,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1,
+            -0.2
+          ],
+          "duration_s": 2,
+          "from": [
+            1,
+            -0.7
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gLO_sFM_cAll_d13_mLO2_ch03",
+          "clip_start_s": 4,
+          "duration_s": 17
+        }
+      ]
+    },
+    {
+      "id": "b1",
+      "role": "bystander",
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.48,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 1,
+          "asian": 0,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_african_male",
+      "hair": "short01",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit04",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#25934a",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": -2.8,
+        "y": -1.6,
+        "facing_deg": 90
+      },
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 10
+        },
+        {
+          "type": "walk",
+          "to": [
+            -0.71,
+            -1.6
+          ],
+          "duration_s": 3,
+          "from": [
+            -2.8,
+            -1.6
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "facing_deg": 90,
+          "duration_s": 1
+        },
+        {
+          "type": "walk",
+          "to": [
+            2.8,
+            -1.6
+          ],
+          "duration_s": 5
+        },
+        {
+          "type": "offstage",
+          "duration_s": 5
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "name": "setup",
+      "start_s": 0,
+      "end_s": 7
+    },
+    {
+      "name": "dance",
+      "start_s": 7,
+      "end_s": 24
+    }
+  ],
+  "post": []
+}

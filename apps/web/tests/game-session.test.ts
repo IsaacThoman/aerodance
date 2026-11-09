@@ -158,6 +158,9 @@ test('stuck setup refreshes assignments periodically, but a hold and gameplay ke
     const { session, source, step } = await setup(2, { sourceKind });
     step(SETUP_TRACKING_REFRESH_MS * 2, now => source.send([standing(2)[0]], now, 2));
     assert.equal(source.resets, 3, `${sourceKind}: initial line-up and two retries`);
+    // A fresh line-up can number the players differently, so the player who was holding starts again.
+    const startedAt = session.webcamCalibration?.holds[0].startedAt ?? null;
+    assert.ok(startedAt === null || startedAt > 1000 + SETUP_TRACKING_REFRESH_MS, `${sourceKind}: hold restarted at a retry (${startedAt})`);
     // Start holding just before another retry would be due. The hold must complete.
     step(SETUP_TRACKING_REFRESH_MS - 100, now => source.send([standing(2)[0]], now, 2));
     step(2600, now => source.send(standing(2), now, 2));

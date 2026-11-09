@@ -460,3 +460,99 @@ test('looks are the clothes\' colours on the chest, waist and thighs', () => {
   const unreliable = person(0.5); unreliable[11] = { ...unreliable[11], visibility: 0.2 };
   assert.equal(describeLooks({ data, width, height }, unreliable), null);
 });
+
+test('dressed alike, one passing in front of the other: they keep their numbers by their sizes', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(30, () => ({ people: [person(0.7), person(0.3)] })));
+  // The right one (P1) steps forward and the left one back, then they swap sides; the one behind
+  // is hidden while they pass.
+  run(tracker, repeat(15, i => ({ people: [person(0.7, { size: 1 + 0.02 * i }), person(0.3, { size: 1 - 0.0133 * i })] })), 1000);
+  const cross = (i: number) => ({ front: 0.7 - 0.4 * i / 29, back: 0.3 + 0.4 * i / 29 });
+  run(tracker, repeat(30, i => {
+    const { front, back } = cross(i);
+    return { people: [person(front, { size: 1.3 }), ...(Math.abs(front - back) < 0.12 ? [] : [person(back, { size: 0.8 })])] };
+  }), 1500);
+  const after = run(tracker, repeat(20, () => ({ people: [person(0.3, { size: 1.3 }), person(0.7, { size: 0.8 })] })), 2500);
+  assert.deepEqual([...after.at(-1)!].sort(), [[0, 0.3], [1, 0.7]], 'P1 crossed to the left in front');
+});
+
+test('a player the model swaps for somebody walking past in front is theirs again where they dance', () => {
+  // One player, so one person per result, as the worker asks for.
+  const tracker = new PlayerTracker(1);
+  run(tracker, repeat(40, () => ({ people: [person(0.5)] })));
+  // Somebody nearer walks across in front; as they cover the player, the model's following slides
+  // onto them, and it follows them off the picture: the player's place goes with them.
+  run(tracker, repeat(4, i => ({ people: [person(0.5, { size: 1 + 0.09 * (i + 1), arms: 0.2 })] })), 1400);
+  const off = run(tracker, repeat(31, i => ({ people: [person(0.5 + 0.015 * (i + 1), { size: 1.35, arms: 0.2 })] })), 1550);
+  assert.ok(off.every(m => m.has(0)), 'the passer-by is followed as the player');
+  // Back where they dance, the player is theirs again as soon as the passer-by's track is stale
+  // (a quarter of a second), not the best part of a second later.
+  const back = run(tracker, repeat(30, () => ({ people: [person(0.5)] })), 2600);
+  assert.deepEqual([...back[9]], [[0, 0.5]], 'P1 is back within 0.3 s');
+});
+
+test('with two players too, a player the model swaps for somebody walking past is theirs again where they dance', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(40, () => ({ people: [person(0.66), person(0.34, { arms: 0.1 })] })));
+  // The passer-by covers P1, the model's following slides onto them, and they carry P1's place
+  // off to the edge, while P2 dances on nearer P1's home than where the passer-by leaves.
+  run(tracker, repeat(4, i => ({ people: [person(0.66, { size: 1 + 0.09 * (i + 1), arms: 0.2 }), person(0.34, { arms: 0.1 })] })), 1400);
+  run(tracker, repeat(23, i => ({ people: [person(0.66 + 0.015 * (i + 1), { size: 1.35, arms: 0.2 }), person(0.34, { arms: 0.1 })] })), 1550);
+  const back = run(tracker, repeat(30, () => ({ people: [person(0.66), person(0.34, { arms: 0.1 })] })), 2350);
+  assert.deepEqual([...back[9]].sort(), [[0, 0.66], [1, 0.34]], 'P1 is back within 0.3 s');
+});
+
+test('somebody beside a player, while the other player is away, doesn\'t take their number when they\'re missed a moment', () => {
+  // Never more people in a result than players, as the worker gives them.
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.25, { arms: 0.1 })] })));
+  // P2 steps out; the model now finds somebody standing just beside P1 instead.
+  run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.76, { arms: 0.3 })] })), 2000);
+  // P1 is missed for a third of a second, then seen again where they were.
+  run(tracker, repeat(10, () => ({ people: [person(0.76, { arms: 0.3 })] })), 4000);
+  const back = run(tracker, repeat(60, () => ({ people: [person(0.6), person(0.76, { arms: 0.3 })] })), 4330);
+  assert.equal(back.at(-1)!.get(0), 0.6);
+});
+
+test('a player followed across where a missing player danced keeps their number', () => {
+  const tracker = new PlayerTracker(2);
+  // P1 (nearer: bigger) and P2 (farther back), dancing where they stand, dressed alike.
+  run(tracker, repeat(40, () => ({ people: [person(0.9, { size: 1.2 }), person(0.3, { size: 0.8, arms: 0.1 })] })));
+  // They swap sides: P2 hurries right (too fast for their home to follow), P1 walks left in front,
+  // hiding P2 once they meet, and on through where P2 danced.
+  const p1 = (i: number) => 0.9 - 0.012 * i, p2 = (i: number) => 0.3 + 0.02 * i;
+  const frames: { people: DetectedLandmark[][] }[] = [];
+  let i = 0;
+  for (; p2(i) < p1(i) - 0.06; i++) frames.push({ people: [person(p1(i), { size: 1.2 }), person(p2(i), { size: 0.8, arms: 0.1 })] });
+  const met = i;
+  for (; p1(i) > 0.2; i++) frames.push({ people: [person(p1(i), { size: 1.2 })] });
+  const out = run(tracker, frames, 1320).slice(met);
+  assert.ok(out.every(m => m.has(0) && !m.has(1)), 'P1 throughout');
+});
+
+test('a player\'s home moves only after they\'ve stood somewhere for half a second, after a gap too', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(40, () => ({ people: [person(0.7), person(0.3, { arms: 0.1 })] })));
+  const home = tracker.players[0].home;
+  run(tracker, repeat(12, () => ({ people: [person(0.3, { arms: 0.1 })] })), 1320);
+  // P1 is found again a little to the side, standing.
+  run(tracker, repeat(3, () => ({ people: [person(0.82, { arms: 0.05 }), person(0.3, { arms: 0.1 })] })), 1716);
+  assert.equal(tracker.players[0].home, home, 'not at once');
+  run(tracker, repeat(20, () => ({ people: [person(0.82, { arms: 0.05 }), person(0.3, { arms: 0.1 })] })), 1815);
+  assert.ok(Math.abs(tracker.players[0].home - 0.82 * 4 / 3) < 1e-6, 'after half a second');
+});
+
+test('a player\'s home doesn\'t move while they\'re tangled with somebody, only once they\'ve stood clear for half a second', () => {
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(40, () => ({ people: [person(0.7), person(0.3, { arms: 0.1 })] })));
+  const home = tracker.players[0].home;
+  // P2 comes to stand beside P1, overlapping them, while P1 drifts slowly to one side; then P2
+  // goes back.
+  run(tracker, repeat(20, i => ({ people: [person(0.7), person(0.3 + 0.0175 * (i + 1), { arms: 0.1 })] })), 1320);
+  run(tracker, repeat(30, i => ({ people: [person(0.7 - 0.002 * (i + 1)), person(0.65, { arms: 0.1 })] })), 1980);
+  run(tracker, repeat(20, i => ({ people: [person(0.64), person(0.65 - 0.0175 * (i + 1), { arms: 0.1 })] })), 2970);
+  run(tracker, repeat(3, () => ({ people: [person(0.64), person(0.3, { arms: 0.1 })] })), 3630);
+  assert.equal(tracker.players[0].home, home, 'not at once');
+  run(tracker, repeat(25, () => ({ people: [person(0.64), person(0.3, { arms: 0.1 })] })), 3729);
+  assert.ok(Math.abs(tracker.players[0].home - 0.64 * 4 / 3) < 1e-6, 'after half a second clear');
+});

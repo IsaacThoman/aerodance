@@ -1,0 +1,9 @@
+{
+  "id": "light-overexposed",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: bright room, camera overexposed (1 EV over the baseline exposure).",
+  "lighting": {
+    "preset": "overexposed"
+  }
+}

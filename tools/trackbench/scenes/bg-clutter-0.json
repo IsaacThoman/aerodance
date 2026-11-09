@@ -1,0 +1,9 @@
+{
+  "id": "bg-clutter-0",
+  "base": "base-solo",
+  "category": "background",
+  "description": "Bare room (clutter 0).",
+  "room": {
+    "clutter": 0.0
+  }
+}

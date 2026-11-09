@@ -1,0 +1,11 @@
+{
+  "id": "sens-chroma",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: half-resolution chroma.",
+  "post": [
+    {
+      "type": "chroma_subsample"
+    }
+  ]
+}

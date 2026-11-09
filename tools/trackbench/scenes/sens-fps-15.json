@@ -1,0 +1,12 @@
+{
+  "id": "sens-fps-15",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: 15 fps camera.",
+  "post": [
+    {
+      "type": "fps",
+      "fps": 15
+    }
+  ]
+}

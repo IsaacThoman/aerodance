@@ -1,0 +1,9 @@
+{
+  "id": "light-tv_glow",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: dark room lit only by a TV screen.",
+  "lighting": {
+    "preset": "tv_glow"
+  }
+}

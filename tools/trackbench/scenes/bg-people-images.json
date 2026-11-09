@@ -1,0 +1,12 @@
+{
+  "id": "bg-people-images",
+  "base": "base-solo",
+  "category": "background",
+  "description": "A TV showing a dancer and a poster of a dancer: pictures of people.",
+  "room": {
+    "features": [
+      "tv_with_people",
+      "poster_people"
+    ]
+  }
+}

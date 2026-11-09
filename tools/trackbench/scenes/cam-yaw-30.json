@@ -1,0 +1,9 @@
+{
+  "id": "cam-yaw-30",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera 30 deg off to the side (the player still faces the front of the room).",
+  "camera": {
+    "yaw_deg": 30
+  }
+}

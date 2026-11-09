@@ -1,0 +1,9 @@
+{
+  "id": "light-party",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: moving red/green/blue party lights.",
+  "lighting": {
+    "preset": "party"
+  }
+}

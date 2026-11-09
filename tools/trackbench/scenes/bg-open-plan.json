@@ -1,0 +1,9 @@
+{
+  "id": "bg-open-plan",
+  "base": "base-solo",
+  "category": "background",
+  "description": "Open-plan room: kitchen and dining table in a deep background.",
+  "room": {
+    "preset": "open_plan"
+  }
+}

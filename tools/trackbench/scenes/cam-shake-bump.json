@@ -1,0 +1,20 @@
+{
+  "id": "cam-shake-bump",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Handheld-like shake (0.5 deg, 2 Hz) throughout plus a bump mid-dance (4 deg pan, 2 deg tilt) that stays.",
+  "camera": {
+    "shake": {
+      "amp_deg": 0.5,
+      "freq_hz": 2
+    },
+    "events": [
+      {
+        "t_s": 14.0,
+        "type": "bump",
+        "yaw_deg": 4,
+        "pitch_deg": -2
+      }
+    ]
+  }
+}

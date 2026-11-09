@@ -1,0 +1,55 @@
+{
+  "id": "_sample-duo",
+  "category": "multiplayer",
+  "description": "Sample: two players walk in from either side, hold still for calibration, dance, then swap places (p1 crossing behind p2) and dance again.",
+  "seed": 2,
+  "duration_s": 10,
+  "fps": 30,
+  "resolution": [640, 480],
+  "players": 2,
+  "camera": {"height_m": 1.05, "distance_m": 3.6, "look_at": [0, 0, 0.95], "hfov_deg": 65},
+  "room": {"preset": "living_room", "clutter": 0.5},
+  "lighting": {"preset": "bright_even"},
+  "people": [
+    {
+      "id": "p1", "role": "player",
+      "body": {"gender": 0.0, "age": 0.35, "weight": 0.45, "muscle": 0.5, "height": 0.45,
+               "race": {"african": 0, "asian": 1, "caucasian": 0}},
+      "skin": "young_asian_female", "hair": "long01",
+      "outfit": {"clothes": ["female_sportsuit01", "shoes05"], "recolor": {"top": "#d0a020"}},
+      "place": {"x": -0.7, "y": 0},
+      "travel": 0.25,
+      "timeline": [
+        {"type": "walk", "from": [-2.7, 0.8], "to": [-0.7, 0], "duration_s": 2.0},
+        {"type": "hold", "pose": "neutral", "duration_s": 2.0},
+        {"type": "dance", "clip": "gJS_sFM_cAll_d01_mJS3_ch04", "clip_start_s": 6.0, "duration_s": 2.5},
+        {"type": "walk", "to": [0.8, 0.7], "duration_s": 1.6},
+        {"type": "dance", "clip": "gJS_sFM_cAll_d01_mJS3_ch04", "clip_start_s": 12.0, "duration_s": 1.9}
+      ]
+    },
+    {
+      "id": "p2", "role": "player",
+      "body": {"gender": 1.0, "age": 0.5, "weight": 0.6, "muscle": 0.6, "height": 0.6,
+               "race": {"african": 0, "asian": 0, "caucasian": 1}},
+      "skin": "young_caucasian_male", "hair": "short02",
+      "outfit": {"clothes": ["male_casualsuit06", "shoes01"]},
+      "place": {"x": 0.7, "y": 0},
+      "travel": 0.25,
+      "timeline": [
+        {"type": "offstage", "duration_s": 0.3},
+        {"type": "walk", "from": [2.7, 0.6], "to": [0.7, 0], "duration_s": 1.7},
+        {"type": "hold", "pose": "neutral", "duration_s": 2.0},
+        {"type": "dance", "clip": "gHO_sFM_cAll_d19_mHO5_ch06", "clip_start_s": 8.0, "duration_s": 2.5},
+        {"type": "walk", "to": [-0.8, -0.4], "duration_s": 1.6},
+        {"type": "dance", "clip": "gHO_sFM_cAll_d19_mHO5_ch06", "clip_start_s": 14.0, "duration_s": 1.9}
+      ]
+    }
+  ],
+  "phases": [
+    {"name": "setup", "start_s": 0, "end_s": 4},
+    {"name": "dance", "start_s": 4, "end_s": 6.5},
+    {"name": "crossing", "start_s": 6.5, "end_s": 8.1},
+    {"name": "dance", "start_s": 8.1, "end_s": 10}
+  ],
+  "post": []
+}

@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>Trackbench estimator runtime probe</title>
+<p>Trackbench worker benchmark. See the generated JSON report for timings and parity.</p>
+<script type="module">
+window.probe = (config) => new Promise((resolve,reject) => {
+ const worker = config.model.startsWith('movenet') ? new Worker('/web/movenet-worker.js') : new Worker('/web/worker.js',{type:'module'});
+ worker.onmessage = ({data}) => {worker.terminate(); data.error ? reject(Error(data.error)) : resolve(data);};
+ worker.onerror = e => {worker.terminate();reject(Error(e.message));};
+ worker.postMessage(config);
+});
+</script>

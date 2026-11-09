@@ -28,8 +28,11 @@ const EVEN_WIDTH: Partial<Record<number, number>> = { 3: 0.45, 4: 0.35 };
  * log) are one person whatever their arms say: two strips can disagree about the arms.
  */
 const SAME_JOINTS = 0.35, SAME_CENTRE = 0.5, SAME_TORSO = 0.25, SAME_SIZE = 0.3;
-/** How sure a joint beyond a strip's cut edge can be. */
-const CUT = 0.2;
+/**
+ * How sure a joint beyond a strip's cut edge can be: it's the model's guess, so below what the
+ * scorer counts (MIN_CONFIDENCE in packages/score/features.ts).
+ */
+export const CUT = 0.05;
 /**
  * While a player is missing: a strip shown people hidden that has found nobody new for IDLE
  * results takes over a person it shares with another strip, which gets TRY results to find
@@ -66,6 +69,18 @@ export function fromTile<P extends Point>(points: readonly P[], tile: Tile): P[]
   });
 }
 
+/** A rectangle of the picture, as fractions of its width and height. */
+export interface Crop { x: number; y: number; width: number; height: number; }
+/** A crop's result in the whole picture's coordinates, with joints beyond its edges (inside the picture) unsure. */
+export function fromCrop<P extends Point>(points: readonly P[], crop: Crop): P[] {
+  return points.map(p => {
+    const x = crop.x + p.x * crop.width, y = crop.y + p.y * crop.height;
+    const cut = p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1;
+    return { ...p, x, y, z: p.z * crop.width,
+      ...(cut ? { visibility: Math.min(p.visibility ?? 0, CUT), ...(p.presence === undefined ? {} : { presence: Math.min(p.presence, CUT) }) } : {}) };
+  });
+}
+
 /** The strips' results as one list, each person once (the copy farthest inside its strip). */
 export function mergeTiles<P extends Point>(found: readonly { points: P[]; tile: Tile }[], aspect: number): P[][] {
   const bodies = found.map(({ points, tile }) => {
@@ -96,7 +111,7 @@ export function mergeTiles<P extends Point>(found: readonly { points: P[]; tile:
  * for their hair and clothes: hiding that is enough for the model to lose them, and leaves
  * whoever their outstretched arms reach over in view.
  */
-function outline(points: readonly Point[]): Box {
+export function outline(points: readonly Point[]): Box {
   const core = points.filter((_, i) => i < 13 || i > 22), sure = core.filter(reliable), use = sure.length ? sure : core;
   const xs = use.map(p => p.x), ys = use.map(p => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
