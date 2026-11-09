@@ -11,7 +11,7 @@ import { definitionProblem, formatScore, forPlayers, howToFor, listMinigames, pl
 import { minigameBest, recordMinigameBest } from '../src/minigames/bestScores.ts';
 import { cameraArea, fromDesign, toDesign } from '../src/minigames/cameraArea.ts';
 import { MG_MAX_OPTIONS, MG_PER_PAGE, minigameLayout, mgTile } from '../src/minigames/layout.ts';
-import { minigameOptions, optionsText, resolveOptions, saveMinigameOption, stepOption } from '../src/minigames/options.ts';
+import { minigameOptions, optionKey, optionsText, playerOption, resolveOptions, saveMinigameOption, stepOption } from '../src/minigames/options.ts';
 import type { MinigameContext, MinigameDefinition, MinigameOption } from '../src/minigames/types.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
 import type { PoseDetail } from '../../../packages/pose/webcamRecord.ts';
@@ -241,8 +241,8 @@ test('options are checked: their ids, labels, choices and defaults, and only as 
   assert.match(problem(option({ choices: [{ value: 'a', label: '' }, { value: 'c', label: 'C' }], default: 'c' })), /choice "a" needs a label/);
   assert.match(problem(option({ default: 'impossible' })), /default must be one of its choices/);
   assert.match(problem(null), /id of letters/);
-  assert.match(problem(...Array.from({ length: MG_MAX_OPTIONS + 1 }, (_, i) => option({ id: `o${i}` }))), /at most 4/);
-  assert.match(definitionProblem({ ...game(), options: 'level' }), /at most 4/);
+  assert.match(problem(...Array.from({ length: MG_MAX_OPTIONS + 1 }, (_, i) => option({ id: `o${i}` }))), new RegExp(`at most ${MG_MAX_OPTIONS}`));
+  assert.match(definitionProblem({ ...game(), options: 'level' }), new RegExp(`at most ${MG_MAX_OPTIONS}`));
   // A game with broken options is left off the list, like any broken definition.
   const errors: string[] = [];
   const error = console.error;
@@ -270,6 +270,26 @@ test('how-to steps and options can be for some player counts only, of the ones t
   assert.ok(forPlayers(option({ players: [1] }), 1));
   assert.ok(!forPlayers(option({ players: [1] }), 2));
   assert.ok(forPlayers(option(), 2));
+});
+
+test('a per-player option has a value for each player, kept, stepped and saved by its key', () => {
+  const hand = option({ id: 'hand', label: 'Paddle hand', choices: [{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }], default: 'right', perPlayer: true });
+  const g = game({ options: [option(), hand] });
+  assert.equal(definitionProblem(g), '');
+  assert.match(definitionProblem(game({ options: [{ ...hand, perPlayer: 'yes' as unknown as boolean }] })), /perPlayer/);
+  assert.equal(optionKey('hand', 1), 'hand.2', 'keys number players from 1, as the screen does');
+  const values = resolveOptions(g, { 'hand.2': 'left', 'hand.3': 'sideways', hand: 'left' });
+  assert.deepEqual(values, { level: 'medium', 'hand.1': 'right', 'hand.2': 'left', 'hand.3': 'right', 'hand.4': 'right' });
+  assert.equal(playerOption(g, values, 'hand', 1), 'left');
+  assert.equal(playerOption(g, values, 'hand', 0), 'right');
+  assert.equal(playerOption(g, values, 'level', 3), 'medium', 'a shared option is everyone\'s');
+  assert.equal(stepOption(g, values, 'hand.1', 1), 'left');
+  assert.equal(stepOption(g, values, 'hand', 1), null, 'a per-player option is stepped by a player\'s key');
+  const storage = memoryStorage();
+  saveMinigameOption(g, 'hand.2', 'left', storage);
+  saveMinigameOption(g, 'hand.9', 'left', storage);
+  assert.deepEqual(minigameOptions(g, storage), { level: 'medium', 'hand.1': 'right', 'hand.2': 'left', 'hand.3': 'right', 'hand.4': 'right' });
+  assert.equal(optionsText({ 'hand.2': 'left' }), 'hand.2=left');
 });
 
 test('a game\'s options are remembered per game, anything unknown back at its default', () => {
@@ -323,7 +343,7 @@ test('a round has the preview\'s settings as ctx.options, and the game can chang
   assert.deepEqual(new MinigameSession({ game: game(), playerCount: 1 }).options, {});
 });
 
-test('the preview has room for four option rows on the left, clear of the title, dial and Play', () => {
+test('the preview has room for five option rows on the left, clear of the title, dial and Play', () => {
   const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const inside = (a: Rect, b: Rect) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
   const box = (c: Circle): Rect => ({ x: c.x - c.r, y: c.y - c.r, w: 2 * c.r, h: 2 * c.r });
@@ -346,6 +366,15 @@ test('the preview has room for four option rows on the left, clear of the title,
         if (i) assert.ok(row.y >= l.mgOption(i - 1).y + l.mgOption(i - 1).h, `rows apart (${at})`);
         assert.ok(next.x - (prev.x + prev.w) >= 140, `room for a choice between the arrows (${at})`);
         assert.ok(prev.x - (row.x + 22) >= 190, `room for the label (${at})`);
+        // A per-player row's chips: in the row, after its label, apart, each with room for a word.
+        for (let count = 1; count <= 4; count++) {
+          for (let p = 0; p < count; p++) {
+            const chip = l.mgOptionPlayer(i, p, count);
+            assert.ok(inside(chip, row) && chip.x - (row.x + 22) >= 150, `row ${i}'s chip ${p} of ${count} in the row, after the label (${at})`);
+            assert.ok(chip.w >= 55, `room for a choice in chip ${p} of ${count} (${at})`);
+            if (p) assert.ok(chip.x >= l.mgOptionPlayer(i, p - 1, count).x + l.mgOptionPlayer(i, p - 1, count).w, `chips apart (${at})`);
+          }
+        }
       }
     }
     assert.ok(plain.MG_BEST_Y > plain.MG_BACK.y + 84 && plain.MG_BEST_Y < minigameLayout(width, 1).MG_OPTIONS!.y, 'the best fits under the title');

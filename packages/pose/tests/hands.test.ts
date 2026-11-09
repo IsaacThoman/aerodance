@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TRACKED_HANDS, assignSlots, ownHand, personAt, tracksHands, wristsAt } from '../browser/hands.ts';
+import { TRACKED_HANDS, assignSlots, ownHand, personAt, playerRanks, tracksHands, wristsAt } from '../browser/hands.ts';
+import { detailHands, handsDetail, isPoseDetail } from '../webcamRecord.ts';
 
 const W = 640, H = 480;
 const at = (x: number, y = 200) => ({ x, y });
@@ -15,9 +16,33 @@ function person(x: number, unseen: number[] = []) {
 
 test('one person\'s two hands or two people\'s one each are followed; two people\'s both hands share a pair', () => {
   assert.equal(TRACKED_HANDS, 2, 'a worker\'s four WebGL contexts: the pose model\'s, two hands\', one to spare');
-  assert.ok(tracksHands(1, 2));
-  assert.ok(tracksHands(2, 1));
-  assert.ok(!tracksHands(2, 2));
+  assert.ok(tracksHands(2), 'one person\'s two, or two people\'s one each');
+  assert.ok(!tracksHands(4), 'two people\'s both');
+});
+
+test('players are ranked by where they stand: Player 1 furthest to the camera\'s right', () => {
+  assert.deepEqual(playerRanks([at(100), at(500)]), [1, 0]);
+  assert.deepEqual(playerRanks([at(500), at(100)]), [0, 1]);
+  assert.deepEqual(playerRanks([null, at(100)]), [1, 0], 'someone not placed comes after');
+  assert.deepEqual(playerRanks([at(300)]), [0]);
+});
+
+test('fresh slots go to the players people stand as; after that, people keep theirs', () => {
+  // First seen: the person on the camera's right takes Player 1's slot, whatever order they're reported in.
+  assert.deepEqual(assignSlots([null, null], [at(100), at(500)], 160, playerRanks([at(100), at(500)])), [1, 0]);
+  // Once placed, where they stood last wins over where they stand now (they crossed over).
+  assert.deepEqual(assignSlots([at(330), at(310)], [at(335), at(305)], 160, playerRanks([at(335), at(305)])), [0, 1]);
+});
+
+test('a detail asks for each player\'s hands', () => {
+  assert.ok(isPoseDetail('hands:right/left') && isPoseDetail('hands:both') && isPoseDetail('world') && isPoseDetail('hands'));
+  assert.ok(!isPoseDetail('hands:') && !isPoseDetail('hands:up') && !isPoseDetail('hands:left/right/left/right/left') && !isPoseDetail('right-hand'));
+  assert.deepEqual(detailHands('hands'), [['left', 'right']]);
+  assert.deepEqual(detailHands('hands:right/left'), [['right'], ['left']]);
+  assert.deepEqual(detailHands('hands:both/left'), [['left', 'right'], ['left']]);
+  assert.deepEqual(detailHands('world'), []);
+  assert.deepEqual(detailHands(null), []);
+  assert.equal(handsDetail(['right', 'left']), 'hands:right/left');
 });
 
 test('a person is placed by their shoulders, else their hips, else not at all; their wrists are the ones seen', () => {

@@ -3,7 +3,7 @@ import type { Landmark as WorldLandmark, NormalizedLandmark } from '@mediapipe/t
 import type { Point3 } from '../choreography.ts';
 import type { HandSide, TrackedHand } from '../webcamRecord.ts';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { MAX_HAND_PEOPLE, assignSlots, ownHand, personAt, tracksHands, wristsAt } from './hands.ts';
+import { MAX_HAND_PEOPLE, assignSlots, ownHand, personAt, playerRanks, tracksHands, wristsAt } from './hands.ts';
 import type { PicturePoint } from './hands.ts';
 import { fromTile, mergeTiles, StripHiding } from './tiles.ts';
 import type { Tile } from './tiles.ts';
@@ -13,9 +13,11 @@ export type PoseRunningMode = 'IMAGE' | 'VIDEO';
 export type PoseDelegate = 'GPU' | 'CPU';
 /**
  * The hand model's file and its SHA-256, checked before use, how many people's hands to look for
- * (1 by default, at most MAX_HAND_PEOPLE) and which of them (both by default).
+ * (1 by default, at most MAX_HAND_PEOPLE) and which of them: a list for each player in their
+ * order (webcamRecord.ts detailHands), the last for any after it (both hands by default). Player
+ * 1 is the person furthest to the camera's right, as the mirror shows them on the left.
  */
-export interface HandModelRequest { modelUrl: string; modelHash: string; people?: number; sides?: HandSide[]; }
+export interface HandModelRequest { modelUrl: string; modelHash: string; people?: number; sides?: HandSide[][]; }
 export type PoseWorkerRequest =
   /**
    * playerCount is how many poses to look for; looks asks for each person's looks (appearance.ts)
@@ -69,21 +71,25 @@ let handModel: HandModelRequest | null = null;
 /** A slot: the landmarkers for one person's hands (a landmarker per side asked for), and where they were last seen. */
 interface HandSlot { landmarkers: Partial<Record<HandSide, HandLandmarker>>; at: PicturePoint | null; }
 /**
- * The hand landmarkers, once loaded, for the people and sides they were asked for: a slot each in
- * VIDEO mode, each landmarker following its hand from frame to frame, when they fit beside the
- * pose model's WebGL context; otherwise one slot shared by everyone in IMAGE mode, looking afresh
- * in each person's cuts (hands.ts).
+ * The hand landmarkers, once loaded, for the people and hands they were asked for (`sides`, each
+ * player's): a slot per player in VIDEO mode, each landmarker following its hand from frame to
+ * frame, when they fit beside the pose model's WebGL context; otherwise one slot shared by
+ * everyone in IMAGE mode, a landmarker for each side anyone asked for, looking afresh in each
+ * person's cuts (hands.ts).
  */
-interface Hands { people: number; sides: HandSide[]; video: boolean; slots: HandSlot[]; }
+interface Hands { sides: HandSide[][]; video: boolean; slots: HandSlot[]; }
 let hands: Hands | null = null;
-/** How many people's hands a request is for, and which. */
-const peopleOf = (model: HandModelRequest) => Math.min(MAX_HAND_PEOPLE, Math.max(1, Math.floor(model.people ?? 1)));
-const sidesOf = (model: HandModelRequest): HandSide[] => {
-  const asked = (['left', 'right'] as const).filter((side) => model.sides?.includes(side));
-  return asked.length ? asked : ['left', 'right'];
-};
+/** Each player's hands a request is for (as many players as it's for). */
+function sidesOf(model: HandModelRequest): HandSide[][] {
+  const people = Math.min(MAX_HAND_PEOPLE, Math.max(1, Math.floor(model.people ?? 1)));
+  const lists = model.sides?.length ? model.sides : [['left', 'right'] as HandSide[]];
+  return Array.from({ length: people }, (_, player) => {
+    const asked = (['left', 'right'] as const).filter((side) => (lists[player] ?? lists[lists.length - 1]).includes(side));
+    return asked.length ? asked : ['left', 'right'];
+  });
+}
 /** The hands loaded are the ones a request asks for. */
-const loadedFor = (loaded: Hands, model: HandModelRequest) => loaded.people === peopleOf(model) && loaded.sides.join() === sidesOf(model).join();
+const loadedFor = (loaded: Hands, model: HandModelRequest) => JSON.stringify(loaded.sides) === JSON.stringify(sidesOf(model));
 let handsLoading = false;
 /** Hand landmarkers made so far, so each loads the WASM loader under a URL of its own (see initialize). */
 let handsMade = 0;
@@ -160,10 +166,10 @@ function sorted(found: FoundHand[]): FoundHand[] {
  * VIDEO mode, or looking afresh), none nearer another person's wrists (`others`, in pixels) than
  * their own.
  */
-async function findHands(bitmap: ImageBitmap, points: readonly NormalizedLandmark[], timestampMs: number, landmarkers: HandSlot['landmarkers'], video: boolean, others: readonly PicturePoint[] = []): Promise<TrackedHand[]> {
+async function findHands(bitmap: ImageBitmap, points: readonly NormalizedLandmark[], timestampMs: number, landmarkers: HandSlot['landmarkers'], sides: readonly HandSide[], video: boolean, others: readonly PicturePoint[] = []): Promise<TrackedHand[]> {
   const { width, height } = bitmap;
   const found: FoundHand[] = [];
-  for (const side of ['left', 'right'] as const) {
+  for (const side of sides) {
     const landmarker = landmarkers[side];
     if (!landmarker) continue;
     const cut = cutFor(points, side, width, height);
@@ -199,8 +205,11 @@ async function findHands(bitmap: ImageBitmap, points: readonly NormalizedLandmar
 async function loadHands(model: HandModelRequest): Promise<Hands> {
   if (!files) throw Error('Pose model is not initialized');
   if (runningMode !== 'VIDEO' || tiled) throw Error(`Hand tracking needs at most ${MAX_HAND_PEOPLE} players in the whole picture`);
-  const people = peopleOf(model), sides = sidesOf(model), video = tracksHands(people, sides.length);
-  const count = (video ? people : 1) * sides.length;
+  const sides = sidesOf(model), video = tracksHands(sides.flat().length);
+  // Following: a landmarker for each player's each hand; shared: one for each side anyone asked for.
+  const shared = (['left', 'right'] as const).filter((side) => sides.some((s) => s.includes(side)));
+  const slotSides = video ? sides : [shared];
+  const count = slotSides.flat().length;
   const buffer = await download(model.modelUrl, model.modelHash);
   // As for the strips, the WASM binary is fetched once for all of them.
   let wasm = '';
@@ -220,9 +229,9 @@ async function loadHands(model: HandModelRequest): Promise<Hands> {
       for (const l of made.splice(0)) l.close();
       await all('CPU');
     }
-    const slots = Array.from({ length: count / sides.length }, (_, i): HandSlot => ({
-      landmarkers: Object.fromEntries(sides.map((side, j) => [side, made[i * sides.length + j]])), at: null }));
-    return { people, sides, video, slots };
+    let next = 0;
+    const slots = slotSides.map((own): HandSlot => ({ landmarkers: Object.fromEntries(own.map((side) => [side, made[next++]])), at: null }));
+    return { sides, video, slots };
   } catch (error) {
     for (const l of made) l.close();
     throw error;
@@ -235,26 +244,31 @@ function closeHands() {
 }
 
 /**
- * The hands of each person found this frame, in their order: following, each person by their
- * slot (assignSlots: where they stood last, whatever order the pose model reports them in);
- * shared, each of as many people as were asked for by the one slot. (The pose model looks for no
- * more people than the players, so that's everyone.)
+ * The hands of each person found this frame, in their order, each person's being their player's
+ * (playerRanks: Player 1 furthest to the camera's right). Following, each person goes to their
+ * player's slot (assignSlots: where they stood last, whatever order the pose model reports them
+ * in, and where they stand when first seen); shared, each looks with the one slot. (The pose
+ * model looks for no more people than the players, so that's everyone.)
  */
 async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLandmark[][], timestampMs: number, running: Hands): Promise<TrackedHand[][]> {
   const { width, height } = bitmap;
   const wrists = people.map((points) => wristsAt(points, width, height));
   const others = (i: number) => wrists.flatMap((w, j) => (j === i ? [] : w));
+  const at = people.map((points) => personAt(points, width, height));
+  const ranks = playerRanks(at);
   const found: TrackedHand[][] = people.map(() => []);
   if (!running.video) {
-    for (const [i, points] of people.slice(0, running.people).entries()) found[i] = await findHands(bitmap, points, timestampMs, running.slots[0].landmarkers, false, others(i));
+    for (const [i, points] of people.entries()) {
+      const sides = running.sides[ranks[i]];
+      if (sides) found[i] = await findHands(bitmap, points, timestampMs, running.slots[0].landmarkers, sides, false, others(i));
+    }
     return found;
   }
-  const at = people.map((points) => personAt(points, width, height));
-  const order = assignSlots(running.slots.map((slot) => slot.at), at, width * 0.25);
+  const order = assignSlots(running.slots.map((slot) => slot.at), at, width * 0.25, ranks);
   for (const [i, points] of people.entries()) {
     const slot = running.slots[order[i]];
     if (!slot) continue;
-    found[i] = await findHands(bitmap, points, timestampMs, slot.landmarkers, true, others(i));
+    found[i] = await findHands(bitmap, points, timestampMs, slot.landmarkers, running.sides[order[i]], true, others(i));
     if (at[i]) slot.at = at[i];
   }
   return found;

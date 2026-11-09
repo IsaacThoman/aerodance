@@ -77,6 +77,7 @@ function optionsProblem(options: unknown, players: readonly PlayerCount[]): stri
     }
     if (typeof option.default !== 'string' || !values.has(option.default)) return `option "${id}"'s default must be one of its choices`;
     if (countsProblem(option.players, players)) return `option "${id}": ${countsProblem(option.players, players)}`;
+    if (option.perPlayer !== undefined && typeof option.perPlayer !== 'boolean') return `option "${id}": perPlayer is true or false`;
   }
   return '';
 }

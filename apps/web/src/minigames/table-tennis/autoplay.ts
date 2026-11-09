@@ -44,9 +44,12 @@ export function arrival(seen: Ball, timeScale = 1): { at: V3; t: number } | null
   return null;
 }
 
-/** The blade's place (own frame) for a ball arriving so, or none: at home, lined up behind it, then swung forward through it. */
-export function autoplayBlade(arriving: { at: V3; t: number } | null): V3 {
-  if (!arriving) return { ...AUTOPLAY.home };
+/**
+ * The blade's place (own frame) for a ball arriving so, or none: at home (on the side of the
+ * paddle's hand), lined up behind it, then swung forward through it.
+ */
+export function autoplayBlade(arriving: { at: V3; t: number } | null, hand: 'left' | 'right' = 'right'): V3 {
+  if (!arriving) return v3(AUTOPLAY.home.x * (hand === 'left' ? -1 : 1), AUTOPLAY.home.y, AUTOPLAY.home.z);
   const { reach } = AUTOPLAY;
   const u = clamp(1 - arriving.t / AUTOPLAY.swingS, 0, 1);
   return v3(clamp(arriving.at.x, -reach.x, reach.x), clamp(arriving.at.y, reach.low, reach.high), AUTOPLAY.hitZ + AUTOPLAY.backswing * (1 - u));

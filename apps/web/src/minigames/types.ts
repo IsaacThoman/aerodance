@@ -79,6 +79,12 @@ export interface MinigameOption {
    * alone and against each other together).
    */
   players?: readonly PlayerCount[];
+  /**
+   * Each player chooses their own (a paddle hand): the row has a chip per player, in their
+   * colours, and the game reads each one's as ctx.options['<id>.<player number>'] (options.ts
+   * playerOption).
+   */
+  perPlayer?: boolean;
 }
 
 export interface MinigameDefinition {
@@ -106,8 +112,8 @@ export interface MinigameDefinition {
   /**
    * More from the camera than the pose API's landmarks, for a game that does its own geometry:
    * 'world' asks the camera for MediaPipe's 3D world landmarks with every pose, and 'hands' for
-   * those and, with one or two players, the Hand Landmarker's hands at their wrists ('right-hand'
-   * or 'left-hand': that one only, for half the cost) (PlayerPose.raw), for
+   * those and, with one or two players, the Hand Landmarker's hands at their wrists ('hands:right'
+   * or 'hands:right/left': only some of each player's, for less: webcamRecord.ts) (PlayerPose.raw), for
    * as long as the round lasts (ctx.handTracking() says how the hands are doing). The hands cost
    * tracking time, so only the games that need them ask, and a game can let its players choose:
    * as a function, the round's player count and settings (options) say which it asks for, if any.
@@ -120,7 +126,7 @@ export interface MinigameDefinition {
   coop?: boolean;
   /** The host's HUD: each player's score in the top corners, and the round's time left (both on by default). */
   hud?: { scores?: boolean; timer?: boolean };
-  /** Settings the players choose on its preview, a row each (up to four); the game reads them in ctx.options. */
+  /** Settings the players choose on its preview, a row each (up to five); the game reads them in ctx.options. */
   options?: readonly MinigameOption[];
   /** Listed in development builds only. */
   devOnly?: boolean;

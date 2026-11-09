@@ -3,7 +3,7 @@ import type { PoseModelId } from './models.ts';
 import { PlayerTracker } from './tracker.ts';
 import { evenTiles } from './tiles.ts';
 import { HANDS_MIN_HZ, HANDS_SLOW_MS, MAX_HAND_PEOPLE } from './hands.ts';
-import { detailSides, validateWebcamRecord } from '../webcamRecord.ts';
+import { detailHands, validateWebcamRecord } from '../webcamRecord.ts';
 import type { HandTracking, PoseDetail, WebcamRecord } from '../webcamRecord.ts';
 import { isPlayerCount } from '../choreography.ts';
 import type { CaptureInput, PlayerCount } from '../choreography.ts';
@@ -284,15 +284,15 @@ export class WebcamPoseSource {
    * to run both: PhoneLink), until the detail is asked for afresh.
    */
   dropHands() {
-    if (!detailSides(this.detail).length || this.handsDropped) return;
+    if (!detailHands(this.detail).length || this.handsDropped) return;
     this.handsDropped = true;
     this.sendDetail();
     this.publishHands();
   }
   /** Whether the hand model is to run: a detail asking for hands, one or two players (MAX_HAND_PEOPLE), not dropped. */
-  get handsWanted() { return detailSides(this.detail).length > 0 && this.playerCount <= MAX_HAND_PEOPLE && !this.handsDropped; }
+  get handsWanted() { return detailHands(this.detail).length > 0 && this.playerCount <= MAX_HAND_PEOPLE && !this.handsDropped; }
   handsView(): HandTracking | undefined {
-    if (!detailSides(this.detail).length) return undefined;
+    if (!detailHands(this.detail).length) return undefined;
     return this.playerCount > MAX_HAND_PEOPLE ? 'unavailable' : this.handsDropped ? 'dropped' : this.handModel;
   }
   /**
@@ -316,7 +316,7 @@ export class WebcamPoseSource {
     if (!this.worker || !this.workerReady || (!this.detail && !this.detailSent)) return;
     this.detailSent = !!this.detail;
     this.worker.postMessage({ type: 'detail', world: this.detail !== null,
-      hands: this.handsWanted ? { modelUrl: new URL(HAND_MODEL.file, this.assetUrl()).href, modelHash: HAND_MODEL.sha256, people: this.playerCount, sides: detailSides(this.detail) } : null });
+      hands: this.handsWanted ? { modelUrl: new URL(HAND_MODEL.file, this.assetUrl()).href, modelHash: HAND_MODEL.sha256, people: this.playerCount, sides: detailHands(this.detail) } : null });
   }
   /** A new song starts with a fresh line-up, without restarting the camera or model. */
   resetTracking() {

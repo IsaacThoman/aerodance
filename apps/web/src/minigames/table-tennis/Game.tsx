@@ -47,11 +47,11 @@ import type { OptionId, SceneId } from './options.ts';
  * (packages/arenas/biodome) or a blank room (the Scene setting, 'debug'): the
  * dancers' glass hands following the player's (the pose and Hand Landmarker landmarks the host's
  * camera sends with the game's 'hands' tracking, turned into the hands' places and angles by
- * arms.ts), a paddle in the right. The ball's physics (ball.ts) meet the player's paddle as it
+ * arms.ts), a paddle in their paddle hand (the Paddle hand setting, each player's own). The ball's physics (ball.ts) meet the player's paddle as it
  * really moves (flight.ts).
  *
  * Alone, the opponent is a robot arm at the far end (the Torven six-axis arm from the robot hall:
- * RobotOpponent.tsx), which holds the ball on its paddle between rallies; raising the left hand
+ * RobotOpponent.tsx), which holds the ball on its paddle between rallies; raising the free hand
  * (or Space) has it toss the ball up and serve (robot.ts), and the bot (bot.ts) plays back what
  * the player returns, the arm's inverse kinematics putting its paddle on the ball.
  *
@@ -60,7 +60,7 @@ import type { OptionId, SceneId } from './options.ts';
  * (rally.ts): no points, only a count of the shots in a row that land on the other half. Each sees
  * the other as their glass dancer (Dancer, SeenBy the other's view), the dancer's hands the very
  * hands that hold the paddles, so a paddle is where it's seen. The ball waits over the server's
- * end; raising the left hand (or Space) tosses it up, for them to hit. Whoever's end a dead ball
+ * end; raising their free hand (or Space) tosses it up, for them to hit. Whoever's end a dead ball
  * finishes at serves next. The camera tracks both players' paddle hands (index.ts tracking),
  * unless the Hand tracking setting is off or tracking can't keep up with them (then both
  * players' paddles follow the pose's wrists and fingers).
@@ -158,6 +158,9 @@ interface HandTarget { pose: HandPose; at: number; }
 interface Rig {
   /** Their end of the table (and their player number, less one). */
   end: End;
+  /** The hand holding their paddle (the Paddle hand setting, theirs), and the free one, which serves. */
+  paddle: Side;
+  free: Side;
   hands: Record<Side, HandTarget | null>;
   /** Poses are coming in (the hands follow them; until then they rest at REST). */
   tracked: boolean;
@@ -168,7 +171,7 @@ interface Rig {
   /** The tracker's measured delay, camera to result, in seconds. */
   latency: number;
   /**
-   * The aim assist's slide of the right hand, set by the ball for the next frame, and the slide it
+   * The aim assist's slide of the paddle's hand, set by the ball for the next frame, and the slide it
    * was drawn with this frame; the paddle's calibration shift, set by the ball's passes, and as
    * drawn this frame (eased onto it). All in the player's own frame (rally.ts mine).
    */
@@ -195,8 +198,8 @@ interface Play {
   botAlways: boolean;
 }
 
-const newRig = (end: End): Rig => ({
-  end, hands: { left: null, right: null }, tracked: false, flat: false, blade: null, latency: 0,
+const newRig = (end: End, paddle: Side): Rig => ({
+  end, paddle, free: paddle === 'right' ? 'left' : 'right', hands: { left: null, right: null }, tracked: false, flat: false, blade: null, latency: 0,
   nudge: new THREE.Vector3(), nudged: new THREE.Vector3(), shift: new THREE.Vector3(), shifted: new THREE.Vector3(), body: null, autoplay: false,
 });
 
@@ -436,7 +439,7 @@ function Hand({ side, rig, forgiving, two }: { side: Side; rig: Rig; forgiving: 
     // The mitt sits just past the wrist, along the hand. The paddle's hand slides as the aim assist
     // says, and is shifted as its calibration has it.
     g.position.copy(wrist).addScaledVector(tmp.dir.set(0, 1, 0).applyQuaternion(g.quaternion), MITT);
-    if (side === 'right') {
+    if (side === rig.paddle) {
       rig.nudged.copy(rig.nudge);
       // (Only while the camera's on: the hands waiting for it aren't the player's.)
       rig.shifted.lerp(rig.tracked ? rig.shift : NO_SHIFT, 1 - Math.exp(-3 * delta));
@@ -447,7 +450,7 @@ function Hand({ side, rig, forgiving, two }: { side: Side; rig: Rig; forgiving: 
   // The ball looks for the paddle's blade in the rig.
   const blade = useRef<THREE.Group>(null);
   useLayoutEffect(() => {
-    if (side !== 'right') return undefined;
+    if (side !== rig.paddle) return undefined;
     rig.blade = blade.current;
     return () => { rig.blade = null; };
   }, [rig, side]);
@@ -462,7 +465,7 @@ function Hand({ side, rig, forgiving, two }: { side: Side; rig: Rig; forgiving: 
           <SeenBy views={[otherEnd(rig.end)]}><mesh geometry={geometry} material={dancerGel} scale={DANCER_SCALE} position-y={HAND_SIZE / 2 - big} /></SeenBy>
         </>
       ) : <mesh geometry={geometry} material={gel} scale={scale} castShadow />}
-      {side === 'right' && <group ref={blade} position-y={BLADE_UP}><Paddle rubber={RUBBER} forgiving={forgiving} /></group>}
+      {side === rig.paddle && <group ref={blade} position-y={BLADE_UP}><Paddle rubber={RUBBER} forgiving={forgiving} /></group>}
     </group>
   );
 }
@@ -532,12 +535,12 @@ interface Hud {
   /** With two: who serves, and whether the ball's waiting for them. */
   server: End; holding: boolean;
 }
-/** Each player's part of the ball's frame: their paddle last frame (the table's frame) and where they'd moved it (their own), their swings, the ball's pass, their left hand. */
+/** Each player's part of the ball's frame: their paddle last frame (the table's frame) and where they'd moved it (their own), their swings, the ball's pass, their free hand. */
 interface Player { paddle: PaddlePose | null; moved: V3 | null; speeds: { t: number; vel: V3 }[]; pass: Pass | null; raised: boolean; }
 
 /**
  * The ball, and the robot's paddle alone: the ball held on the robot's paddle until a serve (the
- * left hand raised, or Space), tossed up and struck, then flying (ball.ts) in the table's frame at
+ * free hand raised, or Space), tossed up and struck, then flying (ball.ts) in the table's frame at
  * the time's speed, met by the players' paddles as they moved this frame (as they were a lag ago:
  * LaggedBall, flight.ts), with a fading trail behind it. A hit judged in the past puts the ball
  * where it is now, and its drawn place eases onto that. A dead ball (on the floor, or settled)
@@ -545,7 +548,7 @@ interface Player { paddle: PaddlePose | null; moved: V3 | null; speeds: { t: num
  * it back, the robot's paddle drawn back, swung through the ball and followed through (robot.ts):
  * a rally lasts as long as the player keeps returning it.
  *
- * With two, the ball waits over the server's end until they raise their left hand (or Space),
+ * With two, the ball waits over the server's end until they raise their free hand (or Space),
  * then it's tossed up for them to hit, and the open rally (rally.ts) counts the shots that land
  * on the other half; a dead ball goes to whoever's end it finished at.
  */
@@ -686,17 +689,18 @@ function PlayBall({ ctx, rigs, play, hud, scene, robot }: { ctx: MinigameContext
     for (const rig of rigs) {
       if (!rig.autoplay) continue;
       const seen = st.flying && st.lagged ? mineBall(rig.end, st.lagged.then(lagOf(rig, play))) : null;
-      const blade = autoplayBlade(seen && arrival(seen, play.timeScale));
-      const grip = heldPose('right', REST.right);
-      const reach = MITT + BLADE_UP, s = SHOULDER.right, d = grip.dir, k = 1 / (rig.tracked ? REACH : 1);
+      const blade = autoplayBlade(seen && arrival(seen, play.timeScale), rig.paddle);
+      const grip = heldPose(rig.paddle, REST[rig.paddle]);
+      const reach = MITT + BLADE_UP, s = SHOULDER[rig.paddle], d = grip.dir, k = 1 / (rig.tracked ? REACH : 1);
       grip.wrist = {
         x: (blade.x - OWN_EYE.x - s.x - d.x * reach - rig.shifted.x) * k,
         y: (blade.y - OWN_EYE.y - s.y - d.y * reach - rig.shifted.y) * k,
         z: (blade.z - OWN_EYE.z - s.z - d.z * reach - rig.shifted.z) * k,
       };
-      rig.hands.right = { at: now, pose: grip };
+      rig.hands[rig.paddle] = { at: now, pose: grip };
       const raised = autoplayRaised(holding() && serverOf() === rig.end ? st.time - st.heldSince : null);
-      rig.hands.left = { at: now, pose: heldPose('left', raised ? { x: -0.05, y: 0.3, z: -0.15 } : { x: -0.05, y: -0.4, z: -0.1 }) };
+      const out = rig.free === 'left' ? -0.05 : 0.05;
+      rig.hands[rig.free] = { at: now, pose: heldPose(rig.free, raised ? { x: out, y: 0.3, z: -0.15 } : { x: out, y: -0.4, z: -0.1 }) };
     }
   }, -0.4);
   useFrame((_, delta) => {
@@ -731,23 +735,23 @@ function PlayBall({ ctx, rigs, play, hud, scene, robot }: { ctx: MinigameContext
     st.real += dt;
     const now = performance.now();
     // Each player's swing (at their own speed, whatever the time's; neither the assist's slide nor
-    // the calibration's shift is a swing), how late they see the ball, and their left hand raised
+    // the calibration's shift is a swing), how late they see the ball, and their free hand raised
     // above its shoulder (from the tracker), with some give before it counts as lowered.
     const you = rigs.map((rig, i) => {
       const p = st.players[i], moved = pads[i].moved;
       const paddleVel = p.moved && moved && dt > 0 ? v3((moved.x - p.moved.x) / dt, (moved.y - p.moved.y) / dt, (moved.z - p.moved.z) / dt) : undefined;
       // Only a hand being tracked swings (one lost drifts down to its rest, which is no swing).
-      const right = rig.hands.right;
+      const right = rig.hands[rig.paddle];
       const live = rig.tracked && !!right && now - right.at < LOST_MS;
       if (paddleVel && live) p.speeds.push({ t: st.real, vel: paddleVel });
       while (p.speeds.length && st.real - p.speeds[0].t > 0.5) p.speeds.shift();
-      const left = rig.hands.left;
+      const left = rig.hands[rig.free];
       const fresh = rig.tracked && left && now - left.at < LOST_MS;
       const wasRaised = p.raised;
       p.raised = !!fresh && left.pose.wrist.y > (p.raised ? RAISED.down : RAISED.up);
       return { paddleVel, live, wasRaised, lag: lagOf(rig, play), swing: strongestSwing(p.speeds, st.real) };
     });
-    // The server's left hand raised (not in the middle of a rally: an arm swung up mid-rally isn't a serve).
+    // The server's free hand raised (not in the middle of a rally: an arm swung up mid-rally isn't a serve).
     const s = serverOf();
     const idle = !st.flying || st.time - Math.max(st.servedAt, st.touchedAt) > RAISED.again * play.timeScale;
     const serve = play.serve || (st.players[s].raised && idle && (!you[s].wasRaised || st.time - st.servedAt > RAISED.again * play.timeScale));
@@ -796,7 +800,7 @@ function PlayBall({ ctx, rigs, play, hud, scene, robot }: { ctx: MinigameContext
         endRally();
         // Struck from above where it's held, down onto its own half and over onto the player's.
         const from = serveStrike(st.arm.pos);
-        const flight = botServe(from, play.botLevel);
+        const flight = botServe(from, play.botLevel, Math.random, rigs[0].paddle);
         const vel = flight?.vel ?? v3(0, 0, 3);
         const dir = heading(from, flight?.second ?? v3(0, 0, 1));
         const tilt = Math.min(0.35, Math.max(-0.2, Math.atan2(vel.y, Math.hypot(vel.x, vel.z))));
@@ -861,7 +865,7 @@ function PlayBall({ ctx, rigs, play, hud, scene, robot }: { ctx: MinigameContext
         // it returns everything), and hits it as it gets there. Returning a miss ends the rally's count.
         plan = st.yours && st.deadAt === Infinity && !st.serve ? planReturn(b, st.farBounce, play.botAlways) : null;
         // The spot its shot will go to, chosen as it sets off for the ball (its paddle turns to face it).
-        if (plan) st.bot.aim ??= botTarget(play.botLevel);
+        if (plan) st.bot.aim ??= botTarget(play.botLevel, Math.random, rigs[0].paddle);
         if (plan && plan.t <= worldDt * 1.01 && dist(st.bot.pos, plan.at) < 0.3) {
           if (!st.farBounce) endRally();
           const aim = st.bot.aim ?? undefined;
@@ -936,7 +940,7 @@ function TableTennisHud({ ctx, rigs, play, hud }: { ctx: MinigameContext; rigs: 
         const rig = rigs[0];
         const lines: HudLine[] = [
           { text: score, size: 28, weight: 800 },
-          { text: !hud.flying ? 'Raise your left hand for the robot to serve' : hud.passes[0] ? describePass(hud.passes[0]) : 'Swing through the ball', size: 22 },
+          { text: !hud.flying ? `Raise your ${rig.free} hand for the robot to serve` : hud.passes[0] ? describePass(hud.passes[0]) : 'Swing through the ball', size: 22 },
           { text: `Aim assist Max  ·  Bot ${choiceLabel('botShots', play.botLevel)}, returns ${play.botAlways ? 'everything' : 'fair shots'}`, size: 18, color: '#dff4ff' },
           { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
         ];
@@ -955,7 +959,7 @@ function TableTennisHud({ ctx, rigs, play, hud }: { ctx: MinigameContext; rigs: 
       g.restore();
       rigs.forEach((rig) => {
         const pass = hud.passes[rig.end];
-        const status = hud.holding ? (hud.server === rig.end ? 'Raise your left hand to serve' : `Player ${hud.server + 1} serves`)
+        const status = hud.holding ? (hud.server === rig.end ? `Raise your ${rig.free} hand to serve` : `Player ${hud.server + 1} serves`)
           : pass ? describePass(pass) : 'Swing through the ball';
         const lines: HudLine[] = [
           { text: PLAYERS[rig.end].name, size: 22, weight: 800, color: PLAYERS[rig.end].light },
@@ -1037,7 +1041,11 @@ function viewFrom(end: End, fov: number, scene: SceneId): MinigameCameraProps {
 export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   // (The player count is the round's, fixed for it.)
   const two = ctx.playerCount >= 2;
-  const [rigs] = useState<Rig[]>(() => (two ? [newRig(0), newRig(1)] : [newRig(0)]));
+  // Each player's paddle hand is theirs (the Paddle hand setting), for the round.
+  const [rigs] = useState<Rig[]>(() => {
+    const hands = optionsOf(ctx.options).paddleHands;
+    return two ? [newRig(0, hands[0]), newRig(1, hands[1])] : [newRig(0, hands[0])];
+  });
   const [play] = useState<Play>(() => {
     const chosen = optionsOf(ctx.options);
     return { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', botLevel: chosen.botShots, botAlways: chosen.botAlways };

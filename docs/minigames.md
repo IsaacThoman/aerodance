@@ -125,7 +125,7 @@ export default function HighFive({ ctx }: { ctx: MinigameContext }) {
 ### Settings: `options`
 
 A game with settings (a difficulty, an aim assist, which hand holds the paddle) lists them in its
-definition's `options`, up to four, and its preview shows a row for each on the left: the
+definition's `options`, up to five, and its preview shows a row for each on the left: the
 label, then the choice between two arrows that step through the choices and round again, as the
 camera picker's do. A press on an arrow steps it, and a press on the row steps it on; with the
 keyboard or the Siri Remote, Up and Down go through the rows, the players dial and Play, and
@@ -154,8 +154,15 @@ preview dims its row and the focus passes over it, and the game should ignore it
 robot settings are `players: [1]`. Its row stays where it is, so the dial and Play don't move as
 the count changes.
 
+An option with `perPlayer: true` is each player's own (Table Tennis's **Paddle hand**): its row
+has a chip per player in their colour, which a press (or Enter) steps on; Left and Right go
+between the chips. Each player's choice is `ctx.options['<id>.<player number>']`
+(`paddleHand.2`; `playerOption(game, ctx.options, id, player)` in `minigames/options.ts` reads it
+with the player 0-based), remembered in the browser like any other. A preview has room for five
+rows (five sit a little closer than four).
+
 With play.ts, `click mgOptionNext.<i>` (or `mgOptionPrev.<i>`, or the row, `mgOption.<i>`) steps
-the preview's row i, and the canvas reports them all: `wait minigameOptions~botShots=hard`.
+the preview's row i (a per-player row's chip: `mgOptionPlayer.<i>.<player>.<players>`), and the canvas reports them all: `wait minigameOptions~botShots=hard`.
 
 ### What the host does, and what the game does
 
@@ -289,9 +296,10 @@ their confidences), `world`, `hands`, `input` (the picture's size, always unmirr
 
 A game with `tracking` in its definition (Table Tennis's first-person paddle) gets more in it,
 for as long as its session lives (`PoseSource.setDetail`); the songs never ask for it. `'world'`
-brings the world landmarks, and `'hands'` those and the hands (`'right-hand'` or `'left-hand'`:
-one of them). As a function,
-`({ playerCount, options }) => 'hands' | 'world' | null` chooses per round, and a setting changed
+brings the world landmarks, and `'hands'` those and the hands. `'hands:right'` asks for only
+every player's right hand, and `'hands:right/left'` for Player 1's right and Player 2's left
+(`handsDetail(['right', 'left'])` in `packages/pose/webcamRecord.ts`; `'both'` for both). As a
+function, `({ playerCount, options }) => 'hands' | 'world' | null` chooses per round, and a setting changed
 mid-round (`ctx.setOption`) asks the camera again: Table Tennis asks for the hands with its
 **Hand tracking** setting on (one player's both, two players' paddle hands), and for the world
 landmarks otherwise.
@@ -302,8 +310,9 @@ landmarks otherwise.
   body's size across the picture, in metres, and a joint that's surely behind another. Null
   without the detail.
 - `hands`: with one or two players, the Hand Landmarker's hands, found in a square cut round each
-  of the pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`); with `'right-hand'`
-  or `'left-hand'`, that one only. Each Hand Landmarker needs a WebGL context, and Chrome keeps
+  of the pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`); with `'hands:…'`,
+  only the ones asked for, each player's by where they stand (Player 1 furthest to the camera's
+  right, as the mirror shows them on the left). Each Hand Landmarker needs a WebGL context, and Chrome keeps
   at most four in a worker, the pose model's among them (`packages/pose/browser/hands.ts`): one
   player's two hands, or two players' one each, are each followed from frame to frame, but two
   players' both hands share a pair that looks afresh every frame, which costs about half again

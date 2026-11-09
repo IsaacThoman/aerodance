@@ -12,7 +12,7 @@ import { isPoseModelId, poseModel } from '../../../../packages/pose/browser/mode
 import type { PoseModelId } from '../../../../packages/pose/browser/models.ts';
 import type { RecordTiming } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PreviewFrame, PreviewPicture } from '../../../../packages/pose/browser/preview.ts';
-import { detailSides } from '../../../../packages/pose/webcamRecord.ts';
+import { detailHands } from '../../../../packages/pose/webcamRecord.ts';
 import type { HandTracking, PoseDetail, WebcamRecord } from '../../../../packages/pose/webcamRecord.ts';
 import type { FrameSize, PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts';
@@ -307,7 +307,7 @@ export class PhonePoseSource implements PoseSource {
   }
   /** How the phone's hands are doing, while they're asked for (see the top). */
   handsState(): HandTracking | undefined {
-    if (!detailSides(this.detail).length) return undefined;
+    if (!detailHands(this.detail).length) return undefined;
     const said = this.phone?.hands;
     if (said) return said;
     return said === undefined && this.phone && this.now() - this.detailSentAt > HANDS_ANSWER_MS ? 'unavailable' : 'loading';

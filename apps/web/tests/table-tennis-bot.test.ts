@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TABLE, firstBounce, v3 } from '../src/minigames/table-tennis/ball.ts';
 import type { Ball, V3 } from '../src/minigames/table-tennis/ball.ts';
-import { BOT, BOT_LEVELS, BOT_SHOTS, botShot, planReturn, reaches } from '../src/minigames/table-tennis/bot.ts';
+import { BOT, BOT_LEVELS, BOT_SHOTS, botShot, planReturn, reaches, botTarget } from '../src/minigames/table-tennis/bot.ts';
 
 const ball = (pos: V3, vel: V3): Ball => ({ pos, vel, cooldown: 0 });
 
@@ -58,4 +58,18 @@ test('returning everything, the bot plays long, wide and own-half misses, but no
   // A fair return it still lets bounce first.
   const fair = planReturn(ball(v3(0.1, 1, 1.4), v3(-0.3, 2.2, -4)), false, true);
   assert.ok(fair && (fair.at.z <= BOT.line + 0.01 || fair.at.y <= BOT.low + 0.01) && fair.at.z < -TABLE.halfLength + 0.5);
+});
+
+test('the bot\'s easy shots and serves go to the forehand of the player\'s paddle hand', () => {
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const meanX = (hand: 'left' | 'right') => {
+    let sum = 0;
+    for (let i = 0; i < 200; i++) sum += botTarget('easy', rand, hand).x;
+    return sum / 200;
+  };
+  assert.ok(meanX('right') > 0.1, 'a right-hander\'s forehand is to their right (+x)');
+  assert.ok(meanX('left') < -0.1, 'a left-hander\'s to their left');
+  // Medium and hard spread both ways whatever the hand.
+  assert.equal(botTarget('medium', () => 0.5, 'left').x, botTarget('medium', () => 0.5, 'right').x);
 });

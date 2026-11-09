@@ -626,7 +626,7 @@ test('with the hands detail, one player\'s poses keep their world landmarks and 
   assert.ok(!f.messages.some(m => m.type === 'detail'), 'nothing until the worker is ready');
   f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
   assert.deepEqual(f.messages.filter(m => m.type === 'detail'), [{ type: 'detail', world: true,
-    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 1, sides: ['left', 'right'] } }]);
+    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 1, sides: [['left', 'right']] } }]);
   f.deliver({ type: 'hands', state: 'on' });
   assert.equal(f.source.view.hands, 'on');
   const result = (seq: number) => f.deliver({ type: 'result', seq, landmarks: [detected(standingPose(0.5))], inferenceMs: 20,
@@ -697,7 +697,7 @@ test('with two players each person\'s hands are looked for, and their world land
   assert.equal(f.source.view.hands, 'loading');
   await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
   assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true,
-    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 2, sides: ['left', 'right'] } });
+    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 2, sides: [['left', 'right']] } });
   f.deliver({ type: 'hands', state: 'on' });
   assert.equal(f.source.view.hands, 'on');
   // Two people, reported in either order, each with world landmarks and hands of their own
@@ -721,18 +721,19 @@ test('with two players each person\'s hands are looked for, and their world land
   validateWebcamRecord(structuredClone(last));
 });
 
-test('a paddle hand alone: the worker is asked for that side, for each player', async t => {
+test('some of each player\'s hands: the worker is asked for those, player by player', async t => {
   const f = fixture(t);
   await f.source.setPlayerCount(2);
-  f.source.setDetail('right-hand');
+  f.source.setDetail('hands:right');
   assert.equal(f.source.view.hands, 'loading');
   await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
   assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true,
-    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 2, sides: ['right'] } });
+    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 2, sides: [['right']] } });
   f.deliver({ type: 'hands', state: 'on' });
   assert.equal(f.source.view.hands, 'on');
-  f.source.setDetail('left-hand');
-  assert.deepEqual((f.messages.at(-1) as { hands?: { sides?: string[] } }).hands?.sides, ['left']);
+  // Player 1's right and Player 2's left (a left-handed player's paddle).
+  f.source.setDetail('hands:right/left');
+  assert.deepEqual((f.messages.at(-1) as { hands?: { sides?: string[][] } }).hands?.sides, [['right'], ['left']]);
 });
 
 test('with three or four players the hands aren\'t looked for; the world landmarks carry on', async t => {

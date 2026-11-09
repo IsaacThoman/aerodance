@@ -7,7 +7,9 @@
  *    a landmarker of its own in VIDEO mode, which follows it from frame to frame and skips the
  *    palm search while it keeps it. The pose model reports people in no lasting order, so each
  *    frame's people are matched to their landmarkers by where they stood last (their shoulders'
- *    middle in the picture: assignSlots).
+ *    middle in the picture: assignSlots), and when first seen by where they stand: each player
+ *    may want a different hand (a left-handed player's paddle), and Player 1 stands furthest to
+ *    the camera's right (playerRanks), as the player tracker numbers them.
  *  - When they don't (two people's both hands), one landmarker per side is shared, in IMAGE mode,
  *    looking afresh in each person's cuts: about half again the cost per hand, and it finds
  *    fewer.
@@ -42,8 +44,19 @@ const seen = (p: Seen | undefined): p is Seen => !!p && (p.visibility ?? 1) >= S
 const pixels = (p: Seen, width: number, height: number): PicturePoint => ({ x: p.x * width, y: p.y * height });
 const dist = (a: PicturePoint, b: PicturePoint) => Math.hypot(a.x - b.x, a.y - b.y);
 
-/** Whether this many people's hands, of these sides, each get a following landmarker (or share one per side). */
-export const tracksHands = (people: number, sides: number) => people * sides <= TRACKED_HANDS;
+/** Whether this many hands (every player's asked for, together) each get a following landmarker (or share one per side). */
+export const tracksHands = (handCount: number) => handCount <= TRACKED_HANDS;
+
+/**
+ * Which player each person is (0-based), by where they stand: Player 1 furthest to the camera's
+ * right, as the mirror shows them on the left, and so on leftwards; anyone not placed after them.
+ */
+export function playerRanks(people: readonly (PicturePoint | null)[]): number[] {
+  const order = people.map((at, i) => ({ at, i })).sort((a, b) => (a.at && b.at ? b.at.x - a.at.x : a.at ? -1 : b.at ? 1 : a.i - b.i));
+  const ranks = people.map(() => 0);
+  order.forEach(({ i }, rank) => { ranks[i] = rank; });
+  return ranks;
+}
 
 /** Where a person is in the picture (pixels): their shoulders' middle, else their hips', else null. */
 export function personAt(points: readonly Seen[], width: number, height: number): PicturePoint | null {
@@ -63,13 +76,14 @@ export function wristsAt(points: readonly Seen[], width: number, height: number)
  * person was last seen (null: a slot nobody has had, or whose person was never placed) and where
  * this frame's people are (null: not placed this frame). The matching that moves people least
  * wins; a slot nobody has had costs `fresh` pixels to take (so a person far from everyone seen
- * before takes it rather than another's slot). With more people than slots, those left out are
+ * before takes it rather than another's slot), a pixel more if it isn't the one `prefer` gives
+ * them (the player they stand as: playerRanks). With more people than slots, those left out are
  * the ones that fit worst (a bystander doesn't take a player's slot).
  */
-export function assignSlots(slots: readonly (PicturePoint | null)[], people: readonly (PicturePoint | null)[], fresh: number): number[] {
+export function assignSlots(slots: readonly (PicturePoint | null)[], people: readonly (PicturePoint | null)[], fresh: number, prefer?: readonly number[]): number[] {
   const cost = (slot: number, person: number) => {
     const was = slots[slot], now = people[person];
-    if (!was) return fresh;
+    if (!was) return fresh + (prefer && prefer[person] !== slot ? 1 : 0);
     // Someone not placed this frame: no evidence either way, so keeping the order costs nothing.
     if (!now) return slot === person ? 0 : fresh;
     return dist(was, now);

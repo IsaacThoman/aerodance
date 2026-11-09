@@ -1,6 +1,6 @@
 import { isObject } from '../../../../packages/pose/choreography.ts';
 import type { BestScoreStorage } from '../game/bestScores.ts';
-import type { MinigameDefinition } from './types.ts';
+import type { MinigameDefinition, MinigameOption } from './types.ts';
 
 /*
  * Each game's settings (types.ts MinigameOption): chosen on its preview or by the game itself
@@ -31,15 +31,41 @@ function read(storage: BestScoreStorage): Record<string, Record<string, string>>
   } catch { return {}; }
 }
 
-/** The game offers this value for this option. */
-export const offers = (game: Game, id: string, value: unknown): value is string =>
-  !!game.options?.some((o) => o.id === id && o.choices.some((c) => c.value === value));
+/**
+ * A setting's key in the values: its id, or for a per-player one (MinigameOption.perPlayer) its
+ * id and the player's number, "paddleHand.2" (player is 0-based, the number 1-based, as the
+ * screen says Player 2).
+ */
+export const optionKey = (id: string, player?: number) => (player === undefined ? id : `${id}.${player + 1}`);
 
-/** Every option the game has, by id: the value given where the game offers it, else its default. */
+/** The option a key is for, and the player (0-based) for a per-player one; null for a key the game hasn't. */
+export function optionOf(game: Game, key: string): { option: MinigameOption; player?: number } | null {
+  const plain = game.options?.find((o) => o.id === key && !o.perPlayer);
+  if (plain) return { option: plain };
+  const m = /^(.+)\.([1-4])$/.exec(key);
+  const option = m ? game.options?.find((o) => o.id === m[1] && o.perPlayer) : undefined;
+  return option && m ? { option, player: Number(m[2]) - 1 } : null;
+}
+
+/** The game offers this value for the option (or player's option) a key names. */
+export const offers = (game: Game, key: string, value: unknown): value is string =>
+  !!optionOf(game, key)?.option.choices.some((c) => c.value === value);
+
+/** Every setting the game has, by key (a per-player one for each of four players): the value given where the game offers it, else its default. */
 export function resolveOptions(game: Game, values: Readonly<Record<string, unknown>> = {}): Record<string, string> {
   const resolved: Record<string, string> = {};
-  for (const o of game.options ?? []) resolved[o.id] = offers(game, o.id, values[o.id]) ? values[o.id] as string : o.default;
+  for (const o of game.options ?? []) {
+    const keys = o.perPlayer ? [0, 1, 2, 3].map((p) => optionKey(o.id, p)) : [o.id];
+    for (const key of keys) resolved[key] = offers(game, key, values[key]) ? values[key] as string : o.default;
+  }
   return resolved;
+}
+
+/** A player's choice for a per-player setting (its default where there's none). */
+export function playerOption(game: Game, values: MinigameOptionValues, id: string, player: number): string {
+  const option = game.options?.find((o) => o.id === id);
+  const value = values[optionKey(id, option?.perPlayer ? player : undefined)];
+  return option?.choices.some((c) => c.value === value) ? value : option?.default ?? '';
 }
 
 /** The game's settings as last chosen in this browser (its defaults where nothing was). */
@@ -58,12 +84,12 @@ export function saveMinigameOption(game: Pick<MinigameDefinition, 'id' | 'option
   try { storage.setItem(KEY, JSON.stringify(all)); } catch { /* storage unavailable */ }
 }
 
-/** The choice before (-1) or after (1) the current one, wrapping round at the ends. */
-export function stepOption(game: Game, values: MinigameOptionValues, id: string, dir: -1 | 1): string | null {
-  const option = game.options?.find((o) => o.id === id);
+/** The choice before (-1) or after (1) the current one of the setting a key names, wrapping round at the ends. */
+export function stepOption(game: Game, values: MinigameOptionValues, key: string, dir: -1 | 1): string | null {
+  const option = optionOf(game, key)?.option;
   if (!option) return null;
   const n = option.choices.length;
-  const i = option.choices.findIndex((c) => c.value === values[id]);
+  const i = option.choices.findIndex((c) => c.value === values[key]);
   return option.choices[i < 0 ? 0 : (i + dir + n) % n].value;
 }
 
