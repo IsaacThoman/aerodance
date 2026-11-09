@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { Landmark, NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { ARM, bodyTurn, depthOf, focalLength, handPose, reachable } from '../src/minigames/table-tennis/arms.ts';
 import type { HandInput, Side, Vec3 } from '../src/minigames/table-tennis/arms.ts';
+import { handAgrees } from '../src/minigames/table-tennis/rig.ts';
 
 /*
  * A player made of 3D points in camera space (x right, y down, z away, metres), projected through
@@ -132,4 +133,15 @@ test("bodyTurn reads the torso's and head's turns, the player's own way round", 
   for (const x of [-0.001, 0, 0.001]) assert.ok(Math.abs(flat(x)) < 1e-12);
   // No shoulders seen, no turn.
   assert.equal(bodyTurn(body(), image.map((p, i) => (i === 12 ? { ...p, visibility: 0 } : p))), null);
+});
+
+test("rig.ts handAgrees leaves out a hand found at the other wrist, or far from its own", () => {
+  const pose = poseOf({ left: HANGING, right: { upper: { x: 0, y: 1, z: 0 }, fore: { x: 0, y: 0, z: -1 } } });
+  const wrist = (side: Side) => joints(side, side === 'left' ? HANGING : { upper: { x: 0, y: 1, z: 0 }, fore: { x: 0, y: 0, z: -1 } }).wrist;
+  assert.ok(handAgrees(pose.landmarks, handAt('right', wrist('right')), 'right', SIZE), 'its own hand');
+  assert.ok(!handAgrees(pose.landmarks, handAt('right', wrist('left')), 'right', SIZE), 'the other hand');
+  assert.ok(!handAgrees(pose.landmarks, handAt('right', at(wrist('right'), { x: 0, y: -0.3, z: 0 })), 'right', SIZE), 'a hand 30 cm off');
+  // The pose unsure of its wrist can't say.
+  const unsure = { ...pose, landmarks: pose.landmarks.map((l, i) => (i === 16 ? { ...l, visibility: 0.1 } : l)) };
+  assert.ok(handAgrees(unsure.landmarks, handAt('right', wrist('left')), 'right', SIZE));
 });

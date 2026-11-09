@@ -142,8 +142,29 @@ export interface FoundHand extends HandInput { side: Side; score?: number; }
  */
 export function readHands(pose: { landmarks: PicturePoint[]; world: WorldPoint[] }, hands: readonly FoundHand[] | null | undefined, size: FrameSize, fov = DEFAULT_FOV): Record<Side, HandPose | null> {
   const out = { left: null, right: null } as Record<Side, HandPose | null>;
-  for (const side of SIDES) out[side] = handPose(pose, hands?.find((h) => h.side === side), side, size, fov);
+  for (const side of SIDES) {
+    const hand = hands?.find((h) => h.side === side);
+    out[side] = handPose(pose, hand && handAgrees(pose.landmarks, hand, side, size) ? hand : undefined, side, size, fov);
+  }
   return out;
+}
+
+const WRISTS: Record<Side, number> = { left: 15, right: 16 };
+/** A found hand's wrist this many of its own lengths (wrist to middle knuckle) from the pose's wrist isn't that wrist's hand. */
+export const HAND_AGREES = 1.5;
+/**
+ * Whether a hand found at a side's wrist is that wrist's: its wrist no nearer the pose's other
+ * wrist than this one, nor further from it than HAND_AGREES. (The other hand, or one found in
+ * the background, would otherwise put the wrist where it is with the elbow where the pose has
+ * it.) A pose wrist the model can't see can't say.
+ */
+export function handAgrees(image: readonly PicturePoint[], hand: HandInput, side: Side, size: FrameSize): boolean {
+  const own = image[WRISTS[side]], other = image[WRISTS[side === 'left' ? 'right' : 'left']], at = hand.landmarks[0], knuckle = hand.landmarks[9];
+  if (!own || !at || !knuckle || (own.visibility ?? 1) < 0.4) return true;
+  const px = (a: PicturePoint, b: PicturePoint) => Math.hypot((a.x - b.x) * size.width, (a.y - b.y) * size.height);
+  const d = px(at, own);
+  if (other && (other.visibility ?? 1) >= 0.4 && px(at, other) < d) return false;
+  return d <= HAND_AGREES * Math.max(1, px(at, knuckle));
 }
 
 /** One hand's pose from readHands, taken in at `t` (seconds): what the game follows, filtered. */
