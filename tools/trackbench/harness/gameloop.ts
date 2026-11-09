@@ -3,11 +3,15 @@
 // and GameSession's setup (WebcamCalibration and the line-up retry). The game's own modules do
 // the work; this only calls them in the game's order with the game's clocks.
 import { PlayerTracker } from '../../../packages/pose/browser/tracker.ts';
+import type { DetectionExtras } from '../../../packages/pose/browser/tracker.ts';
 import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
-import type { PlayerCount, Pose } from '../../../packages/pose/choreography.ts';
+import { HANDS_MIN_HZ, HANDS_SLOW_MS } from '../../../packages/pose/browser/hands.ts';
+import { handsWanted } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import type { PlayerCount } from '../../../packages/pose/choreography.ts';
+import type { LivePose, PoseDetail, TrackedHand } from '../../../packages/pose/webcamRecord.ts';
 import { WebcamCalibration } from '../../../apps/web/src/game/webcamCalibration.ts';
 import { SETUP_TRACKING_REFRESH_MS } from '../../../apps/web/src/game/GameSession.ts';
-import type { CalibState, DetFrame, Joint, TrackedFrame } from './common.ts';
+import type { CalibState, DetFrame, DetHand, Joint, Point3, TrackedFrame, TrackedPose } from './common.ts';
 
 /** WebcamPoseSource drops a result whose frame is this old when it arrives. */
 export const MAX_FRAME_AGE_MS = 500;
@@ -20,14 +24,33 @@ export interface GameLoopOptions {
    */
   session?: boolean;
   danceStartMs?: number;
+  /**
+   * The tracking detail the game asked for (a minigame's `tracking`; null as the songs play):
+   * with one, results' world landmarks (and hands, while they're wanted) go to the tracker with
+   * them, as WebcamPoseSource.extras gives them.
+   */
+  detail?: PoseDetail | null;
 }
 
 /** A detection as the tracker takes it: conf stands for both visibility and presence (the tracker only uses their minimum). */
 export const toDetected = (kp: readonly (readonly (number | null)[] | null)[]): DetectedLandmark[] =>
   kp.map(j => j ? { x: j[0]!, y: j[1]!, z: j[2] ?? 0, visibility: j[3] ?? 0, presence: j[3] ?? 0 } : { x: 0, y: 0, z: 0, visibility: 0, presence: 0 });
 
-export const fromPose = (pose: Pose): { playerId: number; kp: Joint[] } =>
-  ({ playerId: pose.playerId, kp: pose.landmarks.map(l => [l.x, l.y, l.z, l.confidence] as Joint) });
+const p3 = (p: { x: number; y: number; z: number }): Point3 => [p.x, p.y, p.z];
+const xyz = ([x, y, z]: readonly number[]) => ({ x, y, z });
+/** A worker's hand (TrackedHand) as detections.jsonl keeps it. */
+export const toDetHand = (h: TrackedHand): DetHand => ({ side: h.side, score: h.score, kp: h.landmarks.map(p3), world: h.world.map(p3) });
+/** A detections.jsonl hand back as the worker gave it (its points have no confidence). */
+export const fromDetHand = (h: DetHand): TrackedHand => ({ side: h.side, score: h.score, landmarks: h.kp.map(([x, y, z]) => ({ x, y, z, confidence: null })), world: h.world.map(xyz) });
+/** A detections.jsonl line's world landmarks and hands as the tracker takes them (DetectionExtras). */
+export const extrasOf = (line: Pick<DetFrame, 'world' | 'hands'>, withHands: boolean): DetectionExtras => ({
+  ...(line.world ? { world: line.world.map(w => w?.map(xyz)) } : {}),
+  ...(withHands && line.hands ? { hands: line.hands.map(hs => hs.map(fromDetHand)) } : {}),
+});
+
+export const fromPose = (pose: LivePose): TrackedPose =>
+  ({ playerId: pose.playerId, kp: pose.landmarks.map(l => [l.x, l.y, l.z, l.confidence] as Joint),
+    ...(pose.world ? { world: pose.world.map(p3) } : {}), ...(pose.hands ? { hands: pose.hands.map(toDetHand) } : {}) });
 
 export class GameLoop {
   readonly playerCount: PlayerCount;
@@ -42,11 +65,19 @@ export class GameLoop {
   refreshAt: number | null = null;
   calibrated = false;
   pendingReset = false;
-  constructor(playerCount: number, input: { width: number; height: number }, { session = true, danceStartMs = Infinity }: GameLoopOptions = {}) {
+  readonly detail: PoseDetail | null;
+  /** WebcamPoseSource.watchHands: dropped two people's hands for tracking too slowly (at this arrival time), and since when it's been too slow. */
+  handsDropped = false;
+  handsDroppedAt: number | null = null;
+  handsSlowSince: number | null = null;
+  /** Arrival times of the last two seconds' results (the dropped ones too), for the pose rate. */
+  resultTimes: number[] = [];
+  constructor(playerCount: number, input: { width: number; height: number }, { session = true, danceStartMs = Infinity, detail = null }: GameLoopOptions = {}) {
     this.playerCount = playerCount as PlayerCount;
     this.input = input;
     this.session = session;
     this.danceStartMs = danceStartMs;
+    this.detail = detail;
     // GameSession resets the tracking when it starts; a fresh tracker is the same.
     this.tracker = new PlayerTracker(this.playerCount);
     this.calibration = new WebcamCalibration(this.playerCount);
@@ -70,12 +101,42 @@ export class GameLoop {
    * One worker result: captureMs is the frame's browser time (when the camera delivered it),
    * receivedMs when its result arrived. Returns the record, or a dropped one when it came too late.
    */
-  result(frame: number, detections: readonly DetectedLandmark[][], looks: readonly (readonly number[] | null)[] | undefined, captureMs: number, receivedMs: number): TrackedFrame {
+  /** Whether the hand model is running for the game (WebcamPoseSource.handsWanted). */
+  get handsWanted() { return handsWanted(this.detail, this.playerCount, this.handsDropped); }
+
+  /**
+   * WebcamPoseSource.watchHands at a result's arrival: tracking two people's hands slower than
+   * HANDS_MIN_HZ for HANDS_SLOW_MS drops them (the caller tells the worker). The rate counts
+   * every result of the last two seconds, the too-old ones too.
+   */
+  watchHands(receivedMs: number) {
+    this.resultTimes.push(receivedMs);
+    this.resultTimes = this.resultTimes.filter(t => receivedMs - t <= 2000);
+    const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedMs - this.resultTimes[0]) : 0;
+    const slow = this.handsWanted && this.playerCount > 1 && this.resultTimes.length > 1 && poseHz < HANDS_MIN_HZ;
+    if (!slow) { this.handsSlowSince = null; return; }
+    this.handsSlowSince ??= receivedMs;
+    if (receivedMs - this.handsSlowSince < HANDS_SLOW_MS) return;
+    this.handsSlowSince = null;
+    this.handsDropped = true;
+    this.handsDroppedAt = receivedMs;
+  }
+
+  /**
+   * One worker result: captureMs is the frame's browser time (when the camera delivered it),
+   * receivedMs when its result arrived. Returns the record, or a dropped one when it came too late.
+   * extras: the result's world landmarks and hands, which go to the tracker while the detail asks for them.
+   */
+  result(frame: number, detections: readonly DetectedLandmark[][], looks: readonly (readonly number[] | null)[] | undefined, captureMs: number, receivedMs: number,
+    extras?: DetectionExtras): TrackedFrame {
     this.tick(receivedMs);
+    if (this.detail) this.watchHands(receivedMs);
     const reset = this.pendingReset;
     this.pendingReset = false;
     if (receivedMs - captureMs >= MAX_FRAME_AGE_MS) return { frame, t_ms: captureMs, received_ms: receivedMs, poses: [], lined: this.tracker.lined, dropped: true, ...(reset ? { reset } : {}) };
-    const poses = this.tracker.update(detections, this.input, captureMs, looks ?? []);
+    // As WebcamPoseSource.extras: nothing without a detail, the hands only while they're wanted.
+    const given = this.detail && extras ? { world: extras.world, ...(this.handsWanted ? { hands: extras.hands } : {}) } : undefined;
+    const poses = this.tracker.update(detections, this.input, captureMs, looks ?? [], given);
     this.players = poses.length;
     const record: TrackedFrame = { frame, t_ms: captureMs, received_ms: receivedMs, poses: poses.map(fromPose), lined: this.tracker.lined, ...(reset ? { reset } : {}) };
     if (this.session) {
@@ -92,6 +153,6 @@ export class GameLoop {
   replay(line: DetFrame, looks?: readonly (readonly number[] | null)[]): TrackedFrame {
     const received = line.received_ms ?? line.t_ms;
     const detected = line.people.map(p => toDetected(p.kp));
-    return this.result(line.frame, detected, looks ?? line.looks, line.t_ms, received);
+    return this.result(line.frame, detected, looks ?? line.looks, line.t_ms, received, extrasOf(line, true));
   }
 }

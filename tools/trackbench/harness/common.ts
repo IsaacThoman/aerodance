@@ -17,18 +17,38 @@ export interface GtPerson {
   id: string; role: 'player' | 'bystander'; index: number;
   kp: GtJoint[]; kp3d: [number, number, number][];
   bbox: [number, number, number, number] | null; visible_frac: number | null; in_frame: boolean; phase: string;
+  /** Optional (ping-pong scenes): MediaPipe hand-21 points of each hand, the body's kp/kp3d conventions. */
+  hands?: Partial<Record<'left' | 'right', { kp: GtJoint[]; kp3d: [number, number, number][] }>>;
+  /** Optional (ping-pong scenes): the paddle held, its centre and its face's normal in stage metres. */
+  paddle?: { hand: 'left' | 'right'; center: [number, number, number]; normal: [number, number, number] };
 }
 export interface GtFrame { frame: number; t_ms: number; people: GtPerson[]; }
 /** [x, y, z, conf]; conf may be null (unknown) in tracked poses. */
 export type Joint = [number, number, number, number | null];
 export interface DetPerson { kp: (Joint | null)[]; score?: number | null; }
+/** [x, y, z] metres. */
+export type Point3 = [number, number, number];
+/**
+ * A hand the game's Hand Landmarker found at a person's wrist (webcamRecord.ts TrackedHand):
+ * kp its 21 points in the picture ([x, y, z], 0-1 unmirrored, z from the wrist), world the same
+ * in metres round the hand's middle, score how sure it is of the side.
+ */
+export interface DetHand { side: 'left' | 'right'; score: number; kp: Point3[]; world: Point3[]; }
 export interface DetFrame {
   frame: number; t_ms: number; inference_ms?: number; people: DetPerson[];
   looks?: (number[] | null)[];
   /** Harness additions (realtime runs): when the result arrived, and whether the game dropped it as too old. */
   received_ms?: number; roundtrip_ms?: number; dropped?: boolean;
+  /**
+   * With a tracking detail (run-game --detail): per person, in people's order, MediaPipe's 33
+   * world landmarks (metres round the hips: x right in the picture, y down, z away; null when
+   * the worker gave none) and, while hands are on, the hands found at their wrists.
+   */
+  world?: (Point3[] | null)[];
+  hands?: DetHand[][];
 }
-export interface TrackedPose { playerId: number; kp: Joint[]; }
+/** A tracked player's pose; world and hands as the game's LivePose has them (only with a detail asking for them). */
+export interface TrackedPose { playerId: number; kp: Joint[]; world?: Point3[]; hands?: DetHand[]; }
 export interface CalibState { progress: number; complete: boolean; hold: boolean; players: string[]; }
 export interface TrackedFrame {
   frame: number; t_ms: number; received_ms: number; poses: TrackedPose[];
@@ -46,9 +66,17 @@ export interface Phase { name: string; start_s: number; end_s: number; }
 interface CameraInfo { orientation?: string; hfov_deg?: number; fx_px?: number; intrinsics?: { fx?: number }; K?: number[][]; }
 export interface SceneSpec {
   players?: number; category?: string; fps?: number; resolution?: [number, number]; phases?: Phase[];
+  /** A variant's base scene (its render, when only post differs). */
+  base?: string;
   camera?: CameraInfo; room?: { features?: string[] };
 }
-export interface SceneMeta extends SceneSpec { intrinsics?: { fx?: number }; K?: number[][]; }
+export interface SceneMeta extends SceneSpec {
+  intrinsics?: { fx?: number }; K?: number[][];
+  /** Per frame (as a string), the camera's 4x4 camera-to-world matrix, row-major (Blender: the camera looks down its -Z, +Y up). */
+  camera_to_world?: Record<string, number[]>;
+  /** Scenes with the same render_key share a render (post-only variants). */
+  render_key?: string;
+}
 export interface Scene {
   id: string; dir: string;
   spec: SceneSpec; meta: SceneMeta;
@@ -110,7 +138,8 @@ export const frameFiles = (dir: string) => existsSync(path.join(dir, 'frames')) 
 export function loadScene(id: string, dir = sceneDir(id)): Scene {
   const spec = existsSync(path.join(dir, 'spec.json')) ? readJson<SceneSpec>(path.join(dir, 'spec.json')) : {};
   const meta = existsSync(path.join(dir, 'meta.json')) ? readJson<SceneMeta>(path.join(dir, 'meta.json')) : {};
-  const gt = readJsonl<GtFrame>(path.join(dir, 'gt.jsonl'));
+  // A real clip has no GT: its frames still run (what can be measured without it: pingpong.ts).
+  const gt = existsSync(path.join(dir, 'gt.jsonl')) ? readJsonl<GtFrame>(path.join(dir, 'gt.jsonl')) : [];
   const first = frameFiles(dir)[0];
   const size = (first && jpegSize(path.join(dir, 'frames', first)))
     || (meta.resolution && { width: meta.resolution[0], height: meta.resolution[1] })

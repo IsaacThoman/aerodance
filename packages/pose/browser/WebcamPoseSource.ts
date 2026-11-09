@@ -10,6 +10,26 @@ import type { CaptureInput, PlayerCount } from '../choreography.ts';
 import type { PoseDelegate, PoseWorkerRequest, PoseWorkerResponse } from './pose.worker.ts';
 import type { PreviewPicture } from './preview.ts';
 
+type InitializeRequest = Extract<PoseWorkerRequest, { type: 'initialize' }>;
+/**
+ * The worker settings WebcamPoseSource.connect asks for with this many players (see connect):
+ * exactly that many people with one or two, zoom for one and search for two, strips for three or
+ * four (with room for one more), looks with two or more. (trackbench sets its worker up with these.)
+ */
+export function workerSettings(playerCount: number): Pick<InitializeRequest, 'playerCount' | 'looks' | 'tiles' | 'search' | 'zoom'> {
+  const tiles = evenTiles(playerCount);
+  return { playerCount: playerCount <= 2 ? playerCount : playerCount + 1, looks: playerCount > 1,
+    ...(tiles ? { tiles } : {}), ...(playerCount === 2 ? { search: true } : {}), ...(playerCount === 1 ? { zoom: true } : {}) };
+}
+/** Whether the hand model is to run: a detail asking for hands, one or two players (MAX_HAND_PEOPLE), not dropped. */
+export const handsWanted = (detail: PoseDetail | null, playerCount: number, dropped = false) =>
+  detailHands(detail).length > 0 && playerCount <= MAX_HAND_PEOPLE && !dropped;
+/** The worker's detail message for a detail (sendDetail): world landmarks with any, the hand model while hands are wanted. */
+export function detailRequest(detail: PoseDetail | null, playerCount: number, handsWanted: boolean, handModelUrl: string): Extract<PoseWorkerRequest, { type: 'detail' }> {
+  return { type: 'detail', world: detail !== null,
+    hands: handsWanted ? { modelUrl: handModelUrl, modelHash: HAND_MODEL.sha256, people: playerCount, sides: detailHands(detail) } : null };
+}
+
 export type WebcamStatus = 'disconnected' | 'connecting' | 'initializing' | 'connected' | 'error';
 /** Which way the camera faces when no camera is chosen: towards the screen (user) or away. */
 export type CameraFacing = 'user' | 'environment';
@@ -287,7 +307,7 @@ export class WebcamPoseSource {
     this.publishHands();
   }
   /** Whether the hand model is to run: a detail asking for hands, one or two players (MAX_HAND_PEOPLE), not dropped. */
-  get handsWanted() { return detailHands(this.detail).length > 0 && this.playerCount <= MAX_HAND_PEOPLE && !this.handsDropped; }
+  get handsWanted() { return handsWanted(this.detail, this.playerCount, this.handsDropped); }
   handsView(): HandTracking | undefined {
     if (!detailHands(this.detail).length) return undefined;
     return this.playerCount > MAX_HAND_PEOPLE ? 'unavailable' : this.handsDropped ? 'dropped' : this.handModel;
@@ -312,8 +332,7 @@ export class WebcamPoseSource {
   sendDetail() {
     if (!this.worker || !this.workerReady || (!this.detail && !this.detailSent)) return;
     this.detailSent = !!this.detail;
-    this.worker.postMessage({ type: 'detail', world: this.detail !== null,
-      hands: this.handsWanted ? { modelUrl: new URL(HAND_MODEL.file, this.assetUrl()).href, modelHash: HAND_MODEL.sha256, people: this.playerCount, sides: detailHands(this.detail) } : null });
+    this.worker.postMessage(detailRequest(this.detail, this.playerCount, this.handsWanted, new URL(HAND_MODEL.file, this.assetUrl()).href));
   }
   /** A new song starts with a fresh line-up, without restarting the camera or model. */
   resetTracking() {
@@ -441,9 +460,7 @@ export class WebcamPoseSource {
       // fallback. Every source, the iPhone/iPad app's and a paired phone's too, gets all of them:
       // each costs a landmarker (about 85-160 MB), which trackbench found well worth it
       // (tools/trackbench/REPORT.md). Looks tell players apart, so one player doesn't need them.
-      const tiles = evenTiles(this.playerCount);
-      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount <= 2 ? this.playerCount : this.playerCount + 1, looks: this.playerCount > 1,
-        ...(tiles ? { tiles } : {}), ...(this.playerCount === 2 ? { search: true } : {}), ...(this.playerCount === 1 ? { zoom: true } : {}),
+      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, ...workerSettings(this.playerCount),
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }
   }

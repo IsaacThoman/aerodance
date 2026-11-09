@@ -61,6 +61,20 @@ const SURELY_BACK = 0.12;
 /** The webcam's horizontal field of view when nothing says otherwise (laptop cameras are about 60-75°). */
 export const DEFAULT_FOV = 65;
 
+// How Game.tsx draws a HandPose (here so trackbench can measure what the ball meets):
+/** Tracked reach is scaled up a little: arms held out read better a touch longer. */
+export const REACH = 1.1;
+/** The mitt sits this far past the wrist, along the hand (dir), and the paddle's blade this far past the mitt (metres). */
+export const MITT = 0.04;
+export const BLADE_UP = 0.15;
+/**
+ * The free (left) wrist this far above its shoulder raises the hand (and back below the lower
+ * mark, lowers it); held up, the robot serves again this often (s).
+ */
+export const RAISED = { up: 0.02, down: -0.1, again: 2.5 } as const;
+/** The one-euro filters (minCutoff Hz, beta) each hand's wrist, dir and across go through (oneEuro.ts). */
+export const HAND_FILTERS = { wrist: [1.2, 3], dir: [1, 1.2], across: [1, 1.2] } as const satisfies Record<string, readonly [number, number]>;
+
 const view = (p: Vec3): Vec3 => ({ x: -p.x, y: -p.y, z: p.z });
 const sub = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z;

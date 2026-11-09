@@ -19,7 +19,7 @@ import type { MinigameCameraProps } from '../scene.tsx';
 import type { MinigameContext, MinigamePhase } from '../types.ts';
 import type { HandTracking } from '../../../../../packages/pose/webcamRecord.ts';
 import type { RawPose } from '../pose/body.ts';
-import { DEFAULT_FOV, bodyTurn, flatWorld, handPose } from './arms.ts';
+import { BLADE_UP, DEFAULT_FOV, HAND_FILTERS, MITT, RAISED, REACH, bodyTurn, flatWorld, handPose } from './arms.ts';
 import type { BodyTurn, HandPose, Side, Vec3 } from './arms.ts';
 import { OneEuro } from './oneEuro.ts';
 import { ASSIST, SWING, contactNudge, interceptNudge, strongestSwing } from './assist.ts';
@@ -91,13 +91,8 @@ const LOST_MS = 500;
 const NO_SHIFT = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const DEV = import.meta.env.DEV;
-// Tracked reach is scaled up a little: arms held out read better a touch longer.
-const REACH = 1.1;
 // The hand's diameter, in metres (the dancers' hands are big, cartoon mitts).
 const HAND_SIZE = 0.13;
-// The mitt sits this far past the wrist, along the hand, and the paddle's blade this far past the mitt.
-const MITT = 0.04;
-const BLADE_UP = 0.15;
 const RUBBER = '#ff3b5c';
 // The table's middle (the net), its near end a step in front of the eye.
 const TABLE_Z = EYE.z - 0.45 - TABLE.halfLength;
@@ -110,9 +105,6 @@ const OWN_EYE = v3(EYE.x, EYE.y, EYE.z - TABLE_Z);
 // The paddle's blade: its radius, and half its thickness, as drawn and when forgiving.
 const BLADE = { radius: 0.075, halfThickness: 0.006 };
 const FORGIVING = { radius: 0.13, halfThickness: 0.04 };
-// The left wrist this far above its shoulder raises the hand (and back below the lower mark, lowers it);
-// held up, the robot serves again this often.
-const RAISED = { up: 0.02, down: -0.1, again: 2.5 };
 // A ball goes back to the robot this long after it's dead (on the floor, or settled).
 const DEAD_S = 1;
 // Time's speeds, stepped through with T.
@@ -231,7 +223,7 @@ const SIDES = ['left', 'right'] as const;
 function usePlayerHands(rig: Rig) {
   const st = useMemo(() => ({
     seen: null as RawPose | null,
-    filters: Object.fromEntries(SIDES.map((side) => [side, { wrist: new OneEuro(1.2, 3), dir: new OneEuro(1, 1.2), across: new OneEuro(1, 1.2) }])) as Record<Side, Record<'wrist' | 'dir' | 'across', OneEuro>>,
+    filters: Object.fromEntries(SIDES.map((side) => [side, { wrist: new OneEuro(...HAND_FILTERS.wrist), dir: new OneEuro(...HAND_FILTERS.dir), across: new OneEuro(...HAND_FILTERS.across) }])) as Record<Side, Record<'wrist' | 'dir' | 'across', OneEuro>>,
   }), []);
   useMinigameFrame((frame) => {
     const p = frame.players[rig.end];
