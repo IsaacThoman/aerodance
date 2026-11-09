@@ -71,7 +71,19 @@ export const readJson = <T = unknown>(file: string): T => JSON.parse(readFileSyn
  * mulberry32, exact in JavaScript's integers).
  */
 export function bootstrap(diffs: readonly number[], n = 4000, seed = 12345): [number, number] {
-  if (diffs.length < 3) return [NaN, NaN];
+  return clusterBootstrap(diffs, diffs.map((_, i) => i), n, seed);
+}
+
+/**
+ * The same, resampling clusters of differences rather than single ones: scenes that share a
+ * render (split.ts renderCluster) aren't independent, so each draw takes a cluster's scenes
+ * together, and the mean is over the scenes drawn. Needs at least 3 clusters.
+ */
+export function clusterBootstrap(diffs: readonly number[], clusters: readonly (string | number)[], n = 4000, seed = 12345): [number, number] {
+  const groups = new Map<string | number, number[]>();
+  diffs.forEach((d, i) => { const g = groups.get(clusters[i]); if (g) g.push(d); else groups.set(clusters[i], [d]); });
+  const sums = [...groups.values()].map(g => [g.reduce((a, b) => a + b, 0), g.length]);
+  if (sums.length < 3) return [NaN, NaN];
   let state = seed >>> 0;
   const rand = () => {
     state = (state + 0x6d2b79f5) >>> 0;
@@ -80,7 +92,11 @@ export function bootstrap(diffs: readonly number[], n = 4000, seed = 12345): [nu
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
   const means: number[] = [];
-  for (let b = 0; b < n; b++) { let t = 0; for (let i = 0; i < diffs.length; i++) t += diffs[Math.floor(rand() * diffs.length)]; means.push(t / diffs.length); }
+  for (let b = 0; b < n; b++) {
+    let t = 0, k = 0;
+    for (let i = 0; i < sums.length; i++) { const [s, c] = sums[Math.floor(rand() * sums.length)]; t += s; k += c; }
+    means.push(t / k);
+  }
   means.sort((a, b) => a - b);
   return [means[Math.floor(0.025 * n)], means[Math.floor(0.975 * n)]];
 }

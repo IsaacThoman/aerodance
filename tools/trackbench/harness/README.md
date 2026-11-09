@@ -259,6 +259,13 @@ lists, and a delta is the mean of per-scene differences over the scenes where *b
 value, with each side's failures beside it. (Before, a failure vanished from the means and the
 worst lists, and deltas compared two different sets of scenes.)
 
+**Independence.** Post-only variants (`sens-*`, `base-genre-mh`) and the setup scenes that reuse
+a multiplayer render (`setup-trio`, `setup-quad`, `setup-return`, and `mp3-same`, `mp4-same`)
+are the same pixels as their base: 133 scenes are 114 renders. `split.ts`'s `renderCluster` finds
+each scene's render (where its `render/` resolves), and `studies/paired.ts` and
+`studies/scorer-share.ts` resample whole clusters in their bootstrap (`clusterBootstrap` in
+`common.ts`).
+
 ## Files
 
 | File | |
@@ -271,4 +278,5 @@ worst lists, and deltas compared two different sets of scenes.)
 | `score.ts` | reference SongBundle from GT; GameSession-style scoring |
 | `metrics.ts` | every metric above |
 | `report.ts` | aggregation |
+| `split.ts` | render clusters |
 | `fixtures.ts`, `harness.test.ts` | synthetic scenes (pinhole-projected stick dancers) and the tests |

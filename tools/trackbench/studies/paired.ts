@@ -1,11 +1,13 @@
 // The comparison the final report uses: every estimator on the same scenes (the cohort every one
 // of them has metrics for), failures counted rather than dropped, and differences from the
-// baseline as paired bootstrap 95% intervals over scenes.
+// baseline as paired bootstrap 95% intervals over scenes, resampling scenes that share a render
+// together (harness/split.ts).
 //
 //   node tools/trackbench/studies/paired.ts [--estimators a,b,...] [--baseline mp-lite-game] [--scenes p1,p2] [--name out]
 import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { bootstrap, DATA, parseArgs, readJson, writeJson } from '../harness/common.ts';
+import { clusterBootstrap, DATA, parseArgs, readJson, writeJson } from '../harness/common.ts';
+import { renderCluster } from '../harness/split.ts';
 
 const opts = parseArgs(process.argv.slice(2), { estimators: 'string', baseline: 'string', scenes: 'string', name: 'string', exclude: 'string' }).opts;
 const baseline = String(opts.baseline ?? 'mp-lite-game');
@@ -61,12 +63,19 @@ function table(scenes: string[]) {
       const entry: Record<string, unknown> = { n: finite.length, fails, mean: finite.length ? finite.reduce((a, b) => a + b, 0) / finite.length : null };
       if (e !== baseline) {
         // Paired: scenes where both have a finite value.
-        const diffs: number[] = [];
-        scenes.forEach(s => { const a = ms.read(metrics.get(`${baseline}|${s}`)!), b = ms.read(metrics.get(`${e}|${s}`)!); if (typeof a === 'number' && typeof b === 'number') diffs.push(b - a); });
+        const diffs: number[] = [], clusters: string[] = [];
+        let baseFails = 0, newFails = 0;
+        scenes.forEach(s => {
+          const a = ms.read(metrics.get(`${baseline}|${s}`)!), b = ms.read(metrics.get(`${e}|${s}`)!);
+          if (typeof a === 'number' && typeof b === 'number') { diffs.push(b - a); clusters.push(renderCluster(s)); }
+          if (a === 'fail' && b !== 'fail') baseFails++;
+          if (b === 'fail' && a !== 'fail') newFails++;
+        });
         const d = diffs.length ? diffs.reduce((x, y) => x + y, 0) / diffs.length : null;
-        const [lo, hi] = bootstrap(diffs);
+        const [lo, hi] = clusterBootstrap(diffs, clusters);
         const better = d === null || !Number.isFinite(lo) ? null : ms.higherBetter ? (lo > 0 ? 'better' : hi < 0 ? 'worse' : 'same') : (hi < 0 ? 'better' : lo > 0 ? 'worse' : 'same');
-        Object.assign(entry, { paired_n: diffs.length, delta: d, ci: [lo, hi], verdict: better });
+        // (Failures only one side has: fixed = the baseline's, new = this one's.)
+        Object.assign(entry, { paired_n: diffs.length, clusters: new Set(clusters).size, delta: d, ci: [lo, hi], verdict: better, fails_fixed: baseFails, fails_new: newFails });
       }
       row[e] = entry;
     }
@@ -86,8 +95,10 @@ const fmtCell = (ms: Measure, e: string, t: ReturnType<typeof table>) => {
   let cell = ms.fmt(x.mean) + (x.fails ? ` (+${x.fails} fail)` : '');
   if (e !== baseline && x.delta !== null && x.paired_n >= 3) {
     const sign = (v: number) => (v >= 0 ? '+' : '') + ms.fmt(v).replace(/^-/, '−');
-    cell += `<br>Δ ${sign(x.delta)} [${sign(x.ci[0])}, ${sign(x.ci[1])}]${x.verdict === 'better' ? ' ✓' : x.verdict === 'worse' ? ' ✗' : ''}`;
+    const ci = Number.isFinite(x.ci[0]) ? ` [${sign(x.ci[0])}, ${sign(x.ci[1])}]` : '';
+    cell += `<br>Δ ${sign(x.delta)}${ci}${x.verdict === 'better' ? ' ✓' : x.verdict === 'worse' ? ' ✗' : ''}`;
   }
+  if (e !== baseline && (x.fails_fixed || x.fails_new)) cell += `<br>fails: ${x.fails_fixed} fixed, ${x.fails_new} new`;
   return cell;
 };
 const render = (title: string, t: ReturnType<typeof table>, n: number) => {
@@ -95,7 +106,7 @@ const render = (title: string, t: ReturnType<typeof table>, n: number) => {
   for (const ms of MEASURES) if (estimators.some(e => (t[ms.key][e] as M).n || (t[ms.key][e] as M).fails)) lines.push(`| ${ms.label} | ${estimators.map(e => fmtCell(ms, e, t)).join(' | ')} |`);
   lines.push('');
 };
-lines.push(`# Paired comparison vs ${baseline}`, '', `Cohort: ${cohort.length} scenes every estimator has metrics for. Δ = mean paired difference from ${baseline} with a 95% bootstrap interval over scenes; ✓/✗ = interval excludes zero (better/worse). "fail" = the metric has no value because tracking never got there (e.g. never numbered), counted separately rather than dropped.`, '');
+lines.push(`# Paired comparison vs ${baseline}`, '', `Cohort: ${cohort.length} scenes every estimator has metrics for (${new Set(cohort.map(renderCluster)).size} distinct renders). Δ = mean paired difference from ${baseline} with a 95% bootstrap interval, resampling render clusters (scenes sharing a render go together); ✓/✗ = interval excludes zero (better/worse). "fail" = the metric has no value because tracking never got there (e.g. never numbered), counted separately rather than dropped.`, '');
 render('All scenes', all, cohort.length);
 for (const [c, t] of Object.entries(byCategory)) render(c, t, cohort.filter(s => categoryOf(s) === c).length);
 const name = String(opts.name ?? 'paired');

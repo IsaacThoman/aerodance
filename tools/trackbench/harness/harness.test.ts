@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hungarian, loadScene, round, torsoScale } from './common.ts';
+import { bootstrap, clusterBootstrap, hungarian, loadScene, round, torsoScale } from './common.ts';
 import type { GtPerson, Scene, TrackedFrame } from './common.ts';
 import { gaussian, perfectDetections, writeFixtureScene } from './fixtures.ts';
 import type { FixtureOptions } from './fixtures.ts';
@@ -222,3 +222,12 @@ test('report: a failure is counted and listed, and deltas are paired over the sc
   assert.match(markdown, /\(\+1 fail\)/);
 });
 
+test('cluster bootstrap: singletons give the plain bootstrap; scenes sharing a render widen the interval', () => {
+  const g = gaussian(3);
+  const diffs = Array.from({ length: 30 }, () => g());
+  assert.deepEqual(clusterBootstrap(diffs, diffs.map((_, i) => i)), bootstrap(diffs));
+  // The same 10 values, each three times: as 30 independent scenes the interval is too narrow.
+  const ten = diffs.slice(0, 10), tripled = [...ten, ...ten, ...ten];
+  const [lo1, hi1] = bootstrap(tripled), [lo3, hi3] = clusterBootstrap(tripled, tripled.map((_, i) => i % 10));
+  assert.ok(hi3 - lo3 > 1.4 * (hi1 - lo1), `${hi3 - lo3} vs ${hi1 - lo1}`);
+});
