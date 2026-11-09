@@ -133,7 +133,7 @@ export class Round {
   bounces: { at: V3; t: number }[] = [];
   /** How the last ball went by each player's paddle. */
   passes: (PassResult | null)[];
-  /** What the ball hit this frame (for sounds and the like). */
+  /** What the ball hit this frame, the robot's paddle and the serves too (a paddle's `by` is its player; the robot's has none): for sounds and the like. */
   events: FlightEvent[] = [];
 
   constructor(rigs: Rig[], play: Play, rand: () => number = Math.random) {
@@ -355,6 +355,7 @@ export class Round {
       // The strike: the ball's flight begins.
       b.pos = { ...this.serve.strike };
       this.launch({ ...this.serveVel });
+      this.events.push({ type: 'paddle', at: { ...this.serve.strike }, speed: Math.hypot(this.serveVel.x, this.serveVel.y, this.serveVel.z) });
       Object.assign(this, { hitThisServe: false, yours: false, farBounce: false });
     } else if (this.flying && this.lagged) {
       const lagged = this.lagged, ball = this.ball;
@@ -417,7 +418,8 @@ export class Round {
         if (plan && plan.t <= worldDt * 1.01 && dist(this.bot.pos, plan.at) < 0.3) {
           if (!this.farBounce) this.endRally();
           const aim = this.bot.aim ?? undefined;
-          lagged.hitThen(0, (struck) => botShot(struck.pos, play.botLevel, this.rand, aim));
+          // (Its paddle's sound is the only thing of the hit left to say: the round has taken it in.)
+          this.events.push(lagged.hitThen(0, (struck) => botShot(struck.pos, play.botLevel, this.rand, aim))[0]);
           Object.assign(this, { touchedAt: this.time, hitThisServe: false, yours: false, farBounce: false, slowSince: null, bouncedOn: null });
           this.bot.hitAt = this.time;
           this.bot.aim = null;

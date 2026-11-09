@@ -28,6 +28,7 @@ import type { V3 } from './ball.ts';
 import { otherEnd } from './rally.ts';
 import type { End } from './rally.ts';
 import { DRAW_LAG, HIT_LAGS, Round } from './round.ts';
+import { playBallSound } from './sound.ts';
 import type { Play } from './round.ts';
 import { BLADE_UP, EYE, EYES, FORGIVING, TABLE_Z, newHandFilters, newRig, trackHands } from './rig.ts';
 import type { Rig } from './rig.ts';
@@ -43,7 +44,8 @@ import type { OptionId, SceneId } from './options.ts';
  * camera sends with the game's 'hands' tracking, turned into the hands' places and angles by
  * arms.ts and followed by rig.ts), a paddle in their paddle hand (the Paddle hand setting, each
  * player's own). The round itself is round.ts: the ball's physics (ball.ts) meeting the players'
- * paddles as they really move (flight.ts), the serves, the robot and the count. This file draws it.
+ * paddles as they really move (flight.ts), the serves, the robot and the count. This file draws it,
+ * and sound.ts lets it be heard.
  *
  * Alone, the opponent is a robot arm at the far end (the Torven six-axis arm from the robot hall:
  * RobotOpponent.tsx), which holds the ball on its paddle between rallies; raising the free hand
@@ -410,6 +412,8 @@ function PlayBall({ ctx, round, hud, scene, robot }: { ctx: MinigameContext; rou
     const dt = playing ? Math.min(delta, 1 / 20) : 0;
     round.step(delta, performance.now(), playing);
     if (robot) aimRobot(robot, round.arm);
+    // What it hit, heard from where it happened: across the table alone, each player's side of the screen with two.
+    for (const e of round.events) playBallSound(e, two ? (e.at.z >= 0 ? -0.6 : 0.6) : e.at.x / TABLE.halfWidth * 0.7);
     const b = round.ball;
     // A hit judged in the past moved the ball: drawn from where it was, easing onto where it is.
     if (round.drawnOff.x || round.drawnOff.y || round.drawnOff.z) { st.drawnOff = round.drawnOff; round.drawnOff = { x: 0, y: 0, z: 0 }; }
