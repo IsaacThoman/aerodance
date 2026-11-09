@@ -63,11 +63,17 @@ let search: { landmarker: PoseLandmarker; people: number } | null = null;
  * One player on the whole picture: MediaPipe's person detector misses somebody small in the
  * picture (a 120° webcam, or far away), and finds them in the middle of it, enlarged. So while
  * nobody has been found for ZOOM_AFTER_MS, every other frame shows the landmarker the middle
- * (MIDDLE) instead; whichever view finds somebody is kept, the middle only while they stand well
- * inside it. (Seeing a different picture breaks the landmarker's following, so the views
- * alternate only while there's nobody to follow.)
+ * (MIDDLE) instead; whichever view finds somebody is kept, the middle only while they fit well
+ * inside it (anybody bigger is found on the whole picture, and the middle would cut them off).
+ * (Seeing a different picture breaks the landmarker's following, so the views alternate only
+ * while there's nobody to follow.)
  */
 const MIDDLE: Crop = { x: 0.125, y: 0.125, width: 0.75, height: 0.75 }, ZOOM_AFTER_MS = 1000, ZOOM_LOST_MS = 500, ZOOM_MARGIN = 0.05;
+/**
+ * Somebody first found in the enlarged middle counts only standing, their torso within this of
+ * upright: enlarged, an empty room's sofa can look like somebody lying on it.
+ */
+const ZOOM_UPRIGHT_DEG = 45;
 /**
  * While on the middle, one frame in ZOOM_GLANCE_MS shows the whole picture: somebody it finds
  * elsewhere than who the middle follows (a player walking in beside something person-shaped the
@@ -75,11 +81,14 @@ const MIDDLE: Crop = { x: 0.125, y: 0.125, width: 0.75, height: 0.75 }, ZOOM_AFT
  */
 const ZOOM_GLANCE_MS = 2000, ZOOM_SAME = 0.1;
 let zoom: { view: 'whole' | 'middle' | 'both'; since: number | null; flip: boolean; size: string; glanced: number; at: { x: number; y: number } | null;
-  /** Whether the landmarker was following somebody last time. */
-  following: boolean;
-  /** Looks at the whole picture in a glance (IMAGE mode, so afresh each time); made the first time the middle is kept. */
-  glancer: Promise<PoseLandmarker | null> | null; make: () => Promise<PoseLandmarker> } | null = null;
-/** A blank picture: shown to the landmarker before it goes back to the whole picture, so it looks afresh there instead of following a place from the middle. */
+  /** Whether the landmarker was following somebody last time, the last time it was shown, and whether it's to look afresh before the next frame. */
+  following: boolean; last: number; afresh: boolean;
+  /**
+   * Looks at the whole picture in a glance (IMAGE mode, so afresh each time): made, off the
+   * frames' path, the first time the middle is kept, and used once it's ready.
+   */
+  glancer: Promise<PoseLandmarker | null> | null; ready: PoseLandmarker | null; make: () => Promise<PoseLandmarker> } | null = null;
+/** A blank picture: shown to the landmarker before it changes view while following somebody, so it looks afresh there instead of following a place from the other view. */
 let blank: ImageBitmap | null = null;
 /** The search landmarker's results count as a strip of their own, for merging copies of somebody. */
 const WHOLE: Tile = { x: 0, width: 1 }, SEARCHED: Tile = { x: 0, width: 1 };
@@ -104,24 +113,37 @@ let handsLoading = false;
 let handsMade = 0;
 /** One result with zoom (see MIDDLE): the view to show this frame, its people in the whole picture (and their world landmarks, metres round the hips whatever the view), and the view next time. */
 const centre = (points: NormalizedLandmark[]) => [11, 12, 23, 24].reduce((c, i) => ({ x: c.x + points[i].x / 4, y: c.y + points[i].y / 4 }), { x: 0, y: 0 });
+const inMiddle = (p: NormalizedLandmark, margin = 0) => p.x > MIDDLE.x + margin && p.x < MIDDLE.x + MIDDLE.width - margin && p.y > MIDDLE.y + margin && p.y < MIDDLE.y + MIDDLE.height - margin;
+/** The whole person inside the middle (where the model places the joints it can't see too), their torso well inside. */
+const fits = (points: NormalizedLandmark[]) => points.every(p => inMiddle(p)) && [11, 12, 23, 24].every(i => inMiddle(points[i], ZOOM_MARGIN));
+/** The torso, shoulders over hips, within ZOOM_UPRIGHT_DEG of upright. */
+function upright(points: NormalizedLandmark[], aspect: number) {
+  const s = { x: (points[11].x + points[12].x) / 2 * aspect, y: (points[11].y + points[12].y) / 2 }, h = { x: (points[23].x + points[24].x) / 2 * aspect, y: (points[23].y + points[24].y) / 2 };
+  return Math.atan2(Math.abs(s.x - h.x), h.y - s.y) <= ZOOM_UPRIGHT_DEG * Math.PI / 180;
+}
 async function zoomed(z: NonNullable<typeof zoom>, bitmap: ImageBitmap, timestampMs: number): Promise<{ landmarks: NormalizedLandmark[][]; worlds: WorldLandmark[][] }> {
   const { width, height } = bitmap;
-  if (z.size !== `${width}x${height}`) Object.assign(z, { view: 'whole', since: null, flip: false, size: `${width}x${height}`, glanced: -Infinity, at: null, following: false });
-  // A glance at the whole picture by the other landmarker: somebody there other than who the
-  // middle follows brings the whole picture back.
-  if (z.view === 'middle' && timestampMs - z.glanced >= ZOOM_GLANCE_MS) {
+  if (z.size !== `${width}x${height}`) Object.assign(z, { view: 'whole', since: null, flip: false, size: `${width}x${height}`, glanced: -Infinity, at: null, afresh: z.following });
+  // A blank picture between the landmarker's last frame and this one, while it follows somebody.
+  const lookAfresh = () => {
+    if (z.following) {
+      if (!blank) { const c = new OffscreenCanvas(64, 48), g = c.getContext('2d')!; g.fillStyle = '#808080'; g.fillRect(0, 0, 64, 48); blank = c.transferToImageBitmap(); }
+      landmarker!.detectForVideo(blank, Number.isFinite(z.last) && z.last < timestampMs ? (z.last + timestampMs) / 2 : timestampMs - 0.5);
+      z.following = false;
+    }
+    z.afresh = false;
+  };
+  // A glance at the whole picture by the other landmarker (once it's ready): somebody there other
+  // than who the middle follows brings the whole picture back.
+  if (z.view === 'middle' && z.ready && timestampMs - z.glanced >= ZOOM_GLANCE_MS) {
     z.glanced = timestampMs;
-    const glancer = await (z.glancer ??= z.make().catch(() => null));
-    const seen = glancer ? glancer.detect(bitmap).landmarks : [];
-    if (seen.some(points => { const c = centre(points); return !z.at || Math.hypot(c.x - z.at.x, c.y - z.at.y) > ZOOM_SAME; })) {
+    if (z.ready.detect(bitmap).landmarks.some(points => { const c = centre(points); return !z.at || Math.hypot(c.x - z.at.x, c.y - z.at.y) > ZOOM_SAME; })) {
       z.view = 'whole';
-      if (z.following) {
-        if (!blank) { const c = new OffscreenCanvas(64, 48), g = c.getContext('2d')!; g.fillStyle = '#808080'; g.fillRect(0, 0, 64, 48); blank = c.transferToImageBitmap(); }
-        landmarker!.detectForVideo(blank, timestampMs - 0.5);
-      }
+      z.afresh = true;
     }
   }
-  const middle = z.view === 'middle' || (z.view === 'both' && (z.flip = !z.flip));
+  if (z.afresh) lookAfresh();
+  const looking = z.view === 'both', middle = z.view === 'middle' || (looking && (z.flip = !z.flip));
   let landmarks: NormalizedLandmark[][], worlds: WorldLandmark[][];
   if (middle) {
     const sx = Math.round(MIDDLE.x * width), sy = Math.round(MIDDLE.y * height), sw = Math.round(MIDDLE.width * width), sh = Math.round(MIDDLE.height * height);
@@ -133,14 +155,27 @@ async function zoomed(z: NonNullable<typeof zoom>, bitmap: ImageBitmap, timestam
     } finally { picture.close(); }
   } else ({ landmarks, worldLandmarks: worlds } = landmarker!.detectForVideo(bitmap, timestampMs));
   z.following = landmarks.length > 0;
-  const torsoInside = (points: NormalizedLandmark[]) => [11, 12, 23, 24].every(i => points[i].x > MIDDLE.x + ZOOM_MARGIN && points[i].x < MIDDLE.x + MIDDLE.width - ZOOM_MARGIN
-    && points[i].y > MIDDLE.y + ZOOM_MARGIN && points[i].y < MIDDLE.y + MIDDLE.height - ZOOM_MARGIN);
+  z.last = timestampMs;
+  // Somebody first found in the enlarged middle counts only standing (see ZOOM_UPRIGHT_DEG), and
+  // the landmarker looks afresh next time rather than following them onto the whole picture.
+  if (middle && looking && !landmarks.every(points => upright(points, width / height))) {
+    worlds = worlds.filter((_, i) => upright(landmarks[i], width / height));
+    landmarks = landmarks.filter(points => upright(points, width / height));
+    z.afresh = true;
+  }
   if (landmarks.length) {
     z.since = null;
-    // Somebody found: keep the view that found them, the middle only while they're well inside it.
-    z.view = middle && landmarks.every(torsoInside) ? 'middle' : 'whole';
-    if (z.view === 'middle' && !z.at) z.glanced = timestampMs;
-    z.at = z.view === 'middle' ? centre(landmarks[0]) : null;
+    // Somebody found: keep the view that found them, the middle only while they fit in it. (Leaving
+    // the middle, the landmarker looks afresh on the whole picture.)
+    const view = middle && landmarks.every(fits) ? 'middle' : 'whole';
+    if (middle && view === 'whole') z.afresh = true;
+    // The glances' landmarker is made the first time the middle is kept.
+    if (view === 'middle' && !z.at) {
+      z.glanced = timestampMs;
+      z.glancer ??= z.make().then(g => (z.ready = g), (error: unknown) => { console.warn('pose zoom glances could not start:', errorMessage(error) || error); return null; });
+    }
+    z.view = view;
+    z.at = view === 'middle' ? centre(landmarks[0]) : null;
   } else {
     z.since ??= timestampMs;
     if (timestampMs - z.since >= (z.view === 'middle' ? ZOOM_LOST_MS : ZOOM_AFTER_MS)) z.view = 'both';
@@ -337,9 +372,12 @@ scope.onmessage = async ({ data }) => {
           if (delegate === 'CPU') throw error;
           fallback = errorMessage(error); delegate = 'CPU'; landmarker = await create(delegate);
         }
-        // (Its glances cost a landmarker, so like the search it's only where strips would be allowed.)
+        // (Its glances cost a landmarker, so like the strips and the search it's only where the
+        // source allows them, not the iPhone/iPad app. Unlike them it runs on the CPU too: there it's
+        // the only way to find somebody small, for one more inference every ZOOM_GLANCE_MS.)
         zoom = data.zoom && data.playerCount === 1 && runningMode === 'VIDEO'
-          ? { view: 'whole', since: null, flip: false, size: '', glanced: -Infinity, at: null, following: false, glancer: null, make: () => create(delegate, 1, wasmFiles, 'IMAGE') } : null;
+          ? { view: 'whole', since: null, flip: false, size: '', glanced: -Infinity, at: null, following: false, last: -Infinity, afresh: false, glancer: null, ready: null,
+            make: () => create(delegate, 1, wasmFiles, 'IMAGE') } : null;
         // (Like the strips, it needs the GPU and VIDEO mode's following; without them it's left out.)
         search = null;
         if (data.search && data.playerCount > 1 && delegate === 'GPU' && runningMode === 'VIDEO') {
