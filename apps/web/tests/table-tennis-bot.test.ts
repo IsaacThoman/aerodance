@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TABLE, firstBounce, v3 } from '../src/minigames/table-tennis/ball.ts';
 import type { Ball, V3 } from '../src/minigames/table-tennis/ball.ts';
-import { BOT, BOT_LEVELS, BOT_SHOTS, botShot, planReturn } from '../src/minigames/table-tennis/bot.ts';
+import { BOT, BOT_LEVELS, BOT_SHOTS, botShot, planReturn, reaches } from '../src/minigames/table-tennis/bot.ts';
 
 const ball = (pos: V3, vel: V3): Ball => ({ pos, vel, cooldown: 0 });
 
@@ -11,7 +11,7 @@ test('the bot meets a fair return after its bounce, within reach behind the far 
   const plan = planReturn(ball(v3(0.1, 1, 1.4), v3(-0.3, 2.2, -4)));
   assert.ok(plan, 'it plans to meet it');
   assert.ok(plan.at.z <= BOT.line + 0.01 || plan.at.y <= BOT.low + 0.01, `where it can (${plan.at.z.toFixed(2)}, ${plan.at.y.toFixed(2)})`);
-  assert.ok(plan.at.y > TABLE.top && Math.abs(plan.at.x) < BOT.reach.x);
+  assert.ok(plan.at.y > TABLE.top && reaches(plan.at));
   assert.ok(plan.t > 0.3 && plan.t < 1.5, `in time (${plan.t.toFixed(2)} s)`);
 });
 
@@ -44,7 +44,7 @@ test("the harder the bot's level, the faster (down the table) and wider its shot
 
 test('returning everything, the bot plays long, wide and own-half misses, but not the net', () => {
   const long = ball(v3(0, 1, 1.4), v3(0, 2.5, -9));
-  const wide = ball(v3(0.3, 1, 1.4), v3(2.2, 1.5, -4.5));
+  const wide = ball(v3(0.3, 1, 1.4), v3(1.2, 2.4, -6));
   const ownHalf = ball(v3(0, 1.0, 1.3), v3(0, -1, -4.5));
   for (const [name, b] of [['long', long], ['wide', wide], ['off their own half', ownHalf]] as const) {
     assert.equal(planReturn(b), null, `${name}: not a fair return`);
@@ -52,6 +52,8 @@ test('returning everything, the bot plays long, wide and own-half misses, but no
     assert.ok(plan && plan.at.z < 0 && plan.at.y > TABLE.top - 0.05, `${name}: ${plan ? `${plan.at.x.toFixed(2)}, ${plan.at.y.toFixed(2)}, ${plan.at.z.toFixed(2)}` : 'left'}`);
   }
   assert.equal(planReturn(ball(v3(0, 0.95, 1.4), v3(0, 0.5, -7)), false, true), null, 'into the net');
+  // Nor one wide by the net, dropping out of the arm's reach.
+  assert.equal(planReturn(ball(v3(0.3, 1, 1.4), v3(2.2, 1.5, -4.5)), false, true), null, 'wide by the net');
   assert.equal(planReturn(ball(v3(0, 1, -1.5), v3(0, 1, 4)), false, true), null, 'coming the other way');
   // A fair return it still lets bounce first.
   const fair = planReturn(ball(v3(0.1, 1, 1.4), v3(-0.3, 2.2, -4)), false, true);

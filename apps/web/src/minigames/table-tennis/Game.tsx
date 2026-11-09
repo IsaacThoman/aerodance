@@ -18,12 +18,16 @@ import type { HandPose, Side, Vec3 } from './arms.ts';
 import { OneEuro } from './oneEuro.ts';
 import { ASSIST, SWING, assistReturn, contactNudge, interceptNudge, strongestSwing, swingHit } from './assist.ts';
 import { LaggedBall } from './lagged.ts';
-import { BOT, botShot, planReturn } from './bot.ts';
+import { BOT, botServe, botShot, botTarget, planReturn, reachRoom } from './bot.ts';
 import type { BotLevel } from './bot.ts';
 import { coming, describePass, endPass, recalibrate, shiftWords, trackPass } from './calibrate.ts';
 import type { Pass, PassResult } from './calibrate.ts';
-import { BALL_R, NET, TABLE, aimServe, v3 } from './ball.ts';
+import { BALL_R, NET, ROOM, TABLE, v3 } from './ball.ts';
 import type { Ball, BallEvent, PaddlePose, V3 } from './ball.ts';
+import { GAP, HOLD_NORMAL, faceNormal, forehand, heading, holdPose, onPaddle, planServe, serveBall, servePose, serveStrike, strokeOffset } from './robot.ts';
+import type { ArmPose, ServeMotion } from './robot.ts';
+import { RobotOpponent, aimRobot, createRobotDriver } from './RobotOpponent.tsx';
+import type { StationDriver } from '../../../../../packages/robots/shared/station.ts';
 import { choiceLabel, nextChoice, optionsOf } from './options.ts';
 import type { OptionId, SceneId } from './options.ts';
 
@@ -32,9 +36,11 @@ import type { OptionId, SceneId } from './options.ts';
  * (packages/arenas/biodome) or a blank room (the Scene setting, 'debug'): the
  * dancers' glass hands following the player's (the pose and Hand Landmarker landmarks the host's
  * camera sends with the game's 'hands' tracking, turned into the hands' places and angles by
- * arms.ts), a paddle in the right. Raising the left hand (or Space) has the launcher at the far
- * end serve a ball; the ball's physics (ball.ts) meet the paddle as it really moves, and the bot
- * (bot.ts), a floating paddle at the far end, plays back what the player returns.
+ * arms.ts), a paddle in the right. The opponent is a robot arm at the far end (the Torven
+ * six-axis arm from the robot hall: RobotOpponent.tsx), which holds the ball on its paddle between
+ * rallies; raising the left hand (or Space) has it toss the ball up and serve (robot.ts). The
+ * ball's physics (ball.ts) meet the player's paddle as it really moves, and the bot (bot.ts) plays
+ * back what the player returns, the arm's inverse kinematics putting its paddle on the ball.
  *
  * The settings are the minigame's options (options.ts), and keys step them while playing:
  * B the bot's shots, R whether it returns everything. Aim assist (assist.ts) always runs at Max,
@@ -62,22 +68,15 @@ const REACH = 1.1;
 // The hand's diameter, in metres (the dancers' hands are big, cartoon mitts).
 const HAND_SIZE = 0.13;
 const RUBBER = '#ff3b5c';
-const BOT_RUBBER = '#2f6bff';
-// The bot's paddle lunges this far (m) at the ball over this long (s) as it hits.
-const BOT_LUNGE = { depth: 0.2, time: 0.28 };
 // The table's middle (the net), its near end a step in front of the eye.
 const TABLE_Z = EYE.z - 0.45 - TABLE.halfLength;
 // The paddle's blade: its radius, and half its thickness, as drawn and when forgiving.
 const BLADE = { radius: 0.075, halfThickness: 0.006 };
 const FORGIVING = { radius: 0.13, halfThickness: 0.04 };
-// The launcher: its mouth (in the table's frame, behind the far end), how long its serves fly to
-// their first bounce, and where on the near half they're aimed (x across, z from the net).
-const LAUNCHER = { x: 0, y: TABLE.top + 0.25, z: -TABLE.halfLength - 0.3 };
-const SERVE = { flight: 0.65, x: 0.35, near: 0.5, far: 0.95 };
 // The left wrist this far above its shoulder raises the hand (and back below the lower mark, lowers it);
-// held up, the launcher serves again this often.
+// held up, the robot serves again this often.
 const RAISED = { up: 0.02, down: -0.1, again: 2.5 };
-// A ball goes back into the launcher this long after it's dead (on the floor, or settled).
+// A ball goes back to the robot this long after it's dead (on the floor, or settled).
 const DEAD_S = 1;
 // Time's speeds, stepped through with T.
 const TIME_SCALES = [1, 0.5, 0.25] as const;
@@ -93,11 +92,15 @@ const TRAIL = 28;
 // and to (m), and how many can show at once.
 const RIPPLE = { life: 0.6, from: 0.03, to: 0.23, count: 3 } as const;
 const easeOut = (u: number) => 1 - (1 - u) * (1 - u);
+const dist = (a: V3, b: V3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+// The robot's paddle holding the ball at home, face up (the ball's middle at BOT.home).
+const HOLD_START: ArmPose = holdPose(0);
 // The ball and its trail (and the bounces' rings) in each scene: white in the plain room, orange
 // in the Biodome, where a white ball is lost against the pale deck and the bright haze.
-const BALL_LOOK: Record<SceneId, { ball: string; trail: string }> = {
-  debug: { ball: '#fff7ea', trail: '#fff3d6' },
-  biodome: { ball: '#ff8a1f', trail: '#ffc27a' },
+// A little glow of its own keeps it bright against the robot's orange paint.
+const BALL_LOOK: Record<SceneId, { ball: string; trail: string; glow: number }> = {
+  debug: { ball: '#fff7ea', trail: '#fff3d6', glow: 0 },
+  biodome: { ball: '#ff8a1f', trail: '#ffc27a', glow: 0.55 },
 };
 
 // openreef's environment: the glass hands mostly reflect it, and it keeps their gel aqua.
@@ -204,18 +207,19 @@ function Room() {
   const plain = useNoReflections();
   const wall = useMemo(() => new THREE.MeshStandardMaterial({ color: '#eef1f5', roughness: 0.9, ...plain }), [plain]);
   const floor = useMemo(() => new THREE.MeshStandardMaterial({ color: '#d6dce5', roughness: 0.75, ...plain }), [plain]);
-  const W = 6, H = 3, D = 8;
+  // The room's walls (ball.ts ROOM), round the table: deep enough behind its far end for the robot.
+  const W = ROOM.halfWidth * 2, H = ROOM.height, near = TABLE_Z + ROOM.near, far = TABLE_Z + ROOM.far, D = near - far, mid = (near + far) / 2;
   return (
     <group>
-      <mesh rotation-x={-Math.PI / 2} receiveShadow material={floor}><planeGeometry args={[W, D]} /></mesh>
-      <mesh rotation-x={Math.PI / 2} position-y={H} material={wall}><planeGeometry args={[W, D]} /></mesh>
-      <mesh position-z={-D / 2} receiveShadow material={wall}><planeGeometry args={[W, H * 2]} /></mesh>
-      <mesh position-z={D / 2} rotation-y={Math.PI} material={wall}><planeGeometry args={[W, H * 2]} /></mesh>
-      <mesh position-x={-W / 2} rotation-y={Math.PI / 2} receiveShadow material={wall}><planeGeometry args={[D, H * 2]} /></mesh>
-      <mesh position-x={W / 2} rotation-y={-Math.PI / 2} receiveShadow material={wall}><planeGeometry args={[D, H * 2]} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position-z={mid} receiveShadow material={floor}><planeGeometry args={[W, D]} /></mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, H, mid]} material={wall}><planeGeometry args={[W, D]} /></mesh>
+      <mesh position-z={far} receiveShadow material={wall}><planeGeometry args={[W, H * 2]} /></mesh>
+      <mesh position-z={near} rotation-y={Math.PI} material={wall}><planeGeometry args={[W, H * 2]} /></mesh>
+      <mesh position={[-W / 2, 0, mid]} rotation-y={Math.PI / 2} receiveShadow material={wall}><planeGeometry args={[D, H * 2]} /></mesh>
+      <mesh position={[W / 2, 0, mid]} rotation-y={-Math.PI / 2} receiveShadow material={wall}><planeGeometry args={[D, H * 2]} /></mesh>
       <hemisphereLight args={['#ffffff', '#aab4c4', 1.7]} />
-      <directionalLight position={[0.4, 2.95, 1.9]} intensity={1.4} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0005}
-        shadow-camera-left={-3} shadow-camera-right={3} shadow-camera-top={3} shadow-camera-bottom={-3} shadow-camera-near={0.1} shadow-camera-far={8} />
+      <directionalLight position={[0.4, 2.95, 1.9]} intensity={1.4} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0005}
+        shadow-camera-left={-4.5} shadow-camera-right={4.5} shadow-camera-top={4.5} shadow-camera-bottom={-4.5} shadow-camera-near={0.1} shadow-camera-far={10} />
     </group>
   );
 }
@@ -253,33 +257,6 @@ function Table() {
       <mesh geometry={box} material={mesh} position={[0, Y + NET.height / 2, 0]} scale={[NET.halfWidth * 2, NET.height, 0.004]} />
       <mesh geometry={box} material={white} position={[0, Y + NET.height - 0.006, 0]} scale={[NET.halfWidth * 2, 0.014, 0.008]} />
       {[-1, 1].map((sx) => <mesh key={sx} geometry={cylinder} material={frame} position={[sx * NET.halfWidth, Y + NET.height / 2, 0]} scale={[0.012, NET.height + 0.02, 0.012]} />)}
-    </group>
-  );
-}
-
-/** The launcher behind the far end: a glossy body on a stand, its barrel at the player. */
-function Launcher() {
-  const plain = useNoReflections();
-  const parts = useMemo(() => ({
-    body: new THREE.MeshPhysicalMaterial({ color: '#f4f7fb', roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.1, ...plain }),
-    trim: new THREE.MeshStandardMaterial({ color: '#2fb4e8', roughness: 0.35, ...plain }),
-    dark: new THREE.MeshStandardMaterial({ color: '#273140', roughness: 0.5, ...plain }),
-  }), [plain]);
-  useEffect(() => () => { for (const part of Object.values(parts)) part.dispose(); }, [parts]);
-  const { x, y, z } = LAUNCHER;
-  return (
-    <group position={[x, 0, z + TABLE_Z]}>
-      {/* The stand: a pole on a round foot. */}
-      <mesh material={parts.dark} position-y={0.02} castShadow><cylinderGeometry args={[0.2, 0.22, 0.04, 24]} /></mesh>
-      <mesh material={parts.dark} position-y={(y - 0.12) / 2} castShadow><cylinderGeometry args={[0.025, 0.025, y - 0.12, 12]} /></mesh>
-      {/* The body, a hopper on top, and the barrel (its mouth at LAUNCHER). */}
-      <group position-y={y}>
-        <mesh material={parts.body} position-z={-0.08} castShadow><sphereGeometry args={[0.14, 24, 16]} /></mesh>
-        <mesh material={parts.trim} position-z={-0.08} rotation-x={Math.PI / 2}><torusGeometry args={[0.14, 0.012, 8, 32]} /></mesh>
-        <mesh material={parts.body} position={[0, 0.16, -0.12]} castShadow><cylinderGeometry args={[0.1, 0.05, 0.14, 20]} /></mesh>
-        <mesh material={parts.trim} position-z={0.02} rotation-x={Math.PI / 2} castShadow><cylinderGeometry args={[0.035, 0.045, 0.14, 20]} /></mesh>
-        <mesh material={parts.dark} position-z={0.092} rotation-x={Math.PI / 2}><cylinderGeometry args={[0.026, 0.026, 0.006, 20]} /></mesh>
-      </group>
     </group>
   );
 }
@@ -413,20 +390,22 @@ function Hands({ rig, forgiving }: { rig: Rig; forgiving: boolean }) {
 }
 
 /**
- * The ball: waiting in the launcher's mouth until a serve (the left hand raised, or Space), then
- * flying (ball.ts) in the table's frame at the time's speed, met by the paddle as it moved this
- * frame (as it was a lag ago: LaggedBall), with a fading trail behind it. A hit judged in the past
- * puts the ball where it is now, and its drawn place eases onto that. A dead ball (on the floor, or settled) goes back into the
- * launcher. A return that lands on the far half counts, and the bot (bot.ts), a floating paddle at
- * the far end, plays it back: a rally lasts as long as the player keeps returning it.
+ * The ball, and the robot's paddle: the ball held on the robot's paddle until a serve (the left
+ * hand raised, or Space), tossed up and struck, then flying (ball.ts) in the table's frame at the
+ * time's speed, met by the player's paddle as it moved this frame (as it was a lag ago:
+ * LaggedBall), with a fading trail behind it. A hit judged in the past puts the ball where it is
+ * now, and its drawn place eases onto that. A dead ball (on the floor, or settled) goes back to
+ * the robot. A return that lands on the far half counts, and the bot (bot.ts) plays it back, the
+ * robot's paddle drawn back, swung through the ball and followed through (robot.ts): a rally lasts
+ * as long as the player keeps returning it.
  */
 /** What the HUD shows, kept up by the ball. */
 interface Hud { flying: boolean; returns: number; rally: number; best: number; pass: PassResult | null; }
-function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hud: Hud; scene: SceneId }) {
+function PlayBall({ ctx, rig, hud, scene, robot }: { ctx: MinigameContext; rig: Rig; hud: Hud; scene: SceneId; robot: StationDriver }) {
   const plain = useNoReflections();
   const look = BALL_LOOK[scene];
   const parts = useMemo(() => ({
-    ball: new THREE.MeshStandardMaterial({ color: look.ball, roughness: 0.35, ...plain }),
+    ball: new THREE.MeshStandardMaterial({ color: look.ball, emissive: look.ball, emissiveIntensity: look.glow, roughness: 0.35, ...plain }),
     shape: new THREE.SphereGeometry(BALL_R, 20, 14),
     trail: Array.from({ length: TRAIL }, (_, i) => new THREE.MeshBasicMaterial({ color: look.trail, transparent: true, depthWrite: false, opacity: 0.45 * (1 - i / TRAIL) })),
     ring: new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2),
@@ -439,9 +418,8 @@ function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hu
   const ballMesh = useRef<THREE.Mesh>(null);
   const trailGroup = useRef<THREE.Group>(null);
   const rippleGroup = useRef<THREE.Group>(null);
-  const botPaddle = useRef<THREE.Group>(null);
   const st = useMemo(() => ({
-    ball: { pos: { ...LAUNCHER }, vel: v3(), cooldown: 0 } as Ball, lagged: null as LaggedBall | null, drawnOff: v3(), flying: false, deadAt: Infinity, slowSince: null as number | null, servedAt: -Infinity,
+    ball: { pos: onPaddle(HOLD_START), vel: v3(), cooldown: 0 } as Ball, lagged: null as LaggedBall | null, drawnOff: v3(), flying: false, deadAt: Infinity, slowSince: null as number | null, servedAt: -Infinity,
     hits: 0, returns: 0, hitThisServe: false, raised: false, paddle: null as PaddlePose | null, moved: null as V3 | null, trail: [] as THREE.Vector3[], time: 0,
     /** The ball's pass by the player's paddle, while it's coming. */
     pass: null as Pass | null,
@@ -451,11 +429,22 @@ function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hu
     touchedAt: -Infinity, rally: 0, best: 0,
     /** The player hit the ball last, and their return has had its one fair bounce (for the bot to play). */
     yours: false, farBounce: false,
-    bot: { pos: { ...BOT.home }, hitAt: -Infinity },
+    /**
+     * The bot: where it meets the ball (its paddle's middle then), when it last struck it, the spot
+     * it's aiming its next shot at, the shot's heading (from above) and whether it's on its
+     * forehand, and its paddle's face and stroke as drawn (eased).
+     */
+    bot: { pos: { ...BOT.home }, hitAt: -Infinity, aim: null as V3 | null, dir: v3(0, 0, 1), fore: true, normal: { ...HOLD_NORMAL }, offset: v3() },
+    /** The robot's paddle this frame (the table's frame). */
+    arm: HOLD_START as ArmPose,
+    /** A serve asked for, and one under way (the toss, the strike, the follow-through), and its ball's velocity off the paddle. */
+    serveAsked: false, serve: null as ServeMotion | null, serveVel: v3(),
     /** The ball's latest bounces on the table, newest last: where (the table's frame), and when (the ball's time). */
     ripples: [] as { at: V3; t: number }[],
   }), []);
   const tmp = useMemo(() => ({ p: new THREE.Vector3(), n: new THREE.Vector3(), q: new THREE.Quaternion(), nudge: new THREE.Vector3() }), []);
+  // The robot holds the ball from the start (the countdown too).
+  useMemo(() => aimRobot(robot, HOLD_START), [robot]);
   // Development: the ball and the rig, for scripted swings from play.ts.
   useEffect(() => {
     if (!import.meta.env.DEV) return undefined;
@@ -488,6 +477,43 @@ function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hu
     });
     hud.flying = st.flying;
     ctx.report({ ball: st.flying ? 'flying' : 'ready', hits: st.hits, returns: st.returns, rally: st.rally, best: st.best });
+  };
+  // The robot's paddle this frame: through a serve, as it goes; otherwise where the bot meets the
+  // ball (or home), with the stroke's swing on it, its face eased round to the shot's heading (or
+  // up, holding the ball). The ball rides on it while it's held.
+  const moveRobot = (dt: number, plan: { t: number; at: V3 } | null) => {
+    const bot = st.bot;
+    if (st.serve) {
+      st.arm = servePose(st.serve, st.time);
+      const ball = serveBall(st.serve, st.time, st.arm);
+      if (ball) st.ball.pos = ball;
+      if (st.time >= st.serve.end) {
+        // Over: the bot takes it from here, from where the paddle is.
+        bot.pos = { x: st.arm.pos.x + st.arm.normal.x * GAP, y: st.arm.pos.y + st.arm.normal.y * GAP, z: st.arm.pos.z + st.arm.normal.z * GAP };
+        bot.normal = { ...st.arm.normal };
+        bot.dir = heading(v3(), st.arm.normal);
+        bot.offset = v3();
+        bot.hitAt = -Infinity;
+        st.serve = null;
+      }
+    } else {
+      const holding = !st.flying;
+      if (plan && bot.aim) { bot.dir = heading(bot.pos, bot.aim); bot.fore = forehand(plan.at); }
+      const face = holding ? HOLD_NORMAL : faceNormal(bot.dir);
+      const offset = holding ? v3() : strokeOffset(plan ? plan.t : null, st.time - bot.hitAt, bot.dir, bot.fore, reachRoom(bot.pos));
+      const kn = 1 - Math.exp(-12 * dt), ko = 1 - Math.exp(-30 * dt);
+      const n = v3(bot.normal.x + (face.x - bot.normal.x) * kn, bot.normal.y + (face.y - bot.normal.y) * kn, bot.normal.z + (face.z - bot.normal.z) * kn);
+      const l = Math.hypot(n.x, n.y, n.z) || 1;
+      bot.normal = v3(n.x / l, n.y / l, n.z / l);
+      bot.offset = v3(bot.offset.x + (offset.x - bot.offset.x) * ko, bot.offset.y + (offset.y - bot.offset.y) * ko, bot.offset.z + (offset.z - bot.offset.z) * ko);
+      const bob = holding ? 0.008 * Math.sin(st.time * 2.2) : 0;
+      st.arm = {
+        pos: v3(bot.pos.x + bot.offset.x - bot.normal.x * GAP, bot.pos.y + bot.offset.y - bot.normal.y * GAP + bob, bot.pos.z + bot.offset.z - bot.normal.z * GAP),
+        normal: bot.normal,
+      };
+      if (holding) st.ball.pos = onPaddle(st.arm);
+    }
+    aimRobot(robot, st.arm);
   };
   useFrame((_, delta) => {
     // Real time (the player's), and the ball's world's.
@@ -538,6 +564,7 @@ function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hu
     const serve = playing && (rig.serve || (st.raised && idle && (!wasRaised || st.time - st.servedAt > RAISED.again * rig.timeScale)));
     rig.serve = false;
     const b = st.ball;
+    let plan: { t: number; at: V3 } | null = null;
     const score = () => Object.assign(hud, { returns: st.returns, rally: st.rally, best: st.best });
     const endRally = () => { if (st.rally) { st.best = Math.max(st.best, st.rally); st.rally = 0; score(); } };
     // A pass over: said in the HUD, and the paddle's calibration moved by it.
@@ -548,12 +575,28 @@ function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hu
       const s = recalibrate(rig.shift, pass); rig.shift.set(s.x, s.y, s.z);
       hud.pass = pass;
     };
-    if (serve) {
+    // A serve asked for: the ball back to the robot if it's still out (a rally stalled), and served once it's holding it.
+    if (serve && !st.serve) {
+      st.serveAsked = true;
+      if (st.flying) { st.flying = false; endRally(); finishPass(false); }
+    }
+    const holding = !st.flying && !st.serve;
+    if (holding && st.serveAsked && dist(st.bot.pos, BOT.home) < 0.02 && dist(st.bot.normal, HOLD_NORMAL) < 0.05) {
       endRally();
-      // Aimed at a spot on the near half, a little different each time.
-      const target = v3((Math.random() * 2 - 1) * SERVE.x, 0, SERVE.near + Math.random() * (SERVE.far - SERVE.near));
-      b.pos = { ...LAUNCHER };
-      b.vel = aimServe(LAUNCHER, target, SERVE.flight);
+      // Struck from above where it's held, down onto its own half and over onto the player's.
+      const from = serveStrike(st.arm.pos);
+      const flight = botServe(from, rig.botLevel);
+      const vel = flight?.vel ?? v3(0, 0, 3);
+      const dir = heading(from, flight?.second ?? v3(0, 0, 1));
+      const tilt = Math.min(0.35, Math.max(-0.2, Math.atan2(vel.y, Math.hypot(vel.x, vel.z))));
+      st.serve = planServe(st.time, st.arm.pos, dir, faceNormal(dir, tilt));
+      st.serveVel = vel;
+      st.serveAsked = false;
+    }
+    if (st.serve && !st.flying && st.time >= st.serve.strikeAt) {
+      // The strike: the ball's flight begins.
+      b.pos = { ...st.serve.strike };
+      b.vel = { ...st.serveVel };
       b.cooldown = 0;
       st.lagged = new LaggedBall(b, st.time);
       st.drawnOff = v3();
@@ -592,29 +635,32 @@ function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hu
       const settled = st.slowSince !== null && st.time - st.slowSince > 0.6;
       // The bot goes to where it will meet the player's return (a fair one, or any it can get to if
       // it returns everything), and hits it as it gets there. Returning a miss ends the rally's count.
-      const plan = st.yours && st.deadAt === Infinity ? planReturn(b, st.farBounce, rig.botAlways) : null;
-      if (plan && plan.t <= worldDt * 1.01 && Math.hypot(st.bot.pos.x - plan.at.x, st.bot.pos.y - plan.at.y, st.bot.pos.z - plan.at.z) < 0.3) {
+      plan = st.yours && st.deadAt === Infinity && !st.serve ? planReturn(b, st.farBounce, rig.botAlways) : null;
+      // The spot its shot will go to, chosen as it sets off for the ball (its paddle turns to face it).
+      if (plan) st.bot.aim ??= botTarget(rig.botLevel);
+      if (plan && plan.t <= worldDt * 1.01 && dist(st.bot.pos, plan.at) < 0.3) {
         if (!st.farBounce) endRally();
-        st.lagged.hitThen(0, (hit) => botShot(hit.pos, rig.botLevel));
+        const aim = st.bot.aim ?? undefined;
+        st.lagged.hitThen(0, (hit) => botShot(hit.pos, rig.botLevel, Math.random, aim));
         Object.assign(st, { touchedAt: st.time, hitThisServe: false, yours: false, farBounce: false, slowSince: null });
         st.bot.hitAt = st.time;
+        st.bot.aim = null;
       }
-      const goal = plan?.at ?? BOT.home, bot = st.bot.pos;
-      const away = Math.hypot(goal.x - bot.x, goal.y - bot.y, goal.z - bot.z);
-      // Returning everything, it's as quick as it needs to be to get there.
-      const speed = plan && rig.botAlways ? Math.max(BOT.speed, away / Math.max(plan.t, worldDt)) : BOT.speed;
-      const move = Math.min(1, (speed * worldDt) / (away || 1));
-      st.bot.pos = v3(bot.x + (goal.x - bot.x) * move, bot.y + (goal.y - bot.y) * move, bot.z + (goal.z - bot.z) * move);
-      if (settled || st.time > st.deadAt || st.time - Math.max(st.servedAt, st.touchedAt) > 12) { st.flying = false; b.pos = { ...LAUNCHER }; endRally(); finishPass(false); }
-    } else {
-      // Back home between rallies.
-      const bot = st.bot.pos, k = 1 - Math.exp(-3 * worldDt);
+      if (!st.serve) {
+        const goal = plan?.at ?? BOT.home, bot = st.bot.pos;
+        const away = dist(goal, bot);
+        // Returning everything, it's as quick as it needs to be to get there.
+        const speed = plan && rig.botAlways ? Math.max(BOT.speed, away / Math.max(plan.t, worldDt)) : BOT.speed;
+        const move = Math.min(1, (speed * worldDt) / (away || 1));
+        st.bot.pos = v3(bot.x + (goal.x - bot.x) * move, bot.y + (goal.y - bot.y) * move, bot.z + (goal.z - bot.z) * move);
+      }
+      if (settled || st.time > st.deadAt || st.time - Math.max(st.servedAt, st.touchedAt) > 12) { st.flying = false; st.bot.aim = null; endRally(); finishPass(false); }
+    } else if (!st.serve) {
+      // Back home between rallies, to hold the ball.
+      const bot = st.bot.pos, k = 1 - Math.exp(-5 * worldDt);
       st.bot.pos = v3(bot.x + (BOT.home.x - bot.x) * k, bot.y + (BOT.home.y - bot.y) * k, bot.z + (BOT.home.z - bot.z) * k);
     }
-    // The bot's paddle, lunging at the ball as it hits.
-    const lunge = Math.sin(Math.PI * Math.min(1, Math.max(0, (st.time - st.bot.hitAt) / BOT_LUNGE.time)));
-    botPaddle.current?.position.set(st.bot.pos.x, st.bot.pos.y, st.bot.pos.z + TABLE_Z + lunge * BOT_LUNGE.depth);
-    if (botPaddle.current) botPaddle.current.rotation.x = -0.2 - lunge * 0.35;
+    moveRobot(worldDt, plan);
     // The assist's slide for the next frame: towards where the ball will meet the player's paddle,
     // quickly as it nears, and slowly back once it's gone.
     const seen = st.flying && st.lagged && raw && paddle && paddleVel ? st.lagged.then(lag) : null;
@@ -630,10 +676,6 @@ function PlayBall({ ctx, rig, hud, scene }: { ctx: MinigameContext; rig: Rig; hu
   return (
     <>
       <mesh ref={ballMesh} geometry={parts.shape} material={parts.ball} castShadow />
-      {/* The bot: a paddle floating at the far end, its face to the player. */}
-      <group ref={botPaddle} position={[BOT.home.x, BOT.home.y, BOT.home.z + TABLE_Z]}>
-        <group scale={1.6}><Paddle rubber={BOT_RUBBER} forgiving={false} /></group>
-      </group>
       <group ref={trailGroup}>
         {parts.trail.map((m, i) => <mesh key={i} geometry={parts.shape} material={m} visible={false} />)}
       </group>
@@ -653,7 +695,7 @@ function TableTennisHud({ ctx, rig, hud }: { ctx: MinigameContext; rig: Rig; hud
       const tracking = ctx.handTracking();
       const lines: { text: string; size: number; weight?: number; color?: string }[] = [
         { text: `Rally ${hud.rally}   ·   Best ${hud.best}   ·   Returns ${hud.returns}`, size: 28, weight: 800 },
-        { text: !hud.flying ? 'Raise your left hand to serve' : hud.pass ? describePass(hud.pass) : 'Swing through the ball', size: 22 },
+        { text: !hud.flying ? 'Raise your left hand for the robot to serve' : hud.pass ? describePass(hud.pass) : 'Swing through the ball', size: 22 },
         { text: `Aim assist Max  ·  Bot ${choiceLabel('botShots', rig.botLevel)}, returns ${rig.botAlways ? 'everything' : 'fair shots'}`, size: 18, color: '#dff4ff' },
         { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
       ];
@@ -696,7 +738,7 @@ const lagWords = (rig: Rig) => (rig.hitLag === 'auto' ? `auto (${rig.latency > 0
 // The view: from the eye, tilted down a little.
 const LOOK = { x: EYE.x, y: EYE.y + Math.sin(PITCH), z: EYE.z - Math.cos(PITCH) };
 
-/** The game: the room, the table, the launcher and the bot, the player's hands and the ball, and the HUD. */
+/** The game: the room, the table, the robot, the player's hands and the ball, and the HUD. */
 export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   const [rig] = useState<Rig>(() => {
     const chosen = optionsOf(ctx.options);
@@ -710,6 +752,7 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   // The scene is chosen on the preview, for the round.
   const [scene] = useState<SceneId>(() => optionsOf(ctx.options).scene);
   const hud = useMemo<Hud>(() => ({ flying: false, returns: 0, rally: 0, best: 0, pass: null }), []);
+  const robot = useMemo(createRobotDriver, []);
   usePlayerHands(rig);
 
   // Space serves; B and R step the settings (and save them, as the preview would); in
@@ -744,9 +787,9 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
             <Table />
           </>
         )}
-        <Launcher />
         <Hands rig={rig} forgiving={forgiving} />
-        <PlayBall ctx={ctx} rig={rig} hud={hud} scene={scene} />
+        <PlayBall ctx={ctx} rig={rig} hud={hud} scene={scene} robot={robot} />
+        <RobotOpponent driver={robot} tableZ={TABLE_Z} />
       </MinigameWorld>
       <TableTennisHud ctx={ctx} rig={rig} hud={hud} />
     </>

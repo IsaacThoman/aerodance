@@ -3,7 +3,7 @@
  * player looks down the table, y up from the floor, z towards the player, the net at z = 0. A
  * 40 mm ball under gravity and air drag bounces off the table, catches in the net, and bounces off
  * the room and the paddle: a real disc with a face and a speed, met along its path through each
- * frame so a fast swing can't pass through. A launcher at the far end serves (aimServe).
+ * frame so a fast swing can't pass through. aimServe aims a ball onto the table, as a launcher would.
  * Constants from the Table Tennis minigame; no spin.
  */
 
@@ -20,8 +20,8 @@ const norm = (a: V3): V3 => scale(a, 1 / (len(a) || 1));
 export const TABLE = { halfLength: 1.37, halfWidth: 0.7625, top: 0.76 } as const;
 export const NET = { height: 0.1525, halfWidth: 0.915 } as const;
 const NET_TOP = TABLE.top + NET.height;
-/** The room round the table, in the table's frame. */
-export const ROOM = { halfWidth: 3, height: 3, near: 4.2, far: -3.8 } as const;
+/** The room round the table, in the table's frame: deep enough behind the far end for the robot opponent. */
+export const ROOM = { halfWidth: 3, height: 3, near: 4.2, far: -5 } as const;
 export const BALL_R = 0.02;
 const GRAVITY = 9.81;
 const DRAG = 0.13;

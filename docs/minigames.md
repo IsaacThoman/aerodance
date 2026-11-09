@@ -8,7 +8,8 @@ they share: the list, each game's settings, the camera and its calibration, the 
 camera to test them with. A game is one folder; adding one changes no other file.
 
 The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game;
-its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room.
+its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room,
+and the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns.
 
 ## The flow
 
