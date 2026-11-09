@@ -104,6 +104,12 @@ function aborted<T>(promise: Promise<T>, signal: AbortSignal) {
 const INTERRUPTED = 'The camera was interrupted. Tracking carries on when it comes back.';
 const STALLED = 'The camera stopped sending pictures. Start camera to retry.';
 const STALL_MS = 10000;
+/**
+ * A worker that fails after it was ready (a lost WebGL context, an exception mid-frame) is
+ * started again with the same settings, the players followed through it; but not more than this
+ * many times in WORKER_RESTART_WINDOW_MS, so one that fails on every frame still ends in the error.
+ */
+export const WORKER_RESTARTS = 3, WORKER_RESTART_WINDOW_MS = 60000;
 const CAMERA_ERRORS: Partial<Record<string, string>> = { NotAllowedError: 'Camera permission was denied. Allow camera access for this site, then start again.',
   NotFoundError: 'No camera was found. Connect a camera, then start again.',
   NotReadableError: 'The camera is busy or unavailable. Close other camera applications, then start again.',
@@ -183,6 +189,11 @@ export class WebcamPoseSource {
   handsSlowSince: number | null = null;
   workerReady = false;
   detailSent = false;
+  /** The settings this session's workers start with, and when they were last started again. */
+  workerInit: PoseWorkerRequest | null = null;
+  restarts: number[] = [];
+  /** A worker started again is getting ready: frames wait for it (the frame loop runs on). */
+  restarting = false;
   handModel: 'loading' | 'on' | 'unavailable' = 'loading';
   constructor({ mediaDevices = globalThis.navigator?.mediaDevices,
     createWorker = () => new Worker(new URL('./pose.worker.ts', import.meta.url), { type: 'module' }),
@@ -341,6 +352,7 @@ export class WebcamPoseSource {
     if (this.hidden) globalThis.document?.removeEventListener('visibilitychange', this.hidden);
     if (this.pagehide) globalThis.window?.removeEventListener('pagehide', this.pagehide);
     this.pending = null; this.busy = false; this.dropWaiting();
+    this.workerInit = null; this.restarts = []; this.restarting = false;
     // The next worker loads the hand model afresh.
     this.workerReady = false; this.detailSent = false;
     if (this.handModel !== 'loading') { this.handModel = 'loading'; this.publishHands(); }
@@ -425,9 +437,6 @@ export class WebcamPoseSource {
       this.sessionId = crypto.randomUUID(); this.seq = 0; this.lastMediaTime = -Infinity;
       this.tracker = new PlayerTracker(this.playerCount); this.players = 0; this.resultTimes = [];
       this.startedAt = this.now(); this.completed = 0; this.dropped = 0; this.lastResult = this.lastFrame = this.startedAt;
-      const worker = this.worker = this.createWorker();
-      worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
-      worker.onerror = event => { if (current()) this.fail(Error(event.message || 'Pose worker failed. Try another model or browser.')); };
       const base = this.assetUrl();
       this.publish({ status: 'initializing', message: `Loading ${model.label} model…`,
         modelConfig: { modelId: model.id, modelHash: model.sha256, packageVersion: MEDIAPIPE_VERSION,
@@ -442,10 +451,45 @@ export class WebcamPoseSource {
       // each costs a landmarker (about 85-160 MB), which trackbench found well worth it
       // (tools/trackbench/REPORT.md). Looks tell players apart, so one player doesn't need them.
       const tiles = evenTiles(this.playerCount);
-      worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount <= 2 ? this.playerCount : this.playerCount + 1, looks: this.playerCount > 1,
+      this.workerInit = { type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount <= 2 ? this.playerCount : this.playerCount + 1, looks: this.playerCount > 1,
         ...(tiles ? { tiles } : {}), ...(this.playerCount === 2 ? { search: true } : {}), ...(this.playerCount === 1 ? { zoom: true } : {}),
-        modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
+        modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href };
+      this.startWorker();
     } catch (error) { if (current()) this.fail(error); }
+  }
+  /** Starts this session's worker with its settings; its messages count only while it's the session's worker. */
+  startWorker() {
+    const generation = this.generation;
+    const worker = this.worker = this.createWorker();
+    const current = () => generation === this.generation && this.worker === worker;
+    worker.onmessage = ({ data }) => { if (current() && data.sessionId === this.sessionId) this.handleWorker(data); };
+    worker.onerror = event => { if (current()) this.workerFailed(Error(event.message || 'Pose worker failed. Try another model or browser.')); };
+    worker.postMessage(this.workerInit!);
+  }
+  /**
+   * The worker failed. One that never got ready (a model that won't load) fails the camera; one
+   * that had been tracking is started again, unless it has been too often lately. The tracker,
+   * the player count and the session carry on, so the players keep their numbers; the frame in
+   * flight is lost, and the detail is told to the new worker once it's ready, as to the first.
+   */
+  workerFailed(error: unknown) {
+    const now = this.now();
+    this.restarts = this.restarts.filter(time => now - time < WORKER_RESTART_WINDOW_MS);
+    if (!this.workerReady || !this.workerInit || this.restarts.length >= WORKER_RESTARTS) { this.fail(error); return; }
+    this.restarts.push(now);
+    console.warn('pose worker failed; starting it again:', cameraMessage(error));
+    const old = this.worker;
+    if (old) { old.onmessage = null; old.onerror = null; old.terminate(); }
+    this.worker = null;
+    // Frames that come meanwhile wait (the newest one), as while a frame is in flight.
+    this.pending = null; this.busy = true; this.restarting = true;
+    this.workerReady = false; this.detailSent = false;
+    if (this.handModel !== 'loading') { this.handModel = 'loading'; this.publishHands(); }
+    // The watchdog and the startup timeout give the new worker as long as the first had.
+    this.lastResult = now;
+    this.armStartup();
+    this.publish({ ...(this.view.status === 'connected' ? { status: 'initializing' as const } : {}), snapshot: null, message: 'Pose tracking stopped; starting it again…' });
+    this.startWorker();
   }
   /** Fails a start that hasn't tracked a frame within a minute (the camera's silence doesn't count). */
   armStartup() {
@@ -478,12 +522,14 @@ export class WebcamPoseSource {
     try { this.handleResult(data); } finally { this.sendWaiting(); }
   }
   handleResult(data: PoseWorkerResponse) {
-    if (data.type === 'error') { this.fail(Error(data.message)); return; }
+    if (data.type === 'error') { this.workerFailed(Error(data.message)); return; }
     if (data.type === 'ready') {
       this.publish({ delegate: data.delegate, modelConfig: this.view.modelConfig && { ...this.view.modelConfig, delegate: data.delegate },
         ...(this.view.interrupted ? {} : { message: data.fallback ? 'GPU unavailable; using CPU. Waiting for the first pose result…' : 'Waiting for the first pose result…' }) });
       this.workerReady = true;
       this.sendDetail();
+      // A worker started again: the frame loop is running; the frame that waited goes now.
+      if (this.restarting) { this.restarting = false; this.busy = false; return; }
       this.schedule(); return;
     }
     if (data.type === 'hands') {
@@ -568,7 +614,8 @@ export class WebcamPoseSource {
     const pending = this.pending = { seq: ++this.seq, mediaTimeMs, frameBrowserTimeMs };
     void bitmap.then(bitmap => {
       const worker = this.worker;
-      if (generation !== this.generation || !worker) { bitmap.close(); return; }
+      // (Not to a worker started again since: that frame's result would never come.)
+      if (generation !== this.generation || !worker || this.pending !== pending) { bitmap.close(); return; }
       worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players, lined: this.tracker.lined }, [bitmap]);
     }).catch(error => { if (generation === this.generation) this.fail(error); });
   }

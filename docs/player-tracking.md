@@ -82,6 +82,14 @@ How the webcam (or a paired phone's camera) turns people into players.
    one pose per player found. Everything after it (calibration, the live characters, the scorer,
    recordings) sees players, not detections.
 
+If the worker fails after it was tracking (a lost WebGL context, an exception on a frame), the
+source starts a new one with the same settings and carries on: the session, the tracker and
+the player count stay, so the players keep their numbers, and the frame in flight is lost.
+Frames wait meanwhile, as for a frame in flight, and the camera shows as starting until the
+first result. A worker that fails before it was ready (a model that won't load) fails the
+camera, as does one that fails a fourth time within a minute (`WORKER_RESTARTS`), so a worker
+that dies on every frame still ends in its error.
+
 A minigame that does its own geometry can ask for more (`PoseSource.setDetail('hands')`, while
 its session lasts; the songs never do). The source then tells its worker, once it's ready, to
 keep MediaPipe's 3D world landmarks with each person (metres from the hips' centre), which the
