@@ -5,7 +5,7 @@
 // the jobs; --realtime runs alone, as it measures timing.
 //   node tools/trackbench/harness/run-suite.ts --id <estimator> [--jobs N] [--browsers N] [--force] [prefix...] [-- run-game flags]
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,16 @@ import { prepareRun, RUN_GAME_FLAGS, runScene } from './run-game.ts';
 import type { RunOptions } from './run-game.ts';
 
 export interface SuiteScene { id: string; frames: number; }
+
+/**
+ * A scene's run is done when its tracking exists, isn't empty, and is no older than the scene's
+ * render (its READY marker), as matrix.py has it: a re-rendered scene runs again.
+ */
+export function runDone(output: string, ready: string): boolean {
+  if (!existsSync(output)) return false;
+  const run = statSync(output);
+  return run.size > 0 && (!existsSync(ready) || run.mtimeMs >= statSync(ready).mtimeMs);
+}
 
 /** Eight browsers was fastest on an M5 Pro (18 cores); smaller machines get half their cores. */
 export const DEFAULT_JOBS = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)));
@@ -59,7 +69,7 @@ async function main() {
     .filter(entry => entry.isDirectory() && !entry.name.startsWith('_') && !entry.name.startsWith('real-'))
     .map(entry => entry.name)
     .filter(name => existsSync(path.join(sceneDir(name), 'READY')) && (!prefixes.length || prefixes.some(prefix => name.startsWith(prefix))))
-    .filter(name => force || !existsSync(path.join(runDir(id, name), 'tracked.jsonl')))
+    .filter(name => force || !runDone(path.join(runDir(id, name), 'tracked.jsonl'), path.join(sceneDir(name), 'READY')))
     .map(name => ({ id: name, frames: frameFiles(sceneDir(name)).length })));
   console.log(`${id}: ${scenes.length} scenes, ${jobs} jobs, ${browserCount} browser(s)`);
   const started = performance.now();

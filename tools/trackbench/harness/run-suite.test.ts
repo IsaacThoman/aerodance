@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_JOBS, orderScenes, parseSuiteArgs, runJobs } from './run-suite.ts';
+import { DEFAULT_JOBS, orderScenes, parseSuiteArgs, runDone, runJobs } from './run-suite.ts';
 import { compareScene, firstDifference, withoutCost, withoutProvenance } from './compare-runs.ts';
 
 test('suite orders longest scenes first without changing the input', () => {
@@ -71,4 +71,19 @@ test('saved-run comparison ignores cost but detects changed poses, clocks, setti
     writeFileSync(path.join(b, 'detections.jsonl'), '{"frame":1,"people":[{"kp":[[9,1,2,1]]}]}\n');
     assert.match(compareScene(a, b)!, /detections.jsonl: line 1, field \$\.people\[0\]\.kp\[0\]\[0\]/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a scene counts as run only with non-empty tracking no older than its render', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'trackbench-suite-'));
+  try {
+    const output = path.join(dir, 'tracked.jsonl'), ready = path.join(dir, 'READY');
+    assert.equal(runDone(output, ready), false, 'no tracking');
+    writeFileSync(output, '');
+    assert.equal(runDone(output, ready), false, 'empty tracking');
+    writeFileSync(output, '{}\n'); writeFileSync(ready, '');
+    utimesSync(output, 1000, 1000); utimesSync(ready, 2000, 2000);
+    assert.equal(runDone(output, ready), false, 'the scene was rendered again since');
+    utimesSync(output, 3000, 3000);
+    assert.equal(runDone(output, ready), true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
