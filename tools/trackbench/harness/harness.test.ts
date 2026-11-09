@@ -6,7 +6,7 @@ import { gaussian, perfectDetections, writeFixtureScene } from './fixtures.ts';
 import type { FixtureOptions } from './fixtures.ts';
 import { accumulateOffsets, finishOffsets, sceneMetrics, trackedMetrics, zeroOffsets } from './metrics.ts';
 import { trackDetections } from './track.ts';
-import { COLUMNS, buildReport, rowOf } from './report.ts';
+import { buildReport, rowOf } from './report.ts';
 import { GameLoop } from './gameloop.ts';
 import { nextFrame } from './run-game.ts';
 
