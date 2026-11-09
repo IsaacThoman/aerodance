@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Runs every estimator over every READY scene, then the tracker and metrics, skipping work
-that's already done. Two lanes run side by side: the game's own worker in Chromium (GPU, one
-at a time) and the Python/native estimators (CPU, --cpu-jobs at a time).
+that's already done. Two lanes run side by side: the game's own worker in Chromium (GPU,
+harness/run-suite.ts: several scenes at once) and the Python/native estimators (CPU, --cpu-jobs
+at a time).
 
   python3 tools/trackbench/matrix.py [--scenes PREFIX...] [--estimators ID...] [--cpu-jobs 2] [--force]
 """
@@ -74,14 +75,13 @@ def finish(est, scene, need_track, force):
     log(f'ok {est} {scene}')
 
 
-def game_lane(jobs, force):
-    for est, scene in jobs:
-        if force or not done(est, scene, 'tracked.jsonl'):
-            logf = DATA / 'runs' / est / scene / 'matrix.log'
-            if not run(['node', 'tools/trackbench/harness/run-game.ts', scene, '--model', GAME[est]], logf):
-                log(f'FAIL run-game {est} {scene}')
-                continue
-        finish(est, scene, False, force)
+def game_lane(estimators, prefixes, force):
+    # Each game estimator over its scenes at once (run-suite.ts: several browsers on the GPU,
+    # results identical to one scene at a time), then its metrics.
+    for est in estimators:
+        logf = DATA / 'logs' / f'matrix-{est}.log'
+        cmd = ['node', 'tools/trackbench/harness/run-suite.ts', '--id', est, *(['--force'] if force else []), *prefixes, '--', '--model', GAME[est]]
+        log(f'{"ok" if run(cmd, logf) else "FAIL"} run-suite {est} (log {logf})')
 
 
 def native_job(est, scene, force):
@@ -102,9 +102,9 @@ def main():
     a = ap.parse_args()
     ss = scenes(a.scenes)
     log(f'{len(ss)} scenes, estimators {a.estimators}')
-    game = [(e, s) for s in ss for e in a.estimators if e in GAME]
+    game = [e for e in a.estimators if e in GAME]
     native = [(e, s) for e in a.estimators if e in NATIVE for s in ss]
-    t = threading.Thread(target=game_lane, args=(game, a.force))
+    t = threading.Thread(target=game_lane, args=(game, a.scenes, a.force))
     t.start()
     with cf.ThreadPoolExecutor(a.cpu_jobs) as ex:
         list(ex.map(lambda j: native_job(*j, a.force), native))

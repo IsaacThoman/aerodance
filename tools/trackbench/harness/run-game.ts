@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Browser, Page } from 'playwright';
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { ASSET_PATH, MEDIAPIPE_VERSION, MODELS } from '../../../packages/pose/browser/models.ts';
 import { evenTiles } from '../../../packages/pose/browser/tiles.ts';
@@ -82,9 +83,31 @@ export function nextFrame(frames: readonly { t: number }[], next: number, freeAt
 const TIMESTAMP_OFFSET_MS = 1000;
 interface WorkerResult { landmarks: NormalizedLandmark[][]; inferenceMs: number; looks?: (number[] | null)[]; searched?: boolean; roundtripMs: number; width: number; height: number; }
 
-async function main() {
-  const { positional: [sceneId], opts } = parseArgs(process.argv.slice(2), { model: 'string', realtime: 'bool', id: 'string', 'busy-scale': 'string', 'no-session': 'bool', 'allow-cpu': 'bool', 'running-mode': 'string', 'strip-width': 'string', 'no-strips': 'bool', 'busy-ms': 'string', 'no-search': 'bool', 'no-zoom': 'bool' });
-  if (!sceneId) { console.error('usage: node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime] [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--no-session] [--allow-cpu] [--running-mode IMAGE]'); process.exit(2); }
+export const RUN_GAME_FLAGS = { model: 'string', realtime: 'bool', id: 'string', 'busy-scale': 'string', 'no-session': 'bool', 'allow-cpu': 'bool', 'running-mode': 'string', 'strip-width': 'string', 'no-strips': 'bool', 'busy-ms': 'string', 'no-search': 'bool', 'no-zoom': 'bool' } as const;
+export type RunOptions = Record<string, string | boolean>;
+type PreparedRun = { snapshot: ReturnType<typeof snapshotDist>; modelFile: string };
+type SceneResources = {
+  browser?: Browser;
+  server?: Awaited<ReturnType<typeof serve>>;
+  /** Shared servers mount all scenes here; a standalone run still uses /frames. */
+  framePrefix?: string;
+  prepared?: PreparedRun;
+  quiet?: boolean;
+};
+
+/** Prepare the immutable worker snapshot and checked model once for a suite. */
+export async function prepareRun(opts: RunOptions): Promise<PreparedRun> {
+  const modelId = String(opts.model ?? 'lite');
+  if (!POSE_MODELS[modelId]) throw Error(`Unknown model ${modelId}`);
+  const snapshot = snapshotDist();
+  const modelFile = modelId === 'lite' ? path.join(snapshot.dir, ASSET_PATH, 'pose_landmarker_lite.task') : await ensureModel(modelId);
+  if (sha256(modelFile) !== POSE_MODELS[modelId].sha256) throw Error(`${modelFile}: wrong SHA-256`);
+  return { snapshot, modelFile };
+}
+
+/** One scene, always with a fresh page and worker; callers retain ownership of shared resources. */
+export async function runScene(sceneId: string, opts: RunOptions = {}, resources: SceneResources = {}): Promise<void> {
+  const log = resources.quiet ? (..._args: unknown[]) => {} : console.log;
   const modelId = String(opts.model ?? 'lite'), realtime = !!opts.realtime, busyScale = Number(opts['busy-scale'] ?? 1);
   // IMAGE (a diagnostic, not what the game does): a fresh detection every frame, no strips.
   const runningMode = String(opts['running-mode'] ?? 'VIDEO');
@@ -93,9 +116,7 @@ async function main() {
   const scene = loadScene(sceneId);
   const files = frameFiles(scene.dir);
   if (!files.length) throw Error(`${sceneId}: no frames`);
-  const snapshot = snapshotDist();
-  const modelFile = modelId === 'lite' ? path.join(snapshot.dir, ASSET_PATH, 'pose_landmarker_lite.task') : await ensureModel(modelId);
-  if (sha256(modelFile) !== POSE_MODELS[modelId].sha256) throw Error(`${modelFile}: wrong SHA-256`);
+  const { snapshot, modelFile } = resources.prepared ?? await prepareRun(opts);
 
   // As WebcamPoseSource.connect: one or two players ask for that many people in the whole
   // picture; three or four get a strip each (and room for one more in the fallback). Looks
@@ -110,14 +131,16 @@ async function main() {
     type: 'initialize', sessionId: 'trackbench', playerCount: players <= 2 ? players : players + 1, looks: players > 1,
     ...(tiles ? { tiles } : {}), ...(players === 2 && !tiles && !opts['no-strips'] && !opts['no-search'] ? { search: true } : {}), ...(players === 1 && !opts['no-strips'] && !opts['no-zoom'] ? { zoom: true } : {}), modelHash: POSE_MODELS[modelId].sha256, ...(runningMode === 'IMAGE' ? { runningMode } : {}),
   };
-  const server = await serve({ '/app': snapshot.dir, '/frames': path.join(scene.dir, 'frames'), '/models': path.dirname(modelFile) });
-  const browser = await launchGpu();
+  let server = resources.server, browser = resources.browser, page: Page | undefined;
+  const framePrefix = resources.framePrefix ?? '/frames';
   const out = runDir(estimator, sceneId);
   try {
-    const page = await browser.newPage();
+    server ??= await serve({ '/app': snapshot.dir, '/frames': path.join(scene.dir, 'frames'), '/models': path.dirname(modelFile) });
+    browser ??= await launchGpu();
+    page = await browser.newPage();
     const logs: string[] = [];
-    page.on('console', m => { logs.push(m.text()); if (m.type() === 'warning' || m.type() === 'error') console.log('page:', m.text()); });
-    page.on('pageerror', e => console.log('page error:', e.message));
+    page.on('console', m => { logs.push(m.text()); if (m.type() === 'warning' || m.type() === 'error') log('page:', m.text()); });
+    page.on('pageerror', e => log('page error:', e.message));
     await page.goto(server.origin);
     const renderer = await page.evaluate(RENDERER_PROBE);
     const ready = await page.evaluate(async ({ worker, init, modelUrl, wasmUrl }) => {
@@ -138,6 +161,9 @@ async function main() {
       const send = (bitmap: ImageBitmap, seq: number, timestampMs: number, players: number) => new Promise<Record<string, unknown>>(resolve => {
         waiting.set(seq, resolve as (r: unknown) => void); w.postMessage({ type: 'frame', bitmap, seq, timestampMs, players }, [bitmap]);
       });
+      const decode = async (url: string) => createImageBitmap(await (await fetch(url)).blob());
+      // Keep at most one decoded frame ahead. A failed prefetch is raised when that frame is used.
+      let prefetched: { url: string; result: Promise<{ bitmap: ImageBitmap; error?: never } | { error: unknown; bitmap?: never }> } | null = null;
       (globalThis as unknown as Record<string, unknown>).tb = {
         /** Warms the model up on a frame, then shows it nothing so it starts the scene following nobody. */
         async warm(url: string) {
@@ -148,18 +174,24 @@ async function main() {
           for (let i = 0; i < 4; i++) await send(await grey(width, height), -2 - i, 100 * (i + 1), 0);
           return performance.now() - start;
         },
-        async frame(url: string, seq: number, timestampMs: number, players: number) {
-          const bitmap = await createImageBitmap(await (await fetch(url)).blob());
+        async frame(url: string, seq: number, timestampMs: number, players: number, nextUrl?: string) {
+          const pending = prefetched;
+          prefetched = null;
+          const decoded = pending?.url === url ? await pending.result : { bitmap: await decode(url) };
+          if (decoded.error) throw decoded.error;
+          const bitmap = decoded.bitmap!;
           const { width, height } = bitmap;
           const start = performance.now();
-          const result = await send(bitmap, seq, timestampMs, players);
+          const resultPromise = send(bitmap, seq, timestampMs, players);
+          if (nextUrl) prefetched = { url: nextUrl, result: decode(nextUrl).then(bitmap => ({ bitmap }), error => ({ error })) };
+          const result = await resultPromise;
           if (result.error) throw Error(String(result.error));
           return { landmarks: result.landmarks, inferenceMs: result.inferenceMs, looks: result.looks, searched: result.searched, roundtripMs: performance.now() - start, width, height };
         },
       };
       return new Promise((resolve, reject) => { onReady = resolve; onError = reject; w.postMessage({ ...init, modelUrl, wasmUrl }); });
     }, { worker: `/app/assets/${snapshot.worker}`, init, modelUrl: `${server.origin}/models/${path.basename(modelFile)}`, wasmUrl: `${server.origin}/app/${ASSET_PATH}/wasm` }) as { delegate: string; fallback: string; tiled?: boolean };
-    console.log(`${estimator}/${sceneId}: renderer ${renderer}; delegate ${ready.delegate}${ready.fallback ? ` (${ready.fallback})` : ''}${tiles ? `; strips ${ready.tiled}` : ''}`);
+    log(`${estimator}/${sceneId}: renderer ${renderer}; delegate ${ready.delegate}${ready.fallback ? ` (${ready.fallback})` : ''}${tiles ? `; strips ${ready.tiled}` : ''}`);
     if (/swiftshader|llvmpipe|software/i.test(renderer) || ready.delegate !== 'GPU') {
       if (!opts['allow-cpu']) throw Error(`Not on the GPU (renderer ${renderer}, delegate ${ready.delegate}); --allow-cpu to run anyway`);
     }
@@ -167,7 +199,7 @@ async function main() {
 
     // (The first results compile the GPU programs, hundreds of ms the game spends before anybody
     // steps in; VIDEO timestamps are the frames' t_ms after the warm-up's.)
-    const warmupMs = await page.evaluate(url => (globalThis as unknown as { tb: { warm: (u: string) => Promise<number> } }).tb.warm(url), `/frames/${files[0]}`);
+    const warmupMs = await page.evaluate(url => (globalThis as unknown as { tb: { warm: (u: string) => Promise<number> } }).tb.warm(url), `${framePrefix}/${files[0]}`);
     const frames = files.map(name => { const n = Number(name.slice(0, -4)); return { n, name, t: scene.byFrame.get(n)?.t_ms ?? (n - 1) * 1000 / scene.fps }; });
     const loop = new GameLoop(players, { width: scene.width, height: scene.height }, { session: !opts['no-session'], danceStartMs: danceWindow(scene)?.[0] ?? Infinity });
     const detections: DetFrame[] = [], tracked: TrackedFrame[] = [];
@@ -180,8 +212,8 @@ async function main() {
       const { k, sentAt, skipped } = realtime ? nextFrame(frames, next, freeAt) : { k: next, sentAt: frames[next].t, skipped: 0 };
       cameraDropped += skipped;
       const f = frames[k];
-      const r = await page.evaluate(({ url, seq, t, players }) => (globalThis as unknown as { tb: { frame: (...a: unknown[]) => Promise<unknown> } }).tb.frame(url, seq, t, players),
-        { url: `/frames/${f.name}`, seq: ++seq, t: f.t + TIMESTAMP_OFFSET_MS, players: loop.players }) as WorkerResult;
+      const r = await page.evaluate(({ url, seq, t, players, nextUrl }) => (globalThis as unknown as { tb: { frame: (...a: unknown[]) => Promise<unknown> } }).tb.frame(url, seq, t, players, nextUrl),
+        { url: `${framePrefix}/${f.name}`, seq: ++seq, t: f.t + TIMESTAMP_OFFSET_MS, players: loop.players, nextUrl: !realtime && k + 1 < frames.length ? `${framePrefix}/${frames[k + 1].name}` : undefined }) as WorkerResult;
       if (r.width !== scene.width || r.height !== scene.height) throw Error(`Frame ${f.name} is ${r.width}x${r.height}, expected ${scene.width}x${scene.height}`);
       // --busy-ms: a fixed time per result (a slower device), instead of the measured one scaled.
       const busy = opts['busy-ms'] ? Number(opts['busy-ms']) : r.roundtripMs * busyScale;
@@ -196,7 +228,7 @@ async function main() {
       } as DetFrame);
       tracked.push(record);
       next = k + 1;
-      if (detections.length % 100 === 0) console.log(`  ${detections.length} results, frame ${f.n}/${frames.length} (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+      if (detections.length % 100 === 0) log(`  ${detections.length} results, frame ${f.n}/${frames.length} (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
     }
     writeJsonl(path.join(out, 'detections.jsonl'), detections);
     writeJsonl(path.join(out, 'tracked.jsonl'), tracked);
@@ -212,11 +244,20 @@ async function main() {
       inference_ms_mean: Number((inf.reduce((a, b) => a + b, 0) / inf.length).toFixed(2)),
       wall_s: (Date.now() - t0) / 1000, at: new Date().toISOString(),
     });
-    console.log(`${estimator}/${sceneId}: ${detections.length} results (${cameraDropped} camera frames dropped, ${tracked.filter(t => t.dropped).length} results too old) in ${((Date.now() - t0) / 1000).toFixed(0)} s, inference ${(inf.reduce((a, b) => a + b, 0) / inf.length).toFixed(1)} ms`);
+    log(`${estimator}/${sceneId}: ${detections.length} results (${cameraDropped} camera frames dropped, ${tracked.filter(t => t.dropped).length} results too old) in ${((Date.now() - t0) / 1000).toFixed(0)} s, inference ${(inf.reduce((a, b) => a + b, 0) / inf.length).toFixed(1)} ms`);
   } finally {
-    await browser.close();
-    await server.close();
+    try { await page?.close(); }
+    finally {
+      try { if (!resources.browser) await browser?.close(); }
+      finally { if (!resources.server) await server?.close(); }
+    }
   }
+}
+
+async function main() {
+  const { positional: [sceneId], opts } = parseArgs(process.argv.slice(2), RUN_GAME_FLAGS);
+  if (!sceneId) { console.error('usage: node tools/trackbench/harness/run-game.ts <scene-id> [--model lite|full|heavy] [--realtime] [--id <estimator-id>] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--no-session] [--allow-cpu] [--running-mode IMAGE]'); process.exit(2); }
+  await runScene(sceneId, opts);
 }
 
 if (import.meta.main) await main();
