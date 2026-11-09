@@ -113,17 +113,20 @@ test('the swinging blade reaches for the ball it will meet, and a still one does
   assert.equal(interceptNudge(ball(v3(0.6, 1, 0.9), v3(0, 0.5, 5)), v3(0, 1, 1.4), swing, swing, 1, ASSIST.normal), null, 'not for a ball passing outside the zone');
 });
 
-test('the waiting ball is served by a firm swing through it, down the table', () => {
+test('the waiting ball is served by a firm swing that goes past it, down the table', () => {
   const waiting = v3(0.3, 1.12, 1.27);
   const swing = v3(-0.8, 0.4, -2.4);
-  // The blade passing 10 cm from it, at its nearest.
-  const vel = serveHit(waiting, v3(0.36, 1.08, 1.33), v3(0.1, 0, -0.1), swing, ASSIST.normal);
+  // The blade 10 cm from it, having passed it.
+  const vel = serveHit(waiting, v3(0.26, 1.14, 1.2), swing, ASSIST.normal);
   assert.ok(vel && vel.z <= -2.5, 'served down the table');
   assert.ok(landsFar(waiting, assistReturn(waiting, vel, 1)), 'and it lands');
-  assert.equal(serveHit(waiting, v3(0.36, 1.08, 1.33), still, v3(0, 0, -0.9), ASSIST.normal), null, 'a gentle move is no serve');
-  assert.equal(serveHit(waiting, v3(0.36, 1.08, 1.33), still, still, ASSIST.normal), null, 'nor a paddle resting by it');
-  assert.equal(serveHit(waiting, v3(-0.3, 1.08, 1.33), still, swing, ASSIST.normal), null, 'nor a swing nowhere near it');
-  // Still on its way to the ball: wait for its nearest.
-  assert.equal(serveHit(waiting, v3(0.3, 1.1, 1.6), swing, swing, ASSIST.normal), null);
-  assert.ok(serveHit(waiting, v3(0.32, 1.1, 1.24), swing, swing, ASSIST.off), 'the serve works with the assist off, close to');
+  assert.equal(serveHit(waiting, v3(0.26, 1.14, 1.2), v3(0, 0, -0.9), ASSIST.normal), null, 'a gentle move is no serve');
+  assert.equal(serveHit(waiting, v3(0.26, 1.14, 1.2), still, ASSIST.normal), null, 'nor a paddle resting by it');
+  assert.equal(serveHit(waiting, v3(-0.3, 1.14, 1.2), swing, ASSIST.normal), null, 'nor a swing nowhere near it');
+  // Still on its way to the ball, or stopped short of it (a paddle raised to get ready): no serve.
+  assert.equal(serveHit(waiting, v3(0.3, 1.1, 1.6), swing, ASSIST.normal), null);
+  assert.equal(serveHit(waiting, v3(0.25, 1.24, 1.37), v3(0.2, 0.8, -1.8), ASSIST.normal), null, 'brought up behind it');
+  // Right on it counts, passed or not.
+  assert.ok(serveHit(waiting, v3(0.31, 1.11, 1.3), swing, ASSIST.normal));
+  assert.ok(serveHit(waiting, v3(0.28, 1.13, 1.22), swing, ASSIST.off), 'the serve works with the assist off, close to');
 });

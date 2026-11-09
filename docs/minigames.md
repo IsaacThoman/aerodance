@@ -468,7 +468,7 @@ results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
 preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything` for
 Table Tennis), and the game's own `mg*` keys; a round's settings are
-`eval "minigame.options"`. Table Tennis reports `mgRally`, `mgBest`, `mgHits` and, with two,
+`eval "minigame.options"`. Table Tennis reports `mgRally`, `mgBest`, `mgHits`, `mgAssist` and, with two,
 `mgServer`, `mgHits1` and `mgHits2`; in development its O and P keys put a stand-in
 (`table-tennis/autoplay.ts`) in for the first and last player, which plays through the real
 paddle and aim assist (`mgAutoplay` says who), so a two-player rally can run with puppets standing

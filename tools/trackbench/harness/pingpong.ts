@@ -12,7 +12,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_FOV, SURELY_BACK, flatWorld, upperArmForward } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
-import { SERVE_SWING, SWING, strongestSwing } from '../../../apps/web/src/minigames/table-tennis/assist.ts';
+import { SERVE_SWING, SWING, swingOf } from '../../../apps/web/src/minigames/table-tennis/assist.ts';
 import { BLADE_UP, MITT, RAISED, REACH, borneOut, followHands, intake, newHandIntake, newRig, readHands } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
 import type { FoundHand } from '../../../apps/web/src/minigames/table-tennis/rig.ts';
 import type { HandPose, PicturePoint, Side, Vec3, WorldPoint } from '../../../apps/web/src/minigames/table-tennis/arms.ts';
@@ -304,7 +304,7 @@ export const SWING_TOLERANCE_MS = 300;
 /**
  * The game's swings from one paddle hand's poses (each at the time the game gets it, ms): the
  * hand eased onto them at the screen's rate (rig.ts followHands), the blade's velocities, and
- * round.ts's rule (assist.ts strongestSwing, borne out by the latest pose: rig.ts borneOut), per
+ * round.ts's rule (assist.ts swingOf, borne out by the pose after it: rig.ts borneOut), per
  * screen frame: whether a swing is on, and a serve's (SERVE_SWING) too, and the blade's centre (the room's frame).
  */
 export function gameSwings(side: Side, poses: readonly { t: number; pose: HandPose }[]): { times: number[]; swing: boolean[]; serve: boolean[]; blade: Vec3[] } {
@@ -324,10 +324,13 @@ export function gameSwings(side: Side, poses: readonly { t: number; pose: HandPo
     if (prev && live) speeds.push({ t: now / 1000, vel: scale(sub(at, prev), 1 / dt) });
     prev = at;
     while (speeds.length && now / 1000 - speeds[0].t > 0.5) speeds.shift();
-    const swung = live ? strongestSwing(speeds, now / 1000) : { x: 0, y: 0, z: 0 };
-    const on = norm(swung) > 0 && borneOut(rig, side, swung, SWING.sprung, now);
-    out.times.push(now); out.swing.push(on); out.blade.push(at);
-    out.serve.push(on && norm(strongestSwing(speeds, now / 1000, SERVE_SWING.travel)) >= SERVE_SWING.minSpeed);
+    const borne = (travel?: number) => {
+      const swung = live ? swingOf(speeds, now / 1000, travel) : null;
+      return swung && borneOut(rig, side, swung.vel, now / 1000 - swung.t, SWING.sprung, now) ? swung.vel : null;
+    };
+    const serve = borne(SERVE_SWING.travel);
+    out.times.push(now); out.swing.push(!!borne()); out.blade.push(at);
+    out.serve.push(!!serve && norm(serve) >= SERVE_SWING.minSpeed);
   }
   return out;
 }

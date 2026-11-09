@@ -43,11 +43,12 @@ export const ASSIST: Record<AssistLevel, Assist> = {
  */
 export const SWING = { minSpeed: 1, recent: 0.3, travel: 0.12, touch: 0.25, sprung: 0.06 } as const;
 /**
- * A serve's swing is a firmer and longer one (m/s, and metres of travel): the ball waits for it,
- * so there's time for a real stroke, and neither a hand settling by the ball nor the tracker's
- * jitter (worst in depth, with the arm hanging down) serves it.
+ * A serve's swing is a firmer and longer one (m/s, and metres of travel), and has to carry the
+ * blade `past` the ball (metres, along the swing): the ball waits for it, so there's time for a
+ * real stroke, and neither a hand settling by the ball, a paddle raised to get ready, nor the
+ * tracker's jitter (worst in depth, with the arm hanging down) serves it.
  */
-export const SERVE_SWING = { minSpeed: 1.3, travel: 0.25 } as const;
+export const SERVE_SWING = { minSpeed: 1.3, travel: 0.25, past: 0.02 } as const;
 
 const GRAVITY = 9.81;
 /** The contact assist starts this long (in the player's seconds) before the ball reaches the blade, in full by the nearer. */
@@ -127,17 +128,18 @@ export function interceptNudge(ball: Ball, center: V3, paddleVel: V3, swing: V3,
 
 /**
  * The strongest recent swing (from the blade's speeds, newest last, each with its time in the
- * player's seconds), or none: the fastest speed of the last `recent` seconds that's part of a
- * move of `travel` metres or more (SWING's, unless given) the same way round it (speeds either
- * side of it that go its way, without a break), and isn't a pull back to wind up.
+ * player's seconds) and when it was at its fastest, or null: the fastest speed of the last
+ * `recent` seconds that's part of a move of `travel` metres or more (SWING's, unless given) the
+ * same way round it (speeds either side of it that go its way, without a break), and isn't a pull
+ * back to wind up.
  */
-export function strongestSwing(speeds: readonly { t: number; vel: V3 }[], now: number, travel: number = SWING.travel): V3 {
+export function swingOf(speeds: readonly { t: number; vel: V3 }[], now: number, travel: number = SWING.travel): { vel: V3; t: number } | null {
   let best = v3(), bestAt = -1;
   speeds.forEach((s, i) => {
     if (now - s.t > SWING.recent || s.vel.z > 0.2 * len(s.vel)) return;
     if (len(s.vel) > len(best)) { best = s.vel; bestAt = i; }
   });
-  if (bestAt < 0 || len(best) < SWING.minSpeed) return v3();
+  if (bestAt < 0 || len(best) < SWING.minSpeed) return null;
   // How far the blade went that way, either side of its fastest.
   const way = norm(best);
   let went = 0;
@@ -148,8 +150,10 @@ export function strongestSwing(speeds: readonly { t: number; vel: V3 }[], now: n
       went += along * (speeds[i].t - speeds[i - 1].t);
     }
   }
-  return went >= travel ? best : v3();
+  return went >= travel ? { vel: best, t: speeds[bestAt].t } : null;
 }
+/** swingOf's swing (its velocity at its fastest), or none. */
+export const strongestSwing = (speeds: readonly { t: number; vel: V3 }[], now: number, travel: number = SWING.travel): V3 => swingOf(speeds, now, travel)?.vel ?? v3();
 
 /** The ball's velocity off a swing: a face square to the swing and tipped down the table, moving as the swing does. */
 function offSwing(ball: Ball, swing: V3): V3 {
@@ -176,18 +180,20 @@ export function swingHit(ball: Ball, center: V3, paddleVel: V3, swing: V3, timeS
 }
 
 /**
- * The waiting ball's velocity off a serve: a firm swing (`swing`: strongestSwing with SERVE_SWING's
- * travel) passing it within the zone
- * (the level's, or Low's with the assist off: a serve has to start somehow), hit as the blade
- * comes nearest. Null while there's no such swing.
+ * The waiting ball's velocity off a serve, or null while there's none: a firm swing (`swing`:
+ * strongestSwing with SERVE_SWING's travel) that has gone past the ball within the zone (the
+ * level's, or Low's with the assist off: a serve has to start somehow), or is right on it. A
+ * paddle brought up to the ball and stopped short of it, as a player getting ready does, hasn't
+ * passed it and serves nothing.
  */
-export function serveHit(ball: V3, center: V3, paddleVel: V3, swing: V3, zone: Assist): V3 | null {
+export function serveHit(ball: V3, center: V3, swing: V3, zone: Assist): V3 | null {
   const reach = zone.across > 0 ? zone : ASSIST.low;
   if (len(swing) < SERVE_SWING.minSpeed) return null;
   const off = sub(ball, center);
   const share = zoneShare(off, reach);
   if (share > 1) return null;
-  if (dot(inZone(off, reach), inZone(paddleVel, reach)) > 0 && share > SWING.touch) return null;
+  // How far ahead of the blade the ball still is, along the swing.
+  if (dot(off, norm(swing)) > -SERVE_SWING.past && share > SWING.touch) return null;
   const vel = offSwing({ pos: ball, vel: v3(), cooldown: 0 }, swing);
   // Down the table, whatever the swing: at least a gentle serve's pace.
   return v3(vel.x, vel.y, Math.min(vel.z, -2.5));

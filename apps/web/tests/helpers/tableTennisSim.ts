@@ -125,6 +125,8 @@ export class Person {
   private blade: V3;
   private nextFlail = 0;
   private serveAt: number | null = null;
+  /** Bringing the paddle up to the waiting ball, before serving it. */
+  private ready: { at: V3; from: V3; t: number; over: number } | null = null;
   /** Their free hand is up (alone: asking the robot to serve). */
   raised = false;
   private raiseAt: number | null = null;
@@ -142,15 +144,20 @@ export class Person {
     this.stroke = { at: add(at, off), t: t + random.normal() * skill.timing, start: { ...this.blade }, startT: now };
   }
 
-  /** The blade's real place at `now` for a stroke: to its backswing by the time the swing starts, through the ball, and on. */
+  /**
+   * The blade's real place at `now` for a stroke: to its backswing by the time the swing starts,
+   * then through the ball and on in an arc that speeds up into the ball and slows after it (its
+   * fastest at the ball), a little across the body and upwards as a forehand goes.
+   */
   private along(stroke: Stroke, now: number): V3 {
     const { swing } = this.skill;
-    const back = add(stroke.at, v3(0.04 * sign(this.hand), -0.03, 0.28));
-    const through = add(stroke.at, v3(-0.04 * sign(this.hand), 0.04, -0.28));
+    const out = sign(this.hand);
+    const back = add(stroke.at, v3(0.1 * out, -0.06, 0.26));
+    const through = add(stroke.at, v3(-0.12 * out, 0.1, -0.24));
     const u = (now - (stroke.t - swing)) / swing;
     if (u <= 0) return mix(stroke.start, back, smooth((now - stroke.startT) / Math.max(0.08, stroke.t - swing - stroke.startT)));
-    // Through the ball at u = 1, at a steady speed, and on to u = 2.
-    return u <= 2 ? mix(back, through, u / 2) : through;
+    // At the ball at u = 1, where it's fastest; done at u = 2.
+    return u <= 2 ? mix(back, through, smooth(u / 2)) : through;
   }
 
   /**
@@ -178,13 +185,15 @@ export class Person {
         }
       }
     } else if (seen.serve) {
-      // Their serve: after a moment, a swing through the waiting ball.
+      // Their serve: they bring the paddle up behind the waiting ball (getting ready isn't
+      // serving), and after a moment swing through it.
       if (this.serveAt === null || seen.serve.since > this.serveAt + 1.2) {
-        this.serveAt = seen.serve.since + 0.5 + random.rand() * 0.5;
-        this.begin(seen.serve.ball, now + (this.serveAt - seen.serve.since) + skill.swing + 0.2, now);
+        this.serveAt = seen.serve.since + 0.6 + random.rand() * 0.5;
+        this.ready = { at: add(seen.serve.ball, v3(0.03 * sign(this.hand), 0.02 + random.rand() * 0.08, 0.12 + random.rand() * 0.06)), from: { ...this.blade }, t: now, over: 0.2 + random.rand() * 0.2 };
       }
+      if (this.ready && !this.stroke && seen.serve.since >= this.serveAt - 0.05) { this.ready = null; this.begin(seen.serve.ball, now + skill.swing + 0.15, now); }
     } else {
-      this.serveAt = null;
+      this.serveAt = null; this.ready = null;
       const coming = seen.ball && arrival(seen.ball);
       // A ball coming that they haven't made their mind up about: they go for it (or let it by),
       // if there's time to.
@@ -195,8 +204,10 @@ export class Person {
     }
     if (this.stroke) {
       this.blade = this.along(this.stroke, now);
-      // Over: back to ready.
-      if (now > this.stroke.t + skill.swing * 1.6) { this.stroke = null; }
+      // Over: back to ready, quickly.
+      if (now > this.stroke.t + skill.swing * 1.3) { this.stroke = null; }
+    } else if (this.ready) {
+      this.blade = mix(this.ready.from, this.ready.at, smooth((now - this.ready.t) / this.ready.over));
     } else {
       this.blade = mix(this.blade, this.home(), 0.12);
     }

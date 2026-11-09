@@ -421,7 +421,8 @@ function PlayBall({ ctx, round, hud, scene, robot }: { ctx: MinigameContext; rou
     st.drawnOff = round.flying ? { x: st.drawnOff.x * ease, y: st.drawnOff.y * ease, z: st.drawnOff.z * ease } : { x: 0, y: 0, z: 0 };
     const at = new THREE.Vector3(b.pos.x + st.drawnOff.x, b.pos.y + st.drawnOff.y, b.pos.z + st.drawnOff.z + TABLE_Z);
     // Waiting to be served (with two), it pops into place, and a halo breathes round it once it can be.
-    const waited = two && round.holding() ? (round.time - round.heldSince) / play.timeScale : null;
+    // (Not while the round's clock is stopped, in the countdown or a pause: it's simply there.)
+    const waited = two && round.holding() ? (playing ? (round.time - round.heldSince) / play.timeScale : WAIT.pop) : null;
     const mesh = ballMesh.current, halo = haloMesh.current;
     if (mesh) {
       mesh.position.copy(at);
@@ -459,7 +460,7 @@ function PlayBall({ ctx, round, hud, scene, robot }: { ctx: MinigameContext; rou
     const rally = two ? round.duel.count : round.rally, best = two ? Math.max(round.duel.best, round.duel.count) : round.best;
     Object.assign(hud, { flying: round.flying, returns: round.returns, rally, best, server: round.server(), holding: round.holding() });
     ctx.report({
-      ball: round.flying ? 'flying' : 'ready', hits: round.hits, returns: round.returns, rally, best,
+      ball: round.flying ? 'flying' : 'ready', hits: round.hits, returns: round.returns, rally, best, assist: play.assist,
       ...(two ? { server: round.server() + 1, hits1: round.hitsBy[0], hits2: round.hitsBy[1] } : {}),
       autoplay: rigs.filter((rig) => rig.autoplay).map((rig) => rig.end + 1).join(',') || null,
     });
