@@ -1,6 +1,7 @@
 # Independent GT checks: re-projects kp3d with meta's camera (and the documented lens/rolling
 # shutter), compares bboxes with masks, counts vis codes against mask labels and draws overlays.
-# python3 check_gt.py [scene ...]   (default: the audit's original scene list)
+# python3 check_gt.py [scene ...]   (default: the audit's original scene list -> audit/gt-checks.json;
+# named scenes -> audit/gt-checks-<first>[-etc].json; overlays audit/<scene>-gt.png)
 # Table-tennis scenes (hand-21 and paddle GT) also get: hand points re-projected, hand vis codes
 # against mask labels (vis 0 should land on the person, the paddle is mask 0), paddle centre
 # within reach of its hand's middle knuckle, unit normals, and the hand points drawn.
@@ -69,4 +70,5 @@ for sid in scenes:
  results[sid]={'frames_gt':len(rows),'frames_jpg':len(files),'meta_fps':m['fps'],'projection_max_px':max(err),'projection_mean_px':float(np.mean(err)),'time_max_ms':max(tm),'bbox_max_px':max(bboxerr,default=0),'vis_rows_own_other_bg':counts.tolist(),'jpg_without_gt':len(files-{g['frame'] for g in rows}),'first_jpg_frames':sorted(files)[:5]}
  if nhand: results[sid].update({'hand_projection_max_px':max(herr),'hand_projection_mean_px':float(np.mean(herr)),'hand_vis_rows_own_other_bg':hcounts.tolist(),
                                 'paddle_to_middle_knuckle_m':[round(min(pad_d),3),round(max(pad_d),3)] if pad_d else None,'paddle_normal_unit_err_max':max(pad_n) if pad_n else None})
-(O/'gt-checks.json').write_text(json.dumps(results,indent=2)); print(json.dumps(results,indent=2))
+# The audit's own run (no arguments) keeps its file; a run on named scenes writes beside it.
+(O/('gt-checks.json' if not sys.argv[1:] else f'gt-checks-{sys.argv[1]}{"-etc" if len(sys.argv)>2 else ""}.json')).write_text(json.dumps(results,indent=2)); print(json.dumps(results,indent=2))
