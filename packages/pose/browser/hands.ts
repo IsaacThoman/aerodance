@@ -26,10 +26,9 @@ export const MAX_HAND_PEOPLE = 2;
 export const TRACKED_HANDS = 2;
 
 /**
- * Tracking slower than this many poses a second for this long with the hand model on drops it,
- * the world landmarks carrying on: a paired phone does (PhoneLink), and a webcam looking for two
- * people's hands (WebcamPoseSource; one person's never drop there). Measured over the last two
- * seconds, so a dip while the model loads has passed by then.
+ * A paired phone tracking slower than this many poses a second for this long with the hand model
+ * on drops it, the world landmarks carrying on (PhoneLink). A webcam never drops them, with one
+ * person or two (WebcamPoseSource.dropHands).
  */
 export const HANDS_MIN_HZ = 15;
 export const HANDS_SLOW_MS = 4000;

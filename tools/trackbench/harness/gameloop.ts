@@ -5,7 +5,6 @@
 import { PlayerTracker } from '../../../packages/pose/browser/tracker.ts';
 import type { DetectionExtras } from '../../../packages/pose/browser/tracker.ts';
 import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
-import { HANDS_MIN_HZ, HANDS_SLOW_MS } from '../../../packages/pose/browser/hands.ts';
 import { handsWanted } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { LivePose, PoseDetail, TrackedHand } from '../../../packages/pose/webcamRecord.ts';
@@ -66,12 +65,6 @@ export class GameLoop {
   calibrated = false;
   pendingReset = false;
   readonly detail: PoseDetail | null;
-  /** WebcamPoseSource.watchHands: dropped two people's hands for tracking too slowly (at this arrival time), and since when it's been too slow. */
-  handsDropped = false;
-  handsDroppedAt: number | null = null;
-  handsSlowSince: number | null = null;
-  /** Arrival times of the last two seconds' results (the dropped ones too), for the pose rate. */
-  resultTimes: number[] = [];
   constructor(playerCount: number, input: { width: number; height: number }, { session = true, danceStartMs = Infinity, detail = null }: GameLoopOptions = {}) {
     this.playerCount = playerCount as PlayerCount;
     this.input = input;
@@ -97,30 +90,8 @@ export class GameLoop {
     }
   }
 
-  /**
-   * One worker result: captureMs is the frame's browser time (when the camera delivered it),
-   * receivedMs when its result arrived. Returns the record, or a dropped one when it came too late.
-   */
-  /** Whether the hand model is running for the game (WebcamPoseSource.handsWanted). */
-  get handsWanted() { return handsWanted(this.detail, this.playerCount, this.handsDropped); }
-
-  /**
-   * WebcamPoseSource.watchHands at a result's arrival: tracking two people's hands slower than
-   * HANDS_MIN_HZ for HANDS_SLOW_MS drops them (the caller tells the worker). The rate counts
-   * every result of the last two seconds, the too-old ones too.
-   */
-  watchHands(receivedMs: number) {
-    this.resultTimes.push(receivedMs);
-    this.resultTimes = this.resultTimes.filter(t => receivedMs - t <= 2000);
-    const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedMs - this.resultTimes[0]) : 0;
-    const slow = this.handsWanted && this.playerCount > 1 && this.resultTimes.length > 1 && poseHz < HANDS_MIN_HZ;
-    if (!slow) { this.handsSlowSince = null; return; }
-    this.handsSlowSince ??= receivedMs;
-    if (receivedMs - this.handsSlowSince < HANDS_SLOW_MS) return;
-    this.handsSlowSince = null;
-    this.handsDropped = true;
-    this.handsDroppedAt = receivedMs;
-  }
+  /** Whether the hand model is running for the game (WebcamPoseSource.handsWanted): a webcam never drops it for being slow. */
+  get handsWanted() { return handsWanted(this.detail, this.playerCount); }
 
   /**
    * One worker result: captureMs is the frame's browser time (when the camera delivered it),
@@ -130,7 +101,6 @@ export class GameLoop {
   result(frame: number, detections: readonly DetectedLandmark[][], looks: readonly (readonly number[] | null)[] | undefined, captureMs: number, receivedMs: number,
     extras?: DetectionExtras): TrackedFrame {
     this.tick(receivedMs);
-    if (this.detail) this.watchHands(receivedMs);
     const reset = this.pendingReset;
     this.pendingReset = false;
     if (receivedMs - captureMs >= MAX_FRAME_AGE_MS) return { frame, t_ms: captureMs, received_ms: receivedMs, poses: [], lined: this.tracker.lined, dropped: true, ...(reset ? { reset } : {}) };
