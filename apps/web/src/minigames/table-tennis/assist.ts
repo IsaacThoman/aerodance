@@ -131,24 +131,24 @@ export function interceptNudge(ball: Ball, center: V3, paddleVel: V3, swing: V3,
 /**
  * The strongest recent swing (from the blade's speeds, newest last, each with its time in the
  * player's seconds) and when it was at its fastest, or null: the fastest speed of the last
- * `recent` seconds that's part of a move of `travel` metres or more (SWING's, unless given) the
+ * `recent` seconds, if `minSpeed` or more, that's part of a move of `travel` metres or more (SWING's, unless given) the
  * same way round it (speeds either side of it that go its way, without a break), and isn't a pull
  * back to wind up.
  */
-export function swingOf(speeds: readonly { t: number; vel: V3 }[], now: number, travel: number = SWING.travel): { vel: V3; t: number } | null {
+export function swingOf(speeds: readonly { t: number; vel: V3 }[], now: number, travel: number = SWING.travel, minSpeed: number = SWING.minSpeed): { vel: V3; t: number } | null {
   let best = v3(), bestAt = -1;
   speeds.forEach((s, i) => {
     if (now - s.t > SWING.recent || s.vel.z > 0.2 * len(s.vel)) return;
     if (len(s.vel) > len(best)) { best = s.vel; bestAt = i; }
   });
-  if (bestAt < 0 || len(best) < SWING.minSpeed) return null;
+  if (bestAt < 0 || len(best) < minSpeed) return null;
   // How far the blade went that way, either side of its fastest.
   const way = norm(best);
   let went = 0;
   for (const step of [-1, 1]) {
     for (let i = bestAt + (step > 0 ? 1 : 0); i > 0 && i < speeds.length; i += step) {
       const along = dot(speeds[i].vel, way);
-      if (along < 0.3 * SWING.minSpeed) break;
+      if (along < 0.3 * minSpeed) break;
       went += along * (speeds[i].t - speeds[i - 1].t);
     }
   }

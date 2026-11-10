@@ -335,6 +335,69 @@ export function gameSwings(side: Side, poses: readonly { t: number; pose: HandPo
   return out;
 }
 
+/**
+ * The swings (and serves) a hand really made, by the same rule (assist.ts swingOf) on its blade
+ * exactly where it was each screen frame (linear between poses, `gt`'s), without the game's
+ * filtering, easing or drawing: a truth for gameSwings that doesn't move when the drawing does.
+ */
+/** The rule exactSwings holds the GT to: SWING's and SERVE_SWING's as they were when it was written, so tuning those doesn't move the truth. */
+export const TRUE_SWING = { swing: { minSpeed: 1, travel: 0.12 }, serve: { minSpeed: 1.3, travel: 0.25 } } as const;
+export function exactSwings(poses: readonly { t: number; pose: HandPose }[]): ReturnType<typeof gameSwings> {
+  const out = { times: [] as number[], swing: [] as boolean[], serve: [] as boolean[], blade: [] as Vec3[] };
+  if (!poses.length) return out;
+  const times = poses.map(p => p.t), blades = poses.map(p => bladeOf(p.pose.wrist, p.pose.dir));
+  const speeds: { t: number; vel: Vec3 }[] = [];
+  let prev: Vec3 | null = null;
+  const dt = 1 / SCREEN_HZ;
+  for (let now = times[0]; now <= times[times.length - 1]; now += 1000 * dt) {
+    const at = sampleAt(times, blades, now);
+    if (prev && at) speeds.push({ t: now / 1000, vel: scale(sub(at, prev), 1 / dt) });
+    prev = at;
+    while (speeds.length && now / 1000 - speeds[0].t > 0.5) speeds.shift();
+    const swing = at ? swingOf(speeds, now / 1000, TRUE_SWING.swing.travel, TRUE_SWING.swing.minSpeed) : null, serve = at ? swingOf(speeds, now / 1000, TRUE_SWING.serve.travel, TRUE_SWING.swing.minSpeed) : null;
+    out.times.push(now); out.swing.push(!!swing); out.serve.push(!!serve && norm(serve.vel) >= TRUE_SWING.serve.minSpeed); out.blade.push(at ?? { x: 0, y: 0, z: 0 });
+  }
+  return out;
+}
+
+/** A stroke's excursion is measured from this long (ms) before the GT blade's fastest moment, to the furthest it gets along the stroke within OVERSHOOT.after of it. */
+export const OVERSHOOT = { before: 150, after: 350 } as const;
+
+/**
+ * How much further along each stroke the paddle as drawn goes than the tracker's own poses did:
+ * at each peak of the GT blade's speed (MOTION.peak, its direction there the stroke's), the
+ * furthest the drawn blade gets that way within OVERSHOOT.after (its own lag, `lagMs`, later),
+ * from where it was OVERSHOOT.before earlier, less the same for the raw tracked blade (and for the
+ * GT's). Positive: the drawing carries the paddle past where the tracker saw it stop (a predictor
+ * overshooting); negative: it rounds the stroke off. In the points' units.
+ */
+export function strokeOvershoot(gt: { times: readonly number[]; points: readonly Vec3[] }, raw: { times: readonly number[]; points: readonly Vec3[] }, drawn: { times: readonly number[]; points: readonly Vec3[] }, lagMs: number): { vsRaw: number[]; vsGt: number[] } {
+  const out = { vsRaw: [] as number[], vsGt: [] as number[] };
+  const v = speeds(gt.times, gt.points);
+  const state = motionStates(gt.times, v);
+  const excursion = (p: { times: readonly number[]; points: readonly Vec3[] }, from: number, u: Vec3, shift: number) => {
+    const ref = sampleAt(p.times, p.points, from - OVERSHOOT.before + shift, 200);
+    if (!ref) return null;
+    let best = -Infinity;
+    for (let i = 0; i < p.times.length; i++) {
+      const t = p.times[i] - shift;
+      if (t < from || t > from + OVERSHOOT.after) continue;
+      best = Math.max(best, dot(sub(p.points[i], ref), u));
+    }
+    return Number.isFinite(best) ? best : null;
+  };
+  state.forEach((s, i) => {
+    if (s !== 'peak' || i === 0 || i + 1 >= gt.points.length) return;
+    const u = unit(sub(gt.points[i + 1], gt.points[i - 1]));
+    if (!u) return;
+    const t = gt.times[i];
+    const g = excursion(gt, t, u, 0), r = excursion(raw, t, u, 0), d = excursion(drawn, t, u, lagMs);
+    if (g === null || r === null || d === null) return;
+    out.vsRaw.push(d - r); out.vsGt.push(d - g);
+  });
+  return out;
+}
+
 /** Swings the game sees against the GT's (both gameSwings): false ones a minute, and the share of the GT's it misses. */
 export function swingAgreement(gt: ReturnType<typeof gameSwings>, game: ReturnType<typeof gameSwings>, key: 'swing' | 'serve', toleranceMs = SWING_TOLERANCE_MS) {
   const gOn = gt.times.filter((_, i) => gt[key][i]);
@@ -554,7 +617,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
   const latency = records.map(r => r.received_ms - r.t_ms);
 
   // ---- the game's swings (and serves) from the paddle hand, against the same rule on the GT hand
-  const swingTotals = { swing: { gt: 0, game: 0, false: 0, missed: 0 }, serve: { gt: 0, game: 0, false: 0, missed: 0 }, rest_false: 0, minutes: 0, drawn_lag: [] as number[], drawn_swing_lag: [] as number[], drawn_jitter: [] as number[] };
+  const swingTotals = { swing: { gt: 0, game: 0, false: 0, missed: 0 }, serve: { gt: 0, game: 0, false: 0, missed: 0 }, swing_exact: { gt: 0, game: 0, false: 0, missed: 0 }, serve_exact: { gt: 0, game: 0, false: 0, missed: 0 }, rest_false: 0, minutes: 0, drawn_lag: [] as number[], drawn_swing_lag: [] as number[], drawn_jitter: [] as number[], overshoot_raw: [] as number[], overshoot_gt: [] as number[] };
   for (const group of Object.values(groupBy(samples.filter(isPaddle), s => `${s.pid}|${s.side}`))) {
     const g = group.sort((a, b) => a.recv - b.recv);
     const count = new Map<string, number>();
@@ -580,6 +643,11 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     const keep = game.times.map(t => fast(t - 80));
     const swingDrawn = bestLag(game.times.filter((_, i) => keep[i]), game.blade.filter((_, i) => keep[i]), gtPoses.map(x => x.t), gtPoses.map(x => bladeOf(x.pose.wrist, x.pose.dir)), { ...LAG, min: -100, max: 250 });
     if (swingDrawn) swingTotals.drawn_swing_lag.push(swingDrawn.lag_ms);
+    if (swingDrawn) {
+      const raw = g.filter(x => x.person === person);
+      const o = strokeOvershoot({ times: gtPoses.map(x => x.t), points: gtPoses.map(x => bladeOf(x.pose.wrist, x.pose.dir)) }, { times: raw.map(x => x.t), points: raw.map(x => bladeOf(x.raw.wrist, x.raw.dir)) }, { times: game.times, points: game.blade }, swingDrawn.lag_ms);
+      swingTotals.overshoot_raw.push(...o.vsRaw); swingTotals.overshoot_gt.push(...o.vsGt);
+    }
     // The drawn blade's shake at the screen's rate while the GT hand rests.
     const gtPath = gtPaths.get(`${person}|${side}`);
     if (gtPath) {
@@ -587,9 +655,12 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
       const j = jitter(game.times, game.blade, game.times.map(restAt));
       if (j.rms !== null) swingTotals.drawn_jitter.push(j.rms);
     }
+    const exact = exactSwings(gtPoses);
     for (const key of ['swing', 'serve'] as const) {
       const a = swingAgreement(gt, game, key);
       swingTotals[key].gt += a.gt; swingTotals[key].game += a.game; swingTotals[key].false += a.false; swingTotals[key].missed += a.missed;
+      const e = swingAgreement(exact, game, key), into = swingTotals[`${key}_exact`];
+      into.gt += e.gt; into.game += e.game; into.false += e.false; into.missed += e.missed;
     }
     // False swings while the GT hand is at rest (no GT swing within the tolerance, and slow).
     const gtState = gtPaths.get(`${person}|${side}`);
@@ -765,7 +836,7 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     dir_deg: p.dir_deg.median, from_hand: paddleAll.length ? round(paddleAll.filter(s => s.raw.from === 'hand').length / paddleAll.length) : null,
     swing_vel_err_ms: vectorStats(swingVel.raw, 1).median, swing_vel_err_filtered_ms: vectorStats(swingVel.filt, 1).median,
     swing_speed_ratio: round(quantile(velErrs.ratioRaw, 0.5), 3), swing_speed_ratio_filtered: round(quantile(velErrs.ratioFilt, 0.5), 3),
-    lag_ms: round(quantile(lags.raw, 0.5), 1), lag_filtered_ms: round(quantile(lags.filt, 0.5), 1), lag_drawn_ms: round(quantile(swingTotals.drawn_lag, 0.5), 1), lag_drawn_swing_ms: round(quantile(swingTotals.drawn_swing_lag, 0.5), 1), jitter_drawn_cm: round((quantile(swingTotals.drawn_jitter, 0.5) ?? NaN) * 100, 2), latency_ms: round(meanOf(latency), 1),
+    lag_ms: round(quantile(lags.raw, 0.5), 1), lag_filtered_ms: round(quantile(lags.filt, 0.5), 1), lag_drawn_ms: round(quantile(swingTotals.drawn_lag, 0.5), 1), lag_drawn_swing_ms: round(quantile(swingTotals.drawn_swing_lag, 0.5), 1), jitter_drawn_cm: round((quantile(swingTotals.drawn_jitter, 0.5) ?? NaN) * 100, 2), overshoot_cm: round((quantile(swingTotals.overshoot_raw, 0.5) ?? NaN) * 100, 2), overshoot_p90_cm: round((quantile(swingTotals.overshoot_raw, 0.9) ?? NaN) * 100, 2), overshoot_gt_cm: round((quantile(swingTotals.overshoot_gt, 0.5) ?? NaN) * 100, 2), latency_ms: round(meanOf(latency), 1),
     jitter_rest_cm: round((quantile(jit.raw, 0.5) ?? NaN) * 100, 2), jitter_rest_filtered_cm: round((quantile(jit.filtered, 0.5) ?? NaN) * 100, 2),
     jitter_blade_filtered_cm: round((quantile(jit.blade_filtered, 0.5) ?? NaN) * 100, 2),
     hand_found: handStats.wanted ? round(handStats.found / handStats.wanted) : null,
@@ -782,6 +853,10 @@ export function pingpongScene(scene: Scene, dets: readonly DetFrame[], tracked: 
     swing_rest_false_per_min: swingTotals.minutes ? round(swingTotals.rest_false / swingTotals.minutes, 2) : null,
     serve_false_per_min: swingTotals.minutes ? round(swingTotals.serve.false / swingTotals.minutes, 2) : null,
     serve_miss: swingTotals.serve.gt ? round(swingTotals.serve.missed / swingTotals.serve.gt) : null,
+    swing_exact_false_per_min: swingTotals.minutes ? round(swingTotals.swing_exact.false / swingTotals.minutes, 2) : null,
+    swing_exact_miss: swingTotals.swing_exact.gt ? round(swingTotals.swing_exact.missed / swingTotals.swing_exact.gt) : null,
+    serve_exact_false_per_min: swingTotals.minutes ? round(swingTotals.serve_exact.false / swingTotals.minutes, 2) : null,
+    serve_exact_miss: swingTotals.serve_exact.gt ? round(swingTotals.serve_exact.missed / swingTotals.serve_exact.gt) : null,
     raise_false_per_min: raiseTotals.minutes ? round(raiseTotals.false_triggers / raiseTotals.minutes, 2) : null,
     raise_miss: raiseTotals.gt_raises ? round(raiseTotals.misses / raiseTotals.gt_raises) : null,
     inference_ms: cost.inference_ms.mean, pose_hz: cost.pose_hz, completed: cost.completed,

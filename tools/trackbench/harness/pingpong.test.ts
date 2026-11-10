@@ -10,8 +10,8 @@ import type { Row } from './pp-report.ts';
 import type { DetFrame, GtFrame, GtJoint, GtPerson, Joint, Point3, Scene, TrackedFrame } from './common.ts';
 import { GameLoop, toDetected } from './gameloop.ts';
 import {
-  bestLag, bladeOf, gtArm, invertRigid, jitter, motionStates, pingpongScene, quantile, raiseAgreement, raisedStates,
-  speeds, stageToCamera, vectorStats, wantedSides,
+  bestLag, bladeOf, exactSwings, gtArm, invertRigid, jitter, motionStates, pingpongScene, quantile, raiseAgreement, raisedStates,
+  speeds, stageToCamera, strokeOvershoot, vectorStats, wantedSides,
 } from './pingpong.ts';
 import { gameInit, parseDetail, parseInputSize, resolveDetail } from './run-game.ts';
 
@@ -139,6 +139,36 @@ test('motion states by speed, with peaks at a swing\'s local maximum', () => {
   // Speed 0.5π m/s at its fastest: a swing, peaking twice a cycle.
   assert.ok(st.slice(100).includes('swing') && st.slice(100).includes('peak'));
   assert.ok(Math.abs(Math.max(...v.filter(Number.isFinite)) - 0.5 * Math.PI) < 0.02);
+});
+
+test('overshoot: a path that carries on past a stroke\'s end is positive, one that rounds it off negative, and a late copy zero', () => {
+  // A stroke along x: 40 cm in 0.2 s (fastest in the middle), then still.
+  const times = Array.from({ length: 31 }, (_, i) => i * 33.333);
+  const along = (t: number) => (t < 300 ? 0 : t > 500 ? 0.4 : 0.2 * (1 - Math.cos(Math.PI * (t - 300) / 200)));
+  const path = (f: (t: number) => number) => ({ times, points: times.map(t => ({ x: f(t), y: 0, z: 0 })) });
+  const gt = path(along);
+  const late = { times: times.map(t => t + 60), points: gt.points };
+  const same = strokeOvershoot(gt, gt, late, 60);
+  assert.ok(same.vsRaw.length >= 1);
+  for (const v of same.vsRaw) assert.ok(Math.abs(v) < 1e-9);
+  // 5 cm past the end, then back.
+  const over = path(t => along(t) + (t > 450 && t < 600 ? 0.05 * Math.sin(Math.PI * (t - 450) / 150) : 0));
+  assert.ok(strokeOvershoot(gt, gt, over, 0).vsRaw.every(v => v > 0.02));
+  const short = path(t => along(t) * 0.8);
+  assert.ok(strokeOvershoot(gt, gt, short, 0).vsRaw.every(v => v < -0.05));
+});
+
+test('exact swings: the GT blade\'s own strokes, at the screen\'s rate, whatever the drawing', () => {
+  const poses = Array.from({ length: 31 }, (_, i) => {
+    const t = i * 33.333, u = t < 300 ? 0 : t > 500 ? 1 : (1 - Math.cos(Math.PI * (t - 300) / 200)) / 2;
+    return { t, pose: { wrist: { x: 0.2 - 0.4 * u, y: 0, z: -0.3 }, dir: { x: 0, y: 1, z: 0 }, across: { x: 1, y: 0, z: 0 }, from: 'pose' as const } };
+  });
+  const s = exactSwings(poses);
+  // A 40 cm stroke at up to 3.4 m/s is a swing, and a serve's too, around its middle; still before it is neither.
+  assert.ok(s.swing.some(Boolean) && s.serve.some(Boolean));
+  assert.ok(!s.swing[s.times.findIndex(t => t >= 250)]);
+  const still = exactSwings(poses.map(p => ({ ...p, pose: { ...p.pose, wrist: { x: 0.2, y: 0, z: -0.3 } } })));
+  assert.ok(!still.swing.some(Boolean));
 });
 
 test('raises follow the game\'s hysteresis; false triggers and misses are counted as events', () => {
