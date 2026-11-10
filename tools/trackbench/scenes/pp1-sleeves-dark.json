@@ -1,0 +1,113 @@
+{
+ "id": "pp1-sleeves-dark",
+ "category": "pingpong",
+ "description": "A man in a near-black long-sleeved top in the dim evening room: dark sleeves on a dark background, only the hands lit.",
+ "seed": 103,
+ "duration_s": 20,
+ "fps": 30,
+ "resolution": [
+  1280,
+  960
+ ],
+ "players": 1,
+ "camera": {
+  "height_m": 1.0,
+  "distance_m": 2.4,
+  "look_at": [
+   0,
+   0,
+   1.05
+  ],
+  "hfov_deg": 70
+ },
+ "room": {
+  "preset": "living_room",
+  "clutter": 0.5
+ },
+ "lighting": {
+  "preset": "dim_evening"
+ },
+ "render": {
+  "motion_blur_shutter": 0.9,
+  "samples": 16
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 1.0,
+    "age": 0.7,
+    "weight": 0.6,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0,
+     "asian": 0,
+     "caucasian": 1
+    }
+   },
+   "skin": "middleage_caucasian_male",
+   "hair": "short01",
+   "outfit": {
+    "clothes": [
+     "male_casualsuit02",
+     "shoes01"
+    ],
+    "recolor": {
+     "top": "#191b21",
+     "bottom": "#1d2129",
+     "hair": "#3b2a1e"
+    }
+   },
+   "hand": "right",
+   "place": {
+    "x": 0.0,
+    "y": 0.0,
+    "facing_deg": 0
+   },
+   "timeline": [
+    {
+     "type": "offstage",
+     "duration_s": 0.3
+    },
+    {
+     "type": "walk",
+     "from": [
+      -1.9,
+      0.5
+     ],
+     "to": [
+      0.0,
+      0.0
+     ],
+     "duration_s": 1.7
+    },
+    {
+     "type": "pingpong",
+     "duration_s": 18,
+     "auto": {
+      "speed_mps": [
+       2.5,
+       6.0
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "setup",
+   "start_s": 0,
+   "end_s": 2
+  },
+  {
+   "name": "play",
+   "start_s": 2,
+   "end_s": 20
+  }
+ ],
+ "post": []
+}

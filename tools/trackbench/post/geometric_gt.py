@@ -9,7 +9,7 @@ pinhole masks as `masks.pinhole/` (a directory or a symlink to a base's), and `g
 `masks/` are rewritten through `degrade.distort_points` / `degrade.distort_mask`. Idempotent: it
 always starts from the pinhole copies. When it doesn't, nothing changes.
 
-- kp x, y: distorted (depth and vis kept), vis 3 where the distorted point leaves [0, 1].
+- kp x, y (and the hand-21 points' of table-tennis scenes): distorted (depth and vis kept), vis 3 where the distorted point leaves [0, 1].
   Points outside the raw render stay 3 even if the lens pulls them into a corner (the picture
   there is replicated border pixels, not them).
 - bbox: from the warped mask. in_frame: false if the warp leaves none of the person's mask
@@ -36,6 +36,18 @@ def is_geometric(spec):
 
 def _r(v, n=5):
     return round(float(v), n)
+
+
+def _warp(kp, spec, fr):
+    """Distort [x, y, depth, vis] points in place; vis 3 where they leave the picture."""
+    ok = [j for j, k in enumerate(kp) if k[0] is not None and k[1] is not None]
+    if ok:
+        xy = distort_points(np.array([[kp[j][0], kp[j][1]] for j in ok]), spec, frame=fr)
+        for j, (x, y) in zip(ok, xy):
+            vis = kp[j][3]
+            if not (0 <= x <= 1 and 0 <= y <= 1):
+                vis = 3
+            kp[j] = [_r(x), _r(y), kp[j][2], vis]
 
 
 def process(scene_dir):
@@ -72,14 +84,9 @@ def process(scene_dir):
         for p in g['people']:
             lab = p['index'] + 1
             kp = p['kp']
-            ok = [j for j, k in enumerate(kp) if k[0] is not None and k[1] is not None]
-            if ok:
-                xy = distort_points(np.array([[kp[j][0], kp[j][1]] for j in ok]), spec, frame=fr)
-                for j, (x, y) in zip(ok, xy):
-                    vis = kp[j][3]
-                    if not (0 <= x <= 1 and 0 <= y <= 1):
-                        vis = 3
-                    kp[j] = [_r(x), _r(y), kp[j][2], vis]
+            _warp(kp, spec, fr)
+            for hd in (p.get('hands') or {}).values():  # table-tennis scenes' hand-21 points
+                _warp(hd['kp'], spec, fr)
             if mask is None:
                 continue
             own = mask == lab

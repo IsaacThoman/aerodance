@@ -1,0 +1,120 @@
+{
+ "id": "pp-held-3",
+ "category": "pingpong",
+ "description": "HELD OUT. Webcam on a TV 1.35 m high at 2.8 m, 78 deg, tilted down, open-plan cluttered room, a dark-skinned man in a wall-coloured long-sleeved top, wide and hard strokes.",
+ "seed": 303,
+ "duration_s": 20,
+ "fps": 30,
+ "resolution": [
+  1280,
+  960
+ ],
+ "players": 1,
+ "camera": {
+  "height_m": 1.35,
+  "distance_m": 2.8,
+  "look_at": [
+   0.1,
+   0,
+   0.95
+  ],
+  "hfov_deg": 78,
+  "roll_deg": -2
+ },
+ "room": {
+  "preset": "open_plan",
+  "clutter": 0.8
+ },
+ "lighting": {
+  "preset": "bright_even"
+ },
+ "render": {
+  "motion_blur_shutter": 0.5,
+  "samples": 16
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 1.0,
+    "age": 0.55,
+    "weight": 0.55,
+    "muscle": 0.6,
+    "height": 0.42,
+    "proportions": 0.5,
+    "race": {
+     "african": 1,
+     "asian": 0,
+     "caucasian": 0
+    }
+   },
+   "skin": "young_african_male",
+   "hair": "short02",
+   "outfit": {
+    "clothes": [
+     "male_casualsuit02",
+     "shoes01"
+    ],
+    "recolor": {
+     "top": "#d6cdbd",
+     "hair": "#141010"
+    }
+   },
+   "hand": "right",
+   "place": {
+    "x": 0.0,
+    "y": 0.0,
+    "facing_deg": 0
+   },
+   "timeline": [
+    {
+     "type": "offstage",
+     "duration_s": 0.3
+    },
+    {
+     "type": "walk",
+     "from": [
+      -1.9,
+      0.5
+     ],
+     "to": [
+      0.0,
+      0.0
+     ],
+     "duration_s": 1.7
+    },
+    {
+     "type": "pingpong",
+     "duration_s": 18,
+     "auto": {
+      "speed_mps": [
+       4,
+       8
+      ],
+      "mix": {
+       "wide_forehand": 2,
+       "wide_backhand": 2,
+       "loop": 2,
+       "forehand": 2,
+       "low": 1
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "setup",
+   "start_s": 0,
+   "end_s": 2
+  },
+  {
+   "name": "play",
+   "start_s": 2,
+   "end_s": 20
+  }
+ ],
+ "post": []
+}

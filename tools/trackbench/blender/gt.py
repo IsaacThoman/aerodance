@@ -42,11 +42,43 @@ for s, k in (('L', 0), ('R', 1)):
     JOINT_OWN[25 + k] = ({f'upperleg02.{s}', f'lowerleg01.{s}', f'lowerleg02.{s}'}, 0.11)
     JOINT_OWN[27 + k] = ({f'lowerleg02.{s}', f'foot.{s}', f'lowerleg01.{s}'} | _side(TOES, s), 0.09)
 
+# MediaPipe hand-21 points: (bone, 'head' | 'tail'). 0 wrist; thumb 1 CMC, 2 MCP, 3 IP, 4 tip;
+# index/middle/ring/pinky MCP, PIP, DIP, tip. MPFB: finger1 = thumb ... finger5 = little finger;
+# metacarpal1-4 carry fingers 2-5. Joints are bone heads (joint centres); tips are the last
+# bone's tail (inside the finger pad, ~0.5 cm under the skin at the end of the finger).
+HAND21 = [('wrist', 'head'), ('finger1-1', 'head'), ('finger1-2', 'head'), ('finger1-3', 'head'), ('finger1-3', 'tail')]
+for _i in range(2, 6):
+    HAND21 += [(f'finger{_i}-1', 'head'), (f'finger{_i}-2', 'head'), (f'finger{_i}-3', 'head'), (f'finger{_i}-3', 'tail')]
+
+
+def _hand_own(s):
+    """hand-21 index -> (own bones, reach): a hand point counts as visible (0) when the first
+    surface its ray meets is skin of one of the bones meeting at that joint, within reach.
+    Another finger, the palm of the other side of the hand, a sleeve or the paddle in front ->
+    1 (own) or 2 (paddle, other people, objects)."""
+    own = {0: ({f'wrist.{s}', f'lowerarm02.{s}', f'lowerarm01.{s}', f'finger1-1.{s}'} |
+               {f'metacarpal{i}.{s}' for i in range(1, 5)}, 0.06),
+           1: ({f'wrist.{s}', f'finger1-1.{s}', f'metacarpal1.{s}'}, 0.035),
+           2: ({f'finger1-1.{s}', f'finger1-2.{s}'}, 0.03),
+           3: ({f'finger1-2.{s}', f'finger1-3.{s}'}, 0.025),
+           4: ({f'finger1-3.{s}'}, 0.02)}
+    for i in range(2, 6):
+        b = 5 + 4 * (i - 2)
+        own[b] = ({f'metacarpal{i - 1}.{s}', f'finger{i}-1.{s}', f'wrist.{s}'}, 0.03)
+        own[b + 1] = ({f'finger{i}-1.{s}', f'finger{i}-2.{s}'}, 0.025)
+        own[b + 2] = ({f'finger{i}-2.{s}', f'finger{i}-3.{s}'}, 0.02)
+        own[b + 3] = ({f'finger{i}-3.{s}'}, 0.02)
+    return own
+
+
+HAND_OWN = {'L': _hand_own('L'), 'R': _hand_own('R')}
+
 # surface point index -> eps (how far in front of the point an own surface must be to hide it)
 SURFACE_EPS = {i: 0.015 for i in range(0, 11)}
 SURFACE_EPS.update({7: 0.03, 8: 0.03})
 SURFACE_EPS.update({29: 0.04, 30: 0.04, 31: 0.05, 32: 0.05})
 OTHER_EPS = 0.02
+PROP_EPS = 0.004
 
 OCCLUDER_KINDS = ('body', 'clothes')
 
@@ -109,6 +141,23 @@ class PersonGT:
         self.vw = dict(zip(all_v, humans.vertex_weights(person.body, all_v, bone_names)))
         self.occluders = [o for o in person.objects if person.kind.get(o.name) in OCCLUDER_KINDS]
         self.poly_bone = {}
+        self.paddle = getattr(person, 'paddle', None)
+        self.paddle_hand = getattr(person, 'paddle_hand', None)
+
+    def hands3d(self):
+        """{'left'|'right': (21, 3)} world positions of the hand-21 points at the current frame."""
+        rig = self.p.rig
+        mw = np.array(rig.matrix_world)
+        pose = rig.pose.bones
+        out = {}
+        for side, s in (('left', 'L'), ('right', 'R')):
+            P = np.empty((21, 3))
+            for i, (b, end) in enumerate(HAND21):
+                pb = pose[f'{b}.{s}']
+                v = np.array(pb.head if end == 'head' else pb.tail)
+                P[i] = mw[:3, :3] @ v + mw[:3, 3]
+            out[side] = P
+        return out
 
     def setup_labels(self, deps):
         """Dominant bone of every evaluated polygon of the occluder meshes (topology is fixed)."""
@@ -160,6 +209,23 @@ class PersonGT:
         return out
 
 
+def _world_bvh(o, deps):
+    """BVH of an object's evaluated mesh in world space. (BVHTree.FromObject works in the object's
+    own space: right for the people, whose meshes sit at the origin, wrong for a paddle carried by
+    a wrist bone.)"""
+    ev = o.evaluated_get(deps)
+    me = ev.to_mesh()
+    co = np.empty(len(me.vertices) * 3, np.float32)
+    me.vertices.foreach_get('co', co)
+    M = np.array(ev.matrix_world)
+    co = co.reshape(-1, 3) @ M[:3, :3].T + M[:3, 3]
+    me.calc_loop_triangles()
+    t = np.empty(len(me.loop_triangles) * 3, np.int64)
+    me.loop_triangles.foreach_get('vertices', t)
+    ev.to_mesh_clear()
+    return BVHTree.FromPolygons(co.tolist(), t.reshape(-1, 3).tolist(), all_triangles=True)
+
+
 def _ray_first(bvhs, origin, d, maxdist):
     """Nearest hit over [(tag, obj_name, bvh)]: (distance, tag, obj_name, face) or None."""
     best = None
@@ -187,6 +253,10 @@ class FrameGT:
         self._env_objs = [o for o in scene.objects if o.type == 'MESH' and o.get('tb_kind') in ('environment', 'distractor')
                           and not o.hide_render]
         self._env_animated = any(o.animation_data and o.animation_data.action for o in self._env_objs)
+        # Hand-21 GT for table-tennis scenes (any pingpong segment), or when the spec asks.
+        self.hands = bool(spec.get('gt', {}).get('hands')) or any(
+            s.kind == 'pingpong' for r in results for s in r.get('segments', []))
+        self.props = [pg.paddle for pg in self.people if pg.paddle is not None]
 
     def _env_bvh(self, deps):
         if self.env_static is not None and not self._env_animated:
@@ -233,6 +303,11 @@ class FrameGT:
         bvhs = {}
         for pg in active:
             bvhs[pg.p.index] = [('self', o.name, BVHTree.FromObject(o, deps)) for o in pg.occluders]
+        # Paddles move with their hands: rebuilt every frame, an occluder for everyone (their
+        # holder included: the blade over the fingers is vis 2).
+        props = [('other', o.name, _world_bvh(o, deps)) for o in self.props
+                 if self.people[o['tb_person']].m['visible'][f - 1]]
+        self._props_now = props
         out = {'frame': f, 't_ms': round((f - 1) * 1000.0 / fps, 3), 'people': []}
         for pg in active:
             k = pg.p.index
@@ -242,6 +317,7 @@ class FrameGT:
             others = [('other', n, t) for kk, lst in bvhs.items() if kk != k for _, n, t in lst]
             if env is not None:
                 others.append(('other', 'env', env))
+            others += props
             vis = []
             for j in range(33):
                 x, y, z = proj[j]
@@ -268,13 +344,51 @@ class FrameGT:
             # Silhouette (body + clothes, unoccluded) sampled by rays on a pixel grid, compared
             # with the mask for the visible fraction.
             vf, in_frame, bbox = self._coverage(pg, own, mask, k + 1, deps)
-            out['people'].append({
+            line = {
                 'id': pg.p.spec['id'], 'role': pg.p.spec.get('role', 'player'), 'index': k,
                 'kp': [[_r(proj[j, 0]), _r(proj[j, 1]), _r(proj[j, 2], 4), vis[j]] for j in range(33)],
                 'kp3d': [[_r(v, 4) for v in P[j]] for j in range(33)],
                 'bbox': bbox, 'visible_frac': vf, 'in_frame': in_frame,
-                'phase': str(pg.m['phase'][f - 1])})
+                'phase': str(pg.m['phase'][f - 1])}
+            if self.hands:
+                line['hands'] = {}
+                for side, HP in pg.hands3d().items():
+                    hp = cam.project(HP)
+                    own_map = HAND_OWN['L' if side == 'left' else 'R']
+                    hv = [self._vis(pg, HP[i], hp[i], own, others, own_map[i]) for i in range(21)]
+                    line['hands'][side] = {
+                        'kp': [[_r(hp[i, 0]), _r(hp[i, 1]), _r(hp[i, 2], 4), hv[i]] for i in range(21)],
+                        'kp3d': [[_r(v, 4) for v in HP[i]] for i in range(21)]}
+            if pg.paddle is not None:
+                Mp = np.array(pg.paddle.matrix_world)
+                nrm = Mp[:3, 2] / np.linalg.norm(Mp[:3, 2])
+                line['paddle'] = {'hand': pg.paddle_hand, 'center': [_r(v, 4) for v in Mp[:3, 3]],
+                                  'normal': [_r(v, 4) for v in nrm]}
+            out['people'].append(line)
         return out
+
+    def _vis(self, pg, P, proj, own, others, own_bones):
+        """Visibility code of one joint-like point (see the module docstring)."""
+        cam = self.cam
+        x, y, z = proj
+        if not (z > 0 and 0 <= x <= 1 and 0 <= y <= 1):
+            return 3
+        d = P - cam.origin
+        dist = float(np.linalg.norm(d))
+        d = d / dist
+        ho = _ray_first(others, cam.origin, d, dist)
+        hs = _ray_first(own, cam.origin, d, dist + 0.5)
+        if ho is not None and ho[0] < dist - OTHER_EPS and (hs is None or ho[0] < hs[0]):
+            return 2
+        # A paddle blade lies right on the fingers: any of it in front (beyond 4 mm) hides them.
+        hp = _ray_first(self._props_now, cam.origin, d, dist)
+        if hp is not None and hp[0] < dist - PROP_EPS and (hs is None or hp[0] < hs[0] + 0.01):
+            return 2
+        if hs is None:
+            return 0
+        bones, reach = own_bones
+        bone = pg.poly_bone[hs[2]][hs[3]] if hs[3] < len(pg.poly_bone[hs[2]]) else None
+        return 0 if (bone in bones and dist - hs[0] <= reach) else 1
 
     def _coverage(self, pg, own, mask, label, deps):
         cam = self.cam
