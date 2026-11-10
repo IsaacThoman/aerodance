@@ -30,8 +30,8 @@ export const isPoseDetail = (value: unknown): value is PoseDetail =>
 export const handsDetail = (hands: readonly HandChoice[]): PoseDetail => (hands.length ? `hands:${hands.join('/')}` : 'hands');
 /**
  * The hands, while they're asked for: their model loading, running, dropped because tracking
- * was too slow with it (a paired phone, or a webcam with two people's hands; the world landmarks
- * carry on), or not to be had (three or four players, a replay, a model that wouldn't load, a
+ * was too slow with it (a paired phone only: a webcam keeps them; the world landmarks carry
+ * on), or not to be had (three or four players, a replay, a model that wouldn't load, a
  * phone page too old to know of it).
  */
 export type HandTracking = 'loading' | 'on' | 'dropped' | 'unavailable';

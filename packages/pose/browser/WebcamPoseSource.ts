@@ -2,7 +2,7 @@ import { MEDIAPIPE_VERSION, ASSET_PATH, HAND_MODEL, isPoseModelId, poseModel } f
 import type { PoseModelId } from './models.ts';
 import { PlayerTracker } from './tracker.ts';
 import { evenTiles } from './tiles.ts';
-import { HANDS_MIN_HZ, HANDS_SLOW_MS, MAX_HAND_PEOPLE } from './hands.ts';
+import { MAX_HAND_PEOPLE } from './hands.ts';
 import { detailHands, validateWebcamRecord } from '../webcamRecord.ts';
 import type { HandTracking, PoseDetail, WebcamRecord } from '../webcamRecord.ts';
 import { isPlayerCount } from '../choreography.ts';
@@ -213,8 +213,6 @@ export class WebcamPoseSource {
    */
   detail: PoseDetail | null = null;
   handsDropped = false;
-  /** Since when tracking has been too slow for two people's hands (null: it isn't): see watchHands. */
-  handsSlowSince: number | null = null;
   workerReady = false;
   detailSent = false;
   /** The settings this session's workers start with, and when they were last started again. */
@@ -294,7 +292,7 @@ export class WebcamPoseSource {
     const active = ACTIVE.includes(this.view.status);
     this.disconnect(); this.playerCount = count;
     // The next worker loads the hand model for this many people afresh.
-    this.handModel = 'loading'; this.handsSlowSince = null;
+    this.handModel = 'loading';
     this.publishHands();
     if (active) await this.connect();
   }
@@ -311,13 +309,14 @@ export class WebcamPoseSource {
     // Asked for afresh, dropped hands are tried again.
     this.handsDropped = false;
     this.handModel = 'loading';
-    this.handsSlowSince = null;
     this.sendDetail();
     this.publishHands();
   }
   /**
    * Stops the hand model, keeping the world landmarks (a paired phone does when it's too slow
-   * to run both: PhoneLink), until the detail is asked for afresh.
+   * to run both: PhoneLink), until the detail is asked for afresh. A webcam never does this by
+   * itself: hands asked for stay on however slowly they track, since the game draws them, and
+   * its Hand tracking setting is the way to turn them off.
    */
   dropHands() {
     if (!detailHands(this.detail).length || this.handsDropped) return;
@@ -330,21 +329,6 @@ export class WebcamPoseSource {
   handsView(): HandTracking | undefined {
     if (!detailHands(this.detail).length) return undefined;
     return this.playerCount > MAX_HAND_PEOPLE ? 'unavailable' : this.handsDropped ? 'dropped' : this.handModel;
-  }
-  /**
-   * Drops the hand model when it can't keep up with two people's hands: tracking slower than
-   * HANDS_MIN_HZ for HANDS_SLOW_MS with it on (as a paired phone does with any number). Both
-   * players' hands go together, so neither has them while the other doesn't. One player's never
-   * drop here, as they never have.
-   */
-  watchHands(poseHz: number, now: number) {
-    const slow = this.handsWanted && this.playerCount > 1 && this.handModel === 'on' && this.resultTimes.length > 1 && poseHz < HANDS_MIN_HZ;
-    if (!slow) { this.handsSlowSince = null; return; }
-    this.handsSlowSince ??= now;
-    if (now - this.handsSlowSince < HANDS_SLOW_MS) return;
-    this.handsSlowSince = null;
-    console.warn(`hand tracking: dropped, tracking ${poseHz.toFixed(1)} poses/s with ${this.playerCount} people's hands`);
-    this.dropHands();
   }
   publishHands() { if (this.detail || this.view.hands) this.publish({ hands: this.handsView() }); }
   /** Tells a ready worker the detail (only once it has been asked for: until then it's told nothing). */
@@ -574,12 +558,10 @@ export class WebcamPoseSource {
     const receivedBrowserTimeMs = this.now();
     this.lastResult = receivedBrowserTimeMs;
     const frameAgeMs = receivedBrowserTimeMs - pending.frameBrowserTimeMs;
-    // How fast results come, the ones too old to use too: a camera too slow for two people's
-    // hands to give any fresh result must still drop them (watchHands).
+    // How fast results come, the ones too old to use too.
     this.resultTimes.push(receivedBrowserTimeMs);
     this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
     const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
-    this.watchHands(poseHz, receivedBrowserTimeMs);
     // Never let a slow result revive expired player readiness or contaminate a take.
     if (frameAgeMs >= 500) { this.dropped++; this.publish({ snapshot: null, message: 'Tracking is too slow. Try Lite or another camera.' }); return; }
     try {

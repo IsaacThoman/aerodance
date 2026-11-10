@@ -325,9 +325,9 @@ landmarks otherwise.
   An empty list is no hand found; null is no Hand Landmarker running.
 
 `ctx.handTracking()` says how the hands are doing: `'loading'` (the 7.8 MB model downloads the
-first time it's asked for), `'on'`, `'dropped'` (tracking couldn't keep 15 poses a second with
-it for 4 seconds, so it stood down and the world landmarks carry on: a paired phone, or a webcam
-looking for two people's hands, both players' together; one player's never drop on a webcam) or
+first time it's asked for), `'on'`, `'dropped'` (a paired phone couldn't keep 15 poses a second with
+it for 4 seconds, so it stood down and the world landmarks carry on; a webcam never drops them,
+however slowly it tracks) or
 `'unavailable'` (three or four players, a replay, a phone page too old for it, a model that
 wouldn't load); null for a round
 that didn't ask for the hands. Without hands, fall back on the pose's own wrist, index and pinky. Measure

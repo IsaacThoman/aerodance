@@ -75,20 +75,15 @@ test('with a detail, the tracker keeps each pose\'s world landmarks and hands; w
   assert.ok(!none.poses[0].world && !none.poses[0].hands);
 });
 
-test('two people\'s hands are dropped after four seconds under 15 poses a second, as WebcamPoseSource.watchHands does', () => {
-  const loop = new GameLoop(2, { width: 640, height: 480 }, { session: false, detail: 'hands:right' });
+test('hands stay wanted however slowly results come, as a webcam keeps them: for one player or two, never for three', () => {
+  const two = new GameLoop(2, { width: 640, height: 480 }, { session: false, detail: 'hands:right' });
   const one = new GameLoop(1, { width: 640, height: 480 }, { session: false, detail: 'hands' });
-  assert.ok(loop.handsWanted);
-  // 10 results a second.
+  // 10 results a second for six seconds.
   for (let t = 0; t <= 6000; t += 100) {
-    loop.result(1, [toDetected(person(0.3).kp), toDetected(person(0.7).kp)], [null, null], t, t + 50);
+    two.result(1, [toDetected(person(0.3).kp), toDetected(person(0.7).kp)], [null, null], t, t + 50);
     one.result(1, [toDetected(person(0.5).kp)], [null], t, t + 50);
   }
-  assert.ok(loop.handsDropped && !loop.handsWanted);
-  // Slow from the second result (150 ms), dropped four seconds later.
-  assert.equal(loop.handsDroppedAt, 4150);
-  // One player's never drop.
-  assert.ok(one.handsWanted && !one.handsDropped);
+  assert.ok(two.handsWanted && one.handsWanted);
   assert.equal(new GameLoop(3, { width: 640, height: 480 }, { detail: 'hands' }).handsWanted, false);
 });
 

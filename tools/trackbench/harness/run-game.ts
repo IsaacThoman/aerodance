@@ -275,7 +275,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
     const handModelUrl = `${server.origin}/app/${ASSET_PATH}/${HAND_MODEL.file}`;
     type Tb = { tb: { detail: (m: unknown) => Promise<string>; handsEvents: () => { state: string; message?: string; at: number }[] } };
     const sendDetail = () => page!.evaluate(m => (globalThis as unknown as Tb).tb.detail(m), detailRequest(detail, players, loop.handsWanted, handModelUrl));
-    let handsState = detail ? await sendDetail() : 'off';
+    const handsState = detail ? await sendDetail() : 'off';
     if (detail) log(`${estimator}/${sceneId}: detail ${detail}; hands ${handsState}`);
     // (The first results compile the GPU programs, hundreds of ms the game spends before anybody
     // steps in; VIDEO timestamps are the frames' t_ms after the warm-up's.)
@@ -300,10 +300,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
       const busy = opts['busy-ms'] ? Number(opts['busy-ms']) : r.roundtripMs * busyScale;
       const received = realtime ? sentAt + busy : f.t;
       freeAt = received;
-      const wasDropped = loop.handsDropped;
       const record = loop.result(f.n, r.landmarks, r.looks, f.t, received, { world: r.world, hands: r.hands });
-      // Too slow for two people's hands: the game tells the worker to stop them (watchHands).
-      if (loop.handsDropped && !wasDropped) { handsState = 'dropped'; await sendDetail(); log(`${estimator}/${sceneId}: hands dropped at ${received.toFixed(0)} ms (too slow)`); }
       detections.push({
         frame: f.n, t_ms: f.t, inference_ms: Number(r.inferenceMs.toFixed(3)), roundtrip_ms: Number(r.roundtripMs.toFixed(3)), ...(r.searched ? { searched: true } : {}),
         ...(realtime ? { sent_ms: sentAt, received_ms: received, ...(record.dropped ? { dropped: true } : {}) } : {}),
@@ -329,8 +326,9 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
       renderer, delegate: ready.delegate, fallback: ready.fallback, tiled: !!ready.tiled,
       dist: { snapshot: snapshot.dir, worker: snapshot.worker, commit: snapshot.commit },
       settings: { players, init: { ...init, tiles: tiles ?? null }, runningMode, timestamps: `frame t_ms + ${TIMESTAMP_OFFSET_MS}`, warmup_ms: Number(warmupMs.toFixed(1)), realtime, busyScale, session: !opts['no-session'],
-        detail, detail_asked: opts.detail ?? null, input, frame_size: { width: scene.width, height: scene.height }, hands_wanted: detail ? loop.handsWanted || loop.handsDropped : false },
-      hands: { state: handsState, events: handsEvents, dropped_at_ms: loop.handsDroppedAt },
+        detail, detail_asked: opts.detail ?? null, input, frame_size: { width: scene.width, height: scene.height }, hands_wanted: detail ? loop.handsWanted : false },
+      // (dropped_at_ms: a webcam no longer drops slow hands, so always null; runs from before may have a time.)
+      hands: { state: handsState, events: handsEvents, dropped_at_ms: null },
       ...(failure ? { error: failure, completed: false } : { completed: true }),
       machine: { host: os.hostname(), cpu: os.cpus()[0]?.model, platform: `${os.platform()} ${os.release()}` },
       frames: frames.length, results: detections.length, camera_frames_dropped: cameraDropped, results_dropped: tracked.filter(t => t.dropped).length,

@@ -34,9 +34,9 @@ node $H/pp-noise.ts ppt-mychange --exclude pp-held
 `--detail` takes `none | world | hands | hands:<left|right|both>/... | minigame:<id>`. The
 harness sends the worker the game's own `detail` message (`WebcamPoseSource.detailRequest`),
 waits for the hand model's answer, sends `lined` with every frame, records `world` and `hands`
-per detection, passes them through `GameLoop` into `PlayerTracker.update` as
-`WebcamPoseSource.extras` does, and drops two players' hands as `watchHands` does when tracking
-is too slow. `--input-size` scales frames as they're decoded. The worker's `initialize` settings
+per detection, and passes them through `GameLoop` into `PlayerTracker.update` as
+`WebcamPoseSource.extras` does (hands stay on however slow tracking is, as on a webcam).
+`--input-size` scales frames as they're decoded. The worker's `initialize` settings
 come from `WebcamPoseSource.workerSettings`, which `connect` uses too (a test fails if either side
 stops sharing them).
 
