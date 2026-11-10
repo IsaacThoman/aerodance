@@ -366,7 +366,8 @@ test('a worker that crashes is started again too, but one that never got ready f
   const { f, workers, send } = restartable(t);
   await f.source.connect(); send(0, { type: 'ready', delegate: 'GPU', fallback: '' });
   await f.frame(1); send(0, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
-  workers[0].worker.onerror?.(new ErrorEvent('error', { message: 'crashed' }));
+  // (A bare object: Node has no ErrorEvent before 25.)
+  workers[0].worker.onerror?.({ message: 'crashed' } as ErrorEvent);
   assert.equal(workers.length, 2);
   // The new one fails to load its model: that's the camera's error, as on a first start.
   send(1, { type: 'error', message: 'Model hash mismatch' });
