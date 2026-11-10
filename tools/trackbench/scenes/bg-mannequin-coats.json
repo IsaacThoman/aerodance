@@ -1,0 +1,12 @@
+{
+  "id": "bg-mannequin-coats",
+  "base": "base-solo",
+  "category": "background",
+  "description": "A mannequin and a coat rack with hanging coats: person-like objects.",
+  "room": {
+    "features": [
+      "mannequin",
+      "coat_rack"
+    ]
+  }
+}

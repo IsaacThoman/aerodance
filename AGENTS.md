@@ -11,6 +11,13 @@ When you need to run, play, screenshot or interactively test the game or Dance S
 
 The game's UI is drawn on a canvas, so DOM locators don't work for it; use layout targets. Dance Studio is DOM, so use `click --locator`.
 
+## Minigames
+
+To build or change a minigame, read [docs/minigames.md](docs/minigames.md): a game is one folder,
+`apps/web/src/minigames/<id>/`, found by the registry. Test it with the puppet camera:
+`node scripts/play.ts start --url '/?input=puppet'`, then `node scripts/play.ts puppet <command>`
+(`puppet help`) to pose the pretend players, which go through the real tracking pipeline.
+
 ## Animating dances
 
 To animate dancers to a video, use the `dance` CLI (`node tools/dance/cli.ts`); [docs/dance-cli.md](docs/dance-cli.md) is the guide. Look with `frames` (contact sheets you read as images; `--grid` for coordinates), edit with `apply` (JSON ops), and review with `check`, `compare` and `score`. Keep dance projects and their footage outside the repository.

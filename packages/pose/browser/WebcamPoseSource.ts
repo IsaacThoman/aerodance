@@ -1,9 +1,10 @@
-import { MEDIAPIPE_VERSION, ASSET_PATH, isPoseModelId, poseModel } from './models.ts';
+import { MEDIAPIPE_VERSION, ASSET_PATH, HAND_MODEL, isPoseModelId, poseModel } from './models.ts';
 import type { PoseModelId } from './models.ts';
 import { PlayerTracker } from './tracker.ts';
 import { evenTiles } from './tiles.ts';
-import { validateWebcamRecord } from '../webcamRecord.ts';
-import type { WebcamRecord } from '../webcamRecord.ts';
+import { HANDS_MIN_HZ, HANDS_SLOW_MS, MAX_HAND_PEOPLE } from './hands.ts';
+import { detailHands, validateWebcamRecord } from '../webcamRecord.ts';
+import type { HandTracking, PoseDetail, WebcamRecord } from '../webcamRecord.ts';
 import { isPlayerCount } from '../choreography.ts';
 import type { CaptureInput, PlayerCount } from '../choreography.ts';
 import type { PoseDelegate, PoseWorkerRequest, PoseWorkerResponse } from './pose.worker.ts';
@@ -39,6 +40,8 @@ export interface WebcamView {
   stats: WebcamStats | null;
   modelConfig?: WebcamModelConfig;
   delegate?: PoseDelegate;
+  /** The hands, while the 'hands' detail is asked for (setDetail); absent otherwise. */
+  hands?: HandTracking;
 }
 export interface RecordTiming { method: string; uncertaintyMs?: number | null; }
 /** A tracked pose record as delivered to record listeners (captures, scoring). */
@@ -73,8 +76,6 @@ export interface WebcamPoseSourceOptions {
    * watchdog's). Infinity waits for it: in the iPhone/iPad app, iOS gives it back after a call.
    */
   interruptedTimeoutMs?: number;
-  /** Looks for each of three or four players in a strip of the picture (tiles.ts; default true). */
-  tiles?: boolean;
   /**
    * How far to turn the camera's picture so it's upright, clockwise in degrees (0, 90, 180 or
    * 270), asked on every frame with the picture's size, which way its camera faces and which
@@ -129,7 +130,6 @@ export class WebcamPoseSource {
   settingsKey: string;
   adaptToResize: boolean;
   interruptedTimeoutMs: number;
-  tiling: boolean;
   turn: (frame: { width: number; height: number; facing?: string; capture: number }) => number;
   listeners = new Set<Listener<WebcamView>>();
   recordListeners = new Set<Listener<WebcamRecordEvent>>();
@@ -172,16 +172,28 @@ export class WebcamPoseSource {
   lastResult = 0;
   /** When the camera was last muted. */
   interruptedAt = 0;
+  /**
+   * The detail asked for (setDetail); whether the hand model was dropped (dropHands) until it's
+   * asked for afresh; whether this worker is ready for it and has been told; and how its hand
+   * model is doing.
+   */
+  detail: PoseDetail | null = null;
+  handsDropped = false;
+  /** Since when tracking has been too slow for two people's hands (null: it isn't): see watchHands. */
+  handsSlowSince: number | null = null;
+  workerReady = false;
+  detailSent = false;
+  handModel: 'loading' | 'on' | 'unavailable' = 'loading';
   constructor({ mediaDevices = globalThis.navigator?.mediaDevices,
     createWorker = () => new Worker(new URL('./pose.worker.ts', import.meta.url), { type: 'module' }),
     createVideo = () => document.createElement('video'), createCanvas = () => document.createElement('canvas'),
     bitmap = picture => createImageBitmap(picture), now = () => performance.now(),
     assetUrl = () => new URL(`${import.meta.env?.BASE_URL || '/'}${ASSET_PATH}/`, location.origin).href,
-    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS, tiles = true, turn = () => 0,
+    settingsKey = 'aerodance-webcam', adaptToResize = false, interruptedTimeoutMs = STALL_MS, turn = () => 0,
   }: WebcamPoseSourceOptions = {}) {
     this.mediaDevices = mediaDevices; this.createWorker = createWorker; this.createVideo = createVideo; this.createCanvas = createCanvas;
     this.bitmap = bitmap; this.now = now; this.assetUrl = assetUrl; this.settingsKey = settingsKey; this.adaptToResize = adaptToResize;
-    this.interruptedTimeoutMs = interruptedTimeoutMs; this.tiling = tiles; this.turn = turn;
+    this.interruptedTimeoutMs = interruptedTimeoutMs; this.turn = turn;
     const savedModel = saved(`${settingsKey}-model`, 'lite');
     const modelId: PoseModelId = isPoseModelId(savedModel) ? savedModel : 'lite';
     const facing = saved(`${settingsKey}-facing`, '');
@@ -242,7 +254,66 @@ export class WebcamPoseSource {
     if (count === this.playerCount) return;
     const active = ACTIVE.includes(this.view.status);
     this.disconnect(); this.playerCount = count;
+    // The next worker loads the hand model for this many people afresh.
+    this.handModel = 'loading'; this.handsSlowSince = null;
+    this.publishHands();
     if (active) await this.connect();
+  }
+  /**
+   * Extra tracking for a game that asks for it, or none (null, as the songs play): with either
+   * detail every pose keeps MediaPipe's world landmarks, and with 'hands' and one or two players
+   * the Hand Landmarker runs on their wrists too (hands.ts), its model loaded the first time
+   * it's asked for (view.hands says how it's doing; with 'world' it's absent). It lasts through camera restarts
+   * until it's set again; without it, the worker does what it always did.
+   */
+  setDetail(detail: PoseDetail | null) {
+    if (detail === this.detail) return;
+    this.detail = detail;
+    // Asked for afresh, dropped hands are tried again.
+    this.handsDropped = false;
+    this.handModel = 'loading';
+    this.handsSlowSince = null;
+    this.sendDetail();
+    this.publishHands();
+  }
+  /**
+   * Stops the hand model, keeping the world landmarks (a paired phone does when it's too slow
+   * to run both: PhoneLink), until the detail is asked for afresh.
+   */
+  dropHands() {
+    if (!detailHands(this.detail).length || this.handsDropped) return;
+    this.handsDropped = true;
+    this.sendDetail();
+    this.publishHands();
+  }
+  /** Whether the hand model is to run: a detail asking for hands, one or two players (MAX_HAND_PEOPLE), not dropped. */
+  get handsWanted() { return detailHands(this.detail).length > 0 && this.playerCount <= MAX_HAND_PEOPLE && !this.handsDropped; }
+  handsView(): HandTracking | undefined {
+    if (!detailHands(this.detail).length) return undefined;
+    return this.playerCount > MAX_HAND_PEOPLE ? 'unavailable' : this.handsDropped ? 'dropped' : this.handModel;
+  }
+  /**
+   * Drops the hand model when it can't keep up with two people's hands: tracking slower than
+   * HANDS_MIN_HZ for HANDS_SLOW_MS with it on (as a paired phone does with any number). Both
+   * players' hands go together, so neither has them while the other doesn't. One player's never
+   * drop here, as they never have.
+   */
+  watchHands(poseHz: number, now: number) {
+    const slow = this.handsWanted && this.playerCount > 1 && this.handModel === 'on' && this.resultTimes.length > 1 && poseHz < HANDS_MIN_HZ;
+    if (!slow) { this.handsSlowSince = null; return; }
+    this.handsSlowSince ??= now;
+    if (now - this.handsSlowSince < HANDS_SLOW_MS) return;
+    this.handsSlowSince = null;
+    console.warn(`hand tracking: dropped, tracking ${poseHz.toFixed(1)} poses/s with ${this.playerCount} people's hands`);
+    this.dropHands();
+  }
+  publishHands() { if (this.detail || this.view.hands) this.publish({ hands: this.handsView() }); }
+  /** Tells a ready worker the detail (only once it has been asked for: until then it's told nothing). */
+  sendDetail() {
+    if (!this.worker || !this.workerReady || (!this.detail && !this.detailSent)) return;
+    this.detailSent = !!this.detail;
+    this.worker.postMessage({ type: 'detail', world: this.detail !== null,
+      hands: this.handsWanted ? { modelUrl: new URL(HAND_MODEL.file, this.assetUrl()).href, modelHash: HAND_MODEL.sha256, people: this.playerCount, sides: detailHands(this.detail) } : null });
   }
   /** A new song starts with a fresh line-up, without restarting the camera or model. */
   resetTracking() {
@@ -270,6 +341,9 @@ export class WebcamPoseSource {
     if (this.hidden) globalThis.document?.removeEventListener('visibilitychange', this.hidden);
     if (this.pagehide) globalThis.window?.removeEventListener('pagehide', this.pagehide);
     this.pending = null; this.busy = false; this.dropWaiting();
+    // The next worker loads the hand model afresh.
+    this.workerReady = false; this.detailSent = false;
+    if (this.handModel !== 'loading') { this.handModel = 'loading'; this.publishHands(); }
     this.emit({ event: { type: 'source-stopped', reason: message }, receivedBrowserTimeMs: this.now() });
     this.publish({ status: 'disconnected', snapshot: null, configuring: false, stats: null, interrupted: false, message });
   }
@@ -360,12 +434,16 @@ export class WebcamPoseSource {
           thresholds: { detection: 0.5, presence: 0.5, tracking: 0.5 }, timingMethod: 'browser-frame-observation' } });
       // One or two players: ask for exactly that many people. Asking for an extra person keeps
       // the detector searching every frame while only the players are present; those searches
-      // can repeatedly lose somebody it was already following. Three or four players use strips
-      // (tiles.ts), with room for one extra person in their whole-picture fallback. Looks tell
-      // players apart, so one player doesn't need them.
-      const tiles = this.tiling && evenTiles(this.playerCount);
+      // can repeatedly lose somebody it was already following. One player may be looked for in
+      // the middle of the picture, enlarged, while nobody is found (zoom), and two players get a
+      // search for whoever the model misses beside the one it found (pose.worker.ts). Three or four
+      // players use strips (tiles.ts), with room for one extra person in their whole-picture
+      // fallback. Every source, the iPhone/iPad app's and a paired phone's too, gets all of them:
+      // each costs a landmarker (about 85-160 MB), which trackbench found well worth it
+      // (tools/trackbench/REPORT.md). Looks tell players apart, so one player doesn't need them.
+      const tiles = evenTiles(this.playerCount);
       worker.postMessage({ type: 'initialize', sessionId: this.sessionId, playerCount: this.playerCount <= 2 ? this.playerCount : this.playerCount + 1, looks: this.playerCount > 1,
-        ...(tiles ? { tiles } : {}),
+        ...(tiles ? { tiles } : {}), ...(this.playerCount === 2 ? { search: true } : {}), ...(this.playerCount === 1 ? { zoom: true } : {}),
         modelUrl: new URL(model.file, base).href, modelHash: model.sha256, wasmUrl: new URL('wasm', base).href });
     } catch (error) { if (current()) this.fail(error); }
   }
@@ -404,7 +482,17 @@ export class WebcamPoseSource {
     if (data.type === 'ready') {
       this.publish({ delegate: data.delegate, modelConfig: this.view.modelConfig && { ...this.view.modelConfig, delegate: data.delegate },
         ...(this.view.interrupted ? {} : { message: data.fallback ? 'GPU unavailable; using CPU. Waiting for the first pose result…' : 'Waiting for the first pose result…' }) });
+      this.workerReady = true;
+      this.sendDetail();
       this.schedule(); return;
+    }
+    if (data.type === 'hands') {
+      // (An answer to a request since taken back.)
+      if (!this.handsWanted) return;
+      if (data.state === 'unavailable') console.warn('hand tracking:', data.message || 'unavailable');
+      this.handModel = data.state;
+      this.publishHands();
+      return;
     }
     if (data.type !== 'result' || !this.pending || data.seq !== this.pending.seq) return;
     const pending = this.pending;
@@ -414,25 +502,33 @@ export class WebcamPoseSource {
     const receivedBrowserTimeMs = this.now();
     this.lastResult = receivedBrowserTimeMs;
     const frameAgeMs = receivedBrowserTimeMs - pending.frameBrowserTimeMs;
+    // How fast results come, the ones too old to use too: a camera too slow for two people's
+    // hands to give any fresh result must still drop them (watchHands).
+    this.resultTimes.push(receivedBrowserTimeMs);
+    this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
+    const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
+    this.watchHands(poseHz, receivedBrowserTimeMs);
     // Never let a slow result revive expired player readiness or contaminate a take.
     if (frameAgeMs >= 500) { this.dropped++; this.publish({ snapshot: null, message: 'Tracking is too slow. Try Lite or another camera.' }); return; }
     try {
       const record = validateWebcamRecord({ schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose',
         sessionId: this.sessionId, seq: pending.seq, playerCount: this.playerCount, input: this.input,
         modelId: this.view.model, mediaTimeMs: pending.mediaTimeMs, frameBrowserTimeMs: pending.frameBrowserTimeMs, resultBrowserTimeMs: receivedBrowserTimeMs,
-        timingMethod: 'browser-frame-observation', poses: this.input ? this.tracker.update(data.landmarks, this.input, pending.frameBrowserTimeMs, data.looks) : [] });
+        timingMethod: 'browser-frame-observation', poses: this.input ? this.tracker.update(data.landmarks, this.input, pending.frameBrowserTimeMs, data.looks, this.extras(data)) : [] });
       this.players = record.poses.length;
       clearTimeout(this.startupTimeout);
       this.completed++;
       this.emit({ record, receivedBrowserTimeMs, captureBrowserTimeMs: record.frameBrowserTimeMs,
         timing: { method: record.timingMethod } });
-      this.resultTimes.push(receivedBrowserTimeMs);
-      this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
-      const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
       this.publish({ status: 'connected', snapshot: { ...record, sourceKind: 'webcam', frameId: record.seq },
         stats: { poseHz, inferenceMs: data.inferenceMs, frameAgeMs, droppedFrames: this.dropped },
         message: `${poseModel(this.view.model).label} · ${this.view.delegate} · ${this.resultTimes.length > 1 ? `${poseHz.toFixed(1)} poses/s` : 'Measuring tracking speed…'}${poseHz < 15 && this.completed > 30 ? ' · Slow tracking; close other apps.' : ' · Step into view.'}` });
     } catch (error) { this.fail(error); }
+  }
+  /** A result's extras for the tracker, while the detail asks for them (a result from before it changed may have had others). */
+  extras(data: Extract<PoseWorkerResponse, { type: 'result' }>) {
+    if (!this.detail) return undefined;
+    return { world: data.world, ...(this.handsWanted ? { hands: data.hands } : {}) };
   }
   /** Sends the frame that waited for the last result, if any. */
   sendWaiting() {
@@ -473,7 +569,7 @@ export class WebcamPoseSource {
     void bitmap.then(bitmap => {
       const worker = this.worker;
       if (generation !== this.generation || !worker) { bitmap.close(); return; }
-      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players }, [bitmap]);
+      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players, lined: this.tracker.lined }, [bitmap]);
     }).catch(error => { if (generation === this.generation) this.fail(error); });
   }
   schedule() {

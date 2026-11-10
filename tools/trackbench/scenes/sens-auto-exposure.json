@@ -1,0 +1,13 @@
+{
+  "id": "sens-auto-exposure",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: auto exposure breathing 0.7 EV.",
+  "post": [
+    {
+      "type": "auto_exposure",
+      "amplitude_ev": 0.7,
+      "period_s": 4
+    }
+  ]
+}

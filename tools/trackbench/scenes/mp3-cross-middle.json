@@ -1,0 +1,285 @@
+{
+  "id": "mp3-cross-middle",
+  "category": "multiplayer",
+  "description": "Outer players crossing behind and in front of a dancing centre player should retain all three identities through simultaneous overlaps.",
+  "seed": 41,
+  "duration_s": 24,
+  "fps": 30,
+  "resolution": [
+    640,
+    480
+  ],
+  "players": 3,
+  "camera": {
+    "height_m": 1,
+    "distance_m": 5.8,
+    "look_at": [
+      0,
+      0,
+      0.95
+    ],
+    "hfov_deg": 65
+  },
+  "room": {
+    "preset": "living_room",
+    "clutter": 0.2
+  },
+  "lighting": {
+    "preset": "bright_even"
+  },
+  "people": [
+    {
+      "id": "p1",
+      "role": "player",
+      "body": {
+        "gender": 0,
+        "age": 0.5,
+        "height": 0.54,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 1,
+          "asian": 0,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_african_female",
+      "hair": "ponytail01",
+      "outfit": {
+        "clothes": [
+          "female_casualsuit01",
+          "shoes02"
+        ],
+        "recolor": {
+          "top": "#bd3030",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": -1.65,
+        "y": -0.6,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.65,
+            -0.6
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.65,
+            -1.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gLH_sFM_cAll_d17_mLH4_ch12",
+          "clip_start_s": 4,
+          "duration_s": 5
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.65,
+            0.5
+          ],
+          "duration_s": 1
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.65,
+            0.5
+          ],
+          "duration_s": 4
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.65,
+            -0.6
+          ],
+          "duration_s": 1
+        },
+        {
+          "type": "dance",
+          "clip": "gLH_sFM_cAll_d17_mLH4_ch12",
+          "clip_start_s": 12,
+          "duration_s": 6
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "role": "player",
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.53,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 0,
+          "caucasian": 1
+        }
+      },
+      "skin": "young_caucasian_male",
+      "hair": "short02",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#205bb0",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": 0,
+        "y": -0.6,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0,
+            -0.6
+          ],
+          "duration_s": 2,
+          "from": [
+            0,
+            -1.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gPO_sFM_cAll_d11_mPO1_ch09",
+          "clip_start_s": 20,
+          "duration_s": 17
+        }
+      ]
+    },
+    {
+      "id": "p3",
+      "role": "player",
+      "body": {
+        "gender": 0,
+        "age": 0.5,
+        "height": 0.65,
+        "weight": 0.5,
+        "muscle": 0.5,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 1,
+          "caucasian": 0
+        }
+      },
+      "skin": "young_asian_female",
+      "hair": "long01",
+      "outfit": {
+        "clothes": [
+          "female_sportsuit01",
+          "shoes05"
+        ],
+        "recolor": {
+          "top": "#d4a020",
+          "bottom": "#30343f"
+        }
+      },
+      "travel": 0.12,
+      "place": {
+        "x": 1.65,
+        "y": -0.6,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.65,
+            -0.6
+          ],
+          "duration_s": 2,
+          "from": [
+            1.65,
+            -1.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gLH_sFM_cAll_d17_mLH4_ch12",
+          "clip_start_s": 4,
+          "duration_s": 5
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.65,
+            -1.7
+          ],
+          "duration_s": 1
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.65,
+            -1.7
+          ],
+          "duration_s": 4
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.65,
+            -0.6
+          ],
+          "duration_s": 1
+        },
+        {
+          "type": "dance",
+          "clip": "gLH_sFM_cAll_d17_mLH4_ch12",
+          "clip_start_s": 12,
+          "duration_s": 6
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "name": "setup",
+      "start_s": 0,
+      "end_s": 7
+    },
+    {
+      "name": "dance",
+      "start_s": 7,
+      "end_s": 24
+    }
+  ],
+  "post": []
+}

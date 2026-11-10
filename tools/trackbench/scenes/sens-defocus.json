@@ -1,0 +1,12 @@
+{
+  "id": "sens-defocus",
+  "base": "base-solo",
+  "category": "sensor",
+  "description": "Post only, baseline render: out of focus (2.5 px blur).",
+  "post": [
+    {
+      "type": "defocus",
+      "radius_px": 2.5
+    }
+  ]
+}

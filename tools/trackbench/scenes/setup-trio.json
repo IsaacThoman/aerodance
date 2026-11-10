@@ -1,0 +1,6 @@
+{
+  "id": "setup-trio",
+  "base": "base-trio",
+  "category": "setup",
+  "description": "Three adults share a 5 s hold; ideal calibration should complete, testing delay from strip misses."
+}

@@ -13,6 +13,8 @@ import type { MotionTake } from '../../../../packages/pose/motion.ts';
 import type { SongRoutine } from '../game/GameSession.ts';
 import type { ResultsShow } from '../game/results.ts';
 import ResultsDancers from './ResultsDancers.tsx';
+import Veil from './Veil.tsx';
+import type { Fade } from './Veil.tsx';
 import type { ResultsLive } from './ResultsDancers.tsx';
 import { diagnostic } from '../diagnostics.ts';
 import { screenOwner } from '../screenOwner.ts';
@@ -34,6 +36,8 @@ export interface StageViewProps {
   orbiting?: boolean;
   /** Raise the stage's picture by this share of its height (Song Select's dancers screen). */
   lift?: number;
+  /** Push the stage's picture right by this share of its width (Song Select's dancers screen; the results push it their own way). */
+  shift?: number;
   /** The song's stage id (openreef if unset or unknown). */
   stageId?: string | null;
   routine?: SongRoutine | null;
@@ -41,11 +45,15 @@ export interface StageViewProps {
   results?: RefObject<ResultsShow | null> | null;
   /** The players' live poses, for the dancers left on stage after the reveal. */
   live?: ResultsLive | null;
+  /** With no routine, the dancers loop the captured demo dance (walk mode) instead of standing still. */
+  demo?: boolean;
+  /** false leaves the dancers out (a minigame on the stage brings its own). */
+  dancers?: boolean;
+  /** Rendered inside the stage's scene, with its camera, lights and post-processing (a minigame's things). */
+  children?: ReactNode;
   onState?: (state: StageState) => void;
 }
 type ReadyHandler = (id: StageId, failed: boolean) => void;
-/** The veil's opacity, and frames the shown stage has had to settle. */
-interface Fade { value: number; settled: number; }
 
 /**
  * The game's dance stages (packages/stages) inside its canvas, with the routine's dancers.
@@ -68,6 +76,10 @@ interface Fade { value: number; settled: number; }
  * On the results screen, `results` (a ref of { start, results, winner }) swaps the reference
  * dancers for the celebration (ResultsDancers), who copy `live`'s poses, and the stage's
  * picture eases right (stageShift) to leave the left of the screen to the scoreboard.
+ *
+ * With no routine and `demo` (walk mode), the dancers loop the captured demo dance. A minigame on a
+ * stage leaves the dancers out (`dancers` false) and brings its own things as `children`, which
+ * render inside the stage's scene.
  *
  * With `orbiting` (Song Select's preview) the stage camera slowly circles the dancers, and
  * swings back round to the front when it stops (the song starts). `lift` eases the picture up
@@ -123,7 +135,7 @@ function Ready({ onReady, id, failed = false }: { onReady: ReadyHandler; id: Sta
 }
 
 // The part of three's WebGLProgram that Precompile uses.
-interface Program { isReady(): boolean; getUniforms(): unknown }
+interface Program { isReady(): boolean | null; getUniforms(): unknown }
 
 // A frame's worth of preparing the stage, so what's on screen keeps moving meanwhile.
 const PREPARE_BUDGET_MS = 12;
@@ -212,7 +224,9 @@ function Precompile({ onReady, id }: { onReady: ReadyHandler; id: StageId }) {
     const finish = (begin: number) => {
       for (const program of programs) {
         if (parallel) {
-          if (program.isReady()) programs.delete(program);
+          // A program deleted meanwhile (its material disposed, as StrictMode's remount does in
+          // development) answers null, never true: it's done with too.
+          if (program.isReady() !== false) programs.delete(program);
         } else {
           if (performance.now() - begin > PREPARE_BUDGET_MS) break;
           program.getUniforms();
@@ -275,31 +289,7 @@ function Precompile({ onReady, id }: { onReady: ReadyHandler; id: StageId }) {
   return null;
 }
 
-function Veil({ fade }: { fade: RefObject<Fade> }) {
-  const gl = useThree((state) => state.gl);
-  const layer = useMemo(() => {
-    const material = new THREE.MeshBasicMaterial({ color: '#f4fdff', transparent: true, toneMapped: false, depthTest: false, depthWrite: false });
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    quad.frustumCulled = false;
-    const scene = new THREE.Scene();
-    scene.add(quad);
-    return { material, quad, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1) };
-  }, []);
-  useEffect(() => () => { layer.material.dispose(); layer.quad.geometry.dispose(); }, [layer]);
-  useFrame(() => {
-    const v = fade.current.value;
-    if (v < 0.001) return;
-    layer.material.opacity = v;
-    const ac = gl.autoClear;
-    gl.autoClear = false;
-    gl.clearDepth();
-    gl.render(layer.scene, layer.camera);
-    gl.autoClear = ac;
-  }, 1.6);
-  return null;
-}
-
-// The captured demo clip the results dancers celebrate to, loaded once.
+// The captured demo clip the results dancers celebrate to (and the demo dancers dance), loaded once.
 let celebration: Promise<MotionTake> | null = null;
 const loadCelebration = () => {
   celebration ??= fetch(motionUrl).then((r) => {
@@ -321,6 +311,19 @@ function Results({ show, floor, accent, live }: { show: RefObject<ResultsShow>; 
   return motion ? <ResultsDancers motion={motion} playback={playback} show={show} floor={floor} accent={accent} live={live} /> : null;
 }
 
+// The dancers looping the captured demo, with no song (StageView's `demo`).
+function DemoDancers({ floor }: { floor: DancerPlacement }) {
+  const [motion, setMotion] = useState<MotionTake | null>(null);
+  const playback = useRef(0);
+  useEffect(() => {
+    let alive = true;
+    loadCelebration().then((m) => alive && setMotion(m), (error: unknown) => console.warn('[stage] demo dancers:', error instanceof Error ? error.message : error));
+    return () => { alive = false; };
+  }, []);
+  useFrame((_, delta) => { playback.current += Math.min(delta, 0.1); });
+  return <Dancers motion={motion} playback={playback} {...floor} />;
+}
+
 interface StageContentProps {
   id: StageId;
   /** On screen. Until then the stage is built and compiled out of sight while the world shows. */
@@ -328,12 +331,15 @@ interface StageContentProps {
   routine: SongRoutine | null;
   results: RefObject<ResultsShow | null> | null;
   live: ResultsLive | null;
+  demo: boolean;
+  dancers: boolean;
   onReady: ReadyHandler;
   onDancersFail: () => void;
+  children?: ReactNode;
 }
 
-// Everything inside the portal: the pipeline, the stage and its dancers.
-function StageContent({ id, onScreen, routine, results, live, onReady, onDancersFail }: StageContentProps) {
+// Everything inside the portal: the pipeline, the stage and its dancers (or a minigame's things).
+function StageContent({ id, onScreen, routine, results, live, demo, dancers, onReady, onDancersFail, children }: StageContentProps) {
   const gl = useThree((state) => state.gl);
   const { meta, Component: Stage } = stageFor(id);
 
@@ -386,11 +392,14 @@ function StageContent({ id, onScreen, routine, results, live, onReady, onDancers
         </Suspense>
       </StageBoundary>
       {/* A new song or stage gives dancers that failed to load another try. */}
-      <DancerBoundary key={`${id}|${routine?.bundle.scoreId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
-        {results
-          ? hasShow(results) && <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent} live={live} />
-          : <Dancers routine={routine} {...meta.dancers} />}
-      </DancerBoundary>
+      {dancers && (
+        <DancerBoundary key={`${id}|${routine?.bundle.scoreId ?? ''}|${results ? 'results' : 'dance'}`} onFail={onDancersFail}>
+          {results
+            ? hasShow(results) && <Results key={results.current.key} show={results} floor={meta.dancers} accent={meta.accent} live={live} />
+            : !routine && demo ? <DemoDancers floor={meta.dancers} /> : <Dancers routine={routine} {...meta.dancers} />}
+        </DancerBoundary>
+      )}
+      {children}
     </>
   );
 }
@@ -407,15 +416,15 @@ interface StageViewState {
   reported: string;
 }
 
-export default function StageView({ active = false, orbiting = false, lift = 0, stageId, routine, results = null, live = null, onState }: StageViewProps) {
+export default function StageView({ active = false, orbiting = false, lift = 0, shift = 0, stageId, routine, results = null, live = null, demo = false, dancers = true, children, onState }: StageViewProps) {
   const scene = useMemo(() => new THREE.Scene(), []);
   const [shown, setShown] = useState<StageId | null>(null);
   const [onScreen, setOnScreen] = useState(false);
   const fade = useRef<Fade>({ value: 0, settled: 0 });
   const st = useRef<StageViewState>({ loaded: null, failed: new Set(), dancersFailed: false, routine: null, requested: undefined, onScreen: false, reported: '' }).current;
   const target = active ? resolveStage(stageId) : null;
-  const props = useRef({ target, shown, onState, routine, orbiting, lift, results });
-  props.current = { target, shown, onState, routine, orbiting, lift, results };
+  const props = useRef({ target, shown, onState, routine, orbiting, lift, shift, results });
+  props.current = { target, shown, onState, routine, orbiting, lift, shift, results };
   useEffect(() => () => { Object.assign(stagePlay, { dancing: false, celebrating: false }); stageShift.x = 0; stageOrbit.lift = 0; }, []);
   const orbit = useRef({ speed: 0, phase: 0, ramp: 0, on: false });
   // Keep dancing the last routine while the veil comes up on the way out.
@@ -442,8 +451,8 @@ export default function StageView({ active = false, orbiting = false, lift = 0, 
     const playing = have !== null && want === have;
     stagePlay.dancing = playing && !props.current.results;
     stagePlay.celebrating = playing && !!props.current.results;
-    // The results' scoreboard takes the left: the stage eases right, and back after.
-    const shift = stagePlay.celebrating ? RESULTS_SHIFT : 0;
+    // The results' scoreboard (or the dancers screen's players) takes the left: the stage eases right, and back after.
+    const shift = stagePlay.celebrating ? RESULTS_SHIFT : have !== null && st.onScreen ? props.current.shift : 0;
     stageShift.x += (shift - stageShift.x) * Math.min(1, dt * SHIFT_RATE);
     if (Math.abs(shift - stageShift.x) < 1e-4) stageShift.x = shift;
     // Song Select's dancers screen raises the dancers clear of the players' pills.
@@ -534,7 +543,12 @@ export default function StageView({ active = false, orbiting = false, lift = 0, 
 
   return (
     <>
-      {shown && createPortal(<StageContent id={shown} onScreen={onScreen} routine={routine ?? lastRoutine.current} results={results} live={live} onReady={onReady} onDancersFail={onDancersFail} />, scene)}
+      {shown && createPortal(
+        <StageContent id={shown} onScreen={onScreen} routine={routine ?? lastRoutine.current} results={results} live={live} demo={demo} dancers={dancers} onReady={onReady} onDancersFail={onDancersFail}>
+          {children}
+        </StageContent>,
+        scene,
+      )}
       <Veil fade={fade} />
     </>
   );

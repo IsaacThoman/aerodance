@@ -91,7 +91,7 @@ try {
   await page.getByRole('dialog', { name: 'Import video' }).waitFor({ state: 'hidden' });
   assert.equal((await store.project(p.projectId)).takes.length, 1);
   await openSidebar(page, "Import");
-  await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
+  await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('packages/pose/tests/fixtures/video-fixture.webm'));
   const panel = page.getByRole('dialog', { name: 'Import video' });
   await panel.waitFor();
   assert.equal(await page.getByLabel('Video pose model').count(), 0);

@@ -58,6 +58,63 @@ export interface CharacterProps {
 }
 const isMesh = (o: Object3D): o is Mesh => "isMesh" in o && o.isMesh === true;
 
+/** The glass dancers' gel: lit from below by its gelHeight attribute (gelGeometry), with a rim glow. */
+export function createGelMaterial() {
+  const material = new MeshPhysicalMaterial({
+    name: "AquaGel",
+    color: "#078fff",
+    vertexColors: true,
+    metalness: 0.7,
+    roughness: 0.1,
+    clearcoat: 1,
+    clearcoatRoughness: 0.04,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    envMapIntensity: 1.4,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader =
+      "attribute float gelHeight; varying float vGelHeight;\n" +
+      shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\nvGelHeight = gelHeight;",
+    );
+    shader.fragmentShader =
+      "varying float vGelHeight;\n" + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * exp(-pow((vGelHeight - 0.19) / 0.16, 2.0)) * pow(max(dot(normal, normalize(vViewPosition)), 0.0), 5.0) * 4.5;",
+    );
+  };
+  return material;
+}
+
+/** A copy of a gel mesh's geometry with the gradient (color) and gelHeight the gel shades by. */
+export function gelGeometry(source: BufferGeometry) {
+  const geo = source.clone();
+  geo.computeBoundingBox();
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const heights = new Float32Array(pos.count);
+  const box = geo.boundingBox!; // computed just above
+  const min = box.min.y;
+  const range = box.max.y - min;
+  for (let i = 0; i < pos.count; i++) {
+    const h = (pos.getY(i) - min) / range;
+    const brightness = 0.065 + 0.935 * Math.pow(1 - h, 1.35);
+    heights[i] = h;
+    colors.set(
+      [brightness, brightness * 0.8, brightness * (1 - 0.8 * h * h)],
+      i * 3,
+    );
+  }
+  geo.setAttribute("color", new BufferAttribute(colors, 3));
+  geo.setAttribute("gelHeight", new BufferAttribute(heights, 1));
+  return geo;
+}
+
 export default function Character({
   appearance,
   opacityRef,
@@ -108,34 +165,7 @@ export default function Character({
     return material;
   }, [opacityRef, pop, rigid]);
   const gel = useMemo(() => {
-    const material = new MeshPhysicalMaterial({
-      name: "AquaGel",
-      color: "#078fff",
-      vertexColors: true,
-      metalness: 0.7,
-      roughness: 0.1,
-      clearcoat: 1,
-      clearcoatRoughness: 0.04,
-      transparent: true,
-      opacity: 0.72,
-      depthWrite: false,
-      envMapIntensity: 1.4,
-    });
-    material.onBeforeCompile = (shader) => {
-      shader.vertexShader =
-        "attribute float gelHeight; varying float vGelHeight;\n" +
-        shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace(
-        "#include <begin_vertex>",
-        "#include <begin_vertex>\nvGelHeight = gelHeight;",
-      );
-      shader.fragmentShader =
-        "varying float vGelHeight;\n" + shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace(
-        "#include <emissivemap_fragment>",
-        "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * exp(-pow((vGelHeight - 0.19) / 0.16, 2.0)) * pow(max(dot(normal, normalize(vViewPosition)), 0.0), 5.0) * 4.5;",
-      );
-    };
+    const material = createGelMaterial();
     if (rigid) patchRigidSkinning(material);
     pop?.extend(material, true);
     return material;
@@ -149,32 +179,16 @@ export default function Character({
         obj.castShadow = true;
         obj.receiveShadow = true;
         if (!Array.isArray(obj.material) && obj.material.name === "AquaGel") {
-          const geo = obj.geometry.clone();
+          const geo = gelGeometry(obj.geometry);
           ownedGeometries.push(geo);
-          geo.computeBoundingBox();
-          const pos = geo.attributes.position;
-          const colors = new Float32Array(pos.count * 3);
-          const heights = new Float32Array(pos.count);
-          const box = geo.boundingBox!; // computed just above
-          const min = box.min.y;
-          const range = box.max.y - min;
-          for (let i = 0; i < pos.count; i++) {
-            const h = (pos.getY(i) - min) / range;
-            const brightness = 0.065 + 0.935 * Math.pow(1 - h, 1.35);
-            heights[i] = h;
-            colors.set(
-              [brightness, brightness * 0.8, brightness * (1 - 0.8 * h * h)],
-              i * 3,
-            );
-          }
-          geo.setAttribute("color", new BufferAttribute(colors, 3));
-          geo.setAttribute("gelHeight", new BufferAttribute(heights, 1));
           obj.geometry = geo;
           obj.material = gel;
         }
         if (!Array.isArray(obj.material) && obj.material.name === "Ink") obj.material = ink;
       }
     });
+    // Changes made here don't draw by themselves on a canvas that renders on demand.
+    invalidate();
     return () => {
       ownedGeometries.forEach((geo) => geo.dispose());
       skeletons.forEach((skeleton) => skeleton.dispose());
@@ -183,15 +197,16 @@ export default function Character({
       gel.dispose();
       ink.dispose();
     };
-  }, [model, mixer, gel, ink]);
+  }, [model, mixer, gel, ink, invalidate]);
   useEffect(() => {
     gel.color = new Color(appearance.color);
     gel.roughness = 0.36 - appearance.gloss * 0.0029;
     gel.clearcoat = 0.4 + appearance.gloss * 0.006;
     gel.opacity = appearance.opacity ?? 0.72;
     accessories.select(appearance.accessory);
+    invalidate();
     return () => accessories.restore();
-  }, [appearance, accessories, gel]);
+  }, [appearance, accessories, gel, invalidate]);
   useEffect(() => {
     if (retarget || applyPose) return;
     const clip = gltf.animations.find((c) => c.name === animation);

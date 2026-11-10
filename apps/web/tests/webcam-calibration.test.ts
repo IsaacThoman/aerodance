@@ -19,19 +19,64 @@ function camera(count: PlayerCount = 2) {
   return { calibration, send, hold };
 }
 
-test('four players hold together; anyone missing or moving restarts the hold', () => {
+test('each player holds on their own; a move restarts only the mover, and everyone finishes together', () => {
   const { calibration, send, hold } = camera(4);
   hold(0, 2000, p => p.filter(pose => pose.playerId !== 2));
   assert.deepEqual(calibration.status(2000).players, ['holding', 'holding', 'missing', 'holding']);
-  assert.equal(calibration.status(2000).progress, 0);
+  assert.equal(calibration.status(2000).progress, 0, 'progress is the slowest player\'s');
   hold(2100, 3000);
-  hold(3100, 3100, p => { p[3].landmarks.forEach(j => { j.x += 0.05; }); return p; });
-  assert.equal(calibration.status(3100).players[3], 'moving');
-  hold(3200, 5600);
-  assert.equal(send(5700), true);
-  assert.deepEqual(calibration.status(5700).players, ['ready', 'ready', 'ready', 'ready']);
+  // Player 4 steps aside and stays there: only their hold starts again.
+  const aside = (p: Pose[]) => { p[3].landmarks.forEach(j => { j.x += 0.05; }); return p; };
+  hold(3100, 3200, aside);
+  assert.deepEqual(calibration.status(3200).players, ['holding', 'holding', 'holding', 'moving']);
+  hold(3300, 5700, aside);
+  assert.deepEqual(calibration.status(5700).players, ['holding', 'holding', 'holding', 'holding'], 'nobody is calibrated before everyone is');
+  assert.equal(calibration.status(5700).complete, false);
+  assert.equal(send(5800, aside(poses(4))), true);
+  assert.deepEqual(calibration.status(5800).players, ['ready', 'ready', 'ready', 'ready']);
   assert.equal(calibration.tracks?.length, 4);
-  for (const [id, track] of (calibration.tracks ?? []).entries()) assert.ok(Math.abs(track.baseHip.x - laneX(4, id)) < 0.003);
+  for (const [id, track] of (calibration.tracks ?? []).entries()) assert.ok(Math.abs(track.baseHip.x - laneX(4, id) - (id === 3 ? 0.05 : 0)) < 0.003);
+});
+
+test('a player who leaves restarts their own hold, and calibration waits for them', () => {
+  const { calibration, send, hold } = camera();
+  hold(0, 2000);
+  hold(2100, 3000, p => [p[0]]);
+  assert.deepEqual(calibration.status(3000).players, ['holding', 'missing']);
+  assert.equal(calibration.status(3000).complete, false, 'the one still there can\'t start the song alone');
+  hold(3100, 5500);
+  assert.equal(calibration.status(5500).complete, false);
+  assert.equal(send(5600), true);
+});
+
+test('a number passing to somebody standing elsewhere restarts that hold', () => {
+  const { calibration, send, hold } = camera();
+  hold(0, 1500);
+  const swapped = (p: Pose[]) => [{ playerId: 0, landmarks: p[1].landmarks }, { playerId: 1, landmarks: p[0].landmarks }];
+  hold(1600, 1700, swapped);
+  assert.deepEqual(calibration.status(1700).players, ['moving', 'moving']);
+  hold(1800, 4200, swapped);
+  assert.equal(calibration.status(4200).complete, false);
+  assert.equal(send(4300, swapped(poses())), true);
+  assert.ok(Math.abs(calibration.tracks![0].baseHip.x - laneX(2, 1)) < 0.003, 'each calibration is of whoever has the number now');
+});
+
+test('the stances are only shared while everyone is holding (the setup line-up retry waits on them)', () => {
+  const { calibration, hold } = camera(3);
+  hold(0, 3000, p => p.filter(pose => pose.playerId !== 2));
+  const anchors = () => calibration.anchors;
+  assert.equal(anchors(), null, 'somebody missing: nothing is progressing for everyone');
+  hold(3100, 3200);
+  assert.equal(anchors()?.length, 3);
+});
+
+test('a slow camera can\'t hide a move just before the hold is done', () => {
+  const { calibration, send } = camera(1);
+  for (let time = 0; time <= 2000; time += 400) send(time);
+  const moved = poses(1); moved[0].landmarks.forEach(j => { j.x += 0.05; });
+  assert.equal(send(2400, moved), false);
+  assert.equal(calibration.status(2400).players[0], 'moving');
+  assert.equal(send(2800, moved), false);
 });
 
 test('both players hold together for 2.5 seconds; jitter is allowed and each stance is calibrated', () => {
@@ -56,17 +101,32 @@ test('both players hold together for 2.5 seconds; jitter is allowed and each sta
   }
 });
 
-test('body or wrist movement from either player resets the shared hold', () => {
-  for (const joint of [23, 15]) {
+test('body movement restarts only the mover\'s hold; hands and one jittery result don\'t', () => {
+  {
     const { calibration, send, hold } = camera();
     hold(0, 1500);
-    const moved = poses(); moved[1].landmarks[joint].x += 0.1;
-    send(1600, moved);
-    assert.equal(calibration.status(1600).progress, 0);
-    assert.deepEqual(calibration.status(1600).players, ['holding', 'moving']);
-    hold(1700, 4100);
-    assert.equal(calibration.status(4100).complete, false);
-    assert.equal(send(4200), true);
+    const moved = (p: Pose[]) => { p[1].landmarks[23].x += 0.1; return p; };
+    hold(1600, 1700, moved);
+    assert.deepEqual(calibration.status(1700).players, ['holding', 'moving']);
+    hold(1800, 4200, moved);
+    assert.equal(calibration.status(4200).complete, false, 'the mover holds 2.5 s from where they stopped');
+    assert.equal(send(4300, moved(poses())), true);
+  }
+  {
+    // Calibration doesn't measure hands, so waving one doesn't restart anything.
+    const { send, hold } = camera();
+    hold(0, 1500);
+    hold(1600, 2400, (p, time) => { p[1].landmarks[15].x += 0.1 * Math.sin(time); return p; });
+    assert.equal(send(2500), true);
+  }
+  {
+    // A single result with the hips jumped is the model's jitter, not a move.
+    const { calibration, send, hold } = camera();
+    hold(0, 1500);
+    hold(1600, 1600, p => { p[1].landmarks[23].x += 0.1; p[1].landmarks[24].x += 0.1; return p; });
+    assert.deepEqual(calibration.status(1600).players, ['holding', 'holding']);
+    hold(1700, 2400);
+    assert.equal(send(2500), true);
   }
 });
 
@@ -82,11 +142,11 @@ test('slow drift is measured against the initial stance, not just the previous f
 
 test('missing players, low confidence and feet outside the image reset the hold', () => {
   const partials: ((p: Pose[]) => Pose[])[] = [p => [p[0]], p => { p[1].landmarks[27].confidence = 0.1; return p; }, p => { p[1].landmarks[28].y = 1.1; return p; }];
-  for (const [i, partial] of partials.entries()) {
+  for (const partial of partials) {
     const { calibration, send, hold } = camera();
     hold(0, 1500);
-    // Missing for longer than the model misses somebody for; the rest at once.
-    const until = i === 0 ? 1500 + WEBCAM_MISS_MS + 100 : 1600;
+    // For longer than the model misses (or is unsure of) somebody for.
+    const until = 1500 + WEBCAM_MISS_MS + 100;
     for (let time = 1600; time <= until; time += 100) send(time, partial(poses()));
     assert.equal(calibration.status(until).progress, 0);
     assert.equal(calibration.tracks, null);
@@ -94,6 +154,30 @@ test('missing players, low confidence and feet outside the image reset the hold'
     assert.equal(calibration.status(until + 2500).complete, false);
     assert.equal(send(until + 2600), true);
   }
+});
+
+test('one unsure result is like a moment missed, not a restart', () => {
+  const { calibration, send, hold } = camera();
+  hold(0, 1500);
+  hold(1600, 1600, p => { p[1].landmarks[27].confidence = 0.45; return p; });
+  assert.deepEqual(calibration.status(1600).players, ['holding', 'holding']);
+  hold(1700, 2400);
+  assert.equal(send(2500), true);
+});
+
+test('with two results in the window, jitter either way is treated the same', () => {
+  const statuses = [];
+  for (const dx of [0.04, -0.04]) {
+    const { calibration, send } = camera(1);
+    for (let time = 0; time <= 1200; time += 200) send(time);
+    const jitter = poses(1); jitter[0].landmarks[23].x += dx; jitter[0].landmarks[24].x += dx;
+    send(1400, jitter);
+    const status = calibration.status(1400);
+    statuses.push(status);
+    assert.equal(status.players[0], 'holding', `hips ${dx > 0 ? 'right' : 'left'}`);
+    assert.equal(calibration.holds[0].recent.length, 2, 'only one earlier result is within 300 ms');
+  }
+  assert.deepEqual(statuses[0], statuses[1]);
 });
 
 test('a player the model misses for a moment is still holding', () => {
@@ -142,4 +226,70 @@ test('consistent inference latency does not break an otherwise continuous hold',
     calibration.status(time + 450);
   }
   assert.equal(calibration.status(2900).complete, true);
+});
+
+test('without feet, the shoulders and hips are enough to calibrate (the minigames, close to the camera)', () => {
+  // Feet out of the picture: MediaPipe still guesses where, unsure.
+  const close = (count: PlayerCount) => poses(count).map((pose) => ({ ...pose, landmarks: pose.landmarks.map((j, i) => (i >= 25 ? { ...j, y: j.y + 0.3, confidence: 0.1 } : j)) }));
+  for (const feet of [true, false]) {
+    const calibration = new WebcamCalibration(2, { feet });
+    let seq = 0;
+    for (let time = 0; time <= 3000; time += 100) calibration.accept({ sessionId: 'camera', seq: ++seq, input: { width: 640, height: 480 }, poses: close(2) }, time, time);
+    const status = calibration.status(3000);
+    assert.equal(status.complete, !feet);
+    assert.deepEqual(status.players, feet ? ['body', 'body'] : ['ready', 'ready']);
+  }
+});
+
+test('a hold starts when a player stops, and is measured from where they settle, not where they were still slowing', () => {
+  // Arriving at their spot, a player slows to a stop over a few results (the steps are in
+  // movement tolerances), then sways a little while they hold: at 30 results a second, and at 10.
+  const [ls, rs, lh, rh] = [11, 12, 23, 24].map(i => standingPose(0.5)[i]);
+  const aspect = 1280 / 720, torso = Math.hypot(((ls.x + rs.x - lh.x - rh.x) / 2) * aspect, (ls.y + rs.y - lh.y - rh.y) / 2);
+  const tolerance = 0.15 * torso / aspect;
+  for (const { every, steps } of [{ every: 33, steps: [0, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05] }, { every: 100, steps: [0, 0.5, 0.5, 0.3, 0.15] }]) {
+    const { calibration, send } = camera(1);
+    const stopped = (steps.length - 1) * every, total = steps.reduce((a, b) => a + b, 0);
+    const shift = (n: number) => (n < steps.length ? steps.slice(0, n + 1).reduce((a, b) => a + b, 0) : total + 0.2 * Math.min(1, (n * every - stopped) / 1500)) * tolerance;
+    let done = -1;
+    for (let n = 0; done < 0 && n * every < stopped + WEBCAM_STILL_MS + 500; n++) {
+      if (send(n * every, [{ playerId: 0, landmarks: standingPose(0.5 + shift(n)) }])) done = n * every;
+      else if (n * every > stopped) assert.deepEqual(calibration.status(n * every).players, ['holding'], `${every} ms results: at ${n * every} ms`);
+    }
+    // Not while their walk still counted towards the hold, but soon after they slowed to a stop.
+    assert.ok(done >= WEBCAM_STILL_MS + every && done <= stopped + WEBCAM_STILL_MS, `${every} ms results: completed at ${done} ms`);
+  }
+});
+
+test('a number passing to somebody else in the last result before completion doesn\'t complete with their stance', () => {
+  const { calibration, send, hold } = camera();
+  hold(0, 2400);
+  const swapped = (p: Pose[]) => [{ playerId: 0, landmarks: p[1].landmarks }, { playerId: 1, landmarks: p[0].landmarks }];
+  // The median of the last few results still says everyone is where they were.
+  assert.equal(send(2500, swapped(poses())), false);
+  assert.equal(calibration.status(2500).complete, false);
+  // As the swap carries on, both holds start again.
+  hold(2600, 2800, swapped);
+  assert.ok(calibration.status(2800).players.every(p => p === 'moving' || p === 'holding'));
+  assert.equal(calibration.status(2800).complete, false);
+});
+
+test('one jittery result at the moment of completion only delays it by a result', () => {
+  const { send, hold } = camera(1);
+  hold(0, 2400);
+  const jitter = poses(1); jitter[0].landmarks[23].x += 0.08; jitter[0].landmarks[24].x += 0.08;
+  assert.equal(send(2500, jitter), false);
+  assert.equal(send(2600), true);
+});
+
+test('jitter in a still player\'s results delays their hold by half a second at most', () => {
+  // The model's jitter moving the median by most of a tolerance from result to result.
+  const { calibration, send } = camera(1);
+  const [ls, rs, lh, rh] = [11, 12, 23, 24].map(i => standingPose(0.5)[i]);
+  const aspect = 1280 / 720, torso = Math.hypot(((ls.x + rs.x - lh.x - rh.x) / 2) * aspect, (ls.y + rs.y - lh.y - rh.y) / 2);
+  const tolerance = 0.15 * torso / aspect;
+  let done = -1;
+  for (let n = 0; done < 0 && n < 120; n++) if (send(n * 33, [{ playerId: 0, landmarks: standingPose(0.5 + (n % 2 ? 0.45 : -0.45) * tolerance) }])) done = n * 33;
+  assert.ok(done > 0 && done <= 500 + WEBCAM_STILL_MS + 33, `completed at ${done} ms`);
+  assert.equal(calibration.status(done).complete, true);
 });

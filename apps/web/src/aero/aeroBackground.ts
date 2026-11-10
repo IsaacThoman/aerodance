@@ -46,7 +46,7 @@ export type {
   AeroBackgroundHandle, AeroBackgroundOptions, AeroPart, AeroSettings, AeroTelemetry, AeroWorldHandle, AeroWorldOptions, AeroZone,
 } from './types.ts';
 
-export function createAeroWorld({ renderer, scene, camera, speed = 1, start = 0.08, onTelemetry = null, hide = [] }: AeroWorldOptions): AeroWorldHandle {
+export function createAeroWorld({ renderer, scene, camera, speed = 1, start = 0.08, onTelemetry = null, hide = [], steer = null }: AeroWorldOptions): AeroWorldHandle {
   const ctx = createAeroContext({ renderer, scene, camera });
 
   // Each part's objects, so diagnostics can leave parts out (options.hide) without changing
@@ -131,6 +131,7 @@ export function createAeroWorld({ renderer, scene, camera, speed = 1, start = 0.
     elapsed += dt; const t = elapsed; ctx.time.value = t; frameN++;
 
     const { position: p, progress: u, speed: v } = flight.update(dt, t);
+    steer?.(camera);
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     if (on('lamps')) lamps.update(frustum, renderer.shadowMap.enabled && renderer.shadowMap.needsUpdate);
     if (on('grass')) grass.update(frustum);

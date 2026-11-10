@@ -43,6 +43,11 @@ export function createSkinBounds(model: Object3D): () => void {
   const skin = new Matrix4();
   return () => {
     for (const { mesh, bone, bind, rest } of parts) {
+      // Posing updates the bones, not the meshes beside them, and an attached mesh's
+      // bindMatrixInverse follows its world matrix only when that updates. Left to the render,
+      // the first frame after the character is placed puts every sphere off by that placement,
+      // and parts away from the middle get culled.
+      mesh.updateMatrixWorld(true);
       // The full skin transform maps the geometry's rest sphere into current mesh space.
       skin.multiplyMatrices(mesh.bindMatrixInverse, bone.matrixWorld).multiply(bind);
       mesh.boundingSphere!.center.copy(rest.center).applyMatrix4(skin);

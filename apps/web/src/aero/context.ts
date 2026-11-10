@@ -110,6 +110,8 @@ export function createAeroContext({ renderer, scene, camera }: ContextOptions): 
     const free = (o: Disposable | null | undefined) => { if (o && !seen.has(o)) { seen.add(o); o.dispose(); } };
     for (const r of [root, ...overlays]) r.traverse((o) => {
       if (o instanceof THREE.InstancedMesh) o.dispose();
+      // The sun's shadow map.
+      if (o instanceof THREE.Light) o.dispose();
       if (!isDrawable(o)) return;
       free(o.geometry);
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
@@ -119,7 +121,6 @@ export function createAeroContext({ renderer, scene, camera }: ContextOptions): 
     });
     textures.forEach(free);
     disposables.forEach(free);
-    if (scene.environment) scene.environment.dispose();
     Object.assign(renderer, { autoClear: prev.autoClear, toneMapping: prev.toneMapping });
     Object.assign(renderer.shadowMap, { enabled: prev.shadow, type: prev.shadowType, autoUpdate: prev.shadowAuto });
     Object.assign(scene, { fog: prev.fog, environment: prev.environment, background: prev.background, matrixAutoUpdate: prev.sceneMatrixAutoUpdate });

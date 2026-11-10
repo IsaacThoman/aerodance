@@ -1,0 +1,22 @@
+{
+  "id": "look-skin-african-dim",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "African body and skin under dim_evening, same stature (compare light-dim_evening, the asian base in the same light).",
+  "people": {
+    "0": {
+      "body": {
+        "race": {
+          "african": 1,
+          "asian": 0,
+          "caucasian": 0
+        },
+        "height": 0.47
+      },
+      "skin": "young_african_female"
+    }
+  },
+  "lighting": {
+    "preset": "dim_evening"
+  }
+}

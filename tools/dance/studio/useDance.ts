@@ -10,7 +10,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dance } from '../format.ts';
 import { applyOps as applyLocally } from '../ops.ts';
 import type { ChangeSummary } from '../ops.ts';
-import { ApiError, applyOps, fetchDance, history, redo as redoRemote, undo as undoRemote, watchRevisions } from './data.ts';
+import { ApiError, applyOps, fetchCurrentDance, history, redo as redoRemote, undo as undoRemote, watchRevisions } from './data.ts';
+import type { Progress } from './data.ts';
 
 /** Ops that read tracking can't be previewed locally; they wait for the bridge. */
 const NEEDS_TRACKING = new Set(['draft', 'fit-body']);
@@ -23,6 +24,10 @@ export interface DanceStore {
   /** What to show: a drag's preview or edits still being saved, else the saved dance. */
   dance: Dance | null;
   saved: Dance | null;
+  /** The Studio was opened on a folder with no dance yet. */
+  missing: boolean;
+  /** Long work the bridge is doing (tracking), as it reports it. */
+  progress: Progress | null;
   error: string;
   notice: string;
   busy: boolean;
@@ -35,10 +40,14 @@ export interface DanceStore {
   preview(ops: unknown[] | null): void;
   undo(): Promise<void>;
   redo(): Promise<void>;
+  /** Reads the dance again (after creating it, or attaching sources). */
+  reload(): Promise<void>;
 }
 export function useDance(): DanceStore {
   const [saved, setSaved] = useState<Dance | null>(null);
   const [preview, setPreview] = useState<Dance | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -47,7 +56,9 @@ export function useDance(): DanceStore {
   // Edits waiting to be saved: the queue they run in, how many, and what they add up to.
   const queue = useRef<Promise<unknown>>(Promise.resolve()), waiting = useRef(0), optimistic = useRef<Dance | null>(null);
   const refresh = useCallback(async () => {
-    const [next, steps] = await Promise.all([fetchDance(), history()]);
+    const [next, steps] = await Promise.all([fetchCurrentDance(), history()]);
+    setMissing(next === null);
+    if (!next) return null;
     const text = JSON.stringify(next);
     if (text !== shownJson.current) { shownJson.current = text; current.current = next; setSaved(next); }
     setLog(steps);
@@ -55,8 +66,8 @@ export function useDance(): DanceStore {
   }, []);
   useEffect(() => {
     refresh().catch(e => setError(String(e instanceof Error ? e.message : e)));
-    // Any change, including a hand edit that kept the revision.
-    return watchRevisions(() => { refresh().catch(() => {}); });
+    // Any change, including a hand edit that kept the revision, and the dance being created.
+    return watchRevisions(() => { refresh().catch(() => {}); }, setProgress);
   }, [refresh]);
   const failed = (e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
@@ -121,7 +132,7 @@ export function useDance(): DanceStore {
     } finally { setBusy(false); }
   }, [refresh]);
   return {
-    dance: preview ?? saved, saved, error, notice, busy, history: log, setError, setNotice,
-    apply, preview: showPreview, undo: () => step('undo'), redo: () => step('redo'),
+    dance: preview ?? saved, saved, missing, progress, error, notice, busy, history: log, setError, setNotice,
+    apply, preview: showPreview, undo: () => step('undo'), redo: () => step('redo'), reload: async () => { await refresh(); },
   };
 }

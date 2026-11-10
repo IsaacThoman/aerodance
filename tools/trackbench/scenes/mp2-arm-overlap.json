@@ -1,0 +1,87 @@
+{
+  "id": "mp2-arm-overlap",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "Depth-separated neighbours have overlapping arm projections while dancing, testing limb confusion without bodily collisions.",
+  "people": {
+    "0": {
+      "place": {
+        "x": -0.38,
+        "y": -1.35,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -0.38,
+            -1.35
+          ],
+          "duration_s": 2,
+          "from": [
+            -0.38,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "1": {
+      "place": {
+        "x": 0.38,
+        "y": 0.25,
+        "facing_deg": 0
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            0.38,
+            0.25
+          ],
+          "duration_s": 2,
+          "from": [
+            0.38,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    }
+  },
+  "camera": {
+    "height_m": 1,
+    "distance_m": 5.0,
+    "look_at": [
+      0,
+      0,
+      0.95
+    ],
+    "hfov_deg": 65,
+    "yaw_deg": 0,
+    "roll_deg": 0,
+    "orientation": "landscape",
+    "shake": null,
+    "events": []
+  }
+}

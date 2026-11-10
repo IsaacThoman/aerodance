@@ -1,6 +1,7 @@
-import { Suspense, useMemo } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import type { RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
 import Character from '../../character/Character.tsx';
 import type { CharacterAppearance } from '../../character/Character.tsx';
 import { leadOf, sampleDancers } from '../../pose/song.ts';
@@ -13,6 +14,7 @@ import type { CharacterPose } from '../../pose/performance.ts';
 import type { MotionTake } from '../../pose/motion.ts';
 import type { DancerPlacement } from '../catalog.ts';
 import DancerEntrance from './DancerEntrance.tsx';
+import { dancerFeet } from './hooks.ts';
 import type { DancerRoutine } from './routine.ts';
 
 export type { DancerRoutine };
@@ -106,6 +108,19 @@ export default function Dancers({ motion, playback, routine, position = [0, 0, 0
   const count = tracks?.length ?? 2;
   const cast = routine?.cast;
   const dressed = useMemo(() => (cast ? castLooks(cast, count, looks) : looks), [cast, count, looks]);
+  const spots = useRef<(THREE.Group | null)[]>([]);
+  const feet = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    if (!tracks) return;
+    dancerFeet.length = count;
+    for (let i = 0; i < count; i++) {
+      const spot = spots.current[i];
+      if (!spot) continue;
+      feet.setFromMatrixPosition(spot.matrixWorld).project(camera);
+      dancerFeet[i] = { x: (feet.x + 1) / 2, y: (1 - feet.y) / 2 };
+    }
+  });
+  useEffect(() => () => { dancerFeet.length = 0; }, []);
   return (
     <group position={[position[0], position[1] + FOOT_CLEARANCE * scale, position[2]]} rotation={[0, rotationY, 0]} scale={scale}>
       <Suspense fallback={null}>
@@ -113,7 +128,7 @@ export default function Dancers({ motion, playback, routine, position = [0, 0, 0
           const spot = dancerSpot(person, count, spacing);
           const look = dressed[person % dressed.length];
           return (
-            <group key={person} position={[spot.x, 0, 0]} scale={spot.scale}>
+            <group key={person} ref={(o) => { spots.current[person] = o; }} position={[spot.x, 0, 0]} scale={spot.scale}>
               <DancerEntrance timeMs={routine?.entranceTimeMs} color={look.color} seed={person + 1}>
                 <group scale={[-1, 1, 1]}>
                   {tracks ? (

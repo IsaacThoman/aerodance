@@ -1,0 +1,41 @@
+{
+  "id": "mot-side",
+  "base": "base-solo",
+  "category": "motion",
+  "description": "Dances side-on (facing image right) after a frontal calibration hold.",
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 0.5
+        },
+        {
+          "type": "walk",
+          "from": [
+            -2.4,
+            0.6
+          ],
+          "to": [
+            0,
+            0
+          ],
+          "duration_s": 2.0
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 4.0
+        },
+        {
+          "type": "dance",
+          "clip": "gMH_sFM_cAll_d22_mMH3_ch04",
+          "clip_start_s": 4.0,
+          "duration_s": 16.0,
+          "speed": 1.0,
+          "facing_deg": 90
+        }
+      ]
+    }
+  }
+}

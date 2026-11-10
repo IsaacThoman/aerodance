@@ -68,9 +68,14 @@ interface WaterUniforms {
   time: THREE.IUniform<number>;
   eye: THREE.IUniform<THREE.Vector3>;
   size: THREE.IUniform<number>;
+  /** The reflection, drawn into a render target Water keeps to itself. */
+  mirrorSampler: THREE.IUniform<THREE.Texture>;
 }
 
 interface Boat { x: number; z: number; dir: number; v: number; ph: number; heel: number; scale: number }
+
+/** The name of each of the lake boats' meshes (sailboats and launches drifting along it). */
+export const LAKE_BOATS = 'lake-boats';
 
 /** One instanced mesh per boat part; each part sits at a fixed place in its boat. */
 interface BoatPart { mesh: THREE.InstancedMesh; local: THREE.Matrix4; boats: number[] }
@@ -123,6 +128,8 @@ function buildBoats(ctx: AeroContext, glassMat: THREE.Material) {
   }
   const parts: BoatPart[] = specs.map(([geo, mat, local], k) => {
     const mesh = new THREE.InstancedMesh(geo, mat, members[k].length);
+    // (Named, so a minigame racing on the lake can clear it: minigames/dragon-regatta.)
+    mesh.name = LAKE_BOATS;
     members[k].forEach((m, i) => { if (m.color) mesh.setColorAt(i, m.color); });
     mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     if (k === WAKE) mesh.renderOrder = 1;
@@ -155,6 +162,8 @@ export function buildLake(ctx: AeroContext, wNorm: THREE.Texture, glassMat: THRE
   });
   const uniforms = water.material.uniforms as WaterUniforms;
   uniforms.size.value = 2.2;
+  // Water has no dispose of its own: free its reflection's target with the world.
+  ctx.disposables.push(uniforms.mirrorSampler.value.renderTarget);
   water.rotation.x = -Math.PI / 2; water.position.set(0, 0.4, -375);
   ctx.root.add(water);
   // Skip the reflection pass while the drone is down in the meadow, where the lake is hidden.

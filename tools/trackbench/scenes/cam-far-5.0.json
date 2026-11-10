@@ -1,0 +1,9 @@
+{
+  "id": "cam-far-5.0",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera 5.0 m away: the player is small.",
+  "camera": {
+    "distance_m": 5.0
+  }
+}

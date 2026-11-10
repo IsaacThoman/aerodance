@@ -1,0 +1,9 @@
+{
+  "id": "cam-roll-6",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera rolled 6 deg (phone propped crooked).",
+  "camera": {
+    "roll_deg": 6
+  }
+}

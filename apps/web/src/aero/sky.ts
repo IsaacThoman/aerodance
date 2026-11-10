@@ -61,7 +61,10 @@ export function buildSky(ctx: AeroContext): SkyDome {
     const es = new THREE.Scene();
     const m = new THREE.Mesh(new THREE.SphereGeometry(40, 48, 24), skyMat(true));
     es.add(m);
-    ctx.scene.environment = pm.fromScene(es, 0.02, 0.1, 100).texture;
+    // Freed with the world as a target: disposing a target's texture alone doesn't free it.
+    const env = pm.fromScene(es, 0.02, 0.1, 100);
+    ctx.scene.environment = env.texture;
+    ctx.disposables.push(env);
     m.geometry.dispose(); m.material.dispose(); pm.dispose();
   }
   const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTex(ctx), blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));

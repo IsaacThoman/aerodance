@@ -1,22 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, drawCaps, drawDancer, drawDarkGlassPanel, drawGlassButton, drawHeader, drawHeadline as headline, drawProgress, drawShadowText, drawStatusDot,
-  ellipsize, glassCorner, ICONS, paragraph, roundRect, text,
+  FONT, drawCaps, drawDancer, drawDarkGlassPanel, drawGlassButton, drawHeader, drawHeadline as headline, drawProgress, drawShadowText,
+  ellipsize, glassCorner, ICONS, roundRect,
 } from '../ui/draw.ts';
 import type { Face, Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import useGlassBlur, { buttonPane, panelPane } from '../ui/useGlassBlur.ts';
-import type { CanvasUI } from '../ui/useCanvasUI.ts';
-import { CameraSetup, cameraWidgets, drawCameraPicker } from '../connect/cameraSetup.ts';
+import { CameraSetup, cameraWidgets } from '../connect/cameraSetup.ts';
 import type { CameraWidget } from '../connect/cameraSetup.ts';
-import { drawPairing } from '../connect/pairing.ts';
 import { COUNTDOWN_MS, READY_HOLD_MS } from './GameSession.ts';
 import type { GamePhase, GameSession, Readiness } from './GameSession.ts';
-import { WEBCAM_STILL_MS } from './webcamCalibration.ts';
-import type { CalibrationPlayerStatus, CalibrationStatus } from './webcamCalibration.ts';
+import { drawCalibration, drawCameraInterrupted } from './calibrationCard.ts';
 import type { JudgementEvent, PlayerResult, WindowJudgement } from '../../../../packages/score/scorer.ts';
-import { drawWebcamPreview, SKELETON } from '../../../../packages/pose/browser/preview.ts';
 import type { CameraInput } from '../pose/CameraInput.ts';
 import { PLAYERS, backOut, clamp01 } from './results.ts';
 import { watchInterruptions } from './interruptions.ts';
@@ -70,26 +66,12 @@ const JUDGEMENT_LOOK: Record<WindowJudgement, [label: string, face: Face]> = {
   lost: ['LOST TRACKING', ['#ffffff', '#e2e9f2', '#9fb3c8']],
 };
 const POPUP_S = 0.9;
-// Each status's label, colour and a short label for the narrow columns of three or four players.
-const CALIBRATION_STATUS: Record<CalibrationPlayerStatus, [label: string, color: string, short: string]> = {
-  missing: ['Step into view', '#ffffff', 'Step in'],
-  body: ['Keep your whole body in view', '#ffe27a', 'Whole body'],
-  moving: ['Movement detected — hold still', '#ffe27a', 'Hold still!'],
-  holding: ['Hold still…', '#bff4ff', 'Hold still…'],
-  ready: ['Calibrated!', '#9effdf', 'Calibrated!'],
-};
-
 // The song plays with the live camera (not a replay, and not with No camera).
 const usesCamera = (session: GameSession) => !!session.source && session.source.view.sourceKind !== 'replay' && !session.withoutCamera;
 // The players' HUD and the mirror show during the song.
 const SONG_PHASES: readonly GamePhase[] = ['countdown', 'playing', 'paused', 'finishing'];
 // The pause screen's veil over the song.
 const VEIL = 0.35;
-
-const fmt = (ms: number) => {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-};
 
 // Without a camera (tracking false) there is nothing to say about tracking. A player sharing
 // a dancer someone before them follows (lead) is shown that dancer's colour beside their name:
@@ -145,122 +127,10 @@ function drawMirror(g: CanvasRenderingContext2D, { x, y, w, h }: Rect) {
   g.restore();
 }
 
-// The webcam setup card, centred: the mirrored preview, then the camera picker. Over the
-// preview, each player's status along the top and the shared hold along the bottom. With the
-// camera off, the preview is a big Start camera button (or with No camera, a button that plays
-// without one).
-/** Where each player last stood in the calibration preview (mirrored, as a fraction of its width). */
-const lastStood = new WeakMap<GameSession, number[]>();
-function drawCalibration(g: CanvasRenderingContext2D, session: GameSession, calibration: CalibrationStatus, camera: CameraSetup, s: CanvasUI) {
-  const { GAME_READY_BACK, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_PROGRESS } = gameLayout(s.w);
-  const h = s.hover;
-  const { connection, source } = camera.target();
-  const preview = GAME_CALIBRATION_PREVIEW;
-  const mid = preview.x + preview.w / 2;
-  const live = connection.status === 'connected';
-  drawHeader(g, GAME_READY_BACK, 'CALIBRATION', h.quit ?? 0);
-  drawDarkGlassPanel(g, GAME_CALIBRATION_CARD, 30);
-
-  const picture = drawWebcamPreview(g, source.video, connection.snapshot, preview, session.playerCount, '', { frame: connection.frame, labelTop: preview.y + 66 });
-  const pairing = camera.pairing();
-  // The pairing card goes up as soon as the phone is picked; its code fills in once it comes.
-  if (pairing || camera.awaitingCode()) drawPairing(g, { x: preview.x + 40, y: preview.y + 30, w: preview.w - 80, h: preview.h - 60 }, pairing);
-  else if (!source.video && !connection.frame) drawStartCamera(g, camera, s);
-  drawCameraPicker(g, GAME_CALIBRATION_CAMERA, connection, h);
-
-  if (live) {
-    // The hold sits on a fade along the bottom, to read over the camera's picture.
-    const top = preview.y + preview.h - 110;
-    const fade = g.createLinearGradient(0, top, 0, preview.y + preview.h);
-    fade.addColorStop(0, 'rgba(4, 34, 61, 0)');
-    fade.addColorStop(1, 'rgba(4, 34, 61, 0.85)');
-    g.fillStyle = fade;
-    g.fillRect(preview.x, top, preview.w, 110);
-    // The players' statuses sit on a fade along the top, too.
-    const head = g.createLinearGradient(0, preview.y, 0, preview.y + 72);
-    head.addColorStop(0, 'rgba(4, 34, 61, 0.75)');
-    head.addColorStop(1, 'rgba(4, 34, 61, 0)');
-    g.fillStyle = head;
-    g.fillRect(preview.x, preview.y, preview.w, 72);
-    // Each player's status under their label, in a column each across the camera picture in the
-    // order they stand (mirrored, as the preview shows them; a player out of view keeps where
-    // they last stood, or their number's place), short where the columns are narrow. The preview
-    // labels each player over their head in the same colour.
-    const column = picture.w / session.playerCount;
-    const crowd = session.playerCount > 2;
-    const size = crowd ? 17 : 20;
-    const stood = lastStood.get(session) ?? Array.from({ length: session.playerCount }, (_, id) => (id + 0.5) / session.playerCount);
-    lastStood.set(session, stood);
-    const standing = (id: number) => {
-      const pose = connection.snapshot?.poses.find(p => p.playerId === id);
-      if (pose) stood[id] = 1 - (pose.landmarks[23].x + pose.landmarks[24].x) / 2;
-      return stood[id];
-    };
-    const columns = calibration.players.map((_, id) => id).sort((a, b) => standing(a) - standing(b));
-    calibration.players.forEach((status, id) => {
-      const [label, color, short] = CALIBRATION_STATUS[status];
-      const cx = picture.x + column * (columns.indexOf(id) + 0.5);
-      // (One player's label too: the fade dims the preview's own.)
-      drawShadowText(g, `P${id + 1}`, cx, preview.y + 24, { size: 16, weight: 800, align: 'center', color: SKELETON[id % SKELETON.length] });
-      g.font = `800 ${size}px ${FONT}`;
-      const fits = !crowd && g.measureText(label).width <= column - 24;
-      drawShadowText(g, ellipsize(g, fits ? label : short, column - 24), cx, preview.y + 50, { size, weight: 800, align: 'center', color });
-    });
-    const remaining = ((1 - calibration.progress) * WEBCAM_STILL_MS / 1000).toFixed(1);
-    const message = calibration.complete ? 'Calibrated! Starting…'
-      : calibration.progress > 0 ? `Keep still · ${remaining} seconds to go`
-      : session.playerCount > 2 && calibration.players.includes('missing') ? 'Stand side by side, feet in view'
-      : 'Stand still for 2.5 seconds';
-    drawShadowText(g, message, mid, GAME_CALIBRATION_PROGRESS.y - 24, { size: 22, weight: 800, align: 'center' });
-    drawProgress(g, GAME_CALIBRATION_PROGRESS, calibration.progress);
-  }
-}
-
-// Over the empty preview: a camera button while the camera is off (the whole preview presses
-// it, and shows why the last start failed), or a note while it starts. With No camera, the
-// button continues without one.
-function drawStartCamera(g: CanvasRenderingContext2D, camera: CameraSetup, s: CanvasUI) {
-  const { GAME_CALIBRATION_PREVIEW } = gameLayout(s.w);
-  const preview = GAME_CALIBRATION_PREVIEW;
-  const cx = preview.x + preview.w / 2;
-  const cy = preview.y + preview.h / 2;
-  const phone = camera.phone();
-  const none = camera.none();
-  if (camera.active()) {
-    text(g, phone ? 'Connecting to your phone…' : 'Starting camera…', cx, cy, { size: 24, weight: 700, align: 'center', color: '#e6f8ff' });
-    return;
-  }
-  const failed = !none && camera.failed();
-  const top = failed ? cy - 40 : cy;
-  const hover = s.hover[none ? 'skip' : 'start-camera'] ?? 0;
-  g.save();
-  g.fillStyle = `rgba(120, 220, 255, ${hover * 0.08})`;
-  g.fillRect(preview.x, preview.y, preview.w, preview.h);
-  g.globalAlpha *= 0.85 + hover * 0.15;
-  g.strokeStyle = '#ffffff';
-  g.lineWidth = 6;
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-  (none ? ICONS.noCamera : phone ? ICONS.phone : ICONS.camera)(g, cx, top - 24, 100);
-  g.restore();
-  text(g, failed ? 'Try again' : none ? 'No camera' : 'Start camera', cx, top + 44, { size: 26, weight: 800, align: 'center' });
-  if (failed) paragraph(g, camera.message(), cx, top + 86, preview.w - 120, { size: 19, lineH: 25, align: 'center', color: '#ffb38a' });
-}
-
-// Under the pause panel while the camera is muted: why nobody is tracked, after its status light
-// (as on the calibration screen).
-function drawCameraInterrupted(g: CanvasRenderingContext2D, camera: CameraSetup, status: CameraInput['view']['status'], y: number, width: number) {
-  g.font = `700 24px ${FONT}`;
-  const message = ellipsize(g, camera.message(), width - 140);
-  const x = width / 2 - g.measureText(message).width / 2 + 14;
-  drawStatusDot(g, x - 26, y, status, 9);
-  drawShadowText(g, message, x, y, { size: 24, weight: 700 });
-}
-
 export default function GameScreen({ visible = false, session, camera: source, onQuit, onRetry }: GameScreenProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
-  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_PROGRESS, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
+  const { GAME_CALIBRATION_CAMERA, GAME_CALIBRATION_CARD, GAME_CALIBRATION_PREVIEW, GAME_MIRROR, GAME_PAUSE, GAME_PAUSE_PANEL, GAME_QUIT, GAME_READY_BACK, GAME_READY_START, GAME_RESTART, GAME_RESUME } = gameLayout(displayDesign(size.width, size.height).w);
   const props = useRef({ visible, session, source, onQuit, onRetry });
   props.current = { visible, session, source, onQuit, onRetry };
   const st = useRef<{ alpha: number; popups: Popup[]; reported: string; session?: GameSession | null; screen?: string }>({ alpha: 0, popups: [], reported: '' }).current;
@@ -432,12 +302,6 @@ export default function GameScreen({ visible = false, session, camera: source, o
         ICONS.pause(g, GAME_PAUSE.x, GAME_PAUSE.y, 36);
         g.restore();
       }
-      const t = session.loaded().timeMs() - song.playableStartMs;
-      const total = song.playableEndMs - song.playableStartMs;
-      drawProgress(g, GAME_PROGRESS, t / total);
-      g.font = `700 22px ${FONT}`;
-      drawShadowText(g, ellipsize(g, song.title, 420), GAME_PROGRESS.x, GAME_PROGRESS.y - 22, { size: 22 });
-      drawShadowText(g, `${fmt(t)} / ${fmt(total)}`, GAME_PROGRESS.x + GAME_PROGRESS.w, GAME_PROGRESS.y - 22, { size: 22, align: 'right' });
 
       if (ph === 'countdown') {
         const left = session.countdownMs();

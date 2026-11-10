@@ -432,6 +432,19 @@ export const ICONS = {
     g.lineTo(cx + a, cy - a * 0.6);
     g.stroke();
   },
+  // Three bubbles, a glint in the biggest (Minigames).
+  bubbles(g, cx, cy, r) {
+    g.beginPath();
+    g.arc(cx - r * 0.12, cy + r * 0.1, r * 0.3, 0, TAU);
+    g.moveTo(cx + r * 0.47, cy - r * 0.2);
+    g.arc(cx + r * 0.3, cy - r * 0.2, r * 0.17, 0, TAU);
+    g.moveTo(cx + r * 0.12, cy - r * 0.48);
+    g.arc(cx + r * 0.03, cy - r * 0.48, r * 0.09, 0, TAU);
+    g.stroke();
+    g.beginPath();
+    g.arc(cx - r * 0.12, cy + r * 0.1, r * 0.17, Math.PI * 1.1, Math.PI * 1.45);
+    g.stroke();
+  },
   // An aero dancer (choose who follows which dancer).
   dancer(g, cx, cy, r) {
     drawDancer(g, cx, cy + r * 0.6, r * 1.24, g.strokeStyle as string);
@@ -796,6 +809,47 @@ export function drawGlassCircle(g: Ctx, c: Circle, hover: number) {
   g.ellipse(c.x, c.y - c.r * 0.45, c.r * 0.7, c.r * 0.38, 0, 0, TAU);
   g.fillStyle = 'rgba(255,255,255,0.16)';
   g.fill();
+}
+
+// A dial's count (the players screen's): heavy white type with the title's embossed shadow and
+// cool glossy face, centred on (x, cy).
+export function drawDialCount(g: Ctx, n: number, x: number, cy: number, size = 150) {
+  const y = cy + size * 0.36;
+  g.save();
+  g.font = `800 ${size}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  g.shadowColor = 'rgba(0, 34, 84, 0.75)';
+  g.shadowBlur = 4;
+  g.shadowOffsetY = 7;
+  g.fillStyle = '#ffffff';
+  g.fillText(String(n), x, y);
+  g.shadowColor = 'transparent';
+  const face = g.createLinearGradient(0, y - size * 0.75, 0, y);
+  face.addColorStop(0, '#ffffff');
+  face.addColorStop(0.55, '#ffffff');
+  face.addColorStop(1, '#d5f3ff');
+  g.fillStyle = face;
+  g.fillText(String(n), x, y);
+  g.restore();
+}
+
+// A glass dial button with a white minus or plus, dimmed at the end of the range.
+export function drawDialStep(g: Ctx, c: Circle, plus: boolean, hover: number, press: number, enabled: boolean) {
+  g.save();
+  if (!enabled) { g.globalAlpha *= 0.4; hover = 0; press = 0; }
+  const y = c.y + press * 3;
+  drawGlassCircle(g, { ...c, y }, hover);
+  const a = c.r * 0.38;
+  g.beginPath();
+  g.moveTo(c.x - a, y);
+  g.lineTo(c.x + a, y);
+  if (plus) { g.moveTo(c.x, y - a); g.lineTo(c.x, y + a); }
+  g.lineCap = 'round';
+  g.lineWidth = 6;
+  g.strokeStyle = '#ffffff';
+  g.stroke();
+  g.restore();
 }
 
 // Submenu header: glass back button (circle `back`) and a small-caps heading beside it.

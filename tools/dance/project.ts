@@ -16,7 +16,7 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 
 import path from 'node:path';
 import { applyOps } from './ops.ts';
 import type { ChangeSummary } from './ops.ts';
-import { assertDance, newDance } from './format.ts';
+import { assertDance, newDance, upgradeDance } from './format.ts';
 import type { Dance, FileRef } from './format.ts';
 import { decodeTracking } from './tracking.ts';
 import type { TrackingData } from './tracking.ts';
@@ -73,7 +73,7 @@ export class DanceProject {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw Error(`No dance at ${this.dir} (no ${DANCE_FILE}); create one with \`dance init ${this.dir}\``, { cause: e });
       throw e;
     }
-    const dance: unknown = JSON.parse(text);
+    const dance = upgradeDance(JSON.parse(text));
     assertDance(dance);
     return dance;
   }
@@ -129,7 +129,7 @@ export class DanceProject {
     catch { throw Error(`Revision ${n} isn't kept (the history keeps the last ${HISTORY_LIMIT * 2})`); }
   }
   private async revision(n: number): Promise<Dance> {
-    const dance: unknown = JSON.parse(await readFile(this.meta('revisions', `${n}.json`), 'utf8'));
+    const dance = upgradeDance(JSON.parse(await readFile(this.meta('revisions', `${n}.json`), 'utf8')));
     assertDance(dance);
     return dance;
   }
@@ -286,9 +286,12 @@ async function videoProxy(project: DanceProject, video: string, sha256: string, 
   }
   return rel;
 }
-/** Adds or replaces the project's audio (and with `video`, the video and frame) as a new revision. */
-export async function attachSources(project: DanceProject, { audio, video, link = false, proxy, log = () => {} }:
-  { audio?: string; video?: string; link?: boolean; proxy?: boolean; log?: (m: string) => void }): Promise<Dance> {
+/**
+ * Adds or replaces the project's audio (and with `video`, the video and frame) as a new revision.
+ * A replaced video keeps the old one's place on the song clock unless `videoStartMs` gives one.
+ */
+export async function attachSources(project: DanceProject, { audio, video, videoStartMs, link = false, proxy, log = () => {} }:
+  { audio?: string; video?: string; videoStartMs?: number; link?: boolean; proxy?: boolean; log?: (m: string) => void }): Promise<Dance> {
   // The slow part first (probing, hashing, copying, transcoding), then the change under the lock.
   let videoSource: { ref: FileRef; info: Awaited<ReturnType<typeof probeVideo>>; proxy: string | null } | null = null;
   if (video) {
@@ -305,7 +308,7 @@ export async function attachSources(project: DanceProject, { audio, video, link 
       if (next.frame.width / next.frame.height !== info.width / info.height && next.dancers.some(d => Object.keys(d.layers[0].channels).length))
         log(`Note: the frame changes from ${next.frame.width}×${next.frame.height} to ${info.width}×${info.height}; existing keys keep their frame coordinates`);
       next.sources.video = { ...ref, width: info.width, height: info.height, fps: info.fps, durationMs: info.durationMs,
-        startMs: next.sources.video?.startMs ?? 0, rate: next.sources.video?.rate ?? 1, proxy: videoSource.proxy };
+        startMs: videoStartMs ?? next.sources.video?.startMs ?? 0, rate: next.sources.video?.rate ?? 1, proxy: videoSource.proxy };
       next.frame = { width: info.width, height: info.height };
     }
     if (audioSource) {

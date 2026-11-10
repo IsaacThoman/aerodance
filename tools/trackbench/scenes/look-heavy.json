@@ -1,0 +1,14 @@
+{
+  "id": "look-heavy",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "Heavy body (weight 0.95, low muscle).",
+  "people": {
+    "0": {
+      "body": {
+        "weight": 0.95,
+        "muscle": 0.3
+      }
+    }
+  }
+}

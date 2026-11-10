@@ -123,6 +123,8 @@ test('contacts, exclusions, phrases, markers, layers and dancers validate as the
   assert.equal(dance.dancers[1].layers[1].weight, 0.5);
   assert.equal(dance.song.stage, 'club');
   assert.throws(() => applyOps(dance, [{ op: 'song', set: { stage: 'moon' } }]), /stage must be/);
+  // The removed reef stage is openreef now.
+  assert.equal(applyOps(dance, [{ op: 'song', set: { stage: 'reef' } }]).dance.song.stage, 'openreef');
   assert.throws(() => applyOps(dance, [{ op: 'layer', dancer: 'P2', action: 'remove', id: 'base' }]), /base layer cannot be removed/);
   assert.throws(() => applyOps(dance, [{ op: 'key', t: 0 }]), /Name the dancer/);
 });

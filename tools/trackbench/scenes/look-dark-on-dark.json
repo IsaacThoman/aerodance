@@ -1,0 +1,18 @@
+{
+  "id": "look-dark-on-dark",
+  "base": "light-dim_evening",
+  "category": "appearance",
+  "description": "Black clothes in the dim_evening living room (dark corners and sofa behind): one factor against light-dim_evening.",
+  "people": {
+    "0": {
+      "outfit": {
+        "recolor": {
+          "top": "#18181a",
+          "bottom": "#141416",
+          "shoes": "#101010",
+          "hair": "#2b1d15"
+        }
+      }
+    }
+  }
+}

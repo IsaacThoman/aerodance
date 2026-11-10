@@ -2,8 +2,10 @@
 //
 // The video with every dancer's skeleton (drag joints to key them), the dancers in-engine (as
 // filmed, or exactly as the game shows them on the song's stage), a timeline of keys, contacts
-// and beats, and panels for the selected dancer and control, the song, and review. Every edit
-// is an op saved to dance.json; edits from the CLI show up here as they happen.
+// and beats, and panels for the selected dancer and control, the song and its sources (add the
+// video or song, record yourself on the webcam, track and key from the video), and review. Every
+// edit is an op saved to dance.json; edits from the CLI show up here as they happen. Opened on a
+// folder with no dance yet, it makes one first.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CONTROLS, roundTime } from '../format.ts';
 import type { Control, Dance } from '../format.ts';
@@ -13,6 +15,7 @@ import { beatAt, parseTime } from '../time.ts';
 import { SongClock } from './clock.ts';
 import { fetchTracking } from './data.ts';
 import { ContactsPanel, ControlPanel, DancerPanel, LayersPanel, SongPanel, controlLabel } from './Inspector.tsx';
+import NewDance from './NewDance.tsx';
 import Review from './Review.tsx';
 import StagePane from './StagePane.tsx';
 import type { StageMode } from './StagePane.tsx';
@@ -22,6 +25,7 @@ import { useDance } from './useDance.ts';
 import VideoPane from './VideoPane.tsx';
 import type { Selection } from './VideoPane.tsx';
 import { DANCER_COLORS } from './skeleton.ts';
+import { RecordPanel, SourcesPanel } from './Sources.tsx';
 
 type Tab = 'edit' | 'song' | 'review';
 function useClockTime(clock: SongClock) {
@@ -129,6 +133,7 @@ export default function App() {
   }, [dance, dancer, keys, clock, apply, store, selection.control, frameMs, beatMs]);
 
   const focus = useMemo(() => solo && dance ? dance.dancers.findIndex(d => d.id === selection.dancer) : null, [solo, dance, selection.dancer]);
+  if (store.missing) return <NewDance onCreated={() => void store.reload()} />;
   if (!dance || !dancer) {
     return <div className="loading">{store.error ? <p className="error">{store.error}</p> : <p>Opening the dance…</p>}</div>;
   }
@@ -203,7 +208,12 @@ export default function App() {
               <ContactsPanel dancer={dancer} time={time} selection={selection} apply={apply} />
               <LayersPanel dancer={dancer} apply={apply} />
             </>}
-            {tab === 'song' && <SongPanel dance={dance} apply={apply} />}
+            {/* Kept while another tab shows, so the camera and a recording carry on. */}
+            <div className="tab-page" hidden={tab !== 'song'}>
+              <SongPanel dance={dance} apply={apply} />
+              <SourcesPanel dance={dance} apply={store.apply} progress={store.progress} onChanged={store.reload} />
+              <RecordPanel dance={dance} clock={clock} time={time} onChanged={store.reload} />
+            </div>
             {tab === 'review' && <Review dance={dance} onSeek={ms => { clock.pause(); clock.seek(ms); }} onSelect={s => { setSelection(s); setTab('edit'); }} />}
           </div>
           <footer className="sidebar-foot">{selection.control ? `${selection.dancer} · ${controlLabel(selection.control as Control)}` : selection.dancer}</footer>

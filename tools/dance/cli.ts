@@ -51,7 +51,8 @@ Look (needs Chromium; \`dance studio\` keeps one running)
   render <dir> --range a:b [--fps 30] [--views overlay,character] [--no-audio] [--out clip.mp4]
   track <dir> [--fps 15] [--range a:b] [--no-strips]   track the dancers with MediaPipe Lite (several
                                                dancers each get a strip of the picture around their home)
-  studio <dir> [--port 5310] [--dist]          the Studio (and a fast renderer for the CLI)
+  studio <dir> [--port 5310] [--dist]          the Studio (and a fast renderer for the CLI); on a folder with
+                                               no dance yet it makes one: a video or song, or a webcam recording
 
 Review and publish
   check <dir> [--range a:b] [--dancer P1]      likely problems, each with a time and a fix
@@ -220,6 +221,10 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const project = new DanceProject(dir);
+  if (command === 'studio') {
+    const { studio } = await import('./server.ts');
+    return studio(project, values as Values, json);
+  }
   const dance = await project.read();
   const dancersArg = opt(values, 'dancer');
   const dancers = dancersArg ? dancersArg.split(',').map(d => findDancer(dance, d)) : dance.dancers;
@@ -376,7 +381,7 @@ export async function main(argv: string[]): Promise<number> {
       print(json ? compiled.stats : `${compiled.stats.frames} frames from ${compiled.stats.candidates} samples`);
       return 0;
     }
-    case 'frames': case 'render': case 'track': case 'studio': {
+    case 'frames': case 'render': case 'track': {
       const { runBrowserCommand } = await import('./server.ts');
       return runBrowserCommand(command, project, dance, values as Values, json);
     }

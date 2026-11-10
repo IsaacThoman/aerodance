@@ -1,0 +1,185 @@
+{
+  "id": "mp2-cross-alike-heights",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "At the same camera and crossing as mp2-cross-alike, a short slim and a tall broad adult in identical outfits should remain distinguishable by body geometry.",
+  "duration_s": 24,
+  "phases": [
+    {
+      "name": "setup",
+      "start_s": 0,
+      "end_s": 7
+    },
+    {
+      "name": "dance",
+      "start_s": 7,
+      "end_s": 24
+    }
+  ],
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 5
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            0.25
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            0.25
+          ],
+          "duration_s": 1.5
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -0.55
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 10,
+          "duration_s": 9
+        }
+      ],
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.31,
+        "weight": 0.25,
+        "muscle": 0.3,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 0,
+          "caucasian": 1
+        }
+      },
+      "skin": "young_caucasian_male",
+      "hair": "short02",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#205bb0",
+          "bottom": "#30343f"
+        }
+      }
+    },
+    "1": {
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 5
+        },
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            -1.35
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -1.35
+          ],
+          "duration_s": 1.5
+        },
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.55
+          ],
+          "duration_s": 0.75
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 10,
+          "duration_s": 9
+        }
+      ],
+      "body": {
+        "gender": 1,
+        "age": 0.5,
+        "height": 0.62,
+        "weight": 0.75,
+        "muscle": 0.75,
+        "proportions": 0.5,
+        "race": {
+          "african": 0,
+          "asian": 0,
+          "caucasian": 1
+        }
+      },
+      "skin": "young_caucasian_male",
+      "hair": "short02",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit06",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#205bb0",
+          "bottom": "#30343f"
+        }
+      }
+    }
+  }
+}

@@ -207,3 +207,20 @@ test('each glass part sorts and culls where its bone has moved it', () => {
   assert.ok(world(hand).sub(rest).distanceTo(moved) < 1e-6, 'the sphere moves with the bone, through the mirrored parent');
   assert.ok(world(hand).z > world(body).z + 0.7);
 });
+test('bounds placed before the first render are where that render draws the parts', () => {
+  const model = cloneCharacter(asset.scene), parent = new Group();
+  parent.add(model);
+  parent.position.set(-2, 0, 0);
+  const update = createSkinBounds(model);
+  const parts: SkinnedMesh[] = [];
+  model.traverse((o) => { if (isSkinnedMesh(o)) parts.push(o); });
+  const world = (mesh: SkinnedMesh) => mesh.boundingSphere!.center.clone().applyMatrix4(mesh.matrixWorld);
+  // Posing updates only the bone hierarchy, as createPoseApplier does; then the renderer updates
+  // the meshes' world matrices and culls by the spheres placed in between.
+  model.getObjectByName('Root')!.updateWorldMatrix(true, true);
+  update();
+  model.updateMatrixWorld(true);
+  const drawn = parts.map(world);
+  update();
+  parts.forEach((part, i) => assert.ok(drawn[i].distanceTo(world(part)) < 1e-6, `${part.name} must not be offset by its parent twice`));
+});

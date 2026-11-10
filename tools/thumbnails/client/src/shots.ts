@@ -262,41 +262,6 @@ export const SHOTS: readonly Shot[] = [
     logo: { y: 215, size: 140, x: 'left' },
   },
 
-  // reef: glass dome on a sunlit reef.
-  {
-    id: 'reef-dome',
-    stage: 'reef',
-    time: 12,
-    pose: 5,
-    camera: { position: [0, 7, 19], target: [0, 1.8, -4], fov: 45 },
-    logo: { y: 215, size: 190 },
-  },
-  {
-    id: 'reef-hero',
-    stage: 'reef',
-    time: 12,
-    pose: 3.1,
-    camera: { position: [0, 1.2, 9], target: [0, 2.45, 0], fov: 42 },
-    logo: { y: 215, size: 190 },
-  },
-  {
-    id: 'reef-inside',
-    stage: 'reef',
-    time: 16,
-    pose: 9,
-    camera: { position: [-3.6, 0.9, 4.4], target: [0.3, 2.5, -0.4], fov: 60 },
-    dancers: { rotationY: -0.45 },
-    logo: { y: 215, size: 160, x: 'left' },
-  },
-  {
-    id: 'reef-crown',
-    stage: 'reef',
-    time: 12,
-    pose: 3.1,
-    camera: { position: [0, 0.35, 6.5], target: [0, 2.9, 0], fov: 54 },
-    logo: { y: 215, size: 190 },
-  },
-
   // openreef: the dancers on the open sand.
   {
     id: 'openreef-surface',

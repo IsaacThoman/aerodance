@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
 import Scene from './Scene.tsx';
 import MainMenu, { DEFAULT_PLAYERS } from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
@@ -10,7 +10,7 @@ import { loadGraphics, saveGraphics } from './menu/graphicsSettings.ts';
 import { applySound, duckMenuMusic } from './audio/mixer.ts';
 import SongSelect from './game/SongSelect.tsx';
 import type { SongScreen } from './game/SongSelect.tsx';
-import { castLift } from './game/layout.ts';
+import { CAST_LIFT, CAST_SHIFT } from './game/layout.ts';
 import GameScreen from './game/GameScreen.tsx';
 import ResultsScreen from './game/ResultsScreen.tsx';
 import { GameSession } from './game/GameSession.ts';
@@ -29,27 +29,28 @@ import type { Cast } from '../../../packages/pose/song.ts';
 import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
-import { DISPLAY_MODES, RENDER_SIZE, displayModeFor } from './display.ts';
+import { DISPLAY_MODES, displayModeFor } from './display.ts';
+import FixedRenderResolution from './FixedRenderResolution.tsx';
+import { isBackgroundId } from './backdrop/backgrounds.ts';
 import type { DisplayMode } from './display.ts';
 import { transferCode } from './songs/transferLink.ts';
-
-function FixedRenderResolution() {
-  const gl = useThree((state) => state.gl);
-  const size = useThree((state) => state.size);
-
-  useLayoutEffect(() => {
-    // Fiber tracks the displayed size for projection and pointer events. As on Wii,
-    // both display modes use the same buffer; widescreen is anamorphic.
-    gl.setSize(RENDER_SIZE.w, RENDER_SIZE.h, false);
-    gl.domElement.dataset.displayMode = displayModeFor(size.width, size.height);
-  }, [gl, size.width, size.height]);
-
-  return null;
-}
+import MinigameSelect from './minigames/MinigameSelect.tsx';
+import type { MinigameSelectProps } from './minigames/MinigameSelect.tsx';
+import MinigameScreen from './minigames/MinigameScreen.tsx';
+import MinigameResults from './minigames/MinigameResults.tsx';
+import type { MinigameResultsShow } from './minigames/MinigameResults.tsx';
+import MinigameView from './minigames/MinigameView.tsx';
+import { MinigameSession } from './minigames/MinigameSession.ts';
+import { recordMinigameBest } from './minigames/bestScores.ts';
+import type { MinigameDefinition, MinigamePhase } from './minigames/types.ts';
+import type { MinigameOptionValues } from './minigames/options.ts';
+import { createPuppetInput } from './pose/puppet/puppetCamera.ts';
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
 // late); ?input=recording&recording=<url> replays a pose recording. ?record downloads each
-// song's live poses as a recording on the results screen.
+// song's live poses as a recording on the results screen. ?input=puppet makes the camera a
+// puppet camera: pretend people, posed from window.puppet or `node scripts/play.ts puppet`
+// (pose/puppet/), tracked by the real webcam pipeline.
 const params = new URLSearchParams(location.search);
 // ?transfer=<code>, a transfer QR code's link (songs/transferLink.ts), opens Settings → Songs →
 // Transfer songs joining it. It comes off the address once read, so reloading doesn't join again.
@@ -70,7 +71,10 @@ function replaySource() {
   return source;
 }
 
-type AppScreen = 'menu' | 'songs' | 'game';
+const backgroundParam = params.get('background');
+const BACKGROUND_PARAM = isBackgroundId(backgroundParam) ? backgroundParam : null;
+
+type AppScreen = 'menu' | 'songs' | 'game' | 'minigames' | 'minigame';
 
 function download(name: string, bytes: Uint8Array<ArrayBuffer>) {
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
@@ -93,7 +97,8 @@ export default function App() {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select) or 'game' (a song).
+  // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select), 'game' (a song),
+  // 'minigames' (their list) or 'minigame' (one being played).
   const [screen, setScreen] = useState<AppScreen>('menu');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>(startTransfer ? 'transfer' : 'main');
   // The menu screen actually showing.
@@ -101,8 +106,8 @@ export default function App() {
   const [playerCount, setPlayerCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
   // The players screen's dial; it only becomes playerCount once Let's dance is pressed.
   const [dialCount, setDialCount] = useState<PlayerCount>(DEFAULT_PLAYERS);
-  // The live camera (this computer's webcam or a paired phone), with optional URL replay.
-  const [source] = useState(() => new CameraInput());
+  // The live camera (this computer's webcam, a paired phone, or ?input=puppet's puppet camera), with optional URL replay.
+  const [source] = useState(() => (params.get('input') === 'puppet' ? createPuppetInput(params) : new CameraInput()));
   const [replay] = useState(replaySource);
   const activeSource: PoseSource = replay ?? source;
   // Song Select's preview: the routine to dance, and how its stage is doing. On the dancers
@@ -116,7 +121,17 @@ export default function App() {
   const [game, setGame] = useState<GameSession | null>(null);
   const [gamePhase, setGamePhase] = useState<GamePhase | null>(null);
   const resultsShow = useRef<ResultsShow | null>(null);
+  // The minigame being played, its phase and its results; the game the list reopens on afterwards.
+  const [minigame, setMinigame] = useState<MinigameSession | null>(null);
+  const [minigamePhase, setMinigamePhase] = useState<MinigamePhase | null>(null);
+  const minigameResults = useRef<MinigameResultsShow | null>(null);
+  const [minigameOpen, setMinigameOpen] = useState<MinigameSelectProps['open']>(null);
+  const [minigamePreviewPlayers, setMinigamePreviewPlayers] = useState<PlayerCount | null>(null);
+  // The main menu's button a keyboard cursor goes back to (Minigames, coming back from their list).
+  const [menuRefocus, setMenuRefocus] = useState<string | undefined>(undefined);
   const [sound, setSound] = useState(loadSound);
+  // The skyline flight, unless ?background=<id> shows a backdrop for this visit.
+  const background = BACKGROUND_PARAM ?? 'skyline';
 
   useEffect(() => {
     if (!replay) return undefined;
@@ -143,8 +158,65 @@ export default function App() {
   }, [source, replay]);
   const leaveSongs = useCallback(() => {
     setMenuScreen('players');
+    setMenuRefocus(undefined);
     setScreen('menu');
   }, []);
+
+  // Minigames: their list from the main menu, and back.
+  const openMinigames = useCallback(() => {
+    setMinigameOpen(null);
+    setScreen('minigames');
+  }, []);
+  const leaveMinigames = useCallback(() => {
+    setMenuScreen('main');
+    setMenuRefocus('minigames');
+    setScreen('menu');
+  }, []);
+  // Play on a game's preview: a session with that many players and its settings, the camera set up for them.
+  const startMinigame = useCallback((game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
+    replay?.setPlayerCount(count);
+    source.setPlayerCount(count).catch(() => {});
+    const session = new MinigameSession({ game, playerCount: count, source: activeSource, options });
+    // In development (and with the puppet camera), window.minigame is the round, for poking at
+    // from play.ts: `eval "minigame.players[0].body[16]"`.
+    if (import.meta.env.DEV || params.get('input') === 'puppet') Reflect.set(window, 'minigame', session);
+    minigameResults.current = null;
+    setMinigame(session);
+    setMinigamePhase(session.phase());
+    setScreen('minigame');
+    duckMenuMusic(true);
+    void session.load();
+  }, [source, replay, activeSource]);
+  const endMinigame = useCallback(() => {
+    setMinigame((session) => { session?.dispose(); return null; });
+    setMinigamePhase(null);
+    duckMenuMusic(false);
+  }, []);
+  const quitMinigame = useCallback(() => {
+    if (minigame) setMinigameOpen({ id: minigame.game.id, players: minigame.playerCount, options: minigame.options });
+    endMinigame();
+    setScreen('minigames');
+  }, [minigame, endMinigame]);
+  const retryMinigame = useCallback(() => {
+    if (!minigame) return;
+    const { game, playerCount: count, options } = minigame;
+    endMinigame();
+    startMinigame(game, count, options);
+  }, [minigame, endMinigame, startMinigame]);
+  // A round's results: its best saved, and the results screen's reveal.
+  useEffect(() => {
+    if (!minigame) return undefined;
+    return minigame.onChange((session) => {
+      setMinigamePhase(session.phase());
+      if (session.phase() !== 'results' || !session.results) return;
+      // (A round the game keeps out of the best scores shows none.)
+      const best = session.outcome?.best === false ? { previous: null, best: null, isNewBest: false }
+        : recordMinigameBest(session.game.id, session.playerCount, session.results, session.game.score?.better);
+      // (A game whose players chose to play together says so as it goes: setCoop.)
+      const game = session.coop === !!session.game.coop ? session.game : { ...session.game, coop: session.coop };
+      minigameResults.current = { game, scores: session.results, start: performance.now() / 1000 + 0.2, best, outcome: session.outcome };
+    });
+  }, [minigame]);
 
   // Dance! on Song Select: a new GameSession for the bundle and the dancers the players follow,
   // on the song's stage.
@@ -187,14 +259,15 @@ export default function App() {
 
   useEffect(() => { saveSound(sound); applySound(sound); }, [sound]);
   useEffect(() => { saveGraphics(graphics); }, [graphics]);
-  // A paired phone dims its screen while a song is on.
+  // A paired phone dims its screen while a song or a minigame round is on.
   useEffect(() => {
-    source.setPlaying(!!gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase));
-  }, [source, gamePhase]);
-  // ...and sends its camera's picture only while the calibration screen shows it.
+    source.setPlaying((!!gamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(gamePhase))
+      || (!!minigamePhase && ['countdown', 'playing', 'paused', 'finishing'].includes(minigamePhase)));
+  }, [source, gamePhase, minigamePhase]);
+  // ...and sends its camera's picture only while a calibration screen shows it.
   useEffect(() => {
-    source.setPreview(screen === 'game' && gamePhase === 'calibrating');
-  }, [source, screen, gamePhase]);
+    source.setPreview((screen === 'game' && gamePhase === 'calibrating') || (screen === 'minigame' && minigamePhase === 'calibrating'));
+  }, [source, screen, gamePhase, minigamePhase]);
 
   const songsOpen = screen === 'songs';
   const resultsVisible = screen === 'game' && gamePhase === 'results';
@@ -208,29 +281,40 @@ export default function App() {
   const statsMode = diagnostic('stats') ? 'full' : graphics.stats;
   // Every song dances on its own stage, picked in Dance Studio (openreef if unset or unknown).
   const stageId = resolveStage((game?.bundle ?? preview?.bundle)?.song.stage);
+  // A minigame's scene (minigames/types.ts): a stage (its game inside the stage's scene), a
+  // background of its own, or the menu's.
+  const minigameScene = screen === 'minigame' && minigame ? minigame.game.scene ?? 'menu' : null;
+  const minigameStage = typeof minigameScene === 'object' && minigameScene && 'stage' in minigameScene ? minigameScene.stage : null;
+  const minigameBackground = typeof minigameScene === 'object' && minigameScene && 'background' in minigameScene ? minigameScene.background : null;
+  const minigameView = minigame ? <MinigameView key={minigame.key} session={minigame} /> : null;
 
   return (
     <div ref={viewport} className="display-viewport">
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
         <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
           <FixedRenderResolution />
-          <Scene paused={stage.showing} />
+          <Scene paused={stage.showing} background={minigameBackground ?? background} />
           <StageView
-            active={(songsOpen && !!preview) || screen === 'game'}
+            active={(songsOpen && !!preview) || screen === 'game' || !!minigameStage}
             orbiting={songsOpen && !!preview && songScreen !== 'dancers'}
-            lift={songsOpen && !!preview && songScreen === 'dancers' ? castLift(playerCount) : 0}
-            stageId={stageId}
-            routine={game ? gameRoutine : preview}
+            lift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_LIFT : 0}
+            shift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_SHIFT : 0}
+            stageId={minigameStage ?? stageId}
+            routine={minigameStage ? null : game ? gameRoutine : preview}
             results={resultsVisible ? resultsShow : null}
             live={gameLive}
+            dancers={!minigameStage}
             onState={setStage}
-          />
+          >
+            {minigameStage && minigameView}
+          </StageView>
+          {!minigameStage && minigameView}
           <MenuDancers
-            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen) && !stage.showing && !diagnostic('nodancers')}
+            visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen || screen === 'minigames') && !diagnostic('nodancers')}
             raised={songsOpen}
             // One dancer per player: the dial's count on the players screen, the chosen count on
-            // Song Select, and the duet everywhere else.
-            count={songsOpen ? playerCount : menuOpen && menuShown === 'players' ? dialCount : 2}
+            // Song Select and minigame previews, and the duet everywhere else.
+            count={screen === 'minigames' ? minigamePreviewPlayers ?? 2 : songsOpen ? playerCount : menuOpen && menuShown === 'players' ? dialCount : 2}
           />
           <MainMenu
             visible={menuOpen}
@@ -239,6 +323,8 @@ export default function App() {
             playerCount={dialCount}
             onPlayerCountChange={setDialCount}
             onStart={choosePlayers}
+            onMinigames={openMinigames}
+            refocus={menuRefocus}
             onScreenChange={setMenuShown}
             sound={sound}
             onSoundChange={setSound}
@@ -269,12 +355,34 @@ export default function App() {
             onQuit={quitGame}
             onRetry={retryGame}
           />
+          <MinigameSelect
+            visible={screen === 'minigames'}
+            open={minigameOpen}
+            players={playerCount}
+            onPreviewPlayersChange={setMinigamePreviewPlayers}
+            onBack={leaveMinigames}
+            onPlay={startMinigame}
+          />
+          <MinigameScreen
+            visible={screen === 'minigame' && !!minigame}
+            session={minigame}
+            camera={source}
+            onQuit={quitMinigame}
+            onRetry={retryMinigame}
+          />
+          <MinigameResults
+            visible={screen === 'minigame' && minigamePhase === 'results'}
+            show={minigameResults}
+            onQuit={quitMinigame}
+            onRetry={retryMinigame}
+          />
           {statsMode !== 'off' && (
             <StatsOverlay
               mode={statsMode}
               source={activeSource}
               game={game}
-              screen={menuOpen ? `menu/${menuShown}` : songsOpen ? 'songs' : `game/${gamePhase ?? 'loading'}`}
+              screen={menuOpen ? `menu/${menuShown}` : songsOpen ? 'songs' : screen === 'minigames' ? 'minigames'
+                : screen === 'minigame' ? `minigame/${minigamePhase ?? 'loading'}` : `game/${gamePhase ?? 'loading'}`}
             />
           )}
         </Canvas>

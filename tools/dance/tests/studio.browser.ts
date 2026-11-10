@@ -1,13 +1,15 @@
 // The dance tool end to end in Chromium: a project made from the solo video fixture, the
 // Studio editing it (drag a joint, key a pose, undo, live edits from the CLI, review and
-// export), the headless renderer's contact sheet and MediaPipe tracking of the video.
+// export), the headless renderer's contact sheet and MediaPipe tracking of the video; then the
+// Studio making a dance in an empty folder, replacing its song, recording the (fake) webcam as
+// its video, tracking it and keying the dancer from it.
 //
 //   node tools/dance/tests/studio.browser.ts          (needs FFmpeg and Playwright's Chromium)
 //
 // DANCE_DIST=1 serves the built Studio (npm run dance:build) instead of Vite. Without a GPU set
 // PLAY_BROWSER_ARGS="--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader".
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,10 +19,11 @@ import { readZip } from '../../../packages/pose/zip.ts';
 import { validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
 import { neutralCharacterPose } from '../../../packages/pose/performance.ts';
 import { Bridge, runBrowserCommand } from '../server.ts';
-import { formatJson, initProject } from '../project.ts';
+import { DanceProject, formatJson, initProject } from '../project.ts';
+import { normalizeRecording, probeVideo, run } from '../media.ts';
 import type { RenderSpec } from '../studio/renderSpec.ts';
 
-const fixture = fileURLToPath(new URL('../../choreography/tests/solo-video-fixture.webm', import.meta.url));
+const fixture = fileURLToPath(new URL('../../../packages/pose/tests/fixtures/solo-video-fixture.webm', import.meta.url));
 const dir = await mkdtemp(path.join(tmpdir(), 'dance-studio-'));
 const step = (message: string) => process.stdout.write(`· ${message}\n`);
 const project = await initProject(path.join(dir, 'routine'), { video: fixture, dancers: 1, title: 'Fixture', artist: 'Test', proxy: false });
@@ -30,11 +33,20 @@ assert.ok(dance.sources.audio, 'the fixture\'s audio becomes the song');
 await project.apply({ ops: [{ op: 'dancer', dancer: 'P1', home: [0.5, 0.52] }, { op: 'pose', dancer: 'P1', t: 0, from: 'neutral' },
   { op: 'key', dancer: 'P1', t: 400, set: { leftWrist: { dy: -0.2 } } }] });
 const bridge = await Bridge.start(project, { dist: process.env.DANCE_DIST === '1' });
-const browser = await chromium.launch({ headless: true, executablePath: chromiumPath(false), args: gpuFlags() });
+// Native fake capture supplies frames independently of canvas paints on the Studio's
+// main thread, which can be starved by software-rendered 3D views on CI runners.
+const webcam = path.join(dir, 'webcam.y4m');
+const photo = fileURLToPath(new URL('../../../apps/web/tests/fixtures/mediapipe-pose.jpg', import.meta.url));
+await run(process.env.FFMPEG_PATH || 'ffmpeg', ['-v', 'error', '-y', '-loop', '1', '-i', photo,
+  '-vf', 'crop=600:667:200:0,scale=320:356,pad=640:480:160:40:white', '-r', '20', '-t', '3', '-pix_fmt', 'yuv420p', '-f', 'yuv4mpegpipe', webcam]);
+const browser = await chromium.launch({ headless: true, executablePath: chromiumPath(false), args: [
+  ...gpuFlags(), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-video-capture=${webcam}`,
+] });
 const page = await browser.newPage({ viewport: { width: 1360, height: 860 } });
 const errors: string[] = [];
 page.on('pageerror', e => errors.push(e.message));
 page.setDefaultTimeout(90000);
+const closers: (() => Promise<void>)[] = [];
 const revision = () => page.locator('.studio').getAttribute('data-revision').then(Number);
 const waitRevision = (n: number) => page.waitForSelector(`.studio[data-revision="${n}"][data-busy="false"]`);
 try {
@@ -235,7 +247,7 @@ try {
   assert.ok(found >= tracking.times.length - 1, `found the dancer in ${found} of ${tracking.times.length} frames`);
 
   step('tracking keeps two dancers in their own slots');
-  const duet = await initProject(path.join(dir, 'duet'), { video: fileURLToPath(new URL('../../choreography/tests/video-fixture.webm', import.meta.url)),
+  const duet = await initProject(path.join(dir, 'duet'), { video: fileURLToPath(new URL('../../../packages/pose/tests/fixtures/video-fixture.webm', import.meta.url)),
     dancers: 2, proxy: false, durationMs: 800 });
   process.stdout.write = (() => true) as typeof process.stdout.write;
   try { await runBrowserCommand('track', duet, await duet.read(), { fps: '10' }, true); }
@@ -245,8 +257,110 @@ try {
     .map(l => (l![23].x + l![24].x) / 2));
   assert.ok(sides.every(s => s.length >= both.times.length - 1), `each slot found: ${sides.map(s => s.length).join(', ')} of ${both.times.length}`);
   assert.ok(Math.max(...sides[0]) < 0.5 && Math.min(...sides[1]) > 0.5, 'P1 is the dancer on the left, P2 on the right');
+  step('the Studio makes a dance in a folder with none');
+  const fresh = new DanceProject(path.join(dir, 'fresh'));
+  const freshBridge = await Bridge.start(fresh, { dist: process.env.DANCE_DIST === '1' });
+  closers.push(() => freshBridge.close());
+  const camera = await browser.newPage({ viewport: { width: 1360, height: 860 } });
+  const cameraErrors: string[] = [];
+  camera.on('pageerror', e => cameraErrors.push(e.message));
+  camera.on('console', m => { if (m.type() === 'error') cameraErrors.push(m.text()); });
+  camera.setDefaultTimeout(120000);
+  await camera.goto(freshBridge.url);
+  await camera.getByRole('form', { name: 'New dance' }).waitFor();
+  await camera.getByLabel('Title', { exact: true }).fill('Made in the Studio');
+  await camera.getByLabel('Artist', { exact: true }).fill('Test');
+  await camera.getByLabel('Video', { exact: true }).setInputFiles(fixture);
+  await camera.getByRole('button', { name: 'Create the dance' }).click();
+  await camera.waitForSelector('.studio[data-revision]');
+  let made = await fresh.read();
+  assert.equal(made.song.title, 'Made in the Studio');
+  assert.equal(made.dancers.length, 1);
+  assert.equal(made.sources.video?.width, 320);
+  assert.ok(made.sources.audio, 'the video\'s sound becomes the song');
+  assert.equal(await camera.locator('.song-title strong').textContent(), 'Made in the Studio');
+
+  step('the Song tab replaces the song');
+  // A second and a half of 440 Hz, as 16-bit mono WAV.
+  const rate = 48000, samples = rate * 1.5, wav = Buffer.alloc(44 + samples * 2);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples * 2, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write('data', 36); wav.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++) wav.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 8000), 44 + i * 2);
+  const tone = path.join(dir, 'tone.wav');
+  await writeFile(tone, wav);
+  await camera.getByRole('tab', { name: 'Song' }).click();
+  const created = made.revision;
+  await camera.getByLabel('Song audio file', { exact: true }).setInputFiles(tone);
+  await camera.waitForSelector(`.studio[data-revision="${created + 1}"]`);
+  made = await fresh.read();
+  assert.notEqual(made.sources.audio?.sha256, undefined);
+  assert.equal(made.sources.audio?.durationMs, 1500);
+  assert.match(made.sources.audio!.path, /^sources\/audio-[0-9a-f]{12}\.wav$/);
+  assert.equal(made.song.durationMs, 800, 'replacing the song keeps its length');
+
+  step('a recording handed frames from before it started keeps only what it recorded');
+  // Three seconds of frames from a recorder that ran for one: the first two are cut.
+  const backlog = path.join(dir, 'backlog.webm');
+  await run(process.env.FFMPEG_PATH || 'ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=20:duration=3', '-c:v', 'libvpx', backlog]);
+  for (const [ran, kept] of [[1000, 1000], [3000, 3000], [undefined, 3000]] as const) {
+    await normalizeRecording(backlog, path.join(dir, 'normalized.webm'), 20, { durationMs: ran });
+    const { durationMs } = await probeVideo(path.join(dir, 'normalized.webm'));
+    assert.ok(Math.abs(durationMs - kept) <= 100, `ran ${ran} ms: kept ${durationMs} ms, not ${kept}`);
+  }
+
+  step('recording the webcam makes the video, lined up with the song');
+  await fresh.apply({ ops: [{ op: 'song', set: { durationMs: 1500, playableEndMs: 1500 } }] });
+  await camera.waitForSelector(`.studio[data-revision="${created + 2}"]`);
+  await camera.bringToFront();
+  await camera.getByRole('button', { name: 'Start the camera' }).click();
+  await camera.waitForFunction(() => {
+    const video = document.querySelector<HTMLVideoElement>('video[aria-label="Camera preview"]');
+    return video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0;
+  });
+  await camera.getByLabel('Countdown seconds').fill('0');
+  // The browser can deliver the recorder's start event after this short song has
+  // ended. Delay it deterministically so recording must observe the clock immediately.
+  await camera.evaluate(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(MediaRecorder.prototype, 'onstart')!;
+    Object.defineProperty(MediaRecorder.prototype, 'onstart', {
+      ...descriptor,
+      set(handler: ((e: Event) => void) | null) {
+        descriptor.set!.call(this, handler ? (e: Event) => setTimeout(() => handler.call(this, e), 5000) : null);
+      },
+    });
+  });
+  await camera.getByRole('button', { name: 'Record', exact: true }).click();
+  try {
+    await camera.getByText(/^Recorded /).waitFor();
+  } catch (e) {
+    console.error('Recording failed:', await camera.locator('body').innerText(), cameraErrors);
+    throw e;
+  }
+  made = await fresh.read();
+  const recorded = made.sources.video!;
+  assert.notEqual(recorded.sha256, (await fresh.revisionAt(created)).sources.video?.sha256, 'the recording replaces the video');
+  assert.equal(recorded.width, 640);
+  assert.equal(recorded.fps, 20);
+  assert.equal(recorded.proxy, null, 'a recording plays in the browser as it is');
+  // It stops with the 1.5 s song and keeps no more than it recorded.
+  assert.ok(recorded.durationMs > 0 && recorded.durationMs <= 2000, `recorded ${recorded.durationMs} ms of a 1500 ms song`);
+  assert.ok(recorded.startMs >= 0 && recorded.startMs < 400, `starts at ${recorded.startMs} ms of the song`);
+
+  step('the Studio tracks the recording and keys the dancer from it');
+  await camera.getByRole('button', { name: 'Track the video' }).click();
+  await camera.getByText(/^Tracked \d+ frames: P1 in/).waitFor();
+  made = await fresh.read();
+  assert.equal(made.sources.tracking.length, 1);
+  await camera.getByRole('button', { name: 'Key dancers from tracking' }).click();
+  await camera.getByText(/^Keyed P1 from the tracking/).waitFor();
+  made = await fresh.read();
+  assert.ok(made.dancers[0].layers[0].channels.leftWrist.length >= 2, 'the left wrist is keyed from the recording');
+  await camera.screenshot({ path: path.join(dir, 'recorded.png') });
+  assert.deepEqual(cameraErrors, []);
   step('passed');
 } finally {
+  for (const close of closers.reverse()) await close().catch(() => {});
   await browser.close();
   await bridge.close();
   if (process.exitCode) process.stdout.write(`kept ${dir} for inspection\n`);

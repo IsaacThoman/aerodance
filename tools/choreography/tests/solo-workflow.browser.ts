@@ -33,7 +33,7 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Replace audio', exact: true }).count(), 0);
   // A silent source reports an error before processing poses or replacing music.
   await openSidebar(page, 'Import');
-  await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/video-fixture.webm'));
+  await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('packages/pose/tests/fixtures/video-fixture.webm'));
   await page.getByLabel('Use video audio as song audio').check();
   await page.waitForFunction(() => (document.querySelector<HTMLVideoElement>('dialog video')?.readyState ?? 0) >= 2);
   await page.getByRole('button', { name: 'Use current frame for calibration' }).click();
@@ -44,7 +44,7 @@ try {
   assert.equal((await store.project(projectId)).takes.length, 0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await openSidebar(page, 'Import');
-  await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('tools/choreography/tests/solo-video-fixture.webm'));
+  await page.getByLabel('Import video', { exact: true }).setInputFiles(path.resolve('packages/pose/tests/fixtures/solo-video-fixture.webm'));
   const panel = page.getByRole('dialog', { name: 'Import video' });
   await panel.waitFor();
   assert.equal(await page.getByLabel('Use video audio as song audio').isChecked(), false);

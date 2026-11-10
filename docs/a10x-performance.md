@@ -131,7 +131,7 @@ node scripts/tvos.ts build --game --bench-scenes
 node scripts/menu-bench.ts --device <udid> --label a10x --scenes --players 4 --file-report --seconds 10 --warmup 3
 ```
 
-`--stages reef,club` limits a run to selected stages. Raw reports, signed comparison
+`--stages openreef,club` limits a run to selected stages. Raw reports, signed comparison
 bundles and screenshots stay under `.cache/`, outside git. `apps/tvos/bench/copyTest.ts`
 is the native copy regression; launch `bench/copy-test.js` with `report: "file"`, with
 `copyBlit` true and false, then inspect the `copy-test` result in

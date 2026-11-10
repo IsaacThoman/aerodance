@@ -1,0 +1,73 @@
+{
+  "id": "mp2-depth",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "A player 1.5 m behind their neighbour tests size gating without complete torso overlap.",
+  "people": {
+    "0": {
+      "place": {
+        "x": -1.0,
+        "y": -0.95
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            -1.0,
+            -0.95
+          ],
+          "duration_s": 2,
+          "from": [
+            -1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    },
+    "1": {
+      "place": {
+        "x": 1.0,
+        "y": 0.55
+      },
+      "timeline": [
+        {
+          "type": "walk",
+          "to": [
+            1.0,
+            0.55
+          ],
+          "duration_s": 2,
+          "from": [
+            1.0,
+            -2.1
+          ]
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 5
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d01_mJS3_ch04",
+          "clip_start_s": 2,
+          "duration_s": 16
+        }
+      ]
+    }
+  },
+  "camera": {
+    "distance_m": 4.6
+  }
+}

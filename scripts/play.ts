@@ -13,10 +13,15 @@ import type { Browser, ConsoleMessage, Page } from 'playwright';
 import { chromiumPath, gpuFlags } from './chromium.ts';
 import * as menuLayout from '../apps/web/src/menu/layout.ts';
 import * as gameLayout from '../apps/web/src/game/layout.ts';
+import * as walkLayout from '../apps/web/src/walk/layout.ts';
+import * as minigameLayout from '../apps/web/src/minigames/layout.ts';
 import { displayDesign } from '../apps/web/src/display.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const dir = path.join(root, '.cache/play');
+// PLAY_SESSION=<name> runs a separate named session beside the default one (each with its own
+// server, browser and Vite dependency cache), e.g. for agents working side by side.
+const sessionName = process.env.PLAY_SESSION?.replace(/[^\w-]/g, '') || null;
+const dir = path.join(root, '.cache/play', ...(sessionName ? ['sessions', sessionName] : []));
 const sessionFile = path.join(dir, 'session.json');
 const logFile = path.join(dir, 'daemon.log');
 
@@ -44,7 +49,8 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   click <target> | --locator <sel>     click a layout target, design point "x,y" or element
   hover <target>                       move the mouse to a target
   drag <x,y> <x,y> [--steps n]         press, move and release the mouse between two page points
-  key <key>...                         press keys (Enter, Escape, ArrowDown, ...)
+  key <key>...                         press keys (Enter, Escape, ArrowDown, ...); key:ms holds
+                                       one down that long, e.g. w:1500 or Shift+w:800
   type <text>                          type text into the focused element
   wait <cond>... [--timeout ms]        wait until every condition holds:
                                        key=value, key~regex, key>number, key<number
@@ -54,26 +60,42 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   eval <js>                            evaluate an expression in the page
   logs [--clear]                       console messages and page errors so far
   camera <0-4>                         dancers in the fixture camera's shot
+  puppet <command>                     pose the puppet camera's people (start with --url '/?input=puppet');
+                                       \`puppet help\` lists the commands
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in apps/web/src/{menu,game}/layout.ts, e.g. START,
-menu.BACK, game.BACK, rowRect.0 or GAME_CALIBRATION_CAMERA.next.`;
+Targets name layout exports in apps/web/src/{menu,game,walk,minigames}/layout.ts, e.g. START,
+menu.BACK, game.BACK, rowRect.0, GAME_CALIBRATION_CAMERA.next, mgTile.0, mgOptionNext.1 or
+walk.sceneRect.3.
+
+PLAY_SESSION=<name> before any command uses a separate named session.`;
 
 // ---- Layout targets ----
 
 type Shape = { x: number; y: number; w?: number; h?: number; r?: number };
-const layouts: Record<string, Record<string, unknown>> = { menu: menuLayout, game: gameLayout };
 const isShape = (v: unknown): v is Shape =>
   typeof v === 'object' && v !== null && typeof Reflect.get(v, 'x') === 'number' && typeof Reflect.get(v, 'y') === 'number';
 const centre = (s: Shape) => ({ x: s.x + (s.w ?? 0) / 2, y: s.y + (s.h ?? 0) / 2 });
 
-/** The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the numbers after them as arguments). */
-function resolveTarget(target: string, width = 1600) {
-  const layouts: Record<string, Record<string, unknown>> = {
-    menu: { ...menuLayout, ...menuLayout.menuLayout(width) },
-    game: { ...gameLayout, ...gameLayout.gameLayout(width) },
-  };
+/**
+ * Each layout module's exports and its layout for a display's width. The main menu's layout
+ * depends on whether it has Minigames, and a minigame's preview on how many option rows it has
+ * (the canvas reports both).
+ */
+const layoutsAt = (width: number, minigames: boolean, minigameOptions: number): Record<string, Record<string, unknown>> => ({
+  menu: { ...menuLayout, ...menuLayout.menuLayout(width, true, minigames) },
+  game: { ...gameLayout, ...gameLayout.gameLayout(width) },
+  walk: { ...walkLayout, ...walkLayout.walkLayout(width) },
+  minigames: { ...minigameLayout, ...minigameLayout.minigameLayout(width, minigameOptions) },
+});
+
+/**
+ * The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the
+ * numbers after them as arguments).
+ */
+function resolveTarget(target: string, width = 1600, minigames = false, minigameOptions = 0) {
+  const layouts = layoutsAt(width, minigames, minigameOptions);
   const point = /^(-?[\d.]+),(-?[\d.]+)$/.exec(target);
   if (point) return { x: Number(point[1]), y: Number(point[2]) };
   let parts = target.split('.');
@@ -103,6 +125,8 @@ function listTargets() {
     else if (isShape(value)) lines.push(name);
     else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) walk(`${name}.${k}`, v);
   };
+  // (Everything there can be: Minigames on the main menu, a preview with every option row.)
+  const layouts = layoutsAt(1600, true, minigameLayout.MG_MAX_OPTIONS);
   for (const [module, exports] of Object.entries(layouts)) for (const [k, v] of Object.entries(exports)) walk(`${module}.${k}`, v);
   return lines.join('\n');
 }
@@ -166,7 +190,9 @@ async function daemon(options: Options) {
     appUrl = server.resolvedUrls?.local[0] ?? '';
     closeServer = () => server.close();
   } else {
-    const server = await vite.createServer({ configFile, server: { host: '127.0.0.1', port: 5300, strictPort: false } });
+    // Named sessions keep their own dependency cache, so servers starting together don't clash.
+    const cacheDir = sessionName ? path.join(dir, 'vite') : undefined;
+    const server = await vite.createServer({ configFile, cacheDir, server: { host: '127.0.0.1', port: 5300, strictPort: false } });
     await server.listen();
     appUrl = server.resolvedUrls?.local[0] ?? '';
     closeServer = () => server.close();
@@ -194,12 +220,14 @@ async function daemon(options: Options) {
 
   const ready = async () => {
     if (options.app === 'studio') return page.waitForLoadState('load');
-    if (options.app === 'dance') return void await page.waitForSelector('.studio[data-revision]', { timeout: 120000 });
+    if (options.app === 'dance') return void await page.waitForSelector('.studio[data-revision], .new-dance', { timeout: 120000 });
     // The canvas fades in once the world is built, then the menu reports ready. The phone
-    // camera page (/pair/) has no world and is ready once it draws.
+    // camera page (/pair/) has no world and is ready once it draws; walk mode (/?walk) once its
+    // scene is built (or has failed).
     await page.waitForFunction(() => {
       const c = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas');
-      return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true';
+      return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true'
+        || c?.dataset.walkReady === 'true' || c?.dataset.walkFailed === 'true';
     }, null, { timeout: 120000 });
   };
   const goto = async (target: string) => { await page.goto(new URL(target, appUrl).href); await ready(); };
@@ -215,7 +243,12 @@ async function daemon(options: Options) {
     const frame = await page.locator('.canvas-frame').boundingBox();
     if (!frame) throw Error('No .canvas-frame on this page; use --locator');
     const design = displayDesign(frame.width, frame.height);
-    const { x, y } = resolveTarget(target, design.w);
+    const { minigames, options } = await page.evaluate(() => {
+      const data = document.querySelector<HTMLElement>('.canvas-frame canvas')?.dataset;
+      // (The rows: a per-player setting lists a value for each player but is one row.)
+      return { minigames: data?.menuMinigames === 'true', options: data?.minigameOptionRows ? Number(data.minigameOptionRows) : data?.minigameOptions ? data.minigameOptions.split('|').length : 0 };
+    });
+    const { x, y } = resolveTarget(target, design.w, minigames, options);
     return { x: frame.x + (x / design.w) * frame.width, y: frame.y + (y / design.h) * frame.height };
   };
   const shutdown = async () => {
@@ -253,7 +286,17 @@ async function daemon(options: Options) {
       await page.mouse.move(to[0], to[1], { steps: Number(c.steps) || 8 });
       await page.mouse.up();
     },
-    key: async (c) => { for (const k of c.keys as string[]) await page.keyboard.press(k); },
+    key: async (c) => {
+      for (const k of c.keys as string[]) {
+        // key:ms holds it (and any others joined with +) down that long, e.g. Shift+w:1500.
+        const hold = /^(.+):(\d+)$/.exec(k);
+        if (!hold) { await page.keyboard.press(k); continue; }
+        const keys = hold[1].split('+');
+        for (const key of keys) await page.keyboard.down(key);
+        await page.waitForTimeout(Number(hold[2]));
+        for (const key of keys.reverse()) await page.keyboard.up(key);
+      }
+    },
     type: (c) => page.keyboard.type(String(c.text)),
     wait: async (c) => {
       await page.waitForFunction((conditions) => {
@@ -280,6 +323,12 @@ async function daemon(options: Options) {
     eval: (c) => page.evaluate(String(c.js)),
     logs: async (c) => { const out = [...logs]; if (c.clear) logs.length = 0; return out.join('\n'); },
     camera: (c) => page.evaluate((n) => { Reflect.set(window, 'playDancers', n); }, Number(c.dancers)),
+    // The puppet camera's command line (apps/web/src/pose/puppet/commands.ts), in the page.
+    puppet: (c) => page.evaluate((args) => {
+      const puppet = (window as typeof window & { puppet?: { run(args: string[]): unknown } }).puppet;
+      if (!puppet) throw Error('No puppet camera on this page: start (or goto) with /?input=puppet');
+      return puppet.run(args);
+    }, c.args as string[]),
     resize: (c) => page.setViewportSize({ width: Number(c.width), height: Number(c.height) }),
     stop: async () => { setTimeout(shutdown, 50); },
   };
@@ -436,6 +485,7 @@ async function main() {
     case 'goto': return print(await send(session, { cmd, target: args[0] ?? '/' }));
     case 'eval': return print(await send(session, { cmd, js: args.join(' ') }));
     case 'logs': return print(await send(session, { cmd, clear: args.includes('--clear') }));
+    case 'puppet': return print(await send(session, { cmd, args }));
     case 'camera': {
       const dancers = Number(args[0]);
       if (!Number.isInteger(dancers) || dancers < 0 || dancers > 4) throw Error('camera takes 0 to 4 dancers');

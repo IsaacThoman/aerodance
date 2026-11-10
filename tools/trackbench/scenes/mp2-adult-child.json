@@ -1,0 +1,16 @@
+{
+  "id": "mp2-adult-child",
+  "base": "base-duo",
+  "category": "multiplayer",
+  "description": "An adult and an intentionally short child test size-based acquisition and calibration.",
+  "people": {
+    "1": {
+      "body": {
+        "age": 0.1875,
+        "height": 0.5,
+        "weight": 0.45
+      },
+      "skin": "young_caucasian_male"
+    }
+  }
+}

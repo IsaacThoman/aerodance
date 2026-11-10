@@ -1,0 +1,9 @@
+{
+  "id": "mp4-dim",
+  "base": "base-quad",
+  "category": "multiplayer",
+  "description": "Four distinct adults in dim evening light test strip misses and score loss.",
+  "lighting": {
+    "preset": "dim_evening"
+  }
+}

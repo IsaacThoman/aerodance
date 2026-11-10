@@ -5,7 +5,7 @@ import type { SessionPlayer } from '../src/game/GameSession.ts';
 import { parseRecording, standingPose } from '../src/pose/ReplayPoseSource.ts';
 import { PoseSourceController } from '../../../packages/pose/browser/PoseSourceController.ts';
 import { sampleSong, validateSong, validateSongChoreography } from '../../../packages/pose/song.ts';
-import type { Landmark } from '../../../packages/pose/choreography.ts';
+import type { Landmark, PlayerCount } from '../../../packages/pose/choreography.ts';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +16,10 @@ import { assignPlayerSlots, laneOf, PlayerSlotMapper } from '../../../packages/p
 import { validateWebcamRecord } from '../../../packages/pose/webcamRecord.ts';
 import { cameraTurn, cameraTurner, hostState } from '../src/host.ts';
 import type { HostState, Orientation } from '../src/host.ts';
-import type { WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
+import type { TrackedHand, WebcamRecord } from '../../../packages/pose/webcamRecord.ts';
+import { HAND_MODEL } from '../../../packages/pose/browser/models.ts';
+import { HANDS_MIN_HZ, HANDS_SLOW_MS } from '../../../packages/pose/browser/hands.ts';
+import type { Point3 } from '../../../packages/pose/choreography.ts';
 
 /** A worker response as the test writes it; deliver() adds the session. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -150,6 +153,9 @@ test('a fresh setup line-up renumbers two dancers without restarting the camera 
   assert.equal(f.opened, 1, 'camera stays open');
   assert.equal(f.terminated, 0, 'worker stays running');
   assert.equal(f.messages.filter(m => m.type === 'initialize').length, 1, 'model stays loaded');
+  // Each frame tells the worker whether the players are lined up, so whose hands are whose follows the numbering.
+  const lined = f.messages.flatMap(m => (m.type === 'frame' ? [m.lined] : []));
+  assert.deepEqual([lined[0], lined[11], lined[12], lined[23]], [false, true, false, true], 'until each line-up, and after it');
 });
 test('the newest frame that comes while one is in flight is sent as soon as its result is in', async t => {
   const f = fixture(t);
@@ -268,16 +274,26 @@ test('three or four players are each looked for in a strip of the picture', asyn
   assert.ok(init?.type === 'initialize');
   assert.deepEqual(init.tiles?.map(tile => +(tile.x + tile.width / 2).toFixed(3)), [0.225, 0.5, 0.775], 'evenly spread, covering the picture');
   assert.equal(init.playerCount, 4, 'a whole-picture fallback looks for one more person than there are players');
-  // Two players use the whole picture, and so do sources asked not to use strips.
+  // Two players use the whole picture.
   const two = fixture(t);
   await two.source.setPlayerCount(2); await two.source.connect();
   const twoInit = two.messages.find(m => m.type === 'initialize');
   assert.ok(twoInit?.type === 'initialize' && !twoInit.tiles);
   assert.equal(twoInit.playerCount, 2, 'two players must not keep the detector searching for a third person');
-  const whole = fixture(t, { tiles: false });
-  await whole.source.setPlayerCount(4); await whole.source.connect();
-  const wholeInit = whole.messages.find(m => m.type === 'initialize');
-  assert.ok(wholeInit?.type === 'initialize' && !wholeInit.tiles);
+  assert.equal(twoInit.search, true, 'two players get a search for whoever the model misses');
+  assert.ok(!init.search, 'strips have no search');
+  const solo = fixture(t);
+  await solo.source.setPlayerCount(1); await solo.source.connect();
+  const soloInit = solo.messages.find(m => m.type === 'initialize');
+  assert.ok(soloInit?.type === 'initialize' && soloInit.zoom === true && !soloInit.search, 'one player may be looked for in the middle of the picture');
+  assert.ok(!twoInit.zoom && !init.zoom);
+  // The iPhone/iPad app's camera (as CameraInput sets it up, upright) tracks just the same.
+  for (const [players, expect] of [[1, 'zoom'], [2, 'search'], [4, 'tiles']] as const) {
+    const app = fixture(t, { interruptedTimeoutMs: Infinity, adaptToResize: true });
+    await app.source.setPlayerCount(players); await app.source.connect();
+    const appInit = app.messages.find(m => m.type === 'initialize');
+    assert.ok(appInit?.type === 'initialize' && appInit[expect], `the app's ${players} player(s) get ${expect}`);
+  }
 });
 test('each frame tells the worker how many players the last result found, for its strips', async t => {
   // Somebody standing at x, as MediaPipe reports them.
@@ -593,4 +609,204 @@ test('a camera that unmutes but sends nothing fails instead of waiting forever, 
   g.setTime(15_100); await tick();
   assert.equal(g.source.view.status, 'error');
   assert.match(g.source.view.message, /^Camera tracking stopped responding/);
+});
+
+// World landmarks and hands as the worker reports them for the 'hands' detail; tag tells people apart.
+const worldLandmarks = (tag = 0): Point3[] => Array.from({ length: 33 }, (_, i) => ({ x: tag + i / 100, y: -0.5 + i / 50, z: -0.1 }));
+const trackedHand = (side: 'left' | 'right', x = 0.4): TrackedHand => ({ side, score: 0.9,
+  landmarks: Array.from({ length: 21 }, (_, i) => ({ x: x + i / 400, y: 0.5 - i / 300, z: -i / 1000, confidence: null })),
+  world: Array.from({ length: 21 }, (_, i) => ({ x: i / 1000, y: -i / 500, z: 0.001 })) });
+
+test('without the hands detail the worker hears nothing of it, and records are as they were even if a result had extras', async t => {
+  const plain = fixture(t), extra = fixture(t);
+  const records = (f: typeof plain) => { const all: WebcamRecord[] = []; f.source.subscribeRecords(e => { if ('record' in e) all.push(e.record); }); return all; };
+  const a = records(plain), b = records(extra);
+  for (const f of [plain, extra]) { await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' }); await f.frame(1); f.setTime(1040); }
+  plain.deliver({ type: 'result', seq: 1, landmarks: [detected(standingPose(0.5))], inferenceMs: 20 });
+  extra.deliver({ type: 'result', seq: 1, landmarks: [detected(standingPose(0.5))], inferenceMs: 20, world: [worldLandmarks()], hands: [[trackedHand('left')]] });
+  assert.deepEqual(extra.messages.map(m => m.type), ['initialize', 'frame']);
+  assert.equal(JSON.stringify(b[0].poses), JSON.stringify(a[0].poses));
+  assert.deepEqual(Object.keys(b[0].poses[0]), ['playerId', 'landmarks']);
+  assert.ok(!('hands' in extra.source.view), 'the view says nothing of hands');
+});
+
+test('with the hands detail, one player\'s poses keep their world landmarks and hands; the hand model loads once asked for, and can be dropped', async t => {
+  const f = fixture(t); const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  f.source.setDetail('hands');
+  assert.equal(f.source.view.hands, 'loading');
+  await f.source.connect();
+  assert.ok(!f.messages.some(m => m.type === 'detail'), 'nothing until the worker is ready');
+  f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.deepEqual(f.messages.filter(m => m.type === 'detail'), [{ type: 'detail', world: true,
+    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 1, sides: [['left', 'right']] } }]);
+  f.deliver({ type: 'hands', state: 'on' });
+  assert.equal(f.source.view.hands, 'on');
+  const result = (seq: number) => f.deliver({ type: 'result', seq, landmarks: [detected(standingPose(0.5))], inferenceMs: 20,
+    world: [worldLandmarks()], hands: [[trackedHand('left', 0.6), trackedHand('right', 0.3)]] });
+  await f.frame(1); f.setTime(1040); result(1);
+  const pose = records.at(-1)!.poses[0];
+  assert.deepEqual(pose.world, worldLandmarks());
+  assert.deepEqual(pose.hands, [trackedHand('left', 0.6), trackedHand('right', 0.3)]);
+  validateWebcamRecord(structuredClone(records.at(-1)));
+  // Dropped (a phone too slow for it): the world landmarks carry on, the hands stop.
+  f.source.dropHands();
+  assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true, hands: null });
+  assert.equal(f.source.view.hands, 'dropped');
+  await f.frame(2); f.setTime(2040); result(2);
+  assert.ok(records.at(-1)!.poses[0].world && !records.at(-1)!.poses[0].hands);
+  f.deliver({ type: 'hands', state: 'on' });
+  assert.equal(f.source.view.hands, 'dropped', 'a late answer to the request before doesn\'t bring them back');
+  // Off: the worker is told, and the records are plain again.
+  f.source.setDetail(null);
+  assert.deepEqual(f.messages.at(-1), { type: 'detail', world: false, hands: null });
+  assert.equal(f.source.view.hands, undefined);
+  await f.frame(3); f.setTime(3040); result(3);
+  assert.deepEqual(Object.keys(records.at(-1)!.poses[0]), ['playerId', 'landmarks']);
+  // Asked for afresh, the hands are tried again; a restarted camera's worker hears of it once ready.
+  f.source.setDetail('hands');
+  assert.equal(f.source.view.hands, 'loading');
+  const asked = f.messages.at(-1);
+  assert.ok(asked?.type === 'detail' && asked.hands, 'the hand model asked for again');
+  f.source.disconnect(); await f.source.connect();
+  const fresh = f.messages.slice(f.messages.findLastIndex(m => m.type === 'initialize'));
+  assert.ok(!fresh.some(m => m.type === 'detail'));
+  f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.equal(f.messages.at(-1)?.type, 'detail');
+  assert.equal(f.source.view.hands, 'loading');
+  // A hand model that won't load is unavailable; tracking carries on.
+  f.deliver({ type: 'hands', state: 'unavailable', message: 'Model checksum mismatch' });
+  assert.equal(f.source.view.hands, 'unavailable');
+  assert.equal(f.source.view.status, 'initializing');
+});
+
+test('with the world detail, poses keep their world landmarks and the hand model is never asked for', async t => {
+  const f = fixture(t); const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  f.source.setDetail('world');
+  assert.equal(f.source.view.hands, undefined, 'no hands asked for, none to say');
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.deepEqual(f.messages.filter(m => m.type === 'detail'), [{ type: 'detail', world: true, hands: null }]);
+  await f.frame(1); f.setTime(1040);
+  f.deliver({ type: 'result', seq: 1, landmarks: [detected(standingPose(0.5))], inferenceMs: 20, world: [worldLandmarks()] });
+  assert.deepEqual(records.at(-1)!.poses[0].world, worldLandmarks());
+  assert.equal(records.at(-1)!.poses[0].hands, undefined);
+  // From the hands to the world: the hand model stops, and the view says nothing of hands.
+  f.source.setDetail('hands');
+  assert.ok((f.messages.at(-1) as { hands?: unknown }).hands);
+  f.source.setDetail('world');
+  assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true, hands: null });
+  assert.equal(f.source.view.hands, undefined);
+  // dropHands has nothing to drop.
+  f.source.dropHands();
+  assert.equal(f.source.view.hands, undefined);
+});
+
+test('with two players each person\'s hands are looked for, and their world landmarks and hands follow their person', async t => {
+  const f = fixture(t); const records: WebcamRecord[] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) records.push(e.record); });
+  await f.source.setPlayerCount(2);
+  f.source.setDetail('hands');
+  assert.equal(f.source.view.hands, 'loading');
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true,
+    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 2, sides: [['left', 'right']] } });
+  f.deliver({ type: 'hands', state: 'on' });
+  assert.equal(f.source.view.hands, 'on');
+  // Two people, reported in either order, each with world landmarks and hands of their own
+  // (tag 1 and a hand at x 0.25 on the camera's left, 2 and x 0.75 on its right).
+  for (let i = 0; i < 24; i++) {
+    const left = { points: detected(standingPose(0.3 + i * 0.002)), world: worldLandmarks(1), hands: [trackedHand('right', 0.25)] };
+    const right = { points: detected(standingPose(0.7 - i * 0.002)), world: worldLandmarks(2), hands: [trackedHand('left', 0.75)] };
+    const people = i % 3 ? [left, right] : [right, left];
+    await f.frame(1 + i / 30); f.setTime(1000 + i * 34 + 20);
+    f.deliver({ type: 'result', seq: f.source.seq, landmarks: people.map(p => p.points), world: people.map(p => p.world), hands: people.map(p => p.hands), inferenceMs: 20 });
+  }
+  const last = records.at(-1)!;
+  assert.equal(last.poses.length, 2);
+  for (const pose of last.poses) {
+    const hipX = (pose.landmarks[23].x + pose.landmarks[24].x) / 2;
+    assert.equal(Math.floor(pose.world![0].x), hipX < 0.5 ? 1 : 2, `player ${pose.playerId}'s world landmarks are their own`);
+    assert.deepEqual(pose.hands, [hipX < 0.5 ? trackedHand('right', 0.25) : trackedHand('left', 0.75)], `player ${pose.playerId}'s hands are their own`);
+  }
+  // P1 is on the left of the mirrored preview: the camera's right.
+  assert.equal(Math.floor(last.poses[0].world![0].x), 2);
+  validateWebcamRecord(structuredClone(last));
+});
+
+test('some of each player\'s hands: the worker is asked for those, player by player', async t => {
+  const f = fixture(t);
+  await f.source.setPlayerCount(2);
+  f.source.setDetail('hands:right');
+  assert.equal(f.source.view.hands, 'loading');
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true,
+    hands: { modelUrl: `https://test.invalid/pose-assets/${HAND_MODEL.file}`, modelHash: HAND_MODEL.sha256, people: 2, sides: [['right']] } });
+  f.deliver({ type: 'hands', state: 'on' });
+  assert.equal(f.source.view.hands, 'on');
+  // Player 1's right and Player 2's left (a left-handed player's paddle).
+  f.source.setDetail('hands:right/left');
+  assert.deepEqual((f.messages.at(-1) as { hands?: { sides?: string[][] } }).hands?.sides, [['right'], ['left']]);
+});
+
+test('with three or four players the hands aren\'t looked for; the world landmarks carry on', async t => {
+  const f = fixture(t);
+  await f.source.setPlayerCount(3);
+  f.source.setDetail('hands');
+  assert.equal(f.source.view.hands, 'unavailable');
+  await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+  assert.deepEqual(f.messages.at(-1), { type: 'detail', world: true, hands: null });
+  // Back to two: the next worker is asked for both people's hands, which load afresh.
+  await f.source.setPlayerCount(2);
+  assert.equal(f.source.view.hands, 'loading');
+});
+
+test('two people\'s hands drop together when tracking stays too slow with them; one person\'s never drop on a webcam', async t => {
+  // Results at 10 a second (under HANDS_MIN_HZ) with the hand model on, for longer than HANDS_SLOW_MS
+  // (or, every one too old to use, at 1.5 a second).
+  const slowly = async (players: PlayerCount, { every = 100, age = 30 } = {}) => {
+    const f = fixture(t);
+    await f.source.setPlayerCount(players);
+    f.source.setDetail('hands');
+    await f.source.connect(); f.deliver({ type: 'ready', delegate: 'GPU', fallback: '' });
+    f.deliver({ type: 'hands', state: 'on' });
+    for (let i = 0; i < 80 * 100 / every; i++) {
+      await f.frame(1 + i * every / 1000, 1000 + i * every); f.setTime(1000 + i * every + age);
+      f.deliver({ type: 'result', seq: f.source.seq, landmarks: [detected(standingPose(0.5))], world: [worldLandmarks()], hands: [[]], inferenceMs: 20 });
+    }
+    return f;
+  };
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const two = await slowly(2);
+    assert.equal(two.source.view.hands, 'dropped');
+    assert.deepEqual(two.messages.findLast(m => m.type === 'detail'), { type: 'detail', world: true, hands: null });
+    const one = await slowly(1);
+    assert.equal(one.source.view.hands, 'on');
+    assert.ok(!one.messages.some(m => m.type === 'detail' && !m.hands), 'one person\'s hands are never dropped here');
+    const stale = await slowly(2, { every: 650, age: 600 });
+    assert.equal(stale.source.view.snapshot, null, 'no result is fresh enough to use');
+    assert.equal(stale.source.view.hands, 'dropped', 'but they still drop the hands');
+  } finally { console.warn = warn; }
+  assert.ok(HANDS_MIN_HZ > 10 && HANDS_SLOW_MS < 8000, 'the test runs slower than the limit for longer than it allows');
+});
+
+test('live records accept well-formed world landmarks and hands, and refuse malformed ones', () => {
+  const record = (pose: Record<string, unknown>) => ({ schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose', sessionId: 's', seq: 1, playerCount: 1,
+    input: { width: 640, height: 480, mirrored: false }, modelId: 'lite', mediaTimeMs: 0, frameBrowserTimeMs: 10, resultBrowserTimeMs: 20,
+    timingMethod: 'browser-frame-observation', poses: [{ playerId: 0, landmarks: standingPose(0.5), ...pose }] });
+  const left = trackedHand('left'), right = trackedHand('right');
+  for (const fine of [{}, { world: worldLandmarks() }, { hands: [] }, { world: worldLandmarks(), hands: [left, right] }, { hands: [{ ...left, score: 0 }] },
+    { hands: [{ ...left, landmarks: left.landmarks.map(p => ({ ...p, confidence: 0.5 })) }] }]) {
+    assert.doesNotThrow(() => validateWebcamRecord(record(fine)), JSON.stringify(Object.keys(fine)));
+  }
+  const bad: Record<string, unknown>[] = [
+    { world: worldLandmarks().slice(1) }, { world: worldLandmarks().map((p, i) => i === 5 ? { ...p, z: NaN } : p) }, { world: null }, { world: 'flat' },
+    { hands: left }, { hands: [left, left] }, { hands: [left, right, left] }, { hands: [{ ...left, side: 'middle' }] }, { hands: [{ ...left, score: 1.5 }] },
+    { hands: [{ ...left, landmarks: left.landmarks.slice(1) }] }, { hands: [{ ...left, world: left.world.slice(1) }] },
+    { hands: [{ ...left, landmarks: left.landmarks.map((p, i) => i ? p : { ...p, confidence: 2 }) }] },
+    { hands: [{ ...left, landmarks: left.landmarks.map((p, i) => i ? p : { x: p.x, y: p.y, z: p.z }) }] }, { hands: [null] },
+  ];
+  for (const wrong of bad) assert.throws(() => validateWebcamRecord(record(wrong)), Error, JSON.stringify(wrong).slice(0, 80));
 });

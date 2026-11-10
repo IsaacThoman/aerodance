@@ -2,9 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ClockSync } from '../clock.ts';
 import { parseGameMessage, parsePhoneMessage, poseMessage } from '../link.ts';
+import { isPoseModelId } from '../../pose/browser/models.ts';
+import { MAX_PLAYERS, assertPoses, isPlayerCount } from '../../pose/choreography.ts';
 import { MAX_RELAY_FRAME } from '../relay.ts';
 import { codeDigits, parsePairingEvent, spacedCode } from '../signals.ts';
-import type { WebcamRecord } from '../../pose/webcamRecord.ts';
+import type { TrackedHand, WebcamRecord } from '../../pose/webcamRecord.ts';
 
 test('the clock follows the quickest recent round trip, and its error is half that trip', () => {
   const clock = new ClockSync();
@@ -47,6 +49,53 @@ test('pose messages round their landmarks and still validate in full on arrival'
   // A record that isn't one is refused.
   assert.equal(parsePhoneMessage(JSON.stringify({ type: 'pose', record: { ...record, poses: [{ playerId: 0, landmarks: [] }] } })), null);
   assert.equal(parsePhoneMessage(JSON.stringify({ type: 'pose', record: { ...record, timingMethod: 'guess' } })), null);
+});
+
+test('without extras a pose message is as it always was; with them, they are rounded, kept small and checked on arrival', () => {
+  // The message as it was before world landmarks and hands.
+  const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
+  const before = JSON.stringify({ type: 'pose', record: { ...record, poses: record.poses.map((pose) => ({ playerId: pose.playerId,
+    landmarks: pose.landmarks.map((j) => ({ x: round(j.x, 5), y: round(j.y, 5), z: round(j.z, 5), confidence: j.confidence === null ? null : round(j.confidence, 3) })) })) } });
+  assert.equal(poseMessage(record), before);
+  const world = Array.from({ length: 33 }, (_, i) => ({ x: 0.123456 + i / 100, y: -0.654321, z: 0.0000049 }));
+  const hand = (side: 'left' | 'right'): TrackedHand => ({ side, score: 0.987654,
+    landmarks: Array.from({ length: 21 }, (_, i) => ({ x: 0.4123456 + i / 300, y: 0.55555, z: -0.012345, confidence: null })),
+    world: Array.from({ length: 21 }, (_, i) => ({ x: 0.0123456 * i, y: -0.0345678, z: 0.00999 })) });
+  const rich: WebcamRecord = { ...record, poses: [{ playerId: 0, landmarks, world, hands: [hand('left'), hand('right')] }] };
+  const text = poseMessage(rich);
+  assert.ok(text.length - poseMessage(record).length < 6000, `the extras add ${text.length - poseMessage(record).length} bytes`);
+  const message = parsePhoneMessage(text);
+  assert.ok(message?.type === 'pose');
+  const [pose] = message.record.poses;
+  assert.deepEqual(pose.world?.[0], { x: 0.1235, y: -0.6543, z: 0 });
+  assert.deepEqual(pose.hands?.map((h) => h.side), ['left', 'right']);
+  assert.deepEqual(pose.hands?.[0].landmarks[0], { x: 0.4123, y: 0.5556, z: -0.0123, confidence: null });
+  assert.deepEqual(pose.hands?.[0].world[1], { x: 0.0123, y: -0.0346, z: 0.01 });
+  assert.equal(pose.hands?.[0].score, 0.988);
+  // An older game's check (the song poses' alone) still takes them, ignoring the extras.
+  assert.doesNotThrow(() => assertPoses(JSON.parse(text).record.poses, MAX_PLAYERS));
+  // Malformed extras are refused like a malformed pose.
+  const broken = JSON.parse(text);
+  broken.record.poses[0].world.pop();
+  assert.equal(parsePhoneMessage(JSON.stringify(broken)), null);
+  broken.record.poses[0].world = world;
+  broken.record.poses[0].hands[1].side = 'left';
+  assert.equal(parsePhoneMessage(JSON.stringify(broken)), null);
+});
+
+test('the detail in the game\'s config, and the hands in the phone\'s status, are left out by an end that doesn\'t know them', () => {
+  const config = { type: 'config', playerCount: 1, modelId: 'lite' };
+  assert.deepEqual(parseGameMessage(JSON.stringify({ ...config, detail: 'hands' })), { ...config, detail: 'hands' });
+  assert.deepEqual(parseGameMessage(JSON.stringify(config)), config, 'no detail asked for: none');
+  assert.deepEqual(parseGameMessage(JSON.stringify({ ...config, detail: 'feet' })), config, 'a detail this phone doesn\'t know of is none');
+  // An older phone took a config by its player count and model alone, so a detail is lost on it.
+  const older = (data: string) => { const m = JSON.parse(data); return isPlayerCount(m.playerCount) && isPoseModelId(m.modelId) ? { type: 'config', playerCount: m.playerCount, modelId: m.modelId } : null; };
+  assert.deepEqual(older(JSON.stringify({ ...config, detail: 'hands' })), config);
+  const status = { type: 'status', status: 'connected', message: 'Lite', model: 'lite', delegate: 'GPU', facing: 'environment', inferenceMs: 12 };
+  for (const hands of ['loading', 'on', 'dropped', 'unavailable']) assert.deepEqual(parsePhoneMessage(JSON.stringify({ ...status, hands })), { ...status, hands });
+  // An older phone says nothing of hands; a state this game doesn't know is left out, the status kept.
+  assert.deepEqual(parsePhoneMessage(JSON.stringify(status)), status);
+  assert.deepEqual(parsePhoneMessage(JSON.stringify({ ...status, hands: 'resting' })), status);
 });
 
 test('a four-player pose message validates and fits a relay frame', () => {

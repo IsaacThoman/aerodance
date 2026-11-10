@@ -31,7 +31,8 @@ Rebuild/redeploy after changing the source songs directory.
 Exported metadata supplies title, artist, duration, player counts, dancers (one to four;
 a duet when missing, as in songs exported before it), revision, difficulty, stage,
 optional cover, and a SHA-256 pin for `song.json`. The preview
-opens on the song's stage, or `openreef` when it has none. Re-exported songs
+opens on the song's stage, or `openreef` when it has none or names one this build doesn't
+have, such as the removed `reef`. Re-exported songs
 are discovered with their updated revision. Install the complete directory before
 opening Song Select. The game does not extract ZIP files or publish editor
 projects. The repo ships one song, **Demo Track 1** (`apps/web/public/songs/demo-track-1/`):
@@ -91,9 +92,10 @@ Select and allow retry; leaving the screen cancels the pending request.
 from a phone, tablet or computer to the Apple TV, from the Apple TV back, or between two
 browsers. On the Apple TV it's the Songs panel's only button.
 
-- The screen shows a six-digit code and a QR code. On the other device, open Transfer songs and
-  choose **Enter a code from another device**, or scan the QR code, which opens the game there
-  (`/?transfer=<code>`) and joins. The Apple TV only ever shows a code; it has no keypad.
+- Apple TV starts by showing a six-digit code and a QR code; other devices start with the
+  keypad to enter that code. Every device can switch between the two using **Show this device’s
+  code** or **Enter a code from another device**. Scanning the QR code opens the game there
+  (`/?transfer=<code>`) and joins directly.
 - Once connected, each side lists its songs with a send button, or a tick where the other side
   already has that copy or a later revision, and **Send all**. Either side can send.
 - The receiver saves each song as Import song would, after the same checks, without asking. A

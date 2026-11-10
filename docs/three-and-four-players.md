@@ -135,10 +135,11 @@ lists only the songs that support the chosen count.
 - `?record` recordings (`.adpose` kind `recording`) have one slot per player, up to four; a
   `choreography` has one per dancer and a `take` up to four (a crew song imported into Studio);
   tracks and captures have at most two ([pose binary format](pose-binary-format.md)).
-- Calibration has every player hold still together, as before, with shorter status labels
-  when the columns are narrow. A player the model misses for a moment (up to 0.2 s) is still
-  holding: with three or four, one is missed now and then, and restarting the hold each time
-  meant it could take a long while, or never finish.
+- Calibration gives each player their own 2.5 s hold, finishing when everyone has held at once,
+  with shorter status labels when the columns are narrow. A player the model misses for a
+  moment (up to 0.2 s) is still holding, and somebody who moves restarts only their own hold:
+  with three or four, one is missed or jittered now and then, and restarting everybody's hold
+  each time meant it could take a long while, or never finish.
 - The players screen's dial picks the count; the dancers on the menu's glass stage show
   it, arriving in a soap bubble and popping when they leave.
 - The scores sit in the top corners: P1 and P2 on the left and P3 and P4 on the right with

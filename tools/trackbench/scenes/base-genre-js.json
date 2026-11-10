@@ -1,0 +1,40 @@
+{
+  "id": "base-genre-js",
+  "base": "base-solo",
+  "category": "baseline",
+  "description": "Baseline person and camera dancing 16 s of street jazz (gJS_sFM_cAll_d02_mJS3_ch04).",
+  "people": {
+    "0": {
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 0.5
+        },
+        {
+          "type": "walk",
+          "from": [
+            -2.4,
+            0.6
+          ],
+          "to": [
+            0,
+            0
+          ],
+          "duration_s": 2.0
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 4.0
+        },
+        {
+          "type": "dance",
+          "clip": "gJS_sFM_cAll_d02_mJS3_ch04",
+          "clip_start_s": 4.0,
+          "duration_s": 16.0,
+          "speed": 1.0
+        }
+      ]
+    }
+  }
+}

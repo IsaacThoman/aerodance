@@ -146,7 +146,7 @@ To start from tracking instead of from scratch, `draft` turns the tracked video 
 | `compare <dir> [--range a:b] [--every 500]` | Degrees between each scored limb and the tracked video, per window |
 | `score <dir>` | The game's scorer with the tracked video as the player, over the tracked span |
 | `export <dir> [--out song.zip] [--install] [--folder dir]` | The song bundle ZIP (default under `.dance/exports/`); `--install` writes it into the game's songs, replacing what this project installed last. The song id comes from the audio and what the game plays and scores (poses, calibration, unscored intervals), so renaming, retitling or adding phrases keeps it. |
-| `studio <dir> [--port 5310] [--dist] [--open]` | The Studio; while it runs, `frames` and `render` use its browser and return in about a second |
+| `studio <dir> [--port 5310] [--dist] [--open]` | The Studio; while it runs, `frames` and `render` use its browser and return in about a second. On a folder with no dance yet, the Studio makes one (see [The Studio](#the-studio)) |
 
 Every command takes `--json` for machine-readable output. Times are `4200` (ms), `4.2s`, `1:02.5`
 or `b17` (beat 17, needing the song's bpm); ranges are `a:b` or `a..b`.
@@ -234,6 +234,10 @@ for rhythm: a clip shows sliding, late arrivals and floaty transitions that stil
 edits the same `dance.json` through the same ops, and picks up changes from the CLI as they're
 made, so a person and an agent can work on one dance together.
 
+On a folder with no dance yet (`dance studio ~/dances/new`), the Studio asks for the title,
+artist and number of dancers, and the video to animate to, the song, or both, and creates the
+project as `dance init` would. Without a video, start from the song and record yourself.
+
 - **Video**: the source with every skeleton over it. Drag a joint to key it at the playhead. Wheel
   zooms, dragging the background pans, double-click fits. Toggles show the tracked pose, the
   neighbouring keys, or only the selected dancer.
@@ -246,15 +250,26 @@ made, so a person and an agent can work on one dance together.
   (diamond smooth, triangle linear, square hold) and colours the ease (green stop, orange sharp).
 - **Animate**: the dancer's controls (with where they're keyed), exact values to type, the key's
   interpolation and ease, Key pose / Key from video, contacts and layers. **Song**: details, beat
-  grid, stage, playable range, video alignment. **Review**: check, score, export or install.
+  grid, stage, playable range, video alignment; then the sources:
+  - **Music and video** adds or replaces the song and the video (as `dance attach`), tracks the video
+    (as `dance track`, with progress), and keys every dancer it follows from the newest tracking
+    (a `draft` op per dancer, which undo takes back).
+  - **Record yourself** records the webcam as the video. After a countdown the song plays from the
+    playhead while it records, until the song ends or you stop (Stop, or Space). The recording replaces
+    the video, re-encoded to a constant frame rate, and starts where the song was when recording began;
+    fine-tune that with the video alignment. The preview is mirrored; the recording is as filmed.
+    Recording needs the song, and the speed at 1×.
+
+  **Review**: check, score, export or install.
 
 Keys: Space plays, ←/→ steps a video frame, ⇧←/→ a beat, `,`/`.` jump between keys, K keys the whole
 pose, ⌘Z/⇧⌘Z undo and redo, 1–4 pick a dancer, G toggles the game view, M mirrors.
 
-To drive it from a script, `node scripts/play.ts start --dance <project>` opens it in a GPU-rendered
+To drive it from a script, `node scripts/play.ts start --dance <project>` (or a new folder) opens it in a GPU-rendered
 headless Chromium; `state` and `wait` read the `.studio` element's `data-*` (revision, time,
 dancer, control, mode), `drag x,y x,y` drags, and `window.danceStudio.jointOnPage(dancer, control)` /
-`window.danceTimeline.keyOnPage(dancer, channel, t)` give page positions.
+`window.danceTimeline.keyOnPage(dancer, channel, t)` give page positions. Its fake webcam (the
+MediaPipe fixture photo) is what **Record yourself** records.
 
 ## Tips for agents
 

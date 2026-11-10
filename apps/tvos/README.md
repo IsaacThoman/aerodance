@@ -129,11 +129,11 @@ slower; measure without it and read the console through `logUrl` (or pull file r
 optimizations, paired hardware measurements and visual checks. The six menu scenarios can be
 measured without attaching a debugger: `node scripts/menu-bench.ts --device <udid> --label <name>`.
 
-To exercise all six dance stages through preview, a scored ghost song and results, build with
+To exercise every dance stage through preview, a scored ghost song and results, build with
 `node scripts/tvos.ts build --game --bench-scenes`, then run
 `node scripts/menu-bench.ts --device <udid> --label <name> --scenes --file-report`.
 This uses development-only copies of the demo song, each assigned to a different stage; the
-source songs stay unchanged, and a normal build removes the fixtures. `--stages reef,club`
+source songs stay unchanged, and a normal build removes the fixtures. `--stages openreef,club`
 measures only selected stages; `--players 4` exercises their four-player game and results UI.
 `--file-report` avoids a LAN report server and still runs without a debugger. Reports include
 native framebuffer copy and presentation CPU timings; these can include GPU/display waits.
@@ -150,9 +150,10 @@ not been measured on hardware yet.
 
 ## Songs
 
-The app has no file picker, so Settings → Songs offers only **Transfer songs**: it shows a code
-and a QR code, and another device (a phone, tablet or computer running the game) joins it and
-sends its imported songs, through the pairing server's relay; the app can send them back
+The app has no file picker, so Settings → Songs offers only **Transfer songs**. It shows a code
+and a QR code by default, or can switch to a keypad to enter another device's code. Another
+device (a phone, tablet or computer running the game) can send its imported songs through the
+pairing server's relay; the app can send them back
 ([game-song-bundles.md](../../docs/game-song-bundles.md#transfer-songs-between-devices)). It
 keeps them in `Library/Caches/aerodance/songs/`, one folder each (`apps/web/src/songs/folderSongs.ts`),
 since tvOS gives apps no lasting storage beyond a little in `NSUserDefaults`: tvOS may delete

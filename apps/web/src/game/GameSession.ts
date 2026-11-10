@@ -289,6 +289,8 @@ export class GameSession {
       if (this.webcamCalibration.anchors) this.trackingRefreshAt = now;
       else if (phase === 'calibrating' && now - this.trackingRefreshAt >= SETUP_TRACKING_REFRESH_MS) {
         this.source?.resetTracking?.();
+        // A fresh line-up can number the players differently: their holds start again too.
+        this.webcamCalibration.resetHold();
         this.trackingRefreshAt = now;
         this.present.fill(-Infinity);
       }

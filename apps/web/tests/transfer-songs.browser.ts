@@ -17,6 +17,7 @@ import type { FileChooser } from 'playwright';
 import { makeZip } from '../../../packages/pose/zip.ts';
 import { createPairingServer } from '../../../packages/pairing/server.ts';
 import { menuLayout } from '../src/menu/layout.ts';
+import { settingsButton } from './helpers/menu.ts';
 import { gameLayout } from '../src/game/layout.ts';
 import { DISPLAY_MODES } from '../src/display.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
@@ -24,7 +25,7 @@ import { bundleFixture, silentWav } from './fixtures/songBundle.ts';
 import { bundleFiles } from './helpers/customSongs.ts';
 
 const design = DISPLAY_MODES.widescreen;
-const { BACK, PLAYERS_BACK, PLAYERS_GO, SETTINGS, SONG_IMPORT, SONG_TRANSFER, SONG_TRASH, START, TRANSFER_LINK } = menuLayout(design.w);
+const { BACK, PLAYERS_BACK, PLAYERS_GO, SONG_IMPORT, SONG_TRANSFER, SONG_TRASH, START, TRANSFER_LINK } = menuLayout(design.w);
 const { BACK: SONGS_BACK } = gameLayout(design.w);
 const relayed = process.env.TRANSFER_TRANSPORT === 'relay';
 const render = process.env.UI_RENDER === '1';
@@ -124,12 +125,14 @@ try {
   // The Mac imports a song, then shows its code.
   await mac.load(relayed ? '?transport=relay' : '');
   await mac.until({ menuScreen: 'main', menuReady: 'true' });
-  await mac.click(SETTINGS);
+  await mac.click(await settingsButton(mac.page, design.w));
   await mac.until({ menuScreen: 'settings', menuReady: 'true', savedSongs: '0' });
   await mac.importZip(firstZip);
   await mac.shot('transfer-settings');
   await mac.click(SONG_TRANSFER);
-  await mac.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'waiting', transferCode: /^\d{6}$/, transferSongs: '1' });
+  await mac.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'entering', transferMode: 'enter' });
+  await mac.click(TRANSFER_LINK);
+  await mac.until({ transferStatus: 'waiting', transferMode: 'code', transferCode: /^\d{6}$/, transferSongs: '1' });
   const code = await mac.data('transferCode');
   await mac.shot('transfer-code');
 
@@ -164,13 +167,11 @@ try {
   // Then the phone imports another song, types the Mac's code and sends that one back.
   await phone.click(PLAYERS_BACK);
   await phone.until({ menuScreen: 'main', menuReady: 'true' });
-  await phone.click(SETTINGS);
+  await phone.click(await settingsButton(phone.page, design.w));
   await phone.until({ menuScreen: 'settings', menuReady: 'true', savedSongs: '1' });
   await phone.importZip(secondZip);
   await phone.click(SONG_TRANSFER);
-  await phone.until({ menuScreen: 'transfer', transferStatus: 'waiting', transferSongs: '2' });
-  await phone.click(TRANSFER_LINK);
-  await phone.until({ transferStatus: 'entering', transferMode: 'enter' });
+  await phone.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'entering', transferMode: 'enter', transferSongs: '2' });
   await phone.page.keyboard.type(code.slice(0, 4));
   await phone.until({ menuReady: 'true' });
   await phone.shot('transfer-keypad');

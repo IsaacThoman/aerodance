@@ -12,7 +12,8 @@ import { isPoseModelId, poseModel } from '../../../../packages/pose/browser/mode
 import type { PoseModelId } from '../../../../packages/pose/browser/models.ts';
 import type { RecordTiming } from '../../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PreviewFrame, PreviewPicture } from '../../../../packages/pose/browser/preview.ts';
-import type { WebcamRecord } from '../../../../packages/pose/webcamRecord.ts';
+import { detailHands } from '../../../../packages/pose/webcamRecord.ts';
+import type { HandTracking, PoseDetail, WebcamRecord } from '../../../../packages/pose/webcamRecord.ts';
 import type { FrameSize, PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts';
 
@@ -54,7 +55,11 @@ import type { PoseInputView, PoseSource, PoseSourceEvent } from './PoseSource.ts
  * The skeletons come with each pose, so they can run ahead of the picture under them.
  *
  * The phone tracks with the model and player count set here (configure, setPlayerCount)
- * or on the phone itself; the view follows what the phone reports.
+ * or on the phone itself; the view follows what the phone reports. A game's detail (setDetail)
+ * goes with them: the phone's own tracker keeps the world landmarks (and with 'hands' the hands),
+ * sends them with its poses and says how its hands are doing in its status (view.hands). A phone
+ * page too old to know of the hands never says, so after HANDS_ANSWER_MS they count as
+ * unavailable; one too old to know of 'world' takes it as no detail, and sends no world landmarks.
  */
 
 export interface PhonePairing { code: string; url: string; }
@@ -136,6 +141,8 @@ const PROBE_MS = 10_000;
 const MAX_PROBE_FAILURES = 3;
 // The phone's picture counts as showing while a frame arrived this recently.
 const VIDEO_FRESH_MS = 1000;
+// A phone that hasn't said how its hands are doing this long after it was asked for them doesn't know of them.
+export const HANDS_ANSWER_MS = 3000;
 const MODEL_KEY = 'aerodance-phone-model';
 const saved = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing. */ } };
@@ -198,6 +205,9 @@ export class PhonePoseSource implements PoseSource {
   checkedAt = -Infinity;
   arrivals: number[] = [];
   offeredAt = -Infinity;
+  /** The detail a game asked for, and when this phone was last told it. */
+  detail: PoseDetail | null = null;
+  detailSentAt = -Infinity;
   constructor({ base = pairingBase(), fetch: fetchFn, createStream, createConnection, now = () => performance.now(),
     origin = pairingOrigin, createVideo = () => document.createElement('video'), transport = askedTransport(), createSocket,
     decodeFrame = decodeJpeg }: PhonePoseSourceOptions = {}) {
@@ -284,6 +294,27 @@ export class PhonePoseSource implements PoseSource {
     this.playerCount = count;
     this.publish({ snapshot: null });
     this.sendConfig();
+  }
+
+  /** Extra tracking for a game (PoseSource.setDetail): the phone is told with its settings, now and whenever it connects. */
+  setDetail(detail: PoseDetail | null) {
+    if (detail === this.detail) return;
+    this.detail = detail;
+    // What the phone said of its hands was about the last request.
+    if (this.phone) this.phone = { ...this.phone, hands: undefined };
+    this.sendConfig();
+    this.publishHands();
+  }
+  /** How the phone's hands are doing, while they're asked for (see the top). */
+  handsState(): HandTracking | undefined {
+    if (!detailHands(this.detail).length) return undefined;
+    const said = this.phone?.hands;
+    if (said) return said;
+    return said === undefined && this.phone && this.now() - this.detailSentAt > HANDS_ANSWER_MS ? 'unavailable' : 'loading';
+  }
+  publishHands() {
+    const hands = this.handsState();
+    if (hands !== this.view.hands) this.publish({ hands });
   }
 
   /** Remember a new song's line-up request if the control channel is still connecting. */
@@ -554,6 +585,7 @@ export class PhonePoseSource implements PoseSource {
     this.phone = null;
     this.arrivals = [];
     this.lastPose = -Infinity;
+    this.publishHands();
   }
 
   /** Plays the phone's video track, noting each frame as it arrives. */
@@ -597,7 +629,10 @@ export class PhonePoseSource implements PoseSource {
     return true;
   }
   sendConfig() {
-    this.send({ type: 'config', playerCount: this.playerCount, modelId: this.view.model });
+    // (Without a detail, the config is as it always was.)
+    if (this.send({ type: 'config', playerCount: this.playerCount, modelId: this.view.model, ...(this.detail ? { detail: this.detail } : {}) }) && this.detail) {
+      this.detailSentAt = this.now();
+    }
     this.flushTrackingReset();
   }
 
@@ -610,6 +645,7 @@ export class PhonePoseSource implements PoseSource {
       // The phone's own choice of model sticks here too.
       if (message.model !== this.view.model) save(MODEL_KEY, message.model);
       this.publish({ model: message.model, delegate: message.delegate ?? undefined, message: this.describe() });
+      this.publishHands();
     } else this.onPose(message.record);
   }
 
@@ -643,6 +679,7 @@ export class PhonePoseSource implements PoseSource {
 
   check() {
     const now = this.now();
+    this.publishHands();
     if (this.view.snapshot && now - this.view.snapshot.frameBrowserTimeMs >= STALE_MS) this.publish({ snapshot: null });
     if (this.view.status === 'connected' && now - this.lastPose > QUIET_MS) this.publish({ status: 'initializing', stats: null, message: this.describe() });
     const device = this.view.device || 'Phone';

@@ -1,0 +1,9 @@
+{
+  "id": "light-ceiling_only",
+  "base": "base-solo",
+  "category": "lighting",
+  "description": "Lighting: one small overhead source, hard shadows.",
+  "lighting": {
+    "preset": "ceiling_only"
+  }
+}

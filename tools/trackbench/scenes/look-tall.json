@@ -1,0 +1,25 @@
+{
+  "id": "look-tall",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "A very tall man (~1.93 m): head near the top of the frame.",
+  "people": {
+    "0": {
+      "body": {
+        "gender": 1.0,
+        "height": 0.72
+      },
+      "skin": "young_asian_male",
+      "outfit": {
+        "clothes": [
+          "male_casualsuit02",
+          "shoes01"
+        ],
+        "recolor": {
+          "top": "#c8463a",
+          "hair": "#2b1d15"
+        }
+      }
+    }
+  }
+}

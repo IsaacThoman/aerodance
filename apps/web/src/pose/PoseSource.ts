@@ -2,6 +2,7 @@ import type { CameraInfo, PoseRecordEvent, SourceStoppedEvent, WebcamStatus } fr
 import type { PreviewPicture } from '../../../../packages/pose/browser/preview.ts';
 import type { CaptureInput, PlayerCount, Pose } from '../../../../packages/pose/choreography.ts';
 import type { Cast, SongBundle } from '../../../../packages/pose/song.ts';
+import type { HandTracking, LivePose, PoseDetail } from '../../../../packages/pose/webcamRecord.ts';
 
 /*
  * The pose input the game plays with, whatever produces it: the webcam
@@ -15,8 +16,11 @@ export interface LivePoseRecord {
   type: 'pose'; sessionId: string; seq: number; playerCount: PlayerCount;
   /** Always unmirrored. */
   input: CaptureInput;
-  /** Ascending playerIds below playerCount; an absent player is omitted. */
-  poses: Pose[];
+  /**
+   * Ascending playerIds below playerCount; an absent player is omitted. With the 'hands'
+   * detail (setDetail), a live camera's poses carry their world landmarks and hands too.
+   */
+  poses: LivePose[];
 }
 /** What record listeners hear: a tracked pose, or the source stopping. */
 export type PoseSourceEvent = PoseRecordEvent<LivePoseRecord> | SourceStoppedEvent;
@@ -40,6 +44,8 @@ export interface PoseInputView {
   stats?: { poseHz: number; inferenceMs: number | null; droppedFrames?: number; clockUncertaintyMs?: number } | null;
   /** Where the tracking model runs (GPU or CPU), once it has loaded. */
   delegate?: string;
+  /** The hands, while the 'hands' detail is asked for (setDetail); absent otherwise. */
+  hands?: HandTracking;
 }
 
 /** The song clock a source can follow while a song plays (GameSession attaches it). */
@@ -63,6 +69,13 @@ export interface PoseSource {
   resetTracking?(): void;
   /** Sources that play back poses follow the song; the webcam ignores it. */
   attachSong?(song: SongClock | null): void;
+  /**
+   * Extra tracking for a game that asks for it, or none (null): with 'world' or 'hands', a live
+   * camera's poses keep MediaPipe's world landmarks and, with 'hands' and one or two players, the
+   * hands found at their wrists (view.hands says how they're doing). A minigame session asks for it while it lasts
+   * (MinigameSession); the songs never do. Replays have neither.
+   */
+  setDetail?(detail: PoseDetail | null): void;
 }
 
 /** A record event that carries a tracked pose. */

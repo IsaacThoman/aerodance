@@ -1,0 +1,47 @@
+{
+  "id": "bg-studio",
+  "base": "base-solo",
+  "category": "background",
+  "description": "Dance studio with a full mirror wall, the player 0.9 m left of centre so her full-size reflection shows beside her (two factors: room and spot).",
+  "room": {
+    "preset": "dance_studio"
+  },
+  "people": {
+    "0": {
+      "place": {
+        "x": -0.9,
+        "y": 0
+      },
+      "timeline": [
+        {
+          "type": "offstage",
+          "duration_s": 0.5
+        },
+        {
+          "type": "walk",
+          "from": [
+            -2.6,
+            0.6
+          ],
+          "to": [
+            -0.9,
+            0
+          ],
+          "duration_s": 2.0
+        },
+        {
+          "type": "hold",
+          "pose": "neutral",
+          "duration_s": 4.0
+        },
+        {
+          "type": "dance",
+          "clip": "gMH_sFM_cAll_d22_mMH3_ch04",
+          "clip_start_s": 4.0,
+          "duration_s": 16.0,
+          "speed": 1.0
+        }
+      ]
+    }
+  }
+}

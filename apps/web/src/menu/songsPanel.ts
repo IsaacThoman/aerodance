@@ -102,7 +102,8 @@ export function drawPanelLink(g: CanvasRenderingContext2D, rect: Rect, { icon, l
   g.fillStyle = '#b8fff0';
   g.fillText(label, x, cy + 1);
   const w = g.measureText(label).width;
-  if (hover > 0.01 && !busy) g.fillRect(x, cy + size * 0.62, w * hover, 2.5);
+  // Hover eases in and out; the underline just appears and disappears halfway through.
+  if (hover > 0.5 && !busy) g.fillRect(x, cy + size * 0.62, w, 2.5);
   if (note) {
     g.font = `600 19px ${FONT}`;
     g.fillStyle = '#d8f6ff';

@@ -1,0 +1,14 @@
+{
+  "id": "cam-high-1.8",
+  "base": "base-solo",
+  "category": "camera",
+  "description": "Camera on a shelf, 1.8 m high, looking down.",
+  "camera": {
+    "height_m": 1.8,
+    "look_at": [
+      0,
+      0,
+      0.85
+    ]
+  }
+}

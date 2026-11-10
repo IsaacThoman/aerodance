@@ -1,0 +1,14 @@
+{
+  "id": "look-child",
+  "base": "base-solo",
+  "category": "appearance",
+  "description": "A child (~10 years, ~1.3 m) dancing in the adult framing.",
+  "people": {
+    "0": {
+      "body": {
+        "age": 0.2,
+        "height": 0.5
+      }
+    }
+  }
+}
