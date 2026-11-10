@@ -278,15 +278,15 @@ render's neighbour frames; or rendered with Blender motion blur instead),
   `masks.pinhole/`. Rendering changed to a webcam-like picture (Standard view transform,
   per-preset auto exposure; ENVIRONMENT.md): generator 1.1, which is part of `render_key`, so
   renders made with 1.0 are re-rendered rather than reused as post-only bases.
-- v1.4 (2026-11-09, table-tennis scenes, additive): optional `hands` (hand-21 GT) and `paddle`
+- v1.3 (2026-11-01, single-player suite): generator 1.2 halves the hold's arm drift (GENERATOR.md,
+  Timeline segments): with the old ±2° a wrist moved 0.12 torso lengths, so Lite never calibrated
+  on base-solo's 4 s hold. Holds rendered with 1.0/1.1 sway more than real people holding still.
+- v1.4 (2026-11-09, table-tennis scenes: the generator's side; additive): optional `hands` (hand-21 GT) and `paddle`
   per person, `phase` values `ready`/`swing`/`serve`, `meta.json` `people[].hand/paddle/strokes`,
   the `pingpong` timeline segment, person `hand` and `paddle`, and spec `render`
   (`motion_blur_shutter`, `samples`) and `gt.hands` keys. Category `pingpong`. Scenes without
   them are unchanged (GT byte-identical).
-- v1.3 (2026-11-01, single-player suite): generator 1.2 halves the hold's arm drift (GENERATOR.md,
-  Timeline segments): with the old ±2° a wrist moved 0.12 torso lengths, so Lite never calibrated
-  on base-solo's 4 s hold. Holds rendered with 1.0/1.1 sway more than real people holding still.
-- v1.4 (2026-11-09, ping-pong; additive, all optional). **GT**: a `gt.jsonl` person may carry
+- v1.4 (2026-11-09, ping-pong: the harness's side; additive, all optional). **GT**: a `gt.jsonl` person may carry
   `"hands": {"left": {"kp": [[x, y, depth_m, vis] x21], "kp3d": [[X, Y, Z] x21]}, "right": {...}}`
   (MediaPipe hand-21 order, the body's kp/kp3d conventions) and `"paddle": {"hand": "right",
   "center": [X, Y, Z], "normal": [X, Y, Z]}` (stage metres). A spec's `resolution` may be
