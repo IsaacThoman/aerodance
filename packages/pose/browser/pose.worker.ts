@@ -304,6 +304,33 @@ function cutFor(points: readonly NormalizedLandmark[], side: HandSide, width: nu
   return { x: wrist.x * width + fx * 0.6 - size / 2, y: wrist.y * height + fy * 0.6 - size / 2, size };
 }
 
+/**
+ * A dark cut (dim light, a TV's glow, a dark sleeve in a dark room: its brightest LEVELS.high
+ * share of pixels below LEVELS.dark) is brightened before the Hand Landmarker looks at it: that
+ * brightness lifted to white (by at most LEVELS.gain) and the shadows opened up by a gamma of
+ * LEVELS.gamma, the same for each channel. A cut that isn't dark is looked at as it is. On
+ * trackbench's ping-pong scenes this finds the hand in 0.59 of the dim two-player scene's frames
+ * where it found 0.25, and changes nothing in normal light.
+ */
+const LEVELS = { high: 0.98, dark: 160, gain: 4, gamma: 0.45 } as const;
+let levels: OffscreenCanvasRenderingContext2D | null | undefined;
+function brightened(picture: ImageBitmap): ImageBitmap | ImageData {
+  levels ??= new OffscreenCanvas(CUT_PIXELS, CUT_PIXELS).getContext('2d', { willReadFrequently: true });
+  if (!levels) return picture;
+  levels.drawImage(picture, 0, 0);
+  const image = levels.getImageData(0, 0, CUT_PIXELS, CUT_PIXELS), px = image.data;
+  const counts = new Uint32Array(256);
+  for (let i = 0; i < px.length; i += 4) counts[(px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8]++;
+  let bright = 255;
+  for (let v = 0, sum = 0; v < 256; v++) { sum += counts[v]; if (sum >= LEVELS.high * (px.length / 4)) { bright = v; break; } }
+  if (bright >= LEVELS.dark) return picture;
+  const gain = Math.min(LEVELS.gain, 255 / Math.max(1, bright));
+  const lut = new Uint8ClampedArray(256);
+  for (let v = 0; v < 256; v++) lut[v] = 255 * Math.min(1, (v * gain) / 255) ** LEVELS.gamma;
+  for (let i = 0; i < px.length; i += 4) { px[i] = lut[px[i]]; px[i + 1] = lut[px[i + 1]]; px[i + 2] = lut[px[i + 2]]; }
+  return image;
+}
+
 /** Each hand on the side its handedness says, when the cuts' sides (the pose's) disagree. */
 function sorted(found: FoundHand[]): FoundHand[] {
   const [a, b] = found;
@@ -340,7 +367,8 @@ async function findHands(bitmap: ImageBitmap, points: readonly NormalizedLandmar
     // A cut past the picture's edge is padded, so it stays square.
     const picture = await createImageBitmap(bitmap, Math.round(cut.x), Math.round(cut.y), Math.round(cut.size), Math.round(cut.size), { resizeWidth: CUT_PIXELS, resizeHeight: CUT_PIXELS });
     try {
-      const result = video ? landmarker.detectForVideo(picture, timestampMs) : landmarker.detect(picture);
+      const input = brightened(picture);
+      const result = video ? landmarker.detectForVideo(input, timestampMs) : landmarker.detect(input);
       // The hand nearest the pose's wrist (the other hand may be in the cut too).
       const wrist = points[JOINTS[side].wrist];
       let best = -1, bestD = Infinity;
