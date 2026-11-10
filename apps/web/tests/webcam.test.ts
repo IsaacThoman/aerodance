@@ -362,6 +362,26 @@ test('a worker that fails after it was tracking is started again with the same s
   assert.equal(workers[1].messages.filter(m => m.type === 'frame').length, 2);
 });
 
+test('a worker started again has as long to get ready as the first had, not the stall watchdog\'s ten seconds', async t => {
+  const tick = () => new Promise(resolve => setTimeout(resolve, 150));
+  const { f, workers, send } = restartable(t);
+  await f.source.connect(); send(0, { type: 'ready', delegate: 'GPU', fallback: '' });
+  await f.frame(1); send(0, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
+  send(0, { type: 'error', message: 'WebGL context lost' });
+  assert.equal(workers.length, 2);
+  // Pictures keep coming while the new worker loads its models, for longer than a stall is allowed.
+  for (let s = 2; s <= 20; s++) await f.frame(s);
+  await tick();
+  assert.notEqual(f.source.view.status, 'error');
+  // Ready at last: it isn't taken for stalled before its first result either.
+  send(1, { type: 'ready', delegate: 'GPU', fallback: '' });
+  await tick();
+  assert.notEqual(f.source.view.status, 'error');
+  // (The frame that waited went to it when it was ready.)
+  send(1, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
+  assert.equal(f.source.view.status, 'connected');
+});
+
 test('a worker that crashes is started again too, but one that never got ready fails the camera', async t => {
   const { f, workers, send } = restartable(t);
   await f.source.connect(); send(0, { type: 'ready', delegate: 'GPU', fallback: '' });

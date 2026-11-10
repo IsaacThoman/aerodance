@@ -428,7 +428,8 @@ export class WebcamPoseSource {
         // Say which half stopped: the camera's pictures, or the model on them. A camera that has
         // tracked before is only 'initializing' again after a mute, and it should be back by now.
         const resumed = this.view.status === 'initializing' && this.completed > 0;
-        if ((this.view.status === 'connected' || resumed) && now - this.lastResult > STALL_MS) {
+        // (A worker started again is loading its models: the startup timeout is its deadline.)
+        if (!this.restarting && (this.view.status === 'connected' || resumed) && now - this.lastResult > STALL_MS) {
           this.fail(Error(now - this.lastFrame > 5000 ? STALLED : 'Camera tracking stopped responding. Start camera to retry.'));
         }
       }, 100);
@@ -554,7 +555,7 @@ export class WebcamPoseSource {
       this.workerReady = true;
       this.sendDetail();
       // A worker started again: the frame loop is running; the frame that waited goes now.
-      if (this.restarting) { this.restarting = false; this.busy = false; return; }
+      if (this.restarting) { this.restarting = false; this.busy = false; this.lastResult = this.now(); return; }
       this.schedule(); return;
     }
     if (data.type === 'hands') {

@@ -373,7 +373,7 @@ export function timeGrid(scene: Scene, mapping: readonly string[], delivered: re
       if (trackable) {
         const g = gap[k];
         if (cat === 'lost') { g.since ??= f.t_ms; g.max = Math.max(g.max, f.t_ms - g.since + 1000 / scene.fps); } else g.since = null;
-      }
+      } else gap[k].since = null; // (Out of view isn't lost: a gap ends when its player leaves.)
       for (const [bucket, use] of [[whole, true], [after, linedSince !== null], [dance, inDance]] as const) {
         if (!use || !cat) continue;
         if (trackable) bucket.trackable++;
