@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hungarian, loadScene, round, torsoScale } from './common.ts';
+import { bootstrap, clusterBootstrap, hungarian, loadScene, round, torsoScale } from './common.ts';
 import type { GtPerson, Scene, TrackedFrame } from './common.ts';
 import { gaussian, perfectDetections, writeFixtureScene } from './fixtures.ts';
 import type { FixtureOptions } from './fixtures.ts';
-import { accumulateOffsets, finishOffsets, sceneMetrics, zeroOffsets } from './metrics.ts';
+import { accumulateOffsets, finishOffsets, sceneMetrics, trackedMetrics, zeroOffsets } from './metrics.ts';
 import { trackDetections } from './track.ts';
-import { COLUMNS, buildReport } from './report.ts';
+import { buildReport, rowOf } from './report.ts';
 import { GameLoop } from './gameloop.ts';
 import { nextFrame } from './run-game.ts';
 
@@ -165,13 +165,12 @@ test('realtime records the game drops as too old are not tracked', () => {
 test('the report aggregates scenes and estimators, with deltas and worst scenes', () => {
   const s = scene(duo);
   const good = run(s).m, bad = run(s, perfectDetections(s.gt, { drop: (p, f) => p.id === 'a' && f.t_ms > 5000 })).m;
-  const row = (estimator: string, m: typeof good, sceneId: string) => ({ scene: sceneId, category: m.category, players: m.players, estimator,
-    values: Object.fromEntries(COLUMNS.map(c => [c.key, c.get(m)])) });
+  const row = (estimator: string, m: typeof good, sceneId: string) => rowOf(estimator, sceneId, m);
   const rows = [row('perfect', good, 'duo'), row('dropping', bad, 'duo'), row('perfect', good, 'duo2')];
   const { markdown, json } = buildReport(rows, 'perfect', 3);
   const dropping = json.summary.find(x => x.estimator === 'dropping')!;
-  assert.ok(dropping.deltas!.score_lost! > 100_000);
-  assert.ok(dropping.deltas!.lost! > 0.1);
+  assert.ok(dropping.deltas!.score_lost.delta! > 100_000);
+  assert.ok(dropping.deltas!.lost.delta! > 0.1);
   assert.equal(json.summary.find(x => x.estimator === 'perfect')!.scenes, 2);
   assert.match(markdown, /## By category/);
   assert.equal(json.worst.dropping.score_lost[0].scene, 'duo');
@@ -203,4 +202,62 @@ test('a setup line-up retry clears a partial calibration hold with the old playe
   assert.notEqual(loop.tracker, tracker);
   assert.ok(loop.calibration.holds.every(h => h.startedAt === null && h.frames.length === 0));
   assert.deepEqual(loop.calibration.players, ['missing', 'missing']);
+});
+
+test('report: a failure is counted and listed, and deltas are paired over the scenes both have', () => {
+  const s = scene(solo);
+  const m = run(s).m;
+  const row = (estimator: string, sceneId: string, calib: number | null) => {
+    const r = rowOf(estimator, sceneId, m);
+    return { ...r, values: { ...r.values, calib }, failed: { ...r.failed, calib: calib === null } };
+  };
+  // The audit's counterexample: the candidate fails scene a, and is the same on b.
+  const { markdown, json } = buildReport([row('base', 'a', 1000), row('base', 'b', 3000), row('candidate', 'a', null), row('candidate', 'b', 3000)], 'base', 3);
+  const cand = json.summary.find(x => x.estimator === 'candidate')!;
+  assert.equal(cand.deltas!.calib.delta, 0);
+  assert.equal(cand.deltas!.calib.pairs, 1);
+  assert.equal(cand.deltas!.calib.fails, 1);
+  assert.equal(cand.fails.calib, 1);
+  assert.deepEqual(json.worst.candidate.calib[0], { scene: 'a', value: null, failed: true });
+  assert.match(markdown, /\(\+1 fail\)/);
+});
+
+test('cluster bootstrap: singletons give the plain bootstrap; scenes sharing a render widen the interval', () => {
+  const g = gaussian(3);
+  const diffs = Array.from({ length: 30 }, () => g());
+  assert.deepEqual(clusterBootstrap(diffs, diffs.map((_, i) => i)), bootstrap(diffs));
+  // The same 10 values, each three times: as 30 independent scenes the interval is too narrow.
+  const ten = diffs.slice(0, 10), tripled = [...ten, ...ten, ...ten];
+  const [lo1, hi1] = bootstrap(tripled), [lo3, hi3] = clusterBootstrap(tripled, tripled.map((_, i) => i % 10));
+  assert.ok(hi3 - lo3 > 1.4 * (hi1 - lo1), `${hi3 - lo3} vs ${hi1 - lo1}`);
+});
+
+test('the time grid counts a sparse stream as lost between its records, and a dropped-only one as lost', () => {
+  const s = scene(solo);
+  // Every tenth frame (a pose every 333 ms): per record nothing is lost, on the grid the gaps are.
+  const sparse = run(s, perfectDetections(s.gt).filter(f => f.frame % 10 === 1)).m;
+  assert.ok(sparse.tracking.whole_scene.lost! < 0.01, JSON.stringify(sparse.tracking.whole_scene));
+  const grid = sparse.tracking.time_grid;
+  assert.ok(grid.whole_scene.lost! > 0.05 && grid.whole_scene.lost! < 0.15, JSON.stringify(grid));
+  assert.ok(grid.max_lost_gap_ms! > 0);
+  // Every frame: the grid and the records agree.
+  const full = run(s).m.tracking;
+  assert.ok(Math.abs(full.time_grid.whole_scene.lost! - full.whole_scene.lost!) < 0.005);
+  assert.equal(full.time_grid.after_numbering.identity_accuracy, 1);
+  // Nothing delivered: everything lost, not a missing value.
+  const dropped = trackedMetrics(s, [{ frame: 181, t_ms: 6000, received_ms: 6600, poses: [], lined: false, dropped: true }], ['p1']);
+  assert.equal(dropped.whole_scene.lost, null);
+  assert.equal(dropped.time_grid.whole_scene.lost, 1);
+});
+
+test('jitter uses consecutive delivered samples and their timestamps, so a 15 fps stream has some', () => {
+  const s = scene(solo);
+  const g = gaussian(11), sigma = 0.02;
+  const noisy = perfectDetections(s.gt, { perturb: p => { const k = torsoScale(p, s); return [g() * sigma * k / s.aspect, g() * sigma * k]; } });
+  const every = run(s, noisy).m.detection.jitter, half = run(s, noisy.filter(f => f.frame % 2 === 1)).m.detection.jitter;
+  assert.ok(half.accel_error.n > 0);
+  assert.equal(half.unit, 'torso lengths per s^2');
+  // The same noise at half the rate is a quarter of the acceleration (gaps twice as long).
+  const ratio = half.accel_error.mean! / every.accel_error.mean!;
+  assert.ok(ratio > 0.18 && ratio < 0.35, `ratio ${ratio}`);
 });

@@ -128,8 +128,8 @@ function mulberry32(seed: number) {
  * resample's mean is over the scenes in it. With every cluster a single scene it is bootstrap.
  * Fewer than three clusters: no interval.
  */
-export function clusterBootstrap(diffs: readonly number[], clusters: readonly string[], n = 4000, seed = 12345): [number, number] {
-  const byCluster = new Map<string, number[]>();
+export function clusterBootstrap(diffs: readonly number[], clusters: readonly (string | number)[], n = 4000, seed = 12345): [number, number] {
+  const byCluster = new Map<string | number, number[]>();
   diffs.forEach((d, i) => { const g = byCluster.get(clusters[i]); if (g) g.push(d); else byCluster.set(clusters[i], [d]); });
   const groups = [...byCluster.values()];
   if (groups.length < 3) return [NaN, NaN];

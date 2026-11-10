@@ -545,6 +545,30 @@ No phone was measured directly. Three sources bound the cost:
 
 On a phone, also watch heat over a whole song. This simulation doesn't model thermal throttling.
 
+### Tried after the report, not kept (November 9)
+
+Measured with the fixed harness (failures counted, lost and identity over time, render clusters
+resampled, the held-out split in `harness/split.ts`), against this branch's own run
+(`runs/dance-base`, identical detections to `final5-game`). Reports `dance-gate`,
+`dance-rt150-fresh`, `dance-rt150-drop-fresh` in `$TRACKBENCH_DATA/reports/`.
+
+- **A lower torso gate for a body already followed** (three torso joints at 0.1 instead of 0.5).
+  The idea was that floor work, side-on dancing and skirts lose score because the whole body
+  vanishes. It doesn't: in `mot-floor`, `mot-side`, `look-dress` and `look-long-skirt` every
+  detected person has all four torso joints at 0.5 or more, and filling *every* record where the
+  player has no pose with the ground truth takes score lost from 15.1% to 14.0% in `mot-floor`
+  and changes the others by under 0.05 points. Their loss is joint error (scored-limb error
+  10-16° against 6° in `base-solo`). In the game loop the gate changed five scenes: tuning
+  +0.003 points [0.000, +0.009], held-out −0.005 [−0.017, 0.000].
+- **Stretching the tracker's 250 ms "just seen" window to 2.5 result intervals** when results
+  are slow. At 150 ms a result (`--realtime --busy-ms 150`, 19 scenes), it lost *more*: tuning
+  +1.56 points [+0.38, +3.24], player time lost +0.7 points; held-out −0.14 [−0.71, +0.28].
+  While a player counts as just seen, only the motion gate can find them, and the prediction
+  runs further; once the window passes they're found again near their place.
+- **Stretching calibration's miss and gap allowances (200 and 400 ms) the same way** changed
+  nothing at 100 or 150 ms a result, with or without one result in six dropped: calibration
+  completed in all 19 scenes either way, records byte-identical.
+
 ## Other recommendations
 
 - **Choose Lite or Full by measured speed** ([above](#full-vs-lite-on-slower-devices)). Full is
