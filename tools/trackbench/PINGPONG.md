@@ -733,12 +733,64 @@ swings, so the simulation's cameras stay.
 **Dance.** compare-runs on base-solo, base-duo, base-quad, cam-far-5.0, light-backlit_window and
 light-ceiling_only with no detail, old worker (yE2vCQ3b) against new (CMCelfy_): 6/6 identical.
 
-**Cost (provisional).** Realtime `--jobs 1`, scenes one at a time, on a machine that was *not*
-quiet: PerfPowerServices at ~185% CPU throughout, an Expo iOS build running at the start. The old
-worker's pp1-base took 27.4 ms against 17.7 on the quiet pass above. Inference ms, old → new:
-pp1-base 27.4 → 30.0, pp1-dim 26.9 → 25.4, pp2-base 31.2 → 35.2, pp2-dim 33.5 → 41.7 (dropped
-camera frames 68 → 131 of 600). The brightened path (a CPU readback and a lookup table per cut)
-may cost several ms with two dark hands. It needs a quiet re-take before shipping.
+**Cost, realtime (three takes).** Before: `6dfa6615` (`pose.worker-yE2vCQ3b.js`); after:
+`a7d151df` (`pose.worker-CMCelfy_.js`). Each scene ran before, after, before, after, before,
+after, one worker at a time on the Apple M5 Pro / Metal GPU. Every take used:
+
+```sh
+node tools/trackbench/harness/run-game.ts <scene> --realtime --id pp2t-<before|after>-<1|2|3> --detail minigame:table-tennis --input-size 640x480
+```
+
+These direct `run-game.ts` calls are serial (`--jobs 1` for a suite); `busyScale = 1`, with no
+added game-rendering load. Both commits were checked out detached and rebuilt before their
+runs, so each run.json records the right worker snapshot. Latency is mean arrival − capture;
+pose Hz counts kept results over their capture-time span. Each cell is the **median of three
+takes [min–max]**; Δ is after minus before, computed before rounding.
+
+The pass started after an iOS Hermes compile finished. No Blender, competing active
+Chromium/Playwright benchmark or Xcode/iOS build appeared in the retained runs' 5 s process
+samples. An existing Chromium session and an iOS test-without-building runner were idle
+(0% CPU). Background load remained: PerfPowerServices at 191% CPU median (up to 210%),
+host/simulator diagnosticd up to 126% / 151%, simulator locationd up to 102%, and T3 Code up to
+85%. The first pp2-close pair is excluded because its after take caught an unrelated
+`opencode` spike at 162% CPU; both sides were repeated as `pp2t-{before,after}-1-recheck`.
+All original outputs are preserved. Logs, process samples and per-take aggregates:
+`$TRACKBENCH_DATA/reports/pp2t-20261109-194905/`; retained recordings:
+`runs/pp2t-{before,after}-{1,2,3}/` (with the replacement pair above).
+
+| scene | worker | inference mean ms | inference p95 ms | pose Hz | latency ms | camera frames dropped / 600 |
+|---|---|---|---|---|---|---|
+| pp2-dim | before | 33.2 [31.3–35.1] | 54.0 [53.6–55.3] | 26.54 [25.84–26.79] | 41.1 [37.6–44.8] | 69 [64–83] |
+|  | after | 29.5 [29.4–30.0] | 50.7 [49.5–51.4] | 28.05 [27.70–28.15] | 35.1 [34.7–35.2] | 39 [37–46] |
+| | Δ | -3.7 | -3.3 | +1.50 | -6.0 | -30 |
+| pp1-dim | before | 21.1 [20.6–23.4] | 39.3 [38.3–39.7] | 29.50 [29.40–29.50] | 23.2 [22.8–25.1] | 10 [10–12] |
+|  | after | 21.1 [20.5–22.3] | 40.2 [38.5–40.3] | 29.30 [29.25–29.30] | 22.9 [22.3–24.4] | 14 [14–15] |
+| | Δ | 0.0 | +0.9 | -0.20 | -0.3 | +4 |
+| pp1-tv-glow | before | 21.4 [21.3–23.6] | 40.2 [35.8–40.6] | 29.25 [29.20–29.50] | 23.7 [22.4–26.6] | 15 [10–16] |
+|  | after | 21.0 [20.9–23.0] | 38.1 [36.9–40.4] | 29.40 [29.40–29.45] | 22.5 [22.1–25.4] | 12 [11–12] |
+| | Δ | -0.4 | -2.1 | +0.15 | -1.2 | -3 |
+| pp1-sleeves-dark | before | 22.3 [21.9–22.5] | 38.0 [38.0–40.1] | 29.35 [29.10–29.45] | 24.4 [23.5–25.7] | 13 [11–18] |
+|  | after | 21.3 [20.0–22.1] | 39.3 [35.2–42.5] | 29.45 [29.15–29.60] | 22.8 [21.2–25.0] | 11 [8–17] |
+| | Δ | -0.9 | +1.3 | +0.10 | -1.6 | -2 |
+| pp1-base | before | 20.5 [19.8–21.0] | 36.5 [36.2–37.2] | 29.55 [29.50–29.55] | 22.3 [21.4–22.4] | 9 [9–10] |
+|  | after | 19.4 [19.2–20.6] | 34.9 [33.5–36.3] | 29.60 [29.60–29.65] | 20.7 [19.9–21.4] | 8 [7–8] |
+| | Δ | -1.1 | -1.5 | +0.05 | -1.6 | -1 |
+| pp2-base | before | 27.2 [25.9–28.3] | 49.0 [45.4–49.6] | 28.25 [28.20–29.05] | 30.8 [28.8–32.6] | 35 [19–36] |
+|  | after | 27.9 [26.8–29.0] | 48.5 [46.6–49.5] | 28.50 [28.30–28.55] | 32.8 [30.2–33.6] | 30 [29–34] |
+| | Δ | +0.7 | -0.5 | +0.25 | +2.0 | -5 |
+| pp2-close | before | 27.2 [25.4–27.6] | 48.7 [43.9–49.3] | 28.50 [27.95–28.60] | 31.6 [28.6–31.7] | 30 [28–41] |
+|  | after | 27.1 [22.0–27.3] | 48.8 [36.1–52.5] | 28.50 [28.25–29.65] | 30.8 [23.4–31.1] | 30 [7–35] |
+| | Δ | -0.1 | +0.1 | 0.00 | -0.9 | +0 |
+
+Hands were on and kept in all 42 retained takes; all completed on the GPU without an error or
+a stale result dropped. The cost fields were checked against `pingpong.ts`; scene spec, meta
+and GT checksums stayed fixed.
+
+On a machine quiet of competing builds and benchmarks, but with the background CPU above, the
+change costs −1.1 to +0.7 ms of mean inference per frame in bright scenes and −3.7 to 0.0 ms in
+dark ones; the provisional pp2-dim increase is not reproduced. These are whole-worker timings,
+not an isolated measurement of the histogram/readback, and the take ranges show the remaining
+variation.
 
 ### Where it stands (640x480; first round → second)
 
@@ -759,8 +811,8 @@ may cost several ms with two dark hands. It needs a quiet re-take before shippin
 3. **The hand mid-swing**: found only 35-50% of swing frames, and the pose's fallback direction is
    45° off. A cut following the wrist's motion (centred ahead of a fast wrist, larger with speed)
    is the next worker experiment. So is keeping the landmarker's tracking through a blurred frame.
-4. **A quiet-machine cost re-take** of the dark-cut path, and if it costs, a smaller readback (a
-   64×64 copy for the histogram).
+4. **The dark-cut path's cost** is re-taken above; if it proves costly under the game's
+   rendering load, try a smaller readback (a 64×64 copy for the histogram).
 5. **The minmod predictor** for drawing only (the hit test on the unpredicted blade), if the
    owner wants the paddle to look 13 ms quicker. It needs a decision on hits judged against a
    paddle that isn't where it's drawn.
