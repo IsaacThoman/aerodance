@@ -385,6 +385,47 @@ useMinigameFrame((frame) => {
 });
 ```
 
+## Recording a session
+
+Open `/?record=session`, choose **Experiments → Table Tennis**, pick the players and settings,
+then **Play**. Where supported, Play asks once for a save folder before the round starts
+tracking; later rounds reuse it until you reload. Start the webcam on the calibration card.
+A small **REC m:ss** mark means capture is running. Pause and **Experiments**, reach results,
+or hide the tab to finish; wait for the save confirmation before closing the page. Restart
+finishes the old recording and starts a new one. A hidden tab ends its recording permanently;
+start another round to record again. Only local webcam sources (including the puppet) record;
+a paired phone or a pose replay cannot supply this browser's camera stream.
+
+Stand in even light with the camera steady, far enough back that your head, shoulders, hips
+and both hands stay in view throughout a swing. Leave room on both sides and avoid a bright
+window behind you. Record 2–3 minutes solo and another 2–3 minutes with a second person, standing
+side by side without overlapping. Try both paddle hands (change the setting between rounds),
+forehands, backhands, reaches and quick returns. Include a little standing still and a few
+misses. Keep the selected tracking settings with each recording so we can reproduce them.
+
+Each round saves `aerodance-<game>-<yyyymmdd-hhmmss>.mp4` (H.264 when supported, otherwise
+WebM/VP9 or the browser's supported fallback) and a matching `.jsonl`. Video is the native,
+unmirrored camera stream at a requested 8 Mbps, with no audio or resizing. Nothing is uploaded.
+Folder saving streams both files to disk; without the File System Access API, or if its picker
+is cancelled, files accumulate in memory and two downloads finish the round (allow multiple
+downloads). Prefer a folder-capable desktop browser for long recordings. Safari's codec and
+background-tab behavior vary; check a short recording before collecting a long session. Closing
+or crashing the browser during finalization can leave incomplete files.
+
+Inspect a recording and extract video into trackbench's frame-folder layout (requires ffmpeg):
+
+```sh
+node tools/replay/cli.ts summary /path/to/session.jsonl
+node tools/replay/cli.ts frames /path/to/session.mp4 /path/to/new-scene
+```
+
+The log includes complete poses, hands/world landmarks when requested, camera-frame timestamps,
+phase changes, changed `ctx.report` fields and tracking stats. Games can add small local events
+with `ctx.record?.('paddle-contact', { player: 0 })` (absent without recording); Table Tennis
+adds none yet. See [replay tools](../tools/replay/README.md) for the schema, clock alignment,
+summary definitions and `readSession(path)`. `node apps/web/tests/session-recording.browser.ts`
+tests the puppet flow and measures pose Hz with and without recording; evidence stays in `.cache/`.
+
 ## Testing with the puppet camera
 
 `?input=puppet` makes the camera a **puppet camera**: up to four pretend people, posed from the

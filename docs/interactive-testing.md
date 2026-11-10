@@ -66,6 +66,10 @@ node scripts/play.ts start [--studio | --dance <project>] [--dist] [--headed] [-
   Closing the window ends the session.
 - `--url` is the page to open, e.g. `/?input=ghost` for the autoplay ghost, or `/?input=puppet`
   for the puppet camera (see [Camera](#camera)).
+- `?record=session` in `--url` records a minigame round's native webcam video and tracking JSONL
+  locally, including with `/?input=puppet&record=session`. Play asks once for a save folder when
+  supported; otherwise allow two downloads. Quit, results or hiding the tab finishes capture.
+  Plain `?record` still downloads a song's poses. See [Recording a session](minigames.md#recording-a-session).
 - `--size` sets the viewport. The default, 1280×800, matches the browser tests: a
   1280×720 game frame starting 40 px down.
 - `--camera` sets the webcam (see below). The default is `fixture`.

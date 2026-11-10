@@ -71,6 +71,8 @@ export interface PoseRecordEvent<R = WebcamRecord> {
 export interface SourceStoppedEvent { event: { type: 'source-stopped'; reason: string }; receivedBrowserTimeMs: number; }
 export type WebcamRecordEvent = PoseRecordEvent | SourceStoppedEvent;
 export type Listener<T> = (value: T) => void;
+/** An optional tap of the existing camera-frame loop, before frames are queued for tracking. */
+export interface CameraFrame { t: number; callbackTime: number; metadata: VideoFrameCallbackMetadata; }
 
 /** The part of a Worker the source uses; replaceable in tests. */
 export interface PoseWorker {
@@ -153,6 +155,12 @@ export class WebcamPoseSource {
   turn: (frame: { width: number; height: number; facing?: string; capture: number }) => number;
   listeners = new Set<Listener<WebcamView>>();
   recordListeners = new Set<Listener<WebcamRecordEvent>>();
+  // Session recording observes every delivered frame without starting another rVFC loop.
+  frameListeners = new Set<Listener<CameraFrame>>();
+  subscribeFrames(listener: Listener<CameraFrame>) {
+    this.frameListeners.add(listener);
+    return () => { this.frameListeners.delete(listener); };
+  }
   generation = 0;
   playerCount: PlayerCount = 1;
   view: WebcamView;
@@ -596,6 +604,10 @@ export class WebcamPoseSource {
     const callback = (_time: number, metadata?: VideoFrameCallbackMetadata) => {
       if (generation !== this.generation) return;
       this.schedule();
+      if (metadata && this.frameListeners.size) {
+        const frame = { t: this.now(), callbackTime: _time, metadata };
+        for (const listener of this.frameListeners) listener(frame);
+      }
       // Safari reports mediaTime 0 for every frame of a live camera (its currentTime advances),
       // which would make each frame after the first look like a repeat.
       const reported = (metadata?.mediaTime ?? 0) * 1000;

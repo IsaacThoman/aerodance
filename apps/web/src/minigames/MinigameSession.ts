@@ -117,6 +117,7 @@ export class MinigameSession implements MinigameContext {
   optionStorage: BestScoreStorage | undefined;
   /** The game's own reported state (report()), as data-mg-* keys. */
   reported: Record<string, string> = {};
+  record?: (type: string, data: unknown) => void;
   listeners = new Set<Listener>();
   offRecords: () => void;
   constructor({ game, playerCount, source = null, now = () => performance.now(), options, optionStorage }: MinigameSessionOptions) {
@@ -287,6 +288,7 @@ export class MinigameSession implements MinigameContext {
     saveMinigameOption(this.game, id, value, this.optionStorage);
     // A setting the tracking depends on asks the camera again (while this round holds it).
     const detail = trackingFor(this.game, this.playerCount, this.options);
+    this.record?.('options', { options: { ...this.options }, detail });
     if (detail === this.detail) return;
     this.detail = detail;
     if (this.source && detailHolders.get(this.source) === this) this.source.setDetail?.(detail);
@@ -306,14 +308,19 @@ export class MinigameSession implements MinigameContext {
   calibration(player: number) { return this.live[player]?.calibration ?? null; }
   handTracking() { return detailHands(this.detail).length ? this.source?.view.hands ?? 'unavailable' : null; }
   report(state: Record<string, string | number | boolean | null>) {
+    let changes: Record<string, string | number | boolean | null> | undefined;
     for (const [key, value] of Object.entries(state)) {
       const name = `mg${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+      if (this.record && (value === null ? name in this.reported : this.reported[name] !== String(value))) (changes ??= {})[key] = value;
       if (value === null) delete this.reported[name];
       else this.reported[name] = String(value);
     }
+    if (changes) this.record?.('report', changes);
   }
 
   dispose() {
+    if (this.current === 'disposed') return;
+    this.set('disposed');
     this.offRecords();
     // The songs never play with the detail on.
     if (this.source && detailHolders.get(this.source) === this) {
