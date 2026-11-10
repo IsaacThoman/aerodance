@@ -73,7 +73,7 @@ test('saved-run comparison ignores cost but detects changed poses, clocks, setti
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('a scene counts as run only with non-empty tracking no older than its render', () => {
+test('a scene counts as run only with non-empty tracking no older than its render, from a run that finished', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'trackbench-suite-'));
   try {
     const output = path.join(dir, 'tracked.jsonl'), ready = path.join(dir, 'READY');
@@ -85,5 +85,12 @@ test('a scene counts as run only with non-empty tracking no older than its rende
     assert.equal(runDone(output, ready), false, 'the scene was rendered again since');
     utimesSync(output, 3000, 3000);
     assert.equal(runDone(output, ready), true);
+    // A run that failed partway kept what it had: that isn't done either.
+    writeFileSync(path.join(dir, 'run.json'), JSON.stringify({ completed: false, error: 'the worker died' }));
+    assert.equal(runDone(output, ready), false, 'a failed partial run');
+    writeFileSync(path.join(dir, 'run.json'), JSON.stringify({ completed: true }));
+    assert.equal(runDone(output, ready), true);
+    writeFileSync(path.join(dir, 'run.json'), '{');
+    assert.equal(runDone(output, ready), false, 'a run record cut short');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

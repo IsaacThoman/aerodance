@@ -5,7 +5,7 @@
 // the jobs; --realtime runs alone, as it measures timing.
 //   node tools/trackbench/harness/run-suite.ts --id <estimator> [--jobs N] [--browsers N] [--force] [prefix...] [-- run-game flags]
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -18,12 +18,17 @@ export interface SuiteScene { id: string; frames: number; }
 
 /**
  * A scene's run is done when its tracking exists, isn't empty, and is no older than the scene's
- * render (its READY marker), as matrix.py has it: a re-rendered scene runs again.
+ * render (its READY marker), as matrix.py has it: a re-rendered scene runs again. So does one
+ * whose run failed partway: run-game keeps what it had recorded, and says so in the run.json
+ * beside it (`completed: false`).
  */
 export function runDone(output: string, ready: string): boolean {
   if (!existsSync(output)) return false;
   const run = statSync(output);
-  return run.size > 0 && (!existsSync(ready) || run.mtimeMs >= statSync(ready).mtimeMs);
+  if (!(run.size > 0 && (!existsSync(ready) || run.mtimeMs >= statSync(ready).mtimeMs))) return false;
+  const record = path.join(path.dirname(output), 'run.json');
+  try { return !existsSync(record) || (JSON.parse(readFileSync(record, 'utf8')) as { completed?: boolean }).completed !== false; }
+  catch { return false; }
 }
 
 /** Eight browsers was fastest on an M5 Pro (18 cores); smaller machines get half their cores. */
