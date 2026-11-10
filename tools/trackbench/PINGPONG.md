@@ -543,6 +543,224 @@ to that model.
 
 ### Unfinished
 
-- DRAW_LAG (above), and the screen easing with SWING retuned.
+- DRAW_LAG (above), and the screen easing with SWING retuned. (Settled in the second round, below.)
 - Rally-aware intervals: the report still clusters only shared renders. The full recording,
   accuracy, noise and realtime-resolution measurements above are complete.
+
+## Second round (2026-11-09, branch feat-pingpong-tracking-2)
+
+Every arms.ts/rig.ts experiment re-read the `ppt-tt` recordings (`pingpong.ts <id> --from
+ppt-tt`, offline, deterministic). Base: `pp2r-base` (this branch before any change; it
+reproduces `ppt-remeasure-F4-pp` exactly). Intervals are pp-report's paired cluster bootstrap
+(the same clustering caveat as above: shared rallies are not joined, so one-player intervals are
+optimistic). Play simulation: `tableTennisSim.ts` with the measured cameras, 24 rounds of 120 s at
+Normal, hit rates of balls that came; `agency.ts` (6 rounds) and the agency tests were run for each
+kept change too.
+
+### New measures (kept, 48a5b5c4)
+
+- **Overshoot** (`overshoot_cm`, `overshoot_p90_cm`): at each GT blade-speed peak, how much further
+  along the stroke the drawn paddle gets (from 150 ms before, within 350 ms, at its own lag) than
+  the raw tracked blade did. Positive is a predictor carrying the paddle past where the hand
+  stopped. Base: −2.6 cm (p90 0.7) one player, −3.3 (p90 0.4) two.
+- **Swings against exact GT** (`swing_exact_*`, `serve_exact_*`): the swing rule on the GT blade
+  where it really is each screen frame, held to the thresholds as they are now (`TRUE_SWING`).
+  The old false-swing count runs the GT through the game's own easing, so it moved whenever the
+  drawing or SWING did. Base: false swings 2.0 / 8.5 a minute, misses 7.9% / 2.1%.
+
+### Lag and DRAW_LAG (kept: DRAW_LAG 75 ms alone, 30 ms with two, 6dfa6615)
+
+Offline drawn lag at swing speed is 81 / 91 ms (one / two players). Snapping the drawing to the
+filtered pose leaves 50 / 61 ms (filter about 20, holding each 30 Hz pose about 17, the rest model
+and timing). Easing at 24/s is the largest single part.
+
+**Why the simulation disagreed between one and two players.** With two, a hit judged L ago is
+replayed L forward, so the ball reaches the other player L sooner. Give the receiver a perfect
+camera (no lag of its own) and raise the hitter's DRAW_LAG from 25 to 100 ms: the receiver's hits
+fall from 98.9% to 73.6%, while the hitter's stay at 98%. Seen by the one-player camera, a pair
+still prefers a small DRAW_LAG; one player seen by the two-player camera prefers a large one. So
+the cause is the mode, not the camera. Alone, the robot's shots aren't replayed, so full
+compensation is free. DRAW_LAG sweep, base drawing (novice / casual / good):
+
+| DRAW_LAG | alone | two players |
+|---|---|---|
+| 0 | 62.7 / 82.3 / 87.3 | 74.1 / 92.0 / 96.7 |
+| 25 ms | 64.3 / 84.6 / 90.2 | 74.7 / 92.1 / 97.9 |
+| 35 ms | 63.7 / 85.7 / 91.3 | 75.8 / 91.9 / 97.3 |
+| 50 ms (was) | 64.6 / 85.3 / 92.7 | 73.9 / 90.8 / 94.1 |
+| 65 ms | 66.5 / 87.1 / 93.8 | 72.1 / 85.9 / 87.2 |
+| 75 ms | 66.0 / 87.9 / 95.4 | 70.9 / 82.9 / 85.5 |
+| 90 ms | 65.2 / 87.3 / 95.8 | 70.3 / 82.8 / 82.9 |
+| 100 ms | 63.5 / 88.6 / 94.4 | 66.3 / 79.2 / 82.0 |
+
+Kept (`DRAW_LAG = { one: 0.075, two: 0.03 }`): alone 64.6 / 85.3 / 92.7 → 66.0 / 87.9 / 95.4%,
+two 73.9 / 90.8 / 94.1 → 75.8 / 92.5 / 97.8%. A paddle held still is hit 0.8% either way, a
+still or idle pair still serves once in 48 minutes and nobody hits, and flailing goes 30.8 →
+30.4% alone and 12.9 → 13.8% together. Two players seen by the one-player camera: 79.2 / 94.7 /
+97.9 → 77.4 / 94.1 / 98.1 (within the noise). The bench has no hit test, so this change doesn't
+move its numbers.
+
+**Tried and dropped (drawing).** All rows are bench offline, one / two players; "sim" is the
+simulation at DRAW_LAG 50 ms unless stated.
+
+| variant | drawn lag ms | rest jitter, drawn, cm | overshoot p90 cm | false swings /min (exact) | misses (exact) | sim |
+|---|---|---|---|---|---|---|
+| base (24/s easing) | 81.3 / 91.1 | 0.73 / 0.89 | 0.70 / 0.36 | 2.03 / 8.55 | 0.079 / 0.021 | alone 92.7 good, two 94.1 |
+| easing 40/s | 66.8 / 77.6 | 0.76 / 0.96 | 0.86 / 0.77 | 2.24 / 9.13 | 0.075 / 0.016 | two: 71.3 / 88.5 / 91.8 |
+| hold prediction (filtered velocity) + easing up to 100/s with speed | 49.9 / 57.9 | 0.74 / 0.94 | 1.75 / 3.53 | 3.43 / 9.51 | 0.058 / 0.016 | two good 88.0; a still pair served 109 times, an idle pair 57 |
+| the same, SWING travel 0.14 | " | " | " | 2.09 / 9.32 | 0.072 / 0.021 | two good 88.2, still pair served 111 |
+| minmod-limited velocity, +30 ms lead, full above 2 m/s, at most 70 ms ahead | 68.2 / 76.6 | 0.73 / 0.89 | 1.32 / 1.87 | 2.38 / 8.74 | 0.080 / 0.021 | alone good 92.3-93.7 at any DRAW_LAG (base 93.8-95.8); still pair served 4-5 (base 1) |
+| CV Kalman per axis, R from the noise profile, speed-adaptive Q (best low-jitter setting) | 74.5 | 0.83 | 2.76 | 1.95 | 0.066 | (one player only) |
+| CV Kalman, high Q (q 1 + 200 v² m²/s³) | 54.4 | 0.97 | 1.60 | 3.42 (old count) | | |
+
+- **Kalman.** Constant velocity per axis, with measurement noise per axis blended between the
+  rest and swing rows of the noise profile. Process noise rose with the estimated speed, tried
+  with and without a dead zone (0.3, 0.6 m/s), at measurement noise ×1-3. It tracks swings better
+  than the one-euro (swing speed ratio 0.83 → 1.0, blade in swings 14.4 → 13.2 cm), but no setting
+  brought rest jitter below 0.83 cm against the one-euro's 0.73. That fails the "no more jitter at
+  rest" bar. A constant-acceleration model would be noisier still and wasn't run.
+- **Naive velocity extrapolation is the owner's jumpiness.** Extrapolating the filtered
+  velocity carries an isolated wild pose straight into the drawn paddle, so the simulation's
+  pretend players got served while standing still. A minmod slope limiter (per axis: zero unless
+  the last two steps agree in sign, else the smaller) removes that, and with prediction gated by
+  speed it adds no rest jitter. It still costs lone simulated players about 2 points of hits
+  (their camera's iid 9.5 cm depth noise per pose in swings becomes velocity noise), so it isn't
+  kept. Hit timing doesn't need it: the hit compensates lag anyway. It would only buy the look of
+  the paddle.
+- **A swing speed over one pose interval** (33 ms) instead of one screen frame. It fixes the
+  30/60 Hz beat that makes fast easing fire false swings (easing 60/s: false swings 7.6 → 2.3 a
+  minute on the old count), but with 24/s easing it changes nothing. Not kept.
+- **SWING retuned** with each drawing (minSpeed 1-1.4, travel 0.12-0.15, serve minSpeed 1.3-1.5,
+  travel 0.25-0.28): the faster drawings sit on the same false-swing/miss trade-off as the base
+  (base 2.0 a minute at 7.9% missed; hold prediction at travel 0.15: 1.8 at 9.0%). No gain beyond
+  the lag.
+
+### The swing-time bias (diagnosed; nothing kept)
+
+In swings the wrist is only −2.3 cm low and −2.1 cm near (one player), against the blade's
+−5.6 / −4.9. The difference is `dir`: the Hand Landmarker finds the hand in only 50% of swing
+frames (35% with two), and the pose's fallback direction (wrist to the index and pinky
+knuckles) points 0.28 too low and 0.34 too near in swings, 45° off at the median. The hand's own
+direction in swings is 15-18° off. Tried on the dumped samples:
+- holding the hand's last direction when it's lost (no better within 0.25 s, worse after);
+- the forearm's direction (37-45° off);
+- a fixed ping-pong prior blended in (−6° in swings but +12° when moving);
+- a bias correction gated on tracked speed (−2° in swings, worse at rest with two).
+None is worth a code change. The fix is finding the hand mid-swing (motion blur); see next steps.
+
+### Forward stance with two players and pp1-lefty-paddle (diagnosed; nothing kept)
+
+In the forward stance:
+- **The woman with two players.** Her elbow reads 3.5-7.5 cm behind where it is, relative to
+  the shoulder. The pose model leans her upper arm less in the two-player framings (world dz
+  −0.06 to −0.085 m, against −0.10 alone and a GT −0.11).
+- **The man, and the left-hander.** His forearm is too short: GT 0.25-0.28 m against FOREARM's
+  0.24, so his wrist reads 5-10 cm behind.
+- **What the first round's "always forward" upper arm had been doing.** It hid both.
+
+The scenes' three bodies have forearms of 0.45, 0.52 and 0.59 of the torso. The pose model's
+world landmarks give 0.44-0.50 for all three (p50; p90 0.49-0.57), so nothing the tracker
+sends tells them apart. Global changes trade one player for two:
+
+| change | wrist cm (1p / 2p) | forward wrist | blade, filtered |
+|---|---|---|---|
+| base (UPPER_ARM 0.62, FOREARM 0.5, lean width 0.16) | 7.13 / 7.46 | 5.86 / 7.27 | 9.27 / 11.22 |
+| FOREARM 0.55 | 8.18 / 6.50 | 6.34 / 5.70 | 10.20 / 10.80 |
+| FOREARM 0.6 | 10.02 / 6.63 | 8.02 / 5.32 | 11.99 / 11.48 |
+| UPPER_ARM 0.55, FOREARM 0.55 | 7.79 / 8.71 | 6.97 / 8.50 | 9.86 / 12.30 |
+| the same, lean width 0.1, at −0.03 | 7.65 / 8.61 | 6.97 / 8.57 | 9.74 / 12.28 |
+
+The GT upper arm's forward share against the model's depth is also offset: −0.25 where the model
+says flat, and 0.15-0.2 where tanh gives 0.5. But the too-long upper arm offsets that, and every
+reshaped lean tried (width 0.06-0.1, at −0.03 to +0.03, with shorter bones) was worse. Next step:
+measure each player's forearm while the game knows the pose (the setup hold).
+
+### Two players' false swings and wild poses (diagnosed)
+
+Of the 45 false swings (exact GT) on the eight two-player tuning scenes, 35 are pp2-bystander.
+There the player tracker (`packages/pose/browser/tracker.ts`, out of bounds here) takes the
+seated bystander as Player 1's slot for the whole scene, and the second player is never
+tracked. What's counted is the bystander's fidgeting read through tracking noise. The other seven
+scenes average 2.2 a minute, the same as one player.
+- There are no identity swaps between the two players in any two-player scene, held-out
+  included (except pp-held-4's bystander, again).
+- Wild poses are 8.2% without pp2-bystander (9.2% with it). They are mostly swing-time depth
+  misreads (the swing-time fast depth sd is 13 cm), not the other player's arm.
+- There was nothing for a pre-filter gate to reject that wasn't real swing data, so none was
+  added.
+
+### Dark hand cuts (kept, a7d151df)
+
+pose.worker.ts brightens a hand cut whose brightest 2% is below 160 before the Hand Landmarker
+looks at it: that level is lifted to white (gain at most 4), then a gamma of 0.45 is applied. Any
+other cut goes in unchanged. Recordings are deterministic (the old worker re-recorded nine scenes
+identically), so every difference is the change. Variants on five dark scenes plus controls:
+
+| variant | pp2-dim found | pp1-dim | pp1-tv-glow | pp1-sleeves-dark | bright scenes |
+|---|---|---|---|---|---|
+| base | 0.251 | 0.662 | 0.625 | 0.780 | – |
+| contrast stretch of any dull cut (2-98% range under 80%) | 0.366 | 0.634 | 0.652 | 0.788 | pp2-base 0.769 → 0.698, pp1-base −0.02 |
+| that stretch, dark cuts only | 0.366 | 0.634 | 0.652 | 0.788 | identical |
+| gain only | 0.348 | 0.647 | 0.643 | 0.788 | identical |
+| gain from the black point, gamma 0.7 | 0.430 | 0.661 | 0.656 | 0.794 | identical |
+| gain, gamma 0.6 | 0.517 | 0.663 | 0.652 | 0.798 | identical |
+| **gain, gamma 0.45 (kept)** | **0.592** | **0.671** | **0.649** | **0.801** | identical |
+
+Full re-recording, run `pp2r-tt` (640x480, all 34 scenes), against `pp2r-base`:
+
+| measure | one-player tuning (22) | two-player tuning (8) | held-out (4) |
+|---|---|---|---|
+| hand found | +0.0025 [0, 0.0057] | +0.043 [0, 0.128] | +0.048 [0.0004, 0.108] better |
+| wrist cm | 0.00 [0, 0.01] | −0.11 [−0.32, 0] | −0.02 [−0.06, 0.01] |
+| blade, filtered cm | −0.14 [−0.33, 0] better | −0.75 [−2.25, 0] | +0.29 [−0.16, 1.06] |
+| blade p90 cm | +0.04 [0, 0.12] worse | −0.04 [−0.11, 0] | −1.03 [−2.86, 0.01] |
+| rest jitter, drawn cm | +0.004 [−0.013, 0.028] | +0.036 [0, 0.109] | +0.023 [0, 0.045] |
+| false swings /min (exact) | 0 [−0.21, 0.21] | +0.19 [0, 0.57] | +2.40 [0, 4.81] |
+| false raises /min | +0.07 [0, 0.22] | 0 | +0.76 [0, 2.29] |
+| across p90, filtered ° | +0.36 [−0.32, 1.51] | −2.86 [−8.36, 0] | +5.05 [0.35, 12.02] worse |
+
+Held-out by scene:
+- **pp-held-4 (TV glow).** Hands found 0.39 → 0.53, blade 14.3 → 14.1 cm.
+- **pp-held-1 (dim, dark sleeves, a left-handed player with a paddle).** Found 0.50 → 0.55, but
+  the blade gets worse (9.8 → 11.2 cm), with 2 more false swings and 1 more false raise in its
+  0.32 minutes. The brightened hands it finds are worse ones.
+- **pp-held-2 and -3.** Unchanged.
+
+Kept for the tuning gains and the held-out found rate. pp-held-1 is the case to watch: a paddle
+in dim light was not among the tuning scenes. The blade's noise profile is unchanged to 0.1 cm in
+swings, so the simulation's cameras stay.
+
+**Dance.** compare-runs on base-solo, base-duo, base-quad, cam-far-5.0, light-backlit_window and
+light-ceiling_only with no detail, old worker (yE2vCQ3b) against new (CMCelfy_): 6/6 identical.
+
+**Cost (provisional).** Realtime `--jobs 1`, scenes one at a time, on a machine that was *not*
+quiet: PerfPowerServices at ~185% CPU throughout, an Expo iOS build running at the start. The old
+worker's pp1-base took 27.4 ms against 17.7 on the quiet pass above. Inference ms, old → new:
+pp1-base 27.4 → 30.0, pp1-dim 26.9 → 25.4, pp2-base 31.2 → 35.2, pp2-dim 33.5 → 41.7 (dropped
+camera frames 68 → 131 of 600). The brightened path (a CPU readback and a lookup table per cut)
+may cost several ms with two dark hands. It needs a quiet re-take before shipping.
+
+### Where it stands (640x480; first round → second)
+
+- One player: wrist 7.13 → 7.13 cm, blade 9.27 → 9.13 cm (p90 21.0 → 21.1), false swings 2.5 →
+  2.5 a minute (exact GT 2.0 → 2.0), drawn lag 81 ms (unchanged; the hit now makes up 75 ms of it).
+- Two players: wrist 7.46 → 7.35, blade 11.22 → 10.47 (p90 30.3 → 30.3), false swings 11.0 → 10.9
+  (exact 8.5 → 8.7, three quarters of them the bystander), drawn lag 91 ms (the hit makes up 30).
+- Simulation at Normal: alone good / casual / novice 92.7 / 85.3 / 64.6 → 95.4 / 87.9 / 66.0%; two
+  94.1 / 90.8 / 73.9 → 97.8 / 92.5 / 75.8%; nobody standing still serves or hits.
+
+### Next
+
+1. **The player tracker's choice of a seated bystander** (pp2-bystander, pp-held-4). That is
+   three quarters of two players' false swings, and a missing second player. It is tracker.ts's
+   job: a standing-height or motion test before a player's slot is given away.
+2. **Per-player forearm length** from the game's setup hold, where the arms' pose is known: it's
+   what separates the two-player forward-stance and left-hander errors. No fixed ratio can.
+3. **The hand mid-swing**: found only 35-50% of swing frames, and the pose's fallback direction is
+   45° off. A cut following the wrist's motion (centred ahead of a fast wrist, larger with speed)
+   is the next worker experiment. So is keeping the landmarker's tracking through a blurred frame.
+4. **A quiet-machine cost re-take** of the dark-cut path, and if it costs, a smaller readback (a
+   64×64 copy for the histogram).
+5. **The minmod predictor** for drawing only (the hit test on the unpredicted blade), if the
+   owner wants the paddle to look 13 ms quicker. It needs a decision on hits judged against a
+   paddle that isn't where it's drawn.
