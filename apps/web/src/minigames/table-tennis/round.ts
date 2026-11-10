@@ -46,10 +46,20 @@ import type { ArmPose, ServeMotion } from './robot.ts';
  */
 export const DEAD = { floor: 0.35, net: 0.6, second: 0.3, still: 0.4, stalled: 12 } as const;
 // How late the paddle is to the ball, stepped through with L: 'auto' is the tracker's measured
-// delay (camera to result) and DRAW_LAG more for the hand's easing and the screen; or set, in seconds.
+// delay (camera to result) and DRAW_LAG more for the hand's filtering and easing; or set, in seconds.
 export const HIT_LAGS = ['auto', 0, 0.06, 0.1, 0.15] as const;
 export type HitLag = typeof HIT_LAGS[number];
-export const DRAW_LAG = 0.05;
+/**
+ * The paddle as drawn trails the tracker's poses by about 80 ms at a swing's speed (trackbench's
+ * ping-pong scenes: the one-euro filter, holding each pose a frame, and the easing), and alone the
+ * hit makes up for all of it. With two, a hit judged that long ago puts the ball that much further
+ * on its way to the other player, who then has that much less time to reach it: compensating the
+ * hitter in full costs the receiver as much (in the play simulation, two good players hit 94% at
+ * 50 ms, 85% at 75 ms and 97% at 30 ms; alone, a good player 93% at 50 ms and 95% at 75 ms).
+ */
+export const DRAW_LAG = { one: 0.075, two: 0.03 } as const;
+/** DRAW_LAG for one player or two. */
+export const drawLag = (two: boolean) => (two ? DRAW_LAG.two : DRAW_LAG.one);
 
 /** The round's settings, and the keys pressed for it. */
 export interface Play {
@@ -68,7 +78,7 @@ export interface Play {
 }
 
 /** How late a player's paddle is to the ball, in the ball's time (the camera off: not at all). */
-const lagOf = (rig: Rig, play: Play) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + DRAW_LAG : 0) : play.hitLag) * play.timeScale);
+const lagOf = (rig: Rig, play: Play, two: boolean) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + drawLag(two) : 0) : play.hitLag) * play.timeScale);
 
 /** Each player's part of the ball's frame: their paddle last frame (the table's frame) and where they'd moved it (their own), their swings, the ball's pass, their free hand. */
 interface Player {
@@ -165,7 +175,7 @@ export class Round {
     for (const rig of this.rigs) {
       if (!rig.autoplay) continue;
       const mineToServe = this.holding() && this.server() === rig.end;
-      const seen = this.flying && this.lagged ? mineBall(rig.end, this.lagged.then(lagOf(rig, play))) : null;
+      const seen = this.flying && this.lagged ? mineBall(rig.end, this.lagged.then(lagOf(rig, play, this.two))) : null;
       const blade = this.two && mineToServe ? autoplayServe((this.time - this.heldSince) / play.timeScale, mine(rig.end, heldBall(rig.end, 0, rig.paddle).pos))
         : autoplayBlade(seen && arrival(seen, play.timeScale), rig.paddle);
       rig.hands[rig.paddle] = { at: now, pose: { ...heldPose(rig.paddle, REST[rig.paddle]), wrist: wristFor(rig, blade) } };
@@ -301,7 +311,7 @@ export class Round {
       };
       const swing = borne();
       // (A serve's swing is a longer one than a rally's.)
-      return { paddleVel, live, wasRaised, lag: lagOf(rig, play), swing, serveSwing: () => borne(SERVE_SWING.travel) };
+      return { paddleVel, live, wasRaised, lag: lagOf(rig, play, two), swing, serveSwing: () => borne(SERVE_SWING.travel) };
     });
     const s = this.server();
     let plan: { t: number; at: V3 } | null = null;

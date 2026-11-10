@@ -27,7 +27,7 @@ import { BALL_R, NET, ROOM, TABLE } from './ball.ts';
 import type { V3 } from './ball.ts';
 import { otherEnd } from './rally.ts';
 import type { End } from './rally.ts';
-import { DRAW_LAG, HIT_LAGS, Round } from './round.ts';
+import { HIT_LAGS, Round, drawLag } from './round.ts';
 import { playBallSound } from './sound.ts';
 import type { Play } from './round.ts';
 import { BLADE_UP, EYE, EYES, FORGIVING, TABLE_Z, newHandFilters, newRig, trackHands } from './rig.ts';
@@ -495,7 +495,7 @@ function TableTennisHud({ ctx, round, hud }: { ctx: MinigameContext; round: Roun
       const tracking = ctx.handTracking();
       const score = `Rally ${hud.rally}   ·   Best ${hud.best}${two ? '' : `   ·   Returns ${hud.returns}`}`;
       const devLine = (): HudLine | null => (DEV ? {
-        text: `Development: T time ${play.timeScale === 1 ? '1×' : play.timeScale === 0.5 ? '½×' : '¼×'} · F forgiving ${play.forgiving ? 'on' : 'off'} · L hit timing ${lagWords(rigs[0], play)} · ${two ? 'O/P stand-ins' : 'O stand-in'} ${rigs.some((r) => r.autoplay) ? rigs.filter((r) => r.autoplay).map((r) => `P${r.end + 1}`).join('+') : 'off'}`,
+        text: `Development: T time ${play.timeScale === 1 ? '1×' : play.timeScale === 0.5 ? '½×' : '¼×'} · F forgiving ${play.forgiving ? 'on' : 'off'} · L hit timing ${lagWords(rigs[0], play, two)} · ${two ? 'O/P stand-ins' : 'O stand-in'} ${rigs.some((r) => r.autoplay) ? rigs.filter((r) => r.autoplay).map((r) => `P${r.end + 1}`).join('+') : 'off'}`,
         size: 16, color: '#cfe3f5',
       } : null);
       if (!two) {
@@ -586,7 +586,7 @@ function panel(g: CanvasRenderingContext2D, width: number, lines: readonly HudLi
 
 const ASSIST_LABELS: Record<AssistLevel, string> = { off: 'Off', low: 'Low', normal: 'Normal', high: 'High' };
 const HUD_PHASES: readonly MinigamePhase[] = ['countdown', 'playing', 'paused', 'finishing'];
-const lagWords = (rig: Rig, play: Play) => (play.hitLag === 'auto' ? `auto (${rig.latency > 0 ? Math.round((rig.latency + DRAW_LAG) * 1000) : '–'} ms)` : play.hitLag ? `${Math.round(play.hitLag * 1000)} ms` : 'off');
+const lagWords = (rig: Rig, play: Play, two: boolean) => (play.hitLag === 'auto' ? `auto (${rig.latency > 0 ? Math.round((rig.latency + drawLag(two)) * 1000) : '–'} ms)` : play.hitLag ? `${Math.round(play.hitLag * 1000)} ms` : 'off');
 
 /** A view from an end's eye, tilted down a little, down the table. */
 function viewFrom(end: End, fov: number, scene: SceneId): MinigameCameraProps {
