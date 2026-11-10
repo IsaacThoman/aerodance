@@ -9,7 +9,7 @@ import type { Landmark, PlayerCount } from '../../../packages/pose/choreography.
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { WebcamPoseSource } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import { WebcamPoseSource, WORKER_RESTARTS, WORKER_RESTART_WINDOW_MS } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PoseWorker, WebcamPoseSourceOptions } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PoseWorkerRequest, PoseWorkerResponse } from '../../../packages/pose/browser/pose.worker.ts';
 import { assignPlayerSlots, laneOf, PlayerSlotMapper } from '../../../packages/pose/browser/slots.ts';
@@ -314,6 +314,115 @@ test('each frame tells the worker how many players the last result found, for it
   await f.frame(2);
   assert.equal(frames().at(-1)?.type === 'frame' && frames().at(-1)?.players, 0, 'a new session starts with none');
 });
+/** A fixture whose every worker is a fresh fake, so one can die and another take over. */
+function restartable(t: TestContext) {
+  const workers: { worker: PoseWorker; messages: PoseWorkerRequest[]; terminated: boolean }[] = [];
+  const f = fixture(t, { createWorker: () => {
+    const entry = { messages: [] as PoseWorkerRequest[], terminated: false, worker: null as unknown as PoseWorker };
+    entry.worker = { onmessage: null, onerror: null, postMessage: data => { entry.messages.push(data); }, terminate() { entry.terminated = true; } };
+    workers.push(entry);
+    return entry.worker;
+  } });
+  const send = (k: number, data: WorkerReply) => workers[k].worker.onmessage?.(new MessageEvent('message', { data: { sessionId: f.source.sessionId, ...data } as PoseWorkerResponse }));
+  return { f, workers, send };
+}
+// Somebody standing at x, as MediaPipe reports them.
+const standing = (x: number) => detected(standingPose(x));
+
+test('a worker that fails after it was tracking is started again with the same settings, and the players keep their numbers', async t => {
+  const { f, workers, send } = restartable(t);
+  await f.source.setPlayerCount(2); await f.source.connect(); send(0, { type: 'ready', delegate: 'GPU', fallback: '' });
+  const results: number[][] = [];
+  f.source.subscribeRecords(e => { if ('record' in e) results.push(e.record.poses.map(p => p.playerId)); });
+  for (let i = 0; i < 12; i++) { await f.frame(1 + i / 30); send(0, { type: 'result', seq: f.source.seq, landmarks: [standing(0.3), standing(0.7)], inferenceMs: 10 }); }
+  assert.ok(f.source.tracker.lined, 'the players are numbered');
+  const tracker = f.source.tracker, session = f.source.sessionId;
+  // A frame in flight, then the worker loses its WebGL context.
+  await f.frame(1.5);
+  send(0, { type: 'error', message: 'WebGL context lost' });
+  assert.equal(workers.length, 2, 'a second worker');
+  assert.ok(workers[0].terminated);
+  assert.deepEqual(workers[1].messages[0], workers[0].messages[0], 'with the first one\'s settings');
+  assert.notEqual(f.source.view.status, 'error');
+  // Frames wait for it; the old worker's late result is ignored.
+  await f.frame(1.6); await f.frame(1.7);
+  send(0, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
+  assert.equal(workers[1].messages.filter(m => m.type === 'frame').length, 0, 'nothing sent before it is ready');
+  send(1, { type: 'ready', delegate: 'GPU', fallback: '' });
+  await Promise.resolve();
+  const frames = workers[1].messages.filter(m => m.type === 'frame');
+  assert.equal(frames.length, 1, 'the newest frame that waited goes once it is ready');
+  send(1, { type: 'result', seq: f.source.seq, landmarks: [standing(0.7), standing(0.3)], inferenceMs: 10 });
+  assert.equal(f.source.view.status, 'connected');
+  assert.equal(f.source.tracker, tracker, 'the same tracker');
+  assert.equal(f.source.sessionId, session, 'the same session');
+  assert.deepEqual(results.at(-1), [0, 1]);
+  // And the frame loop carries on, once (not twice).
+  await f.frame(1.8);
+  assert.equal(workers[1].messages.filter(m => m.type === 'frame').length, 2);
+});
+
+test('a worker started again has as long to get ready as the first had, not the stall watchdog\'s ten seconds', async t => {
+  const tick = () => new Promise(resolve => setTimeout(resolve, 150));
+  const { f, workers, send } = restartable(t);
+  await f.source.connect(); send(0, { type: 'ready', delegate: 'GPU', fallback: '' });
+  await f.frame(1); send(0, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
+  send(0, { type: 'error', message: 'WebGL context lost' });
+  assert.equal(workers.length, 2);
+  // Pictures keep coming while the new worker loads its models, for longer than a stall is allowed.
+  for (let s = 2; s <= 20; s++) await f.frame(s);
+  await tick();
+  assert.notEqual(f.source.view.status, 'error');
+  // Ready at last: it isn't taken for stalled before its first result either.
+  send(1, { type: 'ready', delegate: 'GPU', fallback: '' });
+  await tick();
+  assert.notEqual(f.source.view.status, 'error');
+  // (The frame that waited went to it when it was ready.)
+  send(1, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
+  assert.equal(f.source.view.status, 'connected');
+});
+
+test('a worker that crashes is started again too, but one that never got ready fails the camera', async t => {
+  const { f, workers, send } = restartable(t);
+  await f.source.connect(); send(0, { type: 'ready', delegate: 'GPU', fallback: '' });
+  await f.frame(1); send(0, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
+  // (A bare object: Node has no ErrorEvent before 25.)
+  workers[0].worker.onerror?.({ message: 'crashed' } as ErrorEvent);
+  assert.equal(workers.length, 2);
+  // The new one fails to load its model: that's the camera's error, as on a first start.
+  send(1, { type: 'error', message: 'Model hash mismatch' });
+  assert.equal(workers.length, 2);
+  assert.equal(f.source.view.status, 'error');
+  assert.equal(f.source.view.message, 'Model hash mismatch');
+});
+
+test('a worker that fails on every frame is started again only a few times, then ends in the error', async t => {
+  const { f, workers, send } = restartable(t);
+  await f.source.connect();
+  for (let k = 0; k <= WORKER_RESTARTS; k++) {
+    send(k, { type: 'ready', delegate: 'GPU', fallback: '' });
+    await f.frame(1 + k / 10);
+    send(k, { type: 'error', message: 'WebGL context lost' });
+  }
+  assert.equal(workers.length, WORKER_RESTARTS + 1);
+  assert.equal(f.source.view.status, 'error');
+  assert.equal(f.source.view.message, 'WebGL context lost');
+  assert.ok(workers.every(w => w.terminated));
+});
+
+test('restarts long apart don\'t add up to the cap', async t => {
+  const { f, workers, send } = restartable(t);
+  await f.source.connect();
+  for (let k = 0; k <= WORKER_RESTARTS + 1; k++) {
+    send(k, { type: 'ready', delegate: 'GPU', fallback: '' });
+    await f.frame(1 + k * WORKER_RESTART_WINDOW_MS / 1000);
+    send(k, { type: 'result', seq: f.source.seq, landmarks: [], inferenceMs: 10 });
+    send(k, { type: 'error', message: 'WebGL context lost' });
+  }
+  assert.equal(workers.length, WORKER_RESTARTS + 3);
+  assert.notEqual(f.source.view.status, 'error');
+});
+
 test('changing a running camera resets the session and keeps Lite tracking', async t => {
   const f = fixture(t);
   await f.source.connect(); const firstSession = f.source.sessionId;

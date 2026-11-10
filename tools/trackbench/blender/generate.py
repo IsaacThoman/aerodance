@@ -74,10 +74,13 @@ def build_scene(spec):
     for k, ps in enumerate(spec['people']):
         rng = random.Random(seed * 7919 + k)
         p = humans.build_person(ps, k, rng)
+        p.paddle, p.paddle_hand = None, None
+        if ps.get('paddle'):
+            humans.make_paddle(p, ps.get('hand', 'right'), ps['paddle'] if isinstance(ps['paddle'], dict) else None)
         rm = motion.rig_model_from_blender(p.rig)
         contacts = humans.contact_points(p)
         res = motion.evaluate_person(ps, rm, contacts, fps, n, seed=rng.random() * 6.28)
-        motion.apply_to_rig(p.rig, p.objects, res)
+        motion.apply_to_rig(p.rig, p.objects + ([p.paddle] if p.paddle else []), res)
         p.rig_model = rm
         people.append(p)
         results.append(res)
@@ -116,8 +119,9 @@ def main():
         b = min(b, n)
     t_start = time.time()
     scene, cam, env_info, people, results, timings = build_scene(spec)
-    if args.samples:
-        scene.eevee.taa_render_samples = args.samples
+    samples = args.samples or spec.get('render', {}).get('samples')
+    if samples:
+        scene.eevee.taa_render_samples = int(samples)
     for d in ('render', 'masks', 'gt.parts', 'meta.parts', 'tmp'):
         os.makedirs(os.path.join(out, d), exist_ok=True)
     tmp = os.path.join(out, 'tmp', f'{a}-{b}')
@@ -175,7 +179,8 @@ def main():
                     'height_m': round(float(_height(p)), 3), 'leg_length_m': round(p.rig_model.leg_length, 3),
                     'mocap_scale': round(p.rig_model.scale, 4),
                     'clothes': p.spec.get('outfit', {}).get('clothes', []), 'hair': p.spec.get('hair'),
-                    'skin': p.spec.get('skin') or humans.default_skin(p.spec.get('body', {}))} for p in people],
+                    'skin': p.spec.get('skin') or humans.default_skin(p.spec.get('body', {})),
+                    **_pingpong_meta(p, r)} for p, r in zip(people, results)],
         'phases': spec.get('phases', []),
         'chunk': [a, b], 'frames_done': len(frames),
         'timing': dict(timings, setup_s=round(t_setup, 2), render_s=round(render_s, 2), gt_s=round(gt_s, 2),
@@ -187,6 +192,19 @@ def main():
     with open(os.path.join(out, 'meta.parts', f'{a:06d}-{b:06d}.json'), 'w') as f:
         json.dump(meta, f, indent=1)
     print(f'[generate] done {a}-{b}: {meta["timing"]}', flush=True)
+
+
+def _pingpong_meta(p, res):
+    """Table-tennis players: paddle hand, paddle prop, and every stroke (scene seconds; contact =
+    the paddle wrist's fastest point; peak_speed_mps measured on the rig's wrist targets)."""
+    segs = [s for s in res.get('segments', []) if s.kind == 'pingpong']
+    if not segs and not p.paddle:
+        return {}
+    out = {'hand': segs[0].hand if segs else p.paddle_hand, 'paddle': bool(p.paddle)}
+    if p.paddle:
+        out['paddle_size_m'] = [humans.PADDLE['blade_w'], humans.PADDLE['blade_h']]
+    out['strokes'] = [e for s in segs for e in s.events()]
+    return out
 
 
 def _height(p):

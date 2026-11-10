@@ -19,6 +19,8 @@ import type { Page } from 'playwright';
 type TestWindow = typeof window & {
   cameraRequests: number; cameraStops: number; cameraMode: 'normal' | 'denied'; cameraViewScale: number; cameraPeople: number;
   poseDiagnostics?: unknown; poseTiled?: boolean;
+  /** Every pose worker the page started, and a way to kill the newest as a lost WebGL context would. */
+  poseWorkers: Worker[]; killPoseWorker: () => void;
 };
 
 const staticApp = await staticStudio();
@@ -49,9 +51,16 @@ async function pageFor(port: number) {
     const w = window as TestWindow;
     w.cameraRequests = 0; w.cameraStops = 0; w.cameraMode = 'normal'; w.cameraViewScale=1; w.cameraPeople = 2;
     const NativeWorker = Worker;
+    w.poseWorkers = [];
+    w.killPoseWorker = () => {
+      const worker = w.poseWorkers.at(-1)!;
+      worker.terminate();
+      worker.dispatchEvent(new ErrorEvent('error', { message: 'Killed by the test' }));
+    };
     w.Worker = class extends NativeWorker {
       constructor(...args: ConstructorParameters<typeof Worker>) {
         super(...args);
+        w.poseWorkers.push(this);
         this.addEventListener('message', ({ data }: MessageEvent<{ type: string; landmarks?: unknown[][]; tiled?: boolean }>) => {
           if (data.type === 'ready') w.poseTiled = data.tiled;
           if (data.type === 'result') w.poseDiagnostics = data.landmarks?.map(points => [11, 12, 23, 24].map(i => points[i]));
@@ -121,6 +130,15 @@ try {
   console.log('Studio actual MediaPipe Lite:', await status.textContent());
   await studio.getByText('P1 detected', { exact: false }).waitFor();
   await studio.getByText('P2 detected', { exact: false }).waitFor();
+  // A worker that dies (a lost WebGL context) is started again, and tracking carries on.
+  const workersBefore = await studio.evaluate(() => (window as TestWindow).poseWorkers.length);
+  await studio.evaluate(() => (window as TestWindow).killPoseWorker());
+  await studio.waitForFunction(n => (window as TestWindow).poseWorkers.length === n + 1, workersBefore);
+  await status.waitFor({ timeout: 120_000 });
+  assert.equal(await studio.locator('.connection-status').filter({ hasText: /error/i }).count(), 0, 'the camera did not fail');
+  await studio.getByText('P1 detected', { exact: false }).waitFor();
+  await studio.getByText('P2 detected', { exact: false }).waitFor();
+  console.log('Pose worker killed and started again:', await status.textContent());
   // Calibration needs a run of tracked frames, which arrive slowly with CPU-only inference.
   await studio.getByText('Body calibration ready', { exact: false }).waitFor({ timeout: 180_000 });
   await studio.evaluate(() => { (window as TestWindow).cameraViewScale=.65; });

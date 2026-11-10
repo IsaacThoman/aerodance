@@ -1,0 +1,195 @@
+{
+ "id": "pp2-depths",
+ "category": "pingpong",
+ "description": "Two players 1.4 m apart at different depths (0.7 m): the far one is smaller, the near one's arm passes in front at times.",
+ "seed": 203,
+ "duration_s": 20,
+ "fps": 30,
+ "resolution": [
+  1280,
+  960
+ ],
+ "players": 2,
+ "camera": {
+  "height_m": 1.0,
+  "distance_m": 3.0,
+  "look_at": [
+   0,
+   0,
+   1.05
+  ],
+  "hfov_deg": 75
+ },
+ "room": {
+  "preset": "living_room",
+  "clutter": 0.5
+ },
+ "lighting": {
+  "preset": "bright_even"
+ },
+ "render": {
+  "motion_blur_shutter": 0.5,
+  "samples": 16
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.5,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.54,
+    "proportions": 0.5,
+    "race": {
+     "african": 0,
+     "asian": 0,
+     "caucasian": 1
+    }
+   },
+   "skin": "young_caucasian_female",
+   "hair": "ponytail01",
+   "outfit": {
+    "clothes": [
+     "female_casualsuit01",
+     "shoes02"
+    ],
+    "recolor": {
+     "top": "#3f8f5a",
+     "hair": "#5a3b22"
+    }
+   },
+   "hand": "right",
+   "place": {
+    "x": -0.7,
+    "y": -0.35,
+    "facing_deg": 0
+   },
+   "timeline": [
+    {
+     "type": "offstage",
+     "duration_s": 0.3
+    },
+    {
+     "type": "walk",
+     "from": [
+      -2.2,
+      -0.04999999999999999
+     ],
+     "to": [
+      -0.7,
+      -0.35
+     ],
+     "duration_s": 1.7
+    },
+    {
+     "type": "pingpong",
+     "duration_s": 18,
+     "auto": {
+      "speed_mps": [
+       2.5,
+       6.0
+      ],
+      "start_s": 0.4,
+      "mix": {
+       "forehand": 3,
+       "backhand": 2,
+       "push": 1,
+       "block": 1,
+       "loop": 1,
+       "wide_forehand": 1,
+       "low": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "p2",
+   "role": "player",
+   "body": {
+    "gender": 1.0,
+    "age": 0.55,
+    "weight": 0.55,
+    "muscle": 0.6,
+    "height": 0.42,
+    "proportions": 0.5,
+    "race": {
+     "african": 1,
+     "asian": 0,
+     "caucasian": 0
+    }
+   },
+   "skin": "young_african_male",
+   "hair": "short02",
+   "outfit": {
+    "clothes": [
+     "male_casualsuit06",
+     "shoes01"
+    ],
+    "recolor": {
+     "top": "#b8362c",
+     "hair": "#141010"
+    }
+   },
+   "hand": "right",
+   "place": {
+    "x": 0.7,
+    "y": 0.35,
+    "facing_deg": 0
+   },
+   "timeline": [
+    {
+     "type": "offstage",
+     "duration_s": 0.3
+    },
+    {
+     "type": "walk",
+     "from": [
+      2.2,
+      0.85
+     ],
+     "to": [
+      0.7,
+      0.35
+     ],
+     "duration_s": 1.7
+    },
+    {
+     "type": "pingpong",
+     "duration_s": 18,
+     "auto": {
+      "speed_mps": [
+       2.5,
+       6.0
+      ],
+      "start_s": 1.6,
+      "mix": {
+       "forehand": 3,
+       "backhand": 2,
+       "push": 1,
+       "block": 1,
+       "loop": 1,
+       "wide_backhand": 1,
+       "low": 1
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "setup",
+   "start_s": 0,
+   "end_s": 2
+  },
+  {
+   "name": "play",
+   "start_s": 2,
+   "end_s": 20
+  }
+ ],
+ "post": []
+}

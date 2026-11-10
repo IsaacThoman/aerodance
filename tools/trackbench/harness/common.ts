@@ -6,7 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 export const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 export const DATA = process.env.TRACKBENCH_DATA || '/Volumes/development/aerodance-trackbench';
-export const sceneDir = (id: string) => path.join(DATA, 'scenes', id);
+/**
+ * A scene's folder: scenes/<id>, or clips/<id> for a real clip without GT (kept out of scenes/ so
+ * suite runs that expect GT don't pick it up; run-game, track and pingpong.ts take it by name).
+ */
+export const sceneDir = (id: string) => {
+  const scene = path.join(DATA, 'scenes', id), clip = path.join(DATA, 'clips', id);
+  return !existsSync(scene) && existsSync(clip) ? clip : scene;
+};
 export const runDir = (estimator: string, scene: string) => path.join(DATA, 'runs', estimator, scene);
 
 // ---------------------------------------------------------------- formats
@@ -17,18 +24,38 @@ export interface GtPerson {
   id: string; role: 'player' | 'bystander'; index: number;
   kp: GtJoint[]; kp3d: [number, number, number][];
   bbox: [number, number, number, number] | null; visible_frac: number | null; in_frame: boolean; phase: string;
+  /** Optional (ping-pong scenes): MediaPipe hand-21 points of each hand, the body's kp/kp3d conventions. */
+  hands?: Partial<Record<'left' | 'right', { kp: GtJoint[]; kp3d: [number, number, number][] }>>;
+  /** Optional (ping-pong scenes): the paddle held, its centre and its face's normal in stage metres. */
+  paddle?: { hand: 'left' | 'right'; center: [number, number, number]; normal: [number, number, number] };
 }
 export interface GtFrame { frame: number; t_ms: number; people: GtPerson[]; }
 /** [x, y, z, conf]; conf may be null (unknown) in tracked poses. */
 export type Joint = [number, number, number, number | null];
 export interface DetPerson { kp: (Joint | null)[]; score?: number | null; }
+/** [x, y, z] metres. */
+export type Point3 = [number, number, number];
+/**
+ * A hand the game's Hand Landmarker found at a person's wrist (webcamRecord.ts TrackedHand):
+ * kp its 21 points in the picture ([x, y, z], 0-1 unmirrored, z from the wrist), world the same
+ * in metres round the hand's middle, score how sure it is of the side.
+ */
+export interface DetHand { side: 'left' | 'right'; score: number; kp: Point3[]; world: Point3[]; }
 export interface DetFrame {
   frame: number; t_ms: number; inference_ms?: number; people: DetPerson[];
   looks?: (number[] | null)[];
   /** Harness additions (realtime runs): when the result arrived, and whether the game dropped it as too old. */
   received_ms?: number; roundtrip_ms?: number; dropped?: boolean;
+  /**
+   * With a tracking detail (run-game --detail): per person, in people's order, MediaPipe's 33
+   * world landmarks (metres round the hips: x right in the picture, y down, z away; null when
+   * the worker gave none) and, while hands are on, the hands found at their wrists.
+   */
+  world?: (Point3[] | null)[];
+  hands?: DetHand[][];
 }
-export interface TrackedPose { playerId: number; kp: Joint[]; }
+/** A tracked player's pose; world and hands as the game's LivePose has them (only with a detail asking for them). */
+export interface TrackedPose { playerId: number; kp: Joint[]; world?: Point3[]; hands?: DetHand[]; }
 export interface CalibState { progress: number; complete: boolean; hold: boolean; players: string[]; }
 export interface TrackedFrame {
   frame: number; t_ms: number; received_ms: number; poses: TrackedPose[];
@@ -46,9 +73,17 @@ export interface Phase { name: string; start_s: number; end_s: number; }
 interface CameraInfo { orientation?: string; hfov_deg?: number; fx_px?: number; intrinsics?: { fx?: number }; K?: number[][]; }
 export interface SceneSpec {
   players?: number; category?: string; fps?: number; resolution?: [number, number]; phases?: Phase[];
+  /** A variant's base scene (its render, when only post differs). */
+  base?: string;
   camera?: CameraInfo; room?: { features?: string[] };
 }
-export interface SceneMeta extends SceneSpec { intrinsics?: { fx?: number }; K?: number[][]; }
+export interface SceneMeta extends SceneSpec {
+  intrinsics?: { fx?: number }; K?: number[][];
+  /** Per frame (as a string), the camera's 4x4 camera-to-world matrix, row-major (Blender: the camera looks down its -Z, +Y up). */
+  camera_to_world?: Record<string, number[]>;
+  /** Scenes with the same render_key share a render (post-only variants). */
+  render_key?: string;
+}
 export interface Scene {
   id: string; dir: string;
   spec: SceneSpec; meta: SceneMeta;
@@ -72,15 +107,39 @@ export const readJson = <T = unknown>(file: string): T => JSON.parse(readFileSyn
  */
 export function bootstrap(diffs: readonly number[], n = 4000, seed = 12345): [number, number] {
   if (diffs.length < 3) return [NaN, NaN];
+  const rand = mulberry32(seed);
+  const means: number[] = [];
+  for (let b = 0; b < n; b++) { let t = 0; for (let i = 0; i < diffs.length; i++) t += diffs[Math.floor(rand() * diffs.length)]; means.push(t / diffs.length); }
+  means.sort((a, b) => a - b);
+  return [means[Math.floor(0.025 * n)], means[Math.floor(0.975 * n)]];
+}
+function mulberry32(seed: number) {
   let state = seed >>> 0;
-  const rand = () => {
+  return () => {
     state = (state + 0x6d2b79f5) >>> 0;
     let t = Math.imul(state ^ (state >>> 15), 1 | state);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+/**
+ * bootstrap with clusters: scenes that share a render (post-only variants of one take: the same
+ * motion, framing and people) aren't independent, so whole clusters are resampled, and each
+ * resample's mean is over the scenes in it. With every cluster a single scene it is bootstrap.
+ * Fewer than three clusters: no interval.
+ */
+export function clusterBootstrap(diffs: readonly number[], clusters: readonly (string | number)[], n = 4000, seed = 12345): [number, number] {
+  const byCluster = new Map<string | number, number[]>();
+  diffs.forEach((d, i) => { const g = byCluster.get(clusters[i]); if (g) g.push(d); else byCluster.set(clusters[i], [d]); });
+  const groups = [...byCluster.values()];
+  if (groups.length < 3) return [NaN, NaN];
+  const rand = mulberry32(seed);
   const means: number[] = [];
-  for (let b = 0; b < n; b++) { let t = 0; for (let i = 0; i < diffs.length; i++) t += diffs[Math.floor(rand() * diffs.length)]; means.push(t / diffs.length); }
+  for (let b = 0; b < n; b++) {
+    let t = 0, k = 0;
+    for (let i = 0; i < groups.length; i++) { const g = groups[Math.floor(rand() * groups.length)]; for (const d of g) t += d; k += g.length; }
+    means.push(t / k);
+  }
   means.sort((a, b) => a - b);
   return [means[Math.floor(0.025 * n)], means[Math.floor(0.975 * n)]];
 }
@@ -110,7 +169,8 @@ export const frameFiles = (dir: string) => existsSync(path.join(dir, 'frames')) 
 export function loadScene(id: string, dir = sceneDir(id)): Scene {
   const spec = existsSync(path.join(dir, 'spec.json')) ? readJson<SceneSpec>(path.join(dir, 'spec.json')) : {};
   const meta = existsSync(path.join(dir, 'meta.json')) ? readJson<SceneMeta>(path.join(dir, 'meta.json')) : {};
-  const gt = readJsonl<GtFrame>(path.join(dir, 'gt.jsonl'));
+  // A real clip has no GT: its frames still run (what can be measured without it: pingpong.ts).
+  const gt = existsSync(path.join(dir, 'gt.jsonl')) ? readJsonl<GtFrame>(path.join(dir, 'gt.jsonl')) : [];
   const first = frameFiles(dir)[0];
   const size = (first && jpegSize(path.join(dir, 'frames', first)))
     || (meta.resolution && { width: meta.resolution[0], height: meta.resolution[1] })

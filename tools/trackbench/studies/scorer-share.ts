@@ -2,13 +2,14 @@
 // Compares, per scene: the baseline run as its own game scored it (its metrics.json), the
 // baseline's tracking scored with the working tree's scorer (a score-robustness.ts report's
 // 'baseline:lost_share'), and the other run (its metrics.json). Means overall, by category and by
-// player count, paired bootstrap 95% intervals for each share, and the scenes that lose more on
+// player count, paired bootstrap 95% intervals for each share (resampling render clusters), and the scenes that lose more on
 // the same scorer.
 //
 //   node tools/trackbench/studies/scorer-share.ts --baseline dev-final --estimator final4-game --robustness <score-robustness.json> [--name out]
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { bootstrap, DATA, parseArgs, readJson } from '../harness/common.ts';
+import { clusterBootstrap, DATA, parseArgs, readJson } from '../harness/common.ts';
+import { renderCluster } from '../harness/split.ts';
 
 const opts = parseArgs(process.argv.slice(2), { baseline: 'string', estimator: 'string', robustness: 'string', name: 'string' }).opts;
 const baseline = String(opts.baseline ?? 'dev-final'), estimator = String(opts.estimator ?? ''), robustness = String(opts.robustness ?? '');
@@ -35,7 +36,9 @@ const scorer = per.map(r => r.rescored - r.before), tracking = per.map(r => r.af
 const out = {
   baseline, estimator, robustness, scenes: per.length,
   all: { before: mean(per.map(r => r.before)), rescored: mean(per.map(r => r.rescored)), after: mean(per.map(r => r.after)) },
-  scorer_share: { mean: mean(scorer), ci: bootstrap(scorer) }, tracking_share: { mean: mean(tracking), ci: bootstrap(tracking) },
+  // (Scenes that share a render are resampled together.)
+  scorer_share: { mean: mean(scorer), ci: clusterBootstrap(scorer, per.map(r => renderCluster(r.scene))) },
+  tracking_share: { mean: mean(tracking), ci: clusterBootstrap(tracking, per.map(r => renderCluster(r.scene))) },
   by_category: group(r => r.category), by_players: group(r => String(r.players)),
   worse_on_same_scorer: per.filter(r => r.after > r.rescored).sort((a, b) => (b.after - b.rescored) - (a.after - a.rescored)).map(r => ({ scene: r.scene, rescored: r.rescored, after: r.after })),
   scenes_detail: per,

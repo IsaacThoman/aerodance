@@ -12,7 +12,7 @@ than copying them.
 ```sh
 H=tools/trackbench/harness
 # The game's own pipeline: the built pose worker in Chromium on the GPU, tracker in the loop.
-node $H/run-game.ts <scene> [--model lite|full|heavy] [--realtime] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--id <estimator-id>] [--no-session] [--running-mode IMAGE]
+node $H/run-game.ts <scene> [--model lite|full|heavy] [--realtime] [--busy-scale k | --busy-ms N] [--strip-width W | --no-strips] [--no-search] [--no-zoom] [--id <estimator-id>] [--no-session] [--running-mode IMAGE] [--detail none|world|hands|hands:<side>/...|minigame:<id>] [--input-size WxH]
 # The same over every ready scene (or those with these prefixes), several at once, then metrics.
 node $H/run-suite.ts --id <estimator-id> [--jobs N] [--browsers N] [--force] [--no-metrics] [prefix...] [-- run-game flags]
 # Whether two runs' detections and tracking are the same, scene by scene (timing left out).
@@ -23,6 +23,9 @@ node $H/track.ts <estimator> <scene> [--no-session] [--no-looks]
 node $H/metrics.ts <estimator> [scene...] [--jobs N]
 # Report across scenes and estimators: $TRACKBENCH_DATA/reports/<name>.md and .json.
 node $H/report.ts [--estimators a,b] [--baseline mp-lite-game] [--scenes <prefix>[,<prefix>...]] [--name <name>] [--worst 5]
+# Ping-pong (Table Tennis paddle) metrics of a run made with --detail, and their report (../PINGPONG.md).
+node $H/pingpong.ts <estimator-id> [scene...] [--jobs N]
+node $H/pp-report.ts <run> [--compare <run-b>] [--scenes p1,p2] [--exclude p1,p2] [--name <name>]
 # Tests (synthetic fixtures, no frames or browser needed).
 node --test $H/*.test.ts
 ```
@@ -56,11 +59,25 @@ and serves the copy, so rebuilding can't change a running eval. `run.json` recor
 to SwiftShader). It fails unless the WebGL renderer is a GPU and the worker reports the `GPU`
 delegate (`--allow-cpu` overrides); `run.json` records both.
 
-- **Worker settings**: exactly `WebcamPoseSource.connect`'s for the scene's `players`: one or two
+- **Worker settings**: exactly `WebcamPoseSource.connect`'s for the scene's `players` (both use
+  its exported `workerSettings`, and a test fails if connect stops using it): one or two
   players ask for that many people on the whole picture; three or four get `evenTiles(players)`
   strips (and `players + 1` for the fallback), and the run fails if the strips don't start;
   two players also get `search: true`, and one player gets `zoom: true`. Looks when
   `players > 1`. VIDEO running mode; the model's SHA-256 is checked by the worker.
+- **Tracking detail** (`--detail`, default none, as the songs play): sent once the worker is
+  ready with `WebcamPoseSource`'s own `detailRequest`, as `sendDetail` sends it; `minigame:<id>`
+  asks what that minigame's `tracking` asks for with the scene's player count and default options
+  (Table Tennis: `hands` alone, `hands:right/right` for two). With hands, the run waits for the
+  worker's answer (`hands` on or unavailable, kept in `run.json`) before warming up. Each frame
+  message then carries `lined` (the tracker's), the result's world landmarks and hands are
+  recorded and go to `PlayerTracker.update` as `WebcamPoseSource.extras` gives them (hands only
+  while wanted), and `GameLoop` drops two players' hands as `watchHands` does (under 15 poses a
+  second for 4 s), telling the worker. A worker that dies mid-scene leaves its partial outputs and
+  `run.json` with `error`.
+- **`--input-size WxH`**: each frame scaled to that size as it's decoded (`createImageBitmap`
+  resize, high quality), so a 1280x960 render runs as the game's 640x480 webcam; `run.json`
+  `settings.input` records it and `track.ts` replays at it.
 - **Frames**: each JPEG decoded with `createImageBitmap` and transferred to the worker, as
   `WebcamPoseSource` transfers a bitmap of the video. VIDEO timestamps are the frame's `t_ms`
   plus 1000: before the scene the model is warmed up on frame 1 and then shown four grey frames,
@@ -181,9 +198,12 @@ Shared definitions:
   more than 0.2 torso lengths off (offset-corrected) / joints with conf ≥ 0.5; `correct_unsure` = joints
   within 0.2 with conf < 0.5 / joints within 0.2; `outside_sure` = share of GT joints outside
   the picture the pose reports with conf ≥ 0.5 (a guess calibration and the character would trust).
-- `detection.jitter.accel_error`: for body joints matched on three consecutive frames,
-  `|a_pose - a_gt|` with `a = p(n+1) - 2 p(n) + p(n-1)`, in torso lengths per frame² at the
-  scene's fps; `accel_rms_pose`/`accel_rms_gt` for scale.
+- `detection.jitter.accel_error`: for body joints matched in three consecutive delivered samples
+  of a person (consecutive in the detections, whatever the frame rate or drops, each gap at most
+  200 ms), `|a_pose - a_gt|` with `a` the second divided difference over the samples' own
+  timestamps (exact for uneven gaps), the GT taken at the same frames, in torso lengths per s²;
+  `accel_rms_pose`/`accel_rms_gt` for scale. (Metrics versions 1-2 used frame numbers n-1, n, n+1,
+  so a 15 fps scene had no samples, and units of torso lengths per frame².)
 
 ### Tracked players (`tracking`)
 
@@ -198,6 +218,14 @@ Shared definitions:
   `lost`, `wrong_player`, `bystander`, `ghost` likewise; over `after_numbering` (records from
   the first `lined` one), `whole_scene` and `dance`. `phantom_frames`: k has a pose while their
   person isn't present.
+- **`time_grid`** (what the report and `studies/paired.ts` use for lost and identity): the same
+  categories over elapsed time instead of delivered records. At every camera frame (the GT's),
+  each player whose person is present has the pose of the latest record that has *arrived*, if
+  its frame was taken under 300 ms before (`STALE_MS`); otherwise they're `lost`. A slow or
+  sparse stream, or one the game drops, then counts the time it shows nothing (per record, a
+  stream of one perfect pose a second had lost = 0, and one with every result dropped had no
+  value at all). Also `coverage` (present player-time with a fresh pose) and `max_lost_gap_ms`.
+  Offline runs process every frame, so there the grid and the per-record numbers agree.
 - `numbering`: at the first lined record, whether each player's pose is their expected person.
 - `identity_switches`: per player, changes of the GT person behind their pose (ignoring
   records where it matches nobody), summed.
@@ -251,6 +279,28 @@ deltas against the baseline over the scenes both ran), per category, a per-scene
 score lost (identity accuracy, recall), per-scene score-lost deltas against the baseline, and
 the worst scenes per headline metric. The JSON has the same plus every row.
 
+**Failures count.** A metric with no value because tracking never got there (identity or
+numbering when the players were never numbered, all-tracked time when they never all were,
+calibration time in a scene with a calibratable hold that never calibrated) is a failure: means
+are over the scenes with a value and say `(+n fail)` beside them, failed scenes head the worst
+lists, and a delta is the mean of per-scene differences over the scenes where *both* have a
+value, with each side's failures beside it. (Before, a failure vanished from the means and the
+worst lists, and deltas compared two different sets of scenes.)
+
+**Independence.** Post-only variants (`sens-*`, `base-genre-mh`) and the setup scenes that reuse
+a multiplayer render (`setup-trio`, `setup-quad`, `setup-return`, and `mp3-same`, `mp4-same`)
+are the same pixels as their base: 133 scenes are 114 renders. `split.ts`'s `renderCluster` finds
+each scene's render (where its `render/` resolves), and `studies/paired.ts` and
+`studies/scorer-share.ts` resample whole clusters in their bootstrap (`clusterBootstrap` in
+`common.ts`).
+
+**The held-out split.** `split.ts`'s `HELD_OUT` is a fixed set of 28 scenes, about a fifth,
+across every category and player count, each with its whole render cluster (so no held-out
+scene shares pixels with a tuning one; `paired.ts` warns if a cluster straddles the split).
+`paired.ts` prints tuning and held-out separately, then all scenes, by player count and by
+category, and a per-scene table of score-lost changes. Tune a change looking at the tuning set
+only; it counts only if the held-out set agrees.
+
 ## Files
 
 | File | |
@@ -263,4 +313,6 @@ the worst scenes per headline metric. The JSON has the same plus every row.
 | `score.ts` | reference SongBundle from GT; GameSession-style scoring |
 | `metrics.ts` | every metric above |
 | `report.ts` | aggregation |
+| `split.ts` | render clusters, and the held-out split |
+| `pingpong.ts`, `pp-report.ts`, `pingpong.test.ts` | the Table Tennis paddle's measures (game's arms.ts), their report and paired comparison ([`../PINGPONG.md`](../PINGPONG.md)) |
 | `fixtures.ts`, `harness.test.ts` | synthetic scenes (pinhole-projected stick dancers) and the tests |

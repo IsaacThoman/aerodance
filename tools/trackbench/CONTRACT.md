@@ -109,6 +109,7 @@ One JSON file per scene; meant to be edited by hand. Everything optional has a d
         {"type": "hold", "pose": "neutral", "duration_s": 3.0},          // neutral | a-pose | t-pose | arms-up
         {"type": "dance", "clip": "gJB_sBM_cAll_d07_mJB1_ch02", "clip_start_s": 4.0, "duration_s": 8, "speed": 1.0, "mirror": false},
         {"type": "walk", "to": [3, 1], "duration_s": 2},
+        // {"type": "pingpong", "duration_s": 18, "auto": {...}}   table tennis (blender/GENERATOR.md)
         {"type": "offstage"}
       ]
     }
@@ -156,6 +157,38 @@ preview.mp4        frames with GT skeletons drawn, for eyeballing (optional)
     "phase": "dance"}                                 // segment type at this frame: offstage|walk|hold|dance
  ]}
 ```
+
+Table-tennis scenes (any person with a `pingpong` segment, or `"gt": {"hands": true}` in the
+spec) add optional fields to each person:
+
+```jsonc
+    "hands": {"left":  {"kp": [[x, y, depth_m, vis], ...21], "kp3d": [[X, Y, Z], ...21]},
+              "right": {"kp": [...21], "kp3d": [...21]}},   // MediaPipe hand-21 order, the body's conventions
+    "paddle": {"hand": "right", "center": [X, Y, Z], "normal": [X, Y, Z]},  // only for a person holding a paddle prop
+    "phase": "ready"                                  // pingpong frames: ready | swing | serve
+```
+
+- **hands**: both hands every frame the person is on stage, in MediaPipe's hand-21 order (0 wrist;
+  thumb 1 CMC, 2 MCP, 3 IP, 4 tip; index 5-8, middle 9-12, ring 13-16, pinky 17-20: MCP, PIP, DIP,
+  tip). `left`/`right` are the person's own hands. `kp` and `kp3d` follow the body's `kp`/`kp3d`
+  exactly (normalized unmirrored image x, y; depth along the view axis; vis codes 0-3; stage
+  metres; lens/rolling-shutter warps applied the same way). Joints are the rig's joint centres;
+  tips are the end of the last finger bone, inside the finger pad ~0.5 cm under the skin. Hand
+  vis 0 means the ray from the camera first meets skin of that joint's own bones near it; 1 =
+  hidden by the person's own body (another finger, the palm seen from the back, the other hand,
+  a sleeve); 2 = hidden by a paddle blade (from 4 mm in front), another person or an object.
+- **paddle**: a person may hold a table-tennis paddle prop. `center` is the blade's centre and
+  `normal` the unit normal of its forehand (red) face, which faces where the palm faces
+  (shakehand grip); stage coordinates. The paddle is not part of anyone's mask (mask 0); its
+  blade is an occluder for every keypoint (vis 2). Blade 15.0 x 15.8 cm, handle 10 cm.
+- **phase** in a `pingpong` segment: `swing` from leaving the ready stance to the end of the
+  follow-through, `serve` from raising the free hand to the end of the serve's follow-through,
+  `ready` otherwise (including the recovery back to ready).
+
+`meta.json`'s `people[]` entries of table-tennis players add `hand` (the paddle hand), `paddle`
+(bool), `paddle_size_m` and `strokes`: `[{kind, start_s, contact_s, swing_end_s, end_s,
+target_speed_mps, peak_speed_mps}]` in scene seconds (`contact_s` is the paddle wrist's fastest
+moment; `peak_speed_mps` its measured peak speed in the stage frame).
 
 `vis` codes: `0` visible, `1` self-occluded (the person's own body is in front of it), `2`
 occluded by another person or object, `3` outside the frame. People entirely off stage may be
@@ -206,7 +239,8 @@ shake/bumps), `lighting` (dim, backlit, harsh, coloured, flicker, exposure), `ap
 (clutter, mirrors, TVs/posters with people, person-like objects), `motion` (spins, back view,
 floor work, jumps, arms overhead, crossing arms, speed), `multiplayer` (2-4 players: spacing,
 depth, crossings, look-alikes, occlusion), `bystander` (walk-throughs, sitting, standing near
-the camera), `setup` (walking in, calibration hold, late joiners, leaving and returning,
+the camera), `pingpong` (table tennis in front of the webcam: hands, paddles, fast arms; the
+`pp-*` scenes), `setup` (walking in, calibration hold, late joiners, leaving and returning,
 someone too close), `sensor` (noise, low light gain, blur, compression, low fps, white balance).
 
 ## Post degradations (`post`)
@@ -247,3 +281,24 @@ render's neighbour frames; or rendered with Blender motion blur instead),
 - v1.3 (2026-11-01, single-player suite): generator 1.2 halves the hold's arm drift (GENERATOR.md,
   Timeline segments): with the old ±2° a wrist moved 0.12 torso lengths, so Lite never calibrated
   on base-solo's 4 s hold. Holds rendered with 1.0/1.1 sway more than real people holding still.
+- v1.4 (2026-11-09, table-tennis scenes: the generator's side; additive): optional `hands` (hand-21 GT) and `paddle`
+  per person, `phase` values `ready`/`swing`/`serve`, `meta.json` `people[].hand/paddle/strokes`,
+  the `pingpong` timeline segment, person `hand` and `paddle`, and spec `render`
+  (`motion_blur_shutter`, `samples`) and `gt.hands` keys. Category `pingpong`. Scenes without
+  them are unchanged (GT byte-identical).
+- v1.4 (2026-11-09, ping-pong: the harness's side; additive, all optional). **GT**: a `gt.jsonl` person may carry
+  `"hands": {"left": {"kp": [[x, y, depth_m, vis] x21], "kp3d": [[X, Y, Z] x21]}, "right": {...}}`
+  (MediaPipe hand-21 order, the body's kp/kp3d conventions) and `"paddle": {"hand": "right",
+  "center": [X, Y, Z], "normal": [X, Y, Z]}` (stage metres). A spec's `resolution` may be
+  `[1280, 960]`; `phase` gains `ready`, `swing` and `serve`. **Detections** from a run with a
+  tracking detail (`run-game --detail`) add, per person in `people`'s order, `world: [[X, Y, Z]
+  x33] | null` (MediaPipe world landmarks: metres round the hips, x right in the picture, y down,
+  z away) and, while the hand model runs, `hands: [[{side, score, kp: [[x, y, z] x21], world:
+  [[X, Y, Z] x21]}]]` (webcamRecord.ts TrackedHand: kp in the picture, 0-1 unmirrored, z from the
+  wrist; world metres round the hand). **Tracked** poses then carry `world` and `hands` as the
+  game's `LivePose` has them. `run.json` gains `settings.detail`, `settings.input` (the size fed to
+  the worker, `--input-size`), `hands: {state, events, dropped_at_ms}` and `completed`/`error` (a
+  run whose worker dies keeps what it tracked). **Real clips without GT** live in
+  `$TRACKBENCH_DATA/clips/<id>/` (frames + spec.json, no gt.jsonl), so suite runs that expect GT
+  don't pick them up. `pingpong.json` beside `metrics.json` holds the ping-pong measures
+  (`PINGPONG.md`).

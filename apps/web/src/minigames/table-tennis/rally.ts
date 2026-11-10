@@ -1,6 +1,7 @@
 /*
- * Table Tennis with two players: the table's two ends, the frames the players play in, and their
- * open rally. There's no match, only a count of the shots in a row that land on the other half.
+ * Table Tennis with two players: the table's two ends, the frames the players play in, their
+ * serve and their open rally. There's no match, only a count of the shots in a row that land on
+ * the other half.
  *
  * ball.ts's table frame has its own player at the near end (+z), so everything the solo game
  * works out for its player (assist.ts, calibrate.ts) assumes that. The far player plays in the
@@ -23,27 +24,34 @@ export const endOf = (z: number): End => (z >= 0 ? 0 : 1);
 export const otherEnd = (end: End): End => (end === 0 ? 1 : 0);
 
 /**
- * The serve, in the server's own frame: the ball held over their end of the table, in front of
- * their paddle hand, then tossed up and towards them, to come down where a swing can meet it
- * (it falls past the end of the table, so a miss doesn't bounce on it).
+ * The serve: the ball waits in the air over the server's end, on their paddle hand's side at
+ * about chest height, where a forehand swing meets it; a swing through it serves (assist.ts
+ * serveHit). `hold` is a right-handed server's spot in their own frame (a left-handed one's is
+ * across from it). It can't be served for `arm` seconds after it gets there: the last shot's
+ * follow-through isn't a serve. A player who leaves it waiting loses the serve to the other.
  */
-export const TOSS = {
-  hold: v3(0.14, TABLE.top + 0.38, TABLE.halfLength - 0.12),
-  vel: v3(0, 2.3, 0.45),
-  /** How far the held ball bobs (m), and how fast (radians a second). */
+export const SERVE = {
+  hold: v3(0.3, TABLE.top + 0.36, TABLE.halfLength - 0.1),
+  /** How far the waiting ball bobs (m), and how fast (radians a second). */
   bob: 0.012,
   bobRate: 2.2,
+  arm: 0.35,
+  /** Left waiting this long (s), the ball goes to the other player to serve. */
+  pass: 6,
+  /**
+   * A player who hasn't served or hit the ball for this long (s) isn't playing: a dead ball at their
+   * end goes to the other, if they are. (Swings don't count: the tracker's jitter makes them of a
+   * hand hanging still, with two players in the picture.)
+   */
+  away: 20,
+  /** Space's serve (development, or no camera), in the server's own frame. */
+  key: v3(0, 1.4, -4.4),
 } as const;
 
-/** The ball held for the server (in the table's frame), bobbing at the time t. */
-export function heldBall(server: End, t: number): Ball {
-  const at = v3(TOSS.hold.x, TOSS.hold.y + TOSS.bob * Math.sin(t * TOSS.bobRate), TOSS.hold.z);
+/** The ball waiting for the server (in the table's frame), bobbing at the time t, on the side of their paddle hand. */
+export function heldBall(server: End, t: number, hand: 'left' | 'right' = 'right'): Ball {
+  const at = v3(SERVE.hold.x * (hand === 'left' ? -1 : 1), SERVE.hold.y + SERVE.bob * Math.sin(t * SERVE.bobRate), SERVE.hold.z);
   return { pos: mine(server, at), vel: v3(), cooldown: 0 };
-}
-
-/** The server's toss, leaving the held spot (in the table's frame). */
-export function tossBall(server: End): Ball {
-  return { pos: mine(server, { ...TOSS.hold }), vel: mine(server, { ...TOSS.vel }), cooldown: 0 };
 }
 
 /**
@@ -52,7 +60,7 @@ export function tossBall(server: End): Ball {
  */
 export interface Rally {
   server: End;
-  /** Who hit the ball last since it was tossed (null: nobody yet). */
+  /** Who hit the ball last since it was served (null: it's waiting to be). */
   last: End | null;
   /** The last hit's shot: still to land, landed on the other half (fair), or not (on the hitter's own). */
   shot: 'flying' | 'fair' | 'short' | null;
@@ -67,10 +75,10 @@ function endCount(r: Rally) {
   r.count = 0;
 }
 
-/** The server tosses the ball up: nobody has hit it yet. */
-export function tossed(r: Rally): void {
-  r.last = null;
-  r.shot = null;
+/** The server serves: a new ball's first shot, theirs. */
+export function served(r: Rally): void {
+  r.last = r.server;
+  r.shot = 'flying';
 }
 
 /**

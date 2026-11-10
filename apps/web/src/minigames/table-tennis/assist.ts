@@ -1,39 +1,56 @@
 /*
- * The /?hands demo's aim assist, in ball.ts's table frame. It helps in two places, each keeping the
- * shape of the player's own swing:
- *  - Contact: as the ball nears the blade, the blade slides across its own face (never along its
- *    normal, so the swing's timing and path stay the player's) to where the ball will meet it.
- *  - Landing: a return the paddle sends somewhere off the far half is bent, by a share, towards
- *    a shot that lands there: aimed at the nearest point on the far half to where it was going,
- *    at about the speed it left at.
- * At max, a swing is judged rather than the blade's contact: a forward swing that passes near the
- * ball hits it (swingHit), off a face square to the swing whatever the tracked blade's angle, and
- * the blade reaches for the ball in 3D (interceptNudge), meeting it a little early or late too.
+ * Table Tennis's aim assist, in ball.ts's table frame (each player's own: rally.ts mine).
+ *
+ * A webcam sees the paddle hand's place across and up the picture well, its depth badly, its
+ * face's angle hardly at all, and all of it late. So the assist makes up for what the camera
+ * can't see, and for nothing the player didn't do:
+ *  - A hit needs a swing: the blade really moved, fast and far enough, and not backwards. A paddle
+ *    held still, or hanging by the player's side, is helped to nothing (it can still block a ball
+ *    that flies straight into it).
+ *  - The swing has to pass the ball within the level's zone, which is tight across and up (where
+ *    the camera sees well) and deep along the table (where it doesn't): swingHit. The blade is
+ *    drawn sliding to the ball it's about to meet (interceptNudge), so the hit looks like one.
+ *  - The ball leaves off a face square to the swing, tipped down the table (the tracked face's
+ *    angle isn't to be trusted), so where the swing goes the ball goes, and a return heading off
+ *    the table is bent, by the level's share, towards one that lands (assistReturn).
+ * The ball waiting to be served (rally.ts) is hit the same way: serveHit.
  */
 
 import { BALL_R, PADDLE_COOLDOWN, TABLE, aimShot, bounceOff, firstBounce, v3 } from './ball.ts';
-import type { Ball, PaddlePose, V3 } from './ball.ts';
+import type { Ball, V3 } from './ball.ts';
 
-export type AssistLevel = 'off' | 'low' | 'medium' | 'high' | 'max';
-export const ASSIST_LEVELS: readonly AssistLevel[] = ['off', 'low', 'medium', 'high', 'max'];
+export type AssistLevel = 'off' | 'low' | 'normal' | 'high';
+export const ASSIST_LEVELS: readonly AssistLevel[] = ['off', 'low', 'normal', 'high'];
 /**
- * Each level's help: the furthest miss (in metres, past the blade's edge) the blade slides all the
- * way to cover (fading out over the next 40%): across its face, or at max in any direction; the
- * share of the way a stray return is bent towards one that lands; and whether a swing near the
- * ball hits it.
+ * Each level's help: how far from the blade's middle a swing may pass the ball and still hit it,
+ * across and up (`across`, metres) and along the table (`depth`); the share of the way a swing's
+ * stray return is bent towards one that lands (`landing`), and a block's (`block`: a ball that
+ * met a paddle not swinging). Off, only the blade itself meeting the ball counts.
  */
-export const ASSIST: Record<AssistLevel, { reach: number; landing: number; swing: boolean }> = {
-  off: { reach: 0, landing: 0, swing: false },
-  low: { reach: 0.06, landing: 0.35, swing: false },
-  medium: { reach: 0.13, landing: 0.7, swing: false },
-  high: { reach: 0.24, landing: 1, swing: false },
-  max: { reach: 0.4, landing: 1, swing: true },
+export interface Assist { across: number; depth: number; landing: number; block: number; }
+export const ASSIST: Record<AssistLevel, Assist> = {
+  off: { across: 0, depth: 0, landing: 0, block: 0 },
+  low: { across: 0.14, depth: 0.25, landing: 0.6, block: 0.3 },
+  normal: { across: 0.22, depth: 0.45, landing: 1, block: 0.5 },
+  high: { across: 0.32, depth: 0.6, landing: 1, block: 0.7 },
 };
+/** The level a round starts at. */
+export const DEFAULT_ASSIST: AssistLevel = 'normal';
 /**
- * A swing, at max: at least this fast (m/s, the player's), within the last `recent` seconds, and
- * passing within `zone` metres of the ball (`touch`: close enough to hit before its nearest).
+ * A swing: the blade moving at least `minSpeed` (m/s, the player's own) within the last `recent`
+ * seconds, as part of a move of at least `travel` metres one way (a twitch of the tracking isn't
+ * one), and not pulling back; nor is it one if the tracker's next pose has the hand sprung back
+ * `sprung` metres against it (rig.ts borneOut). `touch`: the share of the zone inside which the
+ * ball is hit at once, without waiting for its nearest.
  */
-export const SWING = { minSpeed: 0.8, recent: 0.3, zone: 0.4, touch: 0.1 } as const;
+export const SWING = { minSpeed: 1, recent: 0.3, travel: 0.12, touch: 0.25, sprung: 0.06 } as const;
+/**
+ * A serve's swing is a firmer and longer one (m/s, and metres of travel), and has to carry the
+ * blade `past` the ball (metres, along the swing): the ball waits for it, so there's time for a
+ * real stroke, and neither a hand settling by the ball, a paddle raised to get ready, nor the
+ * tracker's jitter (worst in depth, with the arm hanging down) serves it.
+ */
+export const SERVE_SWING = { minSpeed: 1.3, travel: 0.25, past: 0.02 } as const;
 
 const GRAVITY = 9.81;
 /** The contact assist starts this long (in the player's seconds) before the ball reaches the blade, in full by the nearer. */
@@ -48,39 +65,12 @@ const add = (a: V3, b: V3, k = 1): V3 => v3(a.x + b.x * k, a.y + b.y * k, a.z + 
 const len = (a: V3) => Math.hypot(a.x, a.y, a.z);
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const smoothstep = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-/** a with its part along the unit n taken out: what's left lies in the plane n faces out of. */
-const flat = (a: V3, n: V3) => sub(a, scale(n, dot(a, n)));
 const norm = (a: V3) => scale(a, 1 / (len(a) || 1));
 /** Where the ball will be in t of the player's seconds, falling as they see it. */
 const ballIn = (ball: Ball, t: number, timeScale: number) =>
   add(add(ball.pos, ball.vel, timeScale * t), v3(0, -0.5 * GRAVITY * timeScale * timeScale * t * t, 0));
 /** How long a swing carries on (the arm soon stops), to guess where the blade is going. */
 const SWING_CARRIES = 0.08;
-
-/**
- * How far to slide the blade across its face so the ball meets its middle, or null while the ball
- * isn't closing on it. paddleVel is the blade's own (real-time) speed; the ball's world runs at
- * timeScale, so its speed and gravity are as the player sees them. Misses up to `reach` are
- * covered, those well beyond it left alone (a swing nowhere near the ball stays a miss).
- */
-export function contactNudge(ball: Ball, paddle: PaddlePose, paddleVel: V3, timeScale: number, reach: number): V3 | null {
-  if (reach <= 0 || ball.cooldown > 0) return null;
-  const n = paddle.normal;
-  const rel = sub(ball.pos, paddle.center);
-  const d = dot(rel, n);
-  // Closing on the face, from whichever side it's on.
-  const vRel = sub(scale(ball.vel, timeScale), paddleVel);
-  const closing = -dot(vRel, n) * Math.sign(d || 1);
-  if (closing < 0.3) return null;
-  const t = Math.max(0, Math.abs(d) - BALL_R) / closing;
-  if (t > CONTACT_WINDOW.start) return null;
-  // Where across the face it will meet (the ball falling as the player sees it), and so how far off the middle.
-  const fall = v3(0, -0.5 * GRAVITY * timeScale * timeScale * t * t, 0);
-  const miss = add(add(flat(rel, n), flat(vRel, n), t), flat(fall, n));
-  const off = len(miss);
-  const weight = (1 - smoothstep(reach, reach * 1.4, off)) * (1 - smoothstep(CONTACT_WINDOW.full, CONTACT_WINDOW.start, t));
-  return weight > 0 ? scale(miss, weight) : null;
-}
 
 /** Whether a ball leaving `from` at `vel` first bounces on the far half (and so is a fair return). */
 export function landsFar(from: V3, vel: V3): boolean {
@@ -115,51 +105,98 @@ export function assistReturn(from: V3, vel: V3, share: number): V3 {
   return vel;
 }
 
+/** How far the ball is from the blade's middle as a share of the zone: 1 at its edge. */
+const zoneShare = (off: V3, zone: Assist) => Math.hypot(off.x / zone.across, off.y / zone.across, off.z / zone.depth);
+/** A vector measured in the zone's shares (across and up by its width, along the table by its depth). */
+const inZone = (a: V3, zone: Assist): V3 => v3(a.x / zone.across, a.y / zone.across, a.z / zone.depth);
+
 /**
- * At max: how far to move the blade (in any direction) to meet the ball, or null while it isn't
- * coming. The blade is followed along its swing for a moment, the ball along its flight, and the
- * blade sent to where they pass nearest, as the ball nears.
+ * How far to move the swinging blade (in any direction) to meet the ball, or null while it isn't
+ * coming, there's no swing, or it will pass outside the zone. The blade is followed along its
+ * swing for a moment, the ball along its flight, and the blade sent to where they pass nearest,
+ * as the ball nears.
  */
-export function interceptNudge(ball: Ball, center: V3, paddleVel: V3, timeScale: number, reach: number): V3 | null {
-  if (reach <= 0 || ball.cooldown > 0 || ball.vel.z <= 0) return null;
+export function interceptNudge(ball: Ball, center: V3, paddleVel: V3, swing: V3, timeScale: number, zone: Assist): V3 | null {
+  if (zone.across <= 0 || ball.cooldown > 0 || ball.vel.z <= 0 || len(swing) < SWING.minSpeed) return null;
   let best = { t: 0, miss: v3(), off: Infinity };
   for (let t = 0; t <= CONTACT_WINDOW.start + 1e-9; t += 0.01) {
     const miss = sub(ballIn(ball, t, timeScale), add(center, paddleVel, Math.min(t, SWING_CARRIES)));
-    const off = len(miss);
+    const off = zoneShare(miss, zone);
     if (off < best.off) best = { t, miss, off };
   }
-  const weight = (1 - smoothstep(reach, reach * 1.4, best.off)) * (1 - smoothstep(CONTACT_WINDOW.full, CONTACT_WINDOW.start, best.t));
+  const weight = (1 - smoothstep(1, 1.3, best.off)) * (1 - smoothstep(CONTACT_WINDOW.full, CONTACT_WINDOW.start, best.t));
   return weight > 0 && best.t < CONTACT_WINDOW.start ? scale(best.miss, weight) : null;
 }
 
 /**
  * The strongest recent swing (from the blade's speeds, newest last, each with its time in the
- * player's seconds): only those going forward-ish count, not a pull back to wind up.
+ * player's seconds) and when it was at its fastest, or null: the fastest speed of the last
+ * `recent` seconds, if `minSpeed` or more, that's part of a move of `travel` metres or more (SWING's, unless given) the
+ * same way round it (speeds either side of it that go its way, without a break), and isn't a pull
+ * back to wind up.
  */
-export function strongestSwing(speeds: readonly { t: number; vel: V3 }[], now: number): V3 {
-  let best = v3();
-  for (const s of speeds) {
-    if (now - s.t > SWING.recent || s.vel.z > 0.2 * len(s.vel)) continue;
-    if (len(s.vel) > len(best)) best = s.vel;
+export function swingOf(speeds: readonly { t: number; vel: V3 }[], now: number, travel: number = SWING.travel, minSpeed: number = SWING.minSpeed): { vel: V3; t: number } | null {
+  let best = v3(), bestAt = -1;
+  speeds.forEach((s, i) => {
+    if (now - s.t > SWING.recent || s.vel.z > 0.2 * len(s.vel)) return;
+    if (len(s.vel) > len(best)) { best = s.vel; bestAt = i; }
+  });
+  if (bestAt < 0 || len(best) < minSpeed) return null;
+  // How far the blade went that way, either side of its fastest.
+  const way = norm(best);
+  let went = 0;
+  for (const step of [-1, 1]) {
+    for (let i = bestAt + (step > 0 ? 1 : 0); i > 0 && i < speeds.length; i += step) {
+      const along = dot(speeds[i].vel, way);
+      if (along < 0.3 * minSpeed) break;
+      went += along * (speeds[i].t - speeds[i - 1].t);
+    }
   }
-  return best;
+  return went >= travel ? { vel: best, t: speeds[bestAt].t } : null;
 }
+/** swingOf's swing (its velocity at its fastest), or none. */
+export const strongestSwing = (speeds: readonly { t: number; vel: V3 }[], now: number, travel: number = SWING.travel): V3 => swingOf(speeds, now, travel)?.vel ?? v3();
 
-/**
- * At max: the ball's velocity off a swing (`swing`, the player's recent strongest) that has
- * passed near it, or null if none has. It hits as the ball comes nearest the blade (or touches
- * it), off a face square to the swing and tipped down the table, so where the swing goes the
- * ball goes; the landing assist then brings it down on the far half.
- */
-export function swingHit(ball: Ball, center: V3, paddleVel: V3, swing: V3, timeScale: number): V3 | null {
-  if (ball.cooldown > 0 || ball.vel.z <= 0 || len(swing) < SWING.minSpeed) return null;
-  const off = sub(ball.pos, center);
-  const d = len(off);
-  if (d > SWING.zone) return null;
-  // Still closing on the blade, and not yet touching: wait for its nearest.
-  const vRel = sub(scale(ball.vel, timeScale), paddleVel);
-  if (dot(off, vRel) < 0 && d > SWING.touch) return null;
+/** The ball's velocity off a swing: a face square to the swing and tipped down the table, moving as the swing does. */
+function offSwing(ball: Ball, swing: V3): V3 {
   const b: Ball = { pos: { ...ball.pos }, vel: { ...ball.vel }, cooldown: PADDLE_COOLDOWN };
   bounceOff(b, norm(add(norm(swing), v3(0, 0.2, -1))), swing);
   return b.vel;
+}
+
+/**
+ * The ball's velocity off a swing (`swing`, the player's recent strongest: strongestSwing) that
+ * has passed it within the zone, or null if none has. It hits as the ball comes nearest the blade
+ * (or is well inside the zone), so where the swing goes the ball goes; the landing assist then
+ * brings it down on the far half.
+ */
+export function swingHit(ball: Ball, center: V3, paddleVel: V3, swing: V3, timeScale: number, zone: Assist): V3 | null {
+  if (zone.across <= 0 || ball.cooldown > 0 || ball.vel.z <= 0 || len(swing) < SWING.minSpeed) return null;
+  const off = sub(ball.pos, center);
+  const share = zoneShare(off, zone);
+  if (share > 1) return null;
+  // Still closing on the blade, and not yet well inside: wait for its nearest.
+  const vRel = sub(scale(ball.vel, timeScale), paddleVel);
+  if (dot(inZone(off, zone), inZone(vRel, zone)) < 0 && share > SWING.touch) return null;
+  return offSwing(ball, swing);
+}
+
+/**
+ * The waiting ball's velocity off a serve, or null while there's none: a firm swing (`swing`:
+ * strongestSwing with SERVE_SWING's travel) that has gone past the ball within the zone (the
+ * level's, or Low's with the assist off: a serve has to start somehow), or is right on it. A
+ * paddle brought up to the ball and stopped short of it, as a player getting ready does, hasn't
+ * passed it and serves nothing.
+ */
+export function serveHit(ball: V3, center: V3, swing: V3, zone: Assist): V3 | null {
+  const reach = zone.across > 0 ? zone : ASSIST.low;
+  if (len(swing) < SERVE_SWING.minSpeed) return null;
+  const off = sub(ball, center);
+  const share = zoneShare(off, reach);
+  if (share > 1) return null;
+  // How far ahead of the blade the ball still is, along the swing.
+  if (dot(off, norm(swing)) > -SERVE_SWING.past && share > SWING.touch) return null;
+  const vel = offSwing({ pos: ball, vel: v3(), cooldown: 0 }, swing);
+  // Down the table, whatever the swing: at least a gentle serve's pace.
+  return v3(vel.x, vel.y, Math.min(vel.z, -2.5));
 }

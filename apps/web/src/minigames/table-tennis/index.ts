@@ -8,7 +8,7 @@ import { OPTIONS, optionsOf } from './options.ts';
  * hands, a paddle in the hand each player chose (Paddle hand). Alone, the opponent is a robot arm at the far end (the robot
  * hall's Torven arm): it serves when the left hand is raised, and plays back what they return.
  * Two players split the screen, one at each end, and see each other as glass dancers; the
- * server raises their left hand to toss the ball up. Either way it's open play: there's no
+ * ball waits in the air by the server, whose swing through it serves. Either way it's open play: there's no
  * match or score to finish, and the round lasts until the players leave it (pause, Minigames).
  */
 
@@ -20,7 +20,7 @@ const tableTennis: MinigameDefinition = {
     { icon: raiseIcon, text: 'Raise your free hand (not the paddle\'s) for the robot to serve', players: [1] },
     { icon: swingIcon, text: 'Swing your paddle hand through the ball to hit it back', players: [1] },
     { icon: 'replay', text: 'Keep the rally going with the robot. Pause to leave', players: [1] },
-    { icon: raiseIcon, text: 'To serve, raise your free hand: the ball goes up for you to hit', players: [2] },
+    { icon: paddleIcon, text: 'The ball waits in the air by whoever serves: swing through it to serve', players: [2] },
     { icon: swingIcon, text: 'Swing your paddle hand through the ball to hit it over to the other player', players: [2] },
     { icon: 'replay', text: 'Keep the rally going between you. Pause to leave', players: [2] },
   ],
@@ -30,8 +30,8 @@ const tableTennis: MinigameDefinition = {
   hud: { scores: false, timer: false },
   // The 3D world landmarks always (for the arms' depth: arms.ts), and the hands too unless the
   // Hand tracking setting is off: both of one player's, and two players' paddle hands, each
-  // player's own (the free hand only serves, which the pose's own wrist sees well enough; both of
-  // two players' would cost twice as much, as the camera can't follow them:
+  // player's own (alone, the free hand only asks for the serve, which the pose's own wrist sees
+  // well enough; both of two players' would cost twice as much, as the camera can't follow them:
   // packages/pose/browser/hands.ts).
   tracking: ({ playerCount, options }) => {
     const chosen = optionsOf(options);

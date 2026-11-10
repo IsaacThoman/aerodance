@@ -15,7 +15,15 @@ import { gtLandmarks, judgementChanges, referenceBundle, scoreRecords } from './
 import type { LiveRecord } from './score.ts';
 import { jobsOption, scenePool } from './pool.ts';
 
-export const METRICS_VERSION = 1;
+/**
+ * 2: lost and identity on a time grid (tracking.time_grid). 3: jitter from consecutive
+ * delivered samples and their timestamps (torso lengths/s²).
+ */
+export const METRICS_VERSION = 3;
+/** On the time grid, a player's last pose stops counting this long after its frame was taken. */
+export const STALE_MS = 300;
+/** Jitter uses three consecutive samples of a person no more than this far apart. */
+export const JITTER_GAP_MS = 200;
 /** A joint this close to the GT (torso lengths, offset-corrected) is correct, for confidence calibration. */
 export const CORRECT = 0.2;
 /** The game's joint confidence threshold. */
@@ -174,8 +182,8 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
   let frames = 0, detections = 0;
   const distractors = scene.features.some(f => DISTRACTOR_FEATURES.test(f));
   const all = new KeypointBucket(), dance = new KeypointBucket();
-  // For jitter: each GT player's matched pose by frame.
-  const tracks = new Map<string, Map<number, (Joint | null)[]>>();
+  // For jitter: each GT player's matched poses, in frame order.
+  const tracks = new Map<string, { frame: number; t: number; kp: (Joint | null)[] }[]>();
   for (const f of dets) {
     const gt = scene.byFrame.get(f.frame);
     if (!gt) continue;
@@ -198,8 +206,8 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
         if (g.role !== 'player') return;
         all.add(kp, g, scene, offsets);
         if (g.phase === 'dance') dance.add(kp, g, scene, offsets);
-        if (!tracks.has(g.id)) tracks.set(g.id, new Map());
-        tracks.get(g.id)!.set(f.frame, kp);
+        if (!tracks.has(g.id)) tracks.set(g.id, []);
+        tracks.get(g.id)!.push({ frame: f.frame, t: gt.t_ms, kp });
         return;
       }
       // An unmatched detection: on a GT person (a second copy of them, or too wrong to match), a distractor, or noise.
@@ -211,19 +219,28 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
       else fp.noise++;
     });
   }
-  // Jitter: acceleration over three consecutive frames, pose against GT.
+  // Jitter: acceleration over three consecutive samples of a person (consecutive in what was
+  // delivered, whatever the frame rate or drops), pose against GT at the same frames, from
+  // their timestamps: torso lengths per second².
   const jitter = { err: new Stat(), det: new Stat(), gt: new Stat() };
-  for (const [id, byFrame] of tracks) for (const [n, kp] of byFrame) {
-    const before = byFrame.get(n - 1), after = byFrame.get(n + 1);
-    const g0 = scene.byFrame.get(n - 1)?.people.find(p => p.id === id), g1 = scene.byFrame.get(n)?.people.find(p => p.id === id), g2 = scene.byFrame.get(n + 1)?.people.find(p => p.id === id);
-    if (!before || !after || !g0 || !g1 || !g2) continue;
-    const s = torsoScale(g1, scene), A = scene.aspect;
-    for (const j of BODY) {
-      const a = before[j], b = kp[j], c = after[j];
-      if (!a || !b || !c || [g0, g1, g2].some(g => g.kp[j][3] === 3)) continue;
-      const ax = (a[0] - 2 * b[0] + c[0]) * A, ay = a[1] - 2 * b[1] + c[1];
-      const gx = (g0.kp[j][0] - 2 * g1.kp[j][0] + g2.kp[j][0]) * A, gy = g0.kp[j][1] - 2 * g1.kp[j][1] + g2.kp[j][1];
-      jitter.err.add(Math.hypot(ax - gx, ay - gy) / s); jitter.det.add(Math.hypot(ax, ay) / s); jitter.gt.add(Math.hypot(gx, gy) / s);
+  for (const [id, samples] of tracks) {
+    samples.sort((a, b) => a.frame - b.frame);
+    for (let i = 1; i + 1 < samples.length; i++) {
+      const [p0, p1, p2] = [samples[i - 1], samples[i], samples[i + 1]];
+      const d1 = (p1.t - p0.t) / 1000, d2 = (p2.t - p1.t) / 1000;
+      if (d1 <= 0 || d2 <= 0 || d1 * 1000 > JITTER_GAP_MS || d2 * 1000 > JITTER_GAP_MS) continue;
+      const [g0, g1, g2] = [p0, p1, p2].map(p => scene.byFrame.get(p.frame)?.people.find(q => q.id === id));
+      if (!g0 || !g1 || !g2) continue;
+      const s = torsoScale(g1, scene), A = scene.aspect;
+      // Second divided difference: exact for uneven gaps.
+      const acc = (a: number, b: number, c: number) => 2 * ((c - b) / d2 - (b - a) / d1) / (d1 + d2);
+      for (const j of BODY) {
+        const a = p0.kp[j], b = p1.kp[j], c = p2.kp[j];
+        if (!a || !b || !c || [g0, g1, g2].some(g => g.kp[j][3] === 3)) continue;
+        const ax = acc(a[0], b[0], c[0]) * A, ay = acc(a[1], b[1], c[1]);
+        const gx = acc(g0.kp[j][0], g1.kp[j][0], g2.kp[j][0]) * A, gy = acc(g0.kp[j][1], g1.kp[j][1], g2.kp[j][1]);
+        jitter.err.add(Math.hypot(ax - gx, ay - gy) / s); jitter.det.add(Math.hypot(ax, ay) / s); jitter.gt.add(Math.hypot(gx, gy) / s);
+      }
     }
   }
   const rms = (v: number[]) => v.length ? round(Math.sqrt(v.reduce((a, b) => a + b * b, 0) / v.length)) : null;
@@ -233,7 +250,7 @@ export function detectionMetrics(scene: Scene, dets: readonly DetFrame[], offset
     recall: { players: rate(recall.found, recall.players), player_frames: recall.players, dance: rate(recall.danceF, recall.danceP), fully_visible: rate(recall.fullF, recall.fullP), bystanders: rate(recall.bystFound, recall.byst) },
     false_positives_per_100_frames: { duplicate: per100(fp.duplicate), mislocated: per100(fp.mislocated), distractor: per100(fp.distractor), noise: per100(fp.noise) },
     keypoints: all.summary(), keypoints_dance: dance.summary(),
-    jitter: { accel_error: jitter.err.summary(), accel_rms_pose: rms(jitter.det.v), accel_rms_gt: rms(jitter.gt.v), unit: `torso lengths per frame^2 at ${scene.fps} fps` },
+    jitter: { accel_error: jitter.err.summary(), accel_rms_pose: rms(jitter.det.v), accel_rms_gt: rms(jitter.gt.v), samples: jitter.err.v.length, unit: 'torso lengths per s^2' },
   };
 }
 
@@ -272,6 +289,8 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
   const bystanderRuns = mapping.map(() => ({ frames: 0, events: 0, inRun: false }));
   let firstAll: number | null = null, firstAllCorrect: number | null = null;
   let numbering: { correct: boolean; players_correct: number } | null = null;
+  // Each delivered record's verdict per player, for the time grid.
+  const delivered: { at: number; taken: number; lined: boolean; cats: (Cat | 'phantom' | null)[] }[] = [];
   for (const r of records) {
     const gt = scene.byFrame.get(r.frame);
     const match = matchPoses(r.poses.map(p => trackedKp(p.kp)), gt, scene);
@@ -279,6 +298,8 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
     const inDance = window ? r.t_ms >= window[0] && r.t_ms <= window[1] : false;
     const allFound = mapping.length > 0 && r.poses.length === mapping.length;
     let allCorrect = allFound;
+    const cats: (Cat | 'phantom' | null)[] = [];
+    delivered.push({ at: r.received_ms ?? r.t_ms, taken: r.t_ms, lined: r.lined, cats });
     mapping.forEach((id, k) => {
       const person = gt?.people.find(p => p.id === id);
       const trackable = !!person && present(person);
@@ -286,6 +307,7 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
       let cat: Cat | 'phantom' | null = null;
       if (trackable) cat = !has ? 'lost' : !got ? 'ghost' : got.id === id ? 'correct' : got.role === 'bystander' ? 'bystander' : 'wrong_player';
       else if (has) cat = got && got.id !== id ? (got.role === 'bystander' ? 'bystander' : 'wrong_player') : 'phantom';
+      cats[k] = cat;
       if (cat !== 'correct') allCorrect = false;
       if (got) sequences[k].push(got.id);
       const b = bystanderRuns[k];
@@ -312,12 +334,59 @@ export function trackedMetrics(scene: Scene, tracked: readonly TrackedFrame[], m
   return {
     records: records.length, lined_at_ms: linedAt, numbering,
     after_numbering: summarize(after), whole_scene: summarize(whole), dance: summarize(dance),
+    time_grid: timeGrid(scene, mapping, delivered, window),
     identity_switches: switches,
     bystander_takeovers: { events: bystanderRuns.reduce((n, b) => n + b.events, 0), frames: bystanderRuns.reduce((n, b) => n + b.frames, 0) },
     all_in_view_ms: inView,
     all_tracked_ms: firstAll, all_tracked_delay_ms: firstAll !== null && inView !== null ? round(firstAll - inView, 1) : null,
     all_correct_ms: firstAllCorrect, all_correct_delay_ms: firstAllCorrect !== null && inView !== null ? round(firstAllCorrect - inView, 1) : null,
   };
+}
+
+/**
+ * Lost and identity over elapsed time rather than over delivered records: at every camera frame
+ * (the GT's), what the game holds for each player whose person is present is its latest
+ * delivered record (by arrival), if that record's frame is under STALE_MS old; otherwise the
+ * player is lost. A slow or sparse stream then counts the time it shows nothing, or something
+ * old. Also: the share of present player-time with a fresh pose, and the longest gap.
+ */
+export function timeGrid(scene: Scene, mapping: readonly string[], delivered: readonly { at: number; taken: number; lined: boolean; cats: (string | null)[] }[], window: [number, number] | null) {
+  const byArrival = [...delivered].sort((a, b) => a.at - b.at);
+  const counts = () => ({ trackable: 0, correct: 0, wrong_player: 0, bystander: 0, ghost: 0, lost: 0, phantom: 0 });
+  const after = counts(), whole = counts(), dance = counts();
+  let next = 0, latest: typeof byArrival[number] | null = null, linedSince: number | null = null;
+  const gap = mapping.map(() => ({ since: null as number | null, max: 0 }));
+  for (const f of scene.gt) {
+    while (next < byArrival.length && byArrival[next].at <= f.t_ms) {
+      latest = byArrival[next++];
+      if (latest.lined && linedSince === null) linedSince = latest.at;
+    }
+    const fresh = latest && f.t_ms - latest.taken < STALE_MS ? latest : null;
+    const inDance = window ? f.t_ms >= window[0] && f.t_ms <= window[1] : false;
+    mapping.forEach((id, k) => {
+      const person = f.people.find(p => p.id === id);
+      const trackable = !!person && present(person);
+      const said = fresh?.cats[k] ?? null;
+      let cat: keyof ReturnType<typeof counts> | null;
+      if (trackable) cat = !said || said === 'phantom' ? 'lost' : said as keyof ReturnType<typeof counts>;
+      else cat = said && said !== 'phantom' && said !== 'lost' ? (said === 'bystander' ? 'bystander' : 'wrong_player') : said === 'phantom' ? 'phantom' : null;
+      if (trackable) {
+        const g = gap[k];
+        if (cat === 'lost') { g.since ??= f.t_ms; g.max = Math.max(g.max, f.t_ms - g.since + 1000 / scene.fps); } else g.since = null;
+      } else gap[k].since = null; // (Out of view isn't lost: a gap ends when its player leaves.)
+      for (const [bucket, use] of [[whole, true], [after, linedSince !== null], [dance, inDance]] as const) {
+        if (!use || !cat) continue;
+        if (trackable) bucket.trackable++;
+        bucket[cat]++;
+      }
+    });
+  }
+  const summarize = (c: ReturnType<typeof counts>) => ({
+    player_frames: c.trackable, identity_accuracy: rate(c.correct, c.trackable), lost: rate(c.lost, c.trackable),
+    wrong_player: rate(c.wrong_player, c.trackable), bystander: rate(c.bystander, c.trackable), ghost: rate(c.ghost, c.trackable), phantom_frames: c.phantom,
+  });
+  return { stale_ms: STALE_MS, grid_fps: scene.fps, after_numbering: summarize(after), whole_scene: summarize(whole), dance: summarize(dance),
+    coverage: whole.trackable ? round(1 - whole.lost / whole.trackable, 4) : null, max_lost_gap_ms: round(Math.max(0, ...gap.map(g => g.max)), 1) };
 }
 
 export function calibrationMetrics(scene: Scene, tracked: readonly TrackedFrame[]) {

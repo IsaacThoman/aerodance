@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Landmark, NormalizedLandmark } from '@mediapipe/tasks-vision';
-import { ARM, bodyTurn, depthOf, focalLength, handPose, reachable } from '../src/minigames/table-tennis/arms.ts';
+import { ARM, bodyTurn, depthOf, focalLength, handPose, reachable, upperArmForward } from '../src/minigames/table-tennis/arms.ts';
 import type { HandInput, Side, Vec3 } from '../src/minigames/table-tennis/arms.ts';
+import { handAgrees } from '../src/minigames/table-tennis/rig.ts';
 
 /*
  * A player made of 3D points in camera space (x right, y down, z away, metres), projected through
@@ -132,4 +133,29 @@ test("bodyTurn reads the torso's and head's turns, the player's own way round", 
   for (const x of [-0.001, 0, 0.001]) assert.ok(Math.abs(flat(x)) < 1e-12);
   // No shoulders seen, no turn.
   assert.equal(bodyTurn(body(), image.map((p, i) => (i === 12 ? { ...p, visibility: 0 } : p))), null);
+});
+
+test("rig.ts handAgrees leaves out a hand found at the other wrist, or far from its own", () => {
+  const pose = poseOf({ left: HANGING, right: { upper: { x: 0, y: 1, z: 0 }, fore: { x: 0, y: 0, z: -1 } } });
+  const wrist = (side: Side) => joints(side, side === 'left' ? HANGING : { upper: { x: 0, y: 1, z: 0 }, fore: { x: 0, y: 0, z: -1 } }).wrist;
+  assert.ok(handAgrees(pose.landmarks, handAt('right', wrist('right')), 'right', SIZE), 'its own hand');
+  assert.ok(!handAgrees(pose.landmarks, handAt('right', wrist('left')), 'right', SIZE), 'the other hand');
+  assert.ok(!handAgrees(pose.landmarks, handAt('right', at(wrist('right'), { x: 0, y: -0.3, z: 0 })), 'right', SIZE), 'a hand 30 cm off');
+  // The pose unsure of its wrist can't say.
+  const unsure = { ...pose, landmarks: pose.landmarks.map((l, i) => (i === 16 ? { ...l, visibility: 0.1 } : l)) };
+  assert.ok(handAgrees(unsure.landmarks, handAt('right', wrist('left')), 'right', SIZE));
+});
+
+test('an upper arm is taken as forward or back as far as the model leans, and flat when it says nothing', () => {
+  assert.ok(upperArmForward(-0.3) > 0.95 && upperArmForward(0.3) < -0.95, 'sure either way');
+  assert.ok(Math.abs(upperArmForward(0)) < 1e-9, "no lean: flat");
+  // An elbow behind the shoulder, the model seeing it a little back: the elbow is read behind.
+  const arm: Arm = { upper: { x: 0.3, y: 0.6, z: 0.75 }, fore: { x: 0, y: -0.2, z: -1 } };
+  const pose = poseOf({ left: HANGING, right: arm });
+  const elbow = joints('right', arm).elbow;
+  const world = pose.world.map((p, i) => (i === 14 ? { ...p, z: 0.08 } : i === 12 ? { ...p, z: 0 } : p));
+  const back = handPose({ landmarks: pose.landmarks, world }, undefined, 'right', SIZE, FOV)!;
+  const flat = handPose({ landmarks: pose.landmarks, world: world.map((p, i) => (i === 14 ? { ...p, z: -0.08 } : p)) }, undefined, 'right', SIZE, FOV)!;
+  assert.ok(back.wrist.z > flat.wrist.z + 0.1, `leaning back puts the wrist further back (${back.wrist.z.toFixed(2)} vs ${flat.wrist.z.toFixed(2)})`);
+  assert.ok(elbow.z > SHOULDER.right.z);
 });

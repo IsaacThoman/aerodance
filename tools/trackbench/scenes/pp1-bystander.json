@@ -1,0 +1,152 @@
+{
+ "id": "pp1-bystander",
+ "category": "pingpong",
+ "description": "pp1-base with a man sitting on the sofa behind, fidgeting: a second person in the picture (players stays 1).",
+ "seed": 101,
+ "duration_s": 20,
+ "fps": 30,
+ "resolution": [
+  1280,
+  960
+ ],
+ "players": 1,
+ "camera": {
+  "height_m": 1.0,
+  "distance_m": 2.4,
+  "look_at": [
+   0,
+   0,
+   1.05
+  ],
+  "hfov_deg": 70
+ },
+ "room": {
+  "preset": "living_room",
+  "clutter": 0.5
+ },
+ "lighting": {
+  "preset": "bright_even"
+ },
+ "render": {
+  "motion_blur_shutter": 0.5,
+  "samples": 16
+ },
+ "people": [
+  {
+   "id": "p1",
+   "role": "player",
+   "body": {
+    "gender": 0.0,
+    "age": 0.5,
+    "weight": 0.5,
+    "muscle": 0.5,
+    "height": 0.54,
+    "proportions": 0.5,
+    "race": {
+     "african": 0,
+     "asian": 0,
+     "caucasian": 1
+    }
+   },
+   "skin": "young_caucasian_female",
+   "hair": "ponytail01",
+   "outfit": {
+    "clothes": [
+     "female_casualsuit01",
+     "shoes02"
+    ],
+    "recolor": {
+     "top": "#3f8f5a",
+     "hair": "#5a3b22"
+    }
+   },
+   "hand": "right",
+   "place": {
+    "x": 0.0,
+    "y": 0.0,
+    "facing_deg": 0
+   },
+   "timeline": [
+    {
+     "type": "offstage",
+     "duration_s": 0.3
+    },
+    {
+     "type": "walk",
+     "from": [
+      -1.9,
+      0.5
+     ],
+     "to": [
+      0.0,
+      0.0
+     ],
+     "duration_s": 1.7
+    },
+    {
+     "type": "pingpong",
+     "duration_s": 18,
+     "auto": {
+      "speed_mps": [
+       2.5,
+       6.0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "b1",
+   "role": "bystander",
+   "body": {
+    "gender": 1.0,
+    "age": 0.6,
+    "weight": 0.6,
+    "muscle": 0.5,
+    "height": 0.5,
+    "proportions": 0.5,
+    "race": {
+     "african": 0,
+     "asian": 1,
+     "caucasian": 0
+    }
+   },
+   "skin": "young_asian_male",
+   "hair": "short02",
+   "outfit": {
+    "clothes": [
+     "male_casualsuit03",
+     "shoes01"
+    ],
+    "recolor": {
+     "hair": "#151010"
+    }
+   },
+   "place": {
+    "x": -0.8,
+    "y": 1.7
+   },
+   "timeline": [
+    {
+     "type": "hold",
+     "pose": "seated",
+     "duration_s": 20,
+     "sway_m": 0.02
+    }
+   ]
+  }
+ ],
+ "phases": [
+  {
+   "name": "setup",
+   "start_s": 0,
+   "end_s": 2
+  },
+  {
+   "name": "play",
+   "start_s": 2,
+   "end_s": 20
+  }
+ ],
+ "post": []
+}

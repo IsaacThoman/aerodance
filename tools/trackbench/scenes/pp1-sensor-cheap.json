@@ -1,0 +1,19 @@
+{
+ "id": "pp1-sensor-cheap",
+ "base": "pp1-base",
+ "category": "sensor",
+ "description": "Post-only variant of pp1-base (same pixels): a cheap webcam's noise, chroma subsampling and JPEG 45.",
+ "post": [
+  {
+   "type": "noise",
+   "sigma": 5
+  },
+  {
+   "type": "chroma_subsample"
+  },
+  {
+   "type": "jpeg",
+   "quality": 45
+  }
+ ]
+}

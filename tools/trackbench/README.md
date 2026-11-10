@@ -2,7 +2,9 @@
 
 A benchmark for aerodance's player tracking. Blender renders synthetic webcam footage of realistic
 people (MakeHuman/MPFB humans) dancing real motion capture (AIST++) in living rooms, with exact
-per-frame ground truth. Harnesses then run the game's own pose pipeline, and candidate replacement
+per-frame ground truth. The `pp-*` scenes have people playing the Table Tennis minigame instead
+(procedural strokes, with and without a paddle, 1280x960), with hand-21 and paddle ground truth
+for measuring paddle-hand tracking. Harnesses then run the game's own pose pipeline, and candidate replacement
 pose estimators, over the footage. They measure what players feel: whether everyone is found and
 kept apart, how long setup takes, and above all how many points tracking costs them.
 
@@ -11,12 +13,13 @@ The findings, and the changes made because of them, are in [REPORT.md](REPORT.md
 | Part | What it does | Docs |
 |---|---|---|
 | [`CONTRACT.md`](CONTRACT.md) | Scene spec, ground-truth and detection formats, coordinates | |
-| [`scenes/`](scenes/) | The suite: one hand-editable JSON spec per scene, 133 of them | [`SUITE.md`](scenes/SUITE.md) |
+| [`scenes/`](scenes/) | The suite: one hand-editable JSON spec per scene, 167 of them (34 table tennis) | [`SUITE.md`](scenes/SUITE.md) |
 | [`render.py`](render.py), [`blender/`](blender/) | Spec → frames, masks, `gt.jsonl` | [`GENERATOR.md`](blender/GENERATOR.md), [`ENVIRONMENT.md`](blender/ENVIRONMENT.md) |
 | [`post/`](post/) | Sensor and lens effects (noise, low light, blur, JPEG, ultrawide, rolling shutter) | [`ENVIRONMENT.md`](blender/ENVIRONMENT.md) |
 | [`harness/`](harness/) | The game's worker in Chromium/Metal, its tracker, calibration and scorer; metrics; reports | [`harness/README.md`](harness/README.md) |
 | [`estimators/`](estimators/) | Runners for candidate pose estimators (MediaPipe, RTMO, RTMPose, MoveNet, Apple Vision, YOLO references), browser latency probes | [`README.md`](estimators/README.md), [`CANDIDATES.md`](estimators/CANDIDATES.md) |
 | [`matrix.py`](matrix.py), [`finalize.sh`](finalize.sh) | Every estimator over every scene, skipping work that's done | |
+| [`PINGPONG.md`](PINGPONG.md) | The Table Tennis paddle's meter (`--detail`, `pingpong.ts`, `pp-report.ts`) and its first baseline | |
 | [`studies/`](studies/) | Paired comparisons, calibration rules, scoring treatments | below |
 | [`sim2real/`](sim2real/) | Checks that synthetic conclusions hold on real footage (AIST++ videos) | [`README.md`](sim2real/README.md) |
 | [`audit/`](audit/) | Independent audits of the GT, harness and runners, with their check scripts | [`gt-harness-audit.md`](audit/gt-harness-audit.md), [`estimators-audit.md`](audit/estimators-audit.md) |
@@ -43,7 +46,7 @@ commit any of it.
 ## Use
 
 ```sh
-# Render a scene (or several), with an overlay video of the ground truth.
+# Render a scene (or several), with an overlay video of the ground truth (--skip-done resumes a batch).
 python3 tools/trackbench/render.py base-solo --jobs 2 --preview
 
 # The game's own pipeline on it, then metrics.
@@ -71,7 +74,9 @@ rebuild and commit, or delete the snapshot, after changing the worker.)
 ### Studies
 
 - `studies/paired.ts`: every estimator on the same scenes, failures counted, and differences from
-  a baseline with paired bootstrap 95% intervals, overall and per category.
+  a baseline with paired bootstrap 95% intervals (resampling scenes that share a render
+  together), for the tuning and held-out splits separately (`harness/split.ts`), overall, per
+  player count and per category.
 - `studies/calibration.ts`: replays detections through the game's loop with calibration rules
   swapped in. It measures time to calibrate after players start holding still, completions that
   never come, and completions that shouldn't happen.
@@ -83,7 +88,7 @@ rebuild and commit, or delete the snapshot, after changing the worker.)
 
 Copy a spec in `scenes/` (or write a variant: `"base": "<id>"` plus the fields that differ), and
 describe the hypothesis it tests in `description` and `SUITE.md`. The timeline's segments
-(`offstage`, `walk`, `hold`, `dance`) set what each person does. Holds meant to calibrate must
+(`offstage`, `walk`, `hold`, `dance`, `pingpong`) set what each person does. Holds meant to calibrate must
 be at least 3.5 s: the game needs 2.5 s of stillness, and segments blend. Look at the preview
 before trusting a scene.
 
@@ -102,6 +107,14 @@ before trusting a scene.
   centres). Raw errors are reported too.
 - **Timings** in the matrix come from a shared machine running renders. Use the browser probes
   in `estimators/web/` on an idle machine for latency.
+
+### Table tennis
+
+The `pp-*` scenes' GT adds each person's 21 hand points per hand and, for paddle holders, the
+paddle's centre and face normal; `meta.json` lists every stroke. `blender/checks/hand_check.py`
+runs MediaPipe's Hand Landmarker (the game's hand model, in `$TRACKBENCH_DATA/models/`, Apache
+2.0) on game-style cuts round the GT wrists, and `blender/preview.py <scene> --hands out.jpg`
+draws every hand close up.
 
 ## Licences
 

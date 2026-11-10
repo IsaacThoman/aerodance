@@ -16,6 +16,8 @@ The code correctly intersects scene IDs for baseline deltas, **but then filters 
 
 Summary/category means also use each estimator's own scene set (112 versus 82 versus 79 here). They are not comparable rankings, even though fully finite baseline deltas use shared scenes.
 
+**Status (2026-11-09): fixed in `report.ts`.** Failures are counted beside each mean, head the worst lists, and deltas are means of per-scene differences over the pairs where both have a value, with each side's failures (`studies/paired.ts` already counted them).
+
 **Fix:** expose success/failure/eligible counts per metric; show failed scenes explicitly in worst cases. Compute finite-value deltas from pairwise differences on the same eligible pairs, report their N, and separately compare failure rates. Use a common scene cohort for ranking tables or prominently label different coverage. Treat setup timeouts as censored failures, not ordinary missing data.
 
 ### 2. The 120° distortion bypasses the intended focal-length correction
@@ -44,6 +46,8 @@ Repro on RTMO-s `base-solo`: raw mean **0.0580**, raw PCK@.1 **0.8873**; fitting
 
 Detection recall iterates only processed frames. Tracking discards every `dropped` result and has no representation for skipped camera frames or elapsed gaps. Consequently a slow estimator can look excellent whenever it supplies a pose while being unusable much of the song. The explicit dropped-only fixture produces **records=0, lost=null, identity=null**, not a failure; report aggregation then drops it as in finding 1. A perfect but very sparse stream can have identity=1 and lost=0.
 
+**Status (2026-11-09): fixed in `metrics.ts` (version 2).** `tracking.time_grid` scores every camera frame by the latest *arrived* record, lost when its frame is 300 ms old or more, with coverage and the longest gap; the report and `paired.ts` use it. The dropped-only fixture now gives lost = 1. Offline runs process every frame, so their numbers barely move: on dev-final's tracking and on this branch's base run the grid and per-record means agree to 0.01 points.
+
 **Fix:** preserve the existing metrics as “per processed frame / per delivered record” diagnostics, and add coverage/lost time on a common camera or wall-clock grid with an explicit stale-pose timeout. Report processed fraction and maximum/percentile gaps alongside them. Do not compare offline and realtime record-conditioned rates as user-visible coverage. The score path does account for sparse delivery via the real scorer's gap/reach rules, so this finding is not a claim that score loss ignores gaps.
 
 ### 5. Calibration replay permanently latches success and misses setup timeout transitions
@@ -61,6 +65,8 @@ Executable fixture: confident fixed pose samples every 100 ms through 3000 ms co
 **Severity: biased.** `harness/metrics.ts:213–235`, `:384–394`.
 
 Jitter requires numeric frame IDs `n-1,n,n+1`. The 15 fps scene correctly retains original IDs **1,3,5,...,675** (338 JPEGs) against 30 fps source GT. It therefore has **zero jitter samples** for Lite, Heavy, and RTMO-s. Irregular realtime streams similarly measure only consecutive surviving runs, silently selecting the easier/full-rate portions. `camera_fps` remains the source 30 rather than delivered 15.
+
+**Status (2026-11-09): fixed in `metrics.ts` (version 3).** Jitter uses consecutive delivered samples of each person (gaps up to 200 ms) and the second divided difference over their timestamps, in torso lengths/s²; `sens-fps-15` now has samples.
 
 **Fix:** use consecutive delivered samples and actual timestamps, matching GT at those times; report acceleration in torso lengths/s² or resample consistently. State source and output fps separately and expose coverage/sample count. Do not renumber frames: their existing IDs/timestamps are correct.
 

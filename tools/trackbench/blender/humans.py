@@ -522,3 +522,97 @@ def contact_points(p):
     pts.append(('head', np.array(bones['head'].head_local) + np.array([0, 0, 0.1]), 0.11))
     p.sole_z = sole
     return pts
+
+
+# ---------------------------------------------------------------- table-tennis paddle
+
+PADDLE = dict(blade_w=0.150, blade_h=0.158, blade_t=0.007, handle_l=0.100, handle_w=0.028, handle_t=0.023)
+
+
+def _hand_frame_rest(rig, s):
+    """Rest-pose hand frame (armature space): wrist head, along (to the middle knuckle), across
+    (pinky to index, square to along), palm normal (the side the thumb curls to)."""
+    H = {b.name: np.array(b.head_local) for b in rig.data.bones}
+    h0 = H[f'wrist.{s}']
+    a = H[f'finger3-1.{s}'] - h0
+    a /= np.linalg.norm(a)
+    c = H[f'finger2-1.{s}'] - H[f'finger5-1.{s}']
+    c -= np.dot(c, a) * a
+    c /= np.linalg.norm(c)
+    n = np.cross(a, c)
+    if np.dot(H[f'finger1-3.{s}'] - (H[f'finger2-1.{s}'] + H[f'finger5-1.{s}']) / 2, n) < 0:
+        n = -n
+    return h0, a, c, n
+
+
+def make_paddle(p, hand, opts=None):
+    """A shakehand table-tennis paddle in the person's paddle hand: a 15 x 15.8 cm blade with red
+    (forehand, palm side) and black rubbers, a 10 cm wooden handle across the palm, parented to
+    the wrist bone. The object's origin is the blade centre, local +y points from the handle to
+    the blade's tip, local +z is the forehand face's normal. Not part of the person's mask; GT
+    treats it as an occluder (vis 2) and reports its centre and normal."""
+    import bmesh
+    from mathutils import Matrix
+    opts = dict(opts or {})
+    d = dict(PADDLE)
+    s = 'R' if hand == 'right' else 'L'
+    rig = p.rig
+    h0, a, c, n = _hand_frame_rest(rig, s)
+    # Handle along the palm's diagonal (heel of the hand to the thumb-index web), its grip point
+    # inside the curled fingers (the handle's butt just past the little finger), the blade beyond the web, its face parallel to the palm.
+    h = 0.5 * a + 0.87 * c
+    h /= np.linalg.norm(h)
+    nz = n - np.dot(n, h) * h
+    nz /= np.linalg.norm(nz)
+    grip = h0 + a * opts.get('grip_along', 0.068) + n * opts.get('grip_out', 0.021)
+    centre = grip + h * (0.058 + d['blade_h'] / 2)
+    x = np.cross(h, nz)
+    M = np.eye(4)
+    M[:3, 0], M[:3, 1], M[:3, 2], M[:3, 3] = x, h, nz, centre
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=48, radius1=0.5, radius2=0.5, depth=1.0)
+    bmesh.ops.scale(bm, vec=(d['blade_w'], d['blade_h'], d['blade_t']), verts=bm.verts)
+    hb = bmesh.ops.create_cube(bm, size=1.0)
+    hv = hb['verts']
+    bmesh.ops.scale(bm, vec=(d['handle_w'], d['handle_l'], d['handle_t']), verts=hv)
+    bmesh.ops.translate(bm, vec=(0, -(d['blade_h'] / 2 + d['handle_l'] / 2 - 0.004), 0), verts=hv)
+    hset = set(hv)
+    for f in bm.faces:
+        if any(v in hset for v in f.verts):
+            f.material_index = 2
+        elif f.normal.z > 0.9:
+            f.material_index = 0
+        elif f.normal.z < -0.9:
+            f.material_index = 1
+        else:
+            f.material_index = 2
+        f.smooth = False
+    me = bpy.data.meshes.new(f'{p.prefix}.paddle')
+    bm.to_mesh(me)
+    bm.free()
+
+    def mat(name, hexcol, rough):
+        m = bpy.data.materials.new(f'{p.prefix}.paddle_{name}')
+        m.use_nodes = True
+        b = m.node_tree.nodes.get('Principled BSDF')
+        b.inputs['Base Color'].default_value = (*hex_to_linear(hexcol), 1)
+        b.inputs['Roughness'].default_value = rough
+        return m
+    me.materials.append(mat('forehand', opts.get('forehand', '#b3141c'), 0.55))
+    me.materials.append(mat('backhand', opts.get('backhand', '#141414'), 0.6))
+    me.materials.append(mat('wood', opts.get('wood', '#b98a55'), 0.7))
+    ob = bpy.data.objects.new(f'{p.prefix}.paddle', me)
+    bpy.context.scene.collection.objects.link(ob)
+    ob['tb_kind'] = 'prop'
+    ob['tb_person'] = p.index
+    ob.parent = rig
+    ob.parent_type = 'BONE'
+    ob.parent_bone = f'wrist.{s}'
+    # Rest pose: place it in armature space (the rig sits at the origin unrotated).
+    rig.data.pose_position = 'REST'
+    bpy.context.view_layer.update()
+    ob.matrix_world = Matrix(M.tolist())
+    rig.data.pose_position = 'POSE'
+    bpy.context.view_layer.update()
+    p.paddle, p.paddle_hand = ob, hand
+    return ob

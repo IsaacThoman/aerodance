@@ -5,10 +5,12 @@
 // the worker draws it (looks.ts).
 import path from 'node:path';
 import { describeLooks } from '../../../packages/pose/browser/appearance.ts';
-import { danceWindow, loadScene, mean, parseArgs, readJsonl, runDir, writeJson, writeJsonl } from './common.ts';
+import { existsSync } from 'node:fs';
+import { danceWindow, loadScene, mean, parseArgs, readJson, readJsonl, runDir, writeJson, writeJsonl } from './common.ts';
 import type { DetFrame, Scene, TrackedFrame } from './common.ts';
 import { GameLoop, toDetected } from './gameloop.ts';
 import type { Pixels } from '../../../packages/pose/browser/appearance.ts';
+import type { PoseDetail } from '../../../packages/pose/webcamRecord.ts';
 
 export interface TrackOptions {
   session?: boolean;
@@ -16,6 +18,8 @@ export interface TrackOptions {
   pixels?: Map<number, Pixels> | null;
   /** At most this many people per result (capPeople). */
   cap?: number;
+  /** The tracking detail the run asked for (its world landmarks and hands go to the tracker with it). */
+  detail?: PoseDetail | null;
 }
 
 /** Looks the game's worker would give these detections, from the frame's 128-wide copy. */
@@ -33,8 +37,8 @@ export function capPeople(line: DetFrame, cap: number): DetFrame {
   return { ...line, people: order.map(i => line.people[i]), ...(line.looks ? { looks: order.map(i => line.looks![i]) } : {}) };
 }
 
-export function trackDetections(scene: Scene, dets: readonly DetFrame[], { session = true, pixels = null, cap = Infinity }: TrackOptions = {}): TrackedFrame[] {
-  const loop = new GameLoop(scene.players, { width: scene.width, height: scene.height }, { session, danceStartMs: danceWindow(scene)?.[0] ?? Infinity });
+export function trackDetections(scene: Scene, dets: readonly DetFrame[], { session = true, pixels = null, cap = Infinity, detail = null, input }: TrackOptions & { input?: { width: number; height: number } } = {}): TrackedFrame[] {
+  const loop = new GameLoop(scene.players, input ?? { width: scene.width, height: scene.height }, { session, danceStartMs: danceWindow(scene)?.[0] ?? Infinity, detail });
   const lines = [...dets].sort((a, b) => (a.received_ms ?? a.t_ms) - (b.received_ms ?? b.t_ms)).map(l => capPeople(l, cap));
   return lines.map(line => {
     let looks = line.looks;
@@ -61,7 +65,10 @@ export async function trackScene({ estimator, sceneId, opts = {} }: {
   }
   // The game's own worker already asks for the players' number; anything else is cut to it.
   const cap = opts['no-cap'] || /-game(-|$)/.test(estimator) ? Infinity : scene.players;
-  const tracked = trackDetections(scene, dets, { session: !opts['no-session'], pixels, cap });
+  // A run-game run says the detail it asked for and the size it fed the worker (--input-size).
+  const run = existsSync(path.join(dir, 'run.json')) ? readJson<{ settings?: { detail?: PoseDetail | null; input?: { width: number; height: number } } }>(path.join(dir, 'run.json')) : {};
+  const detail = run.settings?.detail ?? null, input = run.settings?.input;
+  const tracked = trackDetections(scene, dets, { session: !opts['no-session'], pixels, cap, detail, input });
   return { tracked, metadata: { estimator, scene: sceneId, session: !opts['no-session'], cap: Number.isFinite(cap) ? cap : null, looks: scene.players > 1 ? (needLooks ? 'appearance.ts on 128-wide Chromium copies' : opts['no-looks'] ? 'none' : 'from detections') : 'not used (one player)' }, log: `${estimator}/${sceneId}: ${tracked.length} records, ${tracked.filter(r => r.poses.length === scene.players).length} with every player` };
 }
 

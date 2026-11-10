@@ -1,24 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ASSIST, SWING, assistReturn, contactNudge, interceptNudge, landsFar, strongestSwing, swingHit } from '../src/minigames/table-tennis/assist.ts';
+import { ASSIST, SERVE_SWING, SWING, assistReturn, interceptNudge, landsFar, serveHit, strongestSwing, swingHit } from '../src/minigames/table-tennis/assist.ts';
 import { TABLE, stepBall, v3 } from '../src/minigames/table-tennis/ball.ts';
-import type { Ball, BallEvent, PaddlePose, V3 } from '../src/minigames/table-tennis/ball.ts';
+import type { Ball, BallEvent, V3 } from '../src/minigames/table-tennis/ball.ts';
 
 const ball = (pos: V3, vel: V3): Ball => ({ pos, vel, cooldown: 0 });
-/** The real blade, facing down the table, at the player's end. */
-const blade = (center: V3): PaddlePose => ({ center, normal: v3(0, 0, -1), radius: 0.075, halfThickness: 0.006 });
 const still = v3();
 
-/** Flies a ball at 60 fps for a second, the paddle held still at p (shifted by nudge each frame, if given). */
-function fly(b: Ball, p: PaddlePose, reach = 0): BallEvent[] {
-  const events: BallEvent[] = [];
-  for (let i = 0; i < 60; i++) {
-    const nudge = contactNudge(b, p, still, 1, reach) ?? v3();
-    const at = { ...p, center: v3(p.center.x + nudge.x, p.center.y + nudge.y, p.center.z + nudge.z) };
-    stepBall(b, 1 / 60, at, at, events);
-  }
-  return events;
-}
 /** Where a ball off the paddle first comes down (on the table, the floor, or caught in the net). */
 function landing(from: V3, vel: V3): BallEvent {
   const events: BallEvent[] = [];
@@ -28,26 +16,6 @@ function landing(from: V3, vel: V3): BallEvent {
 }
 /** How far a point is from the far half of the table (0 on it). */
 const offFarHalf = (p: V3) => Math.hypot(Math.max(0, Math.abs(p.x) - TABLE.halfWidth), Math.max(0, p.z, -p.z - TABLE.halfLength));
-
-test('the contact assist slides the blade to a ball it would have missed', () => {
-  // The ball coming at the player 12 cm to the side of a still blade, which misses it.
-  const start = () => ball(v3(0.12, 1, 0.9), v3(0, 0, 5));
-  const paddle = blade(v3(0, 1, 1.3));
-  assert.ok(!fly(start(), paddle).some((e) => e.type === 'paddle'), 'it misses unhelped');
-  assert.ok(!fly(start(), paddle, ASSIST.low.reach).some((e) => e.type === 'paddle'), 'too far off for the low assist');
-  assert.ok(fly(start(), paddle, ASSIST.medium.reach).some((e) => e.type === 'paddle'), 'the medium one reaches it');
-});
-
-test('the contact assist slides only across the face, and only for a ball closing on it', () => {
-  const paddle = blade(v3(0, 1, 1.3));
-  const nudge = contactNudge(ball(v3(0.1, 1.05, 1.0), v3(0, 0, 5)), paddle, still, 1, ASSIST.high.reach);
-  assert.ok(nudge && Math.abs(nudge.z) < 1e-9, 'not along its normal (the swing stays the player\'s)');
-  assert.ok(nudge.x > 0.09 && nudge.y > 0, `towards the ball (${nudge.x.toFixed(2)}, ${nudge.y.toFixed(2)})`);
-  assert.equal(contactNudge(ball(v3(0.1, 1, 1.0), v3(0, 0, -5)), paddle, still, 1, ASSIST.high.reach), null, 'not for a ball going away');
-  assert.equal(contactNudge(ball(v3(0.1, 1, -0.5), v3(0, 0, 5)), paddle, still, 1, ASSIST.high.reach), null, 'not while it is still far off');
-  assert.equal(contactNudge(ball(v3(0.6, 1, 1.0), v3(0, 0, 5)), paddle, still, 1, ASSIST.high.reach), null, 'not for a swing nowhere near it');
-  assert.equal(contactNudge(ball(v3(0.05, 1, 1.0), v3(0, 0, 5)), paddle, still, 1, ASSIST.off.reach), null, 'not with the assist off');
-});
 
 test('the landing assist brings a long return down on the far half, in the same general direction', () => {
   const from = v3(0.1, 1.0, 1.5);
@@ -74,36 +42,91 @@ test('the landing assist lifts a return out of the net, and leaves a good one al
   assert.deepEqual(assistReturn(from, v3(0, 2, 1), ASSIST.high.landing), v3(0, 2, 1));
 });
 
-test('at max, a rough forward swing that passes near the ball hits it, and the return lands', () => {
-  // The ball coming in; the blade 25 cm off to the side of it (and edge-on: its face doesn't matter),
-  // the player having just swung forward and across at 3 m/s.
+test('a forward swing that passes the ball within the zone hits it, and the return lands', () => {
+  // The ball coming in; the blade 15 cm off to the side of it and 20 cm short of it in depth (and
+  // edge-on: its face doesn't matter), the player having just swung forward and across at 3 m/s.
   const swing = v3(-1.2, 0.3, -2.7);
-  const centre = v3(0.25, 1.05, 1.3);
-  const coming = ball(v3(0, 1, 1.4), v3(0, 0, 5));
+  const centre = v3(0.15, 1.05, 1.5);
+  const coming = ball(v3(0, 1, 1.6), v3(0, 0, 5));
   // Not yet at its nearest: wait.
-  assert.equal(swingHit(ball(v3(0, 1, 1.0), v3(0, 0, 5)), centre, swing, swing, 1), null);
-  const vel = swingHit(coming, centre, swing, swing, 1);
+  assert.equal(swingHit(ball(v3(0, 1, 1.15), v3(0, 0, 5)), centre, swing, swing, 1, ASSIST.normal), null);
+  const vel = swingHit(coming, centre, swing, swing, 1, ASSIST.normal);
   assert.ok(vel, 'it hits');
   assert.ok(vel.z < -1 && vel.x < 0, `down the table, the way the swing went (${vel.x.toFixed(1)}, ${vel.y.toFixed(1)}, ${vel.z.toFixed(1)})`);
-  assert.ok(landsFar(coming.pos, assistReturn(coming.pos, vel, ASSIST.max.landing)), 'and the assist lands it');
+  assert.ok(landsFar(coming.pos, assistReturn(coming.pos, vel, ASSIST.normal.landing)), 'and the assist lands it');
 });
 
-test('at max, no swing, a pull back, or a ball well away is no hit', () => {
-  const centre = v3(0.25, 1.05, 1.3);
+test('the zone is tight across and up, where the camera sees well, and deep along the table, where it does not', () => {
+  const swing = v3(0, 0, -3), centre = v3(0, 1.05, 1.3);
+  const at = (x: number, y: number, z: number) => swingHit(ball(v3(x, y, z), v3(0, 0, 0.01)), centre, still, swing, 1, ASSIST.normal);
+  assert.ok(at(0, 1.05, 1.3 + 0.4), '40 cm off in depth is met');
+  assert.equal(at(0.4, 1.05, 1.3), null, '40 cm off to the side is not');
+  assert.equal(at(0, 1.45, 1.3), null, 'nor 40 cm above');
+  assert.ok(at(0.2, 1.05, 1.3), '20 cm to the side is');
+  // Each level reaches further than the last, and none plays a ball a body's width away.
+  for (const [low, high] of [['low', 'normal'], ['normal', 'high']] as const) {
+    assert.ok(ASSIST[low].across < ASSIST[high].across && ASSIST[low].depth < ASSIST[high].depth);
+    assert.ok(ASSIST[high].depth > ASSIST[high].across);
+  }
+  assert.ok(ASSIST.high.across < 0.4);
+});
+
+test('no swing, a pull back, a ball well away or the assist off is no hit', () => {
+  const centre = v3(0.1, 1.05, 1.3);
   const coming = ball(v3(0, 1, 1.25), v3(0, 0, 5));
-  assert.equal(swingHit(coming, centre, still, v3(0, 0, -0.3), 1), null, 'too slow to be a swing');
-  assert.equal(swingHit(ball(v3(0.7, 1, 1.25), v3(0, 0, 5)), centre, still, v3(0, 0, -3), 1), null, `beyond ${SWING.zone} m`);
-  assert.equal(swingHit(ball(v3(0, 1, 1.25), v3(0, 0, -5)), centre, still, v3(0, 0, -3), 1), null, 'a ball going away');
-  // The swing is the strongest forward one lately, not the wind-up.
-  const speeds = [{ t: 0.9, vel: v3(0, 0, 4) }, { t: 1.0, vel: v3(0, 0.5, -2) }, { t: 0.5, vel: v3(0, 0, -6) }];
-  assert.deepEqual(strongestSwing(speeds, 1.05), v3(0, 0.5, -2));
+  assert.equal(swingHit(coming, centre, still, v3(0, 0, -0.3), 1, ASSIST.high), null, 'too slow to be a swing');
+  assert.equal(swingHit(coming, centre, still, still, 1, ASSIST.high), null, 'a paddle held still is helped to nothing');
+  assert.equal(swingHit(ball(v3(0.7, 1, 1.25), v3(0, 0, 5)), centre, still, v3(0, 0, -3), 1, ASSIST.high), null, 'beyond the zone');
+  assert.equal(swingHit(ball(v3(0, 1, 1.25), v3(0, 0, -5)), centre, still, v3(0, 0, -3), 1, ASSIST.high), null, 'a ball going away');
+  assert.equal(swingHit(coming, centre, still, v3(0, 0, -3), 1, ASSIST.off), null, 'the assist off');
 });
 
-test('at max, the blade reaches for the ball in 3D, including a swing that is early or late', () => {
-  // The ball 15 cm short of where the blade is heading, and 20 cm to the side: the blade is sent there.
-  const coming = ball(v3(0.2, 1, 0.9), v3(0, 0.5, 5));
-  const nudge = interceptNudge(coming, v3(0, 1, 1.4), v3(0, 0, -2), 1, ASSIST.max.reach);
+/** The blade's speeds through a move at `vel` for `seconds`, a sample every 60th of a second, ending at `end`. */
+const moving = (vel: V3, seconds: number, end: number) => { const n = Math.round(seconds * 60); return Array.from({ length: n }, (_, i) => ({ t: end - (n - 1 - i) / 60, vel })); };
+
+test('a swing is a fast move of some length the same way, not a wind-up or a twitch', () => {
+  // A forward swing of 0.15 s at 3 m/s after a wind-up back at 4 m/s.
+  const speeds = [...moving(v3(0, 0, 4), 0.1, 0.85), ...moving(v3(0, 0.5, -3), 0.15, 1)];
+  assert.deepEqual(strongestSwing(speeds, 1.02), v3(0, 0.5, -3), 'the forward swing, not the wind-up');
+  assert.deepEqual(strongestSwing(speeds, 1.5), still, 'not long after it');
+  // One fast frame among still ones went nowhere: a twitch of the tracking.
+  const twitch = [...moving(still, 0.2, 0.95), { t: 0.967, vel: v3(0, 0, -4) }, ...moving(still, 0.03, 1)];
+  assert.deepEqual(strongestSwing(twitch, 1.02), still);
+  // A slow drift isn't one either.
+  assert.deepEqual(strongestSwing(moving(v3(0, 0, -0.6), 0.4, 1), 1.02), still);
+  // A serve's swing has to go further than a rally's.
+  const short = moving(v3(0, 0, -2), 0.1, 1);
+  assert.deepEqual(strongestSwing(short, 1.02), v3(0, 0, -2));
+  assert.deepEqual(strongestSwing(short, 1.02, SERVE_SWING.travel), still);
+  assert.ok(SWING.travel < SERVE_SWING.travel);
+});
+
+test('the swinging blade reaches for the ball it will meet, and a still one does not', () => {
+  // The ball 15 cm to the side of where the blade is heading: the blade is sent there.
+  const coming = ball(v3(0.15, 1, 0.9), v3(0, 0.5, 5));
+  const swing = v3(0, 0, -2);
+  const nudge = interceptNudge(coming, v3(0, 1, 1.4), swing, swing, 1, ASSIST.normal);
   assert.ok(nudge, 'it reaches');
-  assert.ok(nudge.x > 0.15, `across (${nudge.x.toFixed(2)})`);
-  assert.equal(interceptNudge(coming, v3(0, 1, 1.4), v3(0, 0, -2), 1, ASSIST.high.reach * 0), null, 'not with no reach');
+  assert.ok(nudge.x > 0.1, `across (${nudge.x.toFixed(2)})`);
+  assert.equal(interceptNudge(coming, v3(0, 1, 1.4), still, still, 1, ASSIST.normal), null, 'not without a swing');
+  assert.equal(interceptNudge(coming, v3(0, 1, 1.4), swing, swing, 1, ASSIST.off), null, 'not with the assist off');
+  assert.equal(interceptNudge(ball(v3(0.6, 1, 0.9), v3(0, 0.5, 5)), v3(0, 1, 1.4), swing, swing, 1, ASSIST.normal), null, 'not for a ball passing outside the zone');
+});
+
+test('the waiting ball is served by a firm swing that goes past it, down the table', () => {
+  const waiting = v3(0.3, 1.12, 1.27);
+  const swing = v3(-0.8, 0.4, -2.4);
+  // The blade 10 cm from it, having passed it.
+  const vel = serveHit(waiting, v3(0.26, 1.14, 1.2), swing, ASSIST.normal);
+  assert.ok(vel && vel.z <= -2.5, 'served down the table');
+  assert.ok(landsFar(waiting, assistReturn(waiting, vel, 1)), 'and it lands');
+  assert.equal(serveHit(waiting, v3(0.26, 1.14, 1.2), v3(0, 0, -0.9), ASSIST.normal), null, 'a gentle move is no serve');
+  assert.equal(serveHit(waiting, v3(0.26, 1.14, 1.2), still, ASSIST.normal), null, 'nor a paddle resting by it');
+  assert.equal(serveHit(waiting, v3(-0.3, 1.14, 1.2), swing, ASSIST.normal), null, 'nor a swing nowhere near it');
+  // Still on its way to the ball, or stopped short of it (a paddle raised to get ready): no serve.
+  assert.equal(serveHit(waiting, v3(0.3, 1.1, 1.6), swing, ASSIST.normal), null);
+  assert.equal(serveHit(waiting, v3(0.25, 1.24, 1.37), v3(0.2, 0.8, -1.8), ASSIST.normal), null, 'brought up behind it');
+  // Right on it counts, passed or not.
+  assert.ok(serveHit(waiting, v3(0.31, 1.11, 1.3), swing, ASSIST.normal));
+  assert.ok(serveHit(waiting, v3(0.28, 1.13, 1.22), swing, ASSIST.off), 'the serve works with the assist off, close to');
 });

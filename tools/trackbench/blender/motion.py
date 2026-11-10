@@ -364,7 +364,7 @@ class Dance(Segment):
         return q, hip, np.zeros(len(t), bool)
 
 
-def build_segments(pspec, rig, seed):
+def build_segments(pspec, rig, seed, contacts=None):
     spot = np.asarray([pspec['place']['x'], pspec['place']['y']], float)
     facing = _facing_rad(pspec['place'].get('facing_deg', 0))
     segs = []
@@ -387,6 +387,11 @@ def build_segments(pspec, rig, seed):
             seg = Walk(t, t1, a, b, seed + k)
         elif typ == 'dance':
             seg = Dance(t, t1, spot, seg_facing, s, pspec.get('travel', 0.3), rig.scale)
+        elif typ == 'pingpong':
+            import pingpong
+            sole = min((p[2] for b, p, r in contacts if r == 0), default=0.0) if contacts else 0.0
+            seg = pingpong.PingPong(t, t1, spot, seg_facing, s, rig, sole, seed + k,
+                                    hand=pspec.get('hand', 'right'), paddle=bool(pspec.get('paddle')))
         else:
             raise ValueError(f'unknown timeline segment type {typ!r}')
         spot = seg.end_spot(spot)
@@ -406,7 +411,7 @@ def evaluate_person(pspec, rig, contacts, fps, n_frames, seed=0):
     Returns dict: q (F, 24, 4), hip (F, 3), solve (RigModel.solve output), phase (F,) segment
     type names, visible (F,) bool.
     """
-    segs = build_segments(pspec, rig, seed)
+    segs = build_segments(pspec, rig, seed, contacts)
     times = np.arange(n_frames) / fps
     F = n_frames
     q = np.tile(identity_pose(), (F, 1, 1))
@@ -437,6 +442,8 @@ def evaluate_person(pspec, rig, contacts, fps, n_frames, seed=0):
         if not sel.any():
             continue
         qk, hk, gk = seg_eval(k, times[sel], headings.get(k - 1))
+        if hasattr(s, 'labels'):
+            phase[sel] = s.labels(times[sel])
         if isinstance(s, Dance):
             # One height offset per clip (keeps jumps and relevés), from the clip's flat-foot
             # frames (see Dance.floor_offset). AIST++'s SMPL ankle heights track its triangulated
@@ -477,6 +484,8 @@ def evaluate_person(pspec, rig, contacts, fps, n_frames, seed=0):
         hip[sel] = ha * (1 - w)[:, None] + hb * w[:, None]
         grounded[sel] = ga | gb
 
+    fingers = _finger_tracks(segs, seg_of, times, visible)
+
     # Feet on the floor: grounded frames put their lowest contact exactly on it; others (dance)
     # only never go through it.
     sol = rig.solve(q, hip)
@@ -484,7 +493,40 @@ def evaluate_person(pspec, rig, contacts, fps, n_frames, seed=0):
     dz = np.where(grounded, -mz, np.maximum(0, -mz))
     hip[:, 2] += dz
     sol = rig.solve(q, hip)
-    return {'q': q, 'hip': hip, 'solve': sol, 'phase': phase, 'visible': visible, 'segments': segs}
+    return {'q': q, 'hip': hip, 'solve': sol, 'phase': phase, 'visible': visible, 'segments': segs,
+            'fingers': fingers}
+
+
+def _finger_tracks(segs, seg_of, times, visible):
+    """Finger rotations {bone: (F, 4)} for segments that pose the hands (pingpong), blended over
+    0.3 s into and out of the rest hands of the others. None if no segment poses them (every
+    other scene keeps its unkeyed, rest-pose fingers)."""
+    posed = [k for k, s in enumerate(segs) if hasattr(s, 'fingers') and (seg_of == k).any()]
+    if not posed:
+        return None
+    F = len(times)
+    out = {}
+    for k in posed:
+        sel = seg_of == k
+        for b, v in segs[k].fingers(times[sel]).items():
+            out.setdefault(b, np.tile([1.0, 0, 0, 0], (F, 1)))[sel] = v
+    # Blend at boundaries with segments that don't pose the hands.
+    for k in range(1, len(segs)):
+        A, B = segs[k - 1], segs[k]
+        a_p, b_p = hasattr(A, 'fingers'), hasattr(B, 'fingers')
+        if a_p == b_p or not (A.visible and B.visible):
+            continue
+        T, h = B.t0, 0.3
+        sel = (times >= T - h) & (times < T + h)
+        if not sel.any():
+            continue
+        w = _smoothstep((times[sel] - (T - h)) / (2 * h))
+        src = B if b_p else A
+        posed_q = src.fingers(times[sel])
+        for b, v in posed_q.items():
+            wt = w if b_p else 1 - w
+            out[b][sel] = qslerp(np.tile([1.0, 0, 0, 0], (sel.sum(), 1)), v, wt)
+    return out
 
 
 # ---------------------------------------------------------------- Blender side
@@ -538,6 +580,13 @@ def apply_to_rig(rig, person_objects, result):
     for name, qs in sol['basis'].items():
         qs = qs.copy()
         for i in range(1, F):  # keep consecutive quaternions in one hemisphere
+            if np.dot(qs[i], qs[i - 1]) < 0:
+                qs[i] = -qs[i]
+        for i, fc in enumerate(_fcurves(act, rig, f'pose.bones["{name}"].rotation_quaternion', 4)):
+            _set_keys(fc, frames, qs[:, i])
+    for name, qs in (result.get('fingers') or {}).items():
+        qs = qs.copy()
+        for i in range(1, F):
             if np.dot(qs[i], qs[i - 1]) < 0:
                 qs[i] = -qs[i]
         for i, fc in enumerate(_fcurves(act, rig, f'pose.bones["{name}"].rotation_quaternion', 4)):

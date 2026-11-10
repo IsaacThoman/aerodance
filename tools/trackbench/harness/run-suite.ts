@@ -99,12 +99,19 @@ async function main() {
   }
   console.log(`${id}: ${scenes.length} scenes, ${failures} failures, wall ${((performance.now() - started) / 1000).toFixed(2)} s`);
   if (metrics) {
-    const code = await new Promise<number | null>((resolve, reject) => {
-      const child = spawn(process.execPath, [fileURLToPath(new URL('./metrics.ts', import.meta.url)), id], { stdio: 'inherit' });
+    // The dance metrics (scenes with GT), and with a tracking detail the ping-pong ones too (every scene).
+    const run = (script: string, args: string[]) => new Promise<number | null>((resolve, reject) => {
+      const child = spawn(process.execPath, [fileURLToPath(new URL(script, import.meta.url)), ...args], { stdio: 'inherit' });
       child.on('error', reject);
       child.on('exit', resolve);
     });
+    const withGt = readdirSync(path.join(DATA, 'runs', id)).filter(s => existsSync(path.join(runDir(id, s), 'tracked.jsonl')) && existsSync(path.join(sceneDir(s), 'gt.jsonl')));
+    const code = withGt.length ? await run('./metrics.ts', [id, ...withGt]) : 0;
     if (code !== 0) throw Error(`metrics.ts failed (exit ${code})`);
+    if (game.detail) {
+      const pp = await run('./pingpong.ts', [id]);
+      if (pp !== 0) throw Error(`pingpong.ts failed (exit ${pp})`);
+    }
   }
   if (failures) process.exitCode = 1;
 }

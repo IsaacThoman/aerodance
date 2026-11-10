@@ -307,8 +307,9 @@ landmarks otherwise.
 - `world`: MediaPipe's 33 world landmarks, in metres from the hips' centre: x to the unmirrored
   picture's right, y down, z away from the camera. Their depths are the model's weakest output
   (flattened: a forearm pointing at the camera measures short there too); what holds up is the
-  body's size across the picture, in metres, and a joint that's surely behind another. Null
-  without the detail.
+  body's size across the picture, in metres, and which way a bone leans in depth, even when the
+  model squashes how far (an elbow 15 cm behind the shoulder reads a few cm: Table Tennis's
+  `arms.ts upperArmForward`). Null without the detail.
 - `hands`: with one or two players, the Hand Landmarker's hands, found in a square cut round each
   of the pose's wrists (`TrackedHand` in `packages/pose/webcamRecord.ts`); with `'hands:…'`,
   only the ones asked for, each player's by where they stand (Player 1 furthest to the camera's
@@ -383,6 +384,47 @@ useMinigameFrame((frame) => {
   for (const e of swipes.update(p)) { /* … */ }
 });
 ```
+
+## Recording a session
+
+Open `/?record=session`, choose **Experiments → Table Tennis**, pick the players and settings,
+then **Play**. Where supported, Play asks once for a save folder before the round starts
+tracking; later rounds reuse it until you reload. Start the webcam on the calibration card.
+A small **REC m:ss** mark means capture is running. Pause and **Experiments**, reach results,
+or hide the tab to finish; wait for the save confirmation before closing the page. Restart
+finishes the old recording and starts a new one. A hidden tab ends its recording permanently;
+start another round to record again. Only local webcam sources (including the puppet) record;
+a paired phone or a pose replay cannot supply this browser's camera stream.
+
+Stand in even light with the camera steady, far enough back that your head, shoulders, hips
+and both hands stay in view throughout a swing. Leave room on both sides and avoid a bright
+window behind you. Record 2–3 minutes solo and another 2–3 minutes with a second person, standing
+side by side without overlapping. Try both paddle hands (change the setting between rounds),
+forehands, backhands, reaches and quick returns. Include a little standing still and a few
+misses. Keep the selected tracking settings with each recording so we can reproduce them.
+
+Each round saves `aerodance-<game>-<yyyymmdd-hhmmss>.mp4` (H.264 when supported, otherwise
+WebM/VP9 or the browser's supported fallback) and a matching `.jsonl`. Video is the native,
+unmirrored camera stream at a requested 8 Mbps, with no audio or resizing. Nothing is uploaded.
+Folder saving streams both files to disk; without the File System Access API, or if its picker
+is cancelled, files accumulate in memory and two downloads finish the round (allow multiple
+downloads). Prefer a folder-capable desktop browser for long recordings. Safari's codec and
+background-tab behavior vary; check a short recording before collecting a long session. Closing
+or crashing the browser during finalization can leave incomplete files.
+
+Inspect a recording and extract video into trackbench's frame-folder layout (requires ffmpeg):
+
+```sh
+node tools/replay/cli.ts summary /path/to/session.jsonl
+node tools/replay/cli.ts frames /path/to/session.mp4 /path/to/new-scene
+```
+
+The log includes complete poses, hands/world landmarks when requested, camera-frame timestamps,
+phase changes, changed `ctx.report` fields and tracking stats. Games can add small local events
+with `ctx.record?.('paddle-contact', { player: 0 })` (absent without recording); Table Tennis
+adds none yet. See [replay tools](../tools/replay/README.md) for the schema, clock alignment,
+summary definitions and `readSession(path)`. `node apps/web/tests/session-recording.browser.ts`
+tests the puppet flow and measures pose Hz with and without recording; evidence stays in `.cache/`.
 
 ## Testing with the puppet camera
 
@@ -467,12 +509,14 @@ results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
 preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything` for
 Table Tennis), and the game's own `mg*` keys; a round's settings are
-`eval "minigame.options"`. Table Tennis reports `mgRally`, `mgBest`, `mgHits` and, with two,
+`eval "minigame.options"`. Table Tennis reports `mgRally`, `mgBest`, `mgHits`, `mgAssist` and, with two,
 `mgServer`, `mgHits1` and `mgHits2`; in development its O and P keys put a stand-in
 (`table-tennis/autoplay.ts`) in for the first and last player, which plays through the real
 paddle and aim assist (`mgAutoplay` says who), so a two-player rally can run with puppets standing
-still, and `window.tableTennis` has the ball, the players and the camera (a split screen's views in
-`camera.cameras`) for staged shots. The puppet works for the song game too: its calibration and scoring
+still (the stand-ins serve too, by swinging through the waiting ball; puppets standing still serve
+and hit nothing), and `window.tableTennis` has the round (`round`: its ball, players and settings)
+and the camera (a split screen's views in `camera.cameras`) for staged shots. `?assist=off|low|normal|high`
+sets its aim assist (Normal otherwise; the A key steps it). The puppet works for the song game too: its calibration and scoring
 run on it.
 
 ### In unit tests
@@ -482,6 +526,14 @@ real player tracker, the webcam calibration and the pose followers on a fake clo
 `apps/web/tests/minigames.test.ts` runs a whole round of `MinigameSession` that way. A game's
 logic can be tested the same way: make a session with a puppet source, move the puppets, step the
 clock and call `session.advance()`, and assert on `session.scores()` and what the game reported.
+
+Table Tennis goes a step further: its round is plain code (`table-tennis/round.ts`, drawn by
+`Game.tsx`), so pretend people of each skill, seen through a pretend webcam's delay and noise, play
+whole rounds in milliseconds (`apps/web/tests/helpers/tableTennisSim.ts`).
+`apps/web/tests/table-tennis-agency.test.ts` holds the game to what that shows (someone doing
+nothing gets nothing, someone playing well nearly always hits, better players do better), and
+`node tools/table-tennis/agency.ts --assist off,low,normal,high` prints the whole table: run it
+before and after changing the aim assist, the serve or how the paddle follows the hand.
 
 ## Style
 
