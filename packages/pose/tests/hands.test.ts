@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TRACKED_HANDS, assignSlots, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from '../browser/hands.ts';
+import { TRACKED_HANDS, assignSlots, onTheirSides, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from '../browser/hands.ts';
 import { detailHands, handsDetail, isPoseDetail } from '../webcamRecord.ts';
 
 const W = 640, H = 480;
@@ -111,4 +111,19 @@ test('a hand nearer another person\'s wrist than its own person\'s isn\'t theirs
   assert.ok(ownHand(at(310), own, [other]));
   assert.ok(!ownHand(at(350), own, [other]), 'the person beside them\'s');
   assert.ok(ownHand(at(350), own, []), 'alone, any hand found is theirs');
+});
+
+test('a hand surely named the other side moves there only when both sides were looked for', () => {
+  // Its wrist at (x, 0.5), the middle knuckle above it.
+  const hand = (side: 'left' | 'right', named: 'left' | 'right', x: number, score = 0.95) => ({ side, named, score, landmarks: Array.from({ length: 21 }, (_, i) => ({ x, y: i === 9 ? 0.45 : 0.5 })) });
+  // A paddle hand, edge-on, named the other side: it stays where it was found.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 1).map(h => h.side), ['left']);
+  // Both sides looked for: the pose may have swapped the wrists, so the name puts it back...
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 2).map(h => h.side), ['right']);
+  // ...unless it isn't sure.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3, 0.6)], 2).map(h => h.side), ['left']);
+  // Both cuts on the same hand: once, on the side it's named.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3, 0.7), hand('right', 'right', 0.3, 0.9)], 2).map(h => h.side), ['right']);
+  // Both surely on the wrong sides: swapped.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3), hand('right', 'left', 0.6)], 2).map(h => h.side), ['right', 'left']);
 });

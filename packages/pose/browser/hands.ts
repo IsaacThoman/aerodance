@@ -131,3 +131,37 @@ export function ownHand(hand: PicturePoint, own: PicturePoint, others: readonly 
   const d = dist(hand, own);
   return others.every((other) => dist(hand, other) >= d);
 }
+
+/** Sure enough of a hand's side to move it to the other cut's. */
+const SURE = 0.8;
+/** A hand found in the cut round one of a person's wrists: the cut's side, its picture points (wrist 0, middle knuckle 9), and the side the Hand Landmarker names it with how sure it is. */
+export interface CutHand { side: 'left' | 'right'; named: 'left' | 'right'; score: number; landmarks: readonly PicturePoint[]; }
+
+/**
+ * Each hand found in a person's cuts (`asked`: how many of their sides were looked for) on the
+ * side it is. The cuts follow the pose's wrists, and the pose mixes them up when the arms cross,
+ * so with both sides looked for, the Hand Landmarker's own handedness puts a hand surely named the
+ * other side back on it. With one side looked for (a paddle hand) it doesn't: a hand turned
+ * edge-on to the camera, as a paddle is held, is often named the other side (both players of the
+ * first recorded two-player sessions lost their paddle hand to that in 1-3% of their poses), and
+ * the other side's hand was never looked for, so moving it there would only lose this one.
+ */
+export function onTheirSides<H extends CutHand>(found: readonly H[], asked: number): H[] {
+  if (asked < 2) return [...found];
+  const [a, b] = found;
+  if (a && b) {
+    // Both cuts found the same hand (the wrists crossed or met): keep it once, on its own side.
+    const palm = Math.hypot(a.landmarks[0].x - a.landmarks[9].x, a.landmarks[0].y - a.landmarks[9].y);
+    if (Math.hypot(a.landmarks[0].x - b.landmarks[0].x, a.landmarks[0].y - b.landmarks[0].y) < palm * 0.5) {
+      const keep = [a, b].sort((x, y) => y.score - x.score)[0];
+      return [{ ...keep, side: keep.named }];
+    }
+    // Both on the wrong side, surely: the pose swapped the wrists.
+    const wrong = (h: H) => h.named !== h.side && h.score >= SURE;
+    if (wrong(a) && wrong(b)) return [{ ...a, side: b.side }, { ...b, side: a.side }];
+    return [...found];
+  }
+  // One hand, surely the other side's.
+  if (a && a.named !== a.side && a.score >= SURE) return [{ ...a, side: a.named }];
+  return [...found];
+}
