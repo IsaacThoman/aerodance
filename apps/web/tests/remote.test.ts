@@ -111,8 +111,8 @@ function injected(host: object = {}) {
   return { context, sent, events };
 }
 
-test('in the app, the game is told which screen it is on, and says where its AirPlay bubble is', () => {
-  const { context, sent, events } = injected({ tv: false, screen: 'phone' });
+test('in the app, the game is told which screen it is on', () => {
+  const { context, events } = injected({ tv: false, screen: 'phone' });
   // (Objects from the page's own realm, compared by value.)
   const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
   const upright = { held: 0, screens: { game: 0, phone: 0 } };
@@ -124,10 +124,4 @@ test('in the app, the game is told which screen it is on, and says where its Air
   assert.equal(events.length, 1, 'the same state again is not');
   setHost({ tv: false, screen: 'tv', held: 90, screens: { game: 0, phone: 'sideways' } });
   assert.deepEqual(plain(events[1].detail), { interrupted: false, tv: false, screen: 'tv', held: 90, screens: { game: 0, phone: 0 } }, 'turning the phone is');
-
-  const at = context.__aerodanceAirPlayAt as (rect: unknown) => void;
-  at({ x: 600.5, y: 300, w: 44, h: 44, extra: 1 });
-  at(null);
-  at({ x: 1, y: 2, w: 'wide', h: 4 });
-  assert.deepEqual(plain(sent.filter((m) => 'airplay' in m)), [{ airplay: { x: 600.5, y: 300, w: 44, h: 44 } }, { airplay: null }, { airplay: null }]);
 });

@@ -66,13 +66,6 @@
     };
   } catch { /* storage unavailable */ }
 
-  // The game's AirPlay bubble (menu/AirPlayButton.tsx) says where it is, in the page's CSS pixels
-  // ({ x, y, w, h }, or null while it's away), and the app lays an invisible AirPlay picker over it.
-  window.__aerodanceAirPlayAt = rect => {
-    const r = rect && ['x', 'y', 'w', 'h'].every(k => Number.isFinite(rect[k])) ? { x: rect.x, y: rect.y, w: rect.w, h: rect.h } : null;
-    post({ airplay: r });
-  };
-
   // Imported songs are ZIPs the app keeps (main.m, songs/appSongs.ts): the key its /app/ routes
   // need, and its file picker, which answers with where it put each ZIP picked ([{ url, name }],
   // empty when it was cancelled).
