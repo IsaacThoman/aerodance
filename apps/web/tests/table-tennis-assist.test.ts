@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ASSIST, SERVE_SWING, SWING, assistReturn, interceptNudge, landsFar, serveHit, strongestSwing, swingHit } from '../src/minigames/table-tennis/assist.ts';
+import { ASSIST, PACE, SERVE_SWING, SWING, assistReturn, interceptNudge, landsFar, reachesFarEnd, serveHit, strongestSwing, swingHit } from '../src/minigames/table-tennis/assist.ts';
 import { TABLE, stepBall, v3 } from '../src/minigames/table-tennis/ball.ts';
 import type { Ball, BallEvent, V3 } from '../src/minigames/table-tennis/ball.ts';
 
@@ -40,6 +40,50 @@ test('the landing assist lifts a return out of the net, and leaves a good one al
   assert.deepEqual(assistReturn(from, good, ASSIST.high.landing), good, 'a return that lands is left as it was');
   // A ball knocked back towards the player isn't a return to fix.
   assert.deepEqual(assistReturn(from, v3(0, 2, 1), ASSIST.high.landing), v3(0, 2, 1));
+});
+
+test("with two players, the hardest shot still leaves the other time to get to it", () => {
+  const from = v3(0.25, 1.06, 1.45);
+  // Off a real arm's swing: the ball at 6 to 14 m/s, flat, long, or already a good return.
+  for (const hard of [v3(0, 1.5, -6), v3(-1, 0.5, -9), v3(1.5, 3, -11), v3(0.4, -1, -14), v3(0.2, 2.2, -6.5)]) {
+    const unpaced = assistReturn(from, hard, 1);
+    assert.ok(reachesFarEnd(from, unpaced) < 0.6, `unpaced, it's there in ${reachesFarEnd(from, unpaced).toFixed(2)} s`);
+    const paced = assistReturn(from, hard, 1, PACE.rally);
+    assert.ok(landsFar(from, paced), 'it lands');
+    const reach = reachesFarEnd(from, paced);
+    assert.ok(reach >= PACE.rally.least && reach < PACE.rally.gentle + 0.1, `paced, in ${reach.toFixed(2)} s`);
+    assert.ok(Math.sign(paced.x) === Math.sign(hard.x) || Math.abs(hard.x) < 0.5, 'still the way it was hit');
+    // Not lobbed out of sight: its top no higher than the robot's easy shots go.
+    let top = 0;
+    const b = ball({ ...from }, { ...paced });
+    for (let i = 0; i < 120; i++) { stepBall(b, 1 / 120, null, null); top = Math.max(top, b.pos.y - TABLE.top); }
+    assert.ok(top < 1, `its top ${top.toFixed(2)} m over the table`);
+    // And it comes up to the other player's hand, not at the table's edge.
+    const bounce = landing(from, paced).at;
+    assert.ok(bounce.z <= -PACE.near + 0.05 && bounce.z >= -PACE.far - 0.05, `bounces ${(-bounce.z).toFixed(2)} m past the net`);
+  }
+  // A gentle shot takes longer than a hard one, and a serve longer than either.
+  const gentle = reachesFarEnd(from, assistReturn(from, v3(0, 1.5, -2.6), 1, PACE.rally));
+  const hard = reachesFarEnd(from, assistReturn(from, v3(0, 1.5, -9), 1, PACE.rally));
+  assert.ok(gentle > hard + 0.08, `gentle ${gentle.toFixed(2)} s, hard ${hard.toFixed(2)} s`);
+  assert.ok(reachesFarEnd(from, assistReturn(from, v3(0, 1.5, -9), 1, PACE.serve)) >= PACE.serve.least);
+  // With the assist off a shot that misses goes where it was hit, only no faster than a paced one.
+  const raw = v3(0.3, 2.5, -10), off = assistReturn(from, raw, 0, PACE.rally);
+  const speed = (v: V3) => Math.hypot(v.x, v.y, v.z);
+  assert.ok(!landsFar(from, off) && speed(off) < 6 && Math.abs(off.x / off.z - raw.x / raw.z) < 1e-9 && Math.abs(off.y / off.z - raw.y / raw.z) < 1e-9, `the same way, at ${speed(off).toFixed(1)} m/s`);
+  // At any level, though, a shot that lands keeps to the pace: a part bent and a part left as hit don't make a quicker one.
+  for (const share of [0, ASSIST.normal.block, ASSIST.low.landing, 0.8]) {
+    for (const hit of [v3(0, 1.5, -9), v3(0.3, 4, -9), v3(-1, 3, -7), v3(1.5, 3, -11)]) {
+      const shot = assistReturn(from, hit, share, PACE.rally);
+      if (landsFar(from, shot)) assert.ok(reachesFarEnd(from, shot) >= PACE.rally.least, `bent ${share} of the way, there in ${reachesFarEnd(from, shot).toFixed(2)} s`);
+    }
+  }
+  assert.ok(landsFar(from, assistReturn(from, v3(0, 1.5, -9), ASSIST.low.landing, PACE.rally)), "Low's still lands");
+  // Alone (no pace) nothing changes: a return that lands is left as it was.
+  const good = v3(0.2, 2.2, -4);
+  assert.ok(landsFar(v3(0, 0.95, 1.4), good) && reachesFarEnd(v3(0, 0.95, 1.4), good) < PACE.rally.least);
+  assert.deepEqual(assistReturn(v3(0, 0.95, 1.4), good, 1), good);
+  assert.notDeepEqual(assistReturn(v3(0, 0.95, 1.4), good, 1, PACE.rally), good);
 });
 
 test('a forward swing that passes the ball within the zone hits it, and the return lands', () => {

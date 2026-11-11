@@ -5,6 +5,7 @@ import type { V3 } from '../src/minigames/table-tennis/ball.ts';
 import { AUTOPLAY, arrival, autoplayBlade, autoplayRaised, autoplayServe } from '../src/minigames/table-tennis/autoplay.ts';
 import { SERVE, bounced, dead, endOf, heldBall, hit, mine, mineBall, newRally, served } from '../src/minigames/table-tennis/rally.ts';
 import { REST, heldPose, newHandFilters, newRig, takeHand, wristFor } from '../src/minigames/table-tennis/rig.ts';
+import { PACE } from '../src/minigames/table-tennis/assist.ts';
 import { DEAD, Round } from '../src/minigames/table-tennis/round.ts';
 import type { Play } from '../src/minigames/table-tennis/round.ts';
 
@@ -155,7 +156,7 @@ test('a dead ball is soon back with a player who is playing, and a ball left wai
  * to `to` (their own frame) over `rise` seconds from the first second on, seen by a 30 Hz camera
  * 90 ms late: when the ball was served, if it was.
  */
-function reach(to: V3, rise: number): number | null {
+function reach(to: V3, rise: number, served?: (round: Round, t: number) => void): number | null {
   const rigs = [newRig(0, 'right'), newRig(1, 'right')];
   for (const rig of rigs) rig.tracked = true;
   const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: 'normal', botLevel: 'medium', botAlways: true };
@@ -170,7 +171,7 @@ function reach(to: V3, rise: number): number | null {
     }
     while (queue.length && queue[0].at <= t) takeHand(rigs[0], 'right', heldPose('right', queue.shift()!.wrist), t * 1000, filters);
     round.step(FRAME, t * 1000, true);
-    if (round.flying) return t;
+    if (round.flying) { served?.(round, t); return t; }
   }
   return null;
 }
@@ -184,6 +185,21 @@ test('bringing the paddle up to the waiting ball to get ready does not serve it;
   }
   // On through the ball, a paddle's length past it: served.
   for (const rise of [0.2, 0.3]) assert.ok(reach(v3(ball.x - 0.05, ball.y + 0.05, ball.z - 0.25), rise) !== null, `through it in ${rise} s`);
+});
+
+test("however hard it's swung, a serve gives the other player time to get ready for it", () => {
+  const ball = mine(0, heldBall(0, 0, 'right').pos);
+  // Through the ball and well past it, in a tenth of a second or three.
+  for (const rise of [0.1, 0.15, 0.3]) {
+    let flight = 0;
+    const at = reach(v3(ball.x - 0.1, ball.y + 0.1, ball.z - 0.5), rise, (round, t) => {
+      // On to the other end of the table.
+      for (let u = t + FRAME; u < t + 3 && round.ball.pos.z > -TABLE.halfLength; u += FRAME) { round.step(FRAME, u * 1000, true); flight += FRAME; }
+      assert.equal(round.returns, 1, 'it landed on their half');
+    });
+    assert.ok(at !== null, `served in ${rise} s`);
+    assert.ok(flight >= PACE.serve.least - 0.03 && flight < PACE.serve.gentle + 0.15, `a ${rise} s swing's serve is there in ${flight.toFixed(2)} s`);
+  }
 });
 
 test('Space serves at once, mid-rally too', () => {

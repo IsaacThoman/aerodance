@@ -14,9 +14,13 @@
  *    angle isn't to be trusted), so where the swing goes the ball goes, and a return heading off
  *    the table is bent, by the level's share, towards one that lands (assistReturn).
  * The ball waiting to be served (rally.ts) is hit the same way: serveHit.
+ *
+ * Two people playing each other need time to get to each other's shots (PACE): a real arm swings
+ * the blade at 3 to 11 m/s, and the ball off that crosses the table in a third of a second, which
+ * nobody returns through a webcam. So with two the hardest shot still takes about a second.
  */
 
-import { BALL_R, PADDLE_COOLDOWN, TABLE, aimShot, bounceOff, firstBounce, v3 } from './ball.ts';
+import { BALL_R, PADDLE_COOLDOWN, TABLE, aimShot, bounceOff, firstBounce, stepBall, v3 } from './ball.ts';
 import type { Ball, V3 } from './ball.ts';
 
 export type AssistLevel = 'off' | 'low' | 'normal' | 'high';
@@ -52,6 +56,27 @@ export const SWING = { minSpeed: 1, recent: 0.3, travel: 0.12, touch: 0.25, spru
  */
 export const SERVE_SWING = { minSpeed: 1.3, travel: 0.25, past: 0.02 } as const;
 
+/**
+ * With two players, how soon a shot may get to the other end of the table (seconds from the hit):
+ * no sooner than `least`, however hard it was hit, and a gentle one in `gentle` (between them by
+ * the ball's speed off the paddle, `speeds`, m/s). The first people recorded playing swung at the
+ * ball about 0.7 s after a serve they weren't ready for and 1.1 s after one they saw coming, and
+ * returned none that reached them in under 0.8 s. A serve gets a little longer: the other player
+ * is standing waiting, and has no swing of the server's to read. Paced shots land between `near`
+ * and `far` of the net (metres) and no nearer the table's sides than `side`: short enough that
+ * the slower ball needn't be lobbed high (its top is about 0.7 m over the table, as the robot's
+ * easy shots are), and it comes up to the other player's hand rather than at their end's edge.
+ */
+export interface Pace { least: number; gentle: number; }
+export const PACE = {
+  rally: { least: 1, gentle: 1.15 },
+  serve: { least: 1.15, gentle: 1.2 },
+  speeds: [2.5, 8],
+  near: 0.45,
+  far: 0.65,
+  side: 0.3,
+} as const;
+
 const GRAVITY = 9.81;
 /** The contact assist starts this long (in the player's seconds) before the ball reaches the blade, in full by the nearer. */
 const CONTACT_WINDOW = { start: 0.22, full: 0.12 };
@@ -78,31 +103,67 @@ export function landsFar(from: V3, vel: V3): boolean {
   return !!landed && landed.at.z < 0;
 }
 
+/** How long a ball leaving `from` at `vel` takes to get to the far end of the table (Infinity: it doesn't, within 3 s). */
+export function reachesFarEnd(from: V3, vel: V3): number {
+  const b: Ball = { pos: { ...from }, vel: { ...vel }, cooldown: 0 };
+  for (let t = STEP; t < 3; t += STEP) {
+    stepBall(b, STEP, null, null);
+    if (b.pos.z <= -TABLE.halfLength) return t;
+  }
+  return Infinity;
+}
+const STEP = 1 / 120;
+
 /**
  * The ball's velocity off the paddle, bent `share` (0-1) of the way towards a return that lands on
  * the far half: aimed at the far half's nearest point to where it was headed, flying there at the
  * speed it left at (more slowly if that can't clear the net). A shot that already lands, or one
  * not going down the table at all, is left alone.
+ *
+ * With a `pace` (two players: PACE) the shot is also slowed to it: one that lands but gets to the
+ * other end sooner than the pace allows is aimed again, to land where it was going, later; and
+ * the share of it that isn't bent is no faster than the one that is, and smaller if it has to be
+ * for the shot to keep to the pace (so at any level, a shot that lands gives the other the time).
  */
-export function assistReturn(from: V3, vel: V3, share: number): V3 {
-  if (share <= 0 || vel.z > -0.5 || landsFar(from, vel)) return vel;
+export function assistReturn(from: V3, vel: V3, share: number, pace?: Pace): V3 {
+  if (vel.z > -0.5) return vel;
+  const speed = Math.max(2.5, Math.hypot(vel.x, vel.z));
+  const [slow, fast] = PACE.speeds;
+  const wanted = pace ? pace.gentle + (pace.least - pace.gentle) * clamp((speed - slow) / (fast - slow), 0, 1) : 0;
+  // (Its time to the other end only matters for a shot that lands: one that doesn't is aimed again anyway.)
+  if (landsFar(from, vel) && (!pace || reachesFarEnd(from, vel) >= wanted)) return vel;
+  if (share <= 0 && !pace) return vel;
   // Where it was headed: where it comes down to the table's height, without the table, net or air.
   const drop = from.y - (TABLE.top + BALL_R);
   const t = drop > 0 ? (vel.y + Math.sqrt(vel.y * vel.y + 2 * GRAVITY * drop)) / GRAVITY : Math.max(0.2, (2 * vel.y) / GRAVITY);
   const headed = add(from, vel, t);
+  const side = TABLE.halfWidth - (pace ? PACE.side : MARGIN.side);
   const target = v3(
-    clamp(headed.x, -TABLE.halfWidth + MARGIN.side, TABLE.halfWidth - MARGIN.side),
+    clamp(headed.x, -side, side),
     0,
-    clamp(headed.z, -TABLE.halfLength + MARGIN.end, -MARGIN.net),
+    pace ? clamp(headed.z, -PACE.far, -PACE.near) : clamp(headed.z, -TABLE.halfLength + MARGIN.end, -MARGIN.net),
   );
-  const speed = Math.max(2.5, Math.hypot(vel.x, vel.z));
-  let flight = clamp(Math.hypot(target.x - from.x, target.z - from.z) / speed, 0.25, 1.4);
-  for (let i = 0; i < 8; i++, flight *= 1.2) {
-    const aimed = aimShot(from, target, flight);
-    if (!aimed) continue;
-    return add(scale(vel, 1 - share), aimed, share);
+  // (No paced shot's flight to its bounce is under 0.4 s: it would be at the other end in 0.7.)
+  let flight = clamp(Math.hypot(target.x - from.x, target.z - from.z) / speed, pace ? 0.4 : 0.25, 1.4);
+  let aimed: V3 | null = null;
+  for (let i = 0; pace ? flight < 1.8 : i < 8; i++, flight *= pace ? 1.06 : 1.2) {
+    const shot = aimShot(from, target, flight);
+    if (!shot) continue;
+    aimed = shot;
+    if (!pace || reachesFarEnd(from, shot) >= wanted) break;
   }
-  return vel;
+  if (!aimed) return vel;
+  if (!pace) return add(scale(vel, 1 - share), aimed, share);
+  // The part left as it was hit: no faster than the paced shot. And if the two together still land
+  // too soon (the part left is flatter, so quicker down the table), more of it is bent, until they don't.
+  const kept = scale(vel, Math.min(1, len(aimed) / (len(vel) || 1)));
+  const blend = (s: number) => add(scale(kept, 1 - s), aimed, s);
+  if (!landsFar(from, blend(share))) return blend(share);
+  for (let s = share; s < 1; s += 0.1) {
+    const shot = blend(s);
+    if (landsFar(from, shot) && reachesFarEnd(from, shot) >= wanted) return shot;
+  }
+  return aimed;
 }
 
 /** How far the ball is from the blade's middle as a share of the zone: 1 at its edge. */

@@ -419,6 +419,14 @@ node tools/replay/cli.ts summary /path/to/session.jsonl
 node tools/replay/cli.ts frames /path/to/session.mp4 /path/to/new-scene
 ```
 
+A Table Tennis recording plays again through the game's own round, without a screen: every serve
+and return with its swing, the ball's speed and how long it left the other player, or (`--hands`)
+each stretch where a paddle hand went missing and why:
+
+```sh
+node tools/table-tennis/replay.ts /path/to/session.jsonl [--hands]
+```
+
 The log includes complete poses, hands/world landmarks when requested, camera-frame timestamps,
 phase changes, changed `ctx.report` fields and tracking stats. Games can add small local events
 with `ctx.record?.('paddle-contact', { player: 0 })` (absent without recording); Table Tennis
