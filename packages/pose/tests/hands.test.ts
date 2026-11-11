@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TRACKED_HANDS, assignSlots, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from '../browser/hands.ts';
+import { TRACKED_HANDS, assignSlots, onTheirSides, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from '../browser/hands.ts';
 import { detailHands, handsDetail, isPoseDetail } from '../webcamRecord.ts';
 
 const W = 640, H = 480;
@@ -42,9 +42,10 @@ test('until the players are lined up, each person\'s slot is the player they sta
   const both = [at(100), at(500)];
   assert.deepEqual(slotsFor(slots, both, 160, playerRanks(both), false), [1, 0], 'not yet lined up: Player 1\'s slot goes to the person on the right');
   assert.deepEqual(assignSlots(slots, both, 160, playerRanks(both)), [0, 1], '(where they stood last would have kept the first one in it)');
-  // Lined up, people keep their slots as they cross.
-  assert.deepEqual(slotsFor([at(500), at(100)], [at(330), at(310)], 160, playerRanks([at(330), at(310)]), true), [0, 1]);
-  assert.deepEqual(slotsFor([at(500), at(100)], [at(310), at(330)], 160, playerRanks([at(310), at(330)]), false), [1, 0], 'not lined up: by where they stand now');
+  // Lined up, people keep their slots after crossing over (Player 1 now on the camera's left), a
+  // result at a time, each a step from where they were.
+  assert.deepEqual(slotsFor([at(300), at(340)], [at(305), at(335)], 160, playerRanks([at(305), at(335)]), true), [0, 1]);
+  assert.deepEqual(slotsFor([at(300), at(340)], [at(305), at(335)], 160, playerRanks([at(305), at(335)]), false), [1, 0], 'not lined up: by where they stand now');
 });
 
 test('a detail asks for each player\'s hands', () => {
@@ -90,9 +91,43 @@ test('more people than slots: the ones that fit worst go without, so a bystander
   assert.deepEqual(assignSlots([null], [at(500), at(100)], 160), [0, -1], 'nobody seen yet: the first');
 });
 
+test('a copy of one player doesn\'t take the other\'s slot because it\'s free', () => {
+  // Session c of the first two-player recordings: the pose model lost Player 1 (slot 0, at 452) for
+  // a frame and the search found a half-size copy of Player 2 (slot 1, at 222) beside her. Placing
+  // both moved people less in total with her in his slot and the copy in hers, and the slots then
+  // followed the wrong players for the rest of the round.
+  const slots = [at(452, 177), at(222, 219)];
+  assert.deepEqual(assignSlots(slots, [at(223, 219), at(207, 229)], 160), [1, -1]);
+  // The next frame, both are back in their own.
+  assert.deepEqual(assignSlots([at(452, 177), at(223, 219)], [at(445, 179), at(229, 226)], 160), [0, 1]);
+  // Somebody far from every slot's person goes without, even with a slot free.
+  assert.deepEqual(assignSlots([at(100), at(500)], [at(495), at(300)], 160), [1, -1]);
+  // A slot whose person has been gone a while is free (null) again: whoever turns up takes it.
+  assert.deepEqual(assignSlots([null, at(500)], [at(495), at(300)], 160), [1, 0]);
+});
+
 test('a hand nearer another person\'s wrist than its own person\'s isn\'t theirs', () => {
   const own = at(300), other = at(360);
   assert.ok(ownHand(at(310), own, [other]));
   assert.ok(!ownHand(at(350), own, [other]), 'the person beside them\'s');
   assert.ok(ownHand(at(350), own, []), 'alone, any hand found is theirs');
+});
+
+test('a hand surely named the other side moves there only when both sides were looked for', () => {
+  // Its wrist at (x, 0.5), the middle knuckle above it.
+  const hand = (side: 'left' | 'right', named: 'left' | 'right', x: number, score = 0.95) => ({ side, named, score, landmarks: Array.from({ length: 21 }, (_, i) => ({ x, y: i === 9 ? 0.45 : 0.5 })) });
+  // A paddle hand, edge-on, named the other side: it stays where it was found...
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 1).map(h => h.side), ['left']);
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 1, { left: { x: 0.3, y: 0.5 }, right: { x: 0.6, y: 0.5 } }).map(h => h.side), ['left']);
+  // ...unless the other wrist is beside it (within two of its sizes, here 0.05 of the picture's
+  // height): the hands together, it may well be the other one.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 1, { left: { x: 0.3, y: 0.5 }, right: { x: 0.36, y: 0.5 } }).map(h => h.side), ['right']);
+  // Both sides looked for: the pose may have swapped the wrists, so the name puts it back...
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 2).map(h => h.side), ['right']);
+  // ...unless it isn't sure.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3, 0.6)], 2).map(h => h.side), ['left']);
+  // Both cuts on the same hand: once, on the side it's named.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3, 0.7), hand('right', 'right', 0.3, 0.9)], 2).map(h => h.side), ['right']);
+  // Both surely on the wrong sides: swapped.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3), hand('right', 'left', 0.6)], 2).map(h => h.side), ['right', 'left']);
 });

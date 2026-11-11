@@ -36,6 +36,11 @@ export const HANDS_SLOW_MS = 4000;
 export interface PicturePoint { x: number; y: number; }
 interface Seen { x: number; y: number; visibility?: number; }
 
+/**
+ * A slot whose person hasn't been seen for this long (ms) is free again: they may come back
+ * somewhere else, farther than assignSlots lets anybody take a slot from where it was last.
+ */
+export const SLOT_FORGET_MS = 1000;
 /** Sure enough of a joint to place a person by it (as the worker's cuts). */
 const SEEN = 0.3;
 // MediaPipe pose-33: shoulders, hips and wrists.
@@ -74,12 +79,14 @@ export function wristsAt(points: readonly Seen[], width: number, height: number)
 
 /**
  * Which slot each person goes to (a different slot each, -1 for none), given where each slot's
- * person was last seen (null: a slot nobody has had, or whose person was never placed) and where
- * this frame's people are (null: not placed this frame). The matching that moves people least
- * wins; a slot nobody has had costs `fresh` pixels to take (so a person far from everyone seen
- * before takes it rather than another's slot), a pixel more if it isn't the one `prefer` gives
- * them (the player they stand as: playerRanks). With more people than slots, those left out are
- * the ones that fit worst (a bystander doesn't take a player's slot).
+ * person was last seen (null: a slot nobody has had, or whose person was never placed or has been
+ * gone a while) and where this frame's people are (null: not placed this frame). The matching that
+ * moves people least wins; a slot nobody has had costs `fresh` pixels to take (so a person far from
+ * everyone seen before takes it rather than another's slot), a pixel more if it isn't the one
+ * `prefer` gives them (the player they stand as: playerRanks). Anybody can go without one, for
+ * `fresh` and two pixels more: so a bystander, or a copy of a player the pose model makes from what
+ * it can see of them, doesn't take a player's slot only because it's free (and push that player
+ * into the other's), and a person farther than that from every slot's person gets none.
  */
 export function assignSlots(slots: readonly (PicturePoint | null)[], people: readonly (PicturePoint | null)[], fresh: number, prefer?: readonly number[]): number[] {
   const cost = (slot: number, person: number) => {
@@ -89,26 +96,23 @@ export function assignSlots(slots: readonly (PicturePoint | null)[], people: rea
     if (!now) return slot === person ? 0 : fresh;
     return dist(was, now);
   };
-  const placed = Math.min(people.length, slots.length);
+  const without = fresh + 2;
   let best: number[] = [], bestCost = Infinity;
-  // Every way of giving `placed` of the people different slots (at most a handful: two slots, two people).
-  const walk = (person: number, chosen: number[], given: number, total: number) => {
+  // Every way of giving the people different slots or none (at most a handful: two slots, a few people).
+  const walk = (person: number, chosen: number[], total: number) => {
     if (total >= bestCost) return;
-    if (person === people.length) { if (given === placed) { best = chosen.slice(); bestCost = total; } return; }
+    if (person === people.length) { best = chosen.slice(); bestCost = total; return; }
     for (let slot = 0; slot < slots.length; slot++) {
       if (chosen.includes(slot)) continue;
       chosen.push(slot);
-      walk(person + 1, chosen, given + 1, total + cost(slot, person));
+      walk(person + 1, chosen, total + cost(slot, person));
       chosen.pop();
     }
-    // Left out, while there are people enough after them to fill the slots.
-    if (people.length - person - 1 >= placed - given) {
-      chosen.push(-1);
-      walk(person + 1, chosen, given, total);
-      chosen.pop();
-    }
+    chosen.push(-1);
+    walk(person + 1, chosen, total + without);
+    chosen.pop();
   };
-  walk(0, [], 0, 0);
+  walk(0, [], 0);
   return people.map((_, i) => best[i] ?? -1);
 }
 
@@ -126,4 +130,50 @@ export function slotsFor(slots: readonly (PicturePoint | null)[], people: readon
 export function ownHand(hand: PicturePoint, own: PicturePoint, others: readonly PicturePoint[]): boolean {
   const d = dist(hand, own);
   return others.every((other) => dist(hand, other) >= d);
+}
+
+/** Sure enough of a hand's side to move it to the other cut's. */
+const SURE = 0.8;
+/** A hand found in the cut round one of a person's wrists: the cut's side, its picture points (wrist 0, middle knuckle 9), and the side the Hand Landmarker names it with how sure it is. */
+export interface CutHand { side: 'left' | 'right'; named: 'left' | 'right'; score: number; landmarks: readonly PicturePoint[]; }
+
+/** With one side looked for, a hand named the other side is taken for it only with that side's wrist within this many of its sizes. */
+const TOGETHER = 2;
+/**
+ * Each hand found in a person's cuts (`asked`: how many of their sides were looked for) on the
+ * side it is. The cuts follow the pose's wrists, and the pose mixes them up when the arms cross,
+ * so with both sides looked for, the Hand Landmarker's own handedness puts a hand surely named the
+ * other side back on it. With one side looked for (a paddle hand) it does only while the person's
+ * other wrist (`wrists`, those seen, in picture fractions; `aspect` the picture's width over its
+ * height) is beside the hand, within TOGETHER of its sizes: a hand turned edge-on to the camera, as
+ * a paddle is held, is often named the other side. Both players of the first recorded two-player
+ * sessions lost their paddle hand to that in 1-3% of their poses, every one looked at the right
+ * hand; on trackbench's two-player ping-pong scenes such a hand was the other one 79% of the time
+ * with the other wrist beside it, 4% otherwise (1.4% for a hand named its own side).
+ */
+export function onTheirSides<H extends CutHand>(found: readonly H[], asked: number, wrists: Partial<Record<'left' | 'right', PicturePoint>> = {}, aspect = 4 / 3): H[] {
+  if (asked < 2) {
+    const d = (a: PicturePoint, b: PicturePoint) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
+    return found.flatMap(h => {
+      const other = wrists[h.side === 'left' ? 'right' : 'left'], [w, middle, index, little] = [0, 9, 5, 17].map(i => h.landmarks[i]);
+      const beside = other && d(w, other) < TOGETHER * Math.max(d(w, middle), d(index, little));
+      return h.named !== h.side && h.score >= SURE && beside ? [{ ...h, side: h.named }] : [h];
+    });
+  }
+  const [a, b] = found;
+  if (a && b) {
+    // Both cuts found the same hand (the wrists crossed or met): keep it once, on its own side.
+    const palm = Math.hypot(a.landmarks[0].x - a.landmarks[9].x, a.landmarks[0].y - a.landmarks[9].y);
+    if (Math.hypot(a.landmarks[0].x - b.landmarks[0].x, a.landmarks[0].y - b.landmarks[0].y) < palm * 0.5) {
+      const keep = [a, b].sort((x, y) => y.score - x.score)[0];
+      return [{ ...keep, side: keep.named }];
+    }
+    // Both on the wrong side, surely: the pose swapped the wrists.
+    const wrong = (h: H) => h.named !== h.side && h.score >= SURE;
+    if (wrong(a) && wrong(b)) return [{ ...a, side: b.side }, { ...b, side: a.side }];
+    return [...found];
+  }
+  // One hand, surely the other side's.
+  if (a && a.named !== a.side && a.score >= SURE) return [{ ...a, side: a.named }];
+  return [...found];
 }

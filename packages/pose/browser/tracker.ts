@@ -2,6 +2,8 @@ import { finite, validatePoses } from '../choreography.ts';
 import type { FrameSize, Landmark, PlayerCount, Point3 } from '../choreography.ts';
 import { isTrackedHand } from '../webcamRecord.ts';
 import type { LivePose, TrackedHand } from '../webcamRecord.ts';
+import { personAt, SLOT_FORGET_MS } from './hands.ts';
+import type { PicturePoint } from './hands.ts';
 import { detectedConfidence } from './slots.ts';
 import type { DetectedLandmark } from './slots.ts';
 
@@ -55,6 +57,15 @@ const GATE = 0.7, GROWTH = 0.4;
 const RETURN = 1.0, RETURN_GROWTH = 2.0;
 /** A player missing this long can be found anywhere, and gives up their number to a new person. */
 const RESERVE_MS = 1500;
+/**
+ * Until then, somebody less than SHRUNK of a missing player's size (seated, or farther back) isn't
+ * them back at their place. In the first recorded two-player sessions a player the model lost for
+ * 0.75 s, standing in plain view, was found again as a bystander seated behind and beside her, 0.42
+ * her size and 2.3 of the bystander's own body sizes from her place: inside RETURN's reach, since
+ * that is measured in the size of whoever is found. (Bigger is let through: a player may step
+ * nearer the camera.)
+ */
+const SHRUNK = 0.6;
 /** Before they're first numbered, everyone must have been in this many results (not a glitch of the model's). */
 const LINE = 10;
 /** A person seen again within this long (near where they were) is the same person (a bystander, BYSTANDER_GAP_MS). */
@@ -351,8 +362,9 @@ export class PlayerTracker {
       if (track && body.extra >= BYSTANDER && now - track.seen <= LONG_MS) return Infinity;
       if (track && now - track.seen <= FRESH_MS) cost = MOTION * motion(track, body, now);
       else if (body.hits < needed) return Infinity;
-      // ...but somebody back near a missing player's place (and nearer it than anyone else's) is them...
-      else if (track && awayHome <= RETURN + RETURN_GROWTH * (now - track.seen) / 1000 && nearest(p, body)) {
+      // ...but somebody back near a missing player's place (and nearer it than anyone else's), not
+      // much smaller than they were, is them...
+      else if (track && awayHome <= RETURN + RETURN_GROWTH * (now - track.seen) / 1000 && body.scale >= SHRUNK * track.body.scale && nearest(p, body)) {
         cost = BACK;
         if (body.extra >= BYSTANDER) anew[i].add(b);
       }
@@ -422,6 +434,17 @@ export class PlayerTracker {
       }
     }
     return found;
+  }
+
+  /**
+   * Where each player stood when last seen (fractions of the picture: their shoulders' middle, else
+   * their hips', as hands.ts personAt places people), or null for one not seen within
+   * SLOT_FORGET_MS of now (or never). The pose worker gives each player's hand landmarkers to the
+   * person nearest where they stood, so the hands follow who the tracker says each player is.
+   */
+  places(now: number): (PicturePoint | null)[] {
+    return this.players.map(p => p.track && now - p.track.seen <= SLOT_FORGET_MS
+      ? personAt(p.track.body.landmarks.map(l => ({ x: l.x, y: l.y, visibility: l.confidence ?? 1 })), 1, 1) : null);
   }
 
   /** Whether two players' looks are known and differ enough to tell them apart. */
