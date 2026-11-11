@@ -78,6 +78,7 @@ if (process.argv.includes('--hands')) {
 let playing = false, at = 0;
 const step = 1000 / fps;
 const end = records.at(-1)!.t;
+/** A serve or a shot: whose (-1: the robot's), and how it went for whoever it was hit to. */
 interface Shot { t: number; by: number; serve: boolean; speed: number; vel: V3; from: V3; swing: number; bounce: number | null; reach: number | null; answered: boolean; live: boolean;
   /** The other player's go at it: their fastest swing while it came (m/s) and when (s after the shot), and how it passed their paddle. */
   swung: number; swungAt: number | null; pass: string; }
@@ -110,10 +111,12 @@ for (let now = header.t; now <= end; now += step) {
   round.step(step / 1000, now, playing);
   if (playing) { frames += 1; rigs.forEach((rig, i) => { if (!handLive(rig, rig.paddle, now)) lost[i] += 1; }); }
   for (const e of round.events) {
-    if (e.type === 'paddle' && e.by !== undefined) {
+    if (e.type === 'paddle') {
+      // (Alone, the robot's paddle has no player: its serves and shots are the player's to answer, and it answers theirs.)
+      const by = e.by ?? -1;
       if (open) open.answered = true;
-      const other = rigs[e.by === 0 ? 1 : 0];
-      open = { t: now, by: e.by, serve: !wasFlying, speed: len(round.ball.vel), vel: { ...round.ball.vel }, from: { ...round.ball.pos }, swing: swings[e.by], bounce: null, reach: null, answered: false, live: other ? handLive(other, other.paddle, now) : true, swung: 0, swungAt: null, pass: '' };
+      const other = by < 0 ? rigs[0] : rigs[by === 0 ? 1 : 0];
+      open = { t: now, by, serve: !wasFlying, speed: len(round.ball.vel), vel: { ...round.ball.vel }, from: { ...round.ball.pos }, swing: by < 0 ? 0 : swings[by], bounce: null, reach: null, answered: false, live: other ? handLive(other, other.paddle, now) : true, swung: 0, swungAt: null, pass: '' };
       watched = open;
       shots.push(open);
     }
@@ -122,7 +125,7 @@ for (let now = header.t; now <= end; now += step) {
   // When the ball gets to the other player's end of the table.
   if (open && open.reach === null && round.flying && Math.sign(round.ball.pos.z) !== Math.sign(open.from.z) && Math.abs(round.ball.pos.z) >= TABLE.halfLength) open.reach = (now - open.t) / 1000;
   // The other player's swing at it, and how it went by them.
-  if (watched && two) {
+  if (watched && (two || watched.by < 0)) {
     const them = watched.by === 0 ? 1 : 0;
     const vel = round.players[them].speeds.at(-1);
     if (now - watched.t < 1500 && vel && len(vel.vel) > watched.swung) { watched.swung = len(vel.vel); watched.swungAt = (now - watched.t) / 1000; }
@@ -136,12 +139,12 @@ const f = (n: number | null, d = 2) => (n === null ? '   –' : n.toFixed(d).pad
 console.log(`${path}\n${count} player${count > 1 ? 's' : ''} · assist ${play.assist} at the end · ${shots.length} shots replayed`);
 console.log('  time   by  kind    swing m/s  ball m/s  to bounce  to their end  answered  their swing');
 for (const s of shots) {
-  console.log(`${secs(s.t)}  P${s.by + 1}  ${s.serve ? 'serve ' : 'return'}  ${f(s.swing, 1)}      ${f(s.speed, 1)}     ${f(s.bounce)} s    ${f(s.reach)} s      ${s.answered ? 'yes' : 'no '}      ${two ? `${f(s.swung, 1)} m/s at ${f(s.swungAt)} s · ${s.pass || 'no pass'}` : ''}${s.live ? '' : '  (their hand lost)'}`);
+  console.log(`${secs(s.t)}  ${s.by < 0 ? 'bot' : `P${s.by + 1} `} ${s.serve ? 'serve ' : 'return'}  ${f(s.by < 0 ? null : s.swing, 1)}      ${f(s.speed, 1)}     ${f(s.bounce)} s    ${f(s.reach)} s      ${s.answered ? 'yes' : 'no '}      ${two || s.by < 0 ? `${f(s.swung, 1)} m/s at ${f(s.swungAt)} s · ${s.pass || 'no pass'}` : ''}${s.live ? '' : '  (their hand lost)'}`);
 }
 const med = (a: number[]) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; };
-const serves = shots.filter((s) => s.serve), returns = shots.filter((s) => !s.serve);
-for (const [name, set] of [['serves', serves], ['returns', returns]] as const) {
+const theirs = shots.filter((s) => s.by >= 0), robots = shots.filter((s) => s.by < 0);
+for (const [name, set] of [['serves', theirs.filter((s) => s.serve)], ['returns', theirs.filter((s) => !s.serve)], ["the robot's serves", robots.filter((s) => s.serve)], ["the robot's shots", robots.filter((s) => !s.serve)]] as const) {
   if (!set.length) continue;
-  console.log(`${name}: ${set.length} · median swing ${f(med(set.map((s) => s.swing)), 1)} m/s · ball ${f(med(set.map((s) => s.speed)), 1)} m/s · to their end ${f(med(set.flatMap((s) => (s.reach === null ? [] : [s.reach]))))} s · answered ${set.filter((s) => s.answered).length}`);
+  console.log(`${name}: ${set.length} · median swing ${f(med(set.flatMap((s) => (s.by < 0 ? [] : [s.swing]))), 1)} m/s · ball ${f(med(set.map((s) => s.speed)), 1)} m/s · to their end ${f(med(set.flatMap((s) => (s.reach === null ? [] : [s.reach]))))} s · answered ${set.filter((s) => s.answered).length}`);
 }
 if (two && frames) console.log(`paddle hand lost while playing: ${rigs.map((_, i) => `P${i + 1} ${Math.round((100 * lost[i]) / frames)}%`).join(' · ')}`);
