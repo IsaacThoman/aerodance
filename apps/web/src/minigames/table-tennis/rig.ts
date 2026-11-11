@@ -150,7 +150,14 @@ export function readHands(pose: { landmarks: PicturePoint[]; world: WorldPoint[]
 }
 
 const WRISTS: Record<Side, number> = { left: 15, right: 16 };
-/** A found hand's wrist this many of its own lengths (wrist to middle knuckle) from the pose's wrist isn't that wrist's hand. */
+/**
+ * A found hand's wrist this many of its own sizes from the pose's wrist isn't that wrist's hand. Its
+ * size in the picture is its length (wrist to middle knuckle), or its breadth (index to little
+ * finger knuckle) when that's more: a hand pointing at the camera, as a paddle is held out, is
+ * seen end-on, its length a few pixels. (On the first recorded two-player sessions the length alone
+ * left out 1 in 20 of the paddle hands found, though they were 19 px from their own wrist, a fifth of
+ * the shoulders' width; their breadth was what it always is.)
+ */
 export const HAND_AGREES = 1.5;
 /**
  * Whether a hand found at a side's wrist is that wrist's: its wrist no nearer the pose's other
@@ -164,7 +171,8 @@ export function handAgrees(image: readonly PicturePoint[], hand: HandInput, side
   const px = (a: PicturePoint, b: PicturePoint) => Math.hypot((a.x - b.x) * size.width, (a.y - b.y) * size.height);
   const d = px(at, own);
   if (other && (other.visibility ?? 1) >= 0.4 && px(at, other) < d) return false;
-  return d <= HAND_AGREES * Math.max(1, px(at, knuckle));
+  const index = hand.landmarks[5], little = hand.landmarks[17];
+  return d <= HAND_AGREES * Math.max(1, px(at, knuckle), index && little ? px(index, little) : 0);
 }
 
 /** One hand's pose from readHands, taken in at `t` (seconds): what the game follows, filtered. */
