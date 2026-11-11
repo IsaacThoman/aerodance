@@ -57,6 +57,15 @@ const GATE = 0.7, GROWTH = 0.4;
 const RETURN = 1.0, RETURN_GROWTH = 2.0;
 /** A player missing this long can be found anywhere, and gives up their number to a new person. */
 const RESERVE_MS = 1500;
+/**
+ * Until then, somebody less than SHRUNK of a missing player's size (seated, or farther back) isn't
+ * them back at their place. In the first recorded two-player sessions a player the model lost for
+ * 0.75 s, standing in plain view, was found again as a bystander seated behind and beside her, 0.42
+ * her size and 2.3 of the bystander's own body sizes from her place: inside RETURN's reach, since
+ * that is measured in the size of whoever is found. (Bigger is let through: a player may step
+ * nearer the camera.)
+ */
+const SHRUNK = 0.6;
 /** Before they're first numbered, everyone must have been in this many results (not a glitch of the model's). */
 const LINE = 10;
 /** A person seen again within this long (near where they were) is the same person (a bystander, BYSTANDER_GAP_MS). */
@@ -353,8 +362,9 @@ export class PlayerTracker {
       if (track && body.extra >= BYSTANDER && now - track.seen <= LONG_MS) return Infinity;
       if (track && now - track.seen <= FRESH_MS) cost = MOTION * motion(track, body, now);
       else if (body.hits < needed) return Infinity;
-      // ...but somebody back near a missing player's place (and nearer it than anyone else's) is them...
-      else if (track && awayHome <= RETURN + RETURN_GROWTH * (now - track.seen) / 1000 && nearest(p, body)) {
+      // ...but somebody back near a missing player's place (and nearer it than anyone else's), not
+      // much smaller than they were, is them...
+      else if (track && awayHome <= RETURN + RETURN_GROWTH * (now - track.seen) / 1000 && body.scale >= SHRUNK * track.body.scale && nearest(p, body)) {
         cost = BACK;
         if (body.extra >= BYSTANDER) anew[i].add(b);
       }
