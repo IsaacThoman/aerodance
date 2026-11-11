@@ -19,10 +19,8 @@
  *              the phone's own screen are, in the same terms. With held, these turn the camera's
  *              picture upright: cameraTurner().
  *
- * The app also lays an invisible AirPlay picker over the game's AirPlay bubble
- * (menu/AirPlayButton.tsx), where the page says it is: placeAirPlayPicker(). And it keeps the
- * imported songs, as ZIPs in its folder in the Files app: appSongs() (songs/appSongs.ts). The Apple
- * TV app keeps the songs it's sent in its own files: appFiles() (songs/folderSongs.ts).
+ * The app also keeps the imported songs, as ZIPs in its folder in the Files app: appSongs()
+ * (songs/appSongs.ts). The Apple TV app keeps the songs it's sent in its own files: appFiles() (songs/folderSongs.ts).
  *
  * const off = onHostChange((host) => ...); hostState().tv; inApp(); client() === 'tvos'
  */
@@ -108,20 +106,6 @@ export function cameraTurner(host = hostState) {
     capture = frame.capture; seen = screens;
     return cameraTurn(frame, state, latest);
   };
-}
-
-/** Where the app's AirPlay picker goes, in the page's CSS pixels; null takes it away. */
-export interface PickerRect { x: number; y: number; w: number; h: number; }
-type AirPlayHook = (rect: PickerRect | null) => void;
-const airPlayHook = () => (globalThis as { __aerodanceAirPlayAt?: unknown }).__aerodanceAirPlayAt;
-
-/** The app can lay an AirPlay picker over the page (the iPhone/iPad app, not a browser). */
-export const canPickAirPlay = () => typeof airPlayHook() === 'function';
-
-/** Puts the app's invisible AirPlay picker over this rect, or takes it away. */
-export function placeAirPlayPicker(rect: PickerRect | null) {
-  const hook = airPlayHook();
-  if (typeof hook === 'function') (hook as AirPlayHook)(rect);
 }
 
 /**
