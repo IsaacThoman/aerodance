@@ -49,7 +49,8 @@ test('a player who does nothing gets nothing', () => {
 test('swinging at nothing hits now and then, and never keeps a rally going', () => {
   const one = alone('flail'), two = pair('flail');
   assert.ok(hitRate(one) < 0.45, `alone ${hitRate(one).toFixed(2)}`);
-  assert.ok(hitRates(two) < 0.25, `together ${hitRates(two).toFixed(2)}`);
+  // (Together the ball is paced for the other player, so a big swing at nothing finds it a little more often than alone it would.)
+  assert.ok(hitRates(two) < 0.35, `together ${hitRates(two).toFixed(2)}`);
   assert.ok(Math.max(one.best, two.best) <= 7, `rallies of ${one.best} and ${two.best}`);
   assert.ok(mean(one.rallies) < 2 && mean(two.rallies) < 2);
 });
@@ -73,6 +74,17 @@ test('the better the player, the better they do', () => {
   const [a, b, c] = (['novice', 'casual', 'good'] as const).map((skill) => pair(skill));
   assert.ok(hitRates(a) < hitRates(b) - 0.08 && hitRates(b) < hitRates(c) + 0.03, `together ${hitRates(a).toFixed(2)}, ${hitRates(b).toFixed(2)}, ${hitRates(c).toFixed(2)}`);
   assert.ok(mean(a.rallies) < mean(b.rallies) && mean(b.rallies) < mean(c.rallies), `rallies ${mean(a.rallies).toFixed(1)} < ${mean(b.rallies).toFixed(1)} < ${mean(c.rallies).toFixed(1)}`);
+});
+
+test("two people have time to get to each other's serves and shots, at a slow laptop's camera too", () => {
+  // People as recorded: they start for a ball a third of a second after it's hit and swing at
+  // metres a second, which unpaced crossed the table before they'd moved (about one ball in ten
+  // came back). At 20 poses a second, each 120 ms old:
+  const [novice, casual, good] = (['novice', 'casual', 'good'] as const).map((skill) => pair(skill, skill, 'laptop'));
+  assert.ok(hitRates(good) > 0.9, `good ${hitRates(good).toFixed(2)}`);
+  assert.ok(hitRates(casual) > 0.82, `casual ${hitRates(casual).toFixed(2)}`);
+  assert.ok(hitRates(novice) > 0.55, `novice ${hitRates(novice).toFixed(2)}`);
+  assert.ok(mean(casual.rallies) > 4, `casual rallies of ${mean(casual.rallies).toFixed(1)}`);
 });
 
 test('the ball is soon back in play, and one player away does not stall the other', () => {

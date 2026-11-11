@@ -43,21 +43,15 @@ final class AerodanceUITests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
   }
 
-  // The main menu, with its AirPlay bubble in the bottom-right corner of the game and the app's
-  // AirPlay picker over it.
+  // The main menu, with no AirPlay button over the game (Control Center's Screen Mirroring takes
+  // it to a TV).
   func test1LaunchReachesMainMenu() throws {
     launch()
     waitFor(["menuScreen": "main", "menuReady": "true"])
     sleep(1)
     shot("1-main-menu")
     let picker = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'AirPlay'")).firstMatch
-    XCTAssertTrue(picker.waitForExistence(timeout: 10), "no AirPlay picker over the main menu: \(app.buttons.debugDescription)")
-    let window = app.windows.firstMatch.frame, frame = picker.frame
-    NSLog("aerodance: the AirPlay picker is at \(frame) in a \(window.size) window")
-    XCTAssertTrue(frame.midX > window.midX && frame.midY > window.midY && window.contains(frame), "the AirPlay picker is at \(frame), not in the bottom right of \(window)")
-    // The picker is at least 44 points square; the system's button inside it is a little shorter.
-    XCTAssertTrue(frame.width >= 44 && frame.height >= 40, "the AirPlay picker is too small to tap: \(frame)")
-    // (A tap would open the system's AirPlay menu on a device; the simulator shows none.)
+    XCTAssertFalse(picker.exists, "an AirPlay picker over the main menu: \(app.buttons.debugDescription)")
   }
 
   // The iPhone app plays in landscape only, whichever way the phone is held.

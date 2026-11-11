@@ -2,16 +2,13 @@
 // touch screen with a stand-in for the app's message handler: every button sends its key where it
 // is drawn, once even when VoiceOver also clicks its label, held arrows repeat until let go (or
 // the TV goes), Back follows the song, the app is told where its AirPlay picker goes, and the
-// text fits an iPad held sideways. Then the game's own AirPlay bubble: on the main menu in the app, it says
-// where it is, and takes the picker away when the menu moves on or the game goes to the TV.
+// text fits an iPad held sideways.
 //
 // REMOTE_BROWSER=webkit runs it in WebKit (the app's engine) instead of Chromium.
 import assert from 'node:assert/strict';
 import express from 'express';
 import { chromium, webkit } from 'playwright';
 import type { Page } from 'playwright';
-import { menuLayout } from '../src/menu/layout.ts';
-import { DISPLAY_MODES } from '../src/display.ts';
 import { MIN_TOUCH_PX } from '../src/ui/hit.ts';
 
 type Sent = { key?: string; repeat?: boolean; airplay?: { x: number; y: number; w: number; h: number } | null; ready?: boolean };
@@ -155,37 +152,6 @@ try {
   assert.equal((await dataset(outside)).remoteScreen, 'Opens from the aerodance app');
   await outside.close();
 
-  // The game's AirPlay bubble, in the app (on the phone), on an iPhone's main menu.
-  const game = await browser.newPage({ viewport: { width: 852, height: 393 }, hasTouch: true, isMobile: engine === chromium });
-  game.setDefaultTimeout(90000);
-  await game.addInitScript(() => {
-    const w = window as typeof window & { placed: unknown[]; __aerodanceHost?: unknown; __aerodanceAirPlayAt?: unknown };
-    w.placed = [];
-    w.__aerodanceHost = { interrupted: false, tv: false, screen: 'phone' };
-    w.__aerodanceAirPlayAt = (rect: unknown) => w.placed.push(rect);
-  });
-  await game.goto('http://127.0.0.1:4184/?input=ghost');
-  await game.waitForFunction(() => document.querySelector('canvas')?.dataset.menuReady === 'true' && document.querySelector('canvas')?.dataset.menuScreen === 'main');
-  await game.waitForFunction(() => !!(window as typeof window & { placed: unknown[] }).placed.at(-1));
-  const placed = () => game.evaluate(() => (window as typeof window & { placed: ({ x: number; y: number; w: number; h: number } | null)[] }).placed.at(-1));
-  const bubble = await placed();
-  const frame = await game.locator('canvas').boundingBox();
-  assert.ok(bubble && frame, 'the bubble said nothing');
-  assert.ok(bubble.w >= MIN_TOUCH_PX && bubble.x + bubble.w <= frame.x + frame.width + 0.5 && bubble.y + bubble.h <= frame.y + frame.height + 0.5
-    && bubble.x > frame.x + frame.width / 2 && bubble.y > frame.y + frame.height / 2, `the bubble is at ${JSON.stringify(bubble)} in a frame at ${JSON.stringify(frame)}`);
-  await game.screenshot({ path: '/tmp/aerodance-airplay-bubble.png' });
-  // Start: the menu moves on, and the picker goes at once.
-  const design = DISPLAY_MODES[(await dataset(game)).displayMode === 'standard' ? 'standard' : 'widescreen'];
-  const { START } = menuLayout(design.w);
-  await game.touchscreen.tap(frame.x + (START.x + START.w / 2) / design.w * frame.width, frame.y + (START.y + START.h / 2) / design.h * frame.height);
-  await game.waitForFunction(() => document.querySelector('canvas')?.dataset.menuScreen === 'players');
-  assert.equal(await placed(), null, 'the AirPlay picker stayed after Start');
-  // Back on the main menu it comes back; on the TV it goes.
-  await game.keyboard.press('Escape');
-  await game.waitForFunction(() => !!(window as typeof window & { placed: unknown[] }).placed.at(-1));
-  await game.evaluate(() => { (window as typeof window & { __aerodanceHost?: unknown }).__aerodanceHost = { interrupted: false, tv: true, screen: 'tv' }; });
-  await game.waitForFunction(() => (window as typeof window & { placed: unknown[] }).placed.at(-1) === null);
-  await game.close();
   console.log(`remote browser test passed (${engine.name()})`);
 } finally {
   await browser.close();

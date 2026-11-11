@@ -9,7 +9,6 @@ import { MAX_PLAYERS } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import type { AspectSetting, GraphicsSettings, StatsSetting } from './graphicsSettings.ts';
-import AirPlayButton from './AirPlayButton.tsx';
 import useFullscreen from './useFullscreen.ts';
 import type { Fullscreen } from './useFullscreen.ts';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
@@ -39,8 +38,7 @@ import type { TransferPanel, TransferWidget } from './transferPanel.ts';
  * that code, from a transfer QR code's link).
  * Start, Settings and Let's dance are glass buttons (ui/useGlassBlur.ts blurs the world inside
  * them) in the look ?buttons=1..6 picks; Settings' panels are the dark style's glass.
- * The main screen also shows the AirPlay bubble in the corner in the iPhone/iPad app. The title
- * rises while the players screen is up and fades out while settings is.
+ * The title rises while the players screen is up and fades out while settings is.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
@@ -536,6 +534,5 @@ export default function MainMenu({
   useEffect(() => () => songs.dispose(), [songs]);
   useEffect(() => () => transfer.dispose(), [transfer]);
 
-  const onMain = () => !!props.current.visible && m.screen === 'main' && m.next === 'main';
-  return <AirPlayButton visible={onMain} />;
+  return null;
 }

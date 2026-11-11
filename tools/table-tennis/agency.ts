@@ -33,7 +33,7 @@ for (const assist of levels) {
     console.log(`\n== One player against the robot · assist ${assist ?? 'default'} · camera ${trackingName} ==`);
     for (const [name, skill] of Object.entries(SKILLS)) console.log(row(name, simulateMany({ players: [{ skill, tracking }], seconds, assist }, rounds)));
   }
-  for (const trackingName of ['perfect', 'one', 'two'] as const) {
+  for (const trackingName of ['perfect', 'one', 'two', 'laptop'] as const) {
     const tracking = TRACKING[trackingName];
     console.log(`\n== Two players · assist ${assist ?? 'default'} · camera ${trackingName} ==`);
     for (const [name, skill] of Object.entries(SKILLS)) {

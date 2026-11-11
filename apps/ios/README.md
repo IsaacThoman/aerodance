@@ -40,10 +40,10 @@ WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows th
   volume is the phone's volume buttons (the TV's, while AirPlaying). The remote loads from the
   local server the first time the game goes to a TV, and again if it can't. Invisible labels over
   the drawn buttons let VoiceOver (and the UI tests) find them; touches go through to the canvas.
-- **AirPlay buttons.** The game's main menu (on the phone) and the remote draw an AirPlay button
-  in-engine; the app lays an invisible `AVRoutePickerView` over each, where the page says it is
-  (`window.__aerodanceAirPlayAt(rect)` from the game, a message from the remote), so a tap opens
-  the system's AirPlay menu.
+- **AirPlay button.** The remote draws an AirPlay button in-engine; the app lays an invisible
+  `AVRoutePickerView` over it, where the remote page says it is, so a tap opens the system's
+  AirPlay menu. The game's own menus have none on iOS: Control Center's Screen Mirroring takes it
+  to a TV.
 - **Audio** uses the playback category (and `navigator.audioSession.type = 'playback'`), so it
   plays with the ring switch on silent and follows the AirPlay route to the TV.
 - **Camera.** The game's own pose tracking (MediaPipe in the page) can use the phone's camera:
@@ -169,8 +169,7 @@ scores and settings come back from the app's copy.
 
 1. Open aerodance on the phone.
 2. Open Control Center, tap Screen Mirroring and choose the Apple TV. The game moves to the TV
-   and the phone shows the remote. (The app's AirPlay button picks where the sound goes; whether
-   it also starts Screen Mirroring hasn't been checked.)
+   and the phone shows the remote. (The remote's AirPlay button picks where the sound goes.)
 3. To stop, choose Stop Mirroring in Control Center; the game comes back to the phone.
 
 An HDMI adapter works the same way, without step 2.
@@ -196,8 +195,8 @@ iPad turns portrait, landscape and back, and a TV connected (through `tools/sims
 the device is held sideways shows the remote with every control on screen, upright on an iPhone,
 the game is told how the device is held as it turns (for its camera's picture), and the game comes back in landscape when the TV goes. One plays a whole song on the TV with the
 remote's buttons only: the menus, the players dial, Back, Pause and Resume, and the TV going and
-coming back mid-song, which the song plays through. The main menu's AirPlay picker sits over the
-game's AirPlay bubble. And a song ZIP saved to the app's folder lists in Settings → Songs, Import
+coming back mid-song, which the song plays through. The main menu has no AirPlay picker over it.
+And a song ZIP saved to the app's folder lists in Settings → Songs, Import
 song picks one in the system's picker (the same song, so the replace dialog shows), the song
 plays from Song Select and survives a relaunch that clears the page's website data, and
 removing it deletes its ZIP.

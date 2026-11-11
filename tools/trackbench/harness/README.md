@@ -70,10 +70,10 @@ delegate (`--allow-cpu` overrides); `run.json` records both.
   asks what that minigame's `tracking` asks for with the scene's player count and default options
   (Table Tennis: `hands` alone, `hands:right/right` for two). With hands, the run waits for the
   worker's answer (`hands` on or unavailable, kept in `run.json`) before warming up. Each frame
-  message then carries `lined` (the tracker's), the result's world landmarks and hands are
+  message then carries `lined` and `places` (the tracker's, at the frame's capture time, as
+  `WebcamPoseSource` sends them: whose hands are whose follows them), the result's world landmarks and hands are
   recorded and go to `PlayerTracker.update` as `WebcamPoseSource.extras` gives them (hands only
-  while wanted), and `GameLoop` drops two players' hands as `watchHands` does (under 15 poses a
-  second for 4 s), telling the worker. A worker that dies mid-scene leaves its partial outputs and
+  while wanted; they stay on however slow tracking is, as on a webcam). A worker that dies mid-scene leaves its partial outputs and
   `run.json` with `error`.
 - **`--input-size WxH`**: each frame scaled to that size as it's decoded (`createImageBitmap`
   resize, high quality), so a 1280x960 render runs as the game's 640x480 webcam; `run.json`

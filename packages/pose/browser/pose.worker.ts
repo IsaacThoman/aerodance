@@ -3,7 +3,7 @@ import type { Landmark as WorldLandmark, NormalizedLandmark } from '@mediapipe/t
 import type { Point3 } from '../choreography.ts';
 import type { HandSide, TrackedHand } from '../webcamRecord.ts';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { MAX_HAND_PEOPLE, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from './hands.ts';
+import { MAX_HAND_PEOPLE, onTheirSides, ownHand, personAt, playerRanks, SLOT_FORGET_MS, slotsFor, tracksHands, wristsAt } from './hands.ts';
 import type { PicturePoint } from './hands.ts';
 import { fromCrop, fromTile, mergeTiles, outline, StripHiding } from './tiles.ts';
 import type { Crop, Tile } from './tiles.ts';
@@ -30,9 +30,11 @@ export type PoseWorkerRequest =
   /**
    * players: how many players were found in the last result, which steers the strips (tiles.ts);
    * lined: whether the player tracker has numbered them in line-up order yet (by default it has),
-   * until when each person's hands are those of the player they stand as (slotsFor in hands.ts).
+   * until when each person's hands are those of the player they stand as (slotsFor in hands.ts);
+   * places: where the tracker last saw each player, in its numbering (PlayerTracker.places), which
+   * once they're lined up says whose hands are whose (else the worker goes by where it saw them).
    */
-  | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number; players?: number; lined?: boolean }
+  | { type: 'frame'; bitmap: ImageBitmap; seq: number; timestampMs: number; players?: number; lined?: boolean; places?: (PicturePoint | null)[] }
   /**
    * The detail (WebcamPoseSource.setDetail), once the worker is ready: world keeps each person's
    * world landmarks with their result, and hands runs the Hand Landmarker on the wrists of the
@@ -133,8 +135,8 @@ let delegate: PoseDelegate = 'GPU';
 /** The detail: whether world landmarks are kept, and the hand model asked for. */
 let world = false;
 let handModel: HandModelRequest | null = null;
-/** A slot: the landmarkers for one person's hands (a landmarker per side asked for), and where they were last seen. */
-interface HandSlot { landmarkers: Partial<Record<HandSide, HandLandmarker>>; at: PicturePoint | null; }
+/** A slot: the landmarkers for one person's hands (a landmarker per side asked for), and where and when (frame timestamp) they were last seen. */
+interface HandSlot { landmarkers: Partial<Record<HandSide, HandLandmarker>>; at: PicturePoint | null; seen: number; }
 /**
  * The hand landmarkers, once loaded, for the people and hands they were asked for (`sides`, each
  * player's): a slot per player in VIDEO mode, each landmarker following its hand from frame to
@@ -272,8 +274,8 @@ async function download(url: string, hash: string) {
  * The hands, ported from the /?hands demo's tracker: the Hand Landmarker looks in a square cut
  * round each of the pose's wrists (a whole picture's hands are too small for its palm detector),
  * one landmarker per side so each follows its hand from frame to frame. The cuts follow the
- * pose's wrists, and the pose mixes them up when the arms cross; the Hand Landmarker's own
- * handedness puts each hand found back on its side.
+ * pose's wrists, and the pose mixes them up when the arms cross; with both hands looked for, the
+ * Hand Landmarker's own handedness puts each hand found back on its side (onTheirSides).
  */
 // MediaPipe pose-33: shoulder, wrist, index and pinky for each of the player's sides.
 const JOINTS = { left: { shoulder: 11, wrist: 15, index: 19, pinky: 17 }, right: { shoulder: 12, wrist: 16, index: 20, pinky: 18 } } as const;
@@ -285,11 +287,8 @@ const SEEN = 0.3;
  * pose's right wrist nine times in ten, so the names are taken as they are.
  */
 const NAMED: Partial<Record<string, HandSide>> = { Left: 'left', Right: 'right' };
-/** Sure enough of a hand's side to move it to the other cut's. */
-const SURE = 0.8;
 /** The size each cut is looked at. */
 const CUT_PIXELS = 256;
-interface FoundHand { side: HandSide; landmarks: TrackedHand['landmarks']; world: Point3[]; named: HandSide; score: number; }
 
 /** The square cut (in pixels) the side's hand should be in, from the pose, or null when its wrist isn't seen. */
 function cutFor(points: readonly NormalizedLandmark[], side: HandSide, width: number, height: number) {
@@ -331,26 +330,6 @@ function brightened(picture: ImageBitmap): ImageBitmap | ImageData {
   return image;
 }
 
-/** Each hand on the side its handedness says, when the cuts' sides (the pose's) disagree. */
-function sorted(found: FoundHand[]): FoundHand[] {
-  const [a, b] = found;
-  if (a && b) {
-    // Both cuts found the same hand (the wrists crossed or met): keep it once, on its own side.
-    const palm = Math.hypot(a.landmarks[0].x - a.landmarks[9].x, a.landmarks[0].y - a.landmarks[9].y);
-    if (Math.hypot(a.landmarks[0].x - b.landmarks[0].x, a.landmarks[0].y - b.landmarks[0].y) < palm * 0.5) {
-      const keep = [a, b].sort((x, y) => y.score - x.score)[0];
-      return [{ ...keep, side: keep.named }];
-    }
-    // Both on the wrong side, surely: the pose swapped the wrists.
-    const wrong = (h: FoundHand) => h.named !== h.side && h.score >= SURE;
-    if (wrong(a) && wrong(b)) return [{ ...a, side: b.side }, { ...b, side: a.side }];
-    return found;
-  }
-  // One hand, surely the other side's.
-  if (a && a.named !== a.side && a.score >= SURE) return [{ ...a, side: a.named }];
-  return found;
-}
-
 /**
  * The hands at one person's wrists in this frame, by the slot's landmarkers (following them in
  * VIDEO mode, or looking afresh), none nearer another person's wrists (`others`, in pixels) than
@@ -358,7 +337,7 @@ function sorted(found: FoundHand[]): FoundHand[] {
  */
 async function findHands(bitmap: ImageBitmap, points: readonly NormalizedLandmark[], timestampMs: number, landmarkers: HandSlot['landmarkers'], sides: readonly HandSide[], video: boolean, others: readonly PicturePoint[] = []): Promise<TrackedHand[]> {
   const { width, height } = bitmap;
-  const found: FoundHand[] = [];
+  const found: { side: HandSide; landmarks: TrackedHand['landmarks']; world: Point3[]; named: HandSide; score: number }[] = [];
   for (const side of sides) {
     const landmarker = landmarkers[side];
     if (!landmarker) continue;
@@ -389,7 +368,8 @@ async function findHands(bitmap: ImageBitmap, points: readonly NormalizedLandmar
     } finally { picture.close(); }
   }
   // score says how sure it is of the side the hand ends up on.
-  return sorted(found).map(({ side, landmarks, world, named, score }) => ({ side, landmarks, world, score: named === side ? score : 1 - score }));
+  const wrists = Object.fromEntries((['left', 'right'] as const).flatMap(side => { const w = points[JOINTS[side].wrist]; return (w.visibility ?? 1) >= SEEN ? [[side, w]] : []; }));
+  return onTheirSides(found, sides.length, wrists, width / height).map(({ side, landmarks, world, named, score }) => ({ side, landmarks, world, score: named === side ? score : 1 - score }));
 }
 
 /** The hand landmarkers for the people and sides asked for (see Hands), from the hand model (the delegate the pose model got, or the CPU if that fails). */
@@ -421,7 +401,7 @@ async function loadHands(model: HandModelRequest): Promise<Hands> {
       await all('CPU');
     }
     let next = 0;
-    const slots = slotSides.map((own): HandSlot => ({ landmarkers: Object.fromEntries(own.map((side) => [side, made[next++]])), at: null }));
+    const slots = slotSides.map((own): HandSlot => ({ landmarkers: Object.fromEntries(own.map((side) => [side, made[next++]])), at: null, seen: -Infinity }));
     return { sides, video, slots };
   } catch (error) {
     for (const l of made) l.close();
@@ -437,11 +417,11 @@ function closeHands() {
 /**
  * The hands of each person found this frame, in their order, each person's being their player's
  * (playerRanks: Player 1 furthest to the camera's right). Following, each person goes to their
- * player's slot (slotsFor: by where they stand until the players are lined up, then by where they
- * stood last, whatever order the pose model reports them in); shared, each looks with the one
- * slot. (The pose model looks for no more people than the players, so that's everyone.)
+ * player's slot (slotsFor: by where they stand until the players are lined up, then by where the
+ * player tracker last saw each player, whatever order the pose model reports them in); shared,
+ * each looks with the one slot. (The pose model looks for no more people than the players, so that's everyone.)
  */
-async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLandmark[][], timestampMs: number, running: Hands, lined: boolean): Promise<TrackedHand[][]> {
+async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLandmark[][], timestampMs: number, running: Hands, lined: boolean, places?: readonly (PicturePoint | null)[]): Promise<TrackedHand[][]> {
   const { width, height } = bitmap;
   const wrists = people.map((points) => wristsAt(points, width, height));
   const others = (i: number) => wrists.flatMap((w, j) => (j === i ? [] : w));
@@ -455,12 +435,16 @@ async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLand
     }
     return found;
   }
-  const order = slotsFor(running.slots.map((slot) => slot.at), at, width * 0.25, ranks, lined);
+  // Each slot's player where the tracker last saw them, or (from a page that doesn't say) where this
+  // slot's person was last seen here.
+  const known = places ? running.slots.map((_, i) => { const p = places[i]; return p ? { x: p.x * width, y: p.y * height } : null; })
+    : running.slots.map((slot) => (timestampMs - slot.seen <= SLOT_FORGET_MS ? slot.at : null));
+  const order = slotsFor(known, at, width * 0.25, ranks, lined);
   for (const [i, points] of people.entries()) {
     const slot = running.slots[order[i]];
     if (!slot) continue;
     found[i] = await findHands(bitmap, points, timestampMs, slot.landmarkers, running.sides[order[i]], true, others(i));
-    if (at[i]) slot.at = at[i];
+    if (at[i]) { slot.at = at[i]; slot.seen = timestampMs; }
   }
   return found;
 }
@@ -624,7 +608,7 @@ scope.onmessage = async ({ data }) => {
         let found: TrackedHand[][] | undefined;
         const running = hands;
         if (running && handModel) {
-          try { found = await findAllHands(data.bitmap, landmarks, data.timestampMs, running, data.lined ?? true); }
+          try { found = await findAllHands(data.bitmap, landmarks, data.timestampMs, running, data.lined ?? true, data.places); }
           catch (error) {
             found = undefined;
             // (Unless they were turned off while it looked: closed under it.)

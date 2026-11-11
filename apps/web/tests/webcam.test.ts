@@ -156,6 +156,10 @@ test('a fresh setup line-up renumbers two dancers without restarting the camera 
   // Each frame tells the worker whether the players are lined up, so whose hands are whose follows the numbering.
   const lined = f.messages.flatMap(m => (m.type === 'frame' ? [m.lined] : []));
   assert.deepEqual([lined[0], lined[11], lined[12], lined[23]], [false, true, false, true], 'until each line-up, and after it');
+  // ...and where the tracker last saw each player, in its numbering (its places).
+  const places = f.messages.flatMap(m => (m.type === 'frame' ? [m.places] : []));
+  assert.deepEqual(places[0], [null, null], 'nobody seen yet');
+  assert.deepEqual(places.at(-1)!.map(p => p && Math.round(p.x * 10) / 10), [0.4, 0.2]);
 });
 test('the newest frame that comes while one is in flight is sent as soon as its result is in', async t => {
   const f = fixture(t);
@@ -870,9 +874,9 @@ test('with three or four players the hands aren\'t looked for; the world landmar
   assert.equal(f.source.view.hands, 'loading');
 });
 
-test('two people\'s hands drop together when tracking stays too slow with them; one person\'s never drop on a webcam', async t => {
-  // Results at 10 a second (under HANDS_MIN_HZ) with the hand model on, for longer than HANDS_SLOW_MS
-  // (or, every one too old to use, at 1.5 a second).
+test('a webcam keeps the hands on however slowly they track, with one person or two', async t => {
+  // Results at 10 a second with the hand model on for eight seconds (or, every one too old to
+  // use, at 1.5 a second): slow enough for a paired phone to drop them (PhoneLink).
   const slowly = async (players: PlayerCount, { every = 100, age = 30 } = {}) => {
     const f = fixture(t);
     await f.source.setPlayerCount(players);
@@ -885,20 +889,15 @@ test('two people\'s hands drop together when tracking stays too slow with them; 
     }
     return f;
   };
-  const warn = console.warn;
-  console.warn = () => {};
-  try {
-    const two = await slowly(2);
-    assert.equal(two.source.view.hands, 'dropped');
-    assert.deepEqual(two.messages.findLast(m => m.type === 'detail'), { type: 'detail', world: true, hands: null });
-    const one = await slowly(1);
-    assert.equal(one.source.view.hands, 'on');
-    assert.ok(!one.messages.some(m => m.type === 'detail' && !m.hands), 'one person\'s hands are never dropped here');
-    const stale = await slowly(2, { every: 650, age: 600 });
-    assert.equal(stale.source.view.snapshot, null, 'no result is fresh enough to use');
-    assert.equal(stale.source.view.hands, 'dropped', 'but they still drop the hands');
-  } finally { console.warn = warn; }
-  assert.ok(HANDS_MIN_HZ > 10 && HANDS_SLOW_MS < 8000, 'the test runs slower than the limit for longer than it allows');
+  for (const players of [1, 2] as const) {
+    const f = await slowly(players);
+    assert.equal(f.source.view.hands, 'on');
+    assert.ok(!f.messages.some(m => m.type === 'detail' && !m.hands), `${players}: the worker is never told to stop them`);
+  }
+  const stale = await slowly(2, { every: 650, age: 600 });
+  assert.equal(stale.source.view.snapshot, null, 'no result is fresh enough to use');
+  assert.equal(stale.source.view.hands, 'on');
+  assert.ok(HANDS_MIN_HZ > 10 && HANDS_SLOW_MS < 8000, 'the test runs slower than a phone\'s limit for longer than it allows');
 });
 
 test('live records accept well-formed world landmarks and hands, and refuse malformed ones', () => {

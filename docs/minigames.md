@@ -325,9 +325,9 @@ landmarks otherwise.
   An empty list is no hand found; null is no Hand Landmarker running.
 
 `ctx.handTracking()` says how the hands are doing: `'loading'` (the 7.8 MB model downloads the
-first time it's asked for), `'on'`, `'dropped'` (tracking couldn't keep 15 poses a second with
-it for 4 seconds, so it stood down and the world landmarks carry on: a paired phone, or a webcam
-looking for two people's hands, both players' together; one player's never drop on a webcam) or
+first time it's asked for), `'on'`, `'dropped'` (a paired phone couldn't keep 15 poses a second with
+it for 4 seconds, so it stood down and the world landmarks carry on; a webcam never drops them,
+however slowly it tracks) or
 `'unavailable'` (three or four players, a replay, a phone page too old for it, a model that
 wouldn't load); null for a round
 that didn't ask for the hands. Without hands, fall back on the pose's own wrist, index and pinky. Measure
@@ -417,6 +417,14 @@ Inspect a recording and extract video into trackbench's frame-folder layout (req
 ```sh
 node tools/replay/cli.ts summary /path/to/session.jsonl
 node tools/replay/cli.ts frames /path/to/session.mp4 /path/to/new-scene
+```
+
+A Table Tennis recording plays again through the game's own round, without a screen: every serve
+and return with its swing, the ball's speed and how long it left the other player, or (`--hands`)
+each stretch where a paddle hand went missing and why:
+
+```sh
+node tools/table-tennis/replay.ts /path/to/session.jsonl [--hands]
 ```
 
 The log includes complete poses, hands/world landmarks when requested, camera-frame timestamps,

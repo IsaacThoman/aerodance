@@ -218,8 +218,8 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
         g.fillStyle = '#808080'; g.fillRect(0, 0, c.width, c.height);
         return createImageBitmap(c);
       };
-      const send = (bitmap: ImageBitmap, seq: number, timestampMs: number, players: number, lined?: boolean) => new Promise<Record<string, unknown>>(resolve => {
-        waiting.set(seq, resolve as (r: unknown) => void); w.postMessage({ type: 'frame', bitmap, seq, timestampMs, players, ...(lined === undefined ? {} : { lined }) }, [bitmap]);
+      const send = (bitmap: ImageBitmap, seq: number, timestampMs: number, players: number, lined?: boolean, places?: unknown) => new Promise<Record<string, unknown>>(resolve => {
+        waiting.set(seq, resolve as (r: unknown) => void); w.postMessage({ type: 'frame', bitmap, seq, timestampMs, players, ...(lined === undefined ? {} : { lined }), ...(places === undefined ? {} : { places }) }, [bitmap]);
       });
       // --input-size: each frame scaled as a webcam asked for that size would give it.
       const decode = async (url: string) => {
@@ -248,7 +248,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
           for (let i = 0; i < 4; i++) await send(await grey(width, height), -2 - i, 100 * (i + 1), 0);
           return performance.now() - start;
         },
-        async frame(url: string, seq: number, timestampMs: number, players: number, lined: boolean | undefined, nextUrl?: string) {
+        async frame(url: string, seq: number, timestampMs: number, players: number, lined: boolean | undefined, places: unknown, nextUrl?: string) {
           const pending = prefetched;
           prefetched = null;
           const decoded = pending?.url === url ? await pending.result : { bitmap: await decode(url) };
@@ -256,7 +256,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
           const bitmap = decoded.bitmap!;
           const { width, height } = bitmap;
           const start = performance.now();
-          const resultPromise = send(bitmap, seq, timestampMs, players, lined);
+          const resultPromise = send(bitmap, seq, timestampMs, players, lined, places);
           if (nextUrl) prefetched = { url: nextUrl, result: decode(nextUrl).then(bitmap => ({ bitmap }), error => ({ error })) };
           const result = await resultPromise;
           if (result.error) throw Error(String(result.error));
@@ -275,7 +275,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
     const handModelUrl = `${server.origin}/app/${ASSET_PATH}/${HAND_MODEL.file}`;
     type Tb = { tb: { detail: (m: unknown) => Promise<string>; handsEvents: () => { state: string; message?: string; at: number }[] } };
     const sendDetail = () => page!.evaluate(m => (globalThis as unknown as Tb).tb.detail(m), detailRequest(detail, players, loop.handsWanted, handModelUrl));
-    let handsState = detail ? await sendDetail() : 'off';
+    const handsState = detail ? await sendDetail() : 'off';
     if (detail) log(`${estimator}/${sceneId}: detail ${detail}; hands ${handsState}`);
     // (The first results compile the GPU programs, hundreds of ms the game spends before anybody
     // steps in; VIDEO timestamps are the frames' t_ms after the warm-up's.)
@@ -292,18 +292,18 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
       const { k, sentAt, skipped } = realtime ? nextFrame(frames, next, freeAt) : { k: next, sentAt: frames[next].t, skipped: 0 };
       cameraDropped += skipped;
       const f = frames[k];
-      // (lined only with a detail: the game always sends it, but a worker without hands ignores it, and old runs had none.)
-      const r = await page.evaluate(({ url, seq, t, players, lined, nextUrl }) => (globalThis as unknown as { tb: { frame: (...a: unknown[]) => Promise<unknown> } }).tb.frame(url, seq, t, players, lined, nextUrl),
-        { url: `${framePrefix}/${f.name}`, seq: ++seq, t: f.t + TIMESTAMP_OFFSET_MS, players: loop.players, lined: detail ? loop.tracker.lined : undefined, nextUrl: !realtime && k + 1 < frames.length ? `${framePrefix}/${frames[k + 1].name}` : undefined }) as WorkerResult;
+      // (lined and places only with a detail: the game always sends them, but a worker without hands
+      // ignores them, and old runs had none. Places are the tracker's at the frame's capture time,
+      // as WebcamPoseSource sends them.)
+      const r = await page.evaluate(({ url, seq, t, players, lined, places, nextUrl }) => (globalThis as unknown as { tb: { frame: (...a: unknown[]) => Promise<unknown> } }).tb.frame(url, seq, t, players, lined, places, nextUrl),
+        { url: `${framePrefix}/${f.name}`, seq: ++seq, t: f.t + TIMESTAMP_OFFSET_MS, players: loop.players, lined: detail ? loop.tracker.lined : undefined, places: detail ? loop.tracker.places(f.t) : undefined,
+          nextUrl: !realtime && k + 1 < frames.length ? `${framePrefix}/${frames[k + 1].name}` : undefined }) as WorkerResult;
       if (r.width !== input.width || r.height !== input.height) throw Error(`Frame ${f.name} is ${r.width}x${r.height}, expected ${input.width}x${input.height}`);
       // --busy-ms: a fixed time per result (a slower device), instead of the measured one scaled.
       const busy = opts['busy-ms'] ? Number(opts['busy-ms']) : r.roundtripMs * busyScale;
       const received = realtime ? sentAt + busy : f.t;
       freeAt = received;
-      const wasDropped = loop.handsDropped;
       const record = loop.result(f.n, r.landmarks, r.looks, f.t, received, { world: r.world, hands: r.hands });
-      // Too slow for two people's hands: the game tells the worker to stop them (watchHands).
-      if (loop.handsDropped && !wasDropped) { handsState = 'dropped'; await sendDetail(); log(`${estimator}/${sceneId}: hands dropped at ${received.toFixed(0)} ms (too slow)`); }
       detections.push({
         frame: f.n, t_ms: f.t, inference_ms: Number(r.inferenceMs.toFixed(3)), roundtrip_ms: Number(r.roundtripMs.toFixed(3)), ...(r.searched ? { searched: true } : {}),
         ...(realtime ? { sent_ms: sentAt, received_ms: received, ...(record.dropped ? { dropped: true } : {}) } : {}),
@@ -329,8 +329,9 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
       renderer, delegate: ready.delegate, fallback: ready.fallback, tiled: !!ready.tiled,
       dist: { snapshot: snapshot.dir, worker: snapshot.worker, commit: snapshot.commit },
       settings: { players, init: { ...init, tiles: tiles ?? null }, runningMode, timestamps: `frame t_ms + ${TIMESTAMP_OFFSET_MS}`, warmup_ms: Number(warmupMs.toFixed(1)), realtime, busyScale, session: !opts['no-session'],
-        detail, detail_asked: opts.detail ?? null, input, frame_size: { width: scene.width, height: scene.height }, hands_wanted: detail ? loop.handsWanted || loop.handsDropped : false },
-      hands: { state: handsState, events: handsEvents, dropped_at_ms: loop.handsDroppedAt },
+        detail, detail_asked: opts.detail ?? null, input, frame_size: { width: scene.width, height: scene.height }, hands_wanted: detail ? loop.handsWanted : false },
+      // (dropped_at_ms: a webcam no longer drops slow hands, so always null; runs from before may have a time.)
+      hands: { state: handsState, events: handsEvents, dropped_at_ms: null },
       ...(failure ? { error: failure, completed: false } : { completed: true }),
       machine: { host: os.hostname(), cpu: os.cpus()[0]?.model, platform: `${os.platform()} ${os.release()}` },
       frames: frames.length, results: detections.length, camera_frames_dropped: cameraDropped, results_dropped: tracked.filter(t => t.dropped).length,

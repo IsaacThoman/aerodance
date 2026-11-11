@@ -34,9 +34,9 @@ node $H/pp-noise.ts ppt-mychange --exclude pp-held
 `--detail` takes `none | world | hands | hands:<left|right|both>/... | minigame:<id>`. The
 harness sends the worker the game's own `detail` message (`WebcamPoseSource.detailRequest`),
 waits for the hand model's answer, sends `lined` with every frame, records `world` and `hands`
-per detection, passes them through `GameLoop` into `PlayerTracker.update` as
-`WebcamPoseSource.extras` does, and drops two players' hands as `watchHands` does when tracking
-is too slow. `--input-size` scales frames as they're decoded. The worker's `initialize` settings
+per detection, and passes them through `GameLoop` into `PlayerTracker.update` as
+`WebcamPoseSource.extras` does (hands stay on however slow tracking is, as on a webcam).
+`--input-size` scales frames as they're decoded. The worker's `initialize` settings
 come from `WebcamPoseSource.workerSettings`, which `connect` uses too (a test fails if either side
 stops sharing them).
 
@@ -816,3 +816,72 @@ variation.
 5. **The minmod predictor** for drawing only (the hit test on the unpredicted blade), if the
    owner wants the paddle to look 13 ms quicker. It needs a decision on hits judged against a
    paddle that isn't where it's drawn.
+
+## The first real two-player sessions (2026-11-11, branch fix-two-player-tracking-dropouts)
+
+Two people side by side in a busy cafeteria (seated and walking bystanders behind them), a laptop's
+640x480 FaceTime camera, Chrome, `hands:right/left`, Lite, about 20 poses a second. The recordings
+are private and stay out of the repository; their frames are under `$TRACKBENCH_DATA/real/`
+(`tt-b`, `tt-c`: every frame, 23.2 fps; `tt-b-live`, `tt-c-live`: exactly the frames the live game
+tracked, at their camera timestamps, which gt.jsonl carries without people) and are reached as
+`clips/real-tt-*`. Runs use `--detail hands:right/left --no-session`: a real clip has no phases, so
+the setup's line-up retry would otherwise reset the tracker every 4 s all through it (the game
+had calibrated before play). There is no GT, so the measures are label-free, over video seconds
+12 to the end less 3 (someone leans in to press Play before that): each player's share of
+results present, paddle hand found, and used (found and agreeing with the pose's wrist, rig.ts
+`handAgrees`), and stretches of 150 ms or more without a paddle hand. Offline, the harness
+reproduces the live session's hand losses almost to the frame (session c's 1.0 s at 13.6 s
+included); it does not reproduce the live session's two losses of a whole player (b, 48.7-49.3 and
+51.8-52.3 s), even on exactly the live frames and timestamps: those are the pose model on the
+laptop's GPU not reporting her.
+
+What was found and changed, base (0d3d258d) → branch:
+
+| clip | player | present | hand found | hand used | paddle lost ≥ 150 ms: times, s |
+|---|---|---|---|---|---|
+| b | P1 (right) | 0.997 → 0.997 | 0.887 → 0.917 | 0.867 → 0.907 | 8, 1.77 → 7, 1.51 |
+| b | P2 (left) | 0.983 → 0.983 | 0.872 → 0.880 | 0.816 → 0.859 | 14, 6.34 → 10, 4.75 |
+| c | P1 (right) | 0.994 → 0.994 | 0.903 → 0.921 | 0.825 → 0.911 | 15, 5.48 → 8, 2.29 |
+| c | P2 (left) | 0.991 → 0.991 | 0.902 → 0.925 | 0.854 → 0.906 | 10, 3.19 → 5, 1.64 |
+| b-live | P1 (right) | 0.998 → 0.998 | 0.880 → 0.912 | 0.863 → 0.906 | 11, 2.50 → 8, 1.84 |
+| b-live | P2 (left) | 0.992 → 0.992 | 0.865 → 0.871 | 0.816 → 0.861 | 11, 6.24 → 7, 4.12 |
+| c-live | P1 (right) | 0.994 → 0.994 | 0.057 → 0.917 | 0.019 → 0.909 | 4, 42.82 → 7, 2.12 |
+| c-live | P2 (left) | 0.994 → 0.994 | 0.029 → 0.933 | 0.026 → 0.920 | 4, 42.52 → 6, 1.68 |
+
+- **Hand slots swapped for good** (c-live): the pose model lost P1 for one result and the search
+  found a half-size copy of P2 beside her; the worker had to give both people slots, and the
+  cheapest assignment put her in his. The slots then followed the wrong players for the rest of the
+  round. Now anybody may go without a slot (assignSlots), and once lined up the slots follow where
+  the page's player tracker last saw each player (`places` on each frame, PlayerTracker.places).
+- **Hand named the other side** (1-3% of each player's poses): with one hand looked for per player,
+  an edge-on paddle hand the Hand Landmarker names the other side was moved there and lost. It now
+  stays unless the other wrist is within two hand sizes (hands.ts onTheirSides): on the two-player
+  ping-pong scenes such hands were the other one 79% of the time with the wrists together, 4%
+  apart. Every one of 11 such hands looked at in the real sessions was the right hand.
+- **handAgrees on an end-on hand**: a paddle held out at the camera foreshortens wrist-to-middle
+  knuckle to a few pixels, so the 1.5-lengths gate left out hands 7-19 px from their own wrist
+  (session c's 1.0 s). The hand's size is now the larger of that and its knuckles' breadth, and the
+  gate 2 (the pose puts the wrist on the palm of a hand or fist held to the camera). On the GT
+  scenes 1.5, 2 and 2.5 measure the same (wrist, blade, wrong side and false raises within ±0.07 cm).
+- **A smaller bystander taking a lost player's number** (live b, 49.45 s: a person seated behind,
+  0.42 her size): PlayerTracker no longer finds a missing player back at their place as somebody
+  under 0.6 of their size.
+
+What is left: of the paddle hands not found with a sure wrist, 54% are moving at 600 px/s or more
+(found 59% at 600-1200 px/s, 29% above, against 98.6% under 150 px/s: motion blur, the camera's
+exposure in indoor light), 24% at 300-600 px/s, 21% are slow (flat or edge-on hands, fists, hands
+overlapping), 3% at the picture's edge. In every one sampled the cut was in place. The pose model
+misses one of the two players in 3-9% of results; the search recovers them in 80-97%, otherwise
+finding a copy of the other player or a seated bystander (and, shown the picture with a player who
+fills it greyed out, following that bystander for up to 20 results).
+
+Regression, base vs branch, `minigame:table-tennis` at 640x480 (`tdr-base-pp` vs `tdr-new2-pp`,
+`pp-report.ts`): one player (22) wrist −0.02 cm [−0.04, 0.00], blade p90 −0.07 [−0.14, −0.02], all
+else the same; two players (8) hand found +0.054 [0.047, 0.062], false swings −2.1/min [−4.2, −0.4],
+wrong side +0.0002 [−0.0008, 0.0014], blade p90 −0.07 [−0.17, 0.01], across p90 filtered +6.8°
+[1.7, 12.5] worse (the extra hands are named the other side, fitted as a mirror hand); held-out
+(4) no change beyond noise (hand found +0.027 [0, 0.053]). The dance suite's 19 two-player scenes
+as songs play: identical (compare-runs). A tried and dropped rig change, axes from the pose for a
+hand named the other side: across p90 −11 to −13°, but blade p90 +0.2-0.4 cm and +1.7 false
+swings/min with two players.
+
