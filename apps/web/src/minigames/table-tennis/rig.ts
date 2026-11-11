@@ -156,9 +156,12 @@ const WRISTS: Record<Side, number> = { left: 15, right: 16 };
  * finger knuckle) when that's more: a hand pointing at the camera, as a paddle is held out, is
  * seen end-on, its length a few pixels. (On the first recorded two-player sessions the length alone
  * left out 1 in 20 of the paddle hands found, though they were 19 px from their own wrist, a fifth of
- * the shoulders' width; their breadth was what it always is.)
+ * the shoulders' width; their breadth was what it always is.) Two, not 1.5: with an open hand or a
+ * fist held toward the camera the pose puts its wrist on the palm, up to two of the hand's sizes
+ * from the hand's own wrist, and every such hand looked at in those sessions was the right one.
+ * (Trackbench's ping-pong scenes, with GT, measure the same at 1.5, 2 or 2.5.)
  */
-export const HAND_AGREES = 1.5;
+export const HAND_AGREES = 2;
 /**
  * Whether a hand found at a side's wrist is that wrist's: its wrist no nearer the pose's other
  * wrist than this one, nor further from it than HAND_AGREES. (The other hand, or one found in
