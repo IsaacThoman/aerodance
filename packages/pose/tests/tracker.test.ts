@@ -120,6 +120,26 @@ test('a player missed for a moment beside a missing player\'s place isn\'t taken
   assert.deepEqual([...back.at(-1)!].sort(), [[0, 0.62], [1, 0.38]]);
 });
 
+test('a player the model loses for a moment isn\'t found again as a smaller bystander beside their place', () => {
+  // Session b of the first two-player recordings: Player 2 (torso centred at 0.29 of the picture's
+  // width, a third of its height tall) lost by the model for 0.75 s, while a bystander seated
+  // behind and beside her (at 0.05, 0.42 her size) was found; the bystander took her number.
+  const her = (x = 0.29, size = 1.35) => person(x, { size, arms: 0.1, cy: 0.55 }), him = () => person(0.7, { size: 1.35, cy: 0.55 });
+  const seated = () => person(0.05, { size: 0.57, arms: 0.2, cy: 0.62 });
+  const tracker = new PlayerTracker(2);
+  run(tracker, repeat(30, () => ({ people: [him(), her()] })));
+  const lost = run(tracker, repeat(23, i => ({ people: [him(), ...(i >= 20 ? [seated()] : [])] })), 1000);
+  assert.ok(lost.every(m => !m.has(1)), 'nobody is Player 2 while she is missing');
+  // She is found again where she stood, and the bystander stays nobody.
+  const back = run(tracker, repeat(10, () => ({ people: [him(), her(), seated()] })), 1760);
+  assert.deepEqual([...back.at(-1)!].sort(), [[0, 0.7], [1, 0.29]]);
+  // Somebody their size back at their place is still them at once.
+  const tracker2 = new PlayerTracker(2);
+  run(tracker2, repeat(30, () => ({ people: [him(), her()] })));
+  run(tracker2, repeat(10, () => ({ people: [him()] })), 1000);
+  assert.deepEqual([...run(tracker2, repeat(3, () => ({ people: [him(), her(0.27, 1.2)] })), 1330).at(-1)!].sort(), [[0, 0.7], [1, 0.27]]);
+});
+
 test('a player whose number went to a bystander gets it back at their place, though the model keeps missing them', () => {
   const tracker = new PlayerTracker(2);
   const by = () => person(0.05, { size: 0.6, arms: 0.2 });
@@ -555,4 +575,17 @@ test('a player\'s home doesn\'t move while they\'re tangled with somebody, only 
   assert.equal(tracker.players[0].home, home, 'not at once');
   run(tracker, repeat(25, () => ({ people: [person(0.64), person(0.3, { arms: 0.1 })] })), 3729);
   assert.ok(Math.abs(tracker.players[0].home - 0.64 * 4 / 3) < 1e-6, 'after half a second clear');
+});
+
+test('each player\'s place, for the pose worker\'s hands, is where they were last seen, until they\'ve been gone a second', () => {
+  const tracker = new PlayerTracker(2);
+  assert.deepEqual(tracker.places(0), [null, null], 'nobody yet');
+  run(tracker, repeat(12, () => ({ people: [person(0.3), person(0.7, { arms: 0.1 })] })));
+  const round = (places: ReturnType<PlayerTracker['places']>) => places.map(p => p && [+p.x.toFixed(2), +p.y.toFixed(2)]);
+  // Player 1 on the camera's right; the shoulders' middle.
+  assert.deepEqual(round(tracker.places(363)), [[0.7, 0.32], [0.3, 0.32]]);
+  // Player 2 goes out of view: their place stands for a second after they were last seen, then goes.
+  run(tracker, repeat(30, () => ({ people: [person(0.7, { arms: 0.1 })] })), 396);
+  assert.deepEqual(round(tracker.places(363 + 1000)), [[0.7, 0.32], [0.3, 0.32]]);
+  assert.deepEqual(round(tracker.places(363 + 1001)), [[0.7, 0.32], null]);
 });

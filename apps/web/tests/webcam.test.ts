@@ -156,6 +156,10 @@ test('a fresh setup line-up renumbers two dancers without restarting the camera 
   // Each frame tells the worker whether the players are lined up, so whose hands are whose follows the numbering.
   const lined = f.messages.flatMap(m => (m.type === 'frame' ? [m.lined] : []));
   assert.deepEqual([lined[0], lined[11], lined[12], lined[23]], [false, true, false, true], 'until each line-up, and after it');
+  // ...and where the tracker last saw each player, in its numbering (its places).
+  const places = f.messages.flatMap(m => (m.type === 'frame' ? [m.places] : []));
+  assert.deepEqual(places[0], [null, null], 'nobody seen yet');
+  assert.deepEqual(places.at(-1)!.map(p => p && Math.round(p.x * 10) / 10), [0.4, 0.2]);
 });
 test('the newest frame that comes while one is in flight is sent as soon as its result is in', async t => {
   const f = fixture(t);

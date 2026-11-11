@@ -398,7 +398,6 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 @property (nonatomic, copy) NSString *tvDescription;  // e.g. "1920×1080 @ 60 Hz", while a TV is connected
 @property (nonatomic, copy) NSDictionary *page;        // the canvas's data-* state, from inject.js
 @property (nonatomic) BOOL shownOnTV;                  // where the page was last told the game is (hostState's screen)
-@property (nonatomic) CGRect airplayRect;              // the game's AirPlay bubble in the web view's points; null while it's away
 // What the page is told about the app (inject.js __aerodanceHost).
 @property (nonatomic) BOOL tv;            // the game is on an external display (AirPlay mirroring, HDMI); kept in step with onTV
 @property (nonatomic) BOOL interrupted;   // between an audio interruption's start and end (a call, Siri, an alarm)
@@ -605,12 +604,6 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation { self.loadServer = self.server; }
 
-// A new page has replaced the old one, and says where its AirPlay bubble is once it shows it.
-- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
-  self.airplayRect = CGRectNull;
-  [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
-}
-
 // WebKit can finish a page from its cache while the server is down, without the scripts it needs
 // (a black screen), so a page that finished while the server was down or being replaced loads again.
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
@@ -753,7 +746,6 @@ static nw_listener_t StartServer(NSString *root, void (^changed)(nw_listener_t, 
 
 - (instancetype)init {
   if (!(self = [super init])) return nil;
-  _airplayRect = CGRectNull;
   _motion = [CMMotionManager new];
   _motion.accelerometerUpdateInterval = 0.2;
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
@@ -828,14 +820,12 @@ static CGRect PageRect(id value) {
   NSDictionary *body = message.body;
   if (![body isKindOfClass:NSDictionary.class]) return;
   if ([body[@"page"] isKindOfClass:NSDictionary.class]) { self.page = body[@"page"]; [self reloadIfWanted]; }
-  // The game's AirPlay bubble moved, came or went (menu/AirPlayButton.tsx).
-  if (body[@"airplay"]) self.airplayRect = PageRect(body[@"airplay"]);
   if ([body[@"storage"] isKindOfClass:NSDictionary.class] && SaveStorage(body[@"storage"])) [self installScripts];
   if ([body[@"pickSong"] isEqual:@YES]) [self pickSong];
   if ([body[@"restored"] isKindOfClass:NSArray.class] && [body[@"restored"] count]) {
     NSLog(@"aerodance: restored %@ from the saved copy", [body[@"restored"] componentsJoinedByString:@", "]);
   }
-  if (body[@"page"] || body[@"airplay"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
+  if (body[@"page"]) [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
 }
 
 #pragma mark Importing songs and the page's dialogs
@@ -933,8 +923,6 @@ static CGRect PageRect(id value) {
 // current host state and storage.
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
   NSLog(@"aerodance: web content process ended; reloading");
-  self.airplayRect = CGRectNull;  // the page, and its bubble, are gone
-  [NSNotificationCenter.defaultCenter postNotificationName:GameHostChanged object:self];
   NSURL *url = webView.URL;
   [self loadWhenServerReady:[self isOurs:url] ? url : [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%@/", Port()]]];
 }
@@ -1011,7 +999,6 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
 
 @interface PhoneViewController : UIViewController <WKScriptMessageHandler, WKNavigationDelegate>
 @property (nonatomic, strong) UIView *gameView;
-@property (nonatomic, strong) AVRoutePickerView *gamePicker;    // over the game's AirPlay bubble (main menu)
 @property (nonatomic, strong) UIView *remote;
 @property (nonatomic, strong) WKWebView *remoteWeb;              // /remote/, made the first time the game goes to a TV
 @property (nonatomic, strong) AVRoutePickerView *remotePicker;  // over the remote's AirPlay button
@@ -1038,7 +1025,6 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   self.gameView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
   self.gameView.backgroundColor = UIColor.blackColor;
   [self.view addSubview:self.gameView];
-  [self.view addSubview:self.gamePicker = InvisiblePicker()];
 
   // While the game is on the TV: the remote page, inside the safe area, on its own background.
   self.remote = [[UIView alloc] initWithFrame:self.view.bounds];
@@ -1068,11 +1054,10 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   }
 }
 
-// The pickers follow their buttons when the views move (a turn of the iPad, the status bar
-// coming or going); the pages say when the buttons themselves move.
+// The remote's picker follows its button when the views move (a turn of the iPad, the status bar
+// coming or going); the page says when the button itself moves.
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
-  [self placeGamePicker];
   [self placeRemotePicker];
   [GameHost.shared updateOrientation];  // the phone's screen may have turned
 }
@@ -1102,7 +1087,6 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   self.gameView.hidden = tv;
   [self loadRemote];
   [self tellRemote:NO];
-  [self placeGamePicker];
   NSDictionary *page = host.page ?: @{};
   BOOL inSong = page[@"gamePhase"] != nil;
   // The phone mustn't lock while players get ready and dance (nobody touches it), nor while it's
@@ -1111,16 +1095,6 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   UIApplication.sharedApplication.idleTimerDisabled = tv || (inSong && [awake containsObject:page[@"gamePhase"]]);
   [self setNeedsStatusBarAppearanceUpdate];
   [self setNeedsUpdateOfHomeIndicatorAutoHidden];
-}
-
-// The game's AirPlay bubble shows on its main menu while the game is on the phone; the page says
-// where (GameHost airplayRect), in the web view's points.
-- (void)placeGamePicker {
-  GameHost *host = GameHost.shared;
-  WKWebView *web = host.web;
-  BOOL shown = !host.onTV && !CGRectIsNull(host.airplayRect) && web.superview == self.gameView;
-  self.gamePicker.hidden = !shown;
-  if (shown) self.gamePicker.frame = [web convertRect:host.airplayRect toView:self.view];
 }
 
 #pragma mark The remote

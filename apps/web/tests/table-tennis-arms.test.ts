@@ -144,6 +144,12 @@ test("rig.ts handAgrees leaves out a hand found at the other wrist, or far from 
   // The pose unsure of its wrist can't say.
   const unsure = { ...pose, landmarks: pose.landmarks.map((l, i) => (i === 16 ? { ...l, visibility: 0.1 } : l)) };
   assert.ok(handAgrees(unsure.landmarks, handAt('right', wrist('left')), 'right', SIZE));
+  // A hand pointing at the camera, as a paddle is held out, seen end-on: its middle knuckle on its
+  // wrist in the picture. Its breadth across the knuckles still says how big it is, so a hand 5 cm
+  // from the wrist is its own, and one 30 cm off isn't.
+  const endOn = (w: Vec3) => { const h = handAt('right', w); return { ...h, landmarks: h.landmarks.map((p, i) => (i === 9 ? { ...h.landmarks[0] } : p)) }; };
+  assert.ok(handAgrees(pose.landmarks, endOn(at(wrist('right'), { x: 0.05, y: 0, z: 0 })), 'right', SIZE), 'its own hand, end-on');
+  assert.ok(!handAgrees(pose.landmarks, endOn(at(wrist('right'), { x: 0, y: -0.3, z: 0 })), 'right', SIZE), 'a hand 30 cm off, end-on');
 });
 
 test('an upper arm is taken as forward or back as far as the model leans, and flat when it says nothing', () => {
