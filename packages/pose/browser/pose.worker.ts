@@ -368,7 +368,8 @@ async function findHands(bitmap: ImageBitmap, points: readonly NormalizedLandmar
     } finally { picture.close(); }
   }
   // score says how sure it is of the side the hand ends up on.
-  return onTheirSides(found, sides.length).map(({ side, landmarks, world, named, score }) => ({ side, landmarks, world, score: named === side ? score : 1 - score }));
+  const wrists = Object.fromEntries((['left', 'right'] as const).flatMap(side => { const w = points[JOINTS[side].wrist]; return (w.visibility ?? 1) >= SEEN ? [[side, w]] : []; }));
+  return onTheirSides(found, sides.length, wrists, width / height).map(({ side, landmarks, world, named, score }) => ({ side, landmarks, world, score: named === side ? score : 1 - score }));
 }
 
 /** The hand landmarkers for the people and sides asked for (see Hands), from the hand model (the delegate the pose model got, or the CPU if that fails). */

@@ -137,17 +137,29 @@ const SURE = 0.8;
 /** A hand found in the cut round one of a person's wrists: the cut's side, its picture points (wrist 0, middle knuckle 9), and the side the Hand Landmarker names it with how sure it is. */
 export interface CutHand { side: 'left' | 'right'; named: 'left' | 'right'; score: number; landmarks: readonly PicturePoint[]; }
 
+/** With one side looked for, a hand named the other side is taken for it only with that side's wrist within this many of its sizes. */
+const TOGETHER = 2;
 /**
  * Each hand found in a person's cuts (`asked`: how many of their sides were looked for) on the
  * side it is. The cuts follow the pose's wrists, and the pose mixes them up when the arms cross,
  * so with both sides looked for, the Hand Landmarker's own handedness puts a hand surely named the
- * other side back on it. With one side looked for (a paddle hand) it doesn't: a hand turned
- * edge-on to the camera, as a paddle is held, is often named the other side (both players of the
- * first recorded two-player sessions lost their paddle hand to that in 1-3% of their poses), and
- * the other side's hand was never looked for, so moving it there would only lose this one.
+ * other side back on it. With one side looked for (a paddle hand) it does only while the person's
+ * other wrist (`wrists`, those seen, in picture fractions; `aspect` the picture's width over its
+ * height) is beside the hand, within TOGETHER of its sizes: a hand turned edge-on to the camera, as
+ * a paddle is held, is often named the other side. Both players of the first recorded two-player
+ * sessions lost their paddle hand to that in 1-3% of their poses, every one looked at the right
+ * hand; on trackbench's two-player ping-pong scenes such a hand was the other one 79% of the time
+ * with the other wrist beside it, 4% otherwise (1.4% for a hand named its own side).
  */
-export function onTheirSides<H extends CutHand>(found: readonly H[], asked: number): H[] {
-  if (asked < 2) return [...found];
+export function onTheirSides<H extends CutHand>(found: readonly H[], asked: number, wrists: Partial<Record<'left' | 'right', PicturePoint>> = {}, aspect = 4 / 3): H[] {
+  if (asked < 2) {
+    const d = (a: PicturePoint, b: PicturePoint) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
+    return found.flatMap(h => {
+      const other = wrists[h.side === 'left' ? 'right' : 'left'], [w, middle, index, little] = [0, 9, 5, 17].map(i => h.landmarks[i]);
+      const beside = other && d(w, other) < TOGETHER * Math.max(d(w, middle), d(index, little));
+      return h.named !== h.side && h.score >= SURE && beside ? [{ ...h, side: h.named }] : [h];
+    });
+  }
   const [a, b] = found;
   if (a && b) {
     // Both cuts found the same hand (the wrists crossed or met): keep it once, on its own side.

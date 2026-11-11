@@ -116,8 +116,12 @@ test('a hand nearer another person\'s wrist than its own person\'s isn\'t theirs
 test('a hand surely named the other side moves there only when both sides were looked for', () => {
   // Its wrist at (x, 0.5), the middle knuckle above it.
   const hand = (side: 'left' | 'right', named: 'left' | 'right', x: number, score = 0.95) => ({ side, named, score, landmarks: Array.from({ length: 21 }, (_, i) => ({ x, y: i === 9 ? 0.45 : 0.5 })) });
-  // A paddle hand, edge-on, named the other side: it stays where it was found.
+  // A paddle hand, edge-on, named the other side: it stays where it was found...
   assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 1).map(h => h.side), ['left']);
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 1, { left: { x: 0.3, y: 0.5 }, right: { x: 0.6, y: 0.5 } }).map(h => h.side), ['left']);
+  // ...unless the other wrist is beside it (within two of its sizes, here 0.05 of the picture's
+  // height): the hands together, it may well be the other one.
+  assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 1, { left: { x: 0.3, y: 0.5 }, right: { x: 0.36, y: 0.5 } }).map(h => h.side), ['right']);
   // Both sides looked for: the pose may have swapped the wrists, so the name puts it back...
   assert.deepEqual(onTheirSides([hand('left', 'right', 0.3)], 2).map(h => h.side), ['right']);
   // ...unless it isn't sure.
