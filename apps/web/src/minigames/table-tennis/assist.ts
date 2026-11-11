@@ -122,7 +122,8 @@ const STEP = 1 / 120;
  *
  * With a `pace` (two players: PACE) the shot is also slowed to it: one that lands but gets to the
  * other end sooner than the pace allows is aimed again, to land where it was going, later; and
- * the share of it that isn't bent is no faster than the one that is.
+ * the share of it that isn't bent is no faster than the one that is, and smaller if it has to be
+ * for the shot to keep to the pace (so at any level, a shot that lands gives the other the time).
  */
 export function assistReturn(from: V3, vel: V3, share: number, pace?: Pace): V3 {
   if (vel.z > -0.5) return vel;
@@ -152,9 +153,17 @@ export function assistReturn(from: V3, vel: V3, share: number, pace?: Pace): V3 
     if (!pace || reachesFarEnd(from, shot) >= wanted) break;
   }
   if (!aimed) return vel;
-  // The part left as it was hit: no faster than the paced shot.
-  const kept = pace ? scale(vel, Math.min(1, len(aimed) / (len(vel) || 1))) : vel;
-  return add(scale(kept, 1 - share), aimed, share);
+  if (!pace) return add(scale(vel, 1 - share), aimed, share);
+  // The part left as it was hit: no faster than the paced shot. And if the two together still land
+  // too soon (the part left is flatter, so quicker down the table), more of it is bent, until they don't.
+  const kept = scale(vel, Math.min(1, len(aimed) / (len(vel) || 1)));
+  const blend = (s: number) => add(scale(kept, 1 - s), aimed, s);
+  if (!landsFar(from, blend(share))) return blend(share);
+  for (let s = share; s < 1; s += 0.1) {
+    const shot = blend(s);
+    if (landsFar(from, shot) && reachesFarEnd(from, shot) >= wanted) return shot;
+  }
+  return aimed;
 }
 
 /** How far the ball is from the blade's middle as a share of the zone: 1 at its edge. */

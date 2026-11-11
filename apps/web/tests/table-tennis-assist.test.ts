@@ -67,10 +67,18 @@ test("with two players, the hardest shot still leaves the other time to get to i
   const hard = reachesFarEnd(from, assistReturn(from, v3(0, 1.5, -9), 1, PACE.rally));
   assert.ok(gentle > hard + 0.08, `gentle ${gentle.toFixed(2)} s, hard ${hard.toFixed(2)} s`);
   assert.ok(reachesFarEnd(from, assistReturn(from, v3(0, 1.5, -9), 1, PACE.serve)) >= PACE.serve.least);
-  // With the assist off the shot goes where it was hit, only no faster than a paced one.
+  // With the assist off a shot that misses goes where it was hit, only no faster than a paced one.
   const raw = v3(0.3, 2.5, -10), off = assistReturn(from, raw, 0, PACE.rally);
   const speed = (v: V3) => Math.hypot(v.x, v.y, v.z);
-  assert.ok(speed(off) < 6 && Math.abs(off.x / off.z - raw.x / raw.z) < 1e-9 && Math.abs(off.y / off.z - raw.y / raw.z) < 1e-9, `the same way, at ${speed(off).toFixed(1)} m/s`);
+  assert.ok(!landsFar(from, off) && speed(off) < 6 && Math.abs(off.x / off.z - raw.x / raw.z) < 1e-9 && Math.abs(off.y / off.z - raw.y / raw.z) < 1e-9, `the same way, at ${speed(off).toFixed(1)} m/s`);
+  // At any level, though, a shot that lands keeps to the pace: a part bent and a part left as hit don't make a quicker one.
+  for (const share of [0, ASSIST.normal.block, ASSIST.low.landing, 0.8]) {
+    for (const hit of [v3(0, 1.5, -9), v3(0.3, 4, -9), v3(-1, 3, -7), v3(1.5, 3, -11)]) {
+      const shot = assistReturn(from, hit, share, PACE.rally);
+      if (landsFar(from, shot)) assert.ok(reachesFarEnd(from, shot) >= PACE.rally.least, `bent ${share} of the way, there in ${reachesFarEnd(from, shot).toFixed(2)} s`);
+    }
+  }
+  assert.ok(landsFar(from, assistReturn(from, v3(0, 1.5, -9), ASSIST.low.landing, PACE.rally)), "Low's still lands");
   // Alone (no pace) nothing changes: a return that lands is left as it was.
   const good = v3(0.2, 2.2, -4);
   assert.ok(landsFar(v3(0, 0.95, 1.4), good) && reachesFarEnd(v3(0, 0.95, 1.4), good) < PACE.rally.least);
