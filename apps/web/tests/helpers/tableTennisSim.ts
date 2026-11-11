@@ -55,19 +55,26 @@ export interface Skill {
   timing: number;
   /** How long the forward swing takes (s): shorter is faster. */
   swing: number;
+  /**
+   * How long after a ball is hit they start to move for it (s), and how long their stroke is
+   * (1: a compact half metre; the first people recorded swung twice that, at 3 to 11 m/s as the
+   * tracker saw them, and went for a serve they weren't ready for 0.7 s after it was struck).
+   */
+  react: number;
+  sweep: number;
   /** The share of balls they don't go for at all (looking away, too late). */
   lapse: number;
 }
 export const SKILLS = {
-  idle: { kind: 'idle', aim: 0, depth: 0, timing: 0, swing: 0.17, lapse: 0 },
-  still: { kind: 'still', aim: 0, depth: 0, timing: 0, swing: 0.17, lapse: 0 },
-  flail: { kind: 'flail', aim: 0, depth: 0, timing: 0, swing: 0.17, lapse: 0 },
-  /** New to it: often late or early, a hand's width off. */
-  novice: { kind: 'play', aim: 0.1, depth: 0.15, timing: 0.07, swing: 0.2, lapse: 0.08 },
+  idle: { kind: 'idle', aim: 0, depth: 0, timing: 0, swing: 0.17, lapse: 0, react: 0, sweep: 1 },
+  still: { kind: 'still', aim: 0, depth: 0, timing: 0, swing: 0.17, lapse: 0, react: 0, sweep: 1 },
+  flail: { kind: 'flail', aim: 0, depth: 0, timing: 0, swing: 0.17, lapse: 0, react: 0, sweep: 2 },
+  /** New to it: often late or early, a hand's width off, slow off the mark, swinging big. */
+  novice: { kind: 'play', aim: 0.1, depth: 0.15, timing: 0.07, swing: 0.2, lapse: 0.08, react: 0.4, sweep: 2.2 },
   /** Has the hang of it. */
-  casual: { kind: 'play', aim: 0.06, depth: 0.1, timing: 0.04, swing: 0.17, lapse: 0.03 },
+  casual: { kind: 'play', aim: 0.06, depth: 0.1, timing: 0.04, swing: 0.17, lapse: 0.03, react: 0.32, sweep: 2 },
   /** Plays well. */
-  good: { kind: 'play', aim: 0.03, depth: 0.06, timing: 0.02, swing: 0.15, lapse: 0.01 },
+  good: { kind: 'play', aim: 0.03, depth: 0.06, timing: 0.02, swing: 0.15, lapse: 0.01, react: 0.25, sweep: 1.6 },
 } as const satisfies Record<string, Skill>;
 
 /** A hand's error as the tracker reads it (m, the player's own frame: x right, y up, z back): steady, slowly wandering, and from pose to pose. */
@@ -116,6 +123,17 @@ export const TRACKING = {
   /** Two players at one webcam: each smaller in the picture, a little later. */
   two: {
     hz: 28.5, delay: 0.078, jitter: 0.011,
+    rest: { bias: cm(1.7, -2.0, 0.8), slow: cm(5.0, 2.8, 6.3), fast: cm(1.4, 1.4, 2.6) },
+    swing: { bias: cm(1.7, -4.9, -5.7), slow: cm(4.8, 4.2, 10.3), fast: cm(6.4, 5.1, 13.3) },
+    biasSpread: cm(2.1, 2.4, 3.9), wildRate: 0.046, wild: 0.215, lostPerMinute: 1.73, lostS: 0.17,
+  },
+  /**
+   * Two players at a laptop's own camera, as first recorded (a busy room, Chrome): the tracker at
+   * 20 poses a second, each 70 ms from its frame to its result (95 ms at worst), with the same
+   * guess for the camera's own delay. Its errors are `two`'s: nothing has measured them on people.
+   */
+  laptop: {
+    hz: 20, delay: 0.12, jitter: 0.012,
     rest: { bias: cm(1.7, -2.0, 0.8), slow: cm(5.0, 2.8, 6.3), fast: cm(1.4, 1.4, 2.6) },
     swing: { bias: cm(1.7, -4.9, -5.7), slow: cm(4.8, 4.2, 10.3), fast: cm(6.4, 5.1, 13.3) },
     biasSpread: cm(2.1, 2.4, 3.9), wildRate: 0.046, wild: 0.215, lostPerMinute: 1.73, lostS: 0.17,
@@ -179,10 +197,10 @@ export class Person {
    * fastest at the ball), a little across the body and upwards as a forehand goes.
    */
   private along(stroke: Stroke, now: number): V3 {
-    const { swing } = this.skill;
+    const { swing, sweep } = this.skill;
     const out = sign(this.hand);
-    const back = add(stroke.at, v3(0.1 * out, -0.06, 0.26));
-    const through = add(stroke.at, v3(-0.12 * out, 0.1, -0.24));
+    const back = add(stroke.at, v3(0.1 * out, -0.06, 0.26), sweep);
+    const through = add(stroke.at, v3(-0.12 * out, 0.1, -0.24), sweep);
     const u = (now - (stroke.t - swing)) / swing;
     if (u <= 0) return mix(stroke.start, back, smooth((now - stroke.startT) / Math.max(0.08, stroke.t - swing - stroke.startT)));
     // At the ball at u = 1, where it's fastest; done at u = 2.
@@ -224,11 +242,11 @@ export class Person {
     } else {
       this.serveAt = null; this.ready = null;
       const coming = seen.ball && arrival(seen.ball);
-      // A ball coming that they haven't made their mind up about: they go for it (or let it by),
-      // if there's time to.
-      if (coming && seen.touchedAt !== this.decided && coming.t > 0.12) {
+      // A ball coming that they haven't made their mind up about, once they've seen it's coming:
+      // they go for it (or let it by), if there's time to. With too little, their swing is late.
+      if (coming && seen.touchedAt !== this.decided && now >= seen.touchedAt + skill.react && coming.t > 0.12) {
         this.decided = seen.touchedAt;
-        if (random.rand() >= skill.lapse) this.begin(coming.at, now + coming.t, now);
+        if (random.rand() >= skill.lapse) this.begin(coming.at, now + Math.max(coming.t, 0.08 + skill.swing), now);
       }
     }
     if (this.stroke) {

@@ -12,7 +12,8 @@
  *
  * With two, the ball waits in the air over the server's end (rally.ts SERVE) until their swing
  * serves it (assist.ts serveHit; or Space), and the open rally (rally.ts) counts the shots that
- * land on the other half.
+ * land on the other half. Every shot is slowed to a pace the other player can get to (assist.ts
+ * PACE): alone, the robot gets to anything.
  *
  * Either way a ball that's out of play is soon taken back (DEAD): on the floor, in the net, or
  * bouncing twice on one half with nobody hitting it. With two it goes to whoever's end it
@@ -20,7 +21,7 @@
  */
 
 import * as THREE from 'three';
-import { ASSIST, SERVE_SWING, SWING, assistReturn, interceptNudge, serveHit, swingOf } from './assist.ts';
+import { ASSIST, PACE, SERVE_SWING, SWING, assistReturn, interceptNudge, serveHit, swingOf } from './assist.ts';
 import type { AssistLevel } from './assist.ts';
 import { arrival, autoplayBlade, autoplayRaised, autoplayServe } from './autoplay.ts';
 import { PADDLE_COOLDOWN, v3 } from './ball.ts';
@@ -342,9 +343,10 @@ export class Round {
           if (seen) this.serveSeen = { vel: seen, at: pose.at, wrist: { ...pose.pose.wrist }, way: v3(swing.x / l, swing.y / l, swing.z / l) };
         }
         if (vel) {
-          // A serve lands, whatever the level (but with the assist off).
+          // A serve lands, whatever the level (but with the assist off), and no sooner than the other
+          // player can be ready for it.
           this.serveSeen = null;
-          this.launch(mine(server, assistReturn(from, vel, play.assist === 'off' && !play.serve ? 0 : 1)), PADDLE_COOLDOWN);
+          this.launch(mine(server, assistReturn(from, vel, play.assist === 'off' && !play.serve ? 0 : 1, PACE.serve)), PADDLE_COOLDOWN);
           served(this.duel);
           this.hits += 1; this.hitsBy[server] += 1; this.touchedAt = this.time; this.players[server].active = this.real;
           this.events.push({ type: 'paddle', at: { ...this.ball.pos }, speed: Math.hypot(vel.x, vel.y, vel.z), by: server });
@@ -395,7 +397,7 @@ export class Round {
         end: rig.end, raw: you[i].live ? pads[i].raw : null, paddleVel: you[i].paddleVel, swing: you[i].swing, lag: you[i].lag,
         from: this.players[i].paddle ?? pads[i].paddle, to: pads[i].paddle,
       }));
-      const flight = flightStep(lagged, worldDt, swingers, help, play.timeScale);
+      const flight = flightStep(lagged, worldDt, swingers, help, play.timeScale, two ? PACE.rally : undefined);
       this.events.push(...flight.events);
       // Drawn from where it was, easing onto where a hit (judged a lag ago) put it.
       const by = flight.events.find((e): e is FlightEvent & { type: 'paddle' } => e.type === 'paddle')?.by;
