@@ -2,6 +2,8 @@ import { finite, validatePoses } from '../choreography.ts';
 import type { FrameSize, Landmark, PlayerCount, Point3 } from '../choreography.ts';
 import { isTrackedHand } from '../webcamRecord.ts';
 import type { LivePose, TrackedHand } from '../webcamRecord.ts';
+import { personAt, SLOT_FORGET_MS } from './hands.ts';
+import type { PicturePoint } from './hands.ts';
 import { detectedConfidence } from './slots.ts';
 import type { DetectedLandmark } from './slots.ts';
 
@@ -422,6 +424,17 @@ export class PlayerTracker {
       }
     }
     return found;
+  }
+
+  /**
+   * Where each player stood when last seen (fractions of the picture: their shoulders' middle, else
+   * their hips', as hands.ts personAt places people), or null for one not seen within
+   * SLOT_FORGET_MS of now (or never). The pose worker gives each player's hand landmarkers to the
+   * person nearest where they stood, so the hands follow who the tracker says each player is.
+   */
+  places(now: number): (PicturePoint | null)[] {
+    return this.players.map(p => p.track && now - p.track.seen <= SLOT_FORGET_MS
+      ? personAt(p.track.body.landmarks.map(l => ({ x: l.x, y: l.y, visibility: l.confidence ?? 1 })), 1, 1) : null);
   }
 
   /** Whether two players' looks are known and differ enough to tell them apart. */

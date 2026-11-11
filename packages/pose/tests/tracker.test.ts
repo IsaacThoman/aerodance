@@ -556,3 +556,16 @@ test('a player\'s home doesn\'t move while they\'re tangled with somebody, only 
   run(tracker, repeat(25, () => ({ people: [person(0.64), person(0.3, { arms: 0.1 })] })), 3729);
   assert.ok(Math.abs(tracker.players[0].home - 0.64 * 4 / 3) < 1e-6, 'after half a second clear');
 });
+
+test('each player\'s place, for the pose worker\'s hands, is where they were last seen, until they\'ve been gone a second', () => {
+  const tracker = new PlayerTracker(2);
+  assert.deepEqual(tracker.places(0), [null, null], 'nobody yet');
+  run(tracker, repeat(12, () => ({ people: [person(0.3), person(0.7, { arms: 0.1 })] })));
+  const round = (places: ReturnType<PlayerTracker['places']>) => places.map(p => p && [+p.x.toFixed(2), +p.y.toFixed(2)]);
+  // Player 1 on the camera's right; the shoulders' middle.
+  assert.deepEqual(round(tracker.places(363)), [[0.7, 0.32], [0.3, 0.32]]);
+  // Player 2 goes out of view: their place stands for a second after they were last seen, then goes.
+  run(tracker, repeat(30, () => ({ people: [person(0.7, { arms: 0.1 })] })), 396);
+  assert.deepEqual(round(tracker.places(363 + 1000)), [[0.7, 0.32], [0.3, 0.32]]);
+  assert.deepEqual(round(tracker.places(363 + 1001)), [[0.7, 0.32], null]);
+});

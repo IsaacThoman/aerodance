@@ -624,7 +624,8 @@ export class WebcamPoseSource {
       const worker = this.worker;
       // (Not to a worker started again since: that frame's result would never come.)
       if (generation !== this.generation || !worker || this.pending !== pending) { bitmap.close(); return; }
-      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players, lined: this.tracker.lined }, [bitmap]);
+      worker.postMessage({ type: 'frame', bitmap, seq: pending.seq, timestampMs: mediaTimeMs, players: this.players, lined: this.tracker.lined,
+        places: this.tracker.places(frameBrowserTimeMs) }, [bitmap]);
     }).catch(error => { if (generation === this.generation) this.fail(error); });
   }
   schedule() {

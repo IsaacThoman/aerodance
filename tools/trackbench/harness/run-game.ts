@@ -218,8 +218,8 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
         g.fillStyle = '#808080'; g.fillRect(0, 0, c.width, c.height);
         return createImageBitmap(c);
       };
-      const send = (bitmap: ImageBitmap, seq: number, timestampMs: number, players: number, lined?: boolean) => new Promise<Record<string, unknown>>(resolve => {
-        waiting.set(seq, resolve as (r: unknown) => void); w.postMessage({ type: 'frame', bitmap, seq, timestampMs, players, ...(lined === undefined ? {} : { lined }) }, [bitmap]);
+      const send = (bitmap: ImageBitmap, seq: number, timestampMs: number, players: number, lined?: boolean, places?: unknown) => new Promise<Record<string, unknown>>(resolve => {
+        waiting.set(seq, resolve as (r: unknown) => void); w.postMessage({ type: 'frame', bitmap, seq, timestampMs, players, ...(lined === undefined ? {} : { lined }), ...(places === undefined ? {} : { places }) }, [bitmap]);
       });
       // --input-size: each frame scaled as a webcam asked for that size would give it.
       const decode = async (url: string) => {
@@ -248,7 +248,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
           for (let i = 0; i < 4; i++) await send(await grey(width, height), -2 - i, 100 * (i + 1), 0);
           return performance.now() - start;
         },
-        async frame(url: string, seq: number, timestampMs: number, players: number, lined: boolean | undefined, nextUrl?: string) {
+        async frame(url: string, seq: number, timestampMs: number, players: number, lined: boolean | undefined, places: unknown, nextUrl?: string) {
           const pending = prefetched;
           prefetched = null;
           const decoded = pending?.url === url ? await pending.result : { bitmap: await decode(url) };
@@ -256,7 +256,7 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
           const bitmap = decoded.bitmap!;
           const { width, height } = bitmap;
           const start = performance.now();
-          const resultPromise = send(bitmap, seq, timestampMs, players, lined);
+          const resultPromise = send(bitmap, seq, timestampMs, players, lined, places);
           if (nextUrl) prefetched = { url: nextUrl, result: decode(nextUrl).then(bitmap => ({ bitmap }), error => ({ error })) };
           const result = await resultPromise;
           if (result.error) throw Error(String(result.error));
@@ -292,9 +292,12 @@ export async function runScene(sceneId: string, opts: RunOptions = {}, resources
       const { k, sentAt, skipped } = realtime ? nextFrame(frames, next, freeAt) : { k: next, sentAt: frames[next].t, skipped: 0 };
       cameraDropped += skipped;
       const f = frames[k];
-      // (lined only with a detail: the game always sends it, but a worker without hands ignores it, and old runs had none.)
-      const r = await page.evaluate(({ url, seq, t, players, lined, nextUrl }) => (globalThis as unknown as { tb: { frame: (...a: unknown[]) => Promise<unknown> } }).tb.frame(url, seq, t, players, lined, nextUrl),
-        { url: `${framePrefix}/${f.name}`, seq: ++seq, t: f.t + TIMESTAMP_OFFSET_MS, players: loop.players, lined: detail ? loop.tracker.lined : undefined, nextUrl: !realtime && k + 1 < frames.length ? `${framePrefix}/${frames[k + 1].name}` : undefined }) as WorkerResult;
+      // (lined and places only with a detail: the game always sends them, but a worker without hands
+      // ignores them, and old runs had none. Places are the tracker's at the frame's capture time,
+      // as WebcamPoseSource sends them.)
+      const r = await page.evaluate(({ url, seq, t, players, lined, places, nextUrl }) => (globalThis as unknown as { tb: { frame: (...a: unknown[]) => Promise<unknown> } }).tb.frame(url, seq, t, players, lined, places, nextUrl),
+        { url: `${framePrefix}/${f.name}`, seq: ++seq, t: f.t + TIMESTAMP_OFFSET_MS, players: loop.players, lined: detail ? loop.tracker.lined : undefined, places: detail ? loop.tracker.places(f.t) : undefined,
+          nextUrl: !realtime && k + 1 < frames.length ? `${framePrefix}/${frames[k + 1].name}` : undefined }) as WorkerResult;
       if (r.width !== input.width || r.height !== input.height) throw Error(`Frame ${f.name} is ${r.width}x${r.height}, expected ${input.width}x${input.height}`);
       // --busy-ms: a fixed time per result (a slower device), instead of the measured one scaled.
       const busy = opts['busy-ms'] ? Number(opts['busy-ms']) : r.roundtripMs * busyScale;
