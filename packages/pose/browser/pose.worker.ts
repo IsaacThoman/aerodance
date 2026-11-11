@@ -3,7 +3,7 @@ import type { Landmark as WorldLandmark, NormalizedLandmark } from '@mediapipe/t
 import type { Point3 } from '../choreography.ts';
 import type { HandSide, TrackedHand } from '../webcamRecord.ts';
 import { describeLooks, LOOKS_WIDTH } from './appearance.ts';
-import { MAX_HAND_PEOPLE, ownHand, personAt, playerRanks, slotsFor, tracksHands, wristsAt } from './hands.ts';
+import { MAX_HAND_PEOPLE, ownHand, personAt, playerRanks, SLOT_FORGET_MS, slotsFor, tracksHands, wristsAt } from './hands.ts';
 import type { PicturePoint } from './hands.ts';
 import { fromCrop, fromTile, mergeTiles, outline, StripHiding } from './tiles.ts';
 import type { Crop, Tile } from './tiles.ts';
@@ -133,8 +133,8 @@ let delegate: PoseDelegate = 'GPU';
 /** The detail: whether world landmarks are kept, and the hand model asked for. */
 let world = false;
 let handModel: HandModelRequest | null = null;
-/** A slot: the landmarkers for one person's hands (a landmarker per side asked for), and where they were last seen. */
-interface HandSlot { landmarkers: Partial<Record<HandSide, HandLandmarker>>; at: PicturePoint | null; }
+/** A slot: the landmarkers for one person's hands (a landmarker per side asked for), and where and when (frame timestamp) they were last seen. */
+interface HandSlot { landmarkers: Partial<Record<HandSide, HandLandmarker>>; at: PicturePoint | null; seen: number; }
 /**
  * The hand landmarkers, once loaded, for the people and hands they were asked for (`sides`, each
  * player's): a slot per player in VIDEO mode, each landmarker following its hand from frame to
@@ -421,7 +421,7 @@ async function loadHands(model: HandModelRequest): Promise<Hands> {
       await all('CPU');
     }
     let next = 0;
-    const slots = slotSides.map((own): HandSlot => ({ landmarkers: Object.fromEntries(own.map((side) => [side, made[next++]])), at: null }));
+    const slots = slotSides.map((own): HandSlot => ({ landmarkers: Object.fromEntries(own.map((side) => [side, made[next++]])), at: null, seen: -Infinity }));
     return { sides, video, slots };
   } catch (error) {
     for (const l of made) l.close();
@@ -455,12 +455,12 @@ async function findAllHands(bitmap: ImageBitmap, people: readonly NormalizedLand
     }
     return found;
   }
-  const order = slotsFor(running.slots.map((slot) => slot.at), at, width * 0.25, ranks, lined);
+  const order = slotsFor(running.slots.map((slot) => (timestampMs - slot.seen <= SLOT_FORGET_MS ? slot.at : null)), at, width * 0.25, ranks, lined);
   for (const [i, points] of people.entries()) {
     const slot = running.slots[order[i]];
     if (!slot) continue;
     found[i] = await findHands(bitmap, points, timestampMs, slot.landmarkers, running.sides[order[i]], true, others(i));
-    if (at[i]) slot.at = at[i];
+    if (at[i]) { slot.at = at[i]; slot.seen = timestampMs; }
   }
   return found;
 }

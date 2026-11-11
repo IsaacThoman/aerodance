@@ -42,9 +42,10 @@ test('until the players are lined up, each person\'s slot is the player they sta
   const both = [at(100), at(500)];
   assert.deepEqual(slotsFor(slots, both, 160, playerRanks(both), false), [1, 0], 'not yet lined up: Player 1\'s slot goes to the person on the right');
   assert.deepEqual(assignSlots(slots, both, 160, playerRanks(both)), [0, 1], '(where they stood last would have kept the first one in it)');
-  // Lined up, people keep their slots as they cross.
-  assert.deepEqual(slotsFor([at(500), at(100)], [at(330), at(310)], 160, playerRanks([at(330), at(310)]), true), [0, 1]);
-  assert.deepEqual(slotsFor([at(500), at(100)], [at(310), at(330)], 160, playerRanks([at(310), at(330)]), false), [1, 0], 'not lined up: by where they stand now');
+  // Lined up, people keep their slots after crossing over (Player 1 now on the camera's left), a
+  // result at a time, each a step from where they were.
+  assert.deepEqual(slotsFor([at(300), at(340)], [at(305), at(335)], 160, playerRanks([at(305), at(335)]), true), [0, 1]);
+  assert.deepEqual(slotsFor([at(300), at(340)], [at(305), at(335)], 160, playerRanks([at(305), at(335)]), false), [1, 0], 'not lined up: by where they stand now');
 });
 
 test('a detail asks for each player\'s hands', () => {
@@ -88,6 +89,21 @@ test('more people than slots: the ones that fit worst go without, so a bystander
   assert.deepEqual(assignSlots([at(100), at(300)], [at(100), at(300), at(500)], 160), [0, 1, -1]);
   assert.deepEqual(assignSlots([at(100)], [at(500), at(100)], 160), [-1, 0]);
   assert.deepEqual(assignSlots([null], [at(500), at(100)], 160), [0, -1], 'nobody seen yet: the first');
+});
+
+test('a copy of one player doesn\'t take the other\'s slot because it\'s free', () => {
+  // Session c of the first two-player recordings: the pose model lost Player 1 (slot 0, at 452) for
+  // a frame and the search found a half-size copy of Player 2 (slot 1, at 222) beside her. Placing
+  // both moved people less in total with her in his slot and the copy in hers, and the slots then
+  // followed the wrong players for the rest of the round.
+  const slots = [at(452, 177), at(222, 219)];
+  assert.deepEqual(assignSlots(slots, [at(223, 219), at(207, 229)], 160), [1, -1]);
+  // The next frame, both are back in their own.
+  assert.deepEqual(assignSlots([at(452, 177), at(223, 219)], [at(445, 179), at(229, 226)], 160), [0, 1]);
+  // Somebody far from every slot's person goes without, even with a slot free.
+  assert.deepEqual(assignSlots([at(100), at(500)], [at(495), at(300)], 160), [1, -1]);
+  // A slot whose person has been gone a while is free (null) again: whoever turns up takes it.
+  assert.deepEqual(assignSlots([null, at(500)], [at(495), at(300)], 160), [1, 0]);
 });
 
 test('a hand nearer another person\'s wrist than its own person\'s isn\'t theirs', () => {
