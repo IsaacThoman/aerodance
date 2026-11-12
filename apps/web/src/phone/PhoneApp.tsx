@@ -10,7 +10,7 @@ import { Background, PhoneRenderResolution } from './pageCanvas.tsx';
  * The phone tracks the players itself and sends the game only their poses (PhoneLink).
  *
  * The whole page is one canvas like the game's: a plain background and the in-engine UI
- * (PhoneScreen). Like the game's fixed 640x480, the buffer is low resolution whatever the
+ * (PhoneScreen). The buffer is low resolution whatever the
  * screen: at most 640 pixels along its long side, in the screen's own shape, stretched to fill
  * it with chunky pixels. The frame loop keeps running while dimmed: the camera's frames are
  * timed by requestVideoFrameCallback, which a page that stops rendering stops too.

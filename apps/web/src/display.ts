@@ -1,7 +1,6 @@
-/** Wii-style display modes: a fixed 480-line buffer with standard or anamorphic output.
- * Widescreen changes the projection and layout, not the number of rendered pixels.
- */
-export const RENDER_SIZE = { w: 640, h: 480 };
+/** Fixed performance budget for the native Apple TV host. */
+export const TV_RENDER_SIZE = { w: 640, h: 480 };
+/** Display shapes and UI design units, independent of the browser's native render resolution. */
 export const DISPLAY_MODES = {
   standard: { aspect: 4 / 3, w: 1200, h: 900 },
   widescreen: { aspect: 16 / 9, w: 1600, h: 900 },

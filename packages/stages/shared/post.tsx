@@ -171,7 +171,7 @@ export interface RenderPipelineProps {
   /** Drawn after post-processing, on top. */
   hudScene?: THREE.Scene;
   hudCamera?: THREE.Camera;
-  /** The render buffer. */
+  /** Render-buffer overrides; otherwise follow the renderer's drawing buffer. */
   width?: number;
   height?: number;
   /** The frame the buffer is displayed at. */
@@ -191,17 +191,17 @@ export interface RenderPipelineProps {
 /**
  * Takes over rendering: stage -> bloom -> grade -> tone mapping, then the HUD
  * layer (optional) on top without post-processing so its text stays crisp.
- * width/height: the render buffer; aspect: the frame it is displayed at.
+ * width/height override the renderer's drawing buffer; aspect: the frame it is displayed at.
  * It renders the scene and camera of the store it is mounted in, so inside a
  * createPortal it draws that portal's stage. A SplitCamera draws a split screen.
  */
 export function RenderPipeline({
-  hudScene, hudCamera, width = RENDER_WIDTH, height = RENDER_HEIGHT, aspect, samples = 4, bloom: bloomOn = true, enabled = true, isEnabled, settings = post,
+  hudScene, hudCamera, width, height, aspect, samples = 4, bloom: bloomOn = true, enabled = true, isEnabled, settings = post,
 }: RenderPipelineProps) {
   const gl = useThree((s) => s.gl);
 
   const fx = useMemo(() => {
-    const target = new THREE.WebGLRenderTarget(width, height, {
+    const target = new THREE.WebGLRenderTarget(width ?? 1, height ?? 1, {
       type: THREE.HalfFloatType,
       samples,
     });
@@ -212,9 +212,9 @@ export function RenderPipeline({
     composer.renderTarget1.samples = 0;
     composer.renderTarget1.depthBuffer = false;
     composer.setPixelRatio(1);
-    composer.setSize(width, height);
+    composer.setSize(width ?? 1, height ?? 1);
     const render = new ViewsRenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
-    const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.5, 0.5, 0.8);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(width ?? 1, height ?? 1), 0.5, 0.5, 0.8);
     const grade = new ShaderPass(GradeShader);
     // ShaderPass clones GradeShader.uniforms, so its uniforms have the same shape.
     const gradeUniforms = grade.uniforms as GradeUniforms;
@@ -223,7 +223,7 @@ export function RenderPipeline({
     composer.addPass(bloom);
     composer.addPass(grade);
     composer.addPass(output);
-    return { composer, render, bloom, grade, gradeUniforms, output };
+    return { composer, render, bloom, grade, gradeUniforms, output, buffer: new THREE.Vector2(), width: width ?? 1, height: height ?? 1 };
   }, [gl, width, height, samples]);
 
   useEffect(
@@ -277,6 +277,13 @@ export function RenderPipeline({
     if (!enabled || (isEnabled && !isEnabled())) return;
     tickBeat(Math.min(delta, 0.1));
     const { composer, render, bloom, gradeUniforms } = fx;
+    gl.getDrawingBufferSize(fx.buffer);
+    const w = width ?? fx.buffer.x, h = height ?? fx.buffer.y;
+    if (fx.width !== w || fx.height !== h) {
+      composer.setSize(w, h);
+      fx.width = w;
+      fx.height = h;
+    }
     render.scene = state.scene;
     render.camera = state.camera;
     bloom.enabled = bloomOn && settings.bloomStrength > 0;

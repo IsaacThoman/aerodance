@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { useDisposable } from '../../stages/shared/hooks.ts';
 import { makeRandom } from '../../stages/shared/random.ts';
 import { noise, shaderMaterial } from '../../stages/shared/glsl.ts';
-import { RENDER_HEIGHT, RENDER_WIDTH } from '../../stages/shared/post.tsx';
 import { useBackdropFrame } from '../shared/frame.ts';
 import { NEBULA_BAKE, bakeCube, makeCubeTarget } from './bake.ts';
 import { SUN_SIZE, frameDirection, world } from './layout.ts';
@@ -12,10 +11,11 @@ import { SUN_SIZE, frameDirection, world } from './layout.ts';
 /** How far out the sky and stars are drawn, following the camera. */
 const SKY_RADIUS = 1500;
 
-/** How much wider than tall a buffer pixel shows: the 4:3 buffer is stretched to the canvas. */
+/** How much wider than tall a buffer pixel shows (the TV host uses anamorphic output). */
 export function useStretch(): number {
   const size = useThree((s) => s.size);
-  return size.width / Math.max(1, size.height) / (RENDER_WIDTH / RENDER_HEIGHT);
+  const gl = useThree((s) => s.gl);
+  return size.width / Math.max(1, size.height) / (gl.domElement.width / Math.max(1, gl.domElement.height));
 }
 
 /**

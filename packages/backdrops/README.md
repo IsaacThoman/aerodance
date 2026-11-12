@@ -23,12 +23,12 @@ Ten procedural Frutiger Aero scenes that can stand behind the menus in place of 
 - `shared/BackdropCamera.tsx`: the camera, with slow drift and a lean towards the pointer. Use it rather than a camera of your own: [walk mode](../../docs/walk-mode.md) takes it over through `cameraPilot`.
 - Backdrops also use the stages' shared modules: `Sky.tsx`, `Environment.tsx`, `glsl.ts`, `random.ts` and `useDisposable` in `hooks.ts`. Atrium's room is the `atrium` stage's (`packages/stages/atrium`), seen from the menu's camera.
 
-The game hosts them in `apps/web/src/backdrop/BackdropView.tsx`: a createPortal scene drawn through the stages' `RenderPipeline` (stage → bloom → grade → ACES) into the 640×480 buffer.
+The game hosts them in `apps/web/src/backdrop/BackdropView.tsx`: a createPortal scene drawn through the stages' `RenderPipeline` (stage → bloom → grade → ACES) at the renderer's current resolution (native browser pixels, or 640×480 in the Apple TV host).
 
 ## Making one
 
 - The menu draws the title and its buttons over the left half and the menu dancers, glass figures on a glass puck, over the lower right. Keep the left calm enough for white text, and keep the area behind the dancers mid-toned so the glass reads. Check 16:9 and 4:3 (4:3 shows more above and below).
-- The buffer is 640×480 without MSAA, shown stretched to the screen: prefer bold shapes, smooth gradients and soft glows to fine detail, which shimmers.
+- The browser buffer uses native resolution without MSAA; the Apple TV host stretches a 640×480 buffer: prefer bold shapes, smooth gradients and soft glows to fine detail, which shimmers.
 - Move everything by the backdrop clock (`useBackdropFrame`'s `time`), never R3F's clock or `Date.now()`, in loops that never visibly reset.
 - They run behind the menus on integrated GPUs, phones and the Apple TV: aim for under ~80 draw calls and ~300k triangles, instance repeated things, animate in shaders, and don't allocate per frame. Work that doesn't change, like a pebble floor or a noise field, can be drawn into a texture once at load. In development `window.__aeroStats` reports the last frame's counts.
 - Bloom adds a pixel's whole brightness once it passes the threshold, so a broad bright sky above it hazes the whole picture: keep large areas under it and let only glints through. Bloom is also the costliest pass (about 1.3 ms of an M5 Pro's frame); `bloomStrength: 0` leaves it out.

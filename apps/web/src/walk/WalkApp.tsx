@@ -5,7 +5,7 @@ import AeroWorld from '../aero/AeroWorld.tsx';
 import BackdropView from '../backdrop/BackdropView.tsx';
 import StageView from '../stage/StageView.tsx';
 import type { StageState } from '../stage/StageView.tsx';
-import FixedRenderResolution from '../FixedRenderResolution.tsx';
+import DisplayResolution, { useDisplayPixelRatio } from '../DisplayResolution.tsx';
 import { DISPLAY_MODES, displayModeFor } from '../display.ts';
 import type { DisplayMode } from '../display.ts';
 import { aeroHide } from '../diagnostics.ts';
@@ -36,6 +36,7 @@ function SceneHost({ scene, onReady }: { scene: WalkScene; onReady: ReadyHandler
  * scene, so a reload comes back to it.
  */
 export default function WalkApp() {
+  const dpr = useDisplayPixelRatio();
   const viewport = useRef<HTMLDivElement>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>(() => displayModeFor(innerWidth, innerHeight));
   useLayoutEffect(() => {
@@ -64,8 +65,8 @@ export default function WalkApp() {
   return (
     <div ref={viewport} className="display-viewport">
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
-        <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
-          <FixedRenderResolution />
+        <Canvas dpr={dpr} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
+          <DisplayResolution />
           <SceneHost key={scene.key} scene={scene} onReady={onReady} />
           <WalkControls status={status} onStep={onStep} />
           <WalkHud status={status} onChoose={choose} />

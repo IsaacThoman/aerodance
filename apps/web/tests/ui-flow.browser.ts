@@ -30,7 +30,7 @@ const { BACK, CAST_AUTO, DANCE, DANCERS, GAME_CALIBRATION_PREVIEW, GAME_PAUSE, G
 /** A layout rect or circle, or a widget with a rect, in design units. */
 type Shape = Rect | Circle | { rect: Rect };
 /** What the page script adds to window. */
-type TestWindow = typeof window & { webcamRequests: number; danceLabelX: number };
+type TestWindow = typeof window & { webcamRequests: number; danceLabelX: number; sceneBuffers: string[] };
 /** A reported value to wait for: exactly this string, or matching this pattern. */
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
@@ -53,12 +53,20 @@ const center = (shape: Shape) => {
 };
 let testPage;
 try {
-  const page = await browser.newPage({ viewport, hasTouch: true });
+  const deviceScaleFactor = Number(process.env.UI_DPR) || 1;
+  const page = await browser.newPage({ viewport, hasTouch: true, deviceScaleFactor });
   testPage = page;
   page.setDefaultTimeout(90000);
   await page.addInitScript(() => {
     const w = window as TestWindow;
     w.webcamRequests = 0;
+    w.sceneBuffers = [];
+    // HDR scene targets must follow native resolution too, rather than upscaling 640x480.
+    const allocate = WebGL2RenderingContext.prototype.texImage2D;
+    WebGL2RenderingContext.prototype.texImage2D = function (...args: unknown[]) {
+      if (args.length === 9 && args[2] === this.RGBA16F) w.sceneBuffers.push(`${args[3]}x${args[4]}`);
+      Reflect.apply(allocate, this, args);
+    };
     // Observe the actual overlay draw, so resizing a static preview must repaint its
     // button in the new layout rather than leaving a cached texture at old coordinates.
     const fillText = CanvasRenderingContext2D.prototype.fillText;
@@ -111,6 +119,21 @@ try {
       return d && list.every(([k, m]) => ('re' in m ? new RegExp(m.re).test(d[k] ?? '') : d[k] === m.is));
     }, entries, timeout ? { timeout } : undefined);
   };
+  const nativeResolution = async () => {
+    await page.waitForFunction(() => {
+      const c = document.querySelector('canvas');
+      if (!c) return false;
+      const { width, height } = c.getBoundingClientRect();
+      return c.width === Math.floor(width * devicePixelRatio) && c.height === Math.floor(height * devicePixelRatio);
+    }, null, { timeout: 10000 });
+  };
+  const nativePostResolution = async () => {
+    await nativeResolution();
+    await page.waitForFunction(() => {
+      const c = document.querySelector('canvas');
+      return c && (window as TestWindow).sceneBuffers.includes(`${c.width}x${c.height}`);
+    });
+  };
   const menuOn = (screen: string) => until({ menuScreen: screen, menuReady: 'true' });
   // Turns the players dial one step at a time to n, waiting for each step.
   const dialTo = async (n: number) => {
@@ -127,7 +150,7 @@ try {
 
   await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });
   await menuOn('main');
-  assert.deepEqual(await page.locator('canvas').evaluate((c) => [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height]), [640, 480]);
+  await nativeResolution();
 
   // Settings holds the sound controls; nothing before the calibration screen asks for the camera.
   await click(await settingsButton(page, design.w));
@@ -138,12 +161,14 @@ try {
   const other = mode === 'standard' ? 'widescreen' : 'standard';
   await click(ASPECT(other === 'standard' ? 1 : 2));
   await until({ displayMode: other, menuReady: 'true' });
+  await nativeResolution();
   await shot('settings-other-aspect');
   const otherFrame = await frameBox();
   const otherDesign = DISPLAY_MODES[other];
   const auto = center(menuLayout(otherDesign.w).ASPECT(0));
   await page.mouse.click(otherFrame.x + (auto.x / otherDesign.w) * otherFrame.width, otherFrame.y + (auto.y / otherDesign.h) * otherFrame.height);
   await until({ displayMode: mode, menuReady: 'true' });
+  await nativeResolution();
   assert.deepEqual(await page.evaluate(() => localStorage.getItem('aerodance.graphics')), JSON.stringify({ aspect: 'auto', stats: 'off' }));
   frame = await frameBox();
   // Graphics → Stats shows the overlay, which reports its numbers; Off takes it and them away.
@@ -159,10 +184,12 @@ try {
   await click(FULLSCREEN);
   await page.waitForFunction(() => !!document.fullscreenElement);
   await until({ displayMode: mode, menuReady: 'true' });
+  await nativeResolution();
   frame = await frameBox();
   await click(FULLSCREEN);
   await page.waitForFunction(() => !document.fullscreenElement);
   await until({ displayMode: mode, menuReady: 'true' });
+  await nativeResolution();
   frame = await frameBox();
   await click(MENU_BACK);
   await menuOn('main');
@@ -233,6 +260,7 @@ try {
   // The letterboxed frame on a phone.
   await page.setViewportSize({ width: 390, height: 844 });
   await until({ displayMode: 'standard' });
+  await nativeResolution();
   const mobile = await frameBox();
   assert.equal(mobile.width, 390);
   assert.ok(Math.abs(mobile.height - (390 * 3) / 4) < 1);
@@ -333,12 +361,16 @@ try {
       const otherDance = gameLayout(otherDesign.w).DANCE;
       await page.setViewportSize(other === 'standard' ? { width: 1024, height: 768 } : { width: 1280, height: 800 });
       await until({ displayMode: other, songScreen: 'preview', stageReady: 'true' });
+      await nativePostResolution();
+      const otherBufferWidth = await page.locator('canvas').evaluate((c) => (c as HTMLCanvasElement).width);
       await page.waitForFunction((x) => Math.abs((window as TestWindow).danceLabelX - x) < 1,
-        glassLabelX(otherDance) * 640 / otherDesign.w);
+        glassLabelX(otherDance) * otherBufferWidth / otherDesign.w);
       await page.setViewportSize(viewport);
       await until({ displayMode: mode, songScreen: 'preview' });
+      await nativePostResolution();
+      const bufferWidth = await page.locator('canvas').evaluate((c) => (c as HTMLCanvasElement).width);
       await page.waitForFunction((x) => Math.abs((window as TestWindow).danceLabelX - x) < 1,
-        glassLabelX(DANCE) * 640 / design.w);
+        glassLabelX(DANCE) * bufferWidth / design.w);
       frame = await frameBox();
     }
     await click(BACK);
@@ -469,7 +501,7 @@ try {
   const pausedAt = Number((await data()).gameTimeMs);
   await page.setViewportSize(mode === 'standard' ? { width: 1280, height: 800 } : { width: 1024, height: 768 });
   await until({ displayMode: mode === 'standard' ? 'widescreen' : 'standard', gamePhase: 'paused' });
-  assert.deepEqual(await page.locator('canvas').evaluate((c) => [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height]), [640, 480]);
+  await nativePostResolution();
   await page.setViewportSize(viewport);
   await until({ displayMode: mode, gamePhase: 'paused' });
   frame = await frameBox();
@@ -516,11 +548,24 @@ try {
   for (const score of four) assert.ok(score > 850000, `each of four ghosts copies the dancer they picked: ${score}`);
   await click(resultsSongs(4));
   await until({ songScreen: 'list', songReady: 'true' }, 10000);
+  // Screen density can change without a CSS resize (zoom, or moving between monitors).
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: deviceScaleFactor * 1.25, mobile: false });
+  await page.waitForFunction((dpr) => devicePixelRatio === dpr, deviceScaleFactor * 1.25);
+  // CDP changes the emulated density without the browser's normal screen-change notification.
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await nativeResolution();
+  await until({ songScreen: 'list', songReady: 'true', displayMode: mode });
+  await cdp.send('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor, mobile: false });
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await nativeResolution();
+  await cdp.detach();
+
   assert.deepEqual(errors, []);
   console.log('Browser flow passed: Settings, camera setup and permission denial on the calibration screen, the 1-4 players dial, Back and Escape, keyboard navigation, letterboxing, catalog, bundle loading, finite audio through the mixer, each song on its own stage, a scored two-player song with the autoplay ghost (countdown, pause, resume, results, Play again, quit), picking dancers for a solo, a trio and a duet, a scored four-player ghost song with three players on one dancer and no runtime errors.');
 } catch (error) {
   console.error(error);
-  if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify(c.dataset)).catch(() => ''));
+  if (testPage) console.error(await testPage.locator('canvas').evaluate((c) => JSON.stringify({ ...c.dataset, buffer: [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height], frame: [c.getBoundingClientRect().width, c.getBoundingClientRect().height], dpr: devicePixelRatio })).catch(() => ''));
   throw error;
 } finally {
   await browser.close();

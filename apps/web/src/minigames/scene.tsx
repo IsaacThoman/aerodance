@@ -17,7 +17,7 @@ import { useMinigameSession } from './hooks.ts';
 import { cameraArea } from './cameraArea.ts';
 
 /*
- * What a game can draw in 3D, inside the game's one <Canvas> (and its 640x480 buffer):
+ * What a game can draw in 3D, inside the game's one <Canvas> (at its render resolution):
  *
  *   <MinigameWorld>       a world of its own (scene 'custom'): it takes the screen, the menu's
  *                         background stands down, and it draws through the stages' post-processing

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { addAfterEffect, addEffect, useThree } from '@react-three/fiber';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import { PIXEL_CAP, drawPixelText, loadPixelFont, pixelTextWidth } from '../ui/pixelFont.ts';
-import { RENDER_SIZE, displayModeFor } from '../display.ts';
+import { displayModeFor } from '../display.ts';
 import { getMixer } from '../audio/mixer.ts';
 import { isPoseRecordEvent } from '../pose/PoseSource.ts';
 import type { PoseSource } from '../pose/PoseSource.ts';
@@ -16,9 +16,8 @@ import { SampleWindow, count, fixed, gpuName, mean, rate, summariseFrames } from
  * the frame rate, frame times and pose tracking; Full adds CPU and GPU time, what the renderer
  * draws, the resolution and GPU, a frame-time graph, tracking details, the audio clock and memory.
  *
- * It is an overlay (ui/useCanvasUI.ts) laid out in render-buffer pixels (640x480), drawn last,
- * in Tiny5 with one font pixel to one canvas pixel (ui/pixelFont.ts), everything on whole
- * pixels. (In 16:9 the buffer is stretched like the rest of the picture, so the text is too.)
+ * It is an overlay (ui/useCanvasUI.ts) drawn last in Tiny5 (ui/pixelFont.ts), with a
+ * 480-unit design height so its size in the frame stays consistent across resolutions.
  *
  * Frames are timed around everything the canvas does in a frame (R3F's addEffect and
  * addAfterEffect): the interval between frames, the main thread's time in them (CPU) and, where
@@ -253,6 +252,7 @@ function Overlay({ mode, source, game, screen }: StatsOverlayProps) {
     ];
     if (full === 'full') {
       const el = gl.domElement;
+      const rect = el.getBoundingClientRect();
       const dpr = devicePixelRatio || 1;
       const { info } = gl;
       lines.push(
@@ -261,7 +261,7 @@ function Overlay({ mode, source, game, screen }: StatsOverlayProps) {
         [label('DRAWS'), value(count(m.draws), 12), gap, label('TRIS'), value(count(m.triangles), 18)],
         [label('GEO'), value(count(info.memory.geometries), 12), gap, label('TEX'), value(count(info.memory.textures), 12), gap,
           label('SHADERS'), value(count(info.programs?.length ?? NaN), 8)],
-        [value(`${RENDER_SIZE.w}X${RENDER_SIZE.h}`), unit(' > '), value(`${Math.round(el.clientWidth * dpr)}X${Math.round(el.clientHeight * dpr)}`), gap,
+        [value(`${el.width}X${el.height}`), unit(' > '), value(`${Math.floor(rect.width * dpr)}X${Math.floor(rect.height * dpr)}`), gap,
           value(displayModeFor(el.clientWidth, el.clientHeight) === 'widescreen' ? '16:9' : '4:3', 0, DIM)],
         [value(gpu.current.toUpperCase(), 0, DIM)],
       );
@@ -296,8 +296,8 @@ function Overlay({ mode, source, game, screen }: StatsOverlayProps) {
 
   const ui = useCanvasUI({
     priority: 4,
-    // One design unit is one render-buffer pixel.
-    design: () => RENDER_SIZE,
+    // Keep the text's proportions and size in the frame independent of pixel density.
+    design: (w, h) => ({ w: 480 * w / Math.max(1, h), h: 480 }),
     update: () => {
       const now = performance.now();
       if (now - shown.current.at < UPDATE_S * 1000) return;

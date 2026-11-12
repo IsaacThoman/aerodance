@@ -57,7 +57,6 @@ body {
   /* Keep the selected display shape even when Three.js updates inline dimensions. */
   width: 100% !important;
   height: 100% !important;
-  image-rendering: pixelated;
   /* Drags on the canvas are the game's (Song Select's list scrolls), not the page's. */
   touch-action: none;
 }
@@ -74,6 +73,7 @@ body {
 }
 
 .canvas-frame.phone canvas {
+  image-rendering: pixelated;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;

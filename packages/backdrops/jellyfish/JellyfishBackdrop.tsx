@@ -15,8 +15,9 @@ import { Water } from './Water.tsx';
  */
 export default function JellyfishBackdrop() {
   const shared = useMemo(() => makeShared(), []);
-  useBackdropFrame((_state, _delta, time) => {
+  useBackdropFrame((state, _delta, time) => {
     shared.uTime.value = time;
+    state.gl.getDrawingBufferSize(shared.uHalfRes.value).multiplyScalar(0.5);
   });
   return (
     <>

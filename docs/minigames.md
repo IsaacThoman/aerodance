@@ -198,7 +198,8 @@ host's HUD and screens (2.3), the results (2.5).
 
 ## Drawing
 
-The canvas is a fixed **640×480** buffer stretched to the display: 4:3, or anamorphic 16:9
+The browser canvas renders at the **native pixel resolution** of its fitted 4:3 or 16:9 frame;
+only the native Apple TV host keeps a fixed **640×480** buffer with anamorphic 16:9
 ([developer guide](README.md#aero-background)). The 2D layers are laid out in design units:
 **1600×900** in 16:9 and **1200×900** in 4:3 (`displayDesign(size.width, size.height)` gives the
 current one), and a game must look right in both: lay things out from the width, keep text and
@@ -564,9 +565,9 @@ buffer. A dance stage costs 60–130 draw calls and 0.2–0.8M triangles
 ([stages](../packages/stages/README.md)), and that's the budget for a whole minigame scene. Each
 glass character is about 8 draw calls and 35k triangles.
 
-- The game's overlay redraws every frame of the round and is uploaded as a 640×480 texture each
-  time: keep its drawing cheap (no blurs or big gradients per frame; cache what doesn't change in
-  an offscreen canvas).
+- The game's overlay redraws every frame of the round and uploads a texture at the render
+  buffer's size (native resolution in browsers, 640×480 on Apple TV): keep its drawing cheap
+  (no blurs or big gradients per frame; cache what doesn't change in an offscreen canvas).
 - Don't allocate per frame in hot paths (the pose API updates in place); reuse vectors and arrays.
 - Share materials and geometry; instance repeated things (`InstancedMesh`); avoid real-time
   shadows unless they matter (`MinigameWorld shadows`).

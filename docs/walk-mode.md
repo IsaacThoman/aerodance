@@ -2,7 +2,7 @@
 
 `/?walk` opens the game's scenes for walking round in first person, like an FPS, instead of
 playing: Skyline (the Aero world), the ten menu backdrops and the six dance stages, each drawn
-as the game draws it (the same 640×480 buffer, post-processing and aspect). `/?walk=<id>` opens
+as the game draws it (the same native browser resolution, post-processing and aspect). `/?walk=<id>` opens
 one (`koi`, `club`, `beach`…); a stage that shares its id with a backdrop goes by `<id>-stage`
 (`atrium-stage`, beside the `atrium` backdrop). The URL follows the scene as it changes, so a
 reload comes back to it. It's only loaded for `?walk`, and nothing in the game links to it.

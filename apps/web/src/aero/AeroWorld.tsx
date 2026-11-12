@@ -20,7 +20,7 @@ export interface AeroWorldProps {
 /**
  * Puts the Aero drone flight inside the surrounding <Canvas>.
  * It drives the default camera (or walk mode's cameraPilot does) and renders the frame itself
- * (useFrame priority 1), so it uses whatever buffer size the Canvas has, e.g. a fixed 640x480.
+ * (useFrame priority 1), so it uses whatever buffer size the Canvas has, including its native browser resolution.
  *
  * fps caps how often the world itself renders (phones: it's the battery hog). In between,
  * the last frame is reused from a texture, so overlays can still redraw at full rate.

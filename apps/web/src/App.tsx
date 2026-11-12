@@ -30,7 +30,7 @@ import { CameraInput } from './pose/CameraInput.ts';
 import { ReplayPoseSource, parseRecording } from './pose/ReplayPoseSource.ts';
 import type { PoseSource } from './pose/PoseSource.ts';
 import { DISPLAY_MODES, displayModeFor } from './display.ts';
-import FixedRenderResolution from './FixedRenderResolution.tsx';
+import DisplayResolution, { useDisplayPixelRatio } from './DisplayResolution.tsx';
 import { isBackgroundId } from './backdrop/backgrounds.ts';
 import type { DisplayMode } from './display.ts';
 import { transferCode } from './songs/transferLink.ts';
@@ -87,6 +87,7 @@ function download(name: string, bytes: Uint8Array<ArrayBuffer>) {
 }
 
 export default function App() {
+  const dpr = useDisplayPixelRatio();
   const viewport = useRef<HTMLDivElement>(null);
   // Settings → Graphics picks 4:3 or 16:9, or Auto: the one that fills more of the screen.
   const [graphics, setGraphics] = useState(loadGraphics);
@@ -315,8 +316,8 @@ export default function App() {
   return (
     <div ref={viewport} className="display-viewport">
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
-        <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
-          <FixedRenderResolution />
+        <Canvas dpr={dpr} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
+          <DisplayResolution />
           <Scene paused={stage.showing} background={minigameBackground ?? background} />
           <StageView
             active={(songsOpen && !!preview) || screen === 'game' || !!minigameStage}

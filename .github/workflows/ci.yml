@@ -46,7 +46,7 @@ jobs:
           - name: remote
             test: node apps/web/tests/remote.browser.ts
           - name: ui-flow widescreen
-            test: node apps/web/tests/ui-flow.browser.ts
+            test: UI_DPR=2 node apps/web/tests/ui-flow.browser.ts
           - name: ui-flow standard
             test: UI_ASPECT=standard node apps/web/tests/ui-flow.browser.ts
           - name: custom-songs
