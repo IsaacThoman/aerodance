@@ -38,6 +38,8 @@ export const EASY = {
   travel: 0.14,
   forward: 0.25,
   whiff: 3.5,
+  /** A swing is past its fastest once a later speed is this share of it or less. */
+  peaked: 0.85,
   /**
    * How much later than the camera's delay a swing's fastest moment shows in the drawn hand (s):
    * less than a paddle's place lags (round.ts DRAW_LAG), as the eased hand's speed peaks before
@@ -76,7 +78,8 @@ const len = (a: V3) => Math.hypot(a.x, a.y, a.z);
 /**
  * The strongest recent swing (from the blade's speeds, newest last, each with its time in the
  * player's seconds) since `after`, and when it was at its fastest: towards the table (EASY.forward),
- * at least minSpeed, part of a move of `travel` the same way. Null if none.
+ * at least minSpeed, part of a move of `travel` the same way, and past its fastest (a later speed
+ * has dropped from it: EASY.peaked). Null if none, or not yet.
  */
 export function easySwing(speeds: readonly { t: number; vel: V3 }[], now: number, after = -Infinity): { vel: V3; t: number } | null {
   let best = -1, bestSpeed = 0;
@@ -97,8 +100,9 @@ export function easySwing(speeds: readonly { t: number; vel: V3 }[], now: number
       went += along * (speeds[i].t - speeds[i - 1].t);
     }
   }
-  // Still going (its fastest is this frame's): wait to see how far.
-  if (best === speeds.length - 1 && went < EASY.travel) return null;
+  // Not past its fastest yet (nothing since has slowed from it): its timing and its power are
+  // still to come, so wait for them.
+  if (!speeds.slice(best + 1).some((later) => len(later.vel) < EASY.peaked * bestSpeed)) return null;
   return went >= EASY.travel ? { vel: way, t: speeds[best].t } : null;
 }
 

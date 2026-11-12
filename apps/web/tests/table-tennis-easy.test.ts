@@ -33,6 +33,15 @@ test('a swing is the hand going fast and far enough towards the table, not back 
   assert.ok(easySwing([...stroke(v3(0, -4, -3), 0.25, 0.95), ...still(0.05, 1)], 1));
   // Nothing from before `after` (the last one, and the arm's recovery).
   assert.equal(easySwing(forehand, 1, 0.99), null);
+  // Still speeding up: not yet, whatever it's travelled; once it's past its fastest, the fastest's
+  // time and speed (a 400 ms stroke, 4 m/s at its middle, seen as it goes).
+  const long = stroke(v3(0, 0, -4), 0.4, 1);
+  for (let n = 4; n <= long.length; n++) {
+    const seen = long.slice(0, n), now = seen.at(-1)!.t, got = easySwing(seen, now);
+    if (n <= long.length / 2) assert.equal(got, null, `${n} samples in: still accelerating`);
+    else if (got) { assert.ok(Math.abs(got.t - 0.8) < 0.02, `peak at ${got.t.toFixed(3)}`); assert.ok(Math.hypot(got.vel.x, got.vel.y, got.vel.z) > 3.9); }
+  }
+  assert.ok(easySwing(long, 1), 'once it has slowed, it counts');
 });
 
 test('the ball is met as it crosses the hitting line after its bounce on the near half; one going long is let go', () => {
@@ -90,7 +99,9 @@ test('off-centre timing and power make shots stray, sometimes off the table; dea
   assert.ok(served.at.z < 0 && Math.abs(served.at.x) < TABLE.halfWidth);
 });
 
-const PLAY: Play = { mode: 'match', controls: 'easy', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
+// (The hand's fed in at once, with no camera; the drawn hand's easing still shows a swing's fastest
+// moment a few hundredths late, which the hit timing allows for as it would a camera's delay.)
+const PLAY: Play = { mode: 'match', controls: 'easy', forgiving: false, serve: false, timeScale: 1, hitLag: 0.06, assist: 'normal', botLevel: 'medium' };
 
 /**
  * Alone, the robot serving: a paddle hand held far off to the side, still, that swings forward
