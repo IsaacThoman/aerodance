@@ -1,0 +1,258 @@
+/* The stage viewer: one stage fills the section, and six tabs along the bottom change it. */
+
+.stages {
+  position: relative;
+  display: grid;
+  min-height: min(100svh, 940px);
+  color: #fff;
+  background: var(--navy-deep);
+  overflow: clip;
+  isolation: isolate;
+  /* A link to the stages lands with the viewer filling the window, the nav floating over it. */
+  scroll-margin-top: calc(-1 * var(--jump-pad));
+}
+
+.stages__slides,
+.stages__scrim,
+.slide,
+.slide img,
+.slide video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* A stage of its own, so the slides' order is theirs alone, under the scrim and the copy. */
+.stages__slides {
+  isolation: isolate;
+}
+
+/* One stage is on show. Changing stage, the one going fades out on top of the one coming, whose
+   clip is already playing under it (stages.ts), over --fade, which stages.ts sets. A slide that
+   isn't on show or leaving is gone at once: with no transition of its own, one cut short (a pause
+   mid-fade) stops there. */
+.slide {
+  opacity: 0;
+  transition: none;
+}
+
+.slide.is-active {
+  z-index: 1;
+  opacity: 1;
+}
+
+.slide.is-leaving {
+  z-index: 2;
+  transition: opacity var(--fade) linear;
+}
+
+.slide img,
+.slide video {
+  object-fit: cover;
+}
+
+/* Cover the section at 16:9 by size alone, so a browser that reads the clips as 4:3 (they are
+   the game's 4:3 buffer, flagged to show at 16:9) still shows them the right shape. */
+@supports (width: 1cqw) {
+  .stages__slides {
+    container-type: size;
+  }
+
+  .slide img,
+  .slide video {
+    inset: 50% auto auto 50%;
+    width: max(100cqw, 177.78cqh);
+    height: max(100cqh, 56.25cqw);
+    max-width: none;
+    translate: -50% -50%;
+    object-fit: fill;
+  }
+}
+
+/* A clip shows once it's playing: on the stage on show, fading in over its own first frame (the
+   still); on one coming in, out of sight, at once. The clips are the game's 640×480 picture
+   doubled, so scaled without smoothing its pixels stay as sharp as in the game. */
+.slide video {
+  opacity: 0;
+  image-rendering: pixelated;
+}
+
+.slide.is-playing video {
+  opacity: 1;
+}
+
+.slide.is-active video {
+  transition: opacity var(--fade) linear;
+}
+
+.stages__scrim {
+  background:
+    linear-gradient(90deg, rgba(4, 22, 50, 0.78) 0, rgba(4, 22, 50, 0.4) 42%, rgba(4, 22, 50, 0) 68%),
+    linear-gradient(0deg, rgba(4, 22, 50, 0.86) 0, rgba(4, 22, 50, 0.3) 32%, rgba(4, 22, 50, 0) 52%),
+    linear-gradient(180deg, rgba(4, 22, 50, 0.45) 0, rgba(4, 22, 50, 0) 26%);
+}
+
+.stages__inner {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 28px;
+  width: 100%;
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin-inline: auto;
+  padding: clamp(72px, 9vw, 120px) var(--pad) clamp(28px, 4vw, 48px);
+}
+
+.stages__head .display {
+  filter: drop-shadow(0 4px 18px rgba(4, 22, 50, 0.6));
+}
+
+.stages__info {
+  align-self: end;
+}
+
+.stages__control {
+  display: flex;
+}
+
+/* Stops and starts the tour. */
+.stages__toggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background-color 0.2s var(--ease);
+}
+
+.stages__toggle:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.stages__toggle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.stages__toggle .off,
+.stages__toggle[data-state="paused"] .on {
+  display: none;
+}
+
+.stages__toggle[data-state="paused"] .off {
+  display: block;
+  translate: 1px 0;
+}
+
+.stages__tabs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(8px, 1.2vw, 14px);
+}
+
+.stab {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  background: var(--navy-deep);
+  box-shadow: 0 16px 26px -16px rgba(0, 10, 30, 0.9);
+  isolation: isolate;
+  transition:
+    border-color 0.3s var(--ease),
+    translate 0.3s var(--ease),
+    box-shadow 0.3s var(--ease);
+}
+
+.stab img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.9) brightness(0.82);
+  transition:
+    filter 0.3s var(--ease),
+    scale 0.6s var(--ease);
+}
+
+.stab span {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 22px 10px 8px;
+  font-size: clamp(11.5px, 1.05vw, 14px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: left;
+  background: linear-gradient(0deg, rgba(4, 22, 50, 0.94) 0, rgba(4, 22, 50, 0.82) 50%, rgba(4, 22, 50, 0));
+}
+
+.stab:hover {
+  translate: 0 -3px;
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+.stab:hover img,
+.stab.is-active img {
+  filter: none;
+  scale: 1.05;
+}
+
+.stab.is-active {
+  border-color: #fff;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--a) 70%, transparent),
+    0 18px 30px -14px color-mix(in srgb, var(--b) 80%, #000);
+}
+
+/* How far the stage on show is through its clip, up to the next one's coming in: stages.ts
+   sets --progress from the clip's own clock, so it holds still with the clip. */
+.stab::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: 3px;
+  background: linear-gradient(90deg, var(--a), #fff);
+  transform-origin: left;
+  scale: var(--progress, 0) 1;
+}
+
+@media (max-width: 760px) {
+  .stages {
+    min-height: min(100svh, 780px);
+  }
+
+  .stages__scrim {
+    background:
+      linear-gradient(0deg, rgba(4, 22, 50, 0.92) 0, rgba(4, 22, 50, 0.6) 40%, rgba(4, 22, 50, 0) 66%),
+      linear-gradient(180deg, rgba(4, 22, 50, 0.7) 0, rgba(4, 22, 50, 0) 34%);
+  }
+
+  /* The tabs become a strip to swipe along. */
+  .stages__tabs {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 38%;
+    margin-inline: calc(-1 * var(--pad));
+    padding: 6px var(--pad) 10px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .stages__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .stab {
+    scroll-snap-align: center;
+  }
+}

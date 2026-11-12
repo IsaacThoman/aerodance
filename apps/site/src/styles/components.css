@@ -1,0 +1,661 @@
+/* Shared pieces: the wordmark, display type, buttons, store badges, orbs, the phone, the nav and the
+   dialog. */
+
+/* --- Wordmark: "aero" heavy, "dance" light, a mint square for the full stop --- */
+.wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  color: var(--navy);
+  white-space: nowrap;
+}
+
+.wordmark b {
+  font-weight: 800;
+}
+
+.wordmark span {
+  font-weight: 200;
+}
+
+.wordmark i {
+  width: 0.16em;
+  height: 0.16em;
+  margin-left: 0.07em;
+  background: var(--stop);
+  border-radius: 0.02em;
+}
+
+.wordmark--light {
+  color: #fff;
+}
+
+.wordmark--light i,
+.wordmark--xl i {
+  background: var(--mint);
+}
+
+/* --- Display type: the same two weights, and the same stop --- */
+.display {
+  font-weight: 200;
+  font-size: clamp(2.5rem, 5.6vw, 4.4rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+  color: var(--navy);
+  text-wrap: balance;
+}
+
+.display b {
+  font-weight: 800;
+  letter-spacing: -0.05em;
+}
+
+.display--light {
+  color: #fff;
+}
+
+.stop {
+  display: inline-block;
+  width: 0.15em;
+  height: 0.15em;
+  margin-left: 0.07em;
+  background: var(--stop);
+  border-radius: 0.02em;
+}
+
+.display--light .stop,
+.display--hero .stop {
+  background: var(--mint);
+}
+
+/* --- Buttons: glossy pills --- */
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 26px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  isolation: isolate;
+  transition:
+    translate 0.25s var(--ease),
+    box-shadow 0.25s var(--ease),
+    filter 0.25s var(--ease),
+    color 0.25s var(--ease),
+    background-color 0.25s var(--ease);
+}
+
+.btn svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.btn:hover {
+  translate: 0 -2px;
+}
+
+.btn:active {
+  translate: 0 1px;
+}
+
+/* The highlight across the top half of every glossy thing. */
+.btn--primary::before,
+.badge::before,
+.orb::before {
+  content: "";
+  position: absolute;
+  inset: 1px 1px 54% 1px;
+  border-radius: inherit;
+  border-bottom-left-radius: 40% 60%;
+  border-bottom-right-radius: 40% 60%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.03));
+  pointer-events: none;
+  z-index: -1;
+}
+
+.btn--primary {
+  color: #fff;
+  /* Deep enough behind the label for white to read (4.5:1 and up); its gloss stops above the label. */
+  background: linear-gradient(180deg, #2a86e6 0%, #1463cc 34%, #0f5abf 100%);
+  border: 1px solid #0a4aa6;
+  text-shadow: 0 1px 1px rgba(6, 56, 130, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 12px 22px -12px rgba(13, 92, 192, 0.85);
+}
+
+.btn--primary::before {
+  inset: 1px 1px 64% 1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0));
+}
+
+.btn--primary:hover {
+  filter: brightness(1.07) saturate(1.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 18px 28px -14px rgba(13, 92, 192, 0.9);
+}
+
+.btn--glass {
+  color: var(--navy);
+  background: linear-gradient(180deg, #fff, #e8f6ff);
+  border: 1px solid #fff;
+  box-shadow:
+    inset 0 -1px 0 rgba(12, 70, 140, 0.08),
+    0 10px 22px -12px rgba(12, 70, 140, 0.45);
+}
+
+.btn--sm {
+  height: 42px;
+  padding: 0 18px;
+  font-size: 14.5px;
+}
+
+/* --- Store badges --- */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.badges--center {
+  justify-content: center;
+}
+
+.badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 60px;
+  padding: 0 22px 0 18px;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(180deg, #1f3550 0%, #0a1627 58%, #060e1a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 16px 28px -16px rgba(3, 20, 45, 0.9);
+  isolation: isolate;
+  transition:
+    translate 0.25s var(--ease),
+    box-shadow 0.25s var(--ease),
+    filter 0.25s var(--ease);
+}
+
+.badge::before {
+  inset: 1px 1px 52% 1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.02));
+}
+
+.badge:hover {
+  translate: 0 -2px;
+  filter: brightness(1.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 22px 34px -18px rgba(3, 20, 45, 0.95);
+}
+
+.badge:active {
+  translate: 0 1px;
+}
+
+.badge__icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.badge__text {
+  display: grid;
+  text-align: left;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.badge__text small {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  opacity: 0.86;
+}
+
+.badge__text strong {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+/* Navy glass, so its white text reads on sky and sunset alike. */
+.badge--glass {
+  background: linear-gradient(180deg, rgba(10, 44, 98, 0.52), rgba(8, 34, 80, 0.7));
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 16px 28px -16px rgba(3, 30, 80, 0.7);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* --- Text links with a little arrow --- */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+  color: #fff;
+  border-radius: 999px;
+}
+
+.link > svg {
+  width: 17px;
+  height: 17px;
+  transition: translate 0.25s var(--ease);
+}
+
+.link:hover > svg {
+  translate: 4px 0;
+}
+
+.link--ink {
+  color: var(--link);
+}
+
+/* --- Orbs: the game's round glossy icon tiles --- */
+.orb {
+  --o1: #9fe6ff;
+  --o2: #1f8fd0;
+  --o3: #0d63a8;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  flex: none;
+  border-radius: 50%;
+  color: #fff;
+  background: radial-gradient(circle at 32% 22%, var(--o1), var(--o2) 58%, var(--o3));
+  box-shadow:
+    inset 0 -3px 6px rgba(255, 255, 255, 0.25),
+    0 12px 20px -10px color-mix(in srgb, var(--o3) 80%, transparent);
+  isolation: isolate;
+}
+
+.orb::before {
+  inset: 3px 8px 52% 8px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.05));
+  z-index: 0;
+}
+
+.orb svg {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  filter: drop-shadow(0 1px 1px rgba(0, 40, 90, 0.35));
+}
+
+.orb--sm {
+  width: 44px;
+  height: 44px;
+}
+
+.orb--sm svg {
+  width: 21px;
+  height: 21px;
+}
+
+.orb--mint {
+  --o1: #c9fff3;
+  --o2: #22c2ad;
+  --o3: #0c8f86;
+}
+
+.orb--green {
+  --o1: #b6f7cf;
+  --o2: #1fb866;
+  --o3: #0d8a48;
+}
+
+.orb--pink {
+  --o1: #ffc8e6;
+  --o2: #f0559f;
+  --o3: #c42b78;
+}
+
+.orb--purple {
+  --o1: #e0c8ff;
+  --o2: #9a56ee;
+  --o3: #6a2bc2;
+}
+
+.orb--orange {
+  --o1: #ffe3b0;
+  --o2: #f7972a;
+  --o3: #d06a0c;
+}
+
+/* --- Phone: a current Pro phone from the front, drawn round the game's phone page ---
+   A slim polished frame, a thin black bezel, the small Dynamic Island, the status bar and the home
+   indicator. Everything is sized in cqw, hundredths of the phone's width, from a 402×874-point
+   screen 93.3cqw wide (so a point is 0.2321cqw), so it's the same drawing at any size: each place
+   that shows it (the features card, the Apple TV card) sets only its width, where it stands and
+   its drop shadow, tinted to what it stands on. The screen is one image of the whole screen: the
+   game's own phone page (/pair/), as a home-screen app shows it, with the page's background
+   carried up behind the status bar and down behind the home indicator. */
+.phone {
+  --phone-shadow: 0 0 transparent;
+  position: relative;
+  container-type: inline-size;
+}
+
+/* The buttons, standing just proud of the frame: the action button and volume on the left, the
+   side button and Camera Control on the right. A phone drawn small (the Apple TV card's is 55 to
+   110 px wide) would have them under a device pixel proud, which rounds to nothing on one side and
+   not the other, so they stand at least half a pixel out: one device pixel on a 2x screen. */
+.phone__key {
+  position: absolute;
+  width: max(1.3cqw, 1px);
+  border-radius: 0.6cqw;
+  background: linear-gradient(90deg, #8e99a3, #eef2f5 45%, #a3adb6);
+  box-shadow: inset 0 0 0 0.15cqw rgba(60, 70, 80, 0.25);
+}
+
+.phone__key--action,
+.phone__key--up,
+.phone__key--down {
+  left: min(-0.8cqw, -0.5px);
+}
+
+.phone__key--side,
+.phone__key--control {
+  right: min(-0.8cqw, -0.5px);
+}
+
+.phone__key--action {
+  top: 19.5%;
+  height: 5.5%;
+}
+
+.phone__key--up {
+  top: 28%;
+  height: 10%;
+}
+
+.phone__key--down {
+  top: 40%;
+  height: 10%;
+}
+
+.phone__key--side {
+  top: 29%;
+  height: 15%;
+}
+
+/* Camera Control sits nearly flush, a sapphire strip in the frame. */
+.phone__key--control {
+  top: 59%;
+  height: 7%;
+  width: 0.8cqw;
+  right: -0.4cqw;
+  background: linear-gradient(90deg, #7b8690, #c7cfd6 50%, #7b8690);
+}
+
+/* The frame: brushed metal, lit from the top left, with a bright rim at its outer edge. */
+.phone__body {
+  position: relative;
+  padding: 1.6cqw;
+  border-radius: 17.75cqw;
+  background: linear-gradient(140deg, #fbfcfd 0%, #b9c2c9 14%, #e8edf0 34%, #a7b1b9 58%, #dde3e7 80%, #b4bdc4 100%);
+  box-shadow:
+    inset 0 0 0 0.22cqw rgba(255, 255, 255, 0.7),
+    inset 0 0 0 0.45cqw rgba(110, 122, 132, 0.25),
+    var(--phone-shadow);
+}
+
+.phone__screen {
+  position: relative;
+  box-sizing: content-box;
+  width: 93.3cqw;
+  aspect-ratio: 402 / 874;
+  /* The black bezel round the glass; a 62-point corner inside it. */
+  border: 1.75cqw solid #020304;
+  border-radius: 16.15cqw;
+  overflow: hidden;
+  color: #fff;
+  /* The screen image's background, as WebP decodes it. */
+  background: #1c6ed4;
+  box-shadow: 0 0 0 0.2cqw rgba(40, 48, 56, 0.55);
+}
+
+.phone__screen img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* The status bar: the time and the icons, each centred in the space either side of where iOS
+   leaves room for the island, level with the island's middle. */
+.phone__status {
+  position: absolute;
+  inset: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 29cqw 1fr;
+  align-items: center;
+  justify-items: center;
+  height: 13.46cqw;
+  padding-inline: 3cqw;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font);
+}
+
+.phone__time {
+  font-size: 3.95cqw;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.phone__icons {
+  grid-column: 3;
+  width: 17.64cqw;
+  fill: currentColor;
+}
+
+.phone__island {
+  position: absolute;
+  left: 50%;
+  top: 2.55cqw;
+  width: 19cqw;
+  height: 8.4cqw;
+  translate: -50% 0;
+  border-radius: 999px;
+  background: #000;
+}
+
+.phone__home {
+  position: absolute;
+  left: 50%;
+  bottom: 1.86cqw;
+  width: 32.3cqw;
+  height: 1.16cqw;
+  translate: -50% 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* --- Nav: a glass bar that floats over the page --- */
+.nav {
+  /* The bar rests 14 px below the window's top. This box, which never moves, starts 6 px below it
+     and clips what passes above that: see the slide, below. Room under the bar for its shadow. */
+  --top: 14px;
+  --clip: 6px;
+  position: fixed;
+  inset: var(--clip) 0 auto;
+  z-index: 50;
+  padding: calc(var(--top) - var(--clip)) clamp(12px, 3vw, 28px) 32px;
+  overflow-y: clip;
+  pointer-events: none;
+}
+
+.nav__bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: calc(var(--max) + 40px);
+  height: 62px;
+  margin-inline: auto;
+  padding: 0 10px 0 24px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(6, 44, 130, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  box-shadow: 0 10px 30px -18px rgba(4, 30, 80, 0.5);
+  transition:
+    translate 0.35s var(--ease),
+    background-color 0.4s var(--ease),
+    border-color 0.4s var(--ease),
+    color 0.4s var(--ease),
+    box-shadow 0.4s var(--ease);
+}
+
+/* On a phone the bar slides up out of the way while the page scrolls down, and back as it scrolls
+   up (src/chrome.ts), keeping its look on the way; its shadow (30 px under it, in the white glass
+   it has by then) goes with it. It's only moved: a screen reader still finds it, and a Tab into it
+   brings it back.
+   It's clipped 6 px short of the window's top edge (.nav) for Safari (26 on), which looks for a bar
+   fixed to that edge, 4 px in from it, and once it has found one tints its status bar for it, in
+   the page's top colour, for the rest of the visit (WebKit's fixed container edges; it keeps a
+   <header> even once it's hidden). Resting 14 px down the bar is never found, but sliding across
+   the edge it would be, and the hero's blue would then sit over the footer's navy. */
+.nav[data-hidden] .nav__bar {
+  translate: 0 calc(-100% - var(--top) - 32px);
+}
+
+.nav .wordmark {
+  color: inherit;
+  margin-right: auto;
+}
+
+/* A touch heavier than the wordmark's own 200, which thins out at this size. */
+.nav .wordmark span {
+  font-weight: 300;
+}
+
+.nav .wordmark i {
+  background: var(--mint);
+}
+
+.nav__github {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: background-color 0.2s var(--ease);
+}
+
+.nav__github:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.nav__github svg {
+  width: 19px;
+  height: 19px;
+}
+
+.nav__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Over the sky the bar's button is white glass, which a blue one would be lost against. */
+.nav:not([data-scrolled]) .btn--primary {
+  color: var(--navy);
+  background: linear-gradient(180deg, #fff, #dff2ff);
+  border-color: #fff;
+  text-shadow: none;
+  box-shadow: 0 10px 22px -12px rgba(3, 30, 90, 0.8);
+}
+
+.nav:not([data-scrolled]) .btn--primary::before {
+  content: none;
+}
+
+/* Past the hero the bar turns to white glass with navy ink. */
+.nav[data-scrolled] .nav__bar {
+  color: var(--navy);
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 14px 34px -18px rgba(8, 50, 110, 0.45);
+}
+
+.nav[data-scrolled] .wordmark i {
+  background: var(--stop);
+}
+
+.nav[data-scrolled] .nav__github:hover {
+  background: rgba(12, 47, 82, 0.07);
+}
+
+@media (max-width: 400px) {
+  .badge {
+    gap: 9px;
+    padding: 0 14px 0 12px;
+  }
+
+  .badge__icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .badge__text strong {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 350px) {
+  .nav__github {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav__bar {
+    height: 56px;
+    padding-left: 18px;
+    padding-right: 7px;
+  }
+
+  .nav .wordmark {
+    font-size: 23px;
+  }
+
+  .nav__github span {
+    display: none;
+  }
+
+  .nav__github {
+    padding: 0 10px;
+  }
+}

@@ -1,0 +1,560 @@
+/* The light sections: the feature grid and platforms. */
+
+.section {
+  position: relative;
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin-inline: auto;
+  padding: var(--section-pad) var(--pad);
+}
+
+/* The last light section ends just under its browser strip: the room below it is the closing's,
+   where the dusk begins (closing.css). */
+.platforms {
+  padding-bottom: var(--dusk-gap);
+}
+
+.section__head {
+  max-width: 780px;
+  margin: 0 auto clamp(40px, 6vw, 72px);
+  text-align: center;
+}
+
+/* A wash of colour behind each light section, so the page isn't one flat tone. */
+.section::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: min(760px, 90vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--wash), transparent 68%);
+  pointer-events: none;
+}
+
+.features::before {
+  --wash: rgba(88, 182, 247, 0.22);
+  left: -22%;
+  top: 22%;
+}
+
+.platforms::before {
+  --wash: rgba(184, 107, 255, 0.13);
+  left: -20%;
+  bottom: 4%;
+}
+
+/* ---------- Features ---------- */
+.features {
+  padding-top: clamp(56px, 7vw, 100px);
+}
+
+.bento {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: clamp(16px, 2vw, 24px);
+}
+
+.card {
+  position: relative;
+  padding: clamp(24px, 2.8vw, 36px);
+  border-radius: var(--r-card);
+  background: linear-gradient(180deg, #fff, #f5fbff);
+  border: 1px solid #fff;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.card .orb {
+  margin-bottom: 20px;
+}
+
+.card__copy {
+  position: relative;
+  z-index: 2;
+}
+
+.card .link {
+  margin-top: 18px;
+  font-size: 15.5px;
+}
+
+/* One to four players */
+.card--players {
+  grid-column: span 4;
+  min-height: 430px;
+  background:
+    radial-gradient(90% 80% at 85% 0, rgba(255, 255, 255, 0.9), transparent 60%),
+    linear-gradient(170deg, #dff3ff, #bfe6ff 70%, #a9dcff);
+}
+
+.card--players .card__copy {
+  max-width: 300px;
+}
+
+/* The four dancers on their glass puck, as the game's players screen shows four: the game's own
+   menu dancers, each caught mid-move, rendered in its engine with real transparency (media/crew/). */
+.crew {
+  position: absolute;
+  /* A third of the way across, or further on a narrow card: the dancers start a tenth of the way
+     into the art (only the puck reaches further left), and they stay clear of the copy, which is
+     300px wide inside the card's padding. */
+  inset: 0 0 0 max(34%, calc((clamp(24px, 2.8vw, 36px) + 300px - 10%) / 0.9));
+  z-index: 1;
+}
+
+.crew__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: 100% 100%;
+}
+
+/* Phone as the camera */
+.card--phone {
+  grid-column: span 2;
+  grid-row: span 2;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  background:
+    radial-gradient(90% 60% at 100% 0, rgba(255, 255, 255, 0.9), transparent 60%),
+    linear-gradient(170deg, #e2fff7, #c3f6e9 70%, #a8efdf);
+}
+
+/* The phone (components.css) stands under the copy, its foot cut off by the card's bottom edge. */
+.card--phone .phone {
+  --phone-shadow: 0 40px 50px -28px rgba(6, 80, 80, 0.7);
+  width: min(74%, 250px);
+  margin: 30px auto -34%;
+}
+
+.card--privacy,
+.card--pixels {
+  grid-column: span 2;
+}
+
+/* A faint pixel grid in the corner, since that card is about pixels. */
+.card--pixels::after {
+  content: "";
+  position: absolute;
+  right: -20px;
+  bottom: -20px;
+  z-index: -1;
+  width: 190px;
+  height: 150px;
+  background:
+    linear-gradient(90deg, #fff 2px, transparent 2px) 0 0 / 16px 12px,
+    linear-gradient(0deg, #fff 2px, transparent 2px) 0 0 / 16px 12px,
+    linear-gradient(135deg, #ffd6ec, #ffb3da 40%, #d9b8ff);
+  -webkit-mask-image: radial-gradient(circle at 100% 100%, #000, transparent 70%);
+  mask-image: radial-gradient(circle at 100% 100%, #000, transparent 70%);
+  opacity: 0.75;
+}
+
+/* Dance Studio */
+.card--studio {
+  grid-column: span 4;
+  min-height: 380px;
+  background:
+    radial-gradient(80% 80% at 0 0, rgba(255, 255, 255, 0.9), transparent 60%),
+    linear-gradient(170deg, #f1eaff, #e0d2ff 70%, #cfbcff);
+}
+
+.card--studio .card__copy {
+  max-width: 310px;
+}
+
+.window {
+  position: absolute;
+  left: calc(310px + clamp(60px, 7vw, 92px));
+  top: clamp(32px, 4vw, 44px);
+  width: 580px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0e1a2b;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 40px 60px -30px rgba(60, 30, 130, 0.6);
+}
+
+.window__bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding-inline: 13px;
+  background: linear-gradient(180deg, #f4f7fb, #dbe3ee);
+  color: #5b6f85;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.window__bar i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff6b70;
+}
+
+.window__bar i:nth-child(2) {
+  background: #ffc44d;
+}
+
+.window__bar i:nth-child(3) {
+  background: #3ad68a;
+}
+
+.window__bar span {
+  margin-inline: auto;
+  translate: -24px 0;
+}
+
+.window img {
+  width: 100%;
+}
+
+/* Minigames */
+.card--minigames {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  background:
+    radial-gradient(90% 60% at 100% 0, rgba(255, 255, 255, 0.9), transparent 60%),
+    linear-gradient(170deg, #fff3e2, #ffe2bf 70%, #ffd3a1);
+}
+
+.card__shot {
+  width: calc(100% + 2 * clamp(24px, 2.8vw, 36px) - 28px);
+  max-width: none;
+  margin: 26px calc(14px - clamp(24px, 2.8vw, 36px)) 0;
+  margin-top: auto;
+  translate: 0 0;
+  border-radius: 16px 16px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-bottom: 0;
+  box-shadow: 0 -10px 40px -20px rgba(160, 80, 0, 0.5);
+}
+
+.card--minigames .card__copy {
+  margin-bottom: 26px;
+}
+
+/* ---------- Platforms ---------- */
+.plats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(16px, 2.2vw, 28px);
+}
+
+.plat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 12px 12px 28px;
+  border-radius: var(--r-card);
+  background: linear-gradient(180deg, #fff, #f6fcff);
+  border: 1px solid #fff;
+  box-shadow: var(--shadow-card);
+}
+
+.plat h3,
+.plat > p,
+.plat .badge {
+  margin-inline: 18px;
+}
+
+.plat > p {
+  flex: 1;
+  margin-bottom: 24px;
+}
+
+.plat__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-bottom: 26px;
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(110% 80% at 100% 0, rgba(255, 255, 255, 0.7), transparent 55%),
+    linear-gradient(170deg, #9fdcff, #4aa6f3);
+}
+
+.plat__art--ios {
+  background:
+    radial-gradient(110% 80% at 0 0, rgba(255, 255, 255, 0.7), transparent 55%),
+    linear-gradient(170deg, #b8f5e6, #37c6c4);
+}
+
+.plat__art--steam {
+  background:
+    radial-gradient(110% 80% at 100% 0, rgba(255, 255, 255, 0.6), transparent 55%),
+    linear-gradient(170deg, #d6c8ff, #7b6cf0);
+}
+
+/* Devices, drawn in CSS around real screenshots. */
+.device {
+  position: absolute;
+  background: linear-gradient(160deg, #27313d, #05080c 22%);
+  box-shadow:
+    0 0 0 1px #3a4654,
+    0 30px 40px -22px rgba(4, 30, 80, 0.75);
+}
+
+.device img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.device--tv {
+  left: 7%;
+  top: 13%;
+  width: 76%;
+  aspect-ratio: 16 / 9;
+  padding: 1.1%;
+  border-radius: 7px;
+}
+
+.device--tv img {
+  border-radius: 3px;
+}
+
+.device--tv::after {
+  content: "";
+  position: absolute;
+  left: 38%;
+  top: 100%;
+  width: 24%;
+  height: 7px;
+  background: linear-gradient(180deg, #05080c, #2a3440);
+  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+}
+
+/* The paired phone that's the camera: the features card's phone (components.css), small, rising
+   from the art's bottom edge over the TV's corner. Its foot is cut off and its top sits a little
+   under halfway down, so the island, the status bar and the typed code all show. It casts the
+   other devices' shadow. */
+.plat__phone {
+  --phone-shadow: 0 30px 40px -22px rgba(4, 30, 80, 0.75);
+  position: absolute;
+  right: 7%;
+  bottom: -7%;
+  width: 22%;
+}
+
+.device--ipad {
+  left: 6%;
+  top: 11%;
+  width: 72%;
+  aspect-ratio: 4 / 3;
+  padding: 2.4%;
+  border-radius: 5% / 6.6%;
+}
+
+.device--ipad img {
+  border-radius: 2.5% / 3.3%;
+}
+
+.device--iphone {
+  right: 5%;
+  bottom: 8%;
+  width: 56%;
+  aspect-ratio: 19.5 / 9;
+  border-radius: 9% / 19.5%;
+  background: #05080c;
+}
+
+/* The game keeps its 16:9 on a phone's long screen, with black either side. */
+.device--iphone img {
+  position: absolute;
+  inset: 4.5% 11.8%;
+  width: 76.4%;
+  height: 91%;
+  border-radius: 2px;
+}
+
+.device--laptop {
+  left: 11%;
+  top: 14%;
+  width: 78%;
+  background: none;
+  box-shadow: none;
+}
+
+.device__lid {
+  aspect-ratio: 16 / 10.3;
+  padding: 2% 2% 2.6%;
+  border-radius: 3.2% 3.2% 0 0 / 5% 5% 0 0;
+  background: linear-gradient(160deg, #27313d, #05080c 22%);
+  box-shadow:
+    0 0 0 1px #3a4654,
+    0 30px 40px -22px rgba(30, 20, 110, 0.75);
+}
+
+.device__lid img {
+  border-radius: 3px;
+}
+
+.device__base {
+  position: relative;
+  width: 122%;
+  height: 0;
+  margin-left: -11%;
+  padding-bottom: 2.6%;
+  border-radius: 0 0 14px 14px / 0 0 100% 100%;
+  background: linear-gradient(180deg, #f0f4f8, #b4c0cc 60%, #8a98a6);
+  box-shadow: 0 16px 20px -12px rgba(30, 20, 110, 0.6);
+}
+
+.device__base::before {
+  content: "";
+  position: absolute;
+  left: 43%;
+  top: 0;
+  width: 14%;
+  height: 34%;
+  border-radius: 0 0 8px 8px;
+  background: #9aa7b4;
+}
+
+.webstrip {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: clamp(16px, 2.2vw, 28px);
+  padding: 18px 20px 18px 22px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff, #f1f9ff);
+  border: 1px solid #fff;
+  box-shadow: var(--shadow-card);
+  /* Its shadow reaches about 60px down, past the foot of the section and onto the closing's dusk
+     (--dusk-gap below it): above the closing, the shadow fades out over the sky instead of being
+     cut off where the closing's background begins. */
+  position: relative;
+  z-index: 1;
+}
+
+.webstrip p {
+  flex: 1;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+
+.webstrip strong {
+  color: var(--navy);
+  font-weight: 700;
+}
+
+@media (max-width: 1020px) {
+  .bento {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .card--players,
+  .card--studio {
+    grid-column: span 2;
+  }
+
+  .card--phone {
+    grid-column: span 1;
+    grid-row: span 2;
+  }
+
+  .card--privacy,
+  .card--pixels,
+  .card--minigames {
+    grid-column: span 1;
+  }
+
+  .card--minigames {
+    grid-column: span 2;
+  }
+
+  .card__shot {
+    width: min(100%, 560px);
+    margin-inline: auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .plats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plats {
+    max-width: 520px;
+    margin-inline: auto;
+  }
+
+  .webstrip {
+    flex-wrap: wrap;
+    max-width: 520px;
+    margin-inline: auto;
+    border-radius: var(--r-card);
+  }
+
+  .webstrip p {
+    flex-basis: 60%;
+  }
+
+  .webstrip .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .bento {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card--players,
+  .card--studio,
+  .card--phone,
+  .card--privacy,
+  .card--pixels,
+  .card--minigames {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .card--players {
+    min-height: 0;
+    padding-bottom: 250px;
+  }
+
+  .card--players .card__copy,
+  .card--studio .card__copy {
+    max-width: none;
+  }
+
+  .crew {
+    inset: auto 0 0;
+    height: 250px;
+  }
+
+  .crew__img {
+    object-position: 50% 100%;
+  }
+
+  .card--studio {
+    min-height: 0;
+    padding-bottom: 0;
+  }
+
+  .window {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: 150%;
+    margin-top: 28px;
+    border-radius: 12px 0 0 0;
+  }
+
+  .card--phone .phone {
+    margin-bottom: -40%;
+  }
+}

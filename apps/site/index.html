@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>aerodance</title>
+    <meta name="description" content="A dance game you play in front of a camera. Follow the glass dancers and get scored on every move. On Apple TV, iPhone, iPad and Steam." />
+    <meta name="theme-color" content="#0b57cc" />
+    <link rel="canonical" href="{{site}}" />
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="64x64" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="aerodance" />
+    <meta property="og:title" content="aerodance" />
+    <meta property="og:description" content="Stand in front of a camera, follow the glass dancers and get scored on every move. On Apple TV, iPhone, iPad and Steam." />
+    <meta property="og:url" content="{{site}}" />
+    <meta property="og:image" content="{{site}}/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Two glass dancers, one blue and one purple, on a meadow stage under the aerodance wordmark" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preload" as="image" href="./media/hero.webp" />
+    <link rel="preload" as="font" type="font/woff2" href="../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2" crossorigin />
+    <script>
+      // The controls that need JavaScript (src/main.ts) show from the start. If that script hasn't run within four seconds, they're hidden again.
+      document.documentElement.classList.add("js");
+      // The page starts paused (src/motion.ts) for the system's "reduce motion" setting, or after a pause pressed on an earlier visit.
+      try {
+        if (localStorage.getItem("aerodance:motion") === "off") document.documentElement.dataset.motion = "off";
+      } catch (e) {}
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.dataset.motion = "off";
+      setTimeout(function () {
+        if (!("ready" in document.documentElement.dataset)) document.documentElement.classList.remove("js");
+      }, 4000);
+    </script>
+    <link rel="stylesheet" href="./src/styles/index.css" />
+    <script type="module" src="./src/main.ts"></script>
+  </head>
+  <body>
+    <!-- Icons, used with <use href="#i-…">. Brand marks are from Simple Icons (CC0). -->
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-apple" viewBox="0 0 24 24"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" /></symbol>
+      <symbol id="i-steam" viewBox="0 0 24 24"><path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.454 1.012H7.54zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.253 0-2.265-1.014-2.265-2.265z" /></symbol>
+      <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6a.9.9 0 0 0 1.37.77l11-6.8a.9.9 0 0 0 0-1.54l-11-6.8A.9.9 0 0 0 8 5.2Z" /></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4.2" height="14" rx="1.2" /><rect x="13.8" y="5" width="4.2" height="14" rx="1.2" /></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.6" /><path d="M11 18.5h2" /></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.6" /><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" /></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="4.6" height="4.6" rx=".8" /><rect x="9.7" y="4" width="4.6" height="4.6" rx=".8" /><rect x="15.4" y="4" width="4.6" height="4.6" rx=".8" /><rect x="4" y="9.7" width="4.6" height="4.6" rx=".8" /><rect x="15.4" y="9.7" width="4.6" height="4.6" rx=".8" /><rect x="4" y="15.4" width="4.6" height="4.6" rx=".8" /><rect x="9.7" y="15.4" width="4.6" height="4.6" rx=".8" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.4" /><path d="M2.8 20a6.2 6.2 0 0 1 12.4 0" /><circle cx="17.2" cy="9" r="2.6" /><path d="M17.5 14.6a4.8 4.8 0 0 1 3.8 4.7" /></symbol>
+      <symbol id="i-clapper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9.5" width="17" height="11" rx="2.4" /><path d="m3.8 9.5 15.6-4.2.700 2.7M8 8.4 6.6 5.8M12.5 7.2l-1.4-2.6M17 6l-1.4-2.6" /></symbol>
+      <symbol id="i-paddle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 14.5a6.2 6.2 0 1 0-4.3-4.3c.300 1.1-.100 2.3-1 3.2l-4.4 4.4a1.5 1.5 0 0 0 2.1 2.1l4.4-4.4c.900-.900 2.1-1.3 3.2-1Z" /><circle cx="19" cy="18.5" r="1.8" /></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.6 2.5 4 5.6 4 9s-1.4 6.5-4 9c-2.6-2.5-4-5.6-4-9s1.4-6.5 4-9Z" /></symbol>
+      <!-- The phone drawings' status bar icons: signal, Wi-Fi and a full battery. Unclipped, as they
+           were drawn inline: the battery's outline reaches a hair past the bottom edge. -->
+      <symbol id="i-status" viewBox="0 0 76 13" overflow="visible"><rect x="0" y="8.4" width="3.2" height="4" rx="1" /><rect x="4.8" y="6" width="3.2" height="6.4" rx="1" /><rect x="9.6" y="3.6" width="3.2" height="8.8" rx="1" /><rect x="14.4" y="1.2" width="3.2" height="11.2" rx="1" /><path d="M22.8 4.48A11.4 11.4 0 0 1 39.2 4.48L37.19 6.43A8.6 8.6 0 0 0 24.81 6.43ZM25.82 7.4A7.2 7.2 0 0 1 36.18 7.4L34.38 9.14A4.7 4.7 0 0 0 27.62 9.14ZM31 12.4L28.63 10.11A3.3 3.3 0 0 1 33.37 10.11Z" /><rect x="47.5" y="1" width="25" height="11.6" rx="3.6" fill="none" stroke="currentColor" stroke-opacity=".4" /><rect x="49.5" y="3" width="21" height="7.6" rx="2" /><path d="M73.9 4.9v3.8a2.1 2.1 0 0 0 0-3.8Z" fill-opacity=".4" /></symbol>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="nav" data-nav>
+      <div class="nav__bar">
+        <a class="wordmark" href="#top" aria-label="aerodance, back to the top"><b>aero</b><span>dance</span><i></i></a>
+        <div class="nav__actions">
+          <a class="nav__github" href="{{repo}}" aria-label="aerodance on GitHub">
+            <svg aria-hidden="true"><use href="#i-github" /></svg><span>GitHub</span>
+          </a>
+          <a class="btn btn--primary btn--sm" href="#platforms">Get the game</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- Hero -->
+      <section class="hero" id="top">
+        <div class="sky" aria-hidden="true">
+          <picture>
+            <source media="(max-width: 560px)" type="image/avif" srcset="./media/sky/tall-1200.avif" />
+            <source media="(max-width: 560px)" srcset="./media/sky/tall-1200.webp" />
+            <source type="image/avif" srcset="./media/sky/wide-2100.avif 2100w, ./media/sky/wide-4200.avif 4200w" sizes="max(100vw, 2100px)" />
+            <img class="sky__img" src="./media/sky/wide-2100.webp" srcset="./media/sky/wide-2100.webp 2100w, ./media/sky/wide-4200.webp 4200w" sizes="max(100vw, 2100px)" alt="" width="4200" height="2800" fetchpriority="high" decoding="async" data-sky />
+          </picture>
+          <div class="bubbles" data-bubbles></div>
+        </div>
+
+        <div class="hero__copy">
+          <h1 class="display display--hero">Get up and <br /><b>dance</b><i class="stop"></i></h1>
+          <p class="lede">aerodance is a dance game you play with just a camera.</p>
+          <div class="badges">
+            <a class="badge" href="{{appStore}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-apple" /></svg>
+              <span class="badge__text"><small>Download on the</small><strong>App Store</strong></span>
+            </a>
+            <a class="badge" href="{{steam}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-steam" /></svg>
+              <span class="badge__text"><small>Get it on</small><strong>Steam</strong></span>
+            </a>
+            <a class="badge badge--glass" href="{{repo}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-github" /></svg>
+              <span class="badge__text"><small>Source on</small><strong>GitHub</strong></span>
+            </a>
+          </div>
+          <p class="hero__more">
+            <a class="link" href="{{play}}">Play in your browser<svg aria-hidden="true"><use href="#i-arrow" /></svg></a>
+          </p>
+        </div>
+
+        <div class="hero__stage">
+          <div class="hero__set">
+            <img class="dancer dancer--purple" src="./media/dancers/purple-sm.webp" alt="" width="498" height="489" loading="lazy" decoding="async" data-depth="0.55" />
+            <img class="dancer dancer--green" src="./media/dancers/green-sm.webp" alt="" width="436" height="486" loading="lazy" decoding="async" data-depth="0.55" />
+            <figure class="tv">
+              <span class="tv__cam" aria-hidden="true"></span>
+              <div class="tv__screen" data-video>
+                <!-- The page's videos come in AV1 and H.264: src/codec.ts chooses one for the page, and they preload nothing until it has. Without the script, the browser plays the first it can. -->
+                <video
+                  class="tv__video" muted loop playsinline preload="none" poster="./media/hero.webp" width="1280" height="720"
+                  aria-label="aerodance gameplay: two glass dancers perform a routine on a meadow, in a club, on a reef and on a beach, while two players' scores and Perfect and Good judgements count up"
+                >
+                  <source src="./media/hero-sm-av1.mp4" type='video/mp4; codecs="av01.0.05M.08"' media="(max-width: 720px)" />
+                  <source src="./media/hero-sm.mp4" type='video/mp4; codecs="avc1.640028"' media="(max-width: 720px)" />
+                  <source src="./media/hero-av1.mp4" type='video/mp4; codecs="av01.0.09M.08"' />
+                  <source src="./media/hero.mp4" type='video/mp4; codecs="avc1.640032"' />
+                </video>
+                <button class="tv__toggle" type="button" data-video-toggle data-state="playing" aria-label="Pause the video and all animation">
+                  <svg class="on" aria-hidden="true"><use href="#i-pause" /></svg><svg class="off" aria-hidden="true"><use href="#i-play" /></svg>
+                </button>
+              </div>
+              <span class="tv__stand" aria-hidden="true"></span>
+            </figure>
+            <img class="dancer dancer--blue" src="./media/dancers/blue-sm.webp" srcset="./media/dancers/blue-sm.webp 533w, ./media/dancers/blue.webp 1067w" sizes="(max-width: 760px) 21vw, min(18.5vw, 230px)" alt="" width="1067" height="1115" data-depth="1" />
+            <img class="dancer dancer--pink" src="./media/dancers/pink-sm.webp" srcset="./media/dancers/pink-sm.webp 539w, ./media/dancers/pink.webp 1078w" sizes="(max-width: 760px) 21vw, min(18.5vw, 230px)" alt="" width="1078" height="1151" data-depth="1" />
+          </div>
+        </div>
+
+        <div class="lineup">
+          <p class="lineup__label" id="lineup-label">Available on</p>
+          <ul aria-labelledby="lineup-label">
+            <li><svg aria-hidden="true"><use href="#i-apple" /></svg>Apple TV</li>
+            <li><svg aria-hidden="true"><use href="#i-apple" /></svg>iPhone</li>
+            <li><svg aria-hidden="true"><use href="#i-apple" /></svg>iPad</li>
+            <li><svg aria-hidden="true"><use href="#i-steam" /></svg>Steam</li>
+            <li><svg aria-hidden="true"><use href="#i-globe" /></svg>Web</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section class="section features" id="features">
+        <header class="section__head">
+          <h2 class="display">Made for the <b>living room</b><i class="stop"></i></h2>
+        </header>
+
+        <div class="bento">
+          <article class="card card--players">
+            <div class="card__copy">
+              <span class="orb"><svg aria-hidden="true"><use href="#i-users" /></svg></span>
+              <h3>One to four players</h3>
+              <p>Everyone dances in front of the same camera, each with a colour, a score and a dancer to follow.</p>
+            </div>
+            <div class="crew" aria-hidden="true">
+              <picture>
+                <source type="image/avif" srcset="./media/crew/crew.avif" />
+                <img class="crew__img" src="./media/crew/crew.webp" alt="" width="1120" height="840" loading="lazy" decoding="async" />
+              </picture>
+            </div>
+          </article>
+
+          <article class="card card--phone">
+            <div class="card__copy">
+              <span class="orb orb--mint"><svg aria-hidden="true"><use href="#i-phone" /></svg></span>
+              <h3>Your phone is the camera</h3>
+              <p>No webcam by the TV? Scan the code on screen, prop your phone up and step back. It tracks you and sends the game your pose.</p>
+            </div>
+            <div class="phone" aria-hidden="true">
+              <i class="phone__key phone__key--action"></i><i class="phone__key phone__key--up"></i><i class="phone__key phone__key--down"></i><i class="phone__key phone__key--side"></i><i class="phone__key phone__key--control"></i>
+              <div class="phone__body">
+                <div class="phone__screen">
+                  <img src="./media/screens/phone.webp" alt="" width="804" height="1748" loading="lazy" decoding="async" />
+                  <div class="phone__status">
+                    <span class="phone__time">9:41</span>
+                    <svg class="phone__icons" viewBox="0 0 76 13"><use href="#i-status" /></svg>
+                  </div>
+                  <i class="phone__island"></i>
+                  <i class="phone__home"></i>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card card--privacy">
+            <span class="orb orb--green"><svg aria-hidden="true"><use href="#i-lock" /></svg></span>
+            <h3>Tracked on your own device</h3>
+            <p>Pose tracking runs on the device in front of you, and the game scores your pose, not your picture. A paired phone sends a small preview while you set up, which isn't stored.</p>
+          </article>
+
+          <article class="card card--pixels">
+            <span class="orb orb--pink"><svg aria-hidden="true"><use href="#i-grid" /></svg></span>
+            <h3>Retro graphics</h3>
+            <p>Every frame is drawn at 640 × 480, like a console from 2006, then scaled up to your screen with each pixel kept sharp.</p>
+          </article>
+
+          <article class="card card--studio">
+            <div class="card__copy">
+              <span class="orb orb--purple"><svg aria-hidden="true"><use href="#i-clapper" /></svg></span>
+              <h3>Make your own routines</h3>
+              <p>Dance Studio turns a recording of you, or a video you import, into a routine. Edit it, pick a stage and export a song anyone can play.</p>
+              <a class="link link--ink" href="{{studio}}">About Dance Studio<svg aria-hidden="true"><use href="#i-arrow" /></svg></a>
+            </div>
+            <div class="window" aria-hidden="true">
+              <div class="window__bar"><i></i><i></i><i></i><span>Dance Studio</span></div>
+              <img src="./media/screens/studio.webp" alt="" width="1440" height="900" loading="lazy" decoding="async" />
+            </div>
+          </article>
+
+          <article class="card card--minigames">
+            <div class="card__copy">
+              <span class="orb orb--orange"><svg aria-hidden="true"><use href="#i-paddle" /></svg></span>
+              <h3>Experiments</h3>
+              <p>Short games you play with your whole body. The first is table tennis: your hand is the paddle, against a robot or a friend.</p>
+            </div>
+            <img class="card__shot" src="./media/screens/table-tennis.webp" alt="" width="960" height="540" loading="lazy" decoding="async" />
+          </article>
+        </div>
+      </section>
+
+      <!-- Stages -->
+      <section class="stages" id="stages" data-stages aria-labelledby="stages-title">
+        <div class="stages__slides" aria-hidden="true">
+          <div class="slide is-active" data-slide="openreef">
+            <img src="./media/stages/openreef.webp" alt="" width="2560" height="1440" loading="lazy" decoding="async" />
+            <video muted playsinline preload="none">
+              <source src="./media/stages/openreef-av1.mp4" type='video/mp4; codecs="av01.0.09M.08"' />
+              <source src="./media/stages/openreef.mp4" type='video/mp4; codecs="avc1.640032"' />
+            </video>
+          </div>
+          <div class="slide" data-slide="falls">
+            <img src="./media/stages/falls-thumb.webp" alt="" width="2560" height="1440" loading="lazy" decoding="async" />
+            <video muted playsinline preload="none">
+              <source src="./media/stages/falls-av1.mp4" type='video/mp4; codecs="av01.0.09M.08"' />
+              <source src="./media/stages/falls.mp4" type='video/mp4; codecs="avc1.640032"' />
+            </video>
+          </div>
+          <div class="slide" data-slide="beach">
+            <img src="./media/stages/beach-thumb.webp" alt="" width="2560" height="1440" loading="lazy" decoding="async" />
+            <video muted playsinline preload="none">
+              <source src="./media/stages/beach-av1.mp4" type='video/mp4; codecs="av01.0.09M.08"' />
+              <source src="./media/stages/beach.mp4" type='video/mp4; codecs="avc1.640032"' />
+            </video>
+          </div>
+          <div class="slide" data-slide="club">
+            <img src="./media/stages/club-thumb.webp" alt="" width="2560" height="1440" loading="lazy" decoding="async" />
+            <video muted playsinline preload="none">
+              <source src="./media/stages/club-av1.mp4" type='video/mp4; codecs="av01.0.09M.08"' />
+              <source src="./media/stages/club.mp4" type='video/mp4; codecs="avc1.640032"' />
+            </video>
+          </div>
+          <div class="slide" data-slide="sanctuary">
+            <img src="./media/stages/sanctuary-thumb.webp" alt="" width="2560" height="1440" loading="lazy" decoding="async" />
+            <video muted playsinline preload="none">
+              <source src="./media/stages/sanctuary-av1.mp4" type='video/mp4; codecs="av01.0.09M.08"' />
+              <source src="./media/stages/sanctuary.mp4" type='video/mp4; codecs="avc1.640032"' />
+            </video>
+          </div>
+          <div class="slide" data-slide="atrium">
+            <img src="./media/stages/atrium-thumb.webp" alt="" width="2560" height="1440" loading="lazy" decoding="async" />
+            <video muted playsinline preload="none">
+              <source src="./media/stages/atrium-av1.mp4" type='video/mp4; codecs="av01.0.09M.08"' />
+              <source src="./media/stages/atrium.mp4" type='video/mp4; codecs="avc1.640032"' />
+            </video>
+          </div>
+        </div>
+        <div class="stages__scrim" aria-hidden="true"></div>
+
+        <div class="stages__inner">
+          <header class="stages__head">
+            <h2 class="display display--light" id="stages-title">Dance <b>somewhere else</b><i class="stop"></i></h2>
+          </header>
+
+          <div class="stages__info" role="tabpanel" id="stage-panel" aria-labelledby="stage-tab-openreef">
+            <div class="stages__control">
+              <button class="stages__toggle" type="button" data-stages-toggle data-state="playing" aria-label="Pause the stage tour and all animation">
+                <svg class="on" aria-hidden="true"><use href="#i-pause" /></svg><svg class="off" aria-hidden="true"><use href="#i-play" /></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="stages__tabs" role="tablist" aria-label="Stages">
+            <button class="stab is-active" type="button" role="tab" aria-selected="true" id="stage-tab-openreef" aria-controls="stage-panel" data-stage="openreef" style="--a: #8fe4ff; --b: #1a7fd0">
+              <img src="./media/stages/openreef-thumb.webp" alt="" width="480" height="270" loading="lazy" decoding="async" /><span>Open Reef</span>
+            </button>
+            <button class="stab" type="button" role="tab" aria-selected="false" tabindex="-1" id="stage-tab-falls" aria-controls="stage-panel" data-stage="falls" style="--a: #b6f27a; --b: #3aa82a">
+              <img src="./media/stages/falls-thumb.webp" alt="" width="480" height="270" loading="lazy" decoding="async" /><span>Falls</span>
+            </button>
+            <button class="stab" type="button" role="tab" aria-selected="false" tabindex="-1" id="stage-tab-beach" aria-controls="stage-panel" data-stage="beach" style="--a: #ffd27a; --b: #ff8a2a">
+              <img src="./media/stages/beach-thumb.webp" alt="" width="480" height="270" loading="lazy" decoding="async" /><span>Beach</span>
+            </button>
+            <button class="stab" type="button" role="tab" aria-selected="false" tabindex="-1" id="stage-tab-club" aria-controls="stage-panel" data-stage="club" style="--a: #7ff3ff; --b: #7a2bd8">
+              <img src="./media/stages/club-thumb.webp" alt="" width="480" height="270" loading="lazy" decoding="async" /><span>Club</span>
+            </button>
+            <button class="stab" type="button" role="tab" aria-selected="false" tabindex="-1" id="stage-tab-sanctuary" aria-controls="stage-panel" data-stage="sanctuary" style="--a: #7fe3ff; --b: #0a8fd8">
+              <img src="./media/stages/sanctuary-thumb.webp" alt="" width="480" height="270" loading="lazy" decoding="async" /><span>Sanctuary</span>
+            </button>
+            <button class="stab" type="button" role="tab" aria-selected="false" tabindex="-1" id="stage-tab-atrium" aria-controls="stage-panel" data-stage="atrium" style="--a: #9ef2ff; --b: #1aa7c9">
+              <img src="./media/stages/atrium-thumb.webp" alt="" width="480" height="270" loading="lazy" decoding="async" /><span>Atrium</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Platforms -->
+      <section class="section platforms" id="platforms">
+        <header class="section__head">
+          <h2 class="display">Pick a <b>screen</b><i class="stop"></i></h2>
+        </header>
+
+        <div class="plats">
+          <article class="plat">
+            <div class="plat__art plat__art--tv" aria-hidden="true">
+              <div class="device device--tv"><img src="./media/screens/tv.webp" alt="" width="1280" height="720" loading="lazy" decoding="async" /></div>
+              <div class="phone plat__phone">
+                <i class="phone__key phone__key--action"></i><i class="phone__key phone__key--up"></i><i class="phone__key phone__key--down"></i><i class="phone__key phone__key--side"></i><i class="phone__key phone__key--control"></i>
+                <div class="phone__body">
+                  <div class="phone__screen">
+                    <img src="./media/screens/phone.webp" alt="" width="804" height="1748" loading="lazy" decoding="async" />
+                    <div class="phone__status">
+                      <span class="phone__time">9:41</span>
+                      <svg class="phone__icons" viewBox="0 0 76 13"><use href="#i-status" /></svg>
+                    </div>
+                    <i class="phone__island"></i>
+                    <i class="phone__home"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <h3>Apple TV</h3>
+            <p>Your phone is the camera, and the Siri Remote works the menus.</p>
+            <a class="badge" href="{{appleTv}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-apple" /></svg>
+              <span class="badge__text"><small>Download on</small><strong>Apple TV</strong></span>
+            </a>
+          </article>
+
+          <article class="plat">
+            <div class="plat__art plat__art--ios" aria-hidden="true">
+              <div class="device device--ipad"><img src="./media/screens/ipad.webp" alt="" width="1280" height="960" loading="lazy" decoding="async" /></div>
+              <div class="device device--iphone"><img src="./media/screens/iphone.webp" alt="" width="1280" height="720" loading="lazy" decoding="async" /></div>
+            </div>
+            <h3>iPhone and iPad</h3>
+            <p>Prop it up and dance in front of its camera, or send the game to a TV with AirPlay.</p>
+            <a class="badge" href="{{appStore}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-apple" /></svg>
+              <span class="badge__text"><small>Download on the</small><strong>App Store</strong></span>
+            </a>
+          </article>
+
+          <article class="plat">
+            <div class="plat__art plat__art--steam" aria-hidden="true">
+              <div class="device device--laptop"><div class="device__lid"><img src="./media/screens/laptop.webp" alt="" width="1280" height="720" loading="lazy" decoding="async" /></div><div class="device__base"></div></div>
+            </div>
+            <h3>Steam</h3>
+            <p>On your computer, with any webcam.</p>
+            <a class="badge" href="{{steam}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-steam" /></svg>
+              <span class="badge__text"><small>Get it on</small><strong>Steam</strong></span>
+            </a>
+          </article>
+        </div>
+
+        <aside class="webstrip">
+          <span class="orb"><svg aria-hidden="true"><use href="#i-globe" /></svg></span>
+          <p><strong>Rather not install anything?</strong> The game also runs in a browser.</p>
+          <a class="btn btn--glass" href="{{play}}">Play in your browser<svg aria-hidden="true"><use href="#i-arrow" /></svg></a>
+        </aside>
+      </section>
+
+      <!-- Closing -->
+      <section class="closing">
+        <div class="closing__inner">
+          <p class="wordmark wordmark--xl" aria-hidden="true"><b>aero</b><span>dance</span><i></i></p>
+          <h2 class="closing__title">Clear some floor.</h2>
+          <p class="closing__text">On Apple TV, iPhone, iPad and Steam.</p>
+          <div class="badges badges--center">
+            <a class="badge" href="{{appStore}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-apple" /></svg>
+              <span class="badge__text"><small>Download on the</small><strong>App Store</strong></span>
+            </a>
+            <a class="badge" href="{{steam}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-steam" /></svg>
+              <span class="badge__text"><small>Get it on</small><strong>Steam</strong></span>
+            </a>
+            <a class="badge badge--glass" href="{{repo}}">
+              <svg class="badge__icon" aria-hidden="true"><use href="#i-github" /></svg>
+              <span class="badge__text"><small>Source on</small><strong>GitHub</strong></span>
+            </a>
+          </div>
+        </div>
+        <img class="closing__bg" src="./media/closing.webp" alt="Two glass dancers, one blue and one purple, dancing on a beach at sunset" width="2160" height="1440" loading="lazy" decoding="async" />
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer__inner">
+        <div class="footer__brand">
+          <a class="wordmark wordmark--light" href="#top" aria-label="aerodance, back to the top"><b>aero</b><span>dance</span><i></i></a>
+          <p>A Frutiger Aero dance game.</p>
+        </div>
+        <nav class="footer__col" aria-label="Get the game">
+          <h3>Get the game</h3>
+          <a href="{{appStore}}">App Store</a>
+          <a href="{{appleTv}}">Apple TV</a>
+          <a href="{{steam}}">Steam</a>
+          <a href="{{play}}">Play in your browser</a>
+        </nav>
+        <nav class="footer__col" aria-label="Project">
+          <h3>Project</h3>
+          <a href="{{repo}}">GitHub</a>
+          <a href="{{releases}}">Releases</a>
+          <a href="{{docs}}">Developer guide</a>
+          <a href="{{issues}}">Report a bug</a>
+        </nav>
+        <nav class="footer__col" aria-label="Make things">
+          <h3>Make things</h3>
+          <a href="{{studio}}">Dance Studio</a>
+          <a href="{{minigames}}">Experiments guide</a>
+          <a href="{{appleTvDocs}}">The Apple TV app</a>
+        </nav>
+      </div>
+      <div class="footer__legal">
+        <p>
+          © 2026 aerodance. Apple, the Apple logo, Apple TV, iPhone, iPad, AirPlay and Siri are trademarks of Apple Inc.
+          App Store is a service mark of Apple Inc. Steam and the Steam logo are trademarks of Valve Corporation.
+          aerodance isn't affiliated with either company.
+        </p>
+      </div>
+    </footer>
+
+  </body>
+</html>
