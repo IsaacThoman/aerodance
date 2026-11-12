@@ -11,33 +11,27 @@ import BiodomeArena, { BIODOME_FAR, BIODOME_POST } from '../../../../../packages
 import { DANCER_LOOKS } from '../../../../../packages/stages/shared/Dancers.tsx';
 import { StageEnvironment } from '../../../../../packages/stages/shared/Environment.tsx';
 import type { EnvironmentLight } from '../../../../../packages/stages/shared/Environment.tsx';
-import { PLAYERS } from '../../game/results.ts';
-import { FONT, drawDarkGlassPanel, drawShadowText } from '../../ui/draw.ts';
-import { useMinigameFrame, useMinigameOverlay } from '../hooks.ts';
+import { useMinigameFrame } from '../hooks.ts';
 import { MinigameWorld, SeenBy } from '../scene.tsx';
 import type { MinigameCameraProps } from '../scene.tsx';
-import type { MinigameContext, MinigamePhase } from '../types.ts';
-import type { HandTracking } from '../../../../../packages/pose/webcamRecord.ts';
+import type { MinigameContext } from '../types.ts';
 import { DEFAULT_FOV } from './arms.ts';
 import type { BodyTurn, Side } from './arms.ts';
 import { ASSIST_LEVELS, DEFAULT_ASSIST } from './assist.ts';
-import type { AssistLevel } from './assist.ts';
-import { describePass, shiftWords } from './calibrate.ts';
 import { BALL_R, NET, ROOM, TABLE } from './ball.ts';
 import type { V3 } from './ball.ts';
 import { otherEnd } from './rally.ts';
 import type { End } from './rally.ts';
-import { HIT_LAGS, Round, drawLag } from './round.ts';
+import { HIT_LAGS, Round } from './round.ts';
 import { playBallSound } from './sound.ts';
 import type { Play } from './round.ts';
 import { BLADE_UP, EYE, EYES, FORGIVING, TABLE_Z, newHandFilters, newRig, trackHands } from './rig.ts';
 import type { Rig } from './rig.ts';
 import { RobotOpponent, aimRobot, createRobotDriver } from './RobotOpponent.tsx';
 import type { StationDriver } from '../../../../../packages/robots/shared/station.ts';
-import { choiceLabel, optionsOf, sceneParam } from './options.ts';
+import { optionsOf, sceneParam } from './options.ts';
 import type { SceneId } from './options.ts';
-import { MATCH } from './match.ts';
-import type { PointReason } from './match.ts';
+import { TableTennisHud, newHud } from './Hud.tsx';
 
 /*
  * Table Tennis (index.ts), in first person, from the end of a ping-pong table in the Biodome
@@ -65,14 +59,18 @@ import type { PointReason } from './match.ts';
  * their free hand raised tosses it, and a swing through it as it comes down (or Space) serves it.
  * When the match is won (or the challenge's run is over) the round finishes with its score.
  *
+ * The HUD (Hud.tsx) is Wii Sports Resort's: the score bug, calls where the points are decided,
+ * banners for the big moments and prompts while they're needed.
+ *
  * Keys while playing: Space serves, A steps the aim assist (assist.ts: Normal unless ?assist= says
  * otherwise; it helps a swing meet the ball and land, and does nothing for a paddle that isn't
- * swung). Paddle calibration (calibrate.ts) shifts each paddle by the way its swings keep missing;
- * the HUD says how each ball went by it. In development, T slows time (the swing keeps its own
- * speed), F makes the paddles forgiving (they reach further than they look), L steps the hits'
- * lag compensation (the paddle, seen late through the camera, meets the ball as it was then:
- * LaggedBall; 'auto' measures the delay from each pose's capture time), and O and P have a
- * stand-in (autoplay.ts) play for the first and the last player.
+ * swung). Paddle calibration (calibrate.ts) shifts each paddle by the way its swings keep missing.
+ * In development, D shows the HUD's development panel (how each ball went by each paddle, the
+ * calibration, the settings), T slows time (the swing keeps its own speed), F makes the paddles
+ * forgiving (they reach further than they look), L steps the hits' lag compensation (the paddle,
+ * seen late through the camera, meets the ball as it was then: LaggedBall; 'auto' measures the
+ * delay from each pose's capture time), and O and P have a stand-in (autoplay.ts) play for the
+ * first and the last player.
  */
 
 // The view: tilted down a little from the eye (rig.ts EYE).
@@ -450,7 +448,7 @@ function PlayBall({ ctx, round, scene, robot }: { ctx: MinigameContext; round: R
       child.scale.setScalar(RIPPLE.from + (RIPPLE.to - RIPPLE.from) * easeOut(u));
       parts.ripples[i].opacity = 0.8 * (1 - u) * (1 - u);
     });
-    // What the HUD and play.ts show.
+    // What play.ts and the tests read.
     const point = round.point;
     ctx.report({
       ball: round.flying ? 'flying' : round.holding() ? 'ready' : round.serve ? 'serving' : 'between',
@@ -472,7 +470,7 @@ function PlayBall({ ctx, round, scene, robot }: { ctx: MinigameContext; round: R
       else if (two) ctx.finish([...round.match.score], { best: false });
       else {
         const won = round.match.winner === 0;
-        ctx.finish([round.match.score[0]], { headline: won ? 'YOU WIN!' : 'THE ROBOT WINS', player: won ? 0 : undefined, best: false });
+        ctx.finish([round.match.score[0]], { headline: won ? 'YOU WIN!' : 'THE ROBOT WINS', player: won ? 0 : undefined, best: false, opponent: { name: 'Robot', score: round.match.score[1] } });
       }
     }
   });
@@ -490,136 +488,6 @@ function PlayBall({ ctx, round, scene, robot }: { ctx: MinigameContext; round: R
   );
 }
 
-interface HudLine { text: string; size: number; weight?: number; color?: string; }
-
-/**
- * The HUD's lines, on the game's overlay: the score, what's happening (whose serve, the last
- * point, how the last ball went by the paddle), the settings, and the keys, in a dark glass panel
- * in the top left (the host's scores are off, so the corner is free). With two, a panel for each
- * in their view's outer top corner, and a line between the views.
- */
-function TableTennisHud({ ctx, round }: { ctx: MinigameContext; round: Round }) {
-  const { rigs, play, two } = round;
-  useMinigameOverlay({
-    // From the countdown on: not over the how-to card.
-    phases: HUD_PHASES,
-    draw: (g, ui) => {
-      const tracking = ctx.handTracking();
-      const [a, b] = round.match.score;
-      const score = round.mode === 'challenge' ? `Returns ${round.challenge.returns}   ·   Level ${round.challenge.level + 1}`
-        : two ? `Player 1  ${a} – ${b}  Player 2` : `You  ${a} – ${b}  Robot`;
-      const names = two ? ['Player 1', 'Player 2'] : ['You', 'The robot'];
-      // What's happening, as the player at `end` has it.
-      const status = (end: End) => {
-        const point = round.point;
-        if (round.between && point) {
-          if (round.mode === 'challenge') return point.reason === 'return' ? 'Returned!' : point.to === 1 ? 'Missed: that\'s the end of the run' : 'Served again';
-          const won = round.done ? `${names[point.to]} ${point.to === 0 && !two ? 'win' : 'wins'} the match!` : `Point to ${names[point.to].toLowerCase() === 'you' ? 'you' : names[point.to]}`;
-          return `${won} (${REASON_WORDS[point.reason]})`;
-        }
-        if (round.holding() || round.serve) {
-          if (!round.playerServes()) return 'The robot serves';
-          if (round.server() !== end) return `${names[round.server()]} serves`;
-          return round.tossAt === null ? `Your serve: raise your ${rigs[end].free} hand to toss the ball` : 'Swing through the ball!';
-        }
-        const pass = round.passes[end];
-        return pass ? describePass(pass) : 'Swing through the ball';
-      };
-      const devLine = (): HudLine | null => (DEV ? {
-        text: `Development: T time ${play.timeScale === 1 ? '1×' : play.timeScale === 0.5 ? '½×' : '¼×'} · F forgiving ${play.forgiving ? 'on' : 'off'} · L hit timing ${lagWords(rigs[0], play, two)} · ${two ? 'O/P stand-ins' : 'O stand-in'} ${rigs.some((r) => r.autoplay) ? rigs.filter((r) => r.autoplay).map((r) => `P${r.end + 1}`).join('+') : 'off'}`,
-        size: 16, color: '#cfe3f5',
-      } : null);
-      const matchLine = round.mode === 'match' && round.match.winner === null ? `   ·   ${MATCH.firstTo}-point match` : '';
-      if (!two) {
-        const rig = rigs[0];
-        const lines: HudLine[] = [
-          { text: score + matchLine, size: 28, weight: 800 },
-          { text: status(0), size: 22 },
-          { text: `Aim assist ${ASSIST_LABELS[play.assist]}${round.mode === 'match' ? `  ·  Opponent ${choiceLabel('opponent', play.botLevel)}` : ''}`, size: 18, color: '#dff4ff' },
-          { text: `Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
-        ];
-        const note = trackingNote(rig, tracking, false);
-        if (note) lines.push(note);
-        lines.push({ text: 'Keys: Space serve · A aim assist', size: 16, color: '#cfe3f5' });
-        const dev = devLine();
-        if (dev) lines.push(dev);
-        panel(g, ui.w, lines, 'left');
-        return;
-      }
-      // The line between the views.
-      g.save();
-      g.fillStyle = 'rgba(255, 255, 255, 0.55)';
-      g.fillRect(ui.w / 2 - 1.5, 0, 3, ui.h);
-      g.restore();
-      rigs.forEach((rig) => {
-        const lines: HudLine[] = [
-          { text: PLAYERS[rig.end].name, size: 22, weight: 800, color: PLAYERS[rig.end].light },
-          { text: score, size: 28, weight: 800 },
-          { text: status(rig.end), size: 22 },
-          { text: `Aim assist ${ASSIST_LABELS[play.assist]}  ·  Paddle calibration (shifted ${shiftWords(rig.shift)})`, size: 18, color: '#dff4ff' },
-        ];
-        const note = trackingNote(rig, tracking, true);
-        if (note) lines.push(note);
-        if (rig.end === 0) {
-          lines.push({ text: 'Keys: Space serve · A aim assist', size: 16, color: '#cfe3f5' });
-          const dev = devLine();
-          if (dev) lines.push(dev);
-        }
-        panel(g, ui.w, lines, rig.end === 0 ? 'left' : 'right');
-      });
-    },
-  });
-  return null;
-}
-
-/** A point's reason (match.ts), as the HUD says it. */
-const REASON_WORDS: Record<PointReason, string> = { out: 'out', net: 'into the net', own: 'on their own side', double: 'two bounces', missed: 'missed', return: 'returned' };
-
-/**
- * Tracking that isn't all there, said plainly: no 3D tracking from the camera, the hand model
- * loading, dropped (too slow) or not to be had; hand tracking turned off (the setting), calmly.
- * Nothing when it's all there. (With two players the hands come and go for both together.)
- */
-function trackingNote(rig: Rig, tracking: HandTracking | null, two: boolean): HudLine | null {
-  const warn = (text: string): HudLine => ({ text, size: 18, color: '#ffe08a' });
-  const paddle = two ? 'the paddles follow your arms' : 'the paddle follows your arm';
-  if (rig.flat) return warn('This camera sends no 3D tracking: your arms\' depth is a guess');
-  if (tracking === 'loading') return warn('Loading hand tracking…');
-  if (tracking === 'dropped') return warn(`Hand tracking is off (tracking was too slow${two ? ' for two' : ''}): ${paddle}`);
-  if (tracking === 'unavailable') return warn(`No hand tracking: ${paddle}`);
-  if (tracking === null) return { text: `Hand tracking off (the setting): ${paddle}`, size: 18, color: '#dff4ff' };
-  return null;
-}
-
-/**
- * A dark glass panel of lines in a top corner, sized to its widest line and kept clear of the
- * pause icon at the top centre: a line too long for that shrinks.
- */
-function panel(g: CanvasRenderingContext2D, width: number, lines: readonly HudLine[], corner: 'left' | 'right') {
-  const pad = 16, gap = 7, margin = 32, top = 32;
-  const room = width / 2 - 70 - margin - pad * 2;
-  let w = 0, h = pad * 2 - gap;
-  const sized = lines.map((line) => {
-    g.font = `${line.weight ?? 700} ${line.size}px ${FONT}`;
-    const size = Math.min(line.size, (line.size * room) / g.measureText(line.text).width);
-    g.font = `${line.weight ?? 700} ${size}px ${FONT}`;
-    w = Math.max(w, g.measureText(line.text).width);
-    h += size + gap;
-    return { ...line, size };
-  });
-  const x = corner === 'left' ? margin : width - margin - (w + pad * 2);
-  drawDarkGlassPanel(g, { x, y: top, w: w + pad * 2, h }, 20);
-  let y = top + pad;
-  for (const line of sized) {
-    drawShadowText(g, line.text, x + pad, y + line.size / 2, { size: line.size, weight: line.weight ?? 700, color: line.color });
-    y += line.size + gap;
-  }
-}
-
-const ASSIST_LABELS: Record<AssistLevel, string> = { off: 'Off', low: 'Low', normal: 'Normal', high: 'High' };
-const HUD_PHASES: readonly MinigamePhase[] = ['countdown', 'playing', 'paused', 'finishing'];
-const lagWords = (rig: Rig, play: Play, two: boolean) => (play.hitLag === 'auto' ? `auto (${rig.latency > 0 ? Math.round((rig.latency + drawLag(two)) * 1000) : '–'} ms)` : play.hitLag ? `${Math.round(play.hitLag * 1000)} ms` : 'off');
-
 /** A view from an end's eye, tilted down a little, down the table. */
 function viewFrom(end: End, fov: number, scene: SceneId): MinigameCameraProps {
   const eye = EYES[end], forward = end === 0 ? -1 : 1;
@@ -630,8 +498,8 @@ function viewFrom(end: End, fov: number, scene: SceneId): MinigameCameraProps {
 }
 
 /**
- * The game: the room, the table, the players' hands and the ball, and the HUD; alone, the robot;
- * with two, a view each and each other's dancers.
+ * The game: the room, the table, the players' hands and the ball, and the HUD (Hud.tsx); alone,
+ * the robot; with two, a view each and each other's dancers.
  */
 export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   // (The player count is the round's, fixed for it.)
@@ -646,6 +514,7 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
     return { mode: chosen.mode, forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: ASSIST_PARAM, botLevel: chosen.opponent };
   });
   const [round] = useState(() => new Round(rigs, play));
+  const [hud] = useState(newHud);
   const [forgiving, setForgiving] = useState(false);
   // The Biodome, or (?scene=debug) the plain room, for the round.
   const [scene] = useState<SceneId>(() => sceneParam());
@@ -653,8 +522,9 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   const views = useMemo(() => (two ? [viewFrom(0, SPLIT_FOV, scene), viewFrom(1, SPLIT_FOV, scene)] : undefined), [two, scene]);
   const camera = useMemo(() => viewFrom(0, FOV, scene), [scene]);
 
-  // Space serves; A steps the aim assist; in development, T steps time's speed, F makes the paddles
-  // forgiving, L steps the hit timing, and O and P switch stand-ins on and off for the first and last players.
+  // Space serves; A steps the aim assist; in development, D shows the HUD's development panel, T steps
+  // time's speed, F makes the paddles forgiving, L steps the hit timing, and O and P switch stand-ins
+  // on and off for the first and last players.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       // Not with a modifier, nor a key something else took.
@@ -665,10 +535,11 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
       else if (DEV && e.code === 'KeyT') play.timeScale = TIME_SCALES[(TIME_SCALES.indexOf(play.timeScale as typeof TIME_SCALES[number]) + 1) % TIME_SCALES.length];
       else if (DEV && e.code === 'KeyL') play.hitLag = HIT_LAGS[(HIT_LAGS.findIndex((lag) => lag === play.hitLag) + 1) % HIT_LAGS.length];
       else if (DEV && (e.code === 'KeyO' || e.code === 'KeyP')) { const rig = e.code === 'KeyO' ? rigs[0] : rigs[rigs.length - 1]; rig.autoplay = !rig.autoplay; }
+      else if (DEV && e.code === 'KeyD') hud.dev = !hud.dev;
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [ctx, rigs, play, two]);
+  }, [ctx, rigs, play, two, hud]);
 
   return (
     <>
@@ -689,9 +560,10 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
         {two && rigs.map((rig) => <SeenBy key={rig.end} views={[otherEnd(rig.end)]}><Dancer rig={rig} /></SeenBy>)}
         <PlayBall ctx={ctx} round={round} scene={scene} robot={robot} />
         {robot && <RobotOpponent driver={robot} tableZ={TABLE_Z} />}
+        {/* The HUD, in here to see the world's camera (its calls are drawn where the points were decided). */}
+        <TableTennisHud ctx={ctx} round={round} hud={hud} />
       </MinigameWorld>
       {rigs.map((rig) => <PlayerTracking key={rig.end} rig={rig} />)}
-      <TableTennisHud ctx={ctx} round={round} />
     </>
   );
 }

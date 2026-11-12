@@ -15,6 +15,9 @@ Alone, the opponent is a robot arm from the robot hall ([robots](../packages/rob
 until one gets by. Two players split the screen, one at each end of the table in first person, and play
 a match, each seeing the other as their glass dancer holding the paddle. A player serves by raising
 their free hand to toss the ball and swinging through it as it comes down (`table-tennis/rally.ts`).
+Its HUD is Wii Sports Resort's too (`table-tennis/Hud.tsx`, what it says in `table-tennis/calls.ts`):
+a score bug under the pause icon, a call where each point was decided (OUT, NET, NICE!…),
+banners for whose point it was, DEUCE, MATCH POINT and GAME!, and prompts only while they're needed.
 
 ## The flow
 
@@ -46,7 +49,7 @@ results → Play again or Experiments.**
   again, **Restart** starts the round over (with calibration), **Experiments** leaves. A timed round
   ends itself with **Time's up!**; others end when the game says.
 - **Results** (`minigames/MinigameResults.tsx`): the winner, the solo score or a co-op team's, a scoreboard in
-  finishing order, **NEW BEST!** when the top score beat the game's best for this many players
+  finishing order (a solo player's opponent under them: `minigames/resultsBoard.ts`), **NEW BEST!** when the top score beat the game's best for this many players
   (`minigames/bestScores.ts`, saved in the browser), **Play again** and **Experiments**.
 
 Everything works with the mouse, touch and the keyboard (the pearl focus ring, Enter, Escape),
@@ -184,7 +187,8 @@ The game:
   the results (a team's win) in a `player`'s colours, `coop` for a round played together (one
   team score, for a game whose modes differ round to round), `best: false` to keep a round
   (a match's points) out of the best scores, `timeUp` for a round its own clock ended ("Time's
-  up!" rather than "Finish!", as a `durationMs` round says);
+  up!" rather than "Finish!", as a `durationMs` round says), `opponent` for whom a solo player played
+  against (`{ name: 'Robot', score: 6 }`: a row of its own on the results board, under theirs);
 - reads its settings in `ctx.options` ([settings](#settings-options));
 - keeps its per-frame state in refs, not React state (the component re-renders only when the
   phase changes);
@@ -524,13 +528,18 @@ Table Tennis), and the game's own `mg*` keys; a round's settings are
 `3|5`, Player 1's or the player's first; Return Challenge's returns), `mgServer` (from 1; alone, 2 is
 the robot), `mgPoint` (the last point: who won it and why, e.g. `2:out`; reasons in `match.ts`),
 `mgBall` (`ready`, `serving`, `flying`, `between`), `mgTossed`, `mgDone`, `mgRally`, `mgBest`,
-`mgHits`, `mgReturns`, `mgAssist` and, with two, `mgHits1` and `mgHits2`; in development its O and P
+`mgHits`, `mgReturns`, `mgAssist` and, with two, `mgHits1` and `mgHits2`; its HUD's `mgCall` (the last
+point's call: `OUT`, `NET`, `SHORT`, `2 BOUNCES`, `MISSED`, `NICE!`, `GREAT RALLY!`, Return Challenge's
+`+1`; with two, each view's, Player 1's first: `NICE!|MISSED`) and `mgBanner` (the banner showing:
+`YOUR POINT`, `ROBOT'S POINT`, `POINT — PLAYER 2`, `DEUCE`, `MATCH POINT`, `GAME!`, `LEVEL 3`…, or none).
+In development its D key shows the HUD's development panel (how the last ball went by each paddle,
+the paddles' calibration, the settings and the keys), and its O and P
 keys put a stand-in (`table-tennis/autoplay.ts`) in for the first and last player, which plays
 through the real paddle and aim assist (`mgAutoplay` says who), so a match can run with puppets
 standing still (the stand-ins serve too, tossing the ball and swinging through it; puppets
 standing still never serve, and the match waits for them), and `window.tableTennis` has the round (`round`: its ball, players and settings)
 and the camera (a split screen's views in `camera.cameras`) for staged shots. `?assist=off|low|normal|high`
-sets its aim assist (Normal otherwise; the A key steps it). The puppet works for the song game too: its calibration and scoring
+sets its aim assist (Normal otherwise; the A key steps it, and the HUD says the new level for a moment). The puppet works for the song game too: its calibration and scoring
 run on it.
 
 ### In unit tests
@@ -548,6 +557,8 @@ whole rounds in milliseconds (`apps/web/tests/helpers/tableTennisSim.ts`).
 nothing gets nothing, someone playing well nearly always hits, better players do better), and
 `node tools/table-tennis/agency.ts --assist off,low,normal,high` prints the whole table: run it
 before and after changing the aim assist, the serve or how the paddle follows the hand.
+`apps/web/tests/table-tennis-hud.test.ts` follows rounds through what the HUD says (`calls.ts`): each
+point's call in each view, the banners and when they show, the prompts until they're known.
 
 ## Style
 
