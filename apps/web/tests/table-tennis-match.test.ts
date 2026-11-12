@@ -82,7 +82,7 @@ test("Return Challenge's serves step up a level every few returns, to a top leve
   assert.equal(challengeLevel(1000), CHALLENGE.levels - 1);
 });
 
-const PLAY: Play = { mode: 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
+const PLAY: Play = { mode: 'match', controls: 'precise', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
 
 /** A round alone against the robot, the player a stand-in (autoplay.ts) or nobody, until it's finished or `seconds` have gone. */
 function solo(play: Partial<Play>, seconds: number, stand = true) {

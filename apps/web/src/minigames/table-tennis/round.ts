@@ -16,6 +16,11 @@
  * Return Challenge (alone) has the robot serve and serve again, quicker every few, for as long as
  * the player returns them onto its half: the first they don't ends the round.
  *
+ * Controls (Play.controls): Easy, as Wii Sports Resort's (easy.ts): each player's dancer steps
+ * across to where the ball will come (rig.step) and a swing timed to its arrival hits it, wherever
+ * the hand is; the paddle is drawn sliding onto the ball. Precise: the paddle is where the hand
+ * puts it, and the aim assist (assist.ts) helps a swing that passes the ball close enough.
+ *
  * With two every shot is slowed to a pace the other player can get to (assist.ts PACE): alone,
  * the robot gets to anything it can reach.
  *
@@ -24,7 +29,7 @@
  */
 
 import * as THREE from 'three';
-import { ASSIST, PACE, SERVE_SWING, SWING, assistReturn, interceptNudge, serveHit, swingOf } from './assist.ts';
+import { ASSIST, PACE, SERVE_SWING, SWING, assistReturn, interceptNudge, landsFar, serveHit, swingOf } from './assist.ts';
 import type { AssistLevel } from './assist.ts';
 import { arrival, autoplayBlade, autoplayRaised, autoplayServe } from './autoplay.ts';
 import { PADDLE_COOLDOWN, v3 } from './ball.ts';
@@ -33,6 +38,7 @@ import { BOT, botMistake, botServe, botShot, botTarget, challengeServe, missShot
 import type { BotLevel } from './bot.ts';
 import { coming, endPass, recalibrate, trackPass } from './calibrate.ts';
 import type { Pass, PassResult } from './calibrate.ts';
+import { EASY, contactOf, easyServe, easyShot, easySwing } from './easy.ts';
 import { flightStep } from './flight.ts';
 import type { FlightEvent, Swinger } from './flight.ts';
 import { LaggedBall } from './lagged.ts';
@@ -80,11 +86,15 @@ export const drawLag = (two: boolean) => (two ? DRAW_LAG.two : DRAW_LAG.one);
 
 /** What's being played: a match (first to 6), or, alone, Return Challenge. */
 export type Mode = 'match' | 'challenge';
+/** How a player hits: Easy (Wii-style: the timing of a swing; easy.ts), or Precise (the paddle where the hand puts it). */
+export type Controls = 'easy' | 'precise';
 
 /** The round's settings, and the keys pressed for it. */
 export interface Play {
   /** A match, or (alone) Return Challenge: two players always play a match. */
   mode: Mode;
+  /** Easy (the default: swing timing) or Precise (paddle placement). */
+  controls: Controls;
   forgiving: boolean;
   /** Space was pressed: serve a ball. */
   serve: boolean;
@@ -103,12 +113,37 @@ export interface Play {
  * serve's swing is allowed for in full (`full`), with two too: nobody waiting for it loses time.
  */
 const lagOf = (rig: Rig, play: Play, two: boolean, full = false) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + drawLag(two && !full) : 0) : play.hitLag) * play.timeScale);
+/** How late an Easy swing's fastest moment shows (the camera's delay and easy.ts EASY.drawLag), in the ball's time. */
+const swingLagOf = (rig: Rig, play: Play) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + EASY.drawLag : 0) : play.hitLag) * play.timeScale);
 
 /** Each player's part of the ball's frame: their paddle last frame (the table's frame) and where they'd moved it (their own), their swings, the ball's pass, their free hand. */
 interface Player { paddle: PaddlePose | null; moved: V3 | null; speeds: { t: number; vel: V3 }[]; pass: Pass | null; raised: boolean; }
 
 /** A point won: to whom, why, whose shot it was, where the ball was when it was decided (the table's frame), and when (the players' seconds: Round.real). */
 export interface PointWon extends Verdict { by: End; at: V3; t: number; }
+
+/**
+ * An Easy swing at a ball: whose, how it went (hit, a smash, or a whiff too early or too late),
+ * how early or late it was (s, the players': below 0 early), where the ball was (the table's
+ * frame) and when (Round.real).
+ */
+export interface SwingCall { end: End; kind: 'hit' | 'smash' | 'early' | 'late'; timing: number; at: V3; t: number; }
+
+/**
+ * A player's Easy swings: when their last counted one was at its fastest (the players' seconds),
+ * the ball they've had their go at (by when it was last struck), when that ball crossed their
+ * hitting line (the ball's time, or null) and which ball that was, a hit waiting for the ball to
+ * reach the line, and where across their dancer is going.
+ */
+interface EasyPlayer { swungAt: number; tried: number; ball: number; crossed: number | null; pending: { t: number; swing: V3; u: number; d: number } | null; goal: number; }
+
+/**
+ * Easy's dancer: how far across from its paddle hand's side it stands to meet the ball (m), how far
+ * across its end it can go (m), and how fast it gets there (m/s).
+ */
+export const EASY_STEP = { hand: 0.35, most: 1.05, speed: 3.5 } as const;
+const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
+const smoothstep = (a: number, b: number, x: number) => { const u = clamp((x - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
 
 const dist = (a: V3, b: V3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const tmp = new THREE.Vector3();
@@ -154,6 +189,9 @@ export class Round {
   done = false;
   /** When the waiting ball was tossed (the ball's time), or null while it waits to be. */
   tossAt: number | null = null;
+  /** Easy: each player's swings, and the last swing's call (for the HUD). */
+  easy: EasyPlayer[];
+  swingCall: SwingCall | null = null;
   /**
    * A point the receiver lost (the ball got by them) held back while their swing at it may yet be
    * on its way from the camera: their paddle is met by the ball as it was a lag ago, so for that
@@ -196,6 +234,7 @@ export class Round {
     this.mode = this.two ? 'match' : play.mode;
     this.ball = this.robotHolds() ? { pos: onPaddle(this.arm), vel: v3(), cooldown: 0 } : heldBall(this.server(), 0, rigs[this.server()]?.paddle);
     this.players = rigs.map((): Player => ({ paddle: null, moved: null, speeds: [], pass: null, raised: false }));
+    this.easy = rigs.map((): EasyPlayer => ({ swungAt: -Infinity, tried: -Infinity, ball: -Infinity, crossed: null, pending: null, goal: 0 }));
     this.passes = rigs.map(() => null);
   }
 
@@ -324,6 +363,7 @@ export class Round {
   // The beat over: the next serve, its ball waiting for the server (on the robot's paddle, its).
   private nextServe() {
     Object.assign(this, { between: false, shot: null, rally: 0, tossAt: null, serveSeen: null, serveAsked: false, heldSince: this.time, held: null });
+    for (const st of this.easy) { st.pending = null; st.crossed = null; }
   }
 
   /** How long the beat after the last point lasts (the players' seconds). */
@@ -342,10 +382,16 @@ export class Round {
       if (this.mode === 'challenge' && shot.by === 0) { this.decide({ to: 0, reason: 'return' }, e.at); return; }
     }
     if (!verdict) return;
-    // The ball got by the receiver: held back for as long as a hit of theirs, seen late, may yet come.
-    const receiver = this.rigs[otherEnd(shot.by)];
-    const wait = verdict.to === shot.by && receiver ? lagOf(receiver, this.play, this.two) + HOLD_MARGIN * this.play.timeScale : 0;
-    if (wait > 0) { this.held = { verdict, at: { ...e.at }, until: this.time + wait, shot }; return; }
+    // The ball got by the receiver: held back for as long as a hit of theirs, seen late, may yet
+    // come (their paddle is met by the ball as it was a lag ago; Easy's late swing at it is judged
+    // as it really was, after it crossed their hitting line).
+    const end = otherEnd(shot.by), receiver = this.rigs[end];
+    if (verdict.to === shot.by && receiver) {
+      const crossed = this.easy[end]?.crossed;
+      let until = this.time + lagOf(receiver, this.play, this.two) + HOLD_MARGIN * this.play.timeScale;
+      if (this.play.controls === 'easy' && typeof crossed === 'number') until = Math.max(until, crossed + (EASY.late + EASY.behind) * this.play.timeScale);
+      if (until > this.time) { this.held = { verdict, at: { ...e.at }, until, shot }; return; }
+    }
     this.decide(verdict, e.at);
   }
 
@@ -356,6 +402,88 @@ export class Round {
     this.drawnOff = v3();
     for (const p of this.players) p.pass = null;
     Object.assign(this, { flying: true, deadAt: Infinity, slowSince: null, servedAt: this.time, bouncedOn: null, tossAt: null });
+  }
+
+  /**
+   * Easy: each player's swing at the ball coming to them (easy.ts), as it really happened (a lag
+   * before the camera showed it), timed against the ball reaching their hitting line; one go at
+   * each ball. A swing in time hits it there, as the ball gets there (or, swung late, back when it
+   * was: the ball's past rewritten); out of time, it's a whiff. What the hit's replay touched,
+   * if there was one (its paddle's event the player's).
+   */
+  private easyHits(you: readonly { live: boolean; swingLag: number }[], now: number): FlightEvent[] | null {
+    const { play, lagged, ball, rigs } = this, ts = play.timeScale;
+    if (!lagged) return null;
+    const key = Math.max(this.touchedAt, this.servedAt);
+    for (const [i, rig] of rigs.entries()) {
+      const e = rig.end, st = this.easy[i], shot = this.shot;
+      // (A new ball: its crossing is still to come.)
+      if (st.ball !== key) { st.ball = key; st.crossed = null; st.pending = null; }
+      if (!shot || shot.by === e) continue;
+      const own = mineBall(e, ball);
+      const bounced = this.bouncedOn === e;
+      // When it crossed their line, having bounced on their half (one that hasn't is going out).
+      if (st.crossed === null && bounced && own.pos.z >= EASY.hitZ && own.vel.z > 0) st.crossed = this.time - (own.pos.z - EASY.hitZ) / own.vel.z;
+      if (!st.pending && st.tried !== key && you[i].live) {
+        const found = easySwing(this.players[i].speeds, this.real, st.swungAt + EASY.recover);
+        // (A hand thrown out and back by one wild pose is no swing: rig.ts borneOut.)
+        const swing = found && borneOut(rig, rig.paddle, found.vel, this.real - found.t, SWING.sprung, now) ? found : null;
+        const reach = !swing ? null : st.crossed ?? (() => { const c = contactOf(own, bounced); return c ? this.time + c.t : null; })();
+        if (swing && reach !== null) {
+          // Its fastest, as it really was, against the ball's arrival (the players' seconds; early is below 0).
+          const d = (this.time - (this.real - swing.t) * ts - you[i].swingLag - reach) / ts;
+          const timed = d >= -EASY.early && d <= EASY.late;
+          // Out of time, only a hard swing is the ball's go.
+          if (timed || (d >= -EASY.ahead && d <= EASY.behind && Math.hypot(swing.vel.x, swing.vel.y, swing.vel.z) >= EASY.whiff)) {
+            st.swungAt = swing.t; st.tried = key;
+            if (!timed) this.swingCall = { end: e, kind: d < 0 ? 'early' : 'late', timing: d, at: { ...ball.pos }, t: this.real };
+            else st.pending = { t: reach, swing: { ...swing.vel }, u: d < 0 ? d / EASY.early : d / EASY.late, d };
+          }
+        }
+      }
+      if (!st.pending || this.time < st.pending.t) continue;
+      const { swing, u, t, d } = st.pending;
+      st.pending = null;
+      let smash = false;
+      const events: FlightEvent[] = lagged.hitThen(Math.min(this.time - t, 0.55), (then) => {
+        const from = mineBall(e, then).pos;
+        const shot = easyShot(from, swing, u, rig.paddle, this.rand);
+        smash = shot.smash;
+        // With two, a shot that lands is paced for the other player to get to (one that strays stays as it is).
+        return mine(e, this.two && landsFar(from, shot.vel) ? assistReturn(from, shot.vel, 0, PACE.rally) : shot.vel);
+      });
+      this.swingCall = { end: e, kind: smash ? 'smash' : 'hit', timing: d, at: { ...events[0].at }, t: this.real };
+      return events.map((ev, k): FlightEvent => (k === 0 ? { ...ev, by: e } : ev));
+    }
+    return null;
+  }
+
+  /**
+   * Easy: a player's dancer steps across to meet the ball coming to them (their paddle hand's side
+   * to it), and back to the middle between times; their paddle is drawn sliding onto the ball as
+   * it comes, all the way by the time it's there.
+   */
+  private easyFollow(rig: Rig, i: number, raw: V3 | null, dt: number) {
+    const e = rig.end, st = this.easy[i], shot = this.shot, ts = this.play.timeScale;
+    let nudge: V3 | null = null;
+    if (!this.flying || this.between || !shot || shot.by === e) st.goal = 0;
+    else {
+      const own = mineBall(e, this.ball);
+      const c = own.pos.z < EASY.hitZ ? contactOf(own, this.bouncedOn === e) : null;
+      if (c) {
+        st.goal = clamp(c.at.x - (rig.paddle === 'left' ? -1 : 1) * EASY_STEP.hand, -EASY_STEP.most, EASY_STEP.most);
+        if (raw) {
+          const w = 1 - smoothstep(0.06, 0.4, c.t / ts);
+          nudge = v3((c.at.x - raw.x) * w, (c.at.y - raw.y) * w, (c.at.z - raw.z) * w);
+          const l = Math.hypot(nudge.x, nudge.y, nudge.z);
+          if (l > 0.7) nudge = v3(nudge.x * 0.7 / l, nudge.y * 0.7 / l, nudge.z * 0.7 / l);
+        }
+      }
+    }
+    const away = st.goal - rig.step.x;
+    rig.step.x += Math.sign(away) * Math.min(Math.abs(away), EASY_STEP.speed * dt, Math.abs(away) * (1 - Math.exp(-10 * dt)) + 0.4 * dt);
+    tmp.set(nudge?.x ?? 0, nudge?.y ?? 0, nudge?.z ?? 0);
+    rig.nudge.lerp(tmp, 1 - Math.exp(-(nudge ? 25 : 6) * dt));
   }
 
   /**
@@ -382,7 +510,8 @@ export class Round {
       if (!paddle) return { paddle: null, raw: null, moved: null };
       const c = mine(rig.end, paddle.center);
       const raw = v3(c.x - rig.nudged.x, c.y - rig.nudged.y, c.z - rig.nudged.z);
-      const moved = v3(raw.x - rig.shifted.x, raw.y - rig.shifted.y, raw.z - rig.shifted.z);
+      // (Nor the body's step across: Easy's dancer moving isn't the hand swinging.)
+      const moved = v3(raw.x - rig.shifted.x - rig.step.x, raw.y - rig.shifted.y - rig.step.y, raw.z - rig.shifted.z - rig.step.z);
       return { paddle, raw, moved };
     });
     const keep = () => rigs.forEach((_, i) => { this.players[i].paddle = pads[i].paddle; this.players[i].moved = pads[i].moved; });
@@ -410,7 +539,7 @@ export class Round {
       };
       const swing = borne();
       // (A serve's swing is a longer one than a rally's.)
-      return { paddleVel, live, wasRaised, lag: lagOf(rig, play, two), serveLag: lagOf(rig, play, two, true), swing, serveSwing: () => borne(SERVE_SWING.travel) };
+      return { paddleVel, live, wasRaised, lag: lagOf(rig, play, two), serveLag: lagOf(rig, play, two, true), swingLag: swingLagOf(rig, play), swing, serveSwing: () => borne(SERVE_SWING.travel) };
     });
     let plan: { t: number; at: V3 } | null = null;
     // A point won: once its beat is over, the ball (if it's still going) is taken back and the next
@@ -450,14 +579,23 @@ export class Round {
       const { raw } = pads[s], { live } = you[s];
       const pose = rig.hands[rig.paddle];
       let vel: V3 | null = play.serve ? { ...SERVE.key } : null;
-      if (!vel && (!live || !pose || this.tossAt === null)) this.serveSeen = null;
+      const easy = play.controls === 'easy';
+      if (!vel && easy && live && this.tossAt !== null) {
+        // Easy: a swing once the ball's up out of the hand (as the swing really happened, a lag
+        // ago), wherever the paddle is.
+        const swing = easySwing(p.speeds, this.real, this.easy[s].swungAt + EASY.recover);
+        if (swing && this.time - this.tossAt - ((this.real - swing.t) * play.timeScale + lag) >= 0.12 * play.timeScale) {
+          vel = easyServe(from, swing.vel, this.rand);
+          this.easy[s].swungAt = swing.t;
+        }
+      } else if (!vel && (!live || !pose || this.tossAt === null)) this.serveSeen = null;
       else if (!vel && this.serveSeen && pose && pose.at > this.serveSeen.at) {
         // The tracker's next pose bears the swing out, unless the hand has sprung back: one wild
         // pose (the arm's depth read the wrong way round, say) isn't a swing.
         const w = pose.pose.wrist, was = this.serveSeen.wrist, way = this.serveSeen.way;
         if ((w.x - was.x) * way.x + (w.y - was.y) * way.y + (w.z - was.z) * way.z > -SWING.sprung) vel = this.serveSeen.vel;
         this.serveSeen = null;
-      } else if (!vel && !this.serveSeen && pose && raw && this.tossAt !== null) {
+      } else if (!vel && !easy && !this.serveSeen && pose && raw && this.tossAt !== null) {
         // Swung at the ball as the server saw it, a lag ago.
         const seenBall = tossedBall(s, Math.max(0, this.time - this.tossAt - lag), rig.paddle) ?? ball;
         const swing = you[s].serveSwing();
@@ -469,7 +607,7 @@ export class Round {
         // A serve lands, whatever the level (but with the assist off), and with two no sooner than
         // the other player can be ready for it.
         this.serveSeen = null;
-        this.launch(mine(s, assistReturn(from, vel, play.assist === 'off' && !play.serve ? 0 : 1, two ? PACE.serve : undefined)), PADDLE_COOLDOWN);
+        this.launch(mine(s, assistReturn(from, vel, easy || (play.assist === 'off' && !play.serve) ? 0 : 1, two ? PACE.serve : undefined)), PADDLE_COOLDOWN);
         this.shot = newShot(s);
         this.hits += 1; this.hitsBy[s] += 1; this.touchedAt = this.time;
         this.events.push({ type: 'paddle', at: { ...this.ball.pos }, speed: Math.hypot(vel.x, vel.y, vel.z), by: s });
@@ -485,10 +623,11 @@ export class Round {
       this.events.push({ type: 'paddle', at: { ...this.serve.strike }, speed: Math.hypot(this.serveVel.x, this.serveVel.y, this.serveVel.z) });
     } else if (this.flying && this.lagged) {
       const lagged = this.lagged, ball = this.ball;
-      // Each ball's pass by each paddle, as its player saw it: kept at its nearest.
+      // Each ball's pass by each paddle, as its player saw it: kept at its nearest. (Precise's:
+      // Easy's paddles don't meet the ball, so how they pass it says nothing, and calibrates nothing.)
       rigs.forEach((rig, i) => {
         const raw = pads[i].raw;
-        if (!you[i].live || !raw) return;
+        if (!you[i].live || !raw || play.controls === 'easy') return;
         const then = mineBall(rig.end, lagged.then(you[i].lag));
         if (coming(then, raw.z)) this.players[i].pass = trackPass(this.players[i].pass, then, raw, Math.hypot(you[i].swing.x, you[i].swing.y, you[i].swing.z));
       });
@@ -499,13 +638,19 @@ export class Round {
         end: rig.end, raw: you[i].live ? pads[i].raw : null, paddleVel: you[i].paddleVel, swing: you[i].swing, lag: you[i].lag,
         from: this.players[i].paddle ?? pads[i].paddle, to: pads[i].paddle,
       }));
-      const flight = flightStep(lagged, worldDt, swingers, help, play.timeScale, two ? PACE.rally : undefined);
-      this.events.push(...flight.events);
+      // (Easy's paddles are only drawn: its hits are its swings' timing, below.)
+      const flight = flightStep(lagged, worldDt, play.controls === 'easy' ? [] : swingers, help, play.timeScale, two ? PACE.rally : undefined);
       // Drawn from where it was, easing onto where a hit (judged a lag ago) put it.
       const by = flight.events.find((e): e is FlightEvent & { type: 'paddle' } => e.type === 'paddle')?.by;
       if ((flight.swung || flight.hit) && by !== undefined && you[by].lag > 0) this.drawnOff = v3(before.x + this.drawnOff.x - ball.pos.x, before.y + this.drawnOff.y - ball.pos.y, before.z + this.drawnOff.z - ball.pos.z);
+      // Easy: each player's swing, timed against the ball reaching their line.
+      const was = { ...ball.pos };
+      const struck = play.controls === 'easy' && !this.between ? this.easyHits(you, now) : null;
+      if (struck) this.drawnOff = v3(was.x + this.drawnOff.x - ball.pos.x, was.y + this.drawnOff.y - ball.pos.y, was.z + this.drawnOff.z - ball.pos.z);
+      const events = struck ? [...flight.events, ...struck] : flight.events;
+      this.events.push(...events);
       const out = (after: number) => { this.deadAt = Math.min(this.deadAt, this.time + after * play.timeScale); };
-      for (const e of flight.events) {
+      for (const e of events) {
         if (e.type === 'paddle') {
           this.deadAt = Infinity; this.bouncedOn = null;
           if (e.by !== undefined) { this.hits += 1; this.hitsBy[e.by] += 1; this.touchedAt = this.time; this.shot = newShot(e.by); this.finishPass(e.by, true); }
@@ -545,7 +690,7 @@ export class Round {
         if (plan) this.bot.aim ??= botTarget(play.botLevel, this.rand, rigs[0].paddle);
         if (plan && plan.t <= worldDt * 1.01 && dist(this.bot.pos, plan.at) < 0.3) {
           const aim = this.bot.aim ?? undefined;
-          const mistake = botMistake(play.botLevel, Math.hypot(ball.vel.x, ball.vel.y, ball.vel.z) / play.timeScale, this.rand);
+          const mistake = botMistake(play.botLevel, Math.hypot(ball.vel.x, ball.vel.y, ball.vel.z) / play.timeScale, this.rand, plan.at.x);
           // (Its paddle's sound is the only thing of the hit left to say: the round has taken it in.)
           this.events.push(lagged.hitThen(0, (struck) => (mistake ? missShot(struck.pos, mistake, this.rand) : botShot(struck.pos, play.botLevel, this.rand, aim)))[0]);
           Object.assign(this, { touchedAt: this.time, slowSince: null, bouncedOn: null, shot: newShot(1) });
@@ -569,6 +714,7 @@ export class Round {
     // Each assist's slide for the next frame: a swinging blade towards where the ball will meet
     // it, quickly as it nears, and slowly back once it's gone.
     rigs.forEach((rig, i) => {
+      if (play.controls === 'easy') { this.easyFollow(rig, i, pads[i].raw, dt); return; }
       const { raw } = pads[i], { paddleVel, swing, live, lag } = you[i];
       const seen = this.flying && this.lagged && raw && paddleVel && live ? mineBall(rig.end, this.lagged.then(lag)) : null;
       const nudge = seen && raw && paddleVel ? interceptNudge(seen, raw, paddleVel, swing, play.timeScale, help) : null;

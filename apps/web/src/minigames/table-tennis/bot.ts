@@ -135,16 +135,18 @@ export function challengeServe(level: number): ServeSpec {
 }
 
 /**
- * How often the bot's shot goes wrong at each level, against a gentle ball; every m/s the ball
- * came at it faster than `easyPace` adds `perPace` more, up to `most`.
+ * How often the bot's shot goes wrong at each level, against a gentle ball it didn't have to
+ * stretch for; every m/s the ball came at it faster than `easyPace` adds `perPace` more, and every
+ * metre further across than `reach` it had to go for it `perStretch` more (an angled shot is
+ * harder to get back), up to `most`.
  */
-export const BOT_MISTAKES = { rate: { easy: 0.14, medium: 0.08, hard: 0.04 } as Record<BotLevel, number>, easyPace: 5, perPace: 0.035, most: 0.4 } as const;
+export const BOT_MISTAKES = { rate: { easy: 0.14, medium: 0.08, hard: 0.04 } as Record<BotLevel, number>, easyPace: 5, perPace: 0.035, reach: 0.35, perStretch: 0.45, most: 0.45 } as const;
 export type Mistake = 'long' | 'wide' | 'net';
 
-/** Whether the bot gets this shot wrong, and how, against a ball that came at it at `speed` (m/s). */
-export function botMistake(level: BotLevel, speed: number, rand: () => number = Math.random): Mistake | null {
+/** Whether the bot gets this shot wrong, and how, against a ball that came at it at `speed` (m/s), met `across` metres from the table's middle. */
+export function botMistake(level: BotLevel, speed: number, rand: () => number = Math.random, across = 0): Mistake | null {
   const m = BOT_MISTAKES;
-  const chance = Math.min(m.most, m.rate[level] + Math.max(0, speed - m.easyPace) * m.perPace);
+  const chance = Math.min(m.most, m.rate[level] + Math.max(0, speed - m.easyPace) * m.perPace + Math.max(0, Math.abs(across) - m.reach) * m.perStretch);
   if (rand() >= chance) return null;
   const pick = rand();
   return pick < 0.4 ? 'net' : pick < 0.75 ? 'long' : 'wide';

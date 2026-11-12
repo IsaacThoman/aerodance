@@ -4,7 +4,7 @@
  */
 
 import type { BotLevel } from './bot.ts';
-import type { Mode } from './round.ts';
+import type { Controls, Mode } from './round.ts';
 import type { Side } from './arms.ts';
 import { optionKey } from '../options.ts';
 
@@ -20,6 +20,12 @@ export const MODE_CHOICES: readonly { value: Mode; label: string }[] = [
   { value: 'challenge', label: 'Return Challenge' },
 ];
 
+/** How a player hits: Easy (the default, as Wii Sports Resort: a swing's timing) or Precise (the paddle where the hand puts it). */
+export const CONTROL_CHOICES: readonly { value: Controls; label: string }[] = [
+  { value: 'easy', label: 'Easy' },
+  { value: 'precise', label: 'Precise' },
+];
+
 /**
  * Where the table stands: the Biodome (packages/arenas/biodome), or the plain room the game was
  * built in. Not a setting: the room is for development (?scene=debug).
@@ -29,8 +35,12 @@ export const sceneParam = (search: string = globalThis.location?.search ?? ''): 
 
 export const OPTIONS = [
   { id: 'mode', label: 'Mode', choices: MODE_CHOICES, default: 'match', players: [1] },
-  // The robot's level in a match: alone only (two players play each other).
-  { id: 'opponent', label: 'Opponent', choices: BOT_CHOICES, default: 'medium', players: [1] },
+  // The robot's level in a match: alone only (two players play each other). Easy to begin with,
+  // as Wii Sports Resort's first opponents are.
+  { id: 'opponent', label: 'Opponent', choices: BOT_CHOICES, default: 'easy', players: [1] },
+  // Easy plays as Wii Sports Resort does, seen from behind each player's dancer: only the swing's
+  // timing counts. Precise is first person, the paddle where the hand puts it.
+  { id: 'controls', label: 'Controls', choices: CONTROL_CHOICES, default: 'easy' },
   // Each player's: the hand that holds their paddle (the other tosses the ball to serve).
   { id: 'paddleHand', label: 'Paddle hand', choices: [{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }], default: 'right', perPlayer: true },
   // The Hand Landmarker (index.ts tracking): the paddle's angle and a surer wrist, for tracking
@@ -41,7 +51,7 @@ export const OPTIONS = [
 export type OptionId = (typeof OPTIONS)[number]['id'];
 
 export interface TableTennisOptions {
-  mode: Mode; opponent: BotLevel; handTracking: boolean;
+  mode: Mode; opponent: BotLevel; controls: Controls; handTracking: boolean;
   /** Each player's paddle hand (four of them, by player). */
   paddleHands: Side[];
 }
@@ -53,7 +63,8 @@ const pick = <T extends string>(choices: readonly { value: T }[], value: string 
 export function optionsOf(values: Readonly<Record<string, string>>): TableTennisOptions {
   return {
     mode: pick(MODE_CHOICES, values.mode, 'match'),
-    opponent: pick(BOT_CHOICES, values.opponent, 'medium'),
+    opponent: pick(BOT_CHOICES, values.opponent, 'easy'),
+    controls: pick(CONTROL_CHOICES, values.controls, 'easy'),
     handTracking: values.handTracking !== 'off',
     paddleHands: [0, 1, 2, 3].map((player): Side => (values[optionKey('paddleHand', player)] === 'left' ? 'left' : 'right')),
   };

@@ -23,7 +23,7 @@ import type { End } from '../../src/minigames/table-tennis/rally.ts';
 import { BLADE_UP, MITT, OWN_EYE, REACH, REST, SHOULDER, heldPose, newHandFilters, newRig, takeAge, takeHand } from '../../src/minigames/table-tennis/rig.ts';
 import type { HandFilters, Rig } from '../../src/minigames/table-tennis/rig.ts';
 import { Round } from '../../src/minigames/table-tennis/round.ts';
-import type { Mode, Play } from '../../src/minigames/table-tennis/round.ts';
+import type { Controls, Mode, Play } from '../../src/minigames/table-tennis/round.ts';
 import type { Side } from '../../src/minigames/table-tennis/arms.ts';
 
 /** A seeded random source (mulberry32), and a normal one from it. */
@@ -342,6 +342,10 @@ export interface SimOptions {
   botLevel?: BotLevel;
   /** A match (the default), or (alone) Return Challenge. A round over, another starts at once. */
   mode?: Mode;
+  /** Easy or Precise (the game's own default, unless given). */
+  controls?: Controls;
+  /** Called after each frame with the round (for looking into one). */
+  onFrame?: (round: Round, t: number) => void;
   fps?: number;
 }
 
@@ -371,7 +375,7 @@ export function simulate(options: SimOptions): SimResult {
   const random = seeded(seed);
   const two = players.length > 1;
   const rigs = players.map((p, i) => newRig(i as End, p.hand ?? 'right'));
-  const play: Play = { mode: options.mode ?? 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? DEFAULT_ASSIST, botLevel: options.botLevel ?? 'medium' };
+  const play: Play = { mode: options.mode ?? 'match', controls: options.controls ?? 'easy', forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? DEFAULT_ASSIST, botLevel: options.botLevel ?? 'medium' };
   let round = new Round(rigs, play, random.rand);
   // When this round began (a round's clock starts at 0: the people go by the sim's).
   let began = 0;
@@ -405,6 +409,7 @@ export function simulate(options: SimOptions): SimResult {
     });
     const botHitBefore = round.bot.hitAt, servedBefore = round.servedAt;
     round.step(dt, t * 1000, true);
+    options.onFrame?.(round, t);
     const served = round.servedAt !== servedBefore;
     // The robot's serve or shot: it comes at the player once it lands on their half (its mistakes,
     // long, wide or into the net, never do).

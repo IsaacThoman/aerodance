@@ -15,7 +15,7 @@ import type { Play, PointWon } from '../src/minigames/table-tennis/round.ts';
  */
 
 const FRAME = 1 / 60;
-const PLAY: Play = { mode: 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
+const PLAY: Play = { mode: 'match', controls: 'precise', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
 const solo = (play: Partial<Play> = {}) => new Round([newRig(0, 'right')], { ...PLAY, ...play }, () => 0.5);
 /** A round alone against the robot with a stand-in (autoplay.ts) playing for the player, the robot's mistakes seeded. */
 function standIn(play: Partial<Play> = {}) {
