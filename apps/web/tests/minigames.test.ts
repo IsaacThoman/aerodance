@@ -12,6 +12,7 @@ import { definitionProblem, formatScore, forPlayers, howToFor, listMinigames, pl
 import { minigameBest, recordMinigameBest } from '../src/minigames/bestScores.ts';
 import { cameraArea, fromDesign, toDesign } from '../src/minigames/cameraArea.ts';
 import { MG_MAX_OPTIONS, MG_PER_PAGE, minigameLayout, mgTile } from '../src/minigames/layout.ts';
+import { boardRows } from '../src/minigames/resultsBoard.ts';
 import { minigameOptions, optionKey, optionsText, playerOption, resolveOptions, saveMinigameOption, stepOption } from '../src/minigames/options.ts';
 import type { MinigameContext, MinigameDefinition, MinigameOption } from '../src/minigames/types.ts';
 import type { Circle, Rect } from '../src/ui/draw.ts';
@@ -244,6 +245,24 @@ test('the list and its page controls stay on the left, clear of the menu dancers
     }
     assert.ok(l.MG_PAGE_DOTS_X > l.MG_PAGE_PREV.x + l.MG_PAGE_PREV.r && l.MG_PAGE_DOTS_X < l.MG_PAGE_NEXT.x - l.MG_PAGE_NEXT.r);
     assert.ok(l.MG_MINUS.x - l.MG_MINUS.r > l.MG_TEXT.x + 150, 'the dial clears its label');
+  }
+});
+
+test('the results board: the players in finishing order, a team as one, and a solo player\'s opponent under them, its buttons below it on screen', () => {
+  const solo = game({ players: [1] });
+  assert.deepEqual(boardRows(solo, [4]), [{ name: 'Your score', score: 4, player: 0 }]);
+  const robot = { name: 'Robot', score: 6 };
+  assert.deepEqual(boardRows(solo, [4], { headline: 'THE ROBOT WINS', opponent: robot }), [{ name: 'Your score', score: 4, player: 0 }, { name: 'Robot', score: 6, player: null }]);
+  assert.deepEqual(boardRows(game(), [3, 5], { opponent: robot }).map((row) => row.name), ['Player 2', 'Player 1'], 'only a solo player has an opponent');
+  assert.deepEqual(boardRows(game({ coop: true }), [3, 5]), [{ name: 'Your team', score: 5, player: 0 }]);
+  assert.deepEqual(boardRows(game({ score: { better: 'lower' } }), [9, 4, 7]).map((row) => row.player), [1, 2, 0]);
+  for (const width of [1600, 1200]) {
+    const l = minigameLayout(width);
+    for (let rows = 1; rows <= 5; rows++) {
+      const board = l.mgResultsBoard(rows), retry = l.mgResultsRetry(rows), quit = l.mgResultsQuit(rows);
+      assert.ok(retry.y >= board.y + board.h && quit.y === retry.y, `${width}, ${rows} rows: the buttons under the board`);
+      assert.ok(retry.y + retry.h <= 900 - 24 && board.x >= 0 && board.x + board.w <= width, `${width}, ${rows} rows: on screen`);
+    }
   }
 });
 

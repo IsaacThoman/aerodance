@@ -148,6 +148,11 @@ export interface MinigameOutcome {
   coop?: boolean;
   /** The round ran out of time on the game's own clock: "Time's up!" rather than "Finish!" (as a durationMs round's). */
   timeUp?: boolean;
+  /**
+   * Who a solo player played against (the computer) and how they scored: the results' board shows
+   * them a row of their own under the players, without a best of their own.
+   */
+  opponent?: { name: string; score: number };
 }
 
 /** What a game is given each frame (useMinigameFrame). */
