@@ -59,10 +59,13 @@ export const DEAD = { floor: 0.35, net: 0.6, second: 0.3, still: 0.4, stalled: 1
 export const BEAT = { point: 1.6, challenge: 0.5, over: 1.4 } as const;
 /** How long the robot holds the ball before serving it (the players' seconds): in a match, and in Return Challenge. */
 export const ROBOT_WAIT = { match: 1.1, challenge: 0.45 } as const;
+/** A point lost by a receiver is held back their lag and this much more (the players' seconds: a frame or two) for a hit seen late. */
+const HOLD_MARGIN = 0.05;
 // How late the paddle is to the ball, stepped through with L: 'auto' is the tracker's measured
 // delay (camera to result) and DRAW_LAG more for the hand's filtering and easing; or set, in seconds.
 export const HIT_LAGS = ['auto', 0, 0.06, 0.1, 0.15] as const;
-export type HitLag = typeof HIT_LAGS[number];
+/** 'auto', or a lag in seconds (the L key steps through HIT_LAGS; the tests set others). */
+export type HitLag = 'auto' | number;
 /**
  * The paddle as drawn trails the tracker's poses by about 80 ms at a swing's speed (trackbench's
  * ping-pong scenes: the one-euro filter, holding each pose a frame, and the easing), and alone the
@@ -151,6 +154,12 @@ export class Round {
   done = false;
   /** When the waiting ball was tossed (the ball's time), or null while it waits to be. */
   tossAt: number | null = null;
+  /**
+   * A point the receiver lost (the ball got by them) held back while their swing at it may yet be
+   * on its way from the camera: their paddle is met by the ball as it was a lag ago, so for that
+   * long a hit can still come and the point be theirs to play on.
+   */
+  private held: { verdict: Verdict; at: V3; until: number; shot: Shot } | null = null;
   /** The half the ball last bounced on since it was last hit (null: it hasn't). */
   bouncedOn: End | null = null;
   /**
@@ -287,7 +296,11 @@ export class Round {
     this.serveSeen = null;
     this.rigs.forEach((_, i) => this.finishPass(i, false));
     if (this.between || this.done) return;
-    if (this.shot) this.decide(deadVerdict(this.shot), this.ball.pos);
+    // (A point held back for a late hit that hasn't come is decided as it was.)
+    const held = this.held;
+    this.held = null;
+    if (held && held.shot === this.shot) this.decide(held.verdict, held.at);
+    else if (this.shot) this.decide(deadVerdict(this.shot), this.ball.pos);
     else this.nextServe();
   }
 
@@ -310,7 +323,7 @@ export class Round {
 
   // The beat over: the next serve, its ball waiting for the server (on the robot's paddle, its).
   private nextServe() {
-    Object.assign(this, { between: false, shot: null, rally: 0, tossAt: null, serveSeen: null, serveAsked: false, heldSince: this.time });
+    Object.assign(this, { between: false, shot: null, rally: 0, tossAt: null, serveSeen: null, serveAsked: false, heldSince: this.time, held: null });
   }
 
   /** How long the beat after the last point lasts (the players' seconds). */
@@ -328,7 +341,12 @@ export class Round {
       // Return Challenge: the player's return landing is the point.
       if (this.mode === 'challenge' && shot.by === 0) { this.decide({ to: 0, reason: 'return' }, e.at); return; }
     }
-    if (verdict) this.decide(verdict, e.at);
+    if (!verdict) return;
+    // The ball got by the receiver: held back for as long as a hit of theirs, seen late, may yet come.
+    const receiver = this.rigs[otherEnd(shot.by)];
+    const wait = verdict.to === shot.by && receiver ? lagOf(receiver, this.play, this.two) + HOLD_MARGIN * this.play.timeScale : 0;
+    if (wait > 0) { this.held = { verdict, at: { ...e.at }, until: this.time + wait, shot }; return; }
+    this.decide(verdict, e.at);
   }
 
   /** The ball's flight begins (a serve's strike), from where it is, at `vel`. */
@@ -504,6 +522,11 @@ export class Round {
         if (e.type === 'net') out(DEAD.net);
         if (e.type === 'floor') out(DEAD.floor);
       }
+      // A receiver's point held back for a late hit of theirs: theirs to lose once it hasn't come
+      // (a hit since has the ball in play again).
+      const held = this.held;
+      if (held && (held.shot !== this.shot || this.between)) this.held = null;
+      else if (held && this.time >= held.until) { this.held = null; this.decide(held.verdict, held.at); }
       // Gone by a paddle (or away) unhit.
       rigs.forEach((rig, i) => {
         const raw = pads[i].raw;

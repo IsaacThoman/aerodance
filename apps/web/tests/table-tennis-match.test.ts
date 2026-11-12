@@ -132,3 +132,13 @@ test('Return Challenge: the robot serves and serves again, each return counts, a
   assert.ok(nobody.round.finished() && nobody.round.challenge.returns === 0, 'nobody there: over at the first serve');
   assert.ok(nobody.t < 6, `over in ${nobody.t.toFixed(1)} s`);
 });
+
+test("a receiver's hit seen late, against the ball as it was before it got by them, still counts: the point waits for it", () => {
+  // A stand-in plays the ball as it was nearly half a second ago (its camera's lag), so it often
+  // meets it after the real ball has bounced twice or gone by: held back, those points are played on.
+  const lagged = solo({ hitLag: 0.45 }, 400);
+  const prompt = solo({ hitLag: 0 }, 400);
+  const lostByMissing = (r: string[]) => r.filter((x) => x === '1:double' || x === '1:missed').length;
+  assert.ok(lagged.round.finished() && lagged.round.match.winner === 0, `won with the lag (${lagged.round.match.score.join('-')}: ${lagged.reasons.join(' ')})`);
+  assert.ok(lostByMissing(lagged.reasons) <= lostByMissing(prompt.reasons) + 1, `points missed with the lag ${lostByMissing(lagged.reasons)}, without ${lostByMissing(prompt.reasons)}`);
+});

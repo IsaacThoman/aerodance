@@ -663,7 +663,7 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
       else if (e.code === 'KeyA') play.assist = ASSIST_LEVELS[(ASSIST_LEVELS.indexOf(play.assist) + 1) % ASSIST_LEVELS.length];
       else if (DEV && e.code === 'KeyF') setForgiving((on) => { play.forgiving = !on; return !on; });
       else if (DEV && e.code === 'KeyT') play.timeScale = TIME_SCALES[(TIME_SCALES.indexOf(play.timeScale as typeof TIME_SCALES[number]) + 1) % TIME_SCALES.length];
-      else if (DEV && e.code === 'KeyL') play.hitLag = HIT_LAGS[(HIT_LAGS.indexOf(play.hitLag) + 1) % HIT_LAGS.length];
+      else if (DEV && e.code === 'KeyL') play.hitLag = HIT_LAGS[(HIT_LAGS.findIndex((lag) => lag === play.hitLag) + 1) % HIT_LAGS.length];
       else if (DEV && (e.code === 'KeyO' || e.code === 'KeyP')) { const rig = e.code === 'KeyO' ? rigs[0] : rigs[rigs.length - 1]; rig.autoplay = !rig.autoplay; }
     };
     window.addEventListener('keydown', key);
