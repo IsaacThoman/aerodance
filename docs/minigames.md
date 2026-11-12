@@ -19,6 +19,9 @@ The **Controls** setting is Easy by default, as Wii Sports Resort plays: seen fr
 player's dancer, which steps across to meet the ball, a swing timed to the ball's arrival hits it
 wherever the hand is, early or late timing sending it across or down the line (`table-tennis/easy.ts`).
 **Precise** is first person: the paddle is where the hand puts it, with the aim assist helping.
+Easy's view is one of `VIEWS` in `table-tennis/Game.tsx` (close behind the dancer by default; over
+the shoulder; low, behind the hands; first person; high, as Wii Sports Resort's): `?view=<id>`
+picks it, and V while playing steps through them (`mgView` says which).
 Its HUD is Wii Sports Resort's too (`table-tennis/Hud.tsx`, what it says in `table-tennis/calls.ts`):
 a score bug under the pause icon, a call where each point was decided (OUT, NET, NICE!…),
 banners for whose point it was, DEUCE, MATCH POINT and GAME!, and prompts only while they're needed.
