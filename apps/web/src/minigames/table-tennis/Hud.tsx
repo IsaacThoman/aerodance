@@ -336,7 +336,7 @@ export function TableTennisHud({ ctx, round, hud }: { ctx: MinigameContext; roun
         if (note?.warn && cells[i]) drawWarning(g, sprites, drawn.panes, note.text, i === 0 ? cells[i].x + 24 : cells[i].x + cells[i].w - 24, i === 0 ? 'left' : 'right');
       });
 
-      if (DEV && hud.dev) drawDevPanel(g, round, tracking, w);
+      if (DEV && hud.dev) drawDevPanel(g, round, m, tracking, w);
     },
   });
   // The pills at the foot of the screen are frosted glass, as the app's dark glass is (as last
@@ -498,21 +498,28 @@ function drawWarning(g: Ctx, sprites: Sprites, panes: GlassPane[], text: string,
  * to keep it clear of the score bug: how the last ball went by each paddle, each paddle's
  * calibration, the settings, the hand tracking and the keys.
  */
-function drawDevPanel(g: Ctx, round: Round, tracking: HandTracking | null, width: number) {
+function drawDevPanel(g: Ctx, round: Round, model: HudModel, tracking: HandTracking | null, width: number) {
   const { rigs, play, two } = round;
   const scale = play.timeScale === 1 ? '1×' : play.timeScale === 0.5 ? '½×' : '¼×';
   const lines: string[] = [];
+  const easy = play.controls === 'easy';
   for (const rig of rigs) {
     const who = two ? `P${rig.end + 1} ` : '';
-    const pass = round.passes[rig.end];
-    lines.push(`${who}Last ball: ${pass ? describePass(pass) : 'none yet'}`);
-    lines.push(`${who}Paddle calibration: shifted ${shiftWords(rig.shift)} · hit timing ${lagWords(rig, play, two)}`);
+    if (easy) {
+      // Easy: how the last swing was timed (below 0, early), and how late the camera shows a swing.
+      const swing = model.swings[rig.end];
+      lines.push(`${who}Last swing: ${swing ? `${swing.kind}, ${swing.timing >= 0 ? '+' : ''}${Math.round(swing.timing * 1000)} ms` : 'none yet'} · camera delay ${rig.latency > 0 ? `${Math.round(rig.latency * 1000)} ms` : '–'}`);
+    } else {
+      const pass = round.passes[rig.end];
+      lines.push(`${who}Last ball: ${pass ? describePass(pass) : 'none yet'}`);
+      lines.push(`${who}Paddle calibration: shifted ${shiftWords(rig.shift)} · hit timing ${lagWords(rig, play, two)}`);
+    }
     const note = trackingNote(rig, tracking, two);
     if (note) lines.push(`${who}${note.text}`);
   }
-  lines.push(`Aim assist ${ASSIST_LABELS[play.assist]}${!two && round.mode === 'match' ? ` · Opponent ${choiceLabel('opponent', play.botLevel)}` : ''} · Time ${scale} · Forgiving ${play.forgiving ? 'on' : 'off'}`);
+  lines.push(`${easy ? 'Controls Easy' : `Controls Precise · Aim assist ${ASSIST_LABELS[play.assist]}`}${!two && round.mode === 'match' ? ` · Opponent ${choiceLabel('opponent', play.botLevel)}` : ''} · Time ${scale} · Forgiving ${play.forgiving ? 'on' : 'off'}`);
   lines.push(`Stand-ins ${rigs.some((r) => r.autoplay) ? rigs.filter((r) => r.autoplay).map((r) => `P${r.end + 1}`).join('+') : 'off'} · Hands ${tracking ?? 'off'} · Best rally ${round.best}`);
-  lines.push(`Keys: Space serve · A assist · T time · F forgiving · L hit timing · ${two ? 'O/P' : 'O'} stand-in · D this panel`);
+  lines.push(`Keys: Space serve${easy ? "" : " · A assist"} · T time · F forgiving · L hit timing · ${two ? 'O/P' : 'O'} stand-in · D this panel`);
   const size = 18, lineH = 23, pad = 14, x = 24, y = 24;
   const room = width / 2 - (width < 1400 ? L.bug.wCompact : L.bug.w) - L.bug.gap - 24 - x - pad * 2;
   g.font = `600 ${size}px ${FONT}`;
