@@ -7,6 +7,7 @@ import { gelMaterial, inkMaterial } from './gel.ts';
 import { blobGeometry, mergeAll } from './geometry.ts';
 import { FLOOR } from './layout.ts';
 import { BAR_STOOLS, STOOL_SEAT } from './Bar.tsx';
+import { STAGE_R, STAGE_TOP } from './DanceFloor.tsx';
 
 interface Blob {
   x: number;
@@ -22,23 +23,32 @@ interface Blob {
 
 const COLORS = ['#3ee8ff', '#8dff4a', '#ff5ad0', '#a77bff', '#4f8dff', '#3dffc0', '#d65bff', '#ffe04a'];
 
-// Aeroling crowd around the stage: bob, hop and sway on the beat.
+// Leave the speaker stacks, the camera's foreground and the bar counter clear.
+function roomFloor(x: number, z: number, r: number, theta: number) {
+  if (Math.abs(Math.abs(x) - 6.9) < 1.6 && Math.abs(z + 3.3) < 1.6) return false;
+  if (x * x + (z - 12.6) ** 2 < 11 * 11) return false;
+  return !(x > 0 && r > 9.3 && theta > 1.65);
+}
+
+// Up on the stage, keep a step behind the dancers' line (up to four of them, three units
+// either side of the middle) so nobody hides or bumps into them.
+function stageFloor(x: number, z: number) {
+  return z < -2.3 || (Math.abs(x) > 4 && z < -0.3);
+}
+
+// Aeroling crowd on and around the stage: bob, hop and sway on the beat.
 function useCrowd() {
   return useDisposable(() => {
     const rand = makeRandom(9001);
     const blobs: Blob[] = [];
-    const place = (count: number, r0: number, r1: number, t0: number, t1: number) => {
+    const place = (count: number, r0: number, r1: number, t0: number, t1: number, lift = 0, fits = roomFloor) => {
       for (let tries = 0, n = 0; n < count && tries < count * 40; tries++) {
         const r = rand.range(r0, r1);
         const theta = rand.range(t0, t1);
         const x = r * Math.sin(theta);
         const z = r * Math.cos(theta);
         if (blobs.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < 0.95)) continue;
-        // Leave the speaker stacks and the camera's foreground clear.
-        if (Math.abs(Math.abs(x) - 6.9) < 1.6 && Math.abs(z + 3.3) < 1.6) continue;
-        if (x * x + (z - 12.6) ** 2 < 11 * 11) continue;
-        // Keep clear of the bar counter.
-        if (x > 0 && r > 9.3 && theta > 1.65) continue;
+        if (!fits(x, z, r, theta)) continue;
         const size = rand.range(0.8, 1.15);
         blobs.push({
           x,
@@ -50,7 +60,7 @@ function useCrowd() {
           offset: rand.range(-0.06, 0.06),
           // Burn the two draws that once picked a glow stick so the crowd keeps its layout.
           seed: (rand.next(), rand.next(), rand.next()),
-          lift: 0,
+          lift,
         });
         n++;
       }
@@ -73,6 +83,8 @@ function useCrowd() {
     place(22, 6.35, 7.6, -1.1, 1.1);
     place(26, 6.4, 11.5, 0.9, 2.05);
     place(26, 6.4, 11.5, -2.05, -0.9);
+    // Edge in from the rim so no blob's base hangs over it.
+    place(20, 2.3, STAGE_R - 0.6, Math.PI / 2 - 0.3, Math.PI * 1.5 + 0.3, STAGE_TOP - FLOOR, stageFloor);
     return blobs;
   }, []);
 }
