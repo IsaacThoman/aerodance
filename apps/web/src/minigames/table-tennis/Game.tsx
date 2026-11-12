@@ -25,7 +25,7 @@ import type { End } from './rally.ts';
 import { HIT_LAGS, Round } from './round.ts';
 import { playBallSound } from './sound.ts';
 import type { Play } from './round.ts';
-import { BLADE_UP, EYE, EYES, FORGIVING, TABLE_Z, newHandFilters, newRig, trackHands } from './rig.ts';
+import { BLADE_UP, EYE, EYES, FORGIVING, TABLE_Z, eyeOf, newHandFilters, newRig, trackHands } from './rig.ts';
 import type { Rig } from './rig.ts';
 import { RobotOpponent, aimRobot, createRobotDriver } from './RobotOpponent.tsx';
 import type { StationDriver } from '../../../../../packages/robots/shared/station.ts';
@@ -34,7 +34,9 @@ import type { SceneId } from './options.ts';
 import { TableTennisHud, newHud } from './Hud.tsx';
 
 /*
- * Table Tennis (index.ts), in first person, from the end of a ping-pong table in the Biodome
+ * Table Tennis (index.ts), seen from behind the player's glass dancer (Easy controls, as Wii Sports
+ * Resort is: the dancer steps across to the ball and a swing's timing hits it: easy.ts) or in
+ * first person (Precise controls), from the end of a ping-pong table in the Biodome
  * (packages/arenas/biodome) or a blank room (?scene=debug, for development): the
  * dancers' glass hands following the player's (the pose and Hand Landmarker landmarks the host's
  * camera sends with the game's 'hands' tracking, turned into the hands' places and angles by
@@ -75,6 +77,27 @@ import { TableTennisHud, newHud } from './Hud.tsx';
 
 // The view: tilted down a little from the eye (rig.ts EYE).
 const PITCH = -0.22;
+/**
+ * The views Easy can be seen from: ?view=<id> picks one for the round, and V while playing steps
+ * through them (Precise is always first person). From behind the player's dancer: the camera this
+ * far behind their eye and above it (m), and across towards their free hand's side (an
+ * over-the-shoulder look), looking at a point this high over the table and this far past its
+ * middle towards the other end (m), with this vertical field of view alone and in a split view;
+ * the player sees their own dancer as a faint ghost, or only their hands. Or first person, from
+ * the eye (their hands and paddle stepping across to the ball as their body would).
+ */
+export const VIEWS = {
+  close: { label: 'Close', kind: 'behind', back: 1.35, up: 0.4, side: 0, look: { y: 0.82, z: 0.2 }, fov: 50, splitFov: 56, own: 'ghost' },
+  shoulder: { label: 'Over the shoulder', kind: 'behind', back: 1.05, up: 0.25, side: 0.5, look: { y: 0.84, z: 0.35 }, fov: 52, splitFov: 58, own: 'ghost' },
+  low: { label: 'Low, behind the hands', kind: 'behind', back: 0.7, up: 0.02, side: 0, look: { y: 0.92, z: 0 }, fov: 62, splitFov: 68, own: 'hands' },
+  first: { label: 'First person', kind: 'first' },
+  high: { label: 'High, as Wii Sports Resort', kind: 'behind', back: 2.25, up: 0.95, side: 0, look: { y: 0.74, z: 0.4 }, fov: 44, splitFov: 44, own: 'ghost' },
+} as const;
+export type ViewId = keyof typeof VIEWS;
+const VIEW_IDS = Object.keys(VIEWS) as ViewId[];
+const DEFAULT_VIEW: ViewId = 'close';
+// ?view=<id>: the view Easy starts from.
+const VIEW_PARAM = VIEW_IDS.find((id) => id === new URLSearchParams(location.search).get('view')) ?? DEFAULT_VIEW;
 const FOV = 100;
 // Each view of a split screen is 8:9: the same height of view keeps the table as big, and the
 // paddle's swings across in view.
@@ -269,8 +292,9 @@ function Paddle({ rubber, forgiving }: { rubber: string; forgiving: boolean }) {
 // along the hand and its face square to the knuckles (a shakehand grip). With two players the
 // other one sees it too, as their opponent's dancer's hand: a mitt in the dancer's proportions
 // (SeenBy their view), its tip where the player's own (SeenBy theirs) ends, so it holds the very
-// paddle the ball meets. The player's own mitt still casts its shadow in both views.
-function Hand({ side, rig, forgiving, two }: { side: Side; rig: Rig; forgiving: boolean; two: boolean }) {
+// paddle the ball meets. The player's own mitt still casts its shadow in both views. Seen from
+// behind (`third`: Easy's view), everyone sees the dancer's mitt.
+function Hand({ side, rig, forgiving, two, third }: { side: Side; rig: Rig; forgiving: boolean; two: boolean; third: boolean }) {
   const geometry = useHandGeometry(side);
   const gel = useGel(DANCER_LOOKS[rig.end], 0.72);
   const dancerGel = useGel(DANCER_LOOKS[rig.end], DANCER_LOOKS[rig.end].opacity);
@@ -290,7 +314,7 @@ function Hand({ side, rig, forgiving, two }: { side: Side; rig: Rig; forgiving: 
   const big = radius * DANCER_SCALE;
   return (
     <group ref={group}>
-      {two ? (
+      {third ? <mesh geometry={geometry} material={dancerGel} scale={DANCER_SCALE} position-y={HAND_SIZE / 2 - big} castShadow /> : two ? (
         <>
           <SeenBy views={[rig.end]}><mesh geometry={geometry} material={gel} scale={scale} /></SeenBy>
           <mesh geometry={geometry} material={shadowOnly} scale={scale} castShadow />
@@ -302,33 +326,42 @@ function Hand({ side, rig, forgiving, two }: { side: Side; rig: Rig; forgiving: 
   );
 }
 
-function Hands({ rig, forgiving, two }: { rig: Rig; forgiving: boolean; two: boolean }) {
+function Hands({ rig, forgiving, two, third }: { rig: Rig; forgiving: boolean; two: boolean; third: boolean }) {
   return (
     <Suspense fallback={null}>
-      <Hand side="right" rig={rig} forgiving={forgiving} two={two} />
-      <Hand side="left" rig={rig} forgiving={forgiving} two={two} />
+      <Hand side="right" rig={rig} forgiving={forgiving} two={two} third={third} />
+      <Hand side="left" rig={rig} forgiving={forgiving} two={two} third={third} />
     </Suspense>
   );
 }
 
 const deg = (radians: number) => (radians * 180) / Math.PI;
+// Seen from behind, a player's own dancer is a faint ghost, as Wii Sports Resort draws its player's
+// Mii, so it doesn't hide the table: its glass and its eyes alike (they'd show through its head).
+const GHOST_FADE: RefObject<number> = { current: 0.22 };
 // The character's body bone's pivot is this many of its units below its head's middle (as it stands, neutralCharacterPose).
 const HEAD_ABOVE_BODY = 1.6;
 const FEET_BELOW_BODY = 0.8;
 
 /**
- * A player's glass dancer, as the other player sees them (Character, posed directly): its head at
- * their eye, its body below, turned as the tracker sees theirs (arms.ts bodyTurn). Its own hands
- * are left out: the player's hands (Hand) are its hands, drawn where the paddle really is.
+ * A player's glass dancer, as the other player sees them, or (Easy's view, from behind) as they all
+ * do (Character, posed directly): its head at their eye, wherever their body has stepped to
+ * (rig.step: Easy's dancer goes across to meet the ball), its body below, turned as the tracker
+ * sees theirs (arms.ts bodyTurn). Its own hands are left out: the player's hands (Hand) are its
+ * hands, drawn where the paddle really is.
  *
  * The character faces its +z and has its left at +x; a player's own frame faces −z with their
  * right at +x. Half a turn about the vertical goes from one to the other: a turn about the
  * vertical stays as it is, and those about x and z change sign.
  */
-function Dancer({ rig }: { rig: Rig }) {
+function Dancer({ rig, ghost = false }: { rig: Rig; ghost?: boolean }) {
   const pose = useRef<CharacterPose | null>(null);
+  const place = useRef<THREE.Group>(null);
   const eased = useMemo(() => ({ yaw: 0, roll: 0, pitch: 0, headYaw: 0, headRoll: 0 }), []);
+  const at = useMemo(() => new THREE.Vector3(), []);
   useFrame((_, delta) => {
+    eyeOf(rig, at);
+    place.current?.position.set(at.x, 0, at.z);
     const turn = rig.body;
     const k = 1 - Math.exp(-8 * delta);
     for (const key of Object.keys(eased) as (keyof BodyTurn)[]) eased[key] += ((turn?.[key] ?? 0) - eased[key]) * k;
@@ -337,9 +370,9 @@ function Dancer({ rig }: { rig: Rig }) {
   }, -0.2);
   const eye = EYES[rig.end];
   return (
-    <group position={[eye.x, 0, eye.z]} rotation-y={rig.end === 0 ? Math.PI : 0} scale={DANCER_SCALE}>
+    <group ref={place} position={[eye.x, 0, eye.z]} rotation-y={rig.end === 0 ? Math.PI : 0} scale={DANCER_SCALE}>
       <Suspense fallback={null}>
-        <Character appearance={DANCER_LOOKS[rig.end]} performanceRef={pose as RefObject<CharacterPose | null>} />
+        <Character appearance={DANCER_LOOKS[rig.end]} opacityRef={ghost ? GHOST_FADE : undefined} performanceRef={pose as RefObject<CharacterPose | null>} />
       </Suspense>
     </group>
   );
@@ -452,7 +485,9 @@ function PlayBall({ ctx, round, scene, robot }: { ctx: MinigameContext; round: R
     const point = round.point;
     ctx.report({
       ball: round.flying ? 'flying' : round.holding() ? 'ready' : round.serve ? 'serving' : 'between',
-      hits: round.hits, returns: round.returns, rally: round.rally, best: round.best, assist: play.assist, mode: round.mode,
+      hits: round.hits, returns: round.returns, rally: round.rally, best: round.best, assist: play.assist, mode: round.mode, controls: play.controls,
+      // Easy: the last swing's call (who, from 1, and how it went: hit, smash, early, late).
+      swing: round.swingCall ? `${round.swingCall.end + 1}:${round.swingCall.kind}` : null,
       // The match's score (Player 1's, or the player's, first), or the challenge's returns; whose serve it is (alone, 2 is the robot's).
       score: round.mode === 'challenge' ? round.challenge.returns : round.match.score.join('|'),
       server: round.server() + 1,
@@ -488,12 +523,27 @@ function PlayBall({ ctx, round, scene, robot }: { ctx: MinigameContext; round: R
   );
 }
 
-/** A view from an end's eye, tilted down a little, down the table. */
-function viewFrom(end: End, fov: number, scene: SceneId): MinigameCameraProps {
+/**
+ * An end's view (VIEWS): from its eye, tilted down a little, down the table (first person); or from
+ * behind the player's dancer (towards their free hand's side, `hand` holding the paddle), the
+ * camera still while the dancer steps across.
+ */
+function viewFrom(end: End, fov: number, scene: SceneId, id: ViewId = 'first', hand: Side = 'right', split = false): MinigameCameraProps {
   const eye = EYES[end], forward = end === 0 ? -1 : 1;
+  const far = scene === 'biodome' ? BIODOME_FAR : 40;
+  const view = VIEWS[id];
+  if (view.kind === 'behind') {
+    const { back, up, look, side } = view;
+    // (Their free hand's side, in the room: their own left, for a right-hander, is the room's −x at the near end.)
+    const across = side * (hand === 'right' ? -1 : 1) * (end === 0 ? 1 : -1);
+    return {
+      position: [eye.x + across, eye.y + up, eye.z - forward * back], target: [eye.x, look.y, TABLE_Z + forward * look.z],
+      fov: split ? view.splitFov : view.fov, near: 0.05, far,
+    };
+  }
   return {
     position: [eye.x, eye.y, eye.z], target: [eye.x, eye.y + Math.sin(PITCH), eye.z + forward * Math.cos(PITCH)],
-    fov, near: scene === 'biodome' ? 0.03 : 0.02, far: scene === 'biodome' ? BIODOME_FAR : 40,
+    fov, near: scene === 'biodome' ? 0.03 : 0.02, far,
   };
 }
 
@@ -511,7 +561,7 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   });
   const [play] = useState<Play>(() => {
     const chosen = optionsOf(ctx.options);
-    return { mode: chosen.mode, forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: ASSIST_PARAM, botLevel: chosen.opponent };
+    return { mode: chosen.mode, controls: chosen.controls, forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: ASSIST_PARAM, botLevel: chosen.opponent };
   });
   const [round] = useState(() => new Round(rigs, play));
   const [hud] = useState(newHud);
@@ -519,8 +569,13 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
   // The Biodome, or (?scene=debug) the plain room, for the round.
   const [scene] = useState<SceneId>(() => sceneParam());
   const robot = useMemo(() => (two ? null : createRobotDriver()), [two]);
-  const views = useMemo(() => (two ? [viewFrom(0, SPLIT_FOV, scene), viewFrom(1, SPLIT_FOV, scene)] : undefined), [two, scene]);
-  const camera = useMemo(() => viewFrom(0, FOV, scene), [scene]);
+  // Easy is seen from one of VIEWS (?view=, or V to step through them); Precise in first person.
+  const [viewId, setView] = useState<ViewId>(() => (play.controls === 'easy' ? VIEW_PARAM : 'first'));
+  const view = VIEWS[viewId];
+  const third = view.kind === 'behind';
+  const views = useMemo(() => (two ? rigs.map((rig) => viewFrom(rig.end, SPLIT_FOV, scene, viewId, rig.paddle, true)) : undefined), [two, scene, viewId, rigs]);
+  const camera = useMemo(() => viewFrom(0, FOV, scene, viewId, rigs[0].paddle), [scene, viewId, rigs]);
+  useEffect(() => { ctx.report({ view: viewId }); }, [ctx, viewId]);
 
   // Space serves; A steps the aim assist; in development, D shows the HUD's development panel, T steps
   // time's speed, F makes the paddles forgiving, L steps the hit timing, and O and P switch stand-ins
@@ -530,12 +585,21 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
       // Not with a modifier, nor a key something else took.
       if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || ctx.phase() !== 'playing') return;
       if (e.code === 'Space') { e.preventDefault(); play.serve = true; }
-      else if (e.code === 'KeyA') play.assist = ASSIST_LEVELS[(ASSIST_LEVELS.indexOf(play.assist) + 1) % ASSIST_LEVELS.length];
+      // (The aim assist is Precise's: Easy's hits are their swings' timing.)
+      else if (e.code === 'KeyA' && play.controls === 'precise') play.assist = ASSIST_LEVELS[(ASSIST_LEVELS.indexOf(play.assist) + 1) % ASSIST_LEVELS.length];
       else if (DEV && e.code === 'KeyF') setForgiving((on) => { play.forgiving = !on; return !on; });
       else if (DEV && e.code === 'KeyT') play.timeScale = TIME_SCALES[(TIME_SCALES.indexOf(play.timeScale as typeof TIME_SCALES[number]) + 1) % TIME_SCALES.length];
       else if (DEV && e.code === 'KeyL') play.hitLag = HIT_LAGS[(HIT_LAGS.findIndex((lag) => lag === play.hitLag) + 1) % HIT_LAGS.length];
       else if (DEV && (e.code === 'KeyO' || e.code === 'KeyP')) { const rig = e.code === 'KeyO' ? rigs[0] : rigs[rigs.length - 1]; rig.autoplay = !rig.autoplay; }
       else if (DEV && e.code === 'KeyD') hud.dev = !hud.dev;
+      // (Easy's views: Precise is played in first person.)
+      else if (e.code === 'KeyV' && play.controls === 'easy') {
+        setView((was) => {
+          const next = VIEW_IDS[(VIEW_IDS.indexOf(was) + 1) % VIEW_IDS.length];
+          hud.say = `View: ${VIEWS[next].label}`;
+          return next;
+        });
+      }
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
@@ -555,9 +619,16 @@ export default function TableTennis({ ctx }: { ctx: MinigameContext }) {
             <Table />
           </>
         )}
-        {rigs.map((rig) => <Hands key={rig.end} rig={rig} forgiving={forgiving} two={two} />)}
-        {/* Each player's dancer, seen by the other. */}
-        {two && rigs.map((rig) => <SeenBy key={rig.end} views={[otherEnd(rig.end)]}><Dancer rig={rig} /></SeenBy>)}
+        {rigs.map((rig) => <Hands key={rig.end} rig={rig} forgiving={forgiving} two={two} third={third} />)}
+        {/* Each player's dancer: seen from behind by everyone, their own a ghost (or, from close behind
+            their hands, not at all); or in first person by the other only. */}
+        {third && view.own === 'ghost' ? (two ? rigs.map((rig) => (
+          <group key={rig.end}>
+            <SeenBy views={[rig.end]}><Dancer rig={rig} ghost /></SeenBy>
+            <SeenBy views={[otherEnd(rig.end)]}><Dancer rig={rig} /></SeenBy>
+          </group>
+        )) : <Dancer rig={rigs[0]} ghost />)
+          : two && rigs.map((rig) => <SeenBy key={rig.end} views={[otherEnd(rig.end)]}><Dancer rig={rig} /></SeenBy>)}
         <PlayBall ctx={ctx} round={round} scene={scene} robot={robot} />
         {robot && <RobotOpponent driver={robot} tableZ={TABLE_Z} />}
         {/* The HUD, in here to see the world's camera (its calls are drawn where the points were decided). */}

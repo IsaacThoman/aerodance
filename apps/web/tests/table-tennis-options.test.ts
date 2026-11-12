@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { OPTIONS, optionsOf, sceneParam } from '../src/minigames/table-tennis/options.ts';
 import tableTennis from '../src/minigames/table-tennis/index.ts';
 
-test('the settings default to a match against a Normal robot, right-handed paddles and hand tracking on', () => {
-  assert.deepEqual(optionsOf({}), { mode: 'match', opponent: 'medium', handTracking: true, paddleHands: ['right', 'right', 'right', 'right'] });
-  assert.deepEqual(Object.fromEntries(OPTIONS.map((o) => [o.id, o.default])), { mode: 'match', opponent: 'medium', paddleHand: 'right', handTracking: 'on' });
+test('the settings default to a match against an Easy robot, Easy controls, right-handed paddles and hand tracking on', () => {
+  assert.deepEqual(optionsOf({}), { mode: 'match', opponent: 'easy', controls: 'easy', handTracking: true, paddleHands: ['right', 'right', 'right', 'right'] });
+  assert.deepEqual(Object.fromEntries(OPTIONS.map((o) => [o.id, o.default])), { mode: 'match', opponent: 'easy', controls: 'easy', paddleHand: 'right', handTracking: 'on' });
+  assert.equal(optionsOf({ controls: 'precise' }).controls, 'precise');
   assert.equal(optionsOf({ handTracking: 'off' }).handTracking, false);
   assert.equal(optionsOf({ mode: 'challenge' }).mode, 'challenge');
   assert.equal(optionsOf({ mode: 'rally' }).mode, 'match', 'an unknown mode is a match');

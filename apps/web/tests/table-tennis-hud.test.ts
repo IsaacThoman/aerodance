@@ -15,7 +15,7 @@ import type { Play, PointWon } from '../src/minigames/table-tennis/round.ts';
  */
 
 const FRAME = 1 / 60;
-const PLAY: Play = { mode: 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
+const PLAY: Play = { mode: 'match', controls: 'precise', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
 const solo = (play: Partial<Play> = {}) => new Round([newRig(0, 'right')], { ...PLAY, ...play }, () => 0.5);
 /** A round alone against the robot with a stand-in (autoplay.ts) playing for the player, the robot's mistakes seeded. */
 function standIn(play: Partial<Play> = {}) {
@@ -180,7 +180,8 @@ test('a player is told how to serve until they\'ve served three times, and again
 });
 
 test('a whole match through the HUD: a call for every point, the scores bumping, and GAME! at the end', () => {
-  const { round } = standIn(), hud = new HudModel('normal');
+  // (Against a stand-in, which hardly misses, only a hard robot wins points of its own.)
+  const { round } = standIn({ botLevel: 'hard' }), hud = new HudModel('normal');
   let calls = 0, last = hud.calls.at(-1);
   const banners = new Set<string>();
   for (let t = 0; t < 600 && !round.finished(); t += FRAME) {
@@ -207,4 +208,23 @@ test('the aim assist\'s new level is said', () => {
   round.real = 3;
   hud.observe(round);
   assert.deepEqual(hud.toast, { text: 'Aim assist: High', t: 3 });
+});
+
+test("Easy's swings: a whiff is TOO EARLY or TOO LATE to the player who swung, at their hitting line; a smash is SMASH! to all; a hit says nothing", () => {
+  const two = pair(), m = new HudModel(two.play.assist);
+  const swing = (end: End, kind: 'hit' | 'smash' | 'early' | 'late', t: number) => { two.swingCall = { end, kind, timing: kind === 'early' ? -0.3 : 0.2, at: { x: 0.2, y: 1, z: end === 0 ? 0.4 : -0.4 }, t }; m.observe(two); };
+  swing(1, 'early', 1);
+  assert.deepEqual(m.calls.at(-1)!.looks.map((look) => look?.text ?? null), [null, 'TOO EARLY']);
+  // At Player 2's hitting line (their own frame's EASY.hitZ, the far end's in the table's).
+  assert.ok(m.calls.at(-1)!.at.z < 0);
+  assert.equal(m.report(two, 'playing').call, '|TOO EARLY');
+  swing(0, 'late', 2);
+  assert.deepEqual(m.calls.at(-1)!.looks.map((look) => look?.text ?? null), ['TOO LATE', null]);
+  swing(0, 'smash', 3);
+  assert.deepEqual(m.calls.at(-1)!.looks.map((look) => look?.text ?? null), ['SMASH!', 'SMASH!']);
+  assert.deepEqual(m.calls.at(-1)!.looks[0]!.face, GOLD);
+  const calls = m.calls.length;
+  swing(1, 'hit', 4);
+  assert.equal(m.calls.length, calls, 'a hit, no call');
+  assert.equal(m.swings[1]?.kind, 'hit', 'kept for the development panel');
 });

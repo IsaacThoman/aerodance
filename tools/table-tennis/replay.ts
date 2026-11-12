@@ -37,7 +37,7 @@ const side = (i: number) => (options[`paddleHand.${i + 1}`] === 'left' ? 'left' 
 const rigs = Array.from({ length: Math.min(count, 2) }, (_, i) => newRig(i as 0 | 1, side(i)));
 const filters = rigs.map(() => newHandFilters());
 // (Sessions recorded before matches had the open rally's settings: they play as a match now.)
-const play: Play = { mode: options.mode === 'challenge' ? 'challenge' : 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: DEFAULT_ASSIST, botLevel: (options.opponent ?? options.botShots ?? 'medium') as Play['botLevel'] };
+const play: Play = { mode: options.mode === 'challenge' ? 'challenge' : 'match', controls: options.controls === 'easy' ? 'easy' : 'precise', forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: DEFAULT_ASSIST, botLevel: (options.opponent ?? options.botShots ?? 'medium') as Play['botLevel'] };
 const round = new Round(rigs, play);
 const two = rigs.length > 1;
 const secs = (t: number) => ((t - header.t) / 1000).toFixed(2).padStart(6);

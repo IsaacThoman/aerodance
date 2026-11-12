@@ -4,7 +4,10 @@ import { handsDetail } from '../../../../../packages/pose/webcamRecord.ts';
 import { OPTIONS, optionsOf } from './options.ts';
 
 /*
- * Table Tennis: ping-pong in first person, played as Wii Sports Resort's is. The players' tracked
+ * Table Tennis: ping-pong played as Wii Sports Resort's is. With Easy controls (the default) it's
+ * seen from behind each player's glass dancer, which steps across to the ball, and a swing timed to
+ * the ball's arrival hits it; with Precise, it's in first person and the paddle is where the
+ * player's hand puts it. The players' tracked
  * hands are the dancers' glass hands, a paddle in the hand each player chose (Paddle hand). Alone,
  * the opponent is a robot arm at the far end (the robot hall's Torven arm), in a match (first to
  * 6) or Return Challenge (return its serves, quicker and quicker, until one gets by); two players
@@ -19,7 +22,7 @@ const tableTennis: MinigameDefinition = {
   players: [1, 2],
   howTo: [
     { icon: raiseIcon, text: 'To serve, raise your free hand (not the paddle\'s) to toss the ball, then swing through it' },
-    { icon: swingIcon, text: 'Swing your paddle hand through the ball to hit it back over the net' },
+    { icon: swingIcon, text: 'Swing your paddle hand as the ball reaches you to hit it back over the net' },
     { icon: 'replay', text: 'Match: first to 6 points wins. Return Challenge: return the robot\'s serves for as long as you can', players: [1] },
     { icon: 'replay', text: 'First to 6 points wins (by 2 clear)', players: [2] },
   ],

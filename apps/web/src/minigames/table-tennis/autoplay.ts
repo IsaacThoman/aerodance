@@ -14,8 +14,8 @@ import type { Ball, V3 } from './ball.ts';
 export const AUTOPLAY = {
   /** Where it meets the ball: this far down the table (its own frame, the near end at TABLE.halfLength). */
   hitZ: 1.3,
-  /** How far behind that it lines up, and how long its forward swing takes (in its own seconds). */
-  backswing: 0.24,
+  /** How far behind that it lines up, and how long its forward swing takes (in its own seconds): a firm stroke, over 2 m/s, as Easy wants (easy.ts). */
+  backswing: 0.42,
   swingS: 0.17,
   /** Its blade between balls: up in front of it, where its player can see it. */
   home: v3(0.24, TABLE.top + 0.44, 1.42),

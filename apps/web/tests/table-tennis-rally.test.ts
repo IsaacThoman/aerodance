@@ -68,7 +68,7 @@ test('the stand-in lines up behind the ball and swings forward through it', () =
   assert.ok(autoplayServe(AUTOPLAY.swingAt + AUTOPLAY.swingS, waiting).z < waiting.z - 0.2);
 });
 
-const PLAY: Play = { mode: 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
+const PLAY: Play = { mode: 'match', controls: 'precise', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
 
 /** A round of two stand-ins (autoplay.ts) through the game's own round, for `seconds`: its hits in order, and its serves. */
 function rally(seconds: number, hitLag: Play['hitLag'] = 0) {

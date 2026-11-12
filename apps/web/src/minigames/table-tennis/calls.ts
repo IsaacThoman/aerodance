@@ -5,11 +5,13 @@ import type { PlayerLook } from '../../game/results.ts';
 import type { Face } from '../../ui/draw.ts';
 import type { MinigamePhase } from '../types.ts';
 import type { AssistLevel } from './assist.ts';
+import { EASY } from './easy.ts';
 import { deuce, matchPointFor } from './match.ts';
 import type { PointReason } from './match.ts';
+import { mine } from './rally.ts';
 import type { End } from './rally.ts';
 import { BEAT } from './round.ts';
-import type { PointWon, Round } from './round.ts';
+import type { PointWon, Round, SwingCall } from './round.ts';
 import { TABLE_Z } from './rig.ts';
 import type { Rig } from './rig.ts';
 
@@ -20,7 +22,9 @@ import type { Rig } from './rig.ts';
  *   calls     each point's, where the ball decided it, in each view: the error that lost it (OUT,
  *             NET, SHORT onto the hitter's own half), the same for everyone; or a shot that won
  *             it, NICE! to the player who hit it (GREAT RALLY! to everyone after a long rally) and
- *             what happened (2 BOUNCES, MISSED) to the other. In Return Challenge, +1 a return
+ *             what happened (2 BOUNCES, MISSED) to the other. In Return Challenge, +1 a return.
+ *             Easy's swings (round.ts swingCall) too: TOO EARLY or TOO LATE at the player's
+ *             hitting line, in their view only; a SMASH! for everyone
  *   banners   whose point it was, a moment after its call, through the beat before the next serve;
  *             DEUCE and MATCH POINT as that serve is set up; GAME! once the match is won.
  *             Return Challenge: each new level, and the run's end
@@ -39,6 +43,8 @@ export const ROBOT: PlayerLook = { name: 'Robot', color: '#ff7a2e', light: '#ffc
 export const GOLD: Face = ['#fff6cc', '#ffd34d', '#f0a500'];
 export const CHAMPAGNE: Face = ['#fffaf0', '#f3e2a6', '#c9a85a'];
 export const faceOf = (look: PlayerLook): Face => ['#ffffff', look.light, look.color];
+/** A whiff's call: a cool, quiet glass, nobody's colours (it's no point won). */
+export const WHIFF: Face = ['#ffffff', '#d9efff', '#7fa9c9'];
 
 /** A banner (s): how long after its point it comes up, and how long one for a new serve or level stays up. */
 export const BANNER = { delay: 0.45, hold: 1.8, level: 1.45 } as const;
@@ -54,8 +60,8 @@ export const CALL_WORDS: Record<PointReason, string> = { out: 'OUT', net: 'NET',
 export const ASSIST_LABELS: Record<AssistLevel, string> = { off: 'Off', low: 'Low', normal: 'Normal', high: 'High' };
 
 export interface CallLook { text: string; face: Face; }
-/** A point's call: where (the world's frame: the table's, moved by TABLE_Z), when (Round.real), and what each view says. */
-export interface Call { at: THREE.Vector3; t: number; looks: CallLook[]; }
+/** A call: where (the world's frame: the table's, moved by TABLE_Z), when (Round.real), and what each view says (null: nothing). */
+export interface Call { at: THREE.Vector3; t: number; looks: (CallLook | null)[]; }
 /** A banner: its headline, a line under it (in a side's colours, or plain), and when it shows (Round.real). */
 export interface Banner { text: string; face: Face; sub?: { text: string; look: PlayerLook | null }; from: number; to: number; }
 export interface Prompt { text: string; icon: 'raise' | 'swing' | null; /** The view's own serve. */ mine: boolean; }
@@ -83,6 +89,18 @@ export function callsFor(round: Round, point: PointWon, levelUp = false): CallLo
   return views.map((view) => (view === point.to && (round.two || point.to === 0)
     ? { text: 'NICE!', face: round.done ? GOLD : face }
     : { text: CALL_WORDS[point.reason], face }));
+}
+
+/**
+ * An Easy swing's call in each view (alone, the one), or null for one that says nothing (a hit:
+ * where the ball goes says it): a whiff to the player who swung, a smash to everyone.
+ */
+export function swingCallsFor(round: Round, swing: SwingCall): (CallLook | null)[] | null {
+  const views = round.two ? [0, 1] as const : [0] as const;
+  if (swing.kind === 'smash') return views.map(() => ({ text: 'SMASH!', face: GOLD }));
+  if (swing.kind === 'hit') return null;
+  const text = swing.kind === 'early' ? 'TOO EARLY' : 'TOO LATE';
+  return views.map((view) => (view === swing.end ? { text, face: WHIFF } : null));
 }
 
 /** The banner due now (whether it's showing yet is its `from` and `to`): the match won, whose point it was, or one set for a serve or a level. */
@@ -155,6 +173,9 @@ export class HudModel {
   seen = [0, 0];
   private assist: AssistLevel;
   toast: { text: string; t: number } | null = null;
+  /** Easy: the last swing seen, and each player's (for the development panel). */
+  private swing: SwingCall | null = null;
+  swings: (SwingCall | null)[] = [null, null];
 
   constructor(assist: AssistLevel) { this.assist = assist; }
 
@@ -162,6 +183,7 @@ export class HudModel {
   observe(round: Round) {
     const point = round.point, t = round.real;
     if (point && point !== this.point) this.onPoint(round, point);
+    if (round.swingCall && round.swingCall !== this.swing) this.onSwing(round, round.swingCall);
     if (this.between && !round.between && !round.done && round.mode === 'match') this.onServeReady(round);
     this.between = round.between;
     // A serve on its way: one more its player has served, and the other has seen.
@@ -185,6 +207,21 @@ export class HudModel {
     if (round.mode === 'match') this.bump[point.to] = t;
     else if (point.reason === 'return') this.bump[0] = t;
     if (levelUp) this.set = { text: `LEVEL ${level + 1}`, face: CHAMPAGNE, sub: { text: 'FASTER SERVES', look: null }, from: t + 0.15, to: t + 0.15 + BANNER.level };
+  }
+
+  /**
+   * An Easy swing: a whiff's call at the swinger's hitting line, across from where the ball was; a
+   * smash's where it was struck.
+   */
+  private onSwing(round: Round, swing: SwingCall) {
+    this.swing = swing;
+    this.swings[swing.end] = swing;
+    const looks = swingCallsFor(round, swing);
+    if (!looks) return;
+    const own = mine(swing.end, swing.at);
+    const at = swing.kind === 'smash' ? swing.at : mine(swing.end, { x: own.x, y: Math.max(own.y, 0.9), z: EASY.hitZ });
+    this.calls.push({ at: new THREE.Vector3(at.x, at.y, at.z + TABLE_Z), t: swing.t, looks });
+    if (this.calls.length > 3) this.calls.shift();
   }
 
   /** The next serve set up after a point: DEUCE or MATCH POINT (whose), as it starts. */
@@ -216,6 +253,6 @@ export class HudModel {
   /** What play.ts and the tests read: the last call (each view's, Player 1's first) and the banner showing. */
   report(round: Round, phase: MinigamePhase) {
     const banner = phase === 'playing' ? this.banner(round) : null;
-    return { call: this.calls.at(-1)?.looks.map((look) => look.text).join('|') ?? null, banner: banner?.text ?? null };
+    return { call: this.calls.at(-1)?.looks.map((look) => look?.text ?? '').join('|') ?? null, banner: banner?.text ?? null };
   }
 }

@@ -92,6 +92,11 @@ export interface Rig {
   shifted: THREE.Vector3;
   /** How their torso and head are turned, for the glass dancer the other player sees (null: not seen). */
   body: BodyTurn | null;
+  /**
+   * Where their body has stepped to from its place at their end, in their own frame (Easy
+   * controls: their dancer goes across to meet the ball; round.ts moves it). The hands go with it.
+   */
+  step: THREE.Vector3;
   /** Development: a stand-in plays for them (autoplay.ts), setting their hands. */
   autoplay: boolean;
 }
@@ -105,6 +110,7 @@ export const newRig = (end: End, paddle: Side): Rig => ({
   end, paddle, free: paddle === 'right' ? 'left' : 'right', hands: { left: null, right: null }, before: { left: null, right: null }, tracked: false, flat: false,
   drawn: { left: newDrawn('left'), right: newDrawn('right') }, blade: null, latency: 0,
   nudge: new THREE.Vector3(), nudged: new THREE.Vector3(), shift: new THREE.Vector3(), shifted: new THREE.Vector3(), body: null, autoplay: false,
+  step: new THREE.Vector3(),
 });
 
 /** A direction in a player's own frame, turned into the room's (or back). */
@@ -262,7 +268,7 @@ export const handLive = (rig: Rig, side: Side, now: number) => {
   return rig.tracked && !!target && now - target.at < LOST_MS;
 };
 
-const tmp = { wrist: new THREE.Vector3(), dir: new THREE.Vector3(), across: new THREE.Vector3(), face: new THREE.Vector3(), m: new THREE.Matrix4(), q: new THREE.Quaternion(), body: new THREE.Matrix4(), yaw: new THREE.Quaternion(), v: new THREE.Vector3() };
+const tmp = { wrist: new THREE.Vector3(), dir: new THREE.Vector3(), across: new THREE.Vector3(), face: new THREE.Vector3(), m: new THREE.Matrix4(), q: new THREE.Quaternion(), body: new THREE.Matrix4(), yaw: new THREE.Quaternion(), v: new THREE.Vector3(), eye: new THREE.Vector3() };
 
 /**
  * Each of a player's hands where it's drawn this frame (`now`, ms; `delta`, seconds since the
@@ -291,7 +297,7 @@ export function followHands(rig: Rig, now: number, delta: number) {
     }
     // Into the room: the body's frame is at the player's eye, facing down the table, level.
     tmp.yaw.setFromAxisAngle(UP, YAW[rig.end]);
-    tmp.body.makeRotationFromQuaternion(tmp.yaw).setPosition(EYES[rig.end]);
+    tmp.body.makeRotationFromQuaternion(tmp.yaw).setPosition(eyeOf(rig, tmp.eye));
     drawn.quaternion.multiplyQuaternions(tmp.yaw, drawn.turn);
     const wrist = tmp.wrist.copy(drawn.wrist).add(SHOULDER[side]).applyMatrix4(tmp.body);
     drawn.position.copy(wrist).addScaledVector(tmp.dir.set(0, 1, 0).applyQuaternion(drawn.quaternion), MITT);
@@ -304,6 +310,11 @@ export function followHands(rig: Rig, now: number, delta: number) {
     rig.blade.center.copy(drawn.position).addScaledVector(tmp.dir.set(0, 1, 0).applyQuaternion(drawn.quaternion), BLADE_UP);
     rig.blade.normal.set(0, 0, 1).applyQuaternion(drawn.quaternion);
   }
+}
+
+/** A player's eye in the room, where their body has stepped to (rig.step). */
+export function eyeOf(rig: Rig, out = new THREE.Vector3()): THREE.Vector3 {
+  return out.copy(EYES[rig.end]).add(toRoom(rig.end, rig.step, tmp.v));
 }
 
 /** The paddle's blade in the table's frame (ball.ts), as drawn this frame; null before the first. */

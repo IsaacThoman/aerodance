@@ -15,6 +15,13 @@ Alone, the opponent is a robot arm from the robot hall ([robots](../packages/rob
 until one gets by. Two players split the screen, one at each end of the table in first person, and play
 a match, each seeing the other as their glass dancer holding the paddle. A player serves by raising
 their free hand to toss the ball and swinging through it as it comes down (`table-tennis/rally.ts`).
+The **Controls** setting is Easy by default, as Wii Sports Resort plays: seen from behind each
+player's dancer, which steps across to meet the ball, a swing timed to the ball's arrival hits it
+wherever the hand is, early or late timing sending it across or down the line (`table-tennis/easy.ts`).
+**Precise** is first person: the paddle is where the hand puts it, with the aim assist helping.
+Easy's view is one of `VIEWS` in `table-tennis/Game.tsx` (close behind the dancer by default; over
+the shoulder; low, behind the hands; first person; high, as Wii Sports Resort's): `?view=<id>`
+picks it, and V while playing steps through them (`mgView` says which).
 Its HUD is Wii Sports Resort's too (`table-tennis/Hud.tsx`, what it says in `table-tennis/calls.ts`):
 a score bug under the pause icon, a call where each point was decided (OUT, NET, NICE!…),
 banners for whose point it was, DEUCE, MATCH POINT and GAME!, and prompts only while they're needed.
@@ -527,7 +534,8 @@ Table Tennis), and the game's own `mg*` keys; a round's settings are
 `eval "minigame.options"`. Table Tennis reports `mgMode` (`match`, `challenge`), `mgScore` (a match's
 `3|5`, Player 1's or the player's first; Return Challenge's returns), `mgServer` (from 1; alone, 2 is
 the robot), `mgPoint` (the last point: who won it and why, e.g. `2:out`; reasons in `match.ts`),
-`mgBall` (`ready`, `serving`, `flying`, `between`), `mgTossed`, `mgDone`, `mgRally`, `mgBest`,
+`mgBall` (`ready`, `serving`, `flying`, `between`), `mgTossed`, `mgDone`, `mgControls`, `mgSwing` (Easy: the
+last swing's call and who made it, e.g. `1:early`), `mgRally`, `mgBest`,
 `mgHits`, `mgReturns`, `mgAssist` and, with two, `mgHits1` and `mgHits2`; its HUD's `mgCall` (the last
 point's call: `OUT`, `NET`, `SHORT`, `2 BOUNCES`, `MISSED`, `NICE!`, `GREAT RALLY!`, Return Challenge's
 `+1`; with two, each view's, Player 1's first: `NICE!|MISSED`) and `mgBanner` (the banner showing:
@@ -555,8 +563,9 @@ Table Tennis goes a step further: its round is plain code (`table-tennis/round.t
 whole rounds in milliseconds (`apps/web/tests/helpers/tableTennisSim.ts`).
 `apps/web/tests/table-tennis-agency.test.ts` holds the game to what that shows (someone doing
 nothing gets nothing, someone playing well nearly always hits, better players do better), and
-`node tools/table-tennis/agency.ts --assist off,low,normal,high` prints the whole table: run it
-before and after changing the aim assist, the serve or how the paddle follows the hand.
+`node tools/table-tennis/agency.ts [--controls easy,precise] [--assist off,low,normal,high]` prints the
+whole table: run it before and after changing Easy's timing (`easy.ts EASY`), the aim assist, the
+serve or how the paddle follows the hand.
 `apps/web/tests/table-tennis-hud.test.ts` follows rounds through what the HUD says (`calls.ts`): each
 point's call in each view, the banners and when they show, the prompts until they're known.
 
