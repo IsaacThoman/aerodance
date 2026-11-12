@@ -1,7 +1,6 @@
 /*
- * Table Tennis with two players: the table's two ends, the frames the players play in, their
- * serve and their open rally. There's no match, only a count of the shots in a row that land on
- * the other half.
+ * Table Tennis's two ends, the frames the players play in, and a player's serve. (The match
+ * itself, its score and who serves, is match.ts.)
  *
  * ball.ts's table frame has its own player at the near end (+z), so everything the solo game
  * works out for its player (assist.ts, calibrate.ts) assumes that. The far player plays in the
@@ -12,7 +11,7 @@
 import { TABLE, v3 } from './ball.ts';
 import type { Ball, V3 } from './ball.ts';
 
-/** A player's end of the table: 0 the near end (+z, Player 1's), 1 the far end (Player 2's). */
+/** A player's end of the table: 0 the near end (+z, Player 1's), 1 the far end (Player 2's, or the robot's). */
 export type End = 0 | 1;
 
 /** A point or a direction in the table's frame as the player at `end` has it (at +z), or back again: it's its own inverse. */
@@ -24,11 +23,13 @@ export const endOf = (z: number): End => (z >= 0 ? 0 : 1);
 export const otherEnd = (end: End): End => (end === 0 ? 1 : 0);
 
 /**
- * The serve: the ball waits in the air over the server's end, on their paddle hand's side at
- * about chest height, where a forehand swing meets it; a swing through it serves (assist.ts
- * serveHit). `hold` is a right-handed server's spot in their own frame (a left-handed one's is
- * across from it). It can't be served for `arm` seconds after it gets there: the last shot's
- * follow-through isn't a serve. A player who leaves it waiting loses the serve to the other.
+ * A player's serve, as Wii Sports Resort's: the ball waits in the air over the server's end, on
+ * their paddle hand's side at about chest height (`hold`: a right-handed server's spot in their own
+ * frame; a left-handed one's is across from it). Raising the free hand tosses it straight up
+ * (`toss`, m/s), and a swing through it as it comes down serves it (assist.ts serveHit). Let fall
+ * `drop` metres below where it was tossed from, it's back where it waited, to be tossed again.
+ * It can't be tossed for `arm` seconds after it gets there: the last shot's follow-through isn't
+ * a serve.
  */
 export const SERVE = {
   hold: v3(0.3, TABLE.top + 0.36, TABLE.halfLength - 0.1),
@@ -36,80 +37,33 @@ export const SERVE = {
   bob: 0.012,
   bobRate: 2.2,
   arm: 0.35,
-  /** Left waiting this long (s), the ball goes to the other player to serve. */
-  pass: 6,
-  /**
-   * A player who hasn't served or hit the ball for this long (s) isn't playing: a dead ball at their
-   * end goes to the other, if they are. (Swings don't count: the tracker's jitter makes them of a
-   * hand hanging still, with two players in the picture.)
-   */
-  away: 20,
+  toss: 3,
+  drop: 0.3,
   /** Space's serve (development, or no camera), in the server's own frame. */
   key: v3(0, 1.4, -4.4),
 } as const;
 
+const GRAVITY = 9.81;
+
+/** Where the server's ball waits (in their own frame), on the side of their paddle hand. */
+const holdFor = (hand: 'left' | 'right') => v3(SERVE.hold.x * (hand === 'left' ? -1 : 1), SERVE.hold.y, SERVE.hold.z);
+
 /** The ball waiting for the server (in the table's frame), bobbing at the time t, on the side of their paddle hand. */
 export function heldBall(server: End, t: number, hand: 'left' | 'right' = 'right'): Ball {
-  const at = v3(SERVE.hold.x * (hand === 'left' ? -1 : 1), SERVE.hold.y + SERVE.bob * Math.sin(t * SERVE.bobRate), SERVE.hold.z);
-  return { pos: mine(server, at), vel: v3(), cooldown: 0 };
+  const at = holdFor(hand);
+  return { pos: mine(server, v3(at.x, at.y + SERVE.bob * Math.sin(t * SERVE.bobRate), at.z)), vel: v3(), cooldown: 0 };
 }
 
 /**
- * The open rally: who serves, who hit the ball last and how their shot went, and the count of
- * shots in a row that landed on the other half (and the best count so far).
+ * The server's tossed ball (in the table's frame) `since` seconds after the toss, or null once it
+ * has dropped back past where it can be served (it's back waiting).
  */
-export interface Rally {
-  server: End;
-  /** Who hit the ball last since it was served (null: it's waiting to be). */
-  last: End | null;
-  /** The last hit's shot: still to land, landed on the other half (fair), or not (on the hitter's own). */
-  shot: 'flying' | 'fair' | 'short' | null;
-  count: number;
-  best: number;
+export function tossedBall(server: End, since: number, hand: 'left' | 'right' = 'right'): Ball | null {
+  const at = holdFor(hand);
+  const rise = SERVE.toss * since - 0.5 * GRAVITY * since * since;
+  if (since < 0 || rise < -SERVE.drop) return null;
+  return { pos: mine(server, v3(at.x, at.y + rise, at.z)), vel: mine(server, v3(0, SERVE.toss - GRAVITY * since, 0)), cooldown: 0 };
 }
 
-export const newRally = (server: End = 0): Rally => ({ server, last: null, shot: null, count: 0, best: 0 });
-
-function endCount(r: Rally) {
-  r.best = Math.max(r.best, r.count);
-  r.count = 0;
-}
-
-/** The server serves: a new ball's first shot, theirs. */
-export function served(r: Rally): void {
-  r.last = r.server;
-  r.shot = 'flying';
-}
-
-/**
- * The player at `end` hit the ball. Played back after a shot that didn't land on their half (or
- * hit twice running), the count starts again.
- */
-export function hit(r: Rally, end: End): void {
-  if (r.last !== null && (r.shot !== 'fair' || r.last === end)) endCount(r);
-  r.last = end;
-  r.shot = 'flying';
-}
-
-/**
- * The ball came down on the table, on the half of `end`. The first bounce after a hit says how
- * that shot went: on the other half, it counts. Later bounces change nothing. Returns the shot's
- * verdict when this bounce gave it.
- */
-export function bounced(r: Rally, end: End): 'fair' | 'short' | null {
-  if (r.shot !== 'flying' || r.last === null) return null;
-  r.shot = end === r.last ? 'short' : 'fair';
-  if (r.shot === 'fair') r.count += 1;
-  return r.shot;
-}
-
-/**
- * The ball is dead (on the floor, settled, or left too long): the count is over, and whoever's
- * end it finished at serves next, as a player picks up a ball that rolled to them.
- */
-export function dead(r: Rally, at: End): void {
-  endCount(r);
-  r.server = at;
-  r.last = null;
-  r.shot = null;
-}
+/** How long a toss stays up (s): from the toss until it has dropped back past where it can be served. */
+export const TOSS_S = (SERVE.toss + Math.sqrt(SERVE.toss * SERVE.toss + 2 * GRAVITY * SERVE.drop)) / GRAVITY;
