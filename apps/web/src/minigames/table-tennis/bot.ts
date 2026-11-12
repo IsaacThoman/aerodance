@@ -6,9 +6,11 @@
  * different each time. Its shots are as hard as its level (BOT_LEVELS: faster, and spread wider);
  * set to return everything, it also plays the player's misses (long, wide, or off their own half),
  * meeting them before they're gone. It serves too (botServe): off its own half, onto the player's.
+ * In a match it makes mistakes as Wii Sports' players do (botMistake, missShot): more at its easy
+ * level, and more against a hard-hit ball.
  */
 
-import { TABLE, aimServe, aimShot, stepBall, v3 } from './ball.ts';
+import { BALL_R, NET, TABLE, aimServe, aimShot, stepBall, v3 } from './ball.ts';
 import type { Ball, BallEvent, V3 } from './ball.ts';
 
 export const BOT = {
@@ -111,14 +113,71 @@ export function botShot(from: V3, level: BotLevel = 'medium', rand: () => number
 }
 
 /**
- * Each level's serves: how long they take from the strike to their bounce on the player's half
- * (s), and where on it they're aimed (as BOT_SHOTS's aim).
+ * A serve: how long it takes from the strike to its bounce on the player's half (s), and where on
+ * it it's aimed (as BOT_SHOTS's aim).
  */
-export const BOT_SERVES: Record<BotLevel, { time: number; aim: { x: number; spread: number; near: number; far: number } }> = {
+export interface ServeSpec { time: number; aim: { x: number; spread: number; near: number; far: number } }
+/** Each level's serves. */
+export const BOT_SERVES: Record<BotLevel, ServeSpec> = {
   easy: { time: 1.05, aim: { x: 0.2, spread: 0.15, near: 0.6, far: 0.95 } },
   medium: { time: 0.9, aim: { x: 0, spread: 0.4, near: 0.45, far: 1.05 } },
   hard: { time: 0.75, aim: { x: 0, spread: 0.55, near: 0.35, far: 1.15 } },
 };
+
+/**
+ * Return Challenge's serves at each of its levels (match.ts challengeLevel, from 0): easy's to
+ * begin with, then quicker and wider each level, to a little past hard's.
+ */
+export function challengeServe(level: number): ServeSpec {
+  const u = Math.min(1, Math.max(0, level / 7));
+  const mix = (a: number, b: number) => a + (b - a) * u;
+  return { time: mix(1.05, 0.68), aim: { x: mix(0.2, 0), spread: mix(0.12, 0.6), near: mix(0.6, 0.3), far: mix(0.95, 1.18) } };
+}
+
+/**
+ * How often the bot's shot goes wrong at each level, against a gentle ball; every m/s the ball
+ * came at it faster than `easyPace` adds `perPace` more, up to `most`.
+ */
+export const BOT_MISTAKES = { rate: { easy: 0.14, medium: 0.08, hard: 0.04 } as Record<BotLevel, number>, easyPace: 5, perPace: 0.035, most: 0.4 } as const;
+export type Mistake = 'long' | 'wide' | 'net';
+
+/** Whether the bot gets this shot wrong, and how, against a ball that came at it at `speed` (m/s). */
+export function botMistake(level: BotLevel, speed: number, rand: () => number = Math.random): Mistake | null {
+  const m = BOT_MISTAKES;
+  const chance = Math.min(m.most, m.rate[level] + Math.max(0, speed - m.easyPace) * m.perPace);
+  if (rand() >= chance) return null;
+  const pick = rand();
+  return pick < 0.4 ? 'net' : pick < 0.75 ? 'long' : 'wide';
+}
+
+/**
+ * A shot from `from` that goes wrong so (botMistake): long past the near end, wide of the table,
+ * or low into the net. Without air it would come down well past the table's edge, so with air
+ * (which only shortens it a little) it still does.
+ */
+export function missShot(from: V3, mistake: Mistake, rand: () => number = Math.random): V3 {
+  const side = rand() < 0.5 ? -1 : 1;
+  if (mistake === 'net') {
+    // Flat and fast, at a spot just over the net: it crosses the net's line lower than its top.
+    const aim = v3((rand() * 2 - 1) * 0.4, 0, 0.15);
+    for (let flight = 0.22; flight < 0.8; flight += 0.02) {
+      const vel = ballistic(from, aim, flight);
+      const t = (0 - from.z) / vel.z;
+      const y = from.y + vel.y * t - 0.5 * GRAVITY * t * t;
+      if (y > TABLE.top + 0.03 && y < TABLE.top + NET.height - 0.03) return vel;
+    }
+    return ballistic(from, aim, 0.3);
+  }
+  const aim = mistake === 'long'
+    ? v3((rand() * 2 - 1) * 0.4, 0, TABLE.halfLength + 0.45)
+    : v3(side * (TABLE.halfWidth + 0.35), 0, 0.5 + rand() * 0.5);
+  return ballistic(from, aim, 0.55 + rand() * 0.15);
+}
+
+const GRAVITY = 9.81;
+/** The velocity that, without air, comes down at `aim` (at the table's height) after `flight` seconds. */
+const ballistic = (from: V3, aim: V3, flight: number): V3 =>
+  v3((aim.x - from.x) / flight, (TABLE.top + BALL_R - from.y + 0.5 * GRAVITY * flight * flight) / flight, (aim.z - from.z) / flight);
 
 /** A serve's flight: its first bounce (on the server's half), then where (and when) it comes down on the receiver's. */
 export interface ServeFlight { vel: V3; first: V3; second: V3; t: number; }
@@ -146,8 +205,8 @@ export function serveFlight(from: V3, vel: V3): ServeFlight | null {
  * spot; it searches that bounce's place and the time to it for the serve that lands nearest. Null
  * if none does (from somewhere it can't serve from).
  */
-export function botServe(from: V3, level: BotLevel = 'medium', rand: () => number = Math.random, hand: 'left' | 'right' = 'right'): ServeFlight | null {
-  const { time, aim } = BOT_SERVES[level];
+export function botServe(from: V3, level: BotLevel | ServeSpec = 'medium', rand: () => number = Math.random, hand: 'left' | 'right' = 'right'): ServeFlight | null {
+  const { time, aim } = typeof level === 'string' ? BOT_SERVES[level] : level;
   const target = v3(aim.x * forehandX(hand) + (rand() * 2 - 1) * aim.spread, 0, aim.near + rand() * (aim.far - aim.near));
   let best: { serve: ServeFlight; score: number } | null = null;
   for (let share = 0.2; share <= 0.75; share += 0.05) {
