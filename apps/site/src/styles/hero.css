@@ -4,14 +4,15 @@
 /* Everything above the TV is sized by the window's height as well as its width (the vh in the
    clamps below), so that on a laptop's short screen the TV still comes up into view. */
 .hero {
-  --tv-stand: clamp(8px, 1.1vw, 15px);
+  /* The TV, from the top of its frame to the floor under it: its width to its height. */
+  --tv-shape: 1696 / 1006;
   position: relative;
   padding-top: clamp(100px, 11.5vh, 132px);
   text-align: center;
   /* What the sky fades in over: its own colours, top to bottom. */
   background: linear-gradient(180deg, #1f4dd3 0, #2554d1 40%, #1b51d0 56%, #b4c4ed 62%, #edf5fb 70%, var(--cloud) 100%);
-  /* Clipped at the sides only: the TV's shadow is longer than the hero, and runs out over the top
-     of the next section. */
+  /* Clipped at the sides only: the TV's picture is wider than the TV, for its shadow, and on a
+     phone that's wider than the window. Nothing is cut off below it. */
   overflow-x: clip;
 }
 
@@ -211,13 +212,13 @@
 
   .hero__stage {
     flex: 1 1 0;
-    min-height: calc(560px * 9 / 16 + var(--tv-stand));
+    min-height: calc(560px / (var(--tv-shape)));
     container-type: size;
   }
 
-  /* As wide as its TV (70% of it) and stand can be in the stage's height. */
+  /* As wide as its TV (70% of it), stand and all, can be in the stage's height. */
   .hero__set {
-    width: min(100%, (100cqh - var(--tv-stand)) * 16 / 9 / 0.7);
+    width: min(100%, 100cqh * var(--tv-shape) / 0.7);
   }
 }
 
@@ -227,68 +228,52 @@
   }
 }
 
+/* The TV is a render (media/tv): a television modelled and lit in Blender, seen square on, with
+   its screen left clear. This box is the TV from the top of its frame to the floor it stands on
+   (where the floor meets the screen's plane: the front of the stand's foot comes a little
+   further down, towards the viewer). The picture is bigger, for the webcam above and the shadow
+   around, and hangs out of the box by the margins it was rendered with. The numbers here are
+   that render's: 2400 x 1220, the frame at 352, 84 and 1696 x 968, the screen at 368, 100 and
+   1664 x 936, the floor at 1090. */
 .tv {
   position: relative;
   z-index: 1;
   width: 70%;
+  aspect-ratio: var(--tv-shape);
 }
 
+.tv__set {
+  position: absolute;
+  left: calc(-352 / 1696 * 100%);
+  top: calc(-84 / 1006 * 100%);
+  z-index: 1;
+  width: calc(2400 / 1696 * 100%);
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The video plays behind the render, in the screen's place: the glass's reflection is part of
+   the render and lies over it. */
 .tv__screen {
-  position: relative;
+  position: absolute;
+  left: calc(16 / 1696 * 100%);
+  top: calc(16 / 1006 * 100%);
+  width: calc(1664 / 1696 * 100%);
   aspect-ratio: 16 / 9;
-  padding: clamp(4px, 0.62vw, 9px);
-  border-radius: clamp(9px, 1.3vw, 18px);
-  background: linear-gradient(180deg, #1b232d, #05080c 12%, #05080c);
-  box-shadow:
-    0 0 0 1px #2c3642,
-    0 70px 90px -50px rgba(4, 40, 110, 0.65),
-    0 30px 50px -34px rgba(4, 40, 110, 0.6);
-}
-
-/* The video is the game's 4:3 buffer, shown at 16:9 as the game shows it: fill the screen with it
-   whatever shape the browser takes the file to be. */
-.tv__video {
-  width: 100%;
-  height: 100%;
-  object-fit: fill;
-  border-radius: clamp(5px, 0.7vw, 10px);
   background: #05080c;
 }
 
-/* A soft window reflection across the glass. */
-.tv__screen::after {
-  content: "";
+/* The video is the game's 4:3 buffer, shown at 16:9 as the game shows it: fill the screen with it
+   whatever shape the browser takes the file to be. It runs a pixel under the render's black
+   margin all round, so no line of the page shows between them at any size. */
+.tv__video {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(116deg, rgba(255, 255, 255, 0.13) 0 16%, rgba(255, 255, 255, 0.035) 16.3% 31%, transparent 31.3%);
-  pointer-events: none;
-}
-
-/* The webcam sitting on top. */
-.tv__cam {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% - 3px);
-  z-index: 1;
-  width: clamp(40px, 5.4%, 62px);
-  aspect-ratio: 62 / 20;
-  translate: -50% 0;
-  border-radius: 999px 999px 4px 4px;
-  background:
-    radial-gradient(circle at 50% 52%, #7fd3ff 0 9%, #123a66 10% 20%, #05080c 21% 30%, transparent 31%),
-    radial-gradient(circle at 80% 50%, #3ad68a 0 4%, transparent 5%),
-    linear-gradient(180deg, #2b3542, #0a0f15);
-  box-shadow: 0 0 0 1px #2c3642;
-}
-
-.tv__stand {
-  display: block;
-  width: 26%;
-  height: var(--tv-stand);
-  margin-inline: auto;
-  background: linear-gradient(180deg, #05080c, #2a3440);
-  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+  inset: -1px;
+  width: calc(100% + 2px);
+  max-width: none;
+  height: calc(100% + 2px);
+  object-fit: fill;
 }
 
 .tv__toggle {
