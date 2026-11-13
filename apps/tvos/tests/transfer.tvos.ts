@@ -222,7 +222,7 @@ try {
   await tvUntil('connected to the Mac through the relay', (d) => d.transferStatus === 'connected' && d.transferDevice === 'Mac' && d.transferTransport === 'relay');
   await click(SONG_TRASH(0));
   await pageUntil({ transferSent: '1', transferNotice: 'Sent “TV routine” to Apple TV.' });
-  await tvUntil('received the song', (d) => d.transferReceived === '1' && d.transferSongs === '1' && d.transferNotice === 'Received “TV routine”.');
+  await tvUntil('received the song', (d) => d.transferReceived === '1' && d.transferSongs === '1' && d.transferNotice === 'Received “TV routine” from Mac.');
   screenshot('2-received');
 
   // The page removes its copy (leaving the screen ends the transfer; the app waits again).
@@ -235,7 +235,7 @@ try {
   const rejoined = reports.length;
   await load(`?transfer=${code}`);
   await pageUntil({ menuScreen: 'transfer', transferStatus: 'connected', transferSongs: '0' });
-  await pageUntil({ transferReceived: '1', transferNotice: 'Received “TV routine”.', transferSongs: '1' });
+  await pageUntil({ transferReceived: '1', transferNotice: 'Received “TV routine” from Apple TV.', transferSongs: '1' });
   await tvUntil('sent it back', (d) => d.transferSent === '1', rejoined);
   screenshot('3-sent-back');
 
