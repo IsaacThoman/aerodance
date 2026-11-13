@@ -1,4 +1,4 @@
-// Legacy disk adapter, retained for opening/backing up existing installations.
+// Legacy disk adapter, kept for regression tests (server.test.ts, video import, browser storage).
 // Static Studio and the legacy server share project validation and compilation.
 import { promises as fs } from "node:fs";
 import path from "node:path";
