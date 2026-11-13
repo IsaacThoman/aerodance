@@ -479,7 +479,8 @@ try {
   await until({ gamePhase: 'countdown' }, 5000);
   await until({ gamePhase: 'playing' }, 10000);
   await shot('game-playing');
-  await until({ gamePhase: 'results' }, 90000);
+  // The results' buttons take clicks once ResultsScreen is up (resultsScreen), not as the phase changes.
+  await until({ gamePhase: 'results', resultsScreen: 'stage' }, 90000);
   await shot('game-results');
   const scores = ((await data()).gameScores ?? '').split('|').map(Number);
   assert.equal(scores.length, 2);
