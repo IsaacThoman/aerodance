@@ -21,21 +21,35 @@ Needs FFmpeg on `PATH` and Playwright's Chromium (`npx playwright install chromi
 
 ## Code
 
-| File | |
+The engine is in [`packages/dance`](../../packages/dance), shared with
+[aerodance studio](../../docs/studio.md) (the app at `/studio/` where dances are recorded, fixed and
+playtested). The files of the same names here re-export it, so imports from `tools/dance` keep
+working.
+
+| In `packages/dance` | |
 |---|---|
 | `format.ts` | The format's types, defaults and validation |
-| `curves.ts` | Keyframe interpolation |
 | `rig.ts` | Controls ↔ MediaPipe landmarks: neutral stance, limb solving, derived face/hands/feet, fitting from tracking |
-| `evaluate.ts` | A dancer's pose at any time: layers, contacts, head and limb following |
+| `takes.ts` | Captured motion: decoding and cleaning takes, a take clip's pose in the dance's frame |
+| `evaluate.ts` | A dancer's pose at any time: clips, layers, contacts, head and limb following |
 | `ops.ts` | Every edit, applied atomically with a change summary |
 | `time.ts` | Time and range parsing (ms, seconds, m:ss, beats), song ↔ video clocks |
-| `project.ts` | The project folder: revisions, lock, undo/redo, retries, sources |
 | `compile.ts`, `bundle.ts` | Export to `.adpose` choreography and song bundles |
-| `check.ts`, `score.ts` | Review findings, comparison with tracking, and the game's scorer |
-| `tracking.ts`, `media.ts` | Tracked poses; FFmpeg |
+| `check.ts`, `score.ts`, `playtest.ts` | Review findings, comparison with tracking, the game's scorer, and where a player's attempt lost points |
+| `tracking.ts` | Tracked poses |
+| `store.ts` | A project in any file store (the Studio's, in the browser) |
+| `fromSong.ts` | A finished song opened as a dance |
+| `beats.ts` | A song's tempo, downbeat and sections from its audio |
+| `scenes.tsx` | The 3D views the Studios and the renderer share |
+
+| Here | |
+|---|---|
+| `project.ts` | The project folder on disk: revisions, lock, undo/redo, retries, sources |
+| `bundle.ts` | Building a bundle from a project folder, and installing it in the game |
+| `media.ts` | FFmpeg |
 | `server.ts` | The bridge: the Studio's API, live revisions, and the headless renderer/tracker the CLI uses |
 | `cli.ts` | The `dance` command |
-| `studio/` | The Studio (`index.html`) and the renderer page (`render.html`) |
+| `studio/` | The animation Studio (`index.html`) and the renderer page (`render.html`) |
 
 ## Checks
 
