@@ -127,7 +127,8 @@ function writeSplash() {
   writeFileSync(path.join(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'xcode', version: 1 } }, null, 2));
 }
 
-// Fonts the canvas UI uses: Inter (scripts/apple.ts), and Nunito and Tiny5 (the stats overlay)
+// Fonts the canvas UI uses: Inter (scripts/apple.ts), Tiny5 (the stats overlay) and Nunito (the
+// canvas bench's text test)
 // from @fontsource. Bundled as <Family>__<weight>.<ext> (src/Fonts.mm).
 async function copyFonts() {
   const out = path.join(www, 'fonts');

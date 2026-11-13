@@ -4,9 +4,9 @@ An iPhone and iPad app that runs the production web build in `WKWebView` and sho
 an Apple TV through AirPlay, or any TV through an HDMI adapter. While the game is on the TV, the
 phone becomes its remote. With no TV it plays on the phone's own screen, by touch.
 
-Unlike the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network, CoreMotion, UniformTypeIdentifiers),
-so it can go to the App Store. iOS WebKit also has a JIT, which tvOS
-WebKit doesn't, and the game runs on the phone's GPU: the Apple TV only shows the video.
+Like the Apple TV app in `apps/tvos/`, this uses public APIs only (WebKit, AVKit, Network, CoreMotion, UniformTypeIdentifiers),
+so it can go to the App Store. Unlike the Apple TV app (JavaScriptCore without a JIT), it runs the
+game in WebKit, which has a JIT, on the phone's GPU: the Apple TV only shows the video.
 
 ## How it works
 
@@ -152,7 +152,7 @@ distribution certificate) when `APP_STORE_CONNECT_API_KEY_PATH` (the `.p8` file)
 the draw calls per frame and the device's thermal state (`ProcessInfo.thermalState`, and Low Power
 Mode) to this Mac (port 8766); `--report-to <url>` sends them elsewhere. It also prints the page's
 safe area insets, the host state and the saved keys.
-`--flow` presses through one player (the dial's starting count), the first song and Dance! to the results, for benchmarks.
+`--flow` presses through two players (the dial's starting count), the first song and Dance! to the results, for benchmarks.
 `--drive '<json>'` plays steps in the Apple TV app's format, waiting on the canvas's `data-*`
 state between them, plus taps in the current canvas layout's design units: 1200×900 for Standard (4:3),
 1600×900 for Widescreen (16:9), reported as `dataset.displayMode`. Each step is reported:
@@ -190,7 +190,7 @@ xcrun simctl io <simulator UDID> screenshot --display=external tv.png
 
 `tests/` has UI tests (XCTest) that drive the installed app in a simulator by its bundle ID, with
 real touches: it launches and reaches the main menu, an iPhone holds it in landscape even upright,
-Let's dance (for one player, the dial's starting count) and the first song tapped at their `layout.ts` positions open the song preview, an
+Let's dance (for two players, the dial's starting count) and the first song tapped at their `layout.ts` positions open the song preview, an
 iPad turns portrait, landscape and back, and a TV connected (through `tools/simscreen.m`) while
 the device is held sideways shows the remote with every control on screen, upright on an iPhone,
 the game is told how the device is held as it turns (for its camera's picture), and the game comes back in landscape when the TV goes. One plays a whole song on the TV with the

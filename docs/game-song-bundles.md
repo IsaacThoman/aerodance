@@ -1,13 +1,11 @@
 # Game song bundles and pose migration
 
-The game now reads the directory bundle contract in
-[song-dance-authoring-workflow.md](song-dance-authoring-workflow.md).
-The first integration is a music/reference-character preview in Song Select, on
-the song's dance stage. Countdown, live character panels, calibrated audible
-timing, scoring, and results are still pending. The preview plays the audio
-through the mixer's music bus and samples the dancers at the audio clock's song
-time (less output latency), pauses when the tab is hidden, and stops at the
-playable endpoint. It does not use the silent demo's loop or seam blend.
+The game reads the song bundles Dance Studio exports: a folder per song (below), its
+choreography in the [pose binary format](pose-binary-format.md). Song Select previews a song on
+its dance stage, with the music on the mixer's music bus and the dancers sampled at the audio
+clock's song time (less output latency); the countdown, scoring and results are the
+[main UI flow](README.md#main-ui-flow). The original design is the historical
+[song and dance authoring workflow](song-dance-authoring-workflow.md).
 
 ## Install an exported bundle
 
@@ -190,4 +188,4 @@ pinning, unsafe paths, cancellation, missing-player/gap behavior, exclusions,
 track-0 equivalence, independent skeletons, both browser preview modes, and finite
 music playback. Browser fixtures are private synthetic assets; they do not populate
 the public catalog. Browser checks also load installed authored bundles and play
-their audio in both supported player modes. Device timing still requires validation.
+their audio with one to four players. Device timing still requires validation.
