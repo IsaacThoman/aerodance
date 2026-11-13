@@ -6,7 +6,7 @@ import type { LivePlayer } from '../game/livePose.ts';
 import { SETUP_TRACKING_REFRESH_MS } from '../game/GameSession.ts';
 import { WebcamCalibration } from '../game/webcamCalibration.ts';
 import type { CalibrationStatus } from '../game/webcamCalibration.ts';
-import { createPoseFollower } from './pose/body.ts';
+import { createPoseFollower, PRESENT_MS } from './pose/body.ts';
 import type { PlayerPose, PoseFollower } from './pose/body.ts';
 import { createGestureSet, handRaised } from './pose/gestures.ts';
 import type { GestureDetector, GestureEvent } from './pose/gestures.ts';
@@ -51,7 +51,6 @@ export const COUNTDOWN_MS = 3000;
 export const FINISH_MS = 1400;
 /** A hand held up this long on the how-to card starts the countdown. */
 export const RAISE_START_MS = 800;
-const PRESENT_MS = 400;
 
 export interface MinigameSessionOptions {
   game: MinigameDefinition;
@@ -172,7 +171,6 @@ export class MinigameSession implements MinigameContext {
   }
 
   calibrationStatus(now = this.now()): CalibrationStatus | null { return this.calibrationHold?.status(now) ?? null; }
-  /** Which players are in view (seen in the last PRESENT_MS). */
   /** Who is in view: seen within the last `within` ms (PRESENT_MS, as the games see it; the HUD's nudges wait longer). */
   presence(now = this.now(), within = PRESENT_MS) { return this.present.map((at) => now - at <= within); }
 
@@ -328,6 +326,5 @@ export class MinigameSession implements MinigameContext {
       this.source.setDetail?.(null);
     }
     this.listeners.clear();
-    this.current = 'disposed';
   }
 }

@@ -42,6 +42,16 @@ export function roundRect(g: Ctx, x: number, y: number, w: number, h: number, r:
 // scales the opacity of the wide dark glow behind them; light is the weight of "dance" (200).
 export const STACKED_LEADING = 0.86;
 
+/** Text straight over a page's background: the navy drop shadow the game's own titles use. */
+export function shadowed(g: CanvasRenderingContext2D, draw: () => void) {
+  g.save();
+  g.shadowColor = 'rgba(0, 34, 84, 0.8)';
+  g.shadowBlur = 5;
+  g.shadowOffsetY = 2;
+  draw();
+  g.restore();
+}
+
 export function drawTitle(g: Ctx, { x, y, size, stacked = false, outline = 0, halo = 1, light = 200 }: {
   x: number; y: number; size: number; stacked?: boolean; outline?: number; halo?: number; light?: number;
 }) {

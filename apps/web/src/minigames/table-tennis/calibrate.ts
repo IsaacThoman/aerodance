@@ -1,5 +1,5 @@
 /*
- * The /?hands demo's miss readout and paddle calibration, in ball.ts's table frame. Each time a
+ * Table Tennis's miss readout and paddle calibration, in ball.ts's table frame. Each time a
  * ball comes at the player, where it passed nearest the paddle (as the player saw it, a lag ago)
  * is kept: a hit or a miss, it says how far off the paddle was and which way. If the tracking puts
  * the paddle a steady way off from where the player's hand feels it is, swings miss the same way
