@@ -4,7 +4,6 @@
 /* Everything above the TV is sized by the window's height as well as its width (the vh in the
    clamps below), so that on a laptop's short screen the TV still comes up into view. */
 .hero {
-  --tv-stand: clamp(8px, 1.1vw, 15px);
   position: relative;
   padding-top: clamp(100px, 11.5vh, 132px);
   text-align: center;
@@ -211,13 +210,14 @@
 
   .hero__stage {
     flex: 1 1 0;
-    min-height: calc(560px * 9 / 16 + var(--tv-stand));
+    /* The TV, webcam to puck, is its screen's height over --tv-h. */
+    min-height: calc(560px * 9 / 16 / 0.74632);
     container-type: size;
   }
 
-  /* As wide as its TV (70% of it) and stand can be in the stage's height. */
+  /* As wide as its TV (70% of it), webcam to puck, can be in the stage's height. */
   .hero__set {
-    width: min(100%, (100cqh - var(--tv-stand)) * 16 / 9 / 0.7);
+    width: min(100%, 100cqh * 0.74632 * 16 / 9 / 0.7);
   }
 }
 
@@ -227,68 +227,68 @@
   }
 }
 
+/* The TV is a render (media/tv.webp, made by art/tv.py): a glossy navy set in a crystal rim, a
+   pearl webcam on top, on the menu's glass puck. Its screen is cut out, and the video plays in the
+   hole. The screen is the box everything is placed by: the picture hangs round it, by where the
+   render script says the screen landed in it (--tv-l, --tv-t: the screen's left and top edges,
+   --tv-w, --tv-h: its size, all fractions of the picture), and the figure is padded above and
+   below by the webcam and the stand, so the layout makes room for the whole set. */
 .tv {
+  --tv-l: 0.04695;
+  --tv-t: 0.08552;
+  --tv-w: 0.90609;
+  --tv-h: 0.74632;
   position: relative;
   z-index: 1;
   width: 70%;
+  padding-block: calc(100% * 9 / 16 * var(--tv-t) / var(--tv-h)) calc(100% * 9 / 16 * (1 - var(--tv-t) - var(--tv-h)) / var(--tv-h));
+}
+
+.tv__set {
+  position: absolute;
+  z-index: 1;
+  left: calc(-100% * var(--tv-l) / var(--tv-w));
+  top: calc(-100% * var(--tv-t) / var(--tv-h));
+  width: calc(100% / var(--tv-w));
+  max-width: none;
+  height: auto;
+  filter: drop-shadow(0 30px 30px rgba(4, 40, 110, 0.28));
+  pointer-events: none;
+  user-select: none;
 }
 
 .tv__screen {
   position: relative;
   aspect-ratio: 16 / 9;
-  padding: clamp(4px, 0.62vw, 9px);
-  border-radius: clamp(9px, 1.3vw, 18px);
-  background: linear-gradient(180deg, #1b232d, #05080c 12%, #05080c);
-  box-shadow:
-    0 0 0 1px #2c3642,
-    0 70px 90px -50px rgba(4, 40, 110, 0.65),
-    0 30px 50px -34px rgba(4, 40, 110, 0.6);
-}
-
-/* The video is the game's 4:3 buffer, shown at 16:9 as the game shows it: fill the screen with it
-   whatever shape the browser takes the file to be. */
-.tv__video {
-  width: 100%;
-  height: 100%;
-  object-fit: fill;
-  border-radius: clamp(5px, 0.7vw, 10px);
+  border-radius: 0.6% / 1.07%;
   background: #05080c;
 }
 
-/* A soft window reflection across the glass. */
+/* The video is the game's 4:3 buffer, shown at 16:9 as the game shows it: fill the screen with it
+   whatever shape the browser takes the file to be. It runs a pixel under the bezel all round, so
+   no edge of sky shows between them. */
+.tv__video {
+  position: absolute;
+  inset: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  object-fit: fill;
+  border-radius: inherit;
+  background: #05080c;
+}
+
+/* The glass over the screen: a sheen at the top, as the bezel catches it, and a soft window
+   reflection across. */
 .tv__screen::after {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(116deg, rgba(255, 255, 255, 0.13) 0 16%, rgba(255, 255, 255, 0.035) 16.3% 31%, transparent 31.3%);
-  pointer-events: none;
-}
-
-/* The webcam sitting on top. */
-.tv__cam {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% - 3px);
   z-index: 1;
-  width: clamp(40px, 5.4%, 62px);
-  aspect-ratio: 62 / 20;
-  translate: -50% 0;
-  border-radius: 999px 999px 4px 4px;
+  border-radius: inherit;
   background:
-    radial-gradient(circle at 50% 52%, #7fd3ff 0 9%, #123a66 10% 20%, #05080c 21% 30%, transparent 31%),
-    radial-gradient(circle at 80% 50%, #3ad68a 0 4%, transparent 5%),
-    linear-gradient(180deg, #2b3542, #0a0f15);
-  box-shadow: 0 0 0 1px #2c3642;
-}
-
-.tv__stand {
-  display: block;
-  width: 26%;
-  height: var(--tv-stand);
-  margin-inline: auto;
-  background: linear-gradient(180deg, #05080c, #2a3440);
-  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 9%),
+    linear-gradient(116deg, rgba(255, 255, 255, 0.1) 0 16%, rgba(255, 255, 255, 0.03) 16.3% 31%, transparent 31.3%);
+  pointer-events: none;
 }
 
 .tv__toggle {
@@ -366,14 +366,14 @@
 .dancer--blue {
   z-index: 2;
   left: 0.5%;
-  bottom: -6%;
+  bottom: 10%;
   width: 18.5%;
 }
 
 .dancer--pink {
   z-index: 2;
   right: 0.5%;
-  bottom: -7%;
+  bottom: 9.4%;
   width: 18.5%;
   animation-duration: 4.6s;
   animation-delay: -1.7s;
@@ -384,13 +384,14 @@
    is on the outside, and tipped back, which takes its head away from the store badges and brings
    its other hand onto the top of the TV. On a small TV the badges come close above it, so its
    feet stay at least 44px below the top (the min()) and it shows little more than its head and
-   hands; on a bigger one it shows to the shoulders. Moved further left, its feet would show beside
+   hands; on a bigger one it shows to the shoulders. (The set's top is the webcam's, 8.6% above
+   the screen's, hence the 91.4%.) Moved further left, its feet would show beside
    the TV. The green one leans out round the TV's right side near the top, its body and far hand
    hidden behind it. */
 .dancer--purple {
   z-index: 0;
   left: 10.6%;
-  bottom: min(88.8%, 100% - 44px);
+  bottom: min(82.9%, 91.4% - 44px);
   width: 11.5%;
   scale: -1 1;
   rotate: -12deg;
@@ -401,7 +402,7 @@
 .dancer--green {
   z-index: 0;
   right: 12.5%;
-  bottom: 54.5%;
+  bottom: 56.4%;
   width: 12%;
   rotate: 28deg;
   animation-duration: 5.6s;

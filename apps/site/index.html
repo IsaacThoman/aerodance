@@ -113,7 +113,6 @@
             <img class="dancer dancer--purple" src="./media/dancers/purple-sm.webp" alt="" width="498" height="489" loading="lazy" decoding="async" data-depth="0.55" />
             <img class="dancer dancer--green" src="./media/dancers/green-sm.webp" alt="" width="436" height="486" loading="lazy" decoding="async" data-depth="0.55" />
             <figure class="tv">
-              <span class="tv__cam" aria-hidden="true"></span>
               <div class="tv__screen" data-video>
                 <!-- The page's videos come in AV1 and H.264: src/codec.ts chooses one for the page, and they preload nothing until it has. Without the script, the browser plays the first it can. -->
                 <video
@@ -128,8 +127,8 @@
                 <button class="tv__toggle" type="button" data-video-toggle data-state="playing" aria-label="Pause the video and all animation">
                   <svg class="on" aria-hidden="true"><use href="#i-pause" /></svg><svg class="off" aria-hidden="true"><use href="#i-play" /></svg>
                 </button>
+                <img class="tv__set" src="./media/tv.webp" alt="" width="2400" height="1639" decoding="async" />
               </div>
-              <span class="tv__stand" aria-hidden="true"></span>
             </figure>
             <img class="dancer dancer--blue" src="./media/dancers/blue-sm.webp" srcset="./media/dancers/blue-sm.webp 533w, ./media/dancers/blue.webp 1067w" sizes="(max-width: 760px) 21vw, min(18.5vw, 230px)" alt="" width="1067" height="1115" data-depth="1" />
             <img class="dancer dancer--pink" src="./media/dancers/pink-sm.webp" srcset="./media/dancers/pink-sm.webp 539w, ./media/dancers/pink.webp 1078w" sizes="(max-width: 760px) 21vw, min(18.5vw, 230px)" alt="" width="1078" height="1151" data-depth="1" />
