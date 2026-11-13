@@ -122,13 +122,13 @@ export interface ShotRoom {
  *   hands: [right-of-screen, left-of-screen] hand centres (each a 0.33 sphere)
  *   feet: the two foot centres (0.43 x 0.275 x 0.40 ovals); footTurn: [pitch, yaw, roll] of each
  *     (-1.5 pitch stands them on their heels, soles to the front)
- *   look: the dancer's colour, gloss (0-100), opacity and accessory; hat: a black top hat tipped
+ *   look: the dancer's colour, gloss (0-100) and opacity; hat: a black top hat tipped
  *     by [pitch, roll]
  */
 export interface FigurePose {
   root?: Vec3; body?: Vec3; head?: Vec3;
   hands?: readonly [Vec3, Vec3]; feet?: readonly [Vec3, Vec3]; footTurn?: readonly [Vec3, Vec3];
-  look?: { color?: string; gloss?: number; opacity?: number; accessory?: string };
+  look?: { color?: string; gloss?: number; opacity?: number };
   hat?: readonly [pitch: number, roll: number];
 }
 /** An extra spotlight for the shot, like a flashlight: angle (radians) and penumbra as three.js's. */
@@ -190,7 +190,7 @@ const isVec3Pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every
 const isFigure = (v: unknown) => v === null || v === undefined || (isFields(v) &&
   optional(v.root, isVec3) && optional(v.body, isVec3) && optional(v.head, isVec3) && optional(v.hands, isVec3Pair) &&
   optional(v.feet, isVec3Pair) && optional(v.footTurn, isVec3Pair) && optional(v.hat, isPair) &&
-  optional(v.look, (l) => isFields(l) && optionalString(l.color) && optionalNumber(l.gloss) && optionalNumber(l.opacity) && optionalString(l.accessory)));
+  optional(v.look, (l) => isFields(l) && optionalString(l.color) && optionalNumber(l.gloss) && optionalNumber(l.opacity)));
 const isPost = (v: unknown) => isFields(v) && optionalNumber(v.exposure) && optionalNumber(v.saturation) && optionalNumber(v.vignette) &&
   optional(v.tint, isVec3) && optionalNumber(v.bloomStrength) && optionalNumber(v.bloomThreshold) && optionalNumber(v.bloomRadius);
 const isLight = (v: unknown) => isFields(v) && isVec3(v.position) && isVec3(v.target) && optionalString(v.color) && isNumber(v.intensity) &&

@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { cloneCharacter } from '../../../../packages/character/cloneCharacter.ts';
-import { createAccessorySelector } from '../../../../packages/character/accessories.ts';
 import modelUrl from '../../../../packages/character/assets/aero-character.glb?url';
 import { CUTOUT, type Cutout, type CutoutPose } from './cutout.ts';
 
@@ -51,7 +50,6 @@ export async function bakeCutouts(gl: THREE.WebGLRenderer, poses: readonly Cutou
     gl.setClearColor(0x000000, 0);
     for (const pose of poses) {
       const dancer = cloneCharacter(source);
-      createAccessorySelector(dancer).select('None');
       dancer.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh || Array.isArray(mesh.material)) return;

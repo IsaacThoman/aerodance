@@ -57,9 +57,8 @@ and 1.891 seconds in the final run.
   SkeletonUtils previously created a separate skeleton for every part. Independent
   dancers and different bone palettes remain independent. Unmounted dancers release
   their bone textures.
-- Inactive accessories leave the scene graph until selected. Hiding them previously
-  still updated 15 skinned mesh matrices and bind inverses per dancer, every frame.
-  Selection restores the original parts and parents. The shipped mesh-local transforms
+- The model has no accessory meshes. Hidden accessories used to update 15 skinned
+  mesh matrices and bind inverses per dancer, every frame. The shipped mesh-local transforms
   are frozen; their world transforms still follow the rig. Pose placement updates the
   bone subtree and computes each shared parent inverse once, leaving mesh traversal to
   the renderer.
@@ -112,9 +111,7 @@ in unmarked gameplay windows, outside the measured samples.
 - Character tests compare every deformed vertex, bind transform and float bone palette
   against the previous clone implementation across all four shipped animation clips
   and four times per clip. Separate palettes and dancers are also tested.
-- Accessories match the previous visible skins and deformed vertices through all five
-  appearance selections and moving, mirrored, nonuniformly scaled parents. A further
-  3,196 sampled poses compare every world matrix exactly with the baseline retargeter.
+- 3,196 sampled poses compare every world matrix exactly with the baseline retargeter.
 - Desktop GPU comparisons of the constant blur kernel cover 12 radius/pane-count
   combinations on a seeded noisy texture. Maximum channel difference is 1/255.
   Character GPU comparisons cover 48 clip/time/view combinations; tiny rounding
