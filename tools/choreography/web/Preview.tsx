@@ -66,7 +66,6 @@ function Actor({ pose, calibration, id, count, mirrored, live }: ActorProps) {
     (): CharacterAppearance => ({
       color: CHARACTER_COLORS[id % CHARACTER_COLORS.length],
       gloss: 85,
-      accessory: "None",
     }),
     [id],
   );

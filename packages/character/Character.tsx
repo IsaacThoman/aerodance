@@ -18,7 +18,6 @@ import { BalloonPop } from "./balloonPop.ts";
 import { LivePoseFilter } from './livePoseFilter.ts';
 import { cloneCharacter } from './cloneCharacter.ts';
 import { hasRigidSkinning, patchRigidSkinning } from './rigidSkinning.ts';
-import { createAccessorySelector } from './accessories.ts';
 import { createSkinBounds } from './skinBounds.ts';
 import modelUrl from "./assets/aero-character.glb?url";
 import type { MotionTake } from "../pose/motion.ts";
@@ -29,8 +28,6 @@ export interface CharacterAppearance {
   /** 0-100. */
   gloss: number;
   opacity?: number;
-  /** Shows the rig's acc_<name>_ meshes; "None" hides them all. */
-  accessory: string;
 }
 /**
  * The rig is driven by the first that applies: a live/edited pose (calibration + poseRef), a
@@ -140,8 +137,6 @@ export default function Character({
     });
     return cloned;
   }, [gltf, url]);
-  // Custom models can animate accessory nodes; retain their animation bindings.
-  const accessories = useMemo(() => createAccessorySelector(model, { detach: url === modelUrl }), [model, url]);
   const rigid = useMemo(() => hasRigidSkinning(gltf.scene), [gltf]);
   const updateBounds = useMemo(() => createSkinBounds(model), [model]);
   const retarget = useMemo(
@@ -203,10 +198,8 @@ export default function Character({
     gel.roughness = 0.36 - appearance.gloss * 0.0029;
     gel.clearcoat = 0.4 + appearance.gloss * 0.006;
     gel.opacity = appearance.opacity ?? 0.72;
-    accessories.select(appearance.accessory);
     invalidate();
-    return () => accessories.restore();
-  }, [appearance, accessories, gel, invalidate]);
+  }, [appearance, gel, invalidate]);
   useEffect(() => {
     if (retarget || applyPose) return;
     const clip = gltf.animations.find((c) => c.name === animation);
