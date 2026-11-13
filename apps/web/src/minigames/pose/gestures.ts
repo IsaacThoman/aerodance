@@ -9,7 +9,7 @@ import type { BodyPoint, JointName, PlayerPose, ScreenPoint, Side } from './body
  *
  * The host (MinigameSession) runs one of each detector per player with the defaults below and
  * hands their events to the game each frame (useMinigameFrame's events); a game that wants other
- * thresholds makes its own and feeds them from useMinigameFrame's `poses` (only when a new pose
+ * thresholds makes its own and feeds them from useMinigameFrame's `players` (only when a new pose
  * arrived: pose.samples changes).
  *
  * Tracking runs at 20-30 poses a second with a tenth of a second or two of delay, so a gesture is

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
-  FONT, ICONS, NAVY, drawGlassCircle, drawGlassPanel, drawPill, drawStatusDot, drawTitle, ellipsize, paragraph, roundRect, text,
+  FONT, ICONS, NAVY, drawGlassCircle, drawGlassPanel, drawPill, drawStatusDot, drawTitle, ellipsize, paragraph, roundRect, shadowed, text,
 } from '../ui/draw.ts';
 import type { Rect } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
@@ -81,10 +81,7 @@ function drawDigits(g: CanvasRenderingContext2D, rect: Rect, code: string) {
 }
 
 // The chosen camera's name in the camera list.
-const cameraLabel = (link: PhoneLink) => {
-  const chosen = link.chosenCamera();
-  return link.cameras().find((camera) => camera.id === chosen)?.label ?? 'Camera';
-};
+const cameraLabel = (link: PhoneLink, chosen: string) => link.cameras().find((camera) => camera.id === chosen)?.label ?? 'Camera';
 
 // The camera button: the chosen camera, and a chevron saying it opens a list.
 function drawCameraButton(g: CanvasRenderingContext2D, rect: Rect, label: string, hover: number, press: number) {
@@ -97,16 +94,6 @@ function drawCameraButton(g: CanvasRenderingContext2D, rect: Rect, label: string
   g.lineCap = g.lineJoin = 'round';
   g.strokeStyle = NAVY;
   ICONS.down(g, rect.x + rect.w - 36, rect.y + rect.h / 2 - (hover * 3 - press * 3), 44);
-  g.restore();
-}
-
-// Text straight over the background: the navy drop shadow the game's own titles use.
-function shadowed(g: CanvasRenderingContext2D, draw: () => void) {
-  g.save();
-  g.shadowColor = 'rgba(0, 34, 84, 0.8)';
-  g.shadowBlur = 5;
-  g.shadowOffsetY = 2;
-  draw();
   g.restore();
 }
 
@@ -123,7 +110,8 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
   const gl = useThree((state) => state.gl);
   const props = useRef({ link, view, camera, dim, onDim, onCameraList });
   props.current = { link, view, camera, dim, onDim, onCameraList };
-  const st = useRef({ typed: '', drawn: '', lastPreview: 0, reported: '' }).current;
+  // The chosen camera's label, worked out again only when the choice or the list changes.
+  const st = useRef({ typed: '', drawn: '', lastPreview: 0, reported: '', chosen: '', cameras: null as unknown, label: 'Camera' }).current;
   const layout = (s: { w: number; h: number }) => phoneLayout(s);
 
   const typeKey = (key: string) => {
@@ -183,7 +171,13 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
       const p = props.current;
       const { view, camera } = p;
       if (view.stage !== 'code') st.typed = '';
-      const key = `${view.stage}|${view.message}|${view.error}|${view.playerCount}|${view.playing}|${camera.status}|${camera.message}|${camera.facing}|${camera.cameras.length}|${p.link.chosenCamera()}|${p.dim}|${st.typed}`;
+      const chosenId = p.link.chosenCamera();
+      if (chosenId !== st.chosen || camera.cameras !== st.cameras) {
+        st.chosen = chosenId;
+        st.cameras = camera.cameras;
+        st.label = cameraLabel(p.link, chosenId);
+      }
+      const key = `${view.stage}|${view.message}|${view.error}|${view.playerCount}|${view.playing}|${camera.status}|${camera.message}|${camera.facing}|${camera.cameras.length}|${chosenId}|${p.dim}|${st.typed}`;
       if (key !== st.drawn) { st.drawn = key; s.invalidate(); }
       // The camera's picture and skeletons, a few times a second.
       if (view.stage === 'linked' && !p.dim && p.link.camera.video && s.time - st.lastPreview > 1 / 15) {
@@ -191,7 +185,7 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
         s.invalidate();
       }
       const sending = p.link.sendingVideo;
-      const chosen = cameraLabel(p.link);
+      const chosen = st.label;
       // How the phone is linked: through the relay or over WebRTC.
       const transport = p.link.link ? 'relay' : p.link.peer ? 'webrtc' : '';
       const report = JSON.stringify([view.stage, camera.status, chosen, p.dim, sending, transport]);
@@ -271,7 +265,7 @@ export default function PhoneScreen({ link, view, camera, dim, onDim, onCameraLi
       g.strokeStyle = 'rgba(255, 255, 255, 0.75)';
       g.stroke();
 
-      drawCameraButton(g, L.camera, cameraLabel(p.link), h.camera ?? 0, press('camera'));
+      drawCameraButton(g, L.camera, st.label, h.camera ?? 0, press('camera'));
       g.font = `600 20px ${FONT}`;
       shadowed(g, () => paragraph(g, camera.message, L.message.x + 4, L.message.y, L.message.w - 8, { size: 20, lineH: 25, color: camera.status === 'error' ? '#ffb38a' : '#ffffff' }));
       const running = ACTIVE.includes(camera.status);

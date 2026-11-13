@@ -56,7 +56,6 @@ export interface MinigameSelectProps {
   onPreviewPlayersChange?: (players: PlayerCount | null) => void;
   onPlay?: (game: MinigameDefinition, players: PlayerCount, options: MinigameOptionValues) => void;
 }
-/** A tile; an option row, or one of its arrows (step). */
 /** A widget: a game's tile, or a setting's (its key, options.ts optionKey) arrow, row or player chip. */
 type SelectWidget = Widget & { game?: MinigameDefinition; option?: string; step?: -1 | 1; chip?: { row: number; player: number; count: number } };
 

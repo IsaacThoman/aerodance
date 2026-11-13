@@ -87,7 +87,7 @@ export function minigameLayout(width = 1600, options = 0) {
     MG_HOWTO_START: { x: width / 2 - 190, y: howto.y + howto.h - 118, w: 380, h: 88 },
     /** The HUD's round timer, under the pause icon at the top centre. */
     MG_TIMER_Y: 104,
-    /** Results: the scoreboard centred, then Play again and Minigames side by side under it. */
+    /** Results: the scoreboard centred, then Play again and Experiments side by side under it. */
     MG_RESULTS_BOARD: board,
     mgResultsBoard: (players: number): Rect => ({ ...board, h: 150 + Math.max(0, players - 1) * 72 + (players > 1 ? 18 : 0) }),
     mgResultsRetry: (players: number): Rect => resultsButton(board, players, 0),
