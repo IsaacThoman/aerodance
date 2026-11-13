@@ -1,0 +1,503 @@
+/* The hero: the game's own sky, rendered in its engine above the clouds, with the headline and a
+   TV playing the game. */
+
+/* Everything above the TV is sized by the window's height as well as its width (the vh in the
+   clamps below), so that on a laptop's short screen the TV still comes up into view. */
+.hero {
+  /* The TV, from the top of its frame to the floor under it: its width to its height. */
+  --tv-shape: 1696 / 1006;
+  position: relative;
+  padding-top: clamp(100px, 11.5vh, 132px);
+  text-align: center;
+  /* What the sky fades in over: its own colours, top to bottom. */
+  background: linear-gradient(180deg, #1f4dd3 0, #2554d1 40%, #1b51d0 56%, #b4c4ed 62%, #edf5fb 70%, var(--cloud) 100%);
+  /* Clipped at the sides only: the TV's picture is wider than the TV, for its shadow, and on a
+     phone that's wider than the window. Nothing is cut off below it. */
+  overflow-x: clip;
+}
+
+/* --- Sky --- */
+.sky {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* The render fills the hero from its centre: a wide one, and a tall one for phones (index.html).
+   Its upper sky is graded deep enough for white text, except round the sun: keep the copy over
+   the graded part. Where the copy sits over the picture changes with the window's width and its
+   height, so measure the contrast across both after moving either. */
+.sky__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 38%;
+  /* It falls behind a little as the page scrolls (src/hero.ts), as far things do. */
+  translate: 0 var(--sky-y, 0);
+}
+
+/* Its top runs up into the one flat blue Safari shows above the page (index.css, at html), as the
+   render's own top edge shades from dark to light across it: no line under the status bar. */
+.sky::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 48px;
+  background: linear-gradient(180deg, var(--sky-top), rgba(21, 68, 211, 0));
+  pointer-events: none;
+}
+
+/* The clouds at the foot of it run out into the page. */
+.sky::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: clamp(150px, 19vw, 280px);
+  background: linear-gradient(180deg, rgba(241, 250, 255, 0), var(--cloud) 78%);
+  pointer-events: none;
+}
+
+/* Soap bubbles (src/bubbles.ts places them). */
+.bubbles {
+  position: absolute;
+  inset: 0;
+}
+
+/* Each is one of the game's soap bubbles, rendered on its own (media/sky/bubble.webp). */
+.bubble {
+  position: absolute;
+  left: var(--x);
+  bottom: -160px;
+  width: var(--s);
+  aspect-ratio: 1;
+  background: url("../../media/sky/bubble.webp") center / contain no-repeat;
+  animation:
+    rise var(--t) linear var(--delay) infinite,
+    sway calc(var(--t) / 5) ease-in-out infinite alternate;
+  will-change: translate;
+}
+
+@keyframes rise {
+  to {
+    translate: 0 calc(-100vh - 1200px);
+  }
+}
+
+@keyframes sway {
+  from {
+    transform: translateX(-14px);
+  }
+
+  to {
+    transform: translateX(14px);
+  }
+}
+
+/* It pops where it is: the climb and sway stop in place, and the pop plays over them. */
+.bubble.is-popped {
+  animation:
+    rise var(--t) linear var(--delay) infinite paused,
+    sway calc(var(--t) / 5) ease-in-out infinite alternate paused,
+    pop 0.32s var(--ease) forwards;
+}
+
+@keyframes pop {
+  to {
+    scale: 1.5;
+    opacity: 0;
+  }
+}
+
+/* --- Copy --- */
+.hero__copy {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  max-width: 900px;
+  margin-inline: auto;
+  padding-inline: var(--pad);
+}
+
+.display--hero {
+  padding-bottom: 0.1em;
+  font-size: clamp(3.2rem, min(10vw, 11.5vh), 6.8rem);
+  line-height: 0.96;
+  color: #fff;
+  background: linear-gradient(180deg, #fff 0 60%, #cfefff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(6, 46, 120, 0.3)) drop-shadow(0 20px 30px rgba(4, 36, 110, 0.38));
+}
+
+/* On a desktop, or a tablet on its side, the headline is one line, about as wide as the TV under
+   it, which brings the whole TV up into view. (index.html keeps a space before the line break for
+   when it's switched off.) */
+@media (min-width: 1000px) {
+  .hero__copy {
+    max-width: 1140px;
+  }
+
+  .display--hero {
+    font-size: clamp(3.2rem, min(7.4vw, 10.2vh), 6.6rem);
+    white-space: nowrap;
+  }
+
+  .display--hero br {
+    display: none;
+  }
+}
+
+.lede {
+  max-width: 640px;
+  margin-top: 14px;
+  font-size: clamp(1.06rem, 1.7vw, 1.3rem);
+  line-height: 1.5;
+  font-weight: 450;
+  color: #fff;
+  text-wrap: pretty;
+  text-shadow: 0 1px 2px rgba(4, 36, 110, 0.3);
+}
+
+.hero .badges {
+  justify-content: center;
+  margin-top: clamp(22px, 3vh, 30px);
+}
+
+.hero__more {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 30px;
+  margin-top: clamp(16px, 2.2vh, 22px);
+  font-size: 15.5px;
+  text-shadow: 0 1px 2px rgba(4, 36, 110, 0.35);
+}
+
+/* --- The TV and the dancers around it --- */
+.hero__stage {
+  position: relative;
+  z-index: 2;
+  width: min(1240px, 100% - 2 * var(--pad));
+  margin: clamp(24px, 3.4vh, 40px) auto 0;
+}
+
+/* The set: the TV, with the dancers placed round it in fractions of the set's own size, so the
+   whole group scales as one. */
+.hero__set {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  margin-inline: auto;
+}
+
+/* On a desktop the hero is made to the window's height, and the set takes what the copy leaves
+   of it, so nothing is cut off at the fold. In a window 840px tall or more the first screen ends
+   with the "Available on" row. In a shorter one there isn't room for that and a TV worth looking
+   at, so the first screen ends under the TV and the row is the next thing down. The TV isn't let
+   below 560px wide: under about 700px tall its foot goes below the fold. Past 1080px tall
+   everything is full size, and the hero stops growing. */
+@media (min-width: 1000px) {
+  .hero {
+    --lineup-pad: clamp(34px, 4.6vh, 56px);
+    --lineup-h: calc(var(--lineup-pad) + 44px);
+    display: flex;
+    flex-direction: column;
+    min-height: min(100svh, 1080px);
+  }
+
+  .hero__stage {
+    flex: 1 1 0;
+    min-height: calc(560px / (var(--tv-shape)));
+    container-type: size;
+  }
+
+  /* As wide as its TV (70% of it), stand and all, can be in the stage's height. */
+  .hero__set {
+    width: min(100%, 100cqh * var(--tv-shape) / 0.7);
+  }
+}
+
+@media (min-width: 1000px) and (max-height: 839px) {
+  .hero {
+    min-height: calc(100svh + var(--lineup-h) - 28px);
+  }
+}
+
+/* The TV is a render (media/tv): a television modelled and lit in Blender, seen square on, with
+   its screen left clear. This box is the TV from the top of its frame to the floor it stands on
+   (where the floor meets the screen's plane: the front of the stand's foot comes a little
+   further down, towards the viewer). The picture is bigger, for the webcam above and the shadow
+   around, and hangs out of the box by the margins it was rendered with. The numbers here are
+   that render's: 2400 x 1220, the frame at 352, 84 and 1696 x 968, the screen at 368, 100 and
+   1664 x 936, the floor at 1090. */
+.tv {
+  position: relative;
+  z-index: 1;
+  width: 70%;
+  aspect-ratio: var(--tv-shape);
+}
+
+.tv__set {
+  position: absolute;
+  left: calc(-352 / 1696 * 100%);
+  top: calc(-84 / 1006 * 100%);
+  z-index: 1;
+  width: calc(2400 / 1696 * 100%);
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The video plays behind the render, in the screen's place: the glass's reflection is part of
+   the render and lies over it. */
+.tv__screen {
+  position: absolute;
+  left: calc(16 / 1696 * 100%);
+  top: calc(16 / 1006 * 100%);
+  width: calc(1664 / 1696 * 100%);
+  aspect-ratio: 16 / 9;
+  background: #05080c;
+}
+
+/* The video is the game's 4:3 buffer, shown at 16:9 as the game shows it: fill the screen with it
+   whatever shape the browser takes the file to be. It runs a pixel under the render's black
+   margin all round, so no line of the page shows between them at any size. */
+.tv__video {
+  position: absolute;
+  inset: -1px;
+  width: calc(100% + 2px);
+  max-width: none;
+  height: calc(100% + 2px);
+  object-fit: fill;
+}
+
+.tv__toggle {
+  position: absolute;
+  right: clamp(12px, 1.8vw, 24px);
+  bottom: clamp(12px, 1.8vw, 24px);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(6, 20, 40, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition:
+    opacity 0.25s var(--ease),
+    background-color 0.25s var(--ease);
+}
+
+.tv__screen:hover .tv__toggle,
+.tv__toggle:focus-visible,
+.tv__toggle[data-state="paused"] {
+  opacity: 1;
+}
+
+.tv__toggle:hover {
+  background: rgba(6, 20, 40, 0.8);
+}
+
+.tv__toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tv__toggle .off,
+.tv__toggle[data-state="paused"] .on {
+  display: none;
+}
+
+.tv__toggle[data-state="paused"] .off {
+  display: block;
+  translate: 1px 0;
+}
+
+@media (hover: none) {
+  .tv__toggle {
+    opacity: 1;
+  }
+}
+
+.dancer {
+  position: absolute;
+  height: auto;
+  translate: var(--px, 0) var(--py, 0);
+  filter: drop-shadow(0 20px 16px rgba(8, 60, 140, 0.16));
+  animation: bob 5.2s ease-in-out infinite alternate;
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes bob {
+  from {
+    transform: translateY(5px) rotate(-1.2deg);
+  }
+
+  to {
+    transform: translateY(-9px) rotate(1.2deg);
+  }
+}
+
+.dancer--blue {
+  z-index: 2;
+  left: 0.5%;
+  bottom: -6%;
+  width: 18.5%;
+}
+
+.dancer--pink {
+  z-index: 2;
+  right: 0.5%;
+  bottom: -7%;
+  width: 18.5%;
+  animation-duration: 4.6s;
+  animation-delay: -1.7s;
+}
+
+/* The other two are behind the TV, a little smaller for being further back. The purple one looks
+   over its top-left corner, out of the way of the copy above: turned round, so the hand it waves
+   is on the outside, and tipped back, which takes its head away from the store badges and brings
+   its other hand onto the top of the TV. On a small TV the badges come close above it, so its
+   feet stay at least 44px below the top (the min()) and it shows little more than its head and
+   hands; on a bigger one it shows to the shoulders. Moved further left, its feet would show beside
+   the TV. The green one leans out round the TV's right side near the top, its body and far hand
+   hidden behind it. */
+.dancer--purple {
+  z-index: 0;
+  left: 10.6%;
+  bottom: min(88.8%, 100% - 44px);
+  width: 11.5%;
+  scale: -1 1;
+  rotate: -12deg;
+  animation-duration: 6s;
+  animation-delay: -3s;
+}
+
+.dancer--green {
+  z-index: 0;
+  right: 12.5%;
+  bottom: 54.5%;
+  width: 12%;
+  rotate: 28deg;
+  animation-duration: 5.6s;
+  animation-delay: -0.8s;
+}
+
+/* --- "Available on" row, on the cloud --- */
+.lineup {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 30px;
+  padding: clamp(34px, 5vw, 56px) var(--pad) 8px;
+  color: var(--ink-soft);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lineup__label {
+  font-size: 12.5px;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.lineup ul {
+  display: contents;
+}
+
+.lineup li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lineup svg {
+  width: 17px;
+  height: 17px;
+  opacity: 0.8;
+}
+
+/* On a desktop the row is the foot of the hero's first screen (above), with a little room under
+   it, and a height the hero can count on. */
+@media (min-width: 1000px) {
+  .lineup {
+    box-sizing: border-box;
+    min-height: var(--lineup-h);
+    padding-block: var(--lineup-pad) 20px;
+  }
+}
+
+@media (max-width: 760px) {
+  .hero {
+    padding-top: 112px;
+  }
+
+  .hero__stage {
+    width: calc(100% - 2 * var(--pad));
+  }
+
+  .tv {
+    width: 100%;
+  }
+
+  /* A phone's TV is too small to stand anyone around: in front they'd cover the game, and below it
+     they float in the gap above the "Available on" row, so the TV goes alone. */
+  .dancer {
+    display: none;
+  }
+
+  .lineup {
+    gap: 8px 20px;
+  }
+
+  .lineup__label {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (max-width: 520px) {
+  /* Two store badges side by side; GitHub is in the nav, and at the foot of the page. */
+  .hero .badges {
+    flex-wrap: nowrap;
+    width: 100%;
+    max-width: 380px;
+  }
+
+  .hero .badge {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 10px;
+  }
+
+  .hero .badge--glass {
+    display: none;
+  }
+}
+
+/* The narrowest phones: one badge to a row. */
+@media (max-width: 350px) {
+  .hero .badges {
+    flex-wrap: wrap;
+  }
+
+  .hero .badge {
+    flex: 1 1 100%;
+  }
+}

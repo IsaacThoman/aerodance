@@ -4,7 +4,7 @@ import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import { noise, shaderMaterial } from '../shared/glsl.ts';
 import type { City, TreeSpot, TreeType, Waterfall } from './city.ts';
-import { CAMERA, COLORS, GROUND, RIVER } from './layout.ts';
+import { CAMERA, COLORS, GROUND, ORDER, RIVER } from './layout.ts';
 import { makeCityMaterial, makeFoliageMaterial, stageUniforms } from './materials.ts';
 import type { EnvMapProps } from './materials.ts';
 import { makeConeTree, makePalm, makeRoundTree, TREE_GREENS } from './trees.ts';
@@ -204,7 +204,7 @@ export function Biodome({ city }: CityProps) {
   );
   material.uniforms.uSun.value.copy(stageUniforms.uSunDir.value);
   return (
-    <mesh geometry={geometry} material={material} position={[dome.x, GROUND + dome.base, dome.z]} scale={[dome.r, dome.r * dome.hy, dome.r]} renderOrder={2} />
+    <mesh geometry={geometry} material={material} position={[dome.x, GROUND + dome.base, dome.z]} scale={[dome.r, dome.r * dome.hy, dome.r]} renderOrder={ORDER.biodome} />
   );
 }
 
@@ -281,7 +281,7 @@ export function Waterfalls({ city }: CityProps) {
         `,
       }),
   );
-  return <mesh geometry={geometry} material={material} renderOrder={3} />;
+  return <mesh geometry={geometry} material={material} renderOrder={ORDER.falls} />;
 }
 
 // Rolling hill ridges on the horizon, lowest where the river reaches them.

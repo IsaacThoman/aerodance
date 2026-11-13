@@ -1,0 +1,265 @@
+/* The landing page's styles. The look follows the game's own drawing kit (apps/web/src/ui/draw.ts):
+   Inter in two weights with a mint square full stop, navy ink, glossy aqua glass. */
+@import "@fontsource-variable/inter/wght.css";
+@import "./components.css";
+@import "./hero.css";
+@import "./sections.css";
+@import "./stages.css";
+@import "./closing.css";
+
+/* Arial drawn to Inter's measure, so the words keep their place when Inter arrives. */
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial");
+  size-adjust: 107.12%;
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+}
+
+:root {
+  /* Ink and surfaces */
+  --navy: #0c2f52; /* the game's NAVY */
+  --navy-deep: #061a31;
+  --ink: #153a5e;
+  --ink-soft: #3d5d7c;
+  --cloud: #f1faff;
+  --line: rgba(12, 47, 82, 0.1);
+
+  /* Sky, top to bottom. White text passes AA on the first two. */
+  --sky-1: #0a4fc4;
+  --sky-2: #1068dd;
+  --sky-3: #55b4f7;
+  --sky-4: #c4eafd;
+  /* The hero's sky where it meets the top of the window: its render's top edge, averaged. */
+  --sky-top: #1544d3;
+
+  /* Brand accents */
+  --mint: #6ff3d6; /* the wordmark's full stop */
+  --stop: #32dcbc; /* the same stop, deep enough to show on white */
+  --aqua: #2fc7d8;
+  --blue: #1379d8;
+  --link: #0b58ab;
+
+  /* The four players */
+  --p1: #078fff;
+  --p2: #b86bff;
+  --p3: #1fcf72;
+  --p4: #ff5fb4;
+
+  --font: "Inter Variable", "Inter", "Inter Fallback", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --pad: clamp(20px, 5vw, 48px);
+  --max: 1200px;
+  /* The light sections' room above and below (sections.css), which the closing's dusk takes over
+     under the last of them (closing.css). */
+  --section-pad: clamp(76px, 10vw, 140px);
+  --dusk-gap: clamp(28px, 3vw, 40px);
+  /* How far below the window's top a link to a section lands it: clear of the nav (its 14 px gap
+     and 62 px bar), with room to spare. Phones need less (below). */
+  --jump-pad: 96px;
+  --r-card: 28px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 36px 60px -36px rgba(12, 70, 140, 0.35), 0 10px 24px -14px rgba(12, 70, 140, 0.22);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: var(--jump-pad);
+  /* The colour past the ends of the page. Safari shows it behind its status bar and toolbar while
+     the page is at its top or its bottom, and when it's pulled past either (iOS 26 on, it ignores
+     theme-color in a tab), so it's the sky at the top and the footer's navy at the bottom. Safari
+     lays the body's background colour over this one to find it, so the body has none: main paints
+     the page's cloud instead. */
+  background-color: var(--sky-top);
+}
+
+/* It turns from one to the other halfway down, where the page covers it. Without scroll-driven
+   animations it stays the sky. */
+@supports (animation-timeline: scroll()) {
+  html {
+    animation: page-ends steps(2, jump-none) both;
+    animation-timeline: scroll(root);
+  }
+}
+
+@keyframes page-ends {
+  from {
+    background-color: var(--sky-top);
+  }
+
+  to {
+    background-color: var(--navy-deep);
+  }
+}
+
+/* On a phone the nav slides away while the page scrolls down (src/chrome.ts, which names the same
+   query), so a link that jumps down to a section can land it nearer the top. One that jumps up
+   brings the nav back, and the light sections' own top padding (76 px and more) keeps their
+   headings clear of it. Without JavaScript the nav stays put, and so does the room left for it. */
+@media (max-width: 480px), (max-height: 480px) and (hover: none) {
+  .js {
+    --jump-pad: 24px;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: clip;
+}
+
+/* The page's cloud is main's, not the body's (see html). Nothing decorative may widen the page. */
+main {
+  background: var(--cloud);
+  overflow-x: clip;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+figure,
+pre {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+img,
+video,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+img,
+video {
+  height: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+svg {
+  fill: currentColor;
+}
+
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* For screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The game's pearl focus ring. */
+:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+
+/* White where the page is dark or sky. */
+:is(.hero, .stages, .closing, .footer, .nav:not([data-scrolled])) :focus-visible {
+  outline-color: #fff;
+}
+
+::selection {
+  background: var(--mint);
+  color: var(--navy);
+}
+
+.skip {
+  position: fixed;
+  left: 16px;
+  top: -80px;
+  z-index: 100;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--navy);
+  font-weight: 700;
+  box-shadow: 0 10px 30px -10px rgba(8, 50, 110, 0.5);
+  transition: top 0.2s var(--ease);
+}
+
+.skip:focus {
+  top: 16px;
+}
+
+/* Without JavaScript, the controls that need it aren't offered. */
+html:not(.js) :is(.tv__toggle, .stages__control, .stages__tabs) {
+  display: none;
+}
+
+/* The page holds still while it's paused: data-motion="off", which its pause buttons set and which
+   it starts with for the system's "reduce motion" setting (src/motion.ts, and index.html's inline
+   script before the first paint). Without JavaScript the setting holds it still by itself. The
+   same rules twice, as a media query and a selector can't share one. */
+@media (prefers-reduced-motion: reduce) {
+  html:not(.js) {
+    scroll-behavior: auto;
+  }
+
+  html:not(.js) *,
+  html:not(.js) *::before,
+  html:not(.js) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html[data-motion="off"] {
+  scroll-behavior: auto;
+}
+
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

@@ -25,6 +25,11 @@ export const COLORS = {
 
 export const FOG: Vec2 = [220, 5200];
 
+// The biodome, the towers' waterfalls and the terrace's glass balustrade are all beyond the
+// dancers, so they draw before the glass dancers (renderOrder 0). They don't write depth, so
+// anything drawn after them paints over them.
+export const ORDER = { biodome: -3, falls: -2, glass: -1 };
+
 // Camera sits just in front of the terrace looking out over the skyline.
 export const CAMERA: { position: Vec3; target: Vec3; fov: number } = { position: [0, 4.1, 13.4], target: [0, 2.05, 0], fov: 42 };
 

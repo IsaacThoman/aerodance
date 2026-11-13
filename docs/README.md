@@ -104,6 +104,10 @@ The dance stages live in [`packages/stages`](../packages/stages/README.md), the 
 
 23 in-engine 3:2 thumbnails (2160×1440) of five of the dance stages (all but `atrium`), with and without the "aerodance." wordmark, are in `tools/thumbnails/with-logo/` and `tools/thumbnails/no-logo/`. They use the game's own pixel grid, each pixel an exact 4×3 block. See [its README](../tools/thumbnails/README.md) to re-render them or add shots.
 
+## Landing page
+
+[`apps/site/`](../apps/site/README.md) is the page that introduces the game and links to where it can be had: a static site of its own (plain HTML, CSS and a little TypeScript), built with `npm run site:build` into `apps/site/dist`. Its store links are placeholders, set in `apps/site/site.config.ts`.
+
 ## Stack
 
 | Layer    | Tech                                      |

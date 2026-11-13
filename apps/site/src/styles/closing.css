@@ -1,0 +1,194 @@
+/* The closing call to action over the beach at sunset, and the footer. */
+
+.closing {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  padding: var(--dusk) var(--pad) 0;
+  color: #fff;
+  text-align: center;
+  /* Day into dusk. Over --dusk the page's pale sky deepens to night, which has settled by the
+     wordmark; below the words the night lightens into the sky of the picture. The dusk begins a
+     short gap (--dusk-gap) under the platforms' browser strip, so the white glass strip stays on
+     pale sky, and takes the rest of that section's bottom room as well as its own, so it falls
+     gently and the wordmark stays where it was. The upper stops are
+     samples of an eased curve in OKLCH: lightness falls with no corners, slowly at both ends; the
+     hue turns from sky blue to indigo; chroma stays moderate, so no band of electric blue. A soft
+     glow keeps the middle of the sky lighter than its edges, the way daylight lingers. Browsers
+     without `in oklab` drop the image and get plain night. */
+  --dusk: calc(clamp(220px, 23vw, 340px) + var(--section-pad) - var(--dusk-gap));
+  background: #1c2f83;
+  background-image:
+    radial-gradient(
+      80% calc(var(--dusk) * 0.5) at 50% calc(var(--dusk) * 0.22),
+      rgba(241, 250, 255, 0.55),
+      rgba(241, 250, 255, 0.34) 30%,
+      rgba(241, 250, 255, 0.12) 62%,
+      rgba(241, 250, 255, 0)
+    ),
+    linear-gradient(
+      in oklab,
+      var(--cloud) 0,
+      #eef8fe calc(var(--dusk) * 0.05),
+      #e3f3fd calc(var(--dusk) * 0.1),
+      #c2e0f5 calc(var(--dusk) * 0.2),
+      #96c5e9 calc(var(--dusk) * 0.3),
+      #6aa4d9 calc(var(--dusk) * 0.4),
+      #4983c4 calc(var(--dusk) * 0.5),
+      #3465ac calc(var(--dusk) * 0.6),
+      #274d98 calc(var(--dusk) * 0.7),
+      #203b8b calc(var(--dusk) * 0.8),
+      #1d3284 calc(var(--dusk) * 0.9),
+      #1c2f83 var(--dusk),
+      #1c2b81 calc(var(--dusk) + 16%),
+      #3f53b8 calc(var(--dusk) + 38%),
+      #5468c7 calc(var(--dusk) + 55%)
+    );
+  overflow: clip;
+  isolation: isolate;
+}
+
+/* The foot of the picture sinks into the footer. */
+.closing::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 16%;
+  background: linear-gradient(0deg, var(--navy-deep), rgba(6, 26, 49, 0));
+  pointer-events: none;
+}
+
+.closing__inner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+}
+
+/* The beach at sunset, full width under the words, its sky fading up into the section's own. */
+.closing__bg {
+  width: calc(100% + 2 * var(--pad));
+  max-width: none;
+  margin: clamp(-170px, -11vw, -60px) calc(-1 * var(--pad)) 0;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  object-position: 50% 80%;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 27%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 27%);
+}
+
+@media (min-width: 1700px) {
+  .closing__bg {
+    aspect-ratio: 16 / 9;
+  }
+}
+
+.wordmark--xl {
+  padding-bottom: 0.12em;
+  font-size: clamp(3.4rem, 12.5vw, 9.6rem);
+  color: #fff;
+  background: linear-gradient(180deg, #fff 0 58%, #d5f3ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 4px 0 rgba(12, 47, 82, 0.4)) drop-shadow(0 22px 34px rgba(12, 30, 90, 0.5));
+}
+
+.closing__title {
+  margin-top: 6px;
+  font-size: clamp(1.5rem, 3vw, 2.3rem);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  text-shadow: 0 2px 16px rgba(12, 30, 90, 0.6);
+}
+
+.closing__text {
+  margin-top: 8px;
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  font-weight: 500;
+  color: #eef4ff;
+  text-shadow: 0 1px 10px rgba(12, 30, 90, 0.7);
+}
+
+.closing .badges {
+  margin-top: 30px;
+}
+
+/* --- Footer --- */
+.footer {
+  color: #a9c3da;
+  background: var(--navy-deep);
+}
+
+.footer__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  gap: 40px 32px;
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin-inline: auto;
+  padding: clamp(48px, 6vw, 72px) var(--pad) 40px;
+}
+
+.footer__brand p {
+  max-width: 260px;
+  margin-top: 14px;
+  font-size: 15px;
+}
+
+.footer__col {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 11px;
+  font-size: 15px;
+}
+
+.footer__col h3 {
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.footer__col a {
+  border-radius: 6px;
+  transition: color 0.2s var(--ease);
+}
+
+.footer__col a:hover {
+  color: #fff;
+}
+
+.footer__legal {
+  width: calc(100% - 2 * var(--pad));
+  max-width: var(--max);
+  margin-inline: auto;
+  padding: 26px 0 44px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #8fa9c1;
+}
+
+@media (max-width: 760px) {
+  .footer__inner {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .footer__brand {
+    grid-column: 1 / -1;
+  }
+
+  .closing .badge {
+    flex: 1 1 150px;
+    justify-content: center;
+    padding-inline: 14px;
+  }
+
+  .closing .badges {
+    width: 100%;
+    max-width: 380px;
+  }
+}
