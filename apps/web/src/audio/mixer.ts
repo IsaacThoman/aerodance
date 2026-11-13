@@ -5,13 +5,13 @@ import type { SoundSettings } from '../menu/soundSettings.ts';
  * One AudioContext for the page, wired like a little mixing desk:
  *
  *   menu music ─ menuMusic ─ menuDuck ─┐
- *   in-game songs (songPlayer.js) ──────┴─ music ─┐
- *   button sounds ─────────── sfx ────┴─ master ─ limiter ─ speakers
+ *   in-game songs (songPlayer.ts) ──────┴─ music ─┐
+ *   sound effects ─────────── sfx ────┴─ master ─ limiter ─ speakers
  *
  * applySound(sound) maps Settings → Sound onto it:
  *   Master     master: everything
  *   Music      music: all music, menu and in-game
- *   Effects    sfx: button sounds
+ *   Effects    sfx: sound effects (the experiments')
  *   Menu music menuMusic: on/off for the menu's background track only
  *   Mute all   master off
  *

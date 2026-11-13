@@ -6,7 +6,7 @@ import type { MusicChannel } from './mixer.ts';
  * Background music that loops forever without dropping out, independent of the aero
  * flyover's own (longer) loop. The track is decoded once and replayed on one of the mixer's
  * music inputs: 'menuMusic' (the menu track, behind the Menu music switch) or 'music'
- * (in-game songs). Both follow the Music slider, Master and Mute all (mixer.js). To loop
+ * (in-game songs). Both follow the Music slider, Master and Mute all (mixer.ts). To loop
  * seamlessly:
  *   - the silent MP3 padding at either end is trimmed off;
  *   - each play-through starts the next one as its fade-out begins, so the outro overlaps

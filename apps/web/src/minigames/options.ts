@@ -1,4 +1,5 @@
 import { isObject } from '../../../../packages/pose/choreography.ts';
+import { browserStorage } from '../game/bestScores.ts';
 import type { BestScoreStorage } from '../game/bestScores.ts';
 import type { MinigameDefinition, MinigameOption } from './types.ts';
 
@@ -69,13 +70,13 @@ export function playerOption(game: Game, values: MinigameOptionValues, id: strin
 }
 
 /** The game's settings as last chosen in this browser (its defaults where nothing was). */
-export function minigameOptions(game: Pick<MinigameDefinition, 'id' | 'options'>, storage: BestScoreStorage = globalThis.localStorage): Record<string, string> {
+export function minigameOptions(game: Pick<MinigameDefinition, 'id' | 'options'>, storage: BestScoreStorage = browserStorage()): Record<string, string> {
   // (A game without options never asks the browser.)
   return game.options?.length ? resolveOptions(game, read(storage)[game.id]) : {};
 }
 
 /** Remembers a choice for the game (ignored unless the game offers it). */
-export function saveMinigameOption(game: Pick<MinigameDefinition, 'id' | 'options'>, id: string, value: string, storage: BestScoreStorage = globalThis.localStorage) {
+export function saveMinigameOption(game: Pick<MinigameDefinition, 'id' | 'options'>, id: string, value: string, storage: BestScoreStorage = browserStorage()) {
   if (!offers(game, id, value)) return;
   const all = read(storage);
   // (Choices the game no longer offers go as it's saved again.)
