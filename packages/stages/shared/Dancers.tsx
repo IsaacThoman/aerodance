@@ -117,7 +117,9 @@ export default function Dancers({ motion, playback, routine, position = [0, 0, 0
       const spot = spots.current[i];
       if (!spot) continue;
       feet.setFromMatrixPosition(spot.matrixWorld).project(camera);
-      dancerFeet[i] = { x: (feet.x + 1) / 2, y: (1 - feet.y) / 2 };
+      const out = (dancerFeet[i] ??= { x: 0, y: 0 });
+      out.x = (feet.x + 1) / 2;
+      out.y = (1 - feet.y) / 2;
     }
   });
   useEffect(() => () => { dancerFeet.length = 0; }, []);

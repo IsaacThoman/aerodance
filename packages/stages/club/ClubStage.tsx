@@ -87,7 +87,6 @@ function Lights() {
       const side = i ? 1 : -1;
       aim.position.set(side * 2 + Math.sin(t * 0.7 + i * 2) * 0.6, 1.4, Math.sin(t * 0.5 + i) * 0.5);
       light.color.copy(RIM[(i + swap) % RIM.length]).lerp(RIM[(i + swap + 1) % RIM.length], f);
-      light.intensity = 240;
     }
   });
   return (
@@ -110,8 +109,8 @@ function Lights() {
       />
       {/* Narrow front key so the dancers' gel bodies read against the bright floor. */}
       <spotLight position={[0, 8.5, 9]} angle={0.3} penumbra={0.55} intensity={260} color="#eef6ff" />
-      <Spot position={[-7, 8, -6]} target={[-2, 1.4, 0]} angle={0.42} penumbra={0.6} intensity={180} color={C.aqua} lightRef={lights[0]} aimRef={aims[0]} />
-      <Spot position={[7, 8, -6]} target={[2, 1.4, 0]} angle={0.42} penumbra={0.6} intensity={180} color={C.magenta} lightRef={lights[1]} aimRef={aims[1]} />
+      <Spot position={[-7, 8, -6]} target={[-2, 1.4, 0]} angle={0.42} penumbra={0.6} intensity={240} color={C.aqua} lightRef={lights[0]} aimRef={aims[0]} />
+      <Spot position={[7, 8, -6]} target={[2, 1.4, 0]} angle={0.42} penumbra={0.6} intensity={240} color={C.magenta} lightRef={lights[1]} aimRef={aims[1]} />
     </>
   );
 }

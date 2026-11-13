@@ -10,7 +10,6 @@ export function makeShared() {
   return {
     uTime: { value: 0 },
     uBeat: { value: 0 },
-    uBeatPhase: { value: 0 },
     uSurfaceY: { value: SURFACE_Y },
     uWaterTop: { value: new THREE.Color('#2ecbe8') },
     uWaterMid: { value: new THREE.Color('#0a5eb0') },

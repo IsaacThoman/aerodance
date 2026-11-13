@@ -5,7 +5,7 @@ import type { Vec3 } from '../catalog.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { beat, useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
-import { heightAt, PLATFORM_R, type Clearing } from './terrain.ts';
+import { meadowHeight, PLATFORM_R, type Clearing } from './terrain.ts';
 
 const AQUA = new THREE.Color('#38f2ff');
 const LIME = new THREE.Color('#a8ff5a');
@@ -338,7 +338,7 @@ export function SolarFlowers({ sites }: { sites: readonly SolarFlowerSite[] }) {
     mats.ring.color.copy(AQUA).lerp(LIME, 0.3).multiplyScalar(1.5 + beat.pulse * 2);
   });
   return sites.map(([x, z, yaw], i) => (
-    <group key={i} position={[x, heightAt(x, z) - 0.05, z]} rotation={[0, yaw, 0]} scale={0.84}>
+    <group key={i} position={[x, meadowHeight(x, z) - 0.05, z]} rotation={[0, yaw, 0]} scale={0.84}>
       <mesh geometry={geo.white} material={mats.white} castShadow />
       <mesh geometry={geo.leaves} material={mats.leaf} />
       <group position={[0.12, 6.55, 0.28]}>
@@ -367,7 +367,7 @@ export function FlowerBeds({ beds }: { beds: FlowerBed[] }) {
     const soils: THREE.BufferGeometry[] = [];
     const blooms: { p: Vec3; s: number; c: string }[] = [];
     for (const b of beds) {
-      const y = heightAt(b.x, b.z);
+      const y = meadowHeight(b.x, b.z);
       const rim = new THREE.TorusGeometry(b.r, 0.12, 8, 48, b.arc ?? Math.PI * 2);
       rim.rotateX(Math.PI / 2);
       if (b.rot) rim.rotateY(b.rot);
