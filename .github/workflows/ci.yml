@@ -61,9 +61,10 @@ jobs:
       - run: docker run --rm aerodance-ui-browser-test sh -c "${{ matrix.test }}"
 
   studio-browser:
-    # Dance Studio in Chromium: project loading, video import and the duet import.
-    # Tests that need real-time tracking (Studio's browser.ts, the webcam and webcam-calibration
-    # tests) drop stale frames on a 2-core runner, so they run locally or via the Docker targets.
+    # Dance Studio in Chromium: browser storage, project loading, video import, the solo workflow
+    # and the duet import. Tests that need real-time tracking (Studio's browser.ts, and the game's
+    # webcam, webcam-calibration and phone tests) drop stale frames on a 2-core runner, so they
+    # run locally or via the Docker targets; session-recording.browser.ts needs play.ts on a GPU.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
