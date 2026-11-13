@@ -1,8 +1,10 @@
 // Run after `npm run build`. Settings → Songs → Transfer songs between two copies of the game, each
 // in its own browser profile, through the real pairing server: one imports a song and shows its
-// code; the other opens the code's QR link (/?transfer=<code>), joins, and receives the song when
-// the first sends it, then lists it in Settings and Song Select. Then the other way round: the
-// second imports another song and joins the first's code by typing it on the keypad, and sends it.
+// code; the other opens the code's QR link (/?transfer=<code>), joins, lists the song as one to
+// get, and receives it when the first sends it, then lists it in Settings and Song Select. Then
+// the other way round: the second imports three more songs and joins the first's code by typing
+// it on the keypad, and the first gets them from there: one, then the rest with Get all, which
+// both sides sum up as one batch.
 //
 // TRANSFER_TRANSPORT=relay makes the code's side connect through the pairing server's relay, as
 // the Apple TV app does (it has no WebRTC). BROWSER_GPU=metal with UI_RENDER=1 renders on the
@@ -25,14 +27,14 @@ import { bundleFixture, silentWav } from './fixtures/songBundle.ts';
 import { bundleFiles } from './helpers/customSongs.ts';
 
 const design = DISPLAY_MODES.widescreen;
-const { BACK, PLAYERS_BACK, PLAYERS_GO, SONG_IMPORT, SONG_TRANSFER, SONG_TRASH, START, TRANSFER_LINK } = menuLayout(design.w);
+const { BACK, PLAYERS_BACK, PLAYERS_GO, SONG_ACTIONS, SONG_IMPORT, SONG_TRANSFER, SONG_TRASH, START, TRANSFER_LINK } = menuLayout(design.w);
 const { BACK: SONGS_BACK } = gameLayout(design.w);
 const relayed = process.env.TRANSFER_TRANSPORT === 'relay';
 const render = process.env.UI_RENDER === '1';
 type Expected = Record<string, string | RegExp>;
 type Match = { re: string } | { is: string };
 
-// Two songs, a few seconds of silent audio each (about 100 KB: many pieces).
+// Four songs, a few seconds of silent audio each (about 100 KB: many pieces).
 function songZip(id: string, title: string) {
   const fixture = bundleFixture();
   fixture.song.songId = id;
@@ -42,9 +44,11 @@ function songZip(id: string, title: string) {
   return Buffer.from(makeZip(new Map([...bundleFiles(fixture)].map(([p, bytes]) => [`${id}/${p}`, bytes]))));
 }
 const work = await mkdtemp(path.join(tmpdir(), 'aerodance-transfer-'));
-const firstZip = path.join(work, 'first.zip'), secondZip = path.join(work, 'second.zip');
-await writeFile(firstZip, songZip('first-routine', 'First routine'));
-await writeFile(secondZip, songZip('second-routine', 'Second routine'));
+const [firstZip, ...moreZips] = await Promise.all(['First', 'Second', 'Third', 'Fourth'].map(async (name) => {
+  const file = path.join(work, `${name.toLowerCase()}.zip`);
+  await writeFile(file, songZip(`${name.toLowerCase()}-routine`, `${name} routine`));
+  return file;
+}));
 
 const pairing = createPairingServer();
 const app = express();
@@ -106,12 +110,13 @@ async function device(name: string, userAgent: string) {
       }
     },
     data: (key: string) => page.evaluate((k) => document.querySelector('canvas')?.dataset[k] ?? '', key),
-    async importZip(file: string) {
+    /** Imports the ZIPs; saved: how many songs are saved once it has. */
+    async importZips(files: string[], saved: number) {
       const chooser = new Promise<FileChooser>((resolve) => { chosen = resolve; });
       await d.click(SONG_IMPORT);
-      await (await chooser).setFiles([file]);
+      await (await chooser).setFiles(files);
       chosen = null;
-      await d.until({ songImport: 'done', savedSongs: /^[1-9]/ });
+      await d.until({ songImport: 'done', savedSongs: String(saved) });
     },
     async shot(file: string) { if (process.env.UI_ARTIFACTS) await page.screenshot({ path: `${process.env.UI_ARTIFACTS}/${file}.png` }); },
   };
@@ -127,7 +132,7 @@ try {
   await mac.until({ menuScreen: 'main', menuReady: 'true' });
   await mac.click(await settingsButton(mac.page, design.w));
   await mac.until({ menuScreen: 'settings', menuReady: 'true', savedSongs: '0' });
-  await mac.importZip(firstZip);
+  await mac.importZips([firstZip], 1);
   await mac.shot('transfer-settings');
   await mac.click(SONG_TRANSFER);
   await mac.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'entering', transferMode: 'enter' });
@@ -142,11 +147,15 @@ try {
   assert.equal(new URL(phone.page.url()).search, '');
   await mac.until({ transferStatus: 'connected', transferDevice: 'iPhone', transferTransport: relayed ? 'relay' : 'webrtc' });
   await phone.until({ transferTransport: relayed ? 'relay' : 'webrtc' });
+  // Both list the song: the Mac's to send, the phone's to get.
+  await mac.until({ transferRows: 'first-routine:send' });
+  await phone.until({ transferRows: 'first-routine:get' });
+  await phone.shot('transfer-connected');
 
-  // The Mac sends it; the phone saves it.
+  // The Mac sends it; the phone saves it, and both have it.
   await mac.click(SONG_TRASH(0));
-  await mac.until({ transferSent: '1', transferNotice: 'Sent “First routine” to iPhone.' });
-  await phone.until({ transferReceived: '1', transferNotice: 'Received “First routine”.', transferSongs: '1' });
+  await mac.until({ transferSent: '1', transferNotice: 'Sent “First routine” to iPhone.', transferRows: 'first-routine:both', transferSending: '0' });
+  await phone.until({ transferReceived: '1', transferNotice: 'Received “First routine” from Mac.', transferSongs: '1', transferRows: 'first-routine:both', transferReceiving: '0' });
   await mac.shot('transfer-sent');
   await phone.shot('transfer-received');
 
@@ -164,35 +173,48 @@ try {
   await phone.click(SONGS_BACK);
   await phone.until({ menuScreen: 'players', menuReady: 'true' });
 
-  // Then the phone imports another song, types the Mac's code and sends that one back.
+  // Then the phone imports three more songs and types the Mac's code, and the Mac gets them.
   await phone.click(PLAYERS_BACK);
   await phone.until({ menuScreen: 'main', menuReady: 'true' });
   await phone.click(await settingsButton(phone.page, design.w));
   await phone.until({ menuScreen: 'settings', menuReady: 'true', savedSongs: '1' });
-  await phone.importZip(secondZip);
+  await phone.importZips(moreZips, 4);
   await phone.click(SONG_TRANSFER);
-  await phone.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'entering', transferMode: 'enter', transferSongs: '2' });
+  await phone.until({ menuScreen: 'transfer', menuReady: 'true', transferStatus: 'entering', transferMode: 'enter', transferSongs: '4' });
   await phone.page.keyboard.type(code.slice(0, 4));
   await phone.until({ menuReady: 'true' });
   await phone.shot('transfer-keypad');
   await phone.page.keyboard.type(code.slice(4));
   await phone.until({ transferStatus: 'connected', transferDevice: 'Mac' });
   await mac.until({ transferStatus: 'connected', transferDevice: 'iPhone' });
-  // The first song is on both now: only the second has a send button, the first's row a tick.
-  const rows = await phone.page.evaluate(() => document.querySelector('canvas')?.dataset.transferSongs);
-  assert.equal(rows, '2');
-  await phone.click(SONG_TRASH(1));
-  await mac.until({ transferReceived: '1', transferNotice: 'Received “Second routine”.', transferSongs: '2' });
-  await phone.until({ transferSent: '1' });
+  // Both list all four in the same order. The first is on both; the rest the phone can send and
+  // the Mac can get.
+  await phone.until({ transferRows: 'first-routine:both|fourth-routine:send|second-routine:send|third-routine:send' });
+  await mac.until({ transferRows: 'first-routine:both|fourth-routine:get|second-routine:get|third-routine:get' });
+  await mac.shot('transfer-get');
+  // The Mac gets the second (the third row): the phone sends it.
+  await mac.click(SONG_TRASH(2));
+  await mac.until({ transferReceived: '1', transferNotice: 'Received “Second routine” from iPhone.', transferSongs: '2' });
+  await phone.until({ transferSent: '1', transferNotice: 'Sent “Second routine” to Mac.' });
+  // Then the other two with Get all. The phone knew of both from the start, so each side sums up
+  // the batch.
+  await mac.click(SONG_ACTIONS);
+  await mac.until({ transferReceived: '3', transferNotice: 'Received 2 songs from iPhone.', transferSongs: '4', transferReceiving: '0' });
+  await phone.until({ transferSent: '3', transferNotice: 'Sent 2 songs to Mac.', transferSending: '0' });
+  const everywhere = 'first-routine:both|fourth-routine:both|second-routine:both|third-routine:both';
+  await mac.until({ transferRows: everywhere });
+  await phone.until({ transferRows: everywhere });
   await mac.shot('transfer-both');
-  // Sending the first again does nothing: the Mac has it (its row has no button).
+  // Nothing more to send or get: no row has a button.
   await phone.click(SONG_TRASH(0));
+  await mac.click(SONG_TRASH(1));
   await new Promise((resolve) => setTimeout(resolve, 500));
-  assert.equal(await phone.data('transferSent'), '1');
+  assert.equal(await phone.data('transferSent'), '3');
+  assert.equal(await mac.data('transferReceived'), '3');
 
-  // The Mac's Songs panel lists both.
+  // The Mac's Songs panel lists all four.
   await mac.click(BACK);
-  await mac.until({ menuScreen: 'settings', menuReady: 'true', savedSongs: '2' });
+  await mac.until({ menuScreen: 'settings', menuReady: 'true', savedSongs: '4' });
   await phone.until({ transferStatus: 'ended' });
 
   assert.deepEqual(errors, []);

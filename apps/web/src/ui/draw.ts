@@ -407,6 +407,44 @@ export const ICONS = {
     g.lineTo(cx + a - a * 0.55, cy + a * 0.55);
     g.stroke();
   },
+  // An arrow pointing down onto a line (Transfer songs: get a song from the other device).
+  get(g, cx, cy, r) {
+    const a = r * 0.4, tip = a * 0.55, end = cy + a * 0.35;
+    g.beginPath();
+    g.moveTo(cx, cy - a);
+    g.lineTo(cx, end);
+    g.moveTo(cx - tip, end - tip);
+    g.lineTo(cx, end);
+    g.lineTo(cx + tip, end - tip);
+    g.moveTo(cx - a * 0.8, cy + a);
+    g.lineTo(cx + a * 0.8, cy + a);
+    g.stroke();
+  },
+  // A QR code's corners (Transfer songs: show this device's code).
+  qr(g, cx, cy, r) {
+    const a = r * 0.34, box = a * 0.8;
+    g.save();
+    g.fillStyle = '#ffffff';
+    g.lineWidth *= 0.75;
+    g.lineJoin = 'miter';
+    g.beginPath();
+    for (const [x, y] of [[cx - a, cy - a], [cx + a - box, cy - a], [cx - a, cy + a - box]]) g.rect(x, y, box, box);
+    g.stroke();
+    const dot = box * 0.42;
+    g.fillRect(cx + a - box - dot * 0.2, cy + a - box - dot * 0.2, dot, dot);
+    g.fillRect(cx + a - dot * 0.8, cy + a - dot * 0.8, dot, dot);
+    g.restore();
+  },
+  // A keypad's nine keys (Transfer songs: enter another device's code).
+  keypad(g, cx, cy, r) {
+    const gap = r * 0.25;
+    g.save();
+    g.fillStyle = '#ffffff';
+    g.beginPath();
+    for (const dy of [-gap, 0, gap]) for (const dx of [-gap, 0, gap]) { g.moveTo(cx + dx + r * 0.075, cy + dy); g.arc(cx + dx, cy + dy, r * 0.075, 0, TAU); }
+    g.fill();
+    g.restore();
+  },
   // Two arrows passing each other, right above and left below (Settings → Songs: transfer songs).
   transfer(g, cx, cy, r) {
     const a = r * 0.4, h = a * 0.42, tip = a * 0.42;

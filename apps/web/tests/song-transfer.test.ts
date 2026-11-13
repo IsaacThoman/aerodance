@@ -113,7 +113,7 @@ test('a song goes over in pieces, never more than a window unacknowledged, and t
   assert.equal(pieces.length, Math.ceil(item.size / PIECE_BYTES));
   assert.ok(pieces.every((p) => p.size <= PIECE_BYTES + 8));
   assert.equal(incoming(tb).status, 'done');
-  assert.equal(incoming(tb).text, 'Received “Fixture routine”.');
+  assert.equal(incoming(tb).text, 'Received “Fixture routine” from Laptop.');
   assert.deepEqual(saved, ['fixture']);
   assert.deepEqual((await listSavedSongs(bStore)).map((s) => [s.entry.id, s.damaged]), [['fixture', false]]);
   // The receiver's files are the sender's.
@@ -135,6 +135,114 @@ test('sending several queues them, one at a time, and each side can send at once
   await until(() => ta.view().outgoing.every((o) => o.status === 'done') && tb.view().outgoing.every((o) => o.status === 'done'), 'all three');
   assert.deepEqual((await listSavedSongs(bStore)).map((s) => s.entry.id).sort(), ['one', 'three', 'two']);
   assert.deepEqual((await listSavedSongs(aStore)).map((s) => s.entry.id).sort(), ['one', 'three', 'two']);
+});
+
+test('the receiver lists the songs waiting their turn, and both sides count a song by what the receiver has', async () => {
+  const aStore = memoryStore();
+  for (const id of ['one', 'two', 'three']) await importSongZip(exportZip(bigSong({ id, title: id, audioMs: 60_000 })), { store: aStore });
+  const { ta, tb, a } = await pair({ aStore });
+  // The sender hears no acknowledgements: it sends one window of the first song and waits.
+  stall(a);
+  ta.send([{ id: 'one', title: 'one' }, { id: 'two', title: 'two' }, { id: 'three', title: 'three' }]);
+  await until(() => (tb.view().incoming[0]?.done ?? 0) === WINDOW_BYTES, 'a window of pieces');
+  const states = (t: SongTransfer, way: 'outgoing' | 'incoming') => t.view()[way].map((i) => [i.songId, i.status]);
+  assert.deepEqual(states(tb, 'incoming'), [['one', 'sending'], ['two', 'waiting'], ['three', 'waiting']]);
+  assert.deepEqual(states(tb, 'incoming'), states(ta, 'outgoing'));
+  // It has sent a window, and counts none of it until the receiver says so.
+  assert.equal(ta.view().outgoing[0].done, 0);
+  assert.equal(ta.view().outgoing[0].size, tb.view().incoming[0].size);
+  // More queued meanwhile wait there too, and one already waiting isn't queued twice.
+  await importSongZip(exportZip(bigSong({ id: 'four', title: 'four', audioMs: 1000 })), { store: aStore });
+  ta.send([{ id: 'four', title: 'four' }, { id: 'two', title: 'two' }]);
+  await until(() => tb.view().incoming.length === 4, 'the fourth');
+  assert.deepEqual(states(tb, 'incoming'), [['one', 'sending'], ['two', 'waiting'], ['three', 'waiting'], ['four', 'waiting']]);
+  // The connection closing: the ones that never started aren't coming.
+  a.close();
+  await until(() => tb.view().closed, 'the close');
+  assert.deepEqual(states(tb, 'incoming'), [['one', 'failed']]);
+});
+
+test('as songs go, each waits on both sides until its turn, and the sender never counts more than the receiver has', async () => {
+  const aStore = memoryStore();
+  for (const id of ['one', 'two', 'three']) await importSongZip(exportZip(bigSong({ id, title: id, audioMs: 8000 })), { store: aStore });
+  const { a, b } = channelPair();
+  // What each side showed, each time either changed.
+  const seen: string[] = [];
+  let ahead = 0;
+  const look = () => {
+    const out = ta.view().outgoing, inn = tb.view().incoming;
+    seen.push(`${out.map((o) => o.status[0]).join('')}/${inn.map((i) => i.status[0]).join('')}`);
+    for (const o of out) ahead = Math.max(ahead, o.done - (inn.find((i) => i.id === o.id)?.done ?? 0));
+  };
+  const ta: SongTransfer = createSongTransfer({ channel: a, device: 'Laptop', store: aStore, onChange: () => look(), warn: () => {} });
+  const tb: SongTransfer = createSongTransfer({ channel: b, device: 'Apple TV', store: memoryStore(), onChange: () => look(), warn: () => {} });
+  await until(() => !!ta.view().peer && !!tb.view().peer, 'both hellos');
+  ta.send([{ id: 'one', title: 'one' }, { id: 'two', title: 'two' }, { id: 'three', title: 'three' }]);
+  await until(() => ta.view().outgoing.every((o) => o.status === 'done'), 'all three');
+  assert.equal(ahead, 0, 'the sender counted bytes the receiver had not acknowledged');
+  // The receiver had all three listed while the first was on its way, and the last two while the second was.
+  assert.ok(seen.includes('sww/sww'), seen.join(' '));
+  assert.ok(seen.includes('dsw/dsw'), seen.join(' '));
+  assert.deepEqual(tb.view().incoming.map((i) => [i.songId, i.status]), [['one', 'done'], ['two', 'done'], ['three', 'done']]);
+});
+
+test('either side can ask the other to send its songs', async () => {
+  const aStore = memoryStore(), bStore = memoryStore();
+  await importSongZip(exportZip(bigSong({ id: 'one', title: 'One', audioMs: 4000 })), { store: aStore });
+  await importSongZip(exportZip(bigSong({ id: 'two', title: 'Two', audioMs: 4000 })), { store: aStore });
+  const { ta, tb, log } = await pair({ aStore, bStore });
+  assert.equal(tb.view().peer!.requests, true);
+  tb.request(['one', 'two', 'one']);
+  // Asked for until the other side queues them.
+  assert.deepEqual(tb.view().asked, ['one', 'two']);
+  tb.request(['two']);
+  assert.equal(log.filter((e) => e.text?.includes('"type":"request"')).length, 1);
+  await until(() => tb.view().incoming.length === 2, 'the songs queued');
+  assert.deepEqual(tb.view().asked, []);
+  await until(() => ta.view().outgoing.length === 2 && ta.view().outgoing.every((o) => o.status === 'done'), 'both sent');
+  assert.deepEqual(ta.view().outgoing.map((o) => o.text), ['Sent “One” to Apple TV.', 'Sent “Two” to Apple TV.']);
+  assert.deepEqual((await listSavedSongs(bStore)).map((s) => s.entry.id).sort(), ['one', 'two']);
+
+  // One the other side no longer has: it says what it has now, and the asking ends.
+  aStore.records.delete('one');
+  tb.request(['one']);
+  assert.deepEqual(tb.view().asked, ['one']);
+  await until(() => !tb.view().asked.length, 'the answer');
+  assert.deepEqual(tb.view().peer!.songs.map((s) => s.id), ['two']);
+  assert.equal(ta.view().outgoing.length, 2);
+});
+
+test('a copy of the game from before requests and queues still sends and receives, and is never asked', async () => {
+  const aStore = memoryStore();
+  await importSongZip(exportZip(bigSong({ audioMs: 2000 })), { store: aStore });
+  const { a, b, log } = channelPair();
+  // The other side as it was: its hello says nothing of what it can do, and it never hears of queues.
+  const sendText = a.sendText.bind(a);
+  a.sendText = (text) => { if (!text.includes('"queue"')) sendText(text.replace(',"can":["request"]', '')); };
+  const ta = createSongTransfer({ channel: a, device: 'Laptop', store: aStore, warn: () => {} });
+  const tb = createSongTransfer({ channel: b, device: 'Apple TV', store: memoryStore(), warn: () => {} });
+  await until(() => !!ta.view().peer && !!tb.view().peer, 'both hellos');
+  assert.equal(tb.view().peer!.requests, false);
+  tb.request(['fixture']);
+  assert.deepEqual(tb.view().asked, []);
+  assert.equal(log.some((e) => e.text?.includes('"type":"request"')), false);
+  ta.send([{ id: 'fixture', title: 'Fixture routine' }]);
+  await until(() => settled(ta), 'the result');
+  assert.equal(outgoing(ta).status, 'done');
+  assert.equal(incoming(tb).text, 'Received “Fixture routine” from Laptop.');
+});
+
+test('a queued song that has gone by its turn fails on both sides', async () => {
+  const aStore = memoryStore();
+  await importSongZip(exportZip(bigSong({ id: 'one', title: 'One', audioMs: 4000 })), { store: aStore });
+  await importSongZip(exportZip(bigSong({ id: 'two', title: 'Two', audioMs: 4000 })), { store: aStore });
+  const { ta, tb } = await pair({ aStore });
+  ta.send([{ id: 'one', title: 'One' }, { id: 'two', title: 'Two' }]);
+  aStore.records.delete('two');
+  await until(() => ta.view().outgoing.every((o) => o.status === 'done' || o.status === 'failed'), 'both to settle');
+  assert.deepEqual(ta.view().outgoing.map((o) => o.status), ['done', 'failed']);
+  await until(() => tb.view().incoming.every((i) => i.status !== 'waiting'), 'the receiver to hear');
+  assert.deepEqual(tb.view().incoming.map((i) => [i.songId, i.status, i.text]), [['one', 'done', 'Received “One” from Laptop.'], ['two', 'failed', '“Two” couldn\'t be sent: It has been removed.']]);
 });
 
 test('without asking, the receiver keeps the same copy or a later revision and replaces another copy of the same revision', async () => {
@@ -223,7 +331,12 @@ test('a saved song zips as Dance Studio exports it, and messages from the other 
   assert.equal(parseTransferMessage({ type: 'nope' }), null);
   assert.equal(parseTransferMessage('hello'), null);
   assert.deepEqual(parseTransferMessage({ type: 'hello', device: 'TV', songs: [{ id: 'a', revision: 1 }, { id: 2 }, 'x'] }),
-    { type: 'hello', device: 'TV', songs: [{ id: 'a', title: 'a', artist: '', revision: 1, sha256: '' }] });
+    { type: 'hello', device: 'TV', songs: [{ id: 'a', title: 'a', artist: '', revision: 1, sha256: '' }], can: [] });
+  assert.deepEqual(parseTransferMessage({ type: 'hello', device: 'TV', songs: [], can: ['request', 7, ''] }), { type: 'hello', device: 'TV', songs: [], can: ['request'] });
+  assert.deepEqual(parseTransferMessage({ type: 'queue', items: [{ id: 2, songId: 'a', title: 'A' }, { id: -1, songId: 'b' }, { id: 3 }, { id: 4, songId: 'c' }] }),
+    { type: 'queue', items: [{ id: 2, songId: 'a', title: 'A' }, { id: 4, songId: 'c', title: 'c' }] });
+  assert.deepEqual(parseTransferMessage({ type: 'queue' }), { type: 'queue', items: [] });
+  assert.deepEqual(parseTransferMessage({ type: 'request', songIds: ['a', 3, 'b'] }), { type: 'request', songIds: ['a', 'b'] });
   assert.deepEqual(parseTransferMessage({ type: 'result', id: 3, ok: true, status: 'weird', text: 'ok' }), { type: 'result', id: 3, ok: true, text: 'ok' });
 });
 
