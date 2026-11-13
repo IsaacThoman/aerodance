@@ -5,7 +5,7 @@ import type { Vec3 } from '../catalog.ts';
 import { useDisposable } from '../shared/hooks.ts';
 import { makeRandom } from '../shared/random.ts';
 import { fx, lightGLSL, windGLSL } from './fx.ts';
-import { heightAt } from './terrain.ts';
+import { meadowHeight } from './terrain.ts';
 
 // ------------------------------------------------------------- butterflies
 
@@ -97,7 +97,7 @@ export function Butterflies() {
     const home: number[] = [];
     const params: number[] = [];
     for (const [x, z, r, type] of BUTTERFLY_SPOTS) {
-      home.push(x, Math.max(heightAt(x, z), 0) + rand.range(0.7, 1.5), z);
+      home.push(x, Math.max(meadowHeight(x, z), 0) + rand.range(0.7, 1.5), z);
       params.push(r, type, rand.range(0, 100), rand.range(0.8, 1.2));
     }
     g.setAttribute('aHome', new THREE.InstancedBufferAttribute(new Float32Array(home), 3));

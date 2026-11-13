@@ -125,9 +125,9 @@ function dropGeometry(count: number) {
 // A pod of dolphins leaping in turn just offshore.
 const POD = { period: 5.2, air: 0.3, height: 2.3, length: 7.5 };
 const DOLPHINS = [
-  { x: -6, z: -58, lag: 0, speed: 1.4 },
-  { x: -9, z: -61, lag: 0.55, speed: 1.4 },
-  { x: -3.5, z: -63, lag: 1.15, speed: 1.4 },
+  { x: -6, z: -58, lag: 0 },
+  { x: -9, z: -61, lag: 0.55 },
+  { x: -3.5, z: -63, lag: 1.15 },
 ];
 const DROPS = 10;
 
@@ -148,8 +148,11 @@ interface DolphinState {
 }
 
 function dolphinState(d: Dolphin, t: number, out: DolphinState) {
-  const s = ((t - d.lag) / POD.period) % 1;
-  const cycle = Math.floor((t - d.lag) / POD.period);
+  // Before its lag (the first second, or always with the clock frozen for reduced motion) a
+  // dolphin is late in the cycle before, underwater, not part-way through a leap.
+  const cycles = (t - d.lag) / POD.period;
+  const cycle = Math.floor(cycles);
+  const s = cycles - cycle;
   const u = s / POD.air;
   const baseX = d.x + ((cycle * POD.length * 1.6 + 60) % 50) - 25;
   out.inAir = u <= 1;
@@ -164,7 +167,6 @@ function dolphinState(d: Dolphin, t: number, out: DolphinState) {
 
 function Dolphins() {
   const mesh = useRef<THREE.InstancedMesh>(null);
-  const drops = useRef<THREE.Points>(null);
   const geometry = useDisposable(() => dolphinGeometry());
   const material = useDisposable(() => makeLitMaterial({ shininess: 70, specular: 0.8, rim: 0.7 }));
   const dropGeo = useDisposable(() => dropGeometry(DOLPHINS.length * 2 * DROPS));
@@ -212,7 +214,7 @@ function Dolphins() {
   return (
     <>
       <instancedMesh ref={mesh} args={[geometry, material, DOLPHINS.length]} frustumCulled={false} />
-      <points ref={drops} geometry={dropGeo} material={dropMat} frustumCulled={false} renderOrder={ORDER.drops} />
+      <points geometry={dropGeo} material={dropMat} frustumCulled={false} renderOrder={ORDER.drops} />
     </>
   );
 }
@@ -316,7 +318,7 @@ function Sparkles({ count = 80 }: CountProps) {
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
-        uniforms: { uTime: world.uTime, uPulse: { value: 0 }, uWaterY: world.uWaterY },
+        uniforms: { uTime: world.uTime, uPulse: { value: 0 } },
         vertexShader: /* glsl */ `
           attribute vec2 aData;
           uniform float uTime, uPulse;

@@ -17,11 +17,10 @@ Six procedural stages inspired by Frutiger Aero, used for the song preview, game
 - `index.ts`: pairs each meta with its lazily loaded `<Name>Stage.tsx`, so only the visible stage is fetched and one broken stage can't take down the others.
 - `atrium/`: the room is shared with the Atrium menu backdrop (`packages/backdrops/atrium`), which shows it from its own camera without the dancers. `Atrium.tsx` is the room for any scene that brings its own camera and clock; each scene makes its own uniforms (`makeAtriumUniforms`) and moves its `uTime` on, as the two can be mounted at once.
 - `shared/`:
-  - `hooks.ts`: `StageCamera` (16:9 projection with slow orbit, sway and pointer parallax), a steady 118 bpm beat clock for light pulses, and disposal helpers. `cameraPilot` lets [walk mode](../../docs/walk-mode.md) fly whichever stage or backdrop camera is live.
+  - `hooks.ts`: `StageCamera` (16:9 projection with slow orbit, sway and pointer parallax), a beat clock for light pulses (118 bpm when idle; StageView sets it to the song's tempo and clock while a song with a bpm plays), and disposal helpers. `cameraPilot` lets [walk mode](../../docs/walk-mode.md) fly whichever stage or backdrop camera is live.
   - `Environment.tsx`: PMREM reflections; the glass dancers get most of their look from these.
   - `post.tsx`: stage → UnrealBloom → vignette/saturation grade → ACES. Bloom works on linear HDR, so each stage sets a threshold above its lit surfaces.
   - `Dancers.tsx`, `DancerEntrance.tsx`: the dancers on the stage floor.
-  - `hud.tsx`: the in-engine name card and veil.
   - `Sky.tsx`: sky dome and cloud billboards.
   - `glsl.ts`, `random.ts`: GLSL noise and seeded randomness.
 

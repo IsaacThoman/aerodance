@@ -6,7 +6,7 @@ import { swatchUV } from './palette.ts';
 import type { SwatchName } from './palette.ts';
 
 // Every flexible line on the arm in one mesh: the dress pack's corrugated conduit, joint by joint,
-// and the air lines and sensor cable to the gripper. Each run is shared/Cable.tsx's curve (a
+// and the air lines and sensor cable to the gripper. Each run is a curve (a
 // cubic Bézier out of each anchor along its direction, sagging a little, framed by parallel
 // transport), but they're all written into one buffer and coloured from the swatch atlas, so the
 // whole dress pack is a single draw call.

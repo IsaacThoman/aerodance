@@ -6,7 +6,7 @@ import { STAGES, resolveStage } from '../../../../packages/stages/index.ts';
 import type { DancerPlacement, Stage, StageId, StageMeta } from '../../../../packages/stages/index.ts';
 import { RenderPipeline, resetPost } from '../../../../packages/stages/shared/post.tsx';
 import Dancers from '../../../../packages/stages/shared/Dancers.tsx';
-import { beat, stageOrbit, stagePlay, stageShift } from '../../../../packages/stages/shared/hooks.ts';
+import { beat, reducedMotion, stageOrbit, stagePlay, stageShift } from '../../../../packages/stages/shared/hooks.ts';
 import { loadMotion } from '../../../../packages/character/motion.ts';
 import motionUrl from '../../../../packages/character/assets/dance.adpose?url';
 import type { MotionTake } from '../../../../packages/pose/motion.ts';
@@ -102,7 +102,6 @@ const ORBIT_RETURN = 2.4;
 // this rate (per second, eased): the stage's centre lands right of the scoreboard.
 const RESULTS_SHIFT = 0.22;
 const SHIFT_RATE = 3;
-const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 const byId = new Map(STAGES.map((stage) => [stage.meta.id, stage]));
 const stageFor = (id: StageId): Stage => {

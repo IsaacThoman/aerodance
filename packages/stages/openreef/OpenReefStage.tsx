@@ -37,7 +37,6 @@ export default function OpenReefStage() {
   useFrame((state) => {
     shared.uTime.value = state.clock.elapsedTime;
     shared.uBeat.value = beat.pulse;
-    shared.uBeatPhase.value = beat.phase;
     post.bloomStrength = meta.post.bloomStrength + beat.pulse * 0.04;
   });
 
