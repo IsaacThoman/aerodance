@@ -1,3 +1,4 @@
+import os
 # Independent GT checks: re-projects kp3d with meta's camera (and the documented lens/rolling
 # shutter), compares bboxes with masks, counts vis codes against mask labels and draws overlays.
 # python3 check_gt.py [scene ...]   (default: the audit's original scene list -> audit/gt-checks.json;
@@ -9,7 +10,7 @@ import json, math, sys
 from pathlib import Path
 import numpy as np
 from PIL import Image,ImageDraw
-D=Path('/Volumes/development/aerodance-trackbench'); O=D/'audit'
+D=Path(os.environ.get('TRACKBENCH_DATA','/Volumes/development/aerodance-trackbench')); O=D/'audit'
 def proj(P,inv,K,W,H,s,f):
  c=np.asarray(P)@inv[:3,:3].T+inv[:3,3]; xy=np.stack([K[0,0]*c[:,0]/-c[:,2]+K[0,2],K[1,2]-K[1,1]*c[:,1]/-c[:,2]],1)/[W,H]
  k=max(0,(s['camera']['hfov_deg']-90)/30)*.12; q=(xy-.5)*[2,2*H/W]; xy=q*((1+k)/(1+k*(q*q).sum(1)))[:,None]/[2,2*H/W]+.5

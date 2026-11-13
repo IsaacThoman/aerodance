@@ -43,7 +43,7 @@ import random
 import numpy as np
 
 import smpl
-from smpl import qmul, qconj, q2m, axis_angle, yaw_q
+from smpl import qmul, q2m, axis_angle, yaw_q
 
 WRIST_MAX_DEG = 60.0  # the most the wrist bends to turn the palm
 REF_ARM = 0.55  # arm length (shoulder to wrist joint, m) the templates are written for

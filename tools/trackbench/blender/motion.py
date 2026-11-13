@@ -14,7 +14,7 @@ import math
 import numpy as np
 
 import smpl
-from smpl import qmul, qconj, qrot, qslerp, q2m, m2q, yaw_q, axis_angle, heading_of, to_stage
+from smpl import qmul, qrot, qslerp, q2m, m2q, yaw_q, axis_angle, heading_of, to_stage
 
 # MPFB bone -> (SMPL joint whose world rotation drives it, SMPL child joint giving the T-pose
 # direction, or None to treat the MPFB rest orientation as SMPL's rest orientation).
