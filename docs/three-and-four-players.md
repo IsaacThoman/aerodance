@@ -31,7 +31,7 @@ Nothing in MediaPipe caps it at two, but each extra person costs something:
   for a few frames.
 
 **Verdict:** three players is comfortable. Four players should work with enough room, good
-light and the Lite or Full model, with more frequent "Step back into view" drops than with
+light and the Lite model, with more frequent "Step back into view" drops than with
 two, but that is not proven yet. Both are enabled.
 
 ### What was measured

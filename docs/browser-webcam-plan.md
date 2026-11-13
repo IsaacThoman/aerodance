@@ -4,9 +4,9 @@
 > and the Full/Heavy options described below have been removed; their IDs remain
 > readable only as provenance in existing captures.
 >
-> **Earlier design.** The Android client, battles (Solana, iMessage), the phone remote,
-> Flock cameras and the bundled songs it mentions have since been removed; the game and
-> Dance Studio now take poses from the browser webcam only.
+> **Earlier design.** The Android client, battles (Solana, iMessage), the old phone remote,
+> Flock cameras and the bundled songs it mentions have since been removed; the game takes
+> poses from the browser webcam or a paired phone camera, and Dance Studio from the webcam.
 
 Draft prepared 2026-10-11. This extends the
 game integration plan and

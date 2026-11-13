@@ -10,7 +10,7 @@ npm install
 node scripts/play.ts start                       # Vite dev server + headless Chromium on the GPU
 node scripts/play.ts click START
 node scripts/play.ts wait menuScreen=players menuReady=true
-node scripts/play.ts click PLAYERS_GO              # Let's dance, with the dial on 1
+node scripts/play.ts click PLAYERS_GO              # Let's dance, with the dial on 2
 node scripts/play.ts wait songScreen=list songReady=true catalog=ready
 node scripts/play.ts click rowRect.0             # the first song
 node scripts/play.ts wait previewState=playing stageReady=true

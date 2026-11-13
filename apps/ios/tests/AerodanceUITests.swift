@@ -65,7 +65,7 @@ final class AerodanceUITests: XCTestCase {
     XCTAssertGreaterThan(size.width, size.height, "the app's window is \(size.width)x\(size.height) with the phone upright: not landscape")
   }
 
-  // Real touches: Let's dance (the players dial starts at one), then the first song, at their
+  // Real touches: Let's dance (the players dial starts at two), then the first song, at their
   // layout positions.
   func test3TapsThroughToSongPreview() throws {
     let layouts = try JSONDecoder().decode([String: Layout].self, from: Data((env["AERODANCE_LAYOUT"] ?? "").utf8))
