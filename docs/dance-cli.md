@@ -132,7 +132,7 @@ To start from tracking instead of from scratch, `draft` turns the tracked video 
 |---|---|
 | `init <dir> [--video v] [--audio a] [--dancers 1-4] [--title t] [--artist a] [--link] [--no-proxy] [--no-video-audio] [--duration 30s]` | Creates a project. `--link` references the files where they are instead of copying them in. A video that may not play in a browser gets a VP9 proxy for the Studio. |
 | `attach <dir> [--audio a] [--video v]` | Adds or replaces the song audio or the video |
-| `show <dir>` | Song, sources, dancers, layers, key counts, contacts, phrases |
+| `show <dir>` | Song, sources, takes, dancers, clips, layers, key counts, contacts, phrases |
 | `keys <dir> [--dancer P1] [--range a:b] [--controls c,…] [--layer id]` | The keys, with beats |
 | `pose <dir> --at t [--dancer P1] [--landmarks]` | Every control's value (and optionally all 33 landmarks) at a time; lists elbows/knees placed automatically |
 | `sample <dir> --range a:b [--every 100] --controls c,…` | Values over time, to check a trajectory |
@@ -184,7 +184,7 @@ the group selects that channel.
 | `performance` | `dancer`, `id`, `start`, `end`, `keys: [{t, pose, interp?, ease?}]`, `action?` | Sets a clip of direct character poses. Each key contains a complete pose. `action: "remove"` deletes the clip by id. Times accept beats and seconds. |
 | `delete` | `dancer?`, `t` \| `times` \| `range`, `controls?`, `layer?` | Removes keys (all dancers without `dancer`) |
 | `interp` | `dancer?`, `t` \| `times` \| `range`, `controls?`, `interp?`, `ease?` | Sets the curve shape of keys |
-| `retime` | `range`, `shift?`, `scale?`, `pivot?`, `dancer?`, `layer?`, `controls?`, `replace?` | Moves keys in a range, on every layer or the one named (and, for all controls, contacts and exclusions inside it); landing on another key is an error unless `replace` |
+| `retime` | `range`, `shift?`, `scale?`, `pivot?`, `dancer?`, `layer?`, `controls?`, `replace?` | Moves keys in a range, on every layer or the one named (and, for all controls, contacts, exclusions, approvals and, on every layer, the clips wholly inside it); landing on another key is an error unless `replace` |
 | `contact` | `dancer`, `control`, `start`, `end`, `blendMs?` (80), `position?`, `id?` | Plants an ankle or wrist |
 | `uncontact` | `dancer`, `id` \| `control?` + `range?` | Removes contacts |
 | `copy` | `from: {dancer, range}`, `to: {dancer, t}`, `mirror?`, `timeScale?`, `repeat?`, `controls?`, `contacts?`, `replace?`, `offset?` | Copies a phrase's base keys (and contacts), optionally mirrored, faster or slower, repeated; to another dancer it moves to that dancer's home unless mirrored about the frame. Additive layers stay with their dancer. |
@@ -194,6 +194,10 @@ the group selects that channel.
 | `draft` | `dancer`, `tracking?`, `slot?`, `range?`, `controls?`, `everyMs?` \| `tolerance?`, `depth?`, `fitBody?`, `smoothMs?` | Keys from the tracked video |
 | `arc` | `dancer`, `control`, `from`, `to`, `via: [x, y]`, `at?` (0.5) | Keys a point between two times, so the path passes `via` |
 | `nudge` | `dancer`, `t`, `set: {control or group: offset}`, `fadeMs?` (150), `layer?` (`fix`) | An additive correction that fades in and out around `t` |
+| `fix` | `dancer`, `t`, `set: {control: value}`, `fadeMs?` (200), `layer?` (`fix`) | Puts a control where you say at `t`, on top of whatever plays there (clips, keys, layers, contacts), as an additive key that eases in and out. Other fixes keyed nearby keep their effect. Values as for `key`: `[x, y]`, `{x}`, `{dx}`; an angle or `{d}` |
+| `clip` | `dancer`, `action?` (`add`, `update`, `remove`, `split`), then see [Captured motion](#captured-motion) | Places, changes, removes or splits a clip on a dancer's timeline |
+| `take` | `id`, `action?` (`update`, `remove`), `label?`, `force?` | Renames a take, or removes it (with `force`, along with the clips that play it) |
+| `approve`, `unapprove` | `dancer`, `start`, `end`, `controls?`, `id?` / `dancer`, `id` | Lets joints a take was unsure of be scored over an interval, and takes that back |
 | `layer` | `dancer`, `action` (`add`, `update`, `remove`), `id`, `label?`, `enabled?`, `weight?` | Additive layers |
 | `dancer` | `action` (`add`, `update`, `remove`), `dancer?`, `id?`, `label?`, `timeOffsetMs?`, `home?`, `body?`, `calibration?`, `style?` | Dancers and their timing and proportions; `style` sets exaggeration factors (the rest keep their value) or `null` removes it |
 | `fit-body` | `dancer`, `from?` (`tracking` or keys), `t?`, `range?`, `home?` | Measures `body` (and `home`) from the keyed poses or the tracking |
@@ -205,6 +209,37 @@ the group selects that channel.
 
 You can also edit `dance.json` by hand; `dance show` validates it, and the Studio picks up the
 change. Keep `revision` as it is: the next `apply` builds on it.
+
+### Captured motion
+
+A dance can be made of recordings: **takes** (poses captured from a camera or tracked from a
+video) placed on a dancer's timeline as **clips**, with keys and fixes on top
+([the format](dance-format.md#takes-and-clips)). Takes are added in
+[aerodance studio](studio.md), by recording or bringing in a video; the CLI works on a project
+that already has them (a dance kept in a folder can be open in the Studio and worked on from here
+at once). `dance show` lists a project's takes and each dancer's clips.
+
+| `clip` action | Fields | Does |
+|---|---|---|
+| `add` (a take) | `take`, `slot?` (0), `start?`, `end?`, `offset?`, `rate?` (1), `mirror?`, `shift?`, `fadeIn?`, `fadeOut?` (150 ms each), `place?` (`home` or `frame`), `anchor?`, `scale?`, `fitBody?`, `replace?`, `id?`, `label?` | Plays one person of a take. Without `start`/`end` it sits where it was recorded. `place: "home"` stands the dancer at its home at its own size (takes shot at different distances agree); `"frame"` keeps it as filmed, over the video. The dancer's first motion also gives it the performer's proportions. With `replace` (the default) the clip takes over its span: clips it covers go, ones it overlaps are trimmed to meet it |
+| `add` (linked) | `ref: {dancer?, range}` or `{dancer?, from}` with `end`, `start`, `mirror?`, `rate?`, `shift?`, fades | Replays a stretch of this or another dancer here: a repeated chorus, a partner following along. It stays linked to its source; a clip can't be linked to a stretch that plays it |
+| `update` | `id`, any of `label`, `start`, `end` (trim: the motion stays put), `move` (shift the clip in time), `slip` (make its motion happen later, or with a negative time sooner, inside a clip that stays put), `offset`, `rate`, `mirror`, `shift`, `fadeIn`, `fadeOut`, `slot`, `anchor`, `scale` | Changes a clip |
+| `split` | `id`, `t` | Cuts a clip in two at `t` |
+| `remove` | `id` | Removes a clip (its take stays in the project) |
+
+```sh
+dance apply ~/dances/mine --op '{"op":"clip","dancer":"P1","take":"k1"}'                       # the take, where it was recorded
+dance apply ~/dances/mine --op '{"op":"clip","dancer":"P1","ref":{"range":"b17:b33"},"start":"b49"}'   # the chorus again
+dance apply ~/dances/mine --op '{"op":"clip","dancer":"P2","ref":{"dancer":"P1","range":"0:60s"},"start":0,"mirror":true}'
+dance apply ~/dances/mine --op '{"op":"fix","dancer":"P1","t":"b21","set":{"leftWrist":[0.62,0.3]}}'   # touch up one moment
+```
+
+`check` reports what recordings need: `tracking-lost` (a hole in a take), `no-motion` (a stretch
+with nothing to dance), `unsure-tracking` (a limb the tracker was unsure of, unscored until it is
+fixed or approved), `missing-take` (a take's file isn't there) and `jump` (a joint teleporting).
+Findings carry ready-made fixes in `--json` (`actions`: a label and the ops that apply it). Where
+a dancer made of recordings has nothing playing, the stretch compiles unscored. The limb-length
+and foot-slide checks apply to keyed animation, not to recordings.
 
 ## Looking
 

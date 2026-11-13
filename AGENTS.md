@@ -11,6 +11,23 @@ When you need to run, play, screenshot or interactively test the game or Dance S
 
 The game's UI is drawn on a canvas, so DOM locators don't work for it; use layout targets. Dance Studio is DOM, so use `click --locator`.
 
+## aerodance studio
+
+The Studio, where songs' dances are made, is part of the game's site at `/studio/`
+([docs/studio.md](docs/studio.md); code and its rules in
+[apps/web/src/studio/README.md](apps/web/src/studio/README.md)). Drive it with the same script:
+
+1. `node scripts/play.ts start --url /studio/`. A session starts with an empty library.
+2. It is DOM: `click --locator '<css or text=…>'`, `type`, `key`, and `upload '<file input selector>' <file>`
+   to choose a file. `wait key=value` and `state` read the root element's `data-*` (`screen`, `station`,
+   `revision`, `audio`, `takes`, `clips`, `issues`, `busy`, `error`).
+3. In development the page has `window.studio`: `studio.session` (apply ops, read state), `studio.view`,
+   `studio.library`, and `studio.demo()`, which records a stand-in performer's take so the later
+   stations have something to work on. The fixture camera stands still dancers in front of it.
+
+Every edit the Studio makes is ops through `packages/dance` (the `dance` CLI's engine): change the
+engine there, and a station only in its own folder under `apps/web/src/studio/stations/`.
+
 ## Minigames
 
 To build or change a minigame, read [docs/minigames.md](docs/minigames.md): a game is one folder,

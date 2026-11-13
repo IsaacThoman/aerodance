@@ -9,6 +9,11 @@ See the [format/workflow reference](../../docs/song-dance-authoring-workflow.md)
 To animate dancers by hand (keys, curves, planted feet) rather than record or track them, use the
 [animation tools in `tools/dance`](../dance/README.md); both export the same song bundles.
 
+Songs' dances are now made in [aerodance studio](../../docs/studio.md), which is part of the game's
+site (`/studio/`) and covers recording, fixing, playtesting and adding a song to the game. This
+tool still works as described here. Its projects don't open there; the song files it exports do
+(**Open a saved dance**).
+
 ## Run
 
 From the repository root:

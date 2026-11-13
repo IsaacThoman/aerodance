@@ -1,0 +1,121 @@
+/* The Playtest station: what's drawn over the stage during an attempt, its result panels, and
+   the timeline's Points lane. Colours for judgements follow the game's pop-ups. */
+
+/* ---- Over the stage ---- */
+.playtest-overlay { position: absolute; inset: 0; pointer-events: none; --perfect: #ffd34d; --good: #7ff0dc; --ok: #d9f2ff; --miss: #ff9c8c; --lost: #c3d0df; }
+.playtest-idle { position: absolute; left: 10px; bottom: 10px; max-width: min(58%, 430px); display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: var(--radius);
+  background: rgba(6, 44, 96, 0.66); border: 1px solid var(--edge-soft); backdrop-filter: blur(10px); box-shadow: 0 6px 18px rgba(0, 30, 80, 0.35); }
+.playtest-idle strong { font-size: 16px; font-weight: 700; }
+.playtest-idle span { font-size: 13px; color: var(--ink-soft); line-height: 1.4; }
+
+.playtest-countdown { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: radial-gradient(closest-side, rgba(4, 30, 70, 0.55), rgba(4, 30, 70, 0)); text-shadow: 0 3px 14px rgba(0, 30, 80, 0.7); }
+.playtest-countdown span { font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; }
+.playtest-countdown strong { font-size: clamp(72px, 24cqh, 170px); font-weight: 800; line-height: 1; animation: playtest-count 0.4s cubic-bezier(0.2, 1.5, 0.4, 1); }
+@keyframes playtest-count { from { opacity: 0; transform: scale(1.6); } to { opacity: 1; transform: none; } }
+
+.playtest-progress { position: absolute; left: 0; right: 0; top: 0; height: 4px; background: rgba(4, 30, 70, 0.5); }
+.playtest-progress i { display: block; height: 100%; background: linear-gradient(90deg, var(--aqua), #fff); }
+.playtest-now, .playtest-left { position: absolute; top: 14px; background: rgba(6, 44, 96, 0.66); border: 1px solid var(--edge-soft); backdrop-filter: blur(8px); }
+.playtest-now { right: 10px; display: flex; flex-direction: column; align-items: flex-end; padding: 6px 12px 7px; border-radius: var(--radius); }
+.playtest-now strong { font-size: 28px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.playtest-now span { font-size: 11px; font-weight: 600; color: var(--ink-soft); }
+.playtest-left { left: 10px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.playtest-judgement { position: absolute; left: 0; right: 0; top: 12%; display: flex; flex-direction: column; align-items: center; gap: 2px; animation: playtest-land 1.5s ease-out both;
+  text-shadow: 0 2px 0 rgba(0, 34, 84, 0.55), 0 4px 16px rgba(0, 30, 80, 0.6); }
+.playtest-judgement strong { font-size: clamp(34px, 10cqh, 68px); font-weight: 800; line-height: 1; letter-spacing: -0.5px; }
+.playtest-judgement span { font-size: clamp(14px, 3.4cqh, 22px); font-weight: 800; color: #bff4ff; }
+.playtest-judgement.is-perfect strong { color: var(--perfect); }
+.playtest-judgement.is-good strong { color: var(--good); }
+.playtest-judgement.is-ok strong { color: var(--ok); }
+.playtest-judgement.is-miss strong { color: var(--miss); }
+.playtest-judgement.is-lost strong { color: var(--lost); font-size: clamp(26px, 7cqh, 48px); }
+@keyframes playtest-land { 0% { opacity: 0; transform: translateY(10px) scale(0.6); } 10% { opacity: 1; transform: scale(1.1); } 18% { transform: none; } 70% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-16px); } }
+
+/* ---- Try it ---- */
+.playtest-dancers { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.playtest-dancers .dancer-dot { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9); }
+input.playtest-name { flex: 0 0 58%; }
+.playtest-dancers button { display: inline-flex; align-items: center; padding: 5px 13px 5px 10px; border-radius: 999px; border: 1px solid var(--edge-soft); background: rgba(6, 44, 96, 0.4); cursor: pointer; font-weight: 600; color: var(--ink-soft); }
+.playtest-dancers button:hover:not(:disabled) { color: var(--ink); background: rgba(255, 255, 255, 0.14); }
+.playtest-dancers button.on { color: var(--ink); border-color: #fff; background: linear-gradient(180deg, color-mix(in srgb, var(--dancer) 70%, #fff), var(--dancer)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 6px rgba(0, 40, 100, 0.25); text-shadow: 0 1px 2px rgba(0, 30, 80, 0.5); }
+.playtest-dancers button:disabled { cursor: default; }
+.playtest-dancers button:disabled:not(.on) { opacity: 0.45; }
+.playtest-stretch { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 2px 4px 2px 11px; border-radius: var(--radius-small); border: 1px solid var(--edge-soft); background: rgba(4, 34, 78, 0.35); }
+.playtest-stretch > span { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.playtest-stretch .btn { padding: 5px 10px; }
+.playtest-start { width: 100%; }
+.playtest-reason { font-size: 13px; line-height: 1.45; color: var(--sun); }
+
+/* ---- How it went ---- */
+.playtest-who { font-size: 12px; max-width: 210px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playtest-result { display: flex; align-items: center; gap: 14px; }
+.playtest-grade { width: 58px; height: 58px; flex: none; display: grid; place-items: center; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.8); font-size: 34px; font-weight: 800; line-height: 1;
+  color: #063f25; background: linear-gradient(180deg, #a6ffd2, #3fd98c); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 4px 12px rgba(0, 40, 100, 0.25); }
+.playtest-grade.grade-S { color: #5a3b00; background: linear-gradient(180deg, #fff3b8, #ffc93c); }
+.playtest-grade.grade-B { color: #0b4a8f; background: linear-gradient(180deg, #e3f6ff, #8ad4ff); }
+.playtest-grade.grade-C { color: #5a3200; background: linear-gradient(180deg, #ffe7c2, #ffb347); }
+.playtest-grade.grade-F { color: #4d0b0b; background: linear-gradient(180deg, #ffd0d0, #f37a7a); }
+.playtest-score { display: flex; flex-direction: column; min-width: 0; }
+.playtest-score strong { font-size: 30px; font-weight: 800; line-height: 1.05; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+.playtest-score span { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.playtest-judgements { margin: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.playtest-judgements div { display: flex; flex-direction: column; align-items: center; padding: 5px 2px; border-radius: var(--radius-small); border: 1px solid var(--edge-soft); border-top: 3px solid var(--tone); background: rgba(4, 34, 78, 0.4); }
+.playtest-judgements dd { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.playtest-judgements dt { font-size: 11px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+.playtest-judgements .is-perfect { --tone: #ffd34d; }
+.playtest-judgements .is-good { --tone: #5fe3d0; }
+.playtest-judgements .is-ok { --tone: #bfe6fa; }
+.playtest-judgements .is-miss { --tone: #ff8a7a; }
+.playtest-judgements .is-lost { --tone: #9fb3c8; }
+.playtest-facts { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.playtest-facts > div { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: baseline; }
+.playtest-facts dt { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+.playtest-facts dd { margin: 0; text-align: right; font-weight: 600; font-size: 13px; }
+.playtest-facts .meter { grid-column: 1 / -1; }
+.playtest-limbs ul { list-style: none; margin: 7px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.playtest-limbs li { display: grid; grid-template-columns: 108px minmax(0, 1fr) 50px; align-items: center; gap: 8px; font-size: 13px; }
+.playtest-bar { height: 8px; border-radius: 4px; border: 1px solid var(--edge-soft); background: rgba(4, 34, 78, 0.55); overflow: hidden; }
+.playtest-bar i { display: block; height: 100%; min-width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(90deg, #3fd98c, var(--mint)); }
+.playtest-bar i.notice { background: linear-gradient(90deg, #ffb347, var(--sun)); }
+.playtest-bar i.off { background: linear-gradient(90deg, #f06a6a, var(--coral)); }
+.playtest-limbs em { font-style: normal; text-align: right; font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- Attempts ---- */
+.playtest-attempts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.playtest-attempts li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 2px; padding: 3px 3px 7px; border-radius: var(--radius-small); border: 1px solid var(--edge-soft); background: rgba(4, 34, 78, 0.3); }
+.playtest-attempts li.shown { border-color: var(--edge); background: rgba(255, 255, 255, 0.16); }
+.playtest-attempt { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who score" "when score"; align-items: center; column-gap: 8px; min-width: 0; padding: 4px 6px 4px 8px; border: 0; border-radius: 7px; background: none; cursor: pointer; text-align: left; }
+.playtest-attempt:hover { background: rgba(255, 255, 255, 0.12); }
+.playtest-attempt strong { grid-area: who; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playtest-attempt span { grid-area: when; font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playtest-attempt em { grid-area: score; font-style: normal; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.playtest-attempt-foot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; padding: 0 8px; font-size: 12px; }
+.playtest-count-it { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-soft); cursor: pointer; }
+.playtest-count-it input { width: 14px; height: 14px; margin: 0; }
+.playtest-earlier { color: var(--sun); }
+
+/* ---- Where points go ---- */
+.playtest-troubles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.playtest-troubles li { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px 11px; border-radius: var(--radius-small); border: 1px solid var(--edge-soft); border-left: 3px solid var(--coral); background: rgba(4, 34, 78, 0.42); }
+.playtest-trouble-when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; }
+.playtest-trouble-when strong { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.5); text-underline-offset: 3px; }
+.playtest-trouble-when:hover strong { text-decoration-color: #fff; }
+.playtest-trouble-when span { font-size: 12px; color: var(--ink-soft); }
+.playtest-troubles p { font-size: 13px; line-height: 1.45; }
+.playtest-difficulty { display: flex; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--edge-soft); }
+.playtest-difficulty > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.playtest-difficulty p { font-size: 13px; line-height: 1.45; color: var(--ink-soft); }
+.playtest-difficulty p strong { color: var(--ink); }
+
+/* ---- The timeline's Points lane ---- */
+.playtest-points .tl-track { cursor: default; }
+.playtest-legend { flex: none; width: 26px; height: 8px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.45); background: linear-gradient(90deg, rgb(240 82 82), rgb(255 210 74), rgb(52 211 128)); }
+.playtest-cell { cursor: pointer; }
+.playtest-cell::before, .playtest-cell::after { content: ""; position: absolute; left: 0; right: 1px; bottom: 4px; border-radius: 3px; }
+.playtest-cell::before { top: 4px; background: rgba(255, 255, 255, 0.08); }
+.playtest-cell::after { height: calc((100% - 8px) * var(--share)); background: var(--heat); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+.playtest-cell:hover::before { background: rgba(255, 255, 255, 0.26); }
+.playtest-unscored { top: 4px !important; bottom: 4px !important; border-radius: 4px; border: 1px dashed rgba(255, 255, 255, 0.6); background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0 5px, rgba(255, 255, 255, 0.05) 5px 10px); }
+.playtest-trouble-mark { top: 1px !important; bottom: 1px !important; border-radius: 5px; border: 2px solid var(--coral); box-shadow: 0 0 8px rgba(255, 143, 143, 0.7); pointer-events: none; }
+.playtest-points-empty { position: sticky; left: 124px; display: inline-block; line-height: 38px; font-size: 12px; color: var(--ink-faint); white-space: nowrap; }

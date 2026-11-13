@@ -52,6 +52,7 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   key <key>...                         press keys (Enter, Escape, ArrowDown, ...); key:ms holds
                                        one down that long, e.g. w:1500 or Shift+w:800
   type <text>                          type text into the focused element
+  upload <selector> <file>...          choose files in a file input (it may be hidden)
   wait <cond>... [--timeout ms]        wait until every condition holds:
                                        key=value, key~regex, key>number, key<number
   shot [file.png] [--frame]            screenshot (the page, or just the game frame)
@@ -226,6 +227,8 @@ async function daemon(options: Options) {
     // scene is built (or has failed).
     await page.waitForFunction(() => {
       const c = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas');
+      // The Studio (/studio/) is DOM, not the game's canvas: its root reports ready itself.
+      if (document.querySelector('.studio[data-ready="true"]')) return true;
       return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true'
         || c?.dataset.walkReady === 'true' || c?.dataset.walkFailed === 'true';
     }, null, { timeout: 120000 });
@@ -261,7 +264,7 @@ async function daemon(options: Options) {
   const commands: Record<string, (c: Command) => Promise<unknown>> = {
     // The game's canvas reports its state; so does the animation Studio's root (.studio).
     state: () => page.evaluate(() => {
-      const c = document.querySelector<HTMLElement>('.canvas-frame canvas') ?? document.querySelector<HTMLElement>('.studio[data-revision]');
+      const c = document.querySelector<HTMLElement>('.canvas-frame canvas') ?? document.querySelector<HTMLElement>('.studio[data-revision], .studio[data-ready]');
       return c ? { ...c.dataset } : { url: location.href, title: document.title };
     }),
     status: async () => ({
@@ -298,9 +301,10 @@ async function daemon(options: Options) {
       }
     },
     type: (c) => page.keyboard.type(String(c.text)),
+    upload: (c) => page.locator(String(c.locator)).first().setInputFiles(c.files as string[]),
     wait: async (c) => {
       await page.waitForFunction((conditions) => {
-        const d = (document.querySelector<HTMLElement>('.canvas-frame canvas') ?? document.querySelector<HTMLElement>('.studio[data-revision]'))?.dataset ?? {};
+        const d = (document.querySelector<HTMLElement>('.canvas-frame canvas') ?? document.querySelector<HTMLElement>('.studio[data-revision], .studio[data-ready]'))?.dataset ?? {};
         return conditions.every(([key, op, want]) => {
           const have = d[key] ?? '';
           if (op === '=') return have === want;
@@ -469,6 +473,9 @@ async function main() {
     }
     case 'key': return print(await send(session, { cmd, keys: args }));
     case 'type': return print(await send(session, { cmd, text: args.join(' ') }));
+    case 'upload':
+      if (args.length < 2) throw Error('upload needs a file input\'s selector and at least one file');
+      return print(await send(session, { cmd, locator: args[0], files: args.slice(1).map((f) => path.resolve(f)) }, 120000));
     case 'wait': {
       const timeout = Number(flag('--timeout')) || 30000;
       const conditions = args.map((a) => {
