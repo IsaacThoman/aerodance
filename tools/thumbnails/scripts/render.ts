@@ -27,7 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 import { build, preview } from 'vite';
-import { chromium } from 'playwright-core';
+import { chromium } from 'playwright';
 import { APP_ICONS, SHOTS, SPLASHES, TV_ICONS, UPSCALE, assertShot } from '../client/src/shots.ts';
 import type { Shot, ThumbnailFrame, ThumbnailWindow } from '../client/src/shots.ts';
 
