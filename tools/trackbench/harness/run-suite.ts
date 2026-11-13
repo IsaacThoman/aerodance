@@ -110,7 +110,9 @@ async function main() {
       child.on('error', reject);
       child.on('exit', resolve);
     });
-    const withGt = readdirSync(path.join(DATA, 'runs', id)).filter(s => existsSync(path.join(runDir(id, s), 'tracked.jsonl')) && existsSync(path.join(sceneDir(s), 'gt.jsonl')));
+    // Nothing ran (no ready scene matched): no run folder, and nothing to measure.
+    const runs = path.join(DATA, 'runs', id);
+    const withGt = (existsSync(runs) ? readdirSync(runs) : []).filter(s => existsSync(path.join(runDir(id, s), 'tracked.jsonl')) && existsSync(path.join(sceneDir(s), 'gt.jsonl')));
     const code = withGt.length ? await run('./metrics.ts', [id, ...withGt]) : 0;
     if (code !== 0) throw Error(`metrics.ts failed (exit ${code})`);
     if (game.detail) {

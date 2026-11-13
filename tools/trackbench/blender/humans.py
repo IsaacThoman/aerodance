@@ -7,7 +7,6 @@ own skirt helper (fitted to the body, skinned to the hips and legs):
   "tb_dress"       knee-length skirt + the top recoloured the same colour (reads as a dress)
 Recolour keys (outfit.recolor): top, bottom, shoes, hat, hair, skirt, all. Values are sRGB hex.
 """
-import math
 import os
 import numpy as np
 import bpy

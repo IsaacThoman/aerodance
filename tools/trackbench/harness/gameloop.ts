@@ -5,7 +5,7 @@
 import { PlayerTracker } from '../../../packages/pose/browser/tracker.ts';
 import type { DetectionExtras } from '../../../packages/pose/browser/tracker.ts';
 import type { DetectedLandmark } from '../../../packages/pose/browser/slots.ts';
-import { handsWanted } from '../../../packages/pose/browser/WebcamPoseSource.ts';
+import { handsWanted, MAX_FRAME_AGE_MS } from '../../../packages/pose/browser/WebcamPoseSource.ts';
 import type { PlayerCount } from '../../../packages/pose/choreography.ts';
 import type { LivePose, PoseDetail, TrackedHand } from '../../../packages/pose/webcamRecord.ts';
 import { WebcamCalibration } from '../../../apps/web/src/game/webcamCalibration.ts';
@@ -13,7 +13,7 @@ import { SETUP_TRACKING_REFRESH_MS } from '../../../apps/web/src/game/GameSessio
 import type { CalibState, DetFrame, DetHand, Joint, Point3, TrackedFrame, TrackedPose } from './common.ts';
 
 /** WebcamPoseSource drops a result whose frame is this old when it arrives. */
-export const MAX_FRAME_AGE_MS = 500;
+export { MAX_FRAME_AGE_MS };
 
 export interface GameLoopOptions {
   /**

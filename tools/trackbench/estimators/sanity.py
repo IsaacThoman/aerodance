@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Quick mapping check, NOT the full tracking/scoring benchmark."""
 import argparse,json
-from pathlib import Path
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from models import DATA
