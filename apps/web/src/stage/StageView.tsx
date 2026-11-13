@@ -295,7 +295,11 @@ const loadCelebration = () => {
   celebration ??= fetch(motionUrl).then((r) => {
     if (!r.ok) throw Error('Celebration clip unavailable');
     return r.arrayBuffer();
-  }).then(loadMotion);
+  }).then(loadMotion).catch((error: unknown) => {
+    // Not kept: the next results screen tries again.
+    celebration = null;
+    throw error;
+  });
   return celebration;
 };
 

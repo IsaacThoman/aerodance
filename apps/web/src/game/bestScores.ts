@@ -12,6 +12,15 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 export interface BestScore { score: number; grade: Grade; accuracy: number; at: string; }
 export interface BestScoreRecord { previous: BestScore | null; best: BestScore | null; isNewBest: boolean; }
 export type BestScoreStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+const NO_STORAGE: BestScoreStorage = { getItem: () => null, setItem: () => {} };
+/**
+ * This browser's localStorage, or one that keeps nothing where the browser blocks site data
+ * (reading `localStorage` itself throws then, before any getItem the callers guard).
+ */
+export function browserStorage(): BestScoreStorage {
+  try { return globalThis.localStorage ?? NO_STORAGE; } catch { return NO_STORAGE; }
+}
 /** What a finished song's result needs for a best score. */
 export type ScoredResult = Pick<PlayerResult, 'score' | 'grade' | 'accuracy' | 'scorerVersion'>;
 
@@ -28,20 +37,29 @@ function savedBest(best: unknown): BestScore | null {
   return oneOf(GRADE_NAMES, grade) ? { ...best, score: best.score, accuracy: best.accuracy, at: best.at, grade } : null;
 }
 
+// Song Select reads a best for every row it draws, many times a second: the saved JSON is
+// parsed again only when it changes.
+let parsed: { storage: BestScoreStorage; raw: string | null; all: Readonly<Record<string, BestScore>> } | null = null;
+
 function read(storage: BestScoreStorage): Record<string, BestScore> {
   try {
-    const scores: unknown = JSON.parse(storage.getItem(KEY) ?? 'null');
-    const all: Record<string, BestScore> = {};
-    if (!isObject(scores)) return all;
-    for (const [key, value] of Object.entries(scores)) {
-      const best = savedBest(value);
-      if (best) all[key] = best;
+    const raw = storage.getItem(KEY);
+    if (parsed?.storage !== storage || parsed.raw !== raw) {
+      const scores: unknown = JSON.parse(raw ?? 'null');
+      const all: Record<string, BestScore> = {};
+      if (isObject(scores)) {
+        for (const [key, value] of Object.entries(scores)) {
+          const best = savedBest(value);
+          if (best) all[key] = best;
+        }
+      }
+      parsed = { storage, raw, all };
     }
-    return all;
+    return { ...parsed.all };
   } catch { return {}; }
 }
 
-export function bestScore(songId: string, playerCount: PlayerCount, scorerVersion: number, storage: BestScoreStorage = globalThis.localStorage): BestScore | null {
+export function bestScore(songId: string, playerCount: PlayerCount, scorerVersion: number, storage: BestScoreStorage = browserStorage()): BestScore | null {
   return read(storage)[keyFor(songId, playerCount, scorerVersion)] ?? null;
 }
 
@@ -49,7 +67,7 @@ export function bestScore(songId: string, playerCount: PlayerCount, scorerVersio
  * Saves a finished song's results (one per player) if any beats the best; returns
  * { previous, best, isNewBest }.
  */
-export function recordResults(songId: string, playerCount: PlayerCount, results: readonly ScoredResult[], storage: BestScoreStorage = globalThis.localStorage): BestScoreRecord {
+export function recordResults(songId: string, playerCount: PlayerCount, results: readonly ScoredResult[], storage: BestScoreStorage = browserStorage()): BestScoreRecord {
   const top = results.reduce((a, b) => (b.score > a.score ? b : a));
   const key = keyFor(songId, playerCount, top.scorerVersion);
   const all = read(storage);

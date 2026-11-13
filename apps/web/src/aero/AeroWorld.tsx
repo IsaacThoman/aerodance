@@ -1,16 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createAeroWorld, type AeroPart, type AeroTelemetry, type AeroWorldHandle } from './aeroBackground.ts';
+import { createAeroWorld, type AeroPart, type AeroWorldHandle } from './aeroBackground.ts';
 import { screenOwner } from '../screenOwner.ts';
 import { cameraPilot } from '../../../../packages/stages/shared/hooks.ts';
 
 export interface AeroWorldProps {
   speed?: number;
-  /** Caps how often the world renders; omit to render every frame. */
-  fps?: number;
   paused?: boolean;
-  onTelemetry?: (telemetry: AeroTelemetry) => void;
   /** Diagnostics: parts of the world left out (createAeroWorld's hide). */
   hide?: readonly AeroPart[];
   /** Called once, after the world has drawn its first frame. */
@@ -22,24 +19,18 @@ export interface AeroWorldProps {
  * It drives the default camera (or walk mode's cameraPilot does) and renders the frame itself
  * (useFrame priority 1), so it uses whatever buffer size the Canvas has, e.g. a fixed 640x480.
  *
- * fps caps how often the world itself renders (phones: it's the battery hog). In between,
- * the last frame is reused from a texture, so overlays can still redraw at full rate.
- * Pair it with <Canvas frameloop="demand"> and something that invalidates at that rate.
- *
  * paused stops it updating and rendering (a dance stage has the screen; stage/StageView.tsx).
  * It also stands down at once whenever a stage holds the renderer (screenOwner.ts), since the
  * paused prop arrives frames later.
  *
- * <AeroWorld speed={1} fps={15} paused={false} onTelemetry={(t) => ...} onShown={() => ...} />
+ * <AeroWorld speed={1} paused={false} onShown={() => ...} />
  */
-export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry, hide, onShown }: AeroWorldProps) {
+export default function AeroWorld({ speed = 1, paused = false, hide, onShown }: AeroWorldProps) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
   const worldRef = useRef<AeroWorldHandle | null>(null);
   const shownRef = useRef(false);
-  const teleRef = useRef(onTelemetry);
-  teleRef.current = onTelemetry;
   const shownCallback = useRef(onShown);
   shownCallback.current = onShown;
   const pausedRef = useRef(paused);
@@ -55,7 +46,7 @@ export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry,
     // Deferred one tick so StrictMode's mount/unmount/mount only builds the scene once.
     const timer = setTimeout(() => {
       world = createAeroWorld({
-        renderer: gl, scene, camera, speed, hide, onTelemetry: (t) => teleRef.current?.(t), steer: (cam) => cameraPilot.fly?.(cam, scene),
+        renderer: gl, scene, camera, speed, hide, steer: (cam) => cameraPilot.fly?.(cam, scene),
       });
       worldRef.current = world;
     }, 0);
@@ -70,50 +61,11 @@ export default function AeroWorld({ speed = 1, fps, paused = false, onTelemetry,
 
   useEffect(() => { worldRef.current?.setSpeed(speed); }, [speed]);
 
-  // Capped mode: the world renders into `cache`, which a full-screen quad shows every frame.
-  const cache = useMemo(() => {
-    if (!fps) return null;
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true });
-    const material = new THREE.MeshBasicMaterial({ map: target.texture, depthTest: false, depthWrite: false });
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    quad.frustumCulled = false;
-    const scene2 = new THREE.Scene();
-    scene2.add(quad);
-    return { target, material, quad, scene: scene2, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1), interval: 1 / fps, due: Infinity, fresh: false };
-  }, [fps]);
-  useEffect(() => () => {
-    if (!cache) return;
-    cache.target.dispose();
-    cache.material.dispose();
-    cache.quad.geometry.dispose();
-  }, [cache]);
-
   useFrame((_, delta) => {
     const world = worldRef.current;
     if (!world || pausedRef.current || screenOwner.stage) return;
-    if (!cache) {
-      world.update(delta);
-      world.render();
-    } else {
-      cache.due += delta;
-      const buf = gl.getDrawingBufferSize(new THREE.Vector2());
-      if (cache.target.width !== buf.x || cache.target.height !== buf.y) {
-        cache.target.setSize(buf.x, buf.y);
-        cache.fresh = false;
-      }
-      if (!cache.fresh || cache.due >= cache.interval) {
-        // update() clamps each step to 50ms; step through the whole gap so speed holds.
-        let left = Math.min(cache.fresh ? cache.due : delta, 1);
-        while (left > 0) { const d = Math.min(left, 0.05); world.update(d); left -= d; }
-        gl.setRenderTarget(cache.target);
-        world.render();
-        gl.setRenderTarget(null);
-        cache.due = 0;
-        cache.fresh = true;
-      }
-      gl.clear();
-      gl.render(cache.scene, cache.camera);
-    }
+    world.update(delta);
+    world.render();
     if (!shownRef.current) { shownRef.current = true; shownCallback.current?.(); }
   }, 1);
 

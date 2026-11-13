@@ -1,5 +1,6 @@
 import { finite, isObject } from '../../../../packages/pose/choreography.ts';
 import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
+import { browserStorage } from '../game/bestScores.ts';
 import type { BestScoreStorage } from '../game/bestScores.ts';
 
 /*
@@ -27,7 +28,7 @@ function read(storage: BestScoreStorage): Record<string, MinigameBest> {
   } catch { return {}; }
 }
 
-export function minigameBest(id: string, playerCount: PlayerCount, storage: BestScoreStorage = globalThis.localStorage): MinigameBest | null {
+export function minigameBest(id: string, playerCount: PlayerCount, storage: BestScoreStorage = browserStorage()): MinigameBest | null {
   return read(storage)[keyFor(id, playerCount)] ?? null;
 }
 
@@ -40,7 +41,7 @@ export const topScore = (scores: readonly number[], better: 'higher' | 'lower' =
  * { previous, best, isNewBest }. A round that scored nothing (higher is better and the top is 0)
  * never sets a best.
  */
-export function recordMinigameBest(id: string, playerCount: PlayerCount, scores: readonly number[], better: 'higher' | 'lower' = 'higher', storage: BestScoreStorage = globalThis.localStorage): MinigameBestRecord {
+export function recordMinigameBest(id: string, playerCount: PlayerCount, scores: readonly number[], better: 'higher' | 'lower' = 'higher', storage: BestScoreStorage = browserStorage()): MinigameBestRecord {
   const top = topScore(scores, better);
   const all = read(storage), key = keyFor(id, playerCount);
   const previous = all[key] ?? null;
