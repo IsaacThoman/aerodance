@@ -18,6 +18,8 @@ import { minigameOptions, optionKey, optionsText, resolveOptions, saveMinigameOp
 import type { MinigameOptionValues } from './options.ts';
 import { MINIGAMES } from './registry.ts';
 import type { MinigameDefinition, MinigameOption } from './types.ts';
+import { SCREENSAVERS } from '../screensavers/registry.ts';
+import { HANDOFF_WAIT, SWAP_IN, SWAP_OUT, SWAP_SLIDE, handoff } from '../ui/handoff.ts';
 import { PLAYERS } from '../game/results.ts';
 import type { PlayerLook } from '../game/results.ts';
 
@@ -26,10 +28,14 @@ import type { PlayerLook } from '../game/results.ts';
  *
  *   list     a compact glass button per game (minigames/registry.ts), one column on the left, each with
  *            its monochrome icon and title; four per page, with page controls
- *            below the column and the menu dancers on the right. Like the Wii's channels
+ *            below the column and the menu dancers on the right. Like the Wii's channels. After the
+ *            games, last, Screensavers (screensavers/ScreensaverSelect.tsx: onScreensavers)
  *   preview  the chosen game's title, options and players dial on the left, Play below,
  *            and the menu's glass dancer platform on the right. The dial only steps through
  *            supported player counts; solo games show one with both steps disabled.
+ *
+ * It arrives and leaves as a screen change inside the title menu goes (ui/handoff.ts): the screen
+ * it comes from swaps out, then its own slides in from the left, and back again.
  *
  * Mouse, touch and the keyboard (or a Siri Remote) as on the other menus: the pearl focus ring
  * starts on the main action, Up/Down move down and up a column of tiles (on to the back button),
@@ -41,7 +47,7 @@ import type { PlayerLook } from '../game/results.ts';
  * order), -minigame-page, -minigame-chosen, -minigame-dial and -minigame-options (the preview's
  * settings, scene=biodome|botShots=medium|botReturns=everything) for tests.
  *
- * <MinigameSelect visible open={{ id, players, options }} onBack onPlay={(game, players, options) => ...} />
+ * <MinigameSelect visible open={{ id, players, options }} onBack onPlay={(game, players, options) => ...} onScreensavers={() => ...} />
  */
 
 export type MinigameScreenName = 'list' | 'preview';
@@ -55,10 +61,41 @@ export interface MinigameSelectProps {
   /** The preview's player count, or null while the preview is hidden (for the menu platform). */
   onPreviewPlayersChange?: (players: PlayerCount | null) => void;
   onPlay?: (game: MinigameDefinition, players: PlayerCount, options: MinigameOptionValues) => void;
+  /** Screensavers, the list's last button (shown while there are any). */
+  onScreensavers?: () => void;
 }
-/** A tile; an option row, or one of its arrows (step). */
-/** A widget: a game's tile, or a setting's (its key, options.ts optionKey) arrow, row or player chip. */
-type SelectWidget = Widget & { game?: MinigameDefinition; option?: string; step?: -1 | 1; chip?: { row: number; player: number; count: number } };
+/** `open`'s id for the list with the cursor on Screensavers (coming back from them). */
+export const SCREENSAVERS_TILE = 'screensavers';
+/** A widget: a game's tile (or Screensavers', `saver`), or a setting's (its key, options.ts optionKey) arrow, row or player chip. */
+type SelectWidget = Widget & { game?: MinigameDefinition; saver?: boolean; option?: string; step?: -1 | 1; chip?: { row: number; player: number; count: number } };
+
+// Screensavers' button at the end of the list: a crescent moon and a star over a horizon.
+const screensaverIcon = (g: CanvasRenderingContext2D, cx: number, cy: number, r: number) => {
+  const s = r * 0.42;
+  g.save();
+  g.lineWidth = Math.max(2.5, r * 0.09);
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.arc(cx - s * 0.12, cy - s * 0.1, s * 0.62, -0.45 * Math.PI, 0.95 * Math.PI, false);
+  g.arc(cx + s * 0.2, cy - s * 0.38, s * 0.52, 0.85 * Math.PI, -0.6 * Math.PI, true);
+  g.closePath();
+  g.stroke();
+  g.beginPath();
+  g.moveTo(cx - s, cy + s * 0.82);
+  g.lineTo(cx + s, cy + s * 0.82);
+  g.stroke();
+  g.beginPath();
+  const sx = cx + s * 0.62, sy = cy - s * 0.62, k = s * 0.2;
+  g.moveTo(sx, sy - k); g.lineTo(sx, sy + k); g.moveTo(sx - k, sy); g.lineTo(sx + k, sy);
+  g.stroke();
+  g.restore();
+};
+const HAS_SAVERS = SCREENSAVERS.length > 0;
+// The list's buttons: the games, then Screensavers.
+type ListItem = MinigameDefinition | typeof SCREENSAVERS_TILE;
+const ITEMS: readonly ListItem[] = [...MINIGAMES, ...(HAS_SAVERS ? [SCREENSAVERS_TILE] as const : [])];
+const itemId = (item: ListItem) => (item === SCREENSAVERS_TILE ? SCREENSAVERS_TILE : `game-${item.id}`);
 
 const COUNT_NAMES = ['One player', 'Two players', 'Three players', 'Four players'];
 const fmt = (game: MinigameDefinition, score: number) => formatScore(game, score, { unit: true });
@@ -69,7 +106,7 @@ function drawTile(g: CanvasRenderingContext2D, rect: Rect, game: MinigameDefinit
 }
 
 // An arrow, a glass circle with a chevron: the list's page arrows, and an option row's steps.
-function drawArrow(g: CanvasRenderingContext2D, c: Circle, dir: 'left' | 'right', hover: number, { enabled = true, press = 0 } = {}) {
+export function drawArrow(g: CanvasRenderingContext2D, c: Circle, dir: 'left' | 'right', hover: number, { enabled = true, press = 0 } = {}) {
   g.save();
   if (!enabled) g.globalAlpha *= 0.35;
   const at = { ...c, y: c.y + press * 3 };
@@ -83,7 +120,7 @@ function drawArrow(g: CanvasRenderingContext2D, c: Circle, dir: 'left' | 'right'
 }
 
 // One line of white type in maxW: 26 units, shrinking to 22 before it's cut short.
-function fitText(g: CanvasRenderingContext2D, str: string, x: number, y: number, maxW: number, weight: number, align: CanvasTextAlign = 'left') {
+export function fitText(g: CanvasRenderingContext2D, str: string, x: number, y: number, maxW: number, weight: number, align: CanvasTextAlign = 'left') {
   g.save();
   g.font = `${weight} 26px ${FONT}`;
   const w = g.measureText(str).width;
@@ -172,6 +209,8 @@ function drawPlayerChip(g: CanvasRenderingContext2D, rect: Rect, look: PlayerLoo
 
 interface SelectState {
   alpha: number; screen: MinigameScreenName; next: MinigameScreenName; swap: number;
+  /** Seconds left before it swaps in, arriving from another menu screen. */
+  wait: number;
   page: number;
   /** The game on the preview (or last opened), and each game's dial. */
   chosen: string | null;
@@ -187,23 +226,23 @@ interface SelectState {
   bests: Map<string, MinigameBest | null>;
 }
 
-export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onPlay, onPreviewPlayersChange }: MinigameSelectProps) {
+export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onPlay, onPreviewPlayersChange, onScreensavers }: MinigameSelectProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const width = displayDesign(size.width, size.height).w;
   const layout = minigameLayout(width);
-  const props = useRef({ visible, players, onBack, onPlay, onPreviewPlayersChange });
-  props.current = { visible, players, onBack, onPlay, onPreviewPlayersChange };
+  const props = useRef({ visible, players, onBack, onPlay, onPreviewPlayersChange, onScreensavers });
+  props.current = { visible, players, onBack, onPlay, onPreviewPlayersChange, onScreensavers };
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   const widthRef = useRef(width);
   widthRef.current = width;
   const st = useRef<SelectState>({
-    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawn: '', reported: '', previewPlayers: null, bests: new Map(),
+    alpha: 0, screen: 'list', next: 'list', swap: 1, wait: 0, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawn: '', reported: '', previewPlayers: null, bests: new Map(),
   }).current;
 
-  const pages = Math.max(1, Math.ceil(MINIGAMES.length / MG_PER_PAGE));
-  const onPage = () => MINIGAMES.slice(st.page * MG_PER_PAGE, (st.page + 1) * MG_PER_PAGE);
+  const pages = Math.max(1, Math.ceil(ITEMS.length / MG_PER_PAGE));
+  const onPage = () => ITEMS.slice(st.page * MG_PER_PAGE, (st.page + 1) * MG_PER_PAGE);
   const chosen = () => MINIGAMES.find((game) => game.id === st.chosen) ?? null;
   // A game's preview makes room for its option rows.
   const previewLayout = (game: MinigameDefinition | null) => {
@@ -248,13 +287,16 @@ export default function MinigameSelect({ visible = false, open = null, players =
     const rect = l.mgOptionPlayer(row, player, count), key = optionKey(option.id, player);
     return { id: `option-${key}`, option: key, step: 1, rect, corner: rect.h / 2, chip: { row, player, count } };
   };
-  const tileWidget = (game: MinigameDefinition, i: number, primary: boolean): SelectWidget => ({ id: `game-${game.id}`, game, rect: layoutRef.current.mgTile(i), corner: glassCorner(layoutRef.current.mgTile(i).h), primary });
+  const tileWidget = (item: ListItem, i: number, primary: boolean): SelectWidget => ({
+    id: itemId(item), ...(item === SCREENSAVERS_TILE ? { saver: true } : { game: item }), rect: layoutRef.current.mgTile(i), corner: glassCorner(layoutRef.current.mgTile(i).h), primary,
+  });
+  const isChosen = (item: ListItem) => (item === SCREENSAVERS_TILE ? st.chosen === SCREENSAVERS_TILE : item.id === st.chosen);
   // Tiles in column order, so Up/Down go down and up a column (Left/Right go across, onStep).
   const tileWidgets = () => {
-    const games = onPage();
-    const primary = Math.max(0, games.findIndex((game) => game.id === st.chosen));
-    const order = games.map((_, i) => i).sort((a, b) => (a % MG_COLUMNS) - (b % MG_COLUMNS) || a - b);
-    return order.map((i) => tileWidget(games[i], i, i === primary));
+    const items = onPage();
+    const primary = Math.max(0, items.findIndex(isChosen));
+    const order = items.map((_, i) => i).sort((a, b) => (a % MG_COLUMNS) - (b % MG_COLUMNS) || a - b);
+    return order.map((i) => tileWidget(items[i], i, i === primary));
   };
   const go = (screen: MinigameScreenName, key = ui.keyboard) => {
     if (screen === st.next) return;
@@ -262,8 +304,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
     if (!key) return;
     ui.focus(null);
     if (screen === 'list') {
-      const games = onPage(), i = games.findIndex((game) => game.id === st.chosen);
-      if (i >= 0) ui.focus(tileWidget(games[i], i, true));
+      const items = onPage(), i = items.findIndex(isChosen);
+      if (i >= 0) ui.focus(tileWidget(items[i], i, true));
     } else ui.focus({ id: 'play', rect: layoutRef.current.MG_PLAY });
   };
   const choose = (game: MinigameDefinition) => {
@@ -328,7 +370,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
       ];
     },
     onActivate: (wdg, s) => {
-      if (wdg.game) choose(wdg.game);
+      if (wdg.saver) { st.chosen = SCREENSAVERS_TILE; props.current.onScreensavers?.(); }
+      else if (wdg.game) choose(wdg.game);
       else if (wdg.option) stepRow(wdg.option, wdg.step ?? 1);
       else if (wdg.id === 'back') back();
       else if (wdg.id === 'page-prev') turnPage(-1);
@@ -353,8 +396,8 @@ export default function MinigameSelect({ visible = false, open = null, players =
         if (!repeat) stepRow(wdg.option, dir);
         return true;
       }
-      if (!wdg.game) return false;
-      const games = onPage(), i = games.indexOf(wdg.game), col = i % MG_COLUMNS;
+      if (!wdg.game && !wdg.saver) return false;
+      const games = onPage(), i = games.indexOf(wdg.saver ? SCREENSAVERS_TILE : wdg.game!), col = i % MG_COLUMNS;
       if ((dir < 0 && col === 0) || (dir > 0 && (col === MG_COLUMNS - 1 || i === games.length - 1))) {
         if (!turnPage(dir)) return true;
         const next = onPage(), j = dir > 0 ? 0 : Math.min(next.length - 1, i - col + MG_COLUMNS - 1);
@@ -373,15 +416,26 @@ export default function MinigameSelect({ visible = false, open = null, players =
     },
     update: (dt, s) => {
       const p = props.current;
-      if (st.next !== st.screen) {
-        st.swap = Math.max(0, st.swap - dt * 7);
+      if (!p.visible) {
+        // Gone to another screen: swapping out, then the overlay goes.
+        if (st.alpha > 0) {
+          st.swap = Math.max(0, st.swap - dt * SWAP_OUT);
+          if (st.swap === 0) st.alpha = 0;
+          s.invalidate();
+        }
+      } else if (st.next !== st.screen) {
+        st.swap = Math.max(0, st.swap - dt * SWAP_OUT);
         if (st.swap === 0) st.screen = st.next;
         s.invalidate();
+      } else if (st.wait > 0) {
+        st.wait -= dt;
+        s.invalidate();
       } else if (st.swap < 1) {
-        st.swap = Math.min(1, st.swap + dt * 6);
+        st.swap = Math.min(1, st.swap + dt * SWAP_IN);
         s.invalidate();
       }
-      st.alpha = s.ease(st.alpha, p.visible ? 1 : 0, p.visible ? 3 : 6);
+      if (p.visible) st.alpha = s.ease(st.alpha, 1, 3);
+      if (p.visible && st.alpha > 0.9) handoff.live = true;
       const game = chosen();
       const previewPlayers = p.visible && st.screen === 'preview' && game ? dialOf(game) : null;
       if (previewPlayers !== st.previewPlayers) {
@@ -394,7 +448,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
       const report = {
         minigameScreen: st.screen,
         minigameSelectReady: String(live() && st.swap > 0.95),
-        minigameList: MINIGAMES.map((g) => g.id).join('|'),
+        minigameList: ITEMS.map((g) => (g === SCREENSAVERS_TILE ? g : g.id)).join('|'),
         minigamePage: `${st.page + 1}/${pages}`,
         minigameChosen: st.screen === 'preview' ? st.chosen ?? '' : '',
         minigameDial: game && st.screen === 'preview' ? String(dialOf(game)) : '',
@@ -418,14 +472,17 @@ export default function MinigameSelect({ visible = false, open = null, players =
       const t = st.swap;
       g.save();
       g.globalAlpha = t;
-      g.translate((1 - t) * -24, 0);
+      g.translate((1 - t) * -SWAP_SLIDE, 0);
       if (st.screen === 'list') {
         drawHeader(g, l.MG_BACK, 'EXPERIMENTS', h.back ?? 0);
-        const games = onPage();
-        if (!games.length) {
+        const items = onPage();
+        if (!items.length) {
           drawShadowText(g, 'The first experiments are on their way', l.MG_BACK.x - 38, 300, { size: 36, weight: 800 });
         }
-        games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`)));
+        items.forEach((item, i) => {
+          if (item !== SCREENSAVERS_TILE) { drawTile(g, l.mgTile(i), item, h[`game-${item.id}`] ?? 0, press(`game-${item.id}`)); return; }
+          drawGlassButton(g, l.mgTile(i), { label: 'Screensavers', icon: screensaverIcon, hover: h[SCREENSAVERS_TILE] ?? 0, press: press(SCREENSAVERS_TILE), chevron: false });
+        });
         if (pages > 1) {
           drawArrow(g, l.MG_PAGE_PREV, 'left', h['page-prev'] ?? 0, { enabled: st.page > 0 });
           drawArrow(g, l.MG_PAGE_NEXT, 'right', h['page-next'] ?? 0, { enabled: st.page < pages - 1 });
@@ -474,9 +531,9 @@ export default function MinigameSelect({ visible = false, open = null, players =
   useGlassBlur(() => {
     const l = st.screen === 'list' ? layoutRef.current : previewLayout(chosen());
     const panes = st.screen === 'list'
-      ? onPage().map((game, i) => buttonPane(ui, `game-${game.id}`, l.mgTile(i)))
+      ? onPage().map((item, i) => buttonPane(ui, itemId(item), l.mgTile(i)))
       : [...(l.MG_OPTIONS ? [panelPane(l.MG_OPTIONS)] : []), buttonPane(ui, 'play', l.MG_PLAY)];
-    return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
+    return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -SWAP_SLIDE };
   });
 
   // Opening the list lands on it (or on the game just played, with its players), focusing that game's tile or Play.
@@ -489,11 +546,21 @@ export default function MinigameSelect({ visible = false, open = null, players =
       st.dial.set(game.id, open.players);
       // (The round may have changed a setting: ctx.setOption.)
       if (open.options) st.options.set(game.id, resolveOptions(game, open.options));
-      st.page = Math.floor(MINIGAMES.indexOf(game) / MG_PER_PAGE);
+      st.page = Math.floor(ITEMS.indexOf(game) / MG_PER_PAGE);
     }
+    // Back from Screensavers: the list, on their button.
+    const savers = open?.id === SCREENSAVERS_TILE && HAS_SAVERS;
+    if (savers) { st.chosen = SCREENSAVERS_TILE; st.page = Math.floor(ITEMS.indexOf(SCREENSAVERS_TILE) / MG_PER_PAGE); }
     st.screen = st.next = game ? 'preview' : 'list';
-    st.swap = 1;
-    if (ui.keyboard) ui.focus(game ? { id: 'play', rect: layoutRef.current.MG_PLAY } : null);
+    // In once the screen it came from has swapped out.
+    const arriving = handoff.live;
+    st.swap = arriving ? 0 : 1;
+    st.wait = arriving ? HANDOFF_WAIT : 0;
+    if (arriving) st.alpha = 1;
+    if (ui.keyboard) {
+      const i = ITEMS.indexOf(SCREENSAVERS_TILE) - st.page * MG_PER_PAGE;
+      ui.focus(game ? { id: 'play', rect: layoutRef.current.MG_PLAY } : savers ? { id: SCREENSAVERS_TILE, rect: layoutRef.current.mgTile(i) } : null);
+    }
     ui.invalidate();
   }, [visible, open, st, ui]);
 

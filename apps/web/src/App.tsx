@@ -34,7 +34,7 @@ import FixedRenderResolution from './FixedRenderResolution.tsx';
 import { isBackgroundId } from './backdrop/backgrounds.ts';
 import type { DisplayMode } from './display.ts';
 import { transferCode } from './songs/transferLink.ts';
-import MinigameSelect from './minigames/MinigameSelect.tsx';
+import MinigameSelect, { SCREENSAVERS_TILE } from './minigames/MinigameSelect.tsx';
 import type { MinigameSelectProps } from './minigames/MinigameSelect.tsx';
 import MinigameScreen from './minigames/MinigameScreen.tsx';
 import MinigameResults from './minigames/MinigameResults.tsx';
@@ -47,6 +47,11 @@ import { recordMinigameBest } from './minigames/bestScores.ts';
 import type { MinigameDefinition, MinigamePhase } from './minigames/types.ts';
 import type { MinigameOptionValues } from './minigames/options.ts';
 import { createPuppetInput } from './pose/puppet/puppetCamera.ts';
+import { ScreensaverHost } from './screensavers/host.ts';
+import { SCREENSAVERS } from './screensavers/registry.ts';
+import ScreensaverView, { ScreensaverBackdropPart, ScreensaverStagePart } from './screensavers/ScreensaverView.tsx';
+import ScreensaverSelect from './screensavers/ScreensaverSelect.tsx';
+import type { SaverStart } from './screensavers/ScreensaverSelect.tsx';
 
 // ?input=ghost plays with an autoplay ghost that copies the routine (?ghostLagMs=300 dances
 // late); ?input=recording&recording=<url> replays a pose recording. ?record downloads each
@@ -77,7 +82,14 @@ function replaySource() {
 const backgroundParam = params.get('background');
 const BACKGROUND_PARAM = isBackgroundId(backgroundParam) ? backgroundParam : null;
 
-type AppScreen = 'menu' | 'songs' | 'game' | 'minigames' | 'minigame';
+// ?screensaver=<id> (or shuffle) opens straight onto a screensaver, full screen, with any of its
+// settings for the visit: &view=, &scenario=, &time=, &weather=, &clock=, &every= (screensavers/).
+const SAVER_START: SaverStart | null = params.has('screensaver') ? {
+  id: params.get('screensaver') ?? '',
+  values: Object.fromEntries(['view', 'scenario', 'time', 'weather', 'clock', 'every'].flatMap((k) => (params.has(k) ? [[k, params.get(k) ?? '']] : []))),
+} : null;
+
+type AppScreen = 'menu' | 'songs' | 'game' | 'minigames' | 'minigame' | 'screensavers';
 
 function download(name: string, bytes: Uint8Array<ArrayBuffer>) {
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
@@ -101,8 +113,8 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
   // 'menu' (MainMenu, opening on menuScreen), 'songs' (Song Select), 'game' (a song),
-  // 'minigames' (their list) or 'minigame' (one being played).
-  const [screen, setScreen] = useState<AppScreen>('menu');
+  // 'minigames' (their list), 'minigame' (one being played) or 'screensavers'.
+  const [screen, setScreen] = useState<AppScreen>(SAVER_START ? 'screensavers' : 'menu');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>(startTransfer ? 'transfer' : 'main');
   // The menu screen actually showing.
   const [menuShown, setMenuShown] = useState<MenuScreen>(startTransfer ? 'transfer' : 'main');
@@ -132,6 +144,12 @@ export default function App() {
   const [minigamePreviewPlayers, setMinigamePreviewPlayers] = useState<PlayerCount | null>(null);
   // The main menu's button a keyboard cursor goes back to (Minigames, coming back from their list).
   const [menuRefocus, setMenuRefocus] = useState<string | undefined>(undefined);
+  // Screensavers (Experiments' last button): the host both their screens and their 3D share, and
+  // what's behind the one showing (App draws a background or stage one).
+  const [savers] = useState(() => new ScreensaverHost(SCREENSAVERS));
+  const [saverScene, setSaverScene] = useState(() => savers.scene());
+  useEffect(() => savers.onChange(() => setSaverScene(savers.scene())), [savers]);
+  const [saverStart, setSaverStart] = useState<SaverStart | null>(SAVER_START);
   const [sound, setSound] = useState(loadSound);
   // The skyline flight, unless ?background=<id> shows a backdrop for this visit.
   const background = BACKGROUND_PARAM ?? 'skyline';
@@ -174,6 +192,16 @@ export default function App() {
     setMenuScreen('main');
     setMenuRefocus('minigames');
     setScreen('menu');
+  }, []);
+  // Screensavers: from the list's last button, and back to it (once their veil has the menus' background back).
+  const openScreensavers = useCallback(() => {
+    setSaverStart(null);
+    setScreen('screensavers');
+  }, []);
+  const leaveScreensavers = useCallback(() => {
+    setSaverStart(null);
+    setMinigameOpen({ id: SCREENSAVERS_TILE, players: 2 });
+    setScreen('minigames');
   }, []);
   // The round itself: a session with that many players and its settings, shown.
   const beginMinigame = useCallback((game: MinigameDefinition, count: PlayerCount, options?: MinigameOptionValues) => {
@@ -310,6 +338,9 @@ export default function App() {
   const minigameScene = screen === 'minigame' && minigame ? minigame.game.scene ?? 'menu' : null;
   const minigameStage = typeof minigameScene === 'object' && minigameScene && 'stage' in minigameScene ? minigameScene.stage : null;
   const minigameBackground = typeof minigameScene === 'object' && minigameScene && 'background' in minigameScene ? minigameScene.background : null;
+  // A screensaver's scene: the skyline or a backdrop (the menus' Scene draws it), or a stage with its dancers.
+  const saverBackground = typeof saverScene === 'object' && saverScene && 'background' in saverScene ? saverScene.background : null;
+  const saverStage = typeof saverScene === 'object' && saverScene && 'stage' in saverScene ? saverScene.stage : null;
   const minigameView = minigame ? <MinigameView key={minigame.key} session={minigame} /> : null;
 
   return (
@@ -317,22 +348,27 @@ export default function App() {
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
         <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
           <FixedRenderResolution />
-          <Scene paused={stage.showing} background={minigameBackground ?? background} />
+          <Scene paused={stage.showing} background={saverBackground ?? minigameBackground ?? background}>
+            {saverBackground && <ScreensaverBackdropPart host={savers} />}
+          </Scene>
           <StageView
-            active={(songsOpen && !!preview) || screen === 'game' || !!minigameStage}
+            active={(songsOpen && !!preview) || screen === 'game' || !!minigameStage || !!saverStage}
             orbiting={songsOpen && !!preview && songScreen !== 'dancers'}
             lift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_LIFT : 0}
             shift={songsOpen && !!preview && songScreen === 'dancers' ? CAST_SHIFT : 0}
-            stageId={minigameStage ?? stageId}
-            routine={minigameStage ? null : game ? gameRoutine : preview}
+            stageId={saverStage ?? minigameStage ?? stageId}
+            routine={minigameStage || saverStage ? null : game ? gameRoutine : preview}
             results={resultsVisible ? resultsShow : null}
             live={gameLive}
+            demo={!!saverStage}
             dancers={!minigameStage}
             onState={setStage}
           >
             {minigameStage && minigameView}
+            {saverStage && <ScreensaverStagePart host={savers} />}
           </StageView>
           {!minigameStage && minigameView}
+          <ScreensaverView host={savers} stage={stage} />
           <MenuDancers
             visible={((menuOpen && menuShown !== 'settings' && menuShown !== 'transfer') || songsOpen || screen === 'minigames') && !diagnostic('nodancers')}
             raised={songsOpen}
@@ -386,6 +422,13 @@ export default function App() {
             onPreviewPlayersChange={setMinigamePreviewPlayers}
             onBack={leaveMinigames}
             onPlay={startMinigame}
+            onScreensavers={openScreensavers}
+          />
+          <ScreensaverSelect
+            visible={screen === 'screensavers'}
+            host={savers}
+            start={saverStart}
+            onBack={leaveScreensavers}
           />
           {params.get('record') === 'session' && <SessionRecordingOverlay />}
           <MinigameScreen
@@ -407,7 +450,7 @@ export default function App() {
               source={activeSource}
               game={game}
               screen={menuOpen ? `menu/${menuShown}` : songsOpen ? 'songs' : screen === 'minigames' ? 'minigames'
-                : screen === 'minigame' ? `minigame/${minigamePhase ?? 'loading'}` : `game/${gamePhase ?? 'loading'}`}
+                : screen === 'minigame' ? `minigame/${minigamePhase ?? 'loading'}` : screen === 'screensavers' ? 'screensavers' : `game/${gamePhase ?? 'loading'}`}
             />
           )}
         </Canvas>

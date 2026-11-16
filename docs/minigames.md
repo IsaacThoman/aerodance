@@ -7,7 +7,10 @@ they share: the list, each game's settings, the camera and its calibration, the 
 3, 2, 1, pausing, the HUD, the results and best scores, a pose API built for games, and a puppet
 camera to test them with. A game is one folder; adding one changes no other file.
 
-The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game;
+The list's last button, after the games, is **Screensavers**: scenes that run on their own, for
+leaving the game up on a TV ([screensavers](screensavers.md)).
+
+The **Experiments** button only shows while there's a game to play or a screensaver to watch. **Table Tennis** is the first game;
 its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room.
 Alone, the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns.
 Two players split the screen, one at each end of the table in first person, and rally with each other,
