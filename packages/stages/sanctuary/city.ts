@@ -465,6 +465,14 @@ function addBridges(b: Builder, rand: Random, towers: readonly Tower[]) {
 }
 
 function addDomeBase(b: Builder, dome: Dome) {
+  // The rooftop garden sits above the street. Close the space below its
+  // glass shell with a glazed podium and a planted roof.
+  loft(b, {
+    cx: dome.x, cz: dome.z, y0: GROUND, y1: GROUND + dome.base, segments: 64,
+    section: (angle) => [Math.cos(angle) * dome.r, Math.sin(angle) * dome.r],
+    cols: 80, floorH: 5.5, fa: [0.46, 1, 0.51, 0],
+    capTop: { color: GRASS, st: LEAF },
+  });
   const ring = new THREE.CylinderGeometry(dome.r * 1.04, dome.r * 1.08, 3, 64, 1, true);
   b.add(ring, mat4([dome.x, GROUND + 1.5, dome.z]), { color: WHITE, st: PAINT() });
   const rim = new THREE.TorusGeometry(dome.r * 1.04, 0.8, 6, 64);

@@ -167,6 +167,8 @@ void main() {
   col += base * sunC * c * 0.6 * max(n.y, 0.0);
   col = underwaterFog(col, vWorld);
   gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 
@@ -382,7 +384,7 @@ function Dolphins({ shared }: LifeProps) {
   return <instancedMesh ref={mesh} args={[geometry, material, 2]} frustumCulled={false} />;
 }
 
-const turtlePath: Path = (t, k, out) => {
+export const turtlePath: Path = (t, k, out) => {
   const th = -(t / 75) * Math.PI * 2 + 2.6;
   return out.set(2 + Math.cos(th) * 17, 5.0 + Math.sin(th * 2) * 0.5 + Math.sin(t * 0.4) * 0.2, -12.5 + Math.sin(th) * 5);
 };

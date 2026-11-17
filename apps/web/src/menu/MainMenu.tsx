@@ -15,7 +15,6 @@ import type { Fullscreen } from './useFullscreen.ts';
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
 import { HAS_SONGS, createSongsPanel } from './songsPanel.ts';
-import { MINIGAMES as GAMES } from '../minigames/registry.ts';
 import type { SongsPanel, SongsWidget } from './songsPanel.ts';
 import { createTransferPanel } from './transferPanel.ts';
 import type { TransferPanel, TransferWidget } from './transferPanel.ts';
@@ -24,8 +23,7 @@ import type { TransferPanel, TransferWidget } from './transferPanel.ts';
  * Title menu drawn in-engine (see ui/useCanvasUI.ts), laid out in the selected display mode and
  * drawn after the world (useFrame priority 2).
  *
- * Screens: main (Start, Minigames while there are any (minigames/registry.ts; it opens their list,
- * minigames/MinigameSelect.tsx), Settings), players (a 1-4 dial, shown by that many dancers on the
+ * Screens: main (Start, Experiments and Settings), players (a 1-4 dial, shown by that many dancers on the
  * puck in menu/MenuDancers.tsx; Let's dance opens Song Select: game/SongSelect.tsx), settings
  * (a Sound panel: Master / Music / Effects volume, Menu music and Mute all, which
  * audio/mixer.ts applies; a Graphics panel: Aspect ratio Auto / 4:3 / 16:9, and Stats Off /
@@ -65,7 +63,7 @@ export interface MainMenuProps {
   playerCount?: PlayerCount;
   onPlayerCountChange?: (count: PlayerCount) => void;
   onStart?: (playerCount: PlayerCount) => void;
-  /** Minigames: their list (shown only while there are minigames). */
+  /** Opens the Experiments list once the title menu slides away. */
   onMinigames?: () => void;
   /** The button a keyboard cursor comes back to when the menu reopens on the main screen ('minigames'). */
   refocus?: string;
@@ -256,7 +254,7 @@ function drawSegments<V extends string>(g: CanvasRenderingContext2D, options: re
 interface MenuState {
   spin: number; gearAngle: number; alpha: number;
   /** Showing, and where it is going (they differ during a swap). */
-  screen: MenuScreen; next: MenuScreen; swap: number;
+  screen: MenuScreen; next: MenuScreen | 'experiments'; swap: number;
   drawnSound: SoundSettings | null;
   drawnGraphics: GraphicsSettings | null;
   drawnFullscreen: Fullscreen | null;
@@ -271,16 +269,13 @@ interface MenuState {
   reported?: MenuScreen;
 }
 
-// The main screen has Minigames while there are any to play.
-const HAS_MINIGAMES = GAMES.length > 0;
-
 export default function MainMenu({
   visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onMinigames, refocus, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const fullscreen = useFullscreen();
-  const layout = menuLayout(displayDesign(size.width, size.height).w, fullscreen.supported, HAS_MINIGAMES);
+  const layout = menuLayout(displayDesign(size.width, size.height).w, fullscreen.supported, !!onMinigames);
   const { ASPECT, BACK, COUNT_X, FULLSCREEN, MINIGAMES, MINUS, PLAYERS_BACK, PLAYERS_GO, PLUS, SETTINGS, SOUND, START, TITLE, TRACK, ROW_Y } = layout;
   const sliderValue = (x: number) => Math.min(1, Math.max(0, (x - TRACK.x0) / (TRACK.x1 - TRACK.x0)));
   const WIDGETS: Record<MenuScreen, MenuWidget[]> = {
@@ -324,11 +319,11 @@ export default function MainMenu({
     if (screen === m.next) return;
     if (key) {
       ui.focus(null);
-      m.refocus = screen === 'players' ? 'go' : OPENER[m.next] ?? null;
+      m.refocus = screen === 'players' ? 'go' : OPENER[m.screen] ?? null;
     }
     m.next = screen;
   };
-  const live = () => !!props.current.visible && m.alpha > 0.3 && m.screen === m.next;
+  const live = () => !!props.current.visible && m.alpha > 0.3 && m.swap > 0 && m.screen === m.next;
   // ui is assigned below, before the panel first asks for it.
   const songs = useMemo<SongsPanel>(() => createSongsPanel({
     layout: () => layoutRef.current,
@@ -407,7 +402,7 @@ export default function MainMenu({
       }
       switch (wdg.id) {
         case 'start': setCount(DEFAULT_PLAYERS); go('players'); break;
-        case 'minigames': props.current.onMinigames?.(); break;
+        case 'minigames': m.next = 'experiments'; break;
         case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
         case 'back': go(PARENT[m.screen]); break;
         case 'minus': setCount(count() - 1); break;
@@ -424,16 +419,18 @@ export default function MainMenu({
     update: (dt, s) => {
       const shown = !!props.current.visible;
       // Screen change: fade the current screen out, swap, fade the next one in.
-      if (m.next !== m.screen) {
+      if (m.next !== m.screen && m.swap > 0) {
         m.swap = Math.max(0, m.swap - dt * 7);
         if (m.swap === 0) {
-          m.screen = m.next;
+          // Experiments has its own overlay. Hand off after the same slide as a submenu.
+          if (m.next === 'experiments') props.current.onMinigames?.();
+          else m.screen = m.next;
           // A mouse left resting where the last screen was pressed hovers nothing on the new one
           // until it moves (Start sits over the dial's minus), so Enter goes to its primary.
           if (s.pointerKind !== 'key') s.pointer = null;
         }
         s.invalidate();
-      } else if (m.swap < 1) {
+      } else if (m.next === m.screen && m.swap < 1) {
         m.swap = Math.min(1, m.swap + dt * 6);
         s.invalidate();
       }
@@ -444,7 +441,7 @@ export default function MainMenu({
       }
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
       m.titleY = s.ease(m.titleY, m.next === 'players' ? PLAYERS_TITLE_Y : TITLE.y, 7);
-      m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' || m.next === 'transfer' ? 0 : 1, 8);
+      m.titleAlpha = s.ease(m.titleAlpha, m.next === 'main' || m.next === 'players' ? 1 : 0, 8);
       const { sound: drawSound, graphics: drawGraphics } = props.current;
       if (drawSound !== m.drawnSound || drawGraphics !== m.drawnGraphics || fullscreenRef.current !== m.drawnFullscreen || count() !== m.drawnCount) s.invalidate();
       if (m.screen !== m.reported) {
@@ -463,7 +460,7 @@ export default function MainMenu({
       for (const [key, value] of Object.entries(transfer.report())) { if (value) dataset[key] = value; else delete dataset[key]; }
       dataset.menuScreen = m.screen;
       dataset.menuPlayers = String(count());
-      dataset.menuMinigames = String(HAS_MINIGAMES);
+      dataset.menuMinigames = String(!!MINIGAMES);
       dataset.menuReady = String(shown && m.alpha > 0.5 && m.screen === m.next && m.swap > 0.95);
     },
     opacity: () => m.alpha,
@@ -523,10 +520,12 @@ export default function MainMenu({
   // a keyboard cursor on Let's dance.
   useEffect(() => {
     if (!visible) return;
+    const fromExperiments = m.next === 'experiments';
     m.screen = m.next = initialScreen;
-    m.swap = 1;
+    m.swap = fromExperiments ? 0 : 1;
+    if (fromExperiments) m.alpha = 1;
     m.titleY = initialScreen === 'players' ? PLAYERS_TITLE_Y : HOME_TITLE.y;
-    m.titleAlpha = initialScreen === 'settings' || initialScreen === 'transfer' ? 0 : 1;
+    m.titleAlpha = fromExperiments || initialScreen === 'settings' || initialScreen === 'transfer' ? 0 : 1;
     m.refocus = !ui.keyboard ? null : initialScreen === 'players' ? 'go' : initialScreen === 'main' ? refocus ?? null : null;
     ui.invalidate();
   }, [visible, initialScreen, refocus, m, ui]);

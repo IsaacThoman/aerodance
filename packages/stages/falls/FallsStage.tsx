@@ -2,6 +2,7 @@
 // lake fed by tepui waterfalls, with floating islands, a rainbow in the spray
 // and a gentle touch of eco-tech (solar flowers, turbines, observatory).
 import { useMemo } from 'react';
+import type { ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { Vec3 } from '../catalog.ts';
 import { StageEnvironment } from '../shared/Environment.tsx';
@@ -58,7 +59,7 @@ function Driver() {
   return null;
 }
 
-export default function FallsStage() {
+export default function FallsStage({ camera }: { camera?: ReactNode }) {
   const sun = useSunDirection(SUN.elevation, SUN.azimuth);
   const noise = useDisposable(makeNoiseTexture);
   fx.uNoise.value = noise;
@@ -72,7 +73,7 @@ export default function FallsStage() {
   return (
     <>
       <Driver />
-      <StageCamera position={CAMERA.position} target={CAMERA.target} fov={CAMERA.fov} near={0.2} far={6000} orbit={reducedMotion ? [0, 0] : [0.09, 0.02]} sway={reducedMotion ? [0, 0, 0] : [0.1, 0.05, 0]} parallax={[0.3, 0.15]} />
+      {camera ?? <StageCamera position={CAMERA.position} target={CAMERA.target} fov={CAMERA.fov} near={0.2} far={6000} orbit={reducedMotion ? [0, 0] : [0.09, 0.02]} sway={reducedMotion ? [0, 0, 0] : [0.1, 0.05, 0]} parallax={[0.3, 0.15]} />}
       <color attach="background" args={[HAZE]} />
       <fog attach="fog" args={[HAZE, 0, 1300]} />
       <StageEnvironment

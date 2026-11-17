@@ -3,7 +3,7 @@ export const TITLE = { x: 124, y: 418, size: 156 };
 // On the players screen the title rises to make room for the dial.
 export const PLAYERS_TITLE_Y = 210;
 
-// Main screen: Start, then Minigames (while there are any, minigames/registry.ts), then Settings.
+// Main screen: Start, Experiments, Settings.
 export const START = { x: 128, y: 482, w: 440, h: 104 };
 export const MINIGAMES = { x: 128, y: 602, w: 440, h: 104 };
 export const SETTINGS = { x: 128, y: 602, w: 440, h: 104 };
@@ -40,8 +40,7 @@ const GRAPHICS_ROW_H = ROW_H + 10;
 
 /**
  * Compact menus leave a separate area for the dancers on the right. Graphics has a Fullscreen
- * row only where the page can go fullscreen, and the main screen a Minigames button only while
- * there are minigames to play (the canvas reports data-menu-minigames).
+ * row only where the page can go fullscreen. The canvas reports the Experiments button as data-menu-minigames.
  */
 export function menuLayout(width = 1600, fullscreen = true, minigames = false) {
   const compact = width === 1200;

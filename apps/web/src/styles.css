@@ -62,6 +62,10 @@ body {
   touch-action: none;
 }
 
+.canvas-frame canvas[data-screensaver-mode="watch"] {
+  cursor: none !important;
+}
+
 /* The phone camera page (apps/web/pair/) fills the phone's screen, either way up. */
 .canvas-frame.phone {
   left: 0;

@@ -226,6 +226,8 @@ void main() {
   col += base * sunC * c * uCaustics * smoothstep(-0.3, 0.9, n.y) * (0.55 + 0.45 * diff);
   col = underwaterFog(col, vWorld);
   gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 

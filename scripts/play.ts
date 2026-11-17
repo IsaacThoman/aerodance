@@ -14,6 +14,7 @@ import { chromiumPath, gpuFlags } from './chromium.ts';
 import * as menuLayout from '../apps/web/src/menu/layout.ts';
 import * as gameLayout from '../apps/web/src/game/layout.ts';
 import * as walkLayout from '../apps/web/src/walk/layout.ts';
+import { screensaverLayout } from '../apps/web/src/screensavers/layout.ts';
 import * as minigameLayout from '../apps/web/src/minigames/layout.ts';
 import { displayDesign } from '../apps/web/src/display.ts';
 
@@ -65,7 +66,7 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in apps/web/src/{menu,game,walk,minigames}/layout.ts, e.g. START,
+Targets name layout exports in apps/web/src/{menu,game,walk,minigames,screensavers}/layout.ts, e.g. START,
 menu.BACK, game.BACK, rowRect.0, GAME_CALIBRATION_CAMERA.next, mgTile.0, mgOptionNext.1 or
 walk.sceneRect.3.
 
@@ -87,6 +88,7 @@ const layoutsAt = (width: number, minigames: boolean, minigameOptions: number): 
   menu: { ...menuLayout, ...menuLayout.menuLayout(width, true, minigames) },
   game: { ...gameLayout, ...gameLayout.gameLayout(width) },
   walk: { ...walkLayout, ...walkLayout.walkLayout(width) },
+  screensavers: screensaverLayout(width),
   minigames: { ...minigameLayout, ...minigameLayout.minigameLayout(width, minigameOptions) },
 });
 

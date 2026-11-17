@@ -65,7 +65,7 @@ export function installGameHooks(config: Config, host: Host) {
   setIntervalShim(() => {
     const d = dataset();
     if (!ready && (d.menuReady === 'true' || d.stageReady === 'true')) { ready = true; native.ready(); }
-    const now = d.menuScreen === 'main' && d.connectOpen !== 'true';
+    const now = d.menuReady === 'true' && d.menuScreen === 'main' && d.connectOpen !== 'true';
     if (now !== atRoot) { atRoot = now; native.setAtRoot(now); }
   }, 250);
   if (config.bench) return;

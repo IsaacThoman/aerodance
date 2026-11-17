@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
+import Screensavers from './screensavers/Screensavers.tsx';
 import Scene from './Scene.tsx';
 import MainMenu, { DEFAULT_PLAYERS } from './menu/MainMenu.tsx';
 import type { MenuScreen } from './menu/MainMenu.tsx';
@@ -77,7 +78,7 @@ function replaySource() {
 const backgroundParam = params.get('background');
 const BACKGROUND_PARAM = isBackgroundId(backgroundParam) ? backgroundParam : null;
 
-type AppScreen = 'menu' | 'songs' | 'game' | 'minigames' | 'minigame';
+type AppScreen = 'menu' | 'songs' | 'game' | 'minigames' | 'minigame' | 'screensavers';
 
 function download(name: string, bytes: Uint8Array<ArrayBuffer>) {
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
@@ -167,6 +168,15 @@ export default function App() {
 
   // Minigames: their list from the main menu, and back.
   const openMinigames = useCallback(() => {
+    setMinigameOpen(null);
+    setScreen('minigames');
+  }, []);
+  const openScreensavers = useCallback(() => {
+    duckMenuMusic(true);
+    setScreen('screensavers');
+  }, []);
+  const leaveScreensavers = useCallback(() => {
+    duckMenuMusic(false);
     setMinigameOpen(null);
     setScreen('minigames');
   }, []);
@@ -317,7 +327,7 @@ export default function App() {
       <div className="canvas-frame display" style={{ '--display-aspect': DISPLAY_MODES[displayMode].aspect } as CSSProperties}>
         <Canvas dpr={1} flat gl={{ antialias: false }} camera={{ fov: 66, near: 0.3, far: 6500 }}>
           <FixedRenderResolution />
-          <Scene paused={stage.showing} background={minigameBackground ?? background} />
+          <Scene paused={stage.showing || screen === 'screensavers'} background={minigameBackground ?? background} />
           <StageView
             active={(songsOpen && !!preview) || screen === 'game' || !!minigameStage}
             orbiting={songsOpen && !!preview && songScreen !== 'dancers'}
@@ -379,11 +389,13 @@ export default function App() {
             onQuit={quitGame}
             onRetry={retryGame}
           />
+          {screen === 'screensavers' && <Screensavers onBack={leaveScreensavers} />}
           <MinigameSelect
             visible={screen === 'minigames'}
             open={minigameOpen}
             players={playerCount}
             onPreviewPlayersChange={setMinigamePreviewPlayers}
+            onScreensavers={openScreensavers}
             onBack={leaveMinigames}
             onPlay={startMinigame}
           />
@@ -406,7 +418,7 @@ export default function App() {
               mode={statsMode}
               source={activeSource}
               game={game}
-              screen={menuOpen ? `menu/${menuShown}` : songsOpen ? 'songs' : screen === 'minigames' ? 'minigames'
+              screen={menuOpen ? `menu/${menuShown}` : songsOpen ? 'songs' : screen === 'minigames' || screen === 'screensavers' ? screen
                 : screen === 'minigame' ? `minigame/${minigamePhase ?? 'loading'}` : `game/${gamePhase ?? 'loading'}`}
             />
           )}
