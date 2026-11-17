@@ -406,6 +406,8 @@ void main() {
   col += sand * sunC * c * 0.95;
   col = underwaterFog(col, vWorld);
   gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 
@@ -419,7 +421,12 @@ function SandFloor({ shared, floorHeight }: ReefProps & { floorHeight: FloorHeig
     g.rotateX(-Math.PI / 2);
     g.translate(0, 0, -78);
     const pos = g.attributes.position;
-    for (let i = 0; i < pos.count; i++) pos.setY(i, floorHeight(pos.getX(i), pos.getZ(i)));
+    for (let i = 0; i < pos.count; i++) {
+      // The turtle camera looks back across the sand. Stretch just the outer
+      // rows north of the stage so that shore also disappears into deep haze.
+      const x = pos.getX(i), z = pos.getZ(i) + 20 * Math.max(0, pos.getZ(i) - 17);
+      pos.setXYZ(i, x, floorHeight(x, z), z);
+    }
     g.computeVertexNormals();
     return g;
   });

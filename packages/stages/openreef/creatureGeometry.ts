@@ -234,7 +234,7 @@ export function turtleGeometry(): THREE.BufferGeometry {
     g.setAttribute('aPivot', new THREE.BufferAttribute(pv, 3));
     return g;
   };
-  const shellTop = new THREE.SphereGeometry(1, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const shellTop = new THREE.SphereGeometry(1, 72, 32, 0, Math.PI * 2, 0, Math.PI / 2);
   place(shellTop, { scale: [0.55, 0.24, 0.72] });
   const brown = color('#7b5a2c');
   const gold = color('#e0b85a');
@@ -262,10 +262,16 @@ export function turtleGeometry(): THREE.BufferGeometry {
   const skin = color('#c2b060');
   const skinDark = color('#6f6a35');
   const paintSkin: Paint = (p, n, out) => out.copy(skinDark).lerp(skin, 0.5 + 0.5 * Math.sin(p.x * 40) * Math.sin(p.z * 40));
+  const neck = new THREE.SphereGeometry(1, 16, 10);
+  place(neck, { scale: [0.098, 0.075, 0.17], position: [0, 0.015, 0.69] });
+  parts.push(tag(finalize(neck, { paint: paintSkin }), 0, [0, 0, 0]));
   const head = blob({ radius: 1, detail: 2, squash: [0.13, 0.11, 0.18], amount: 0.02, seed: 2 });
   place(head, { position: [0, 0.03, 0.86] });
   parts.push(tag(finalize(head, { paint: paintSkin }), 0, [0, 0, 0]));
   for (const s of [-1, 1]) {
+    const eye = new THREE.SphereGeometry(1, 12, 8);
+    place(eye, { scale: [0.021, 0.023, 0.021], position: [s * 0.105, 0.085, 0.916] });
+    parts.push(tag(finalize(eye, { paint: '#161e12' }), 0, [0, 0, 0]));
     const front = blob({ radius: 1, detail: 2, squash: [0.48, 0.035, 0.15], amount: 0.02, seed: 3 });
     place(front, { position: [s * 0.62, 0, 0.3], rotation: [0, s * 0.45, 0] });
     parts.push(tag(finalize(front, { paint: paintSkin }), 1, [s * 0.36, 0, 0.42]));

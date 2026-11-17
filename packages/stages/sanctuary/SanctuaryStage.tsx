@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import { beat, StageCamera, useDisposable } from '../shared/hooks.ts';
@@ -64,14 +65,14 @@ function useReflectionMaps(): ReflectionMaps | null {
   return maps;
 }
 
-export default function SanctuaryStage() {
+export default function SanctuaryStage({ camera }: { camera?: ReactNode }) {
   const city = useDisposable(() => buildCity());
   const maps = useReflectionMaps();
   stageUniforms.uSunDir.value.copy(SUN_DIR);
 
   return (
     <>
-      <StageCamera
+      {camera ?? <StageCamera
         position={CAMERA.position}
         target={CAMERA.target}
         fov={CAMERA.fov}
@@ -80,7 +81,7 @@ export default function SanctuaryStage() {
         orbit={[0.07, 0.015]}
         sway={[0.18, 0.06, 0]}
         parallax={[0.45, 0.2]}
-      />
+      />}
       <Clock />
       <color attach="background" args={[COLORS.skyHorizon]} />
       <fog attach="fog" args={[COLORS.fog, FOG[0], FOG[1]]} />

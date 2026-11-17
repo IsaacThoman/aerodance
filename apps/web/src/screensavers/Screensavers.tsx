@@ -1,37 +1,25 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Component, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal, useFrame, useThree } from '@react-three/fiber';
 import { ACESFilmicToneMapping, Color, NoToneMapping, PCFShadowMap, PerspectiveCamera, Scene } from 'three';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
 import { drawGlassButton, drawGlassCircle, drawHeader, drawShadowText, glassCorner, ICONS } from '../ui/draw.ts';
-import type { IconDraw } from '../ui/draw.ts';
+import { clockIcon } from './icons.ts';
 import { screensaverLayout } from './layout.ts';
+import SceneList from './SceneList.tsx';
+import { scenes } from './catalog.ts';
 
-const scenes = [
-  { id: 'rally', title: 'Canopy Rally', views: ['Courtside', 'Skybox'], Content: lazy(() => import('./Rally.tsx')) },
-  { id: 'lagoon', title: 'Moonjelly Lagoon', views: ['Reef window', 'Drift current'], Content: lazy(() => import('./Lagoon.tsx')) },
-];
 const preferenceKey = 'aerodance.screensavers';
 function remembered() {
   try {
     const value = JSON.parse(localStorage.getItem(preferenceKey) ?? 'null');
     const scene = Math.max(0, scenes.findIndex(s => s.id === value?.scene));
-    return { scene, view: value?.view === 1 ? 1 : 0, clock: value?.clock !== false };
+    return { scene, view: Number.isInteger(value?.view) && scenes[scene].views[value.view] ? Number(value.view) : 0, clock: value?.clock !== false };
   } catch {
     return { scene: 0, view: 0, clock: true };
   }
 }
-
-const clockIcon: IconDraw = (g, x, y, size) => {
-  const r = size * 0.46;
-  g.beginPath();
-  g.arc(x, y, r, 0, Math.PI * 2);
-  g.moveTo(x, y - r * 0.63);
-  g.lineTo(x, y);
-  g.lineTo(x + r * 0.45, y + r * 0.2);
-  g.stroke();
-};
 
 // Keep the browser available if one scene's assets fail to load.
 class SceneBoundary extends Component<{ children: ReactNode; onError: () => void }, { failed: boolean }> {
@@ -47,27 +35,27 @@ function Ready({ onReady }: { onReady: () => void }) {
   return null;
 }
 
-function SceneFrame({ rally }: { rally: boolean }) {
+function SceneFrame({ exposure, liveShadows = false }: { exposure?: number; liveShadows?: boolean }) {
   useFrame(({ gl, scene, camera }) => {
     const clear = gl.autoClear;
     const shadows = gl.shadowMap;
     const { enabled, type, autoUpdate, needsUpdate } = shadows;
-    const mapping = gl.toneMapping, exposure = gl.toneMappingExposure;
+    const mapping = gl.toneMapping, savedExposure = gl.toneMappingExposure;
     // The skyline freezes its shadow map between updates. This pass needs its
     // own live shadows for the moving paddles, and the arena's exposure.
     gl.autoClear = true;
-    shadows.enabled = rally;
+    shadows.enabled = liveShadows;
     shadows.type = PCFShadowMap;
-    shadows.autoUpdate = rally;
-    gl.toneMapping = rally ? ACESFilmicToneMapping : NoToneMapping;
-    gl.toneMappingExposure = rally ? 0.92 : 1;
+    shadows.autoUpdate = liveShadows;
+    gl.toneMapping = exposure === undefined ? NoToneMapping : ACESFilmicToneMapping;
+    gl.toneMappingExposure = exposure ?? 1;
     try {
       gl.render(scene, camera);
     } finally {
       Object.assign(shadows, { enabled, type, autoUpdate, needsUpdate });
       gl.autoClear = clear;
       gl.toneMapping = mapping;
-      gl.toneMappingExposure = exposure;
+      gl.toneMappingExposure = savedExposure;
     }
   }, 1.9);
   return null;
@@ -78,6 +66,8 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
   const size = useThree(s => s.size);
   const [{ scene, view, clock }, setChoice] = useState(remembered);
   const [watching, setWatching] = useState(false);
+  const [listing, setListing] = useState(false);
+  const listKeyboard = useRef(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
   const markReady = useCallback(() => setStatus('ready'), []);
   const current = scenes[scene];
@@ -116,13 +106,16 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
   const portalState = useMemo(() => ({ camera }), [camera]);
   const fade = useRef(0);
   const hintUntil = useRef(0);
-  const stepScene = (direction: number) => {
+  const chooseScene = (index: number) => {
+    if (index === scene) return;
     setStatus('loading');
-    setChoice(c => ({ ...c, scene: (c.scene + scenes.length + direction) % scenes.length, view: 0 }));
+    setChoice(c => ({ ...c, scene: index, view: 0 }));
   };
+  const stepScene = (dir: number) => chooseScene((scene + scenes.length + dir) % scenes.length);
   const stepView = () => setChoice(c => ({ ...c, view: (c.view + 1) % current.views.length }));
   const ui = useCanvasUI({
     priority: 3,
+    active: () => !listing,
     keyNav: !watching,
     widgets: ({ w, h }): Widget[] => {
       if (watching) return [{ id: 'wake', rect: { x: 0, y: 0, w, h }, nav: false }];
@@ -131,11 +124,17 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
         { id: 'prev', circle: l.SAVER_PREV }, { id: 'next', circle: l.SAVER_NEXT },
         { id: 'watch', rect: l.SAVER_WATCH, primary: true, corner: glassCorner(l.SAVER_WATCH.h) },
         { id: 'view', rect: l.SAVER_VIEW, corner: glassCorner(l.SAVER_VIEW.h) },
-        { id: 'clock', rect: l.SAVER_CLOCK, corner: glassCorner(l.SAVER_CLOCK.h) },
+        ...(current.clock ? [{ id: 'clock', rect: l.SAVER_CLOCK, corner: glassCorner(l.SAVER_CLOCK.h) }] : []),
+        { id: 'library', rect: l.SAVER_LIBRARY, corner: glassCorner(l.SAVER_LIBRARY.h) },
         { id: 'back', circle: l.SAVER_BACK },
       ];
     },
     onActivate: ({ id }, s) => {
+      if (id === 'library') {
+        listKeyboard.current = s.keyboard;
+        s.focus(null);
+        setListing(true);
+      }
       if (id === 'wake') setWatching(false);
       if (id === 'back') onBack();
       if (id === 'prev' || id === 'next') stepScene(id === 'prev' ? -1 : 1);
@@ -153,7 +152,7 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
       return false;
     },
     onKey: e => {
-      if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (listing || e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       if (watching && ['Enter', ' ', 'Escape', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         setWatching(false);
@@ -163,7 +162,7 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
       }
     },
     update: (_, s) => { fade.current = s.ease(fade.current, !watching || s.time < hintUntil.current ? 1 : 0, 8); },
-    opacity: () => fade.current,
+    opacity: () => listing ? 0 : fade.current,
     draw: (g, s) => {
       if (watching) {
         drawShadowText(g, 'Tap or press OK to show controls', s.w / 2, 830, { size: 26, align: 'center' });
@@ -177,6 +176,7 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
       g.fillStyle = shade;
       g.fillRect(0, 520, s.w, 380);
       drawHeader(g, l.SAVER_BACK, 'SCREENSAVERS', s.hover.back ?? 0);
+      drawGlassButton(g, l.SAVER_LIBRARY, { label: 'All scenes', icon: 'list', hover: s.hover.library, chevron: false });
       drawShadowText(g, current.title, x, 650, { size: 66, weight: 700 });
       drawShadowText(g, status === 'loading' ? 'Opening scene…' : status === 'failed' ? 'Scene unavailable' : `Scene ${scene + 1} of ${scenes.length}`, x + 2, 707, { size: 26, weight: 500 });
       for (const [id, c, icon] of [['prev', l.SAVER_PREV, 'left'], ['next', l.SAVER_NEXT, 'right']] as const) {
@@ -188,7 +188,7 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
       }
       drawGlassButton(g, l.SAVER_WATCH, { label: 'Watch', icon: 'play', hover: s.hover.watch, disabled: status === 'failed', chevron: false });
       drawGlassButton(g, l.SAVER_VIEW, { label: current.views[view], sub: 'Camera view', icon: 'camera', hover: s.hover.view, chevron: false });
-      drawGlassButton(g, l.SAVER_CLOCK, { label: clock ? 'Clock on' : 'Clock off', sub: 'Scene clock', icon: clockIcon, hover: s.hover.clock, chevron: false });
+      if (current.clock) drawGlassButton(g, l.SAVER_CLOCK, { label: clock ? 'Clock on' : 'Clock off', sub: 'Scene clock', icon: clockIcon, hover: s.hover.clock, chevron: false });
     },
   });
 
@@ -198,8 +198,8 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
     data.screensaverScene = current.id;
     data.screensaverReady = String(status === 'ready');
     data.screensaverView = current.views[view];
-    data.screensaverClock = String(clock);
-    data.screensaverMode = watching ? 'watch' : 'browse';
+    data.screensaverClock = String(!!current.clock && clock);
+    data.screensaverMode = listing ? 'list' : watching ? 'watch' : 'browse';
     return () => {
       delete data.screensaverScene;
       delete data.screensaverReady;
@@ -207,18 +207,25 @@ export default function Screensavers({ onBack }: { onBack: () => void }) {
       delete data.screensaverClock;
       delete data.screensaverMode;
     };
-  }, [gl, current, view, clock, watching, ui, status]);
+  }, [gl, current, view, clock, watching, listing, ui, status]);
   useEffect(() => {
     try { localStorage.setItem(preferenceKey, JSON.stringify({ scene: current.id, view, clock })); } catch { /* unavailable */ }
   }, [current, view, clock]);
 
-  return createPortal(<>
-    <SceneFrame rally={current.id === 'rally'} />
-    <SceneBoundary key={current.id} onError={() => { setStatus('failed'); setWatching(false); }}>
-      <Suspense fallback={null}>
-        <current.Content view={view} clock={clock} />
-        <Ready onReady={markReady} />
-      </Suspense>
-    </SceneBoundary>
-  </>, world, portalState);
+  const closeList = () => {
+    setListing(false);
+    if (listKeyboard.current) ui.focus({ id: 'library', rect: screensaverLayout(ui.w).SAVER_LIBRARY });
+  };
+  return <>
+    {listing && <SceneList scene={scene} keyboard={listKeyboard.current} onBack={closeList} onChoose={index => { chooseScene(index); closeList(); }} />}
+    {createPortal(<>
+      <SceneFrame exposure={current.exposure} liveShadows={current.shadows} />
+      <SceneBoundary key={current.id} onError={() => { setStatus('failed'); setWatching(false); }}>
+        <Suspense fallback={null}>
+          <current.Content view={view} clock={clock} />
+          <Ready onReady={markReady} />
+        </Suspense>
+      </SceneBoundary>
+    </>, world, portalState)}
+  </>;
 }
