@@ -26,7 +26,7 @@ import type { PlayerLook } from '../game/results.ts';
  *
  *   list     a compact glass button per game (minigames/registry.ts), one column on the left, each with
  *            its monochrome icon and title; four per page, with page controls
- *            below the column and the menu dancers on the right. Like the Wii's channels
+ *            below the column, a separate Screensavers launcher at the foot, and the menu dancers on the right.
  *   preview  the chosen game's title, options and players dial on the left, Play below,
  *            and the menu's glass dancer platform on the right. The dial only steps through
  *            supported player counts; solo games show one with both steps disabled.
@@ -52,6 +52,7 @@ export interface MinigameSelectProps {
   /** The player count to start a game's dial on, where the game supports it. */
   players?: PlayerCount;
   onBack?: () => void;
+  onScreensavers: () => void;
   /** The preview's player count, or null while the preview is hidden (for the menu platform). */
   onPreviewPlayersChange?: (players: PlayerCount | null) => void;
   onPlay?: (game: MinigameDefinition, players: PlayerCount, options: MinigameOptionValues) => void;
@@ -173,6 +174,8 @@ function drawPlayerChip(g: CanvasRenderingContext2D, rect: Rect, look: PlayerLoo
 interface SelectState {
   alpha: number; screen: MinigameScreenName; next: MinigameScreenName; swap: number;
   page: number;
+  leaving: 'home' | 'screensavers' | null;
+  refocusScreensavers: boolean;
   /** The game on the preview (or last opened), and each game's dial. */
   chosen: string | null;
   dial: Map<string, PlayerCount>;
@@ -181,25 +184,25 @@ interface SelectState {
   /** The preview's layouts, by width and option rows. */
   layouts: Map<string, PreviewLayout>;
   drawn: string;
-  reported: string;
+  reported: string | null;
   previewPlayers: PlayerCount | null;
   /** Best scores read from storage, by game and players (read again each time the list opens). */
   bests: Map<string, MinigameBest | null>;
 }
 
-export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onPlay, onPreviewPlayersChange }: MinigameSelectProps) {
+export default function MinigameSelect({ visible = false, open = null, players = 1, onBack, onScreensavers, onPlay, onPreviewPlayersChange }: MinigameSelectProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
   const width = displayDesign(size.width, size.height).w;
   const layout = minigameLayout(width);
-  const props = useRef({ visible, players, onBack, onPlay, onPreviewPlayersChange });
-  props.current = { visible, players, onBack, onPlay, onPreviewPlayersChange };
+  const props = useRef({ visible, players, onBack, onScreensavers, onPlay, onPreviewPlayersChange });
+  props.current = { visible, players, onBack, onScreensavers, onPlay, onPreviewPlayersChange };
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   const widthRef = useRef(width);
   widthRef.current = width;
   const st = useRef<SelectState>({
-    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawn: '', reported: '', previewPlayers: null, bests: new Map(),
+    alpha: 0, screen: 'list', next: 'list', swap: 1, page: 0, leaving: null, refocusScreensavers: false, chosen: null, dial: new Map(), options: new Map(), layouts: new Map(), drawn: '', reported: null, previewPlayers: null, bests: new Map(),
   }).current;
 
   const pages = Math.max(1, Math.ceil(MINIGAMES.length / MG_PER_PAGE));
@@ -235,7 +238,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
     if (picked && game.players.includes(picked)) return picked;
     return game.players.includes(props.current.players) ? props.current.players : game.players[0];
   };
-  const live = () => props.current.visible && st.alpha > 0.3 && st.screen === st.next;
+  const live = () => props.current.visible && !st.leaving && st.alpha > 0.3 && st.swap > 0.3 && st.screen === st.next;
   // (The list redraws often: storage is read once a game and count.)
   const bestOf = (game: MinigameDefinition, count: PlayerCount) => {
     if (game.best === false) return null;
@@ -272,7 +275,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   };
   const back = (key?: boolean) => {
     if (st.next === 'preview') { go('list', key); return; }
-    props.current.onBack?.();
+    st.leaving = 'home';
   };
   const turnPage = (dir: -1 | 1) => {
     const page = Math.max(0, Math.min(pages - 1, st.page + dir));
@@ -324,13 +327,17 @@ export default function MinigameSelect({ visible = false, open = null, players =
       return [
         { id: 'back', circle: layoutRef.current.MG_BACK },
         ...tileWidgets(),
+        { id: 'screensavers', rect: layoutRef.current.MG_SCREENSAVERS, corner: glassCorner(layoutRef.current.MG_SCREENSAVERS.h), primary: !MINIGAMES.length },
         ...(pages > 1 ? [{ id: 'page-prev', circle: layoutRef.current.MG_PAGE_PREV, nav: false }, { id: 'page-next', circle: layoutRef.current.MG_PAGE_NEXT, nav: false }] : []),
       ];
     },
     onActivate: (wdg, s) => {
       if (wdg.game) choose(wdg.game);
       else if (wdg.option) stepRow(wdg.option, wdg.step ?? 1);
-      else if (wdg.id === 'back') back();
+      else if (wdg.id === 'screensavers') {
+        st.refocusScreensavers = s.keyboard;
+        st.leaving = 'screensavers';
+      } else if (wdg.id === 'back') back();
       else if (wdg.id === 'page-prev') turnPage(-1);
       else if (wdg.id === 'page-next') turnPage(1);
       else if (wdg.id === 'minus') stepDial(-1);
@@ -373,11 +380,18 @@ export default function MinigameSelect({ visible = false, open = null, players =
     },
     update: (dt, s) => {
       const p = props.current;
-      if (st.next !== st.screen) {
+      if (st.leaving && st.swap > 0) {
+        st.swap = Math.max(0, st.swap - dt * 7);
+        if (st.swap === 0) {
+          if (st.leaving === 'screensavers') p.onScreensavers();
+          else p.onBack?.();
+        }
+        s.invalidate();
+      } else if (st.next !== st.screen) {
         st.swap = Math.max(0, st.swap - dt * 7);
         if (st.swap === 0) st.screen = st.next;
         s.invalidate();
-      } else if (st.swap < 1) {
+      } else if (!st.leaving && st.swap < 1) {
         st.swap = Math.min(1, st.swap + dt * 6);
         s.invalidate();
       }
@@ -402,7 +416,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
         // (Rows, as the layout counts them: a per-player setting is a row of several values.)
         minigameOptionRows: st.screen === 'preview' && game ? String(game.options?.length ?? 0) : '',
       };
-      const json = JSON.stringify(report);
+      const json = p.visible ? JSON.stringify(report) : null;
       if (json !== st.reported) {
         st.reported = json;
         const { dataset } = gl.domElement;
@@ -422,10 +436,11 @@ export default function MinigameSelect({ visible = false, open = null, players =
       if (st.screen === 'list') {
         drawHeader(g, l.MG_BACK, 'EXPERIMENTS', h.back ?? 0);
         const games = onPage();
-        if (!games.length) {
-          drawShadowText(g, 'The first experiments are on their way', l.MG_BACK.x - 38, 300, { size: 36, weight: 800 });
-        }
         games.forEach((game, i) => drawTile(g, l.mgTile(i), game, h[`game-${game.id}`] ?? 0, press(`game-${game.id}`)));
+        drawGlassButton(g, l.MG_SCREENSAVERS, {
+          label: 'Screensavers', sub: 'Ambient scenes', icon: 'landscape', chevron: true,
+          hover: h.screensavers ?? 0, press: press('screensavers'),
+        });
         if (pages > 1) {
           drawArrow(g, l.MG_PAGE_PREV, 'left', h['page-prev'] ?? 0, { enabled: st.page > 0 });
           drawArrow(g, l.MG_PAGE_NEXT, 'right', h['page-next'] ?? 0, { enabled: st.page < pages - 1 });
@@ -474,7 +489,7 @@ export default function MinigameSelect({ visible = false, open = null, players =
   useGlassBlur(() => {
     const l = st.screen === 'list' ? layoutRef.current : previewLayout(chosen());
     const panes = st.screen === 'list'
-      ? onPage().map((game, i) => buttonPane(ui, `game-${game.id}`, l.mgTile(i)))
+      ? [...onPage().map((game, i) => buttonPane(ui, `game-${game.id}`, l.mgTile(i))), buttonPane(ui, 'screensavers', l.MG_SCREENSAVERS)]
       : [...(l.MG_OPTIONS ? [panelPane(l.MG_OPTIONS)] : []), buttonPane(ui, 'play', l.MG_PLAY)];
     return { panes, alpha: st.alpha * st.swap, offsetX: (1 - st.swap) * -24 };
   });
@@ -492,8 +507,14 @@ export default function MinigameSelect({ visible = false, open = null, players =
       st.page = Math.floor(MINIGAMES.indexOf(game) / MG_PER_PAGE);
     }
     st.screen = st.next = game ? 'preview' : 'list';
-    st.swap = 1;
-    if (ui.keyboard) ui.focus(game ? { id: 'play', rect: layoutRef.current.MG_PLAY } : null);
+    st.leaving = null;
+    // Enter the list with the same slide as Start and Settings. Round previews
+    // retain their usual fade when a game hands control back.
+    st.swap = game ? 1 : 0;
+    if (!game) st.alpha = 1;
+    if (st.refocusScreensavers && !game) ui.focus({ id: 'screensavers', rect: layoutRef.current.MG_SCREENSAVERS });
+    else if (ui.keyboard) ui.focus(game ? { id: 'play', rect: layoutRef.current.MG_PLAY } : null);
+    st.refocusScreensavers = false;
     ui.invalidate();
   }, [visible, open, st, ui]);
 

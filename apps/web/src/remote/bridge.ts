@@ -48,6 +48,7 @@ export function listen(fn: (state: RemoteState) => void) {
 
 /** What the game is showing, for the status line. */
 export function screenName(p: GamePage): string {
+  if (p.screensaverMode) return 'Screensavers';
   if (p.resultsScreen) return 'Results';
   switch (p.gamePhase) {
     case 'loading': return 'Loading the song';

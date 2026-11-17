@@ -1090,9 +1090,9 @@ static UIColor *RemoteBackground(void) { return [UIColor colorWithRed:0x1f / 255
   NSDictionary *page = host.page ?: @{};
   BOOL inSong = page[@"gamePhase"] != nil;
   // The phone mustn't lock while players get ready and dance (nobody touches it), nor while it's
-  // the TV's remote; paused, on the results and on the menus it may.
+  // the TV's remote or showing an ambient scene.
   NSArray *awake = @[@"loading", @"calibrating", @"ready", @"countdown", @"playing", @"finishing"];
-  UIApplication.sharedApplication.idleTimerDisabled = tv || (inSong && [awake containsObject:page[@"gamePhase"]]);
+  UIApplication.sharedApplication.idleTimerDisabled = tv || [page[@"screensaverMode"] isEqual:@"watch"] || (inSong && [awake containsObject:page[@"gamePhase"]]);
   [self setNeedsStatusBarAppearanceUpdate];
   [self setNeedsUpdateOfHomeIndicatorAutoHidden];
 }

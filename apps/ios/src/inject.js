@@ -110,7 +110,7 @@
   });
 
   // Tell the app which screen is showing, for the remote's status line.
-  const KEYS = ['menuScreen', 'menuReady', 'songScreen', 'songReady', 'gamePhase', 'resultsScreen', 'connectOpen', 'stage'];
+  const KEYS = ['menuScreen', 'menuReady', 'songScreen', 'songReady', 'gamePhase', 'resultsScreen', 'connectOpen', 'stage', 'screensaverMode'];
   let sent = '';
   setInterval(() => {
     const d = canvas()?.dataset ?? {};

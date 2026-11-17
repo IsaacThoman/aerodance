@@ -70,6 +70,8 @@ export function minigameLayout(width = 1600, options = 0) {
     /** Under the grid: the page dots. */
     MG_PAGE_DOTS_X: left + t.w / 2,
     MG_PAGE_DOTS_Y: gridBottom + 44,
+    /** The ambient gallery has its own launch button below the paginated games. */
+    MG_SCREENSAVERS: { x: left, y: 762, w: t.w, h: 82 },
     MG_TEXT: { x: left, w: columnW },
     MG_PLAY: play,
     MG_COUNT_X: countX,

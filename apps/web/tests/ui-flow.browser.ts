@@ -9,6 +9,8 @@ import express from 'express';
 import { chromium } from 'playwright';
 import { bundleFixture, choreographyBytes, silentWav } from './fixtures/songBundle.ts';
 import type { BundleFixture } from './fixtures/songBundle.ts';
+import { screensaverLayout } from '../src/screensavers/layout.ts';
+import { minigameLayout } from '../src/minigames/layout.ts';
 import { menuLayout } from '../src/menu/layout.ts';
 import { settingsButton } from './helpers/menu.ts';
 import { gameLayout, resultsRetry, resultsSongs } from '../src/game/layout.ts';
@@ -128,6 +130,35 @@ try {
   await page.waitForFunction(() => document.querySelector('canvas')?.style.opacity === '1', null, { timeout: 90000 });
   await menuOn('main');
   assert.deepEqual(await page.locator('canvas').evaluate((c) => [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height]), [640, 480]);
+
+  // Watching an experiment needs no camera. Remote Back reveals the controls
+  // before leaving the gallery, and the next visit restores the last setup.
+  const experiments = menuLayout(design.w, true, true).MINIGAMES!;
+  const { MG_SCREENSAVERS } = minigameLayout(design.w);
+  const saver = screensaverLayout(design.w);
+  const enterGallery = async () => {
+    await until({ minigameScreen: 'list', minigameSelectReady: 'true' });
+    await click(MG_SCREENSAVERS);
+    await until({ screensaverMode: 'browse', screensaverReady: 'true' });
+  };
+  await click(experiments);
+  await enterGallery();
+  await click(saver.SAVER_NEXT);
+  await until({ screensaverScene: 'lagoon', screensaverReady: 'true' });
+  await click(saver.SAVER_VIEW);
+  await click(saver.SAVER_CLOCK);
+  await until({ screensaverView: 'Drift current', screensaverClock: 'false' });
+  await click(saver.SAVER_WATCH);
+  await until({ screensaverMode: 'watch' });
+  await page.keyboard.press('Escape');
+  await until({ screensaverMode: 'browse' });
+  await page.keyboard.press('Escape');
+  await enterGallery();
+  await until({ screensaverScene: 'lagoon', screensaverView: 'Drift current', screensaverClock: 'false' });
+  await click(saver.SAVER_BACK);
+  await until({ minigameSelectReady: 'true' });
+  await page.keyboard.press('Escape');
+  await menuOn('main');
 
   // Settings holds the sound controls; nothing before the calibration screen asks for the camera.
   await click(await settingsButton(page, design.w));

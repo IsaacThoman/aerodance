@@ -318,6 +318,20 @@ export const ICONS = {
     g.lineTo(cx + w * 0.3, cy - h * 0.72);
     g.stroke();
   },
+  // A framed landscape for the screensaver gallery.
+  landscape(g, cx, cy, r) {
+    g.beginPath();
+    g.roundRect(cx - r * 0.57, cy - r * 0.4, r * 1.14, r * 0.8, r * 0.12);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(cx - r * 0.54, cy + r * 0.16);
+    g.lineTo(cx - r * 0.18, cy - r * 0.07);
+    g.lineTo(cx + r * 0.39, cy + r * 0.39);
+    g.stroke();
+    g.beginPath();
+    g.arc(cx + r * 0.25, cy - r * 0.14, r * 0.085, 0, TAU);
+    g.fill();
+  },
   close(g, cx, cy, r) {
     const a = r * 0.36;
     g.beginPath();
