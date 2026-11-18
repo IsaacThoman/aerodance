@@ -25,13 +25,12 @@ The dancers hold four moments of the capture: 3.1 s (purple's lunge), 5 s (blue'
 From the repository root, after `npm ci`:
 
 ```sh
-npm --prefix tools/thumbnails ci
 node tools/thumbnails/scripts/render.ts                         # all shots, into this folder
 node tools/thumbnails/scripts/render.ts --only club-dj,beach-hero
 node tools/thumbnails/scripts/render.ts --spec my-shots.tson --out /tmp/thumbs   # one-off shots
 ```
 
-It needs Google Chrome (driven headless by `playwright-core`, with GPU WebGL) and network access for the Inter font. Without Chrome, set `CHROMIUM_PATH` to another Chromium build, such as Playwright's `Google Chrome for Testing`. A full run takes under 2 minutes on an M3 Pro. Renders are deterministic: re-rendering on the same machine gives byte-identical files. A different GPU or driver may differ slightly.
+It needs Google Chrome (driven headless by Playwright, with GPU WebGL) and network access for the Inter font. Without Chrome, set `CHROMIUM_PATH` to another Chromium build, such as Playwright's `Google Chrome for Testing`. A full run takes under 2 minutes on an M3 Pro. Renders are deterministic: re-rendering on the same machine gives byte-identical files. A different GPU or driver may differ slightly.
 
 ## Apple TV icon
 

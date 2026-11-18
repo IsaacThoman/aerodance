@@ -154,7 +154,7 @@ export class Recorder {
         this.bytes > 8 * 1024 * 1024 ||
         performance.now() - Math.max(this.lastAck || this.startedAt, this.captureStartedAt) > 5000
       ) {
-        this.onFailure("Recording stopped: disk uploads are falling behind");
+        this.onFailure("Recording stopped: browser storage is falling behind");
         return;
       }
       if (this.pending.length >= 150) this.flush();
@@ -228,7 +228,7 @@ export class Recorder {
     this.flush();
     await this.chain;
     if (this.failure)
-      throw Error(`Incomplete take retained on disk: ${this.failure.message}`);
+      throw Error(`Incomplete take kept in browser storage: ${this.failure.message}`);
     // A cancelled countdown has no pose samples to finalize into a take.
     if (this.poseCount < 2) return null;
     return this.request(

@@ -284,18 +284,17 @@ choreography, audio, and checksums beside it. The folder name must match the
 exported `songId`, which is a hash of the song's audio and motion: changing the
 dance gives it a new ID, while metadata edits keep it. No manual manifest entry is needed.
 
-The game discovers exported folders automatically. In development and the
-production Express server, the catalog is scanned whenever Song Select opens.
+The game discovers exported folders automatically. In development, the Vite
+server scans the catalog whenever Song Select opens.
 Reopen Song Select after installing or replacing a song. Incomplete or invalid
 bundles are skipped with a server/build warning; the game still verifies all
 runtime file checksums when loading a selected song.
 
 `npm run build` generates `dist/songs/manifest.json` for static hosting and copies
 the song folders. Rebuild/redeploy after changing `apps/web/public/songs/` for a
-deployed game. On a running Express deployment, complete folders added directly
-to `dist/songs/` are detected without a rebuild or server restart. Container
-installations need those files inside the container, through a rebuilt image or
-a mounted songs directory.
+deployed game: production serves the build with nginx, so folders added to a
+deployment's `dist/songs/` aren't listed until the manifest is generated again.
+Container installations need the songs in the image, so rebuild it.
 
 To play a song without installing it, choose **Import song** in the game's
 Settings → Songs and pick the exported ZIP. It's saved in that browser only; see
@@ -320,6 +319,7 @@ node tools/choreography/tests/browser-storage.browser.ts
 node tools/choreography/tests/browser.ts
 node tools/choreography/tests/editor.browser.ts
 node tools/choreography/tests/video-import.browser.ts
+node tools/choreography/tests/solo-workflow.browser.ts
 node tools/choreography/tests/video-duet.browser.ts
 node tools/choreography/tests/project-loading.browser.ts
 docker build -f tools/choreography/Dockerfile --target test -t studio-test .
@@ -356,8 +356,7 @@ batches, backup restore, deterministic bundle checksums, and unsafe archives.
 - Projects, takes and raw captures from earlier editor versions can't be
   opened or imported; only legacy dance and take JSON files import as takes.
 - The editor imports `.adpose` takes and song choreography, legacy JSON, its
-  own project backups, and browser-decodable videos. Video import runs the same local models as the webcam; the optional
-  Python tracker remains an offline tool.
+  own project backups, and browser-decodable videos. Video import runs the same local models as the webcam.
 - Automatic normalization of different camera placements is future work; review poses after
   overwriting a track. Each independent player track retains its own inference dimensions.
   Keyframed animation with curves, limb solving and contacts is in [`tools/dance`](../dance/README.md).

@@ -1,4 +1,5 @@
-// Optional migration server for existing disk workspaces. The shipped Studio is static.
+// Disk-backed workspace and HTTP harness, kept for regression tests (browser-storage ZIP
+// compatibility, video import); not shipped. The shipped Studio is static.
 import express from "express";
 import type { ErrorRequestHandler } from "express";
 import path from "node:path";
