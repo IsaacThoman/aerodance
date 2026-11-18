@@ -10,7 +10,8 @@
 //   text 'L' + message   the live channel: poses and clock pings (dropped when late)
 //   text 'C' + message   the control channel: settings and status (reliable, in order)
 //   text 'S' + event     from the server: { type: 'open' } once both sides are connected
-//   binary               phone → game only: a JPEG of the phone's camera for a setup preview
+//   binary               phone → game: a JPEG of the phone's camera for a setup preview;
+//                        or either way in a transfer room: pieces of a song
 //
 // The messages are packages/pairing/link.ts's, as the WebRTC data channels carry them; each
 // side checks what it receives. The link ends when either socket closes: the server closes
@@ -19,7 +20,10 @@
 export const LIVE_PREFIX = 'L';
 export const CONTROL_PREFIX = 'C';
 export const SERVER_PREFIX = 'S';
-/** The largest frame either way: a pose message or a preview picture is a few kilobytes. */
+/**
+ * The largest frame either way: a pose message or a preview picture is a few kilobytes, a song
+ * piece in a transfer room 48 KB (apps/web/src/songs/songTransfer.ts PIECE_BYTES).
+ */
 export const MAX_RELAY_FRAME = 64 * 1024;
 /** Frames from the server. */
 export type RelayEvent = { type: 'open' };

@@ -5,14 +5,11 @@ dist/
 .DS_Store
 studio-data/
 studio-backups/
-tools/choreography/dist/
 *.blend1
 *.blend2
 .idea/
-apps/tvos/bench/dist/
 apps/tvos/www/
 apps/tvos/build/
-apps/tvos/dist/
 apps/tvos/Info.plist
 apps/tvos/*.xcodeproj/
 apps/tvos/src/generated/

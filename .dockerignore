@@ -11,3 +11,8 @@ apps/site
 **/__pycache__
 **/tracking-output
 studio-data
+# Apple app builds and their copies of the web build (.gitignore's)
+apps/*/build
+apps/*/www
+apps/tvos/src/generated
+studio-backups
