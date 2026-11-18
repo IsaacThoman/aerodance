@@ -1,5 +1,5 @@
 /*
- * The /?hands demo's ball, in metres and seconds, in the table's frame: x to the right as the
+ * Table Tennis's ball, in metres and seconds, in the table's frame: x to the right as the
  * player looks down the table, y up from the floor, z towards the player, the net at z = 0. A
  * 40 mm ball under gravity and air drag bounces off the table, catches in the net, and bounces off
  * the room and the paddle: a real disc with a face and a speed, met along its path through each

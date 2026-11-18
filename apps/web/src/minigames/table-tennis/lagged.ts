@@ -1,5 +1,5 @@
 /*
- * Lag compensation for the /?hands demo's hits. The webcam and the tracker see the player's paddle
+ * Lag compensation for Table Tennis's hits. The webcam and the tracker see the player's paddle
  * some time (the lag) after it was really there, and the player swung it at the ball they saw then.
  * So the paddle is met by the ball as it was a lag ago (replayed from the ball's recent past), and
  * a hit there plays forward to now: the return is where it would be had the hit been seen at once.

@@ -73,6 +73,7 @@ function useSceneCamera(props: MinigameCameraProps) {
 
 /** The first of the layers SeenBy puts things on: view i sees VIEW_LAYER + i (and layer 0, as every camera does). */
 const VIEW_LAYER = 8;
+const bufferSize = new THREE.Vector2();
 /** The most views a split screen has (a two by two grid). */
 const MAX_VIEWS = 4;
 
@@ -351,7 +352,7 @@ export function MirrorCharacters({ fit = 'cover', rect, scale = 1, anchor = 'hip
     gl.autoClear = false;
     gl.toneMapping = THREE.ACESFilmicToneMapping;
     if (rect) {
-      const buffer = gl.getSize(new THREE.Vector2());
+      const buffer = gl.getSize(bufferSize);
       gl.setScissorTest(true);
       gl.setScissor((rect.x / w) * buffer.x, (1 - (rect.y + rect.h) / h) * buffer.y, (rect.w / w) * buffer.x, (rect.h / h) * buffer.y);
     }

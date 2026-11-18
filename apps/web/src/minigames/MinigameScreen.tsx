@@ -34,7 +34,7 @@ import type { MinigamePhase } from './types.ts';
  *                time left under the pause icon at the top centre, a nudge for anyone out of
  *                view; Escape, the pause icon, a hidden tab or an interruption (the audio taken
  *                for a call, the camera muted: game/interruptions.ts) pauses
- *   paused       Resume (counting down again), Restart and Minigames, and why the game can't go
+ *   paused       Resume (counting down again), Restart and Experiments, and why the game can't go
  *                on yet: the camera is muted
  *   finishing    Time's up! (or Finish!), then MinigameResults takes over
  *   error        the game wouldn't load or crashed: say so, and go back

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
-import { FONT, ICONS, drawDisc, drawGlassCircle, drawPill, drawTitle, ellipsize, text } from '../ui/draw.ts';
+import { FONT, ICONS, drawDisc, drawGlassCircle, drawPill, drawTitle, ellipsize, shadowed, text } from '../ui/draw.ts';
 import type { Circle, IconName } from '../ui/draw.ts';
 import useCanvasUI from '../ui/useCanvasUI.ts';
 import type { Widget } from '../ui/useCanvasUI.ts';
@@ -48,16 +48,6 @@ export interface RemoteScreenProps {
   onKey: (key: RemoteKey, repeat: boolean) => void;
 }
 type RemoteWidget = Widget & { id: RemoteButton };
-
-// Text straight over the background: the navy drop shadow the game's own titles use.
-function shadowed(g: CanvasRenderingContext2D, draw: () => void) {
-  g.save();
-  g.shadowColor = 'rgba(0, 34, 84, 0.8)';
-  g.shadowBlur = 5;
-  g.shadowOffsetY = 2;
-  draw();
-  g.restore();
-}
 
 // A glass arrow button, pressed in while held.
 function drawArrow(g: CanvasRenderingContext2D, c: Circle, icon: 'up' | 'down' | 'left' | 'right', hover: number, held: boolean) {

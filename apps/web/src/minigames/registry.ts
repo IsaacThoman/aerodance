@@ -14,5 +14,3 @@ export const MINIGAMES: readonly MinigameDefinition[] = listMinigames(
   Object.entries(found).map(([path, def]) => ({ folder: path.split('/')[1], def })),
   { dev: import.meta.env.DEV || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('devgames')) },
 );
-
-export const minigameById = (id: string) => MINIGAMES.find((game) => game.id === id) ?? null;

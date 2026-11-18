@@ -121,14 +121,16 @@ export class SessionRecording {
       if (!mimeType) throw Error('No supported camera recording codec');
       this.extension = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
       this.name = fileName(session.game.id);
-      let logFile: FileSystemWritableFileStream | undefined;
+      let logFile: FileSystemWritableFileStream | undefined, videoFile: FileSystemWritableFileStream | undefined;
       if (this.destination) {
         logFile = await (await this.destination.getFileHandle(`${this.name}.jsonl`, { create: true })).createWritable();
-        try { this.videoFile = await (await this.destination.getFileHandle(`${this.name}.${this.extension}`, { create: true })).createWritable(); }
+        try { videoFile = await (await this.destination.getFileHandle(`${this.name}.${this.extension}`, { create: true })).createWritable(); }
         catch (error) { await logFile.close(); throw error; }
       }
-      // Quit/hidden may happen while file handles are opening.
-      if (this.ended) { await logFile?.close(); await this.videoFile?.close(); return; }
+      // Quit/hidden may happen while file handles are opening: then stop()'s save() has already
+      // run without them, and they're closed here (only), not saved.
+      if (this.ended) { await logFile?.close(); await videoFile?.close(); return; }
+      this.videoFile = videoFile;
       const worker = this.worker = new Worker(new URL('./sessionLog.worker.ts', import.meta.url), { type: 'module' });
       let workerFailure: Error | undefined;
       let receive: { resolve(text: string): void; reject(error: Error): void } | undefined;
