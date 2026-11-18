@@ -221,7 +221,8 @@ try {
   await shot('custom-preview');
   await click(DANCE);
   await until({ gamePhase: 'playing' }, 30000);
-  await until({ gamePhase: 'results' }, 90000);
+  // The results' buttons take clicks once ResultsScreen is up (resultsScreen), not as the phase changes.
+  await until({ gamePhase: 'results', resultsScreen: 'stage' }, 90000);
   const bests = Object.keys(JSON.parse(await page.evaluate(() => localStorage.getItem('aerodance-best-scores') ?? '{}')));
   assert.ok(bests.some((key) => key.startsWith(`custom:${song.songId}|2p|`)), `custom best score saved: ${bests.join(', ')}`);
   assert.ok(!bests.some((key) => key.startsWith(`${song.songId}|`)), 'the published song has no best score');
