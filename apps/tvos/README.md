@@ -36,7 +36,7 @@ the Siri Remote.
   is made (one native call per WebGL call, for comparison).
 
 The game is built as one classic script (`vite.config.ts`), since the host has no module
-loader. Fonts are bundled: Inter (as the web build loads it from Google Fonts) and Nunito.
+loader. Fonts are bundled: Inter (as the web build loads it from Google Fonts), Nunito and Tiny5.
 
 ## The phone camera
 
@@ -61,7 +61,7 @@ Requirements:
   simulator needs none of this.
 - A paid Apple Developer team, signed in to Xcode. Builds use `TVOS_TEAM_ID` (default
   `PX72AL9366`) and `TVOS_BUNDLE_ID` (default `com.isaacthoman.aerodance`, shared with the
-  planned iPhone and iPad app so they're one App Store listing); other teams need their own
+  iPhone and iPad app (`apps/ios`) so they're one App Store listing); other teams need their own
   bundle ID. The first build registers the Apple TV with the team. tvOS may ask you to turn on
   Developer Mode (Settings → Privacy & Security) and restart.
 

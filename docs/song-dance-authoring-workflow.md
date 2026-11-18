@@ -1,8 +1,8 @@
 # Song and dance authoring workflow
 
-> **Historical plan.** The Android client, battles (Solana, iMessage), the phone remote,
-> Flock cameras and the bundled songs it mentions have since been removed; the game and
-> Dance Studio now take poses from the browser webcam only.
+> **Historical plan.** The Android client, battles (Solana, iMessage), the old phone remote,
+> Flock cameras and the bundled songs it mentions have since been removed; the game takes
+> poses from the browser webcam or a paired phone camera, and Dance Studio from the webcam.
 
 For the video-to-animation process and the reference implementation requirements, use the
 [video conversion guide](video-dance-conversion.md) and [dance CLI](dance-cli.md).
@@ -64,9 +64,6 @@ review. Keep authoring drafts outside the public game assets.
 - Android streaming contract (`client-android/camera-to-client-streaming.md`):
   HTTP port 1337, status/config endpoints, one NDJSON streaming connection,
   complete snapshots, explicit IDs, and 33 MediaPipe image landmarks.
-- `AndroidPoseSource` and
-  [protocol decoder](../apps/web/src/pose/protocol.ts): connection lifecycle,
-  bounded decoding, validation, and player-mode boundaries.
 - [Character package guide](../packages/character/README.md),
   [motion code](../packages/character/motion.ts), and
   [character component](../packages/character/Character.tsx):

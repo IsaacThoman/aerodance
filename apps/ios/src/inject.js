@@ -205,7 +205,7 @@
   if (Array.isArray(start.drive)) addEventListener('DOMContentLoaded', () => { drive(start.drive); });
 
   // --flow plays the full-game flow with the remote's keys, for benchmarks (open the game with
-  // ?input=ghost): one player (the dial's starting count), the first song, Dance!, then the results. Each step is reported.
+  // ?input=ghost): two players (the dial's starting count), the first song, Dance!, then the results. Each step is reported.
   const flowOn = '__FLOW__';
   if (flowOn !== '1') return;
   const steps = [

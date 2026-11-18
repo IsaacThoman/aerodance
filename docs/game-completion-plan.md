@@ -1,8 +1,8 @@
 # Plan: finishing aerodance as a playable game
 
-> **Historical plan.** The Android client, battles (Solana, iMessage), the phone remote,
-> Flock cameras and the bundled songs it mentions have since been removed; the game and
-> Dance Studio now take poses from the browser webcam only.
+> **Historical plan.** The Android client, battles (Solana, iMessage), the old phone remote,
+> Flock cameras and the bundled songs it mentions have since been removed; the game takes
+> poses from the browser webcam or a paired phone camera, and Dance Studio from the webcam.
 
 Prepared 2026-10-11 from the repository on `main` (4c3133e). This plan turns the
 Android/game integration plan and the
