@@ -7,7 +7,6 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { cloneCharacter } from '../cloneCharacter.ts';
 import { hasRigidSkinning, patchRigidSkinning } from '../rigidSkinning.ts';
-import { createAccessorySelector } from '../accessories.ts';
 import { createSkinBounds } from '../skinBounds.ts';
 
 const bytes = await readFile(
@@ -20,40 +19,6 @@ const asset = await new GLTFLoader().parseAsync(
 
 const isSkinnedMesh = (o: Object3D): o is SkinnedMesh => "isSkinnedMesh" in o && o.isSkinnedMesh === true;
 const materialName = (mesh: SkinnedMesh) => Array.isArray(mesh.material) ? undefined : mesh.material.name;
-
-test('detached accessories retain the same visible skins through selection and moving parents', () => {
-  const before = clone(asset.scene), after = cloneCharacter(asset.scene);
-  const parentA = new Group(), parentB = new Group(); parentA.add(before); parentB.add(after);
-  const original: { object: Object3D; parent: Object3D | null; visible: boolean }[] = [];
-  after.traverse(object => original.push({ object, parent: object.parent, visible: object.visible }));
-  const selector = createAccessorySelector(after);
-  for (const [i, name] of ['None', 'Flower', 'None', 'Sprout', 'Halo', 'Headphones', 'None'].entries()) {
-    before.traverse(o => { if (o.name.startsWith('acc_')) o.visible = o.name.startsWith(`acc_${name.toLowerCase()}_`); });
-    selector.select(name);
-    for (const parent of [parentA, parentB]) {
-      parent.position.set(i, .5, -2); parent.rotation.set(.1, i * .2, -.3); parent.scale.set(-1.2, .8, 1.4);
-      parent.updateMatrixWorld(true);
-    }
-    const visible = (model: Object3D) => {
-      const result: SkinnedMesh[] = [];
-      model.traverseVisible(o => { if (isSkinnedMesh(o)) result.push(o); });
-      return result.sort((a, b) => a.name.localeCompare(b.name));
-    };
-    const a = visible(before), b = visible(after);
-    assert.deepEqual(b.map(o => o.name), a.map(o => o.name));
-    for (let j = 0; j < a.length; j++) {
-      assert.deepEqual(b[j].matrixWorld, a[j].matrixWorld);
-      for (let v = 0; v < a[j].geometry.attributes.position.count; v++) assert.deepEqual(b[j].getVertexPosition(v, new Vector3()), a[j].getVertexPosition(v, new Vector3()));
-    }
-    if (name === 'None') assert.ok(original.length > 2 * after.children[0].children.length);
-  }
-  selector.restore();
-  for (const { object, parent, visible } of original) { assert.equal(object.parent, parent); assert.equal(object.visible, visible); }
-  const animated = createAccessorySelector(after, { detach: false });
-  animated.select('None');
-  for (const { object, parent } of original) assert.equal(object.parent, parent, 'custom models retain animation bindings to hidden accessories');
-  animated.restore();
-});
 
 test('rigid skin specialization requires an exact single influence and a distinct program', () => {
   assert.equal(hasRigidSkinning(asset.scene), true);
@@ -92,7 +57,7 @@ test('shared character skins retain every mesh palette, bind transform and defor
   };
   const before = meshes(original), after = meshes(optimized);
   assert.equal(new Set(after.map((mesh) => mesh.skeleton)).size, 1);
-  assert.ok(before.length > 8);
+  assert.equal(before.length, 8);
   assert.notEqual(after[0].skeleton, meshes(other)[0].skeleton, 'dancers must remain independent');
   assert.notEqual(after[0].skeleton.bones[0], meshes(other)[0].skeleton.bones[0]);
   const a = new AnimationMixer(original), b = new AnimationMixer(optimized);

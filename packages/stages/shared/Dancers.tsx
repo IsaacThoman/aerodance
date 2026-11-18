@@ -25,9 +25,9 @@ export type DancerLook = CharacterAppearance;
 // solid than the menu's dancers (default gel opacity 0.72) so they hold up against busy
 // stage backgrounds.
 export const DANCER_LOOKS: readonly DancerLook[] = ['#078fff', '#b86bff', '#1fcf72', '#ff5fb4']
-  .map((color) => ({ color, gloss: 85, accessory: 'None', opacity: 0.85 }));
+  .map((color) => ({ color, gloss: 85, opacity: 0.85 }));
 /** A dancer nobody follows: frosted glass, so the ones the players follow stand out in their colours. */
-export const SPARE_LOOK: DancerLook = { color: '#d8eefa', gloss: 85, accessory: 'None', opacity: 0.55 };
+export const SPARE_LOOK: DancerLook = { color: '#d8eefa', gloss: 85, opacity: 0.55 };
 
 /** A song's dancers dressed for a cast: each in the colour of the first player following them, or spare. */
 export function castLooks(cast: Cast, dancers: number, looks: readonly DancerLook[] = DANCER_LOOKS): DancerLook[] {

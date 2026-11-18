@@ -19,10 +19,6 @@ skin_shader = skin.node_tree.nodes.get('Principled BSDF')
 skin_shader.inputs['Alpha'].default_value = .72
 eye = material('Ink', (.006, .025, .065), .1, .18)
 white = material('Pearl', (.85, .97, 1), .35)
-navy = material('HeadphoneShell', (.012, .06, .11), .5)
-lime = material('Leaf', (.3, .8, .025), .1)
-purple = material('Petal', (.52, .12, .9), .1)
-gold = material('Gold', (1, .6, .035), .65)
 parts = []
 def orb(name, pos, scale, mat, bone, pear=False):
     bpy.ops.mesh.primitive_uv_sphere_add(segments=40, ring_count=24, location=pos)
@@ -37,17 +33,8 @@ def orb(name, pos, scale, mat, bone, pear=False):
     for p in obj.data.polygons: p.use_smooth = True
     parts.append((obj, bone)); return obj
 
-def tube(name, coords, radius, mat, bone):
-    curve = bpy.data.curves.new(name, 'CURVE'); curve.dimensions = '3D'; curve.bevel_depth = radius; curve.bevel_resolution = 4
-    s = curve.splines.new('POLY'); s.points.add(len(coords)-1)
-    for p, co in zip(s.points, coords): p.co = (*co, 1)
-    obj = bpy.data.objects.new(name, curve); bpy.context.collection.objects.link(obj)
-    bpy.context.view_layer.objects.active = obj; obj.select_set(True)
-    bpy.ops.object.convert(target='MESH'); obj = bpy.context.object
-    obj.data.materials.append(mat)
-    for p in obj.data.polygons: p.use_smooth = True
-    parts.append((obj, bone)); obj.select_set(False)
-
+# The parts skinned to a bone of the same name are called <bone>_1, as three.js would rename
+# them anyway, so the bones keep their own names however the loader orders the nodes.
 # Reference proportions (center character): 129px head, 145px torso,
 # 55px oval feet, within a 336px total silhouette. Hands are detached spheres.
 # Rounded lathed torso with the reference's wide, nearly flat bottom.
@@ -62,27 +49,16 @@ for i in range(len(profile)-1):
         a=i*segments+j; b=i*segments+(j+1)%segments
         faces.append((a,b,b+segments,a+segments))
 mesh=bpy.data.meshes.new('ReferenceBody'); mesh.from_pydata(verts,[],faces); mesh.update()
-body=bpy.data.objects.new('Body',mesh); bpy.context.collection.objects.link(body); body.data.materials.append(skin)
+body=bpy.data.objects.new('Body_1',mesh); bpy.context.collection.objects.link(body); body.data.materials.append(skin)
 for p in body.data.polygons: p.use_smooth=True
 sub=body.modifiers.new('Rounded silhouette','SUBSURF'); sub.levels=2
 bpy.context.view_layer.objects.active=body; body.select_set(True); bpy.ops.object.modifier_apply(modifier=sub.name); body.select_set(False)
 parts.append((body,'Body'))
-orb('Head', (0,0,2.715), (.645,.60,.645), skin, 'Head')
+orb('Head_1', (0,0,2.715), (.645,.60,.645), skin, 'Head')
 for sign, side in [(-1,'L'),(1,'R')]:
-    orb('Arm.'+side, (sign*.96,0,1.08), (.33,.33,.33), skin, 'Arm.'+side)
-    orb('Foot.'+side, (sign*.36,-.13,.30), (.43,.40,.275), skin, 'Foot.'+side)
+    orb('Arm.'+side+'_1', (sign*.96,0,1.08), (.33,.33,.33), skin, 'Arm.'+side)
+    orb('Foot.'+side+'_1', (sign*.36,-.13,.30), (.43,.40,.275), skin, 'Foot.'+side)
     orb('Eye.'+side, (sign*.185,-.578,2.73), (.082,.033,.178), eye, 'Head')
-    orb('acc_headphones_pad.'+side, (sign*.635,0,2.73), (.15,.25,.28), navy, 'Head')
-    orb('acc_headphones_trim.'+side, (sign*.73,0,2.73), (.045,.18,.20), navy, 'Head')
-tube('acc_headphones_band', [(math.cos(t)*.68,0,2.73+math.sin(t)*.66) for t in [i*math.pi/32 for i in range(33)]], .055, navy, 'Head')
-tube('acc_sprout_stem', [(0,0,3.30),(.02,0,3.48),(.06,0,3.61)], .027, lime, 'Head')
-for sign in [-1,1]:
-    ob = orb('acc_sprout_leaf'+str(sign), (sign*.16,0,3.53), (.23,.07,.10), lime, 'Head'); ob.rotation_euler.y = sign*-.45
-for i in range(5):
-    a=i*math.tau/5
-    orb('acc_flower_petal'+str(i), (.43+math.cos(a)*.15,-.40,3.20+math.sin(a)*.15), (.11,.055,.11), purple, 'Head')
-orb('acc_flower_center', (.43,-.463,3.20), (.09,.05,.09), gold, 'Head')
-tube('acc_halo_ring', [(math.cos(i*math.tau/64)*.42, math.sin(i*math.tau/64)*.42,3.58) for i in range(65)], .038, gold, 'Head')
 
 bpy.ops.object.select_all(action='DESELECT')
 arm_data=bpy.data.armatures.new('AeroSkeleton'); rig=bpy.data.objects.new('AeroRig',arm_data); bpy.context.collection.objects.link(rig)
