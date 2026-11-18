@@ -17,11 +17,11 @@ Ten procedural Frutiger Aero scenes that can stand behind the menus in place of 
 
 ## Layout
 
-- `catalog.ts`: the backdrops as plain data (each folder's `meta.ts`: settings name, subtitle, post settings), with no rendering code.
+- `catalog.ts`: the backdrops as plain data (each folder's `meta.ts`: display name, subtitle, post settings), with no rendering code.
 - `index.ts`: pairs each meta with its lazily loaded `<Name>Backdrop.tsx`, so only the one showing is fetched.
 - `shared/frame.ts`: the backdrop clock and `useBackdropFrame`, which stops while a dance stage has the screen and runs at half speed with prefers-reduced-motion; and `backdropPost`, the live post settings of the backdrop showing.
 - `shared/BackdropCamera.tsx`: the camera, with slow drift and a lean towards the pointer. Use it rather than a camera of your own: [walk mode](../../docs/walk-mode.md) takes it over through `cameraPilot`.
-- Backdrops also use the stages' shared modules: `Sky.tsx`, `Environment.tsx`, `glsl.ts`, `random.ts` and `useDisposable` in `hooks.ts`. Atrium's room is the `atrium` stage's (`packages/stages/atrium`), seen from the menu's camera.
+- Backdrops also use the stages' shared modules: `Sky.tsx`, `post.tsx` (`POST_DEFAULTS`, `PostOverrides`), `glsl.ts`, `random.ts` and `useDisposable` in `hooks.ts`. Atrium's room is the `atrium` stage's (`packages/stages/atrium`), seen from the menu's camera.
 
 The game hosts them in `apps/web/src/backdrop/BackdropView.tsx`: a createPortal scene drawn through the stages' `RenderPipeline` (stage → bloom → grade → ACES) into the 640×480 buffer.
 

@@ -15,15 +15,14 @@ export type BackdropId = 'aurora' | 'bubbles' | 'ribbons' | 'cloudsea' | 'hills'
 /** A backdrop folder's `meta.ts`. */
 export interface BackdropMeta {
   id: BackdropId;
-  /** What Settings → Graphics → Background calls it. */
+  /** Its display name (walk mode's scene list; ?background= takes the id). */
   name: string;
   /** What it shows, in a line. */
   subtitle: string;
   post: PostOverrides;
 }
 
-// The menu backdrops as plain data, in the order Settings steps through them, with no rendering
-// code; index.ts pairs each with its component.
+// The menu backdrops as plain data, with no rendering code; index.ts pairs each with its component.
 export const BACKDROP_METAS: readonly BackdropMeta[] = [aurora, bubbles, ribbons, cloudsea, hills, koi, atrium, dew, orbit, jellyfish];
 
 export const isBackdropId = (id: unknown): id is BackdropId => BACKDROP_METAS.some((backdrop) => backdrop.id === id);

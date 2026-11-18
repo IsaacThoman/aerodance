@@ -2,9 +2,9 @@ import { useFrame } from '@react-three/fiber';
 import type { RootState } from '@react-three/fiber';
 
 /**
- * The robot hall's clock, in seconds. Every rally and arm goes by it rather than R3F's, so in
- * development it can be paused, slowed or set (window.__robots) and every arm is then exactly
- * where it would be at that moment.
+ * The robot arms' clock, in seconds. Every rally and arm goes by it rather than R3F's, so setting
+ * its `paused` or `scale` pauses or slows every arm together, each exactly where it would be at
+ * that moment.
  */
 export const robotClock = {
   // A few seconds in, so every rally is under way.

@@ -108,6 +108,12 @@ class CarriagePlanner {
 const TOOL = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() };
 paddleInFlange().premultiply(new THREE.Matrix4().makeTranslation(DIM.d6, 0, 0)).decompose(TOOL.position, TOOL.quaternion, new THREE.Vector3());
 
+// placeChain's scratch, as it runs every frame.
+const _chainTangent = new THREE.Vector3();
+const _chainNormal = new THREE.Vector3();
+const _chainX = new THREE.Vector3(1, 0, 0);
+const _chainAt = new THREE.Vector3();
+
 /** Where each link of the chain goes, its pivot pitch apart along the carrier's path. */
 function placeChain(mesh: THREE.InstancedMesh, moving: number, m: THREE.Matrix4) {
   const { chainFixed: F, chainBend: R, chainY: y0, chainPitch: pitch, chainLinks: n, chainX: x } = TRACK;
@@ -116,10 +122,7 @@ function placeChain(mesh: THREE.InstancedMesh, moving: number, m: THREE.Matrix4)
   const straight = length - Math.PI * R;
   const B = (F + moving + straight) / 2;
   const L1 = B - F;
-  const t = new THREE.Vector3();
-  const nIn = new THREE.Vector3();
-  const xAxis = new THREE.Vector3(1, 0, 0);
-  const p = new THREE.Vector3();
+  const t = _chainTangent, nIn = _chainNormal, xAxis = _chainX, p = _chainAt;
   for (let i = 0; i < n; i++) {
     const s = (i + 0.5) * pitch;
     if (s < L1) {

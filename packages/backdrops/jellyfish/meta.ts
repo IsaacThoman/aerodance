@@ -1,6 +1,6 @@
 import type { BackdropMeta } from '../catalog.ts';
 
-// Settings name and post settings, loaded before the backdrop itself. The jellies' margins,
+// Display name and post settings, loaded before the backdrop itself. The jellies' margins,
 // beads and the sun's glints run above the bloom threshold and glow.
 const meta = {
   id: 'jellyfish',

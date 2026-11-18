@@ -116,8 +116,6 @@ export function meadowHeight(x: number, z: number) {
   return h;
 }
 
-export const heightAt = meadowHeight;
-
 // --------------------------------------------------------------- valley
 
 export const LAKE = { x: 0, z: -258, rx: 132, rz: 92 };

@@ -163,8 +163,8 @@ export function StageCamera({
   return null;
 }
 
-// Shared music clock so beat-reactive lights stay in sync across a stage.
-// The capture is silent, so this is a steady 118 bpm pulse.
+// Shared music clock so beat-reactive lights stay in sync across a stage: a steady 118 bpm
+// when idle; while a song with a bpm plays, StageView sets it to the song's tempo and clock.
 export interface BeatClock {
   bpm: number;
   /** Seconds. */
