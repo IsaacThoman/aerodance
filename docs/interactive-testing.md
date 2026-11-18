@@ -64,8 +64,9 @@ node scripts/play.ts start [--studio | --dance <project>] [--dist] [--headed] [-
   for checking what actually ships.
 - `--headed` opens a visible window that you can play in while the commands still work.
   Closing the window ends the session.
-- `--url` is the page to open, e.g. `/?input=ghost` for the autoplay ghost, or `/?input=puppet`
-  for the puppet camera (see [Camera](#camera)).
+- `--url` is the page to open, e.g. `/?input=ghost` for the autoplay ghost, `/?input=puppet`
+  for the puppet camera (see [Camera](#camera)), or `/?screensaver=<id>` for a screensaver full
+  screen ([screensavers](screensavers.md#testing)).
 - `?record=session` in `--url` records a minigame round's native webcam video and tracking JSONL
   locally, including with `/?input=puppet&record=session`. Play asks once for a save folder when
   supported; otherwise allow two downloads. Quit, results or hiding the tab finishes capture.
@@ -110,7 +111,7 @@ and Vite dependency cache under `.cache/play/sessions/<name>/`.
 
 Every game screen is drawn on the canvas in 1600×900 (16:9) or 1200×900 (4:3) design units, and the layout
 modules (`apps/web/src/menu/layout.ts`, `apps/web/src/game/layout.ts`, `apps/web/src/walk/layout.ts`,
-`apps/web/src/minigames/layout.ts`) export the position of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
+`apps/web/src/minigames/layout.ts`, `apps/web/src/screensavers/layout.ts`) export the position of each control. `click` resolves the layout for the current display mode and clicks the middle of the rect or circle, wherever the letterboxed frame is:
 
 - `START`, `DANCE`, `GAME_PAUSE`: a name exported by only one module
 - `menu.BACK`, `game.BACK`: a module prefix where names clash

@@ -85,9 +85,9 @@ export function makeNoiseTexture(size = 256): THREE.DataTexture {
 export const skyGLSL = /* glsl */ `
 uniform vec3 uSunDir, uSunColor, uZenith, uUpper, uHorizon, uGlow;
 uniform float uHazeDensity;
-// 0 on the side away from the sun, 1 towards it.
+// 0 on the side away from the sun, 1 towards it (clamped: a hair below 0 makes pow() NaN, which the bloom spreads).
 float sunward(vec3 d) {
-  return dot(normalize(d.xz + vec2(1e-5)), normalize(uSunDir.xz)) * 0.5 + 0.5;
+  return clamp(dot(normalize(d.xz + vec2(1e-5)), normalize(uSunDir.xz)) * 0.5 + 0.5, 0.0, 1.0);
 }
 vec3 skyGradient(vec3 d) {
   float h = max(d.y, 0.0);

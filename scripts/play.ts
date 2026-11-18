@@ -15,6 +15,7 @@ import * as menuLayout from '../apps/web/src/menu/layout.ts';
 import * as gameLayout from '../apps/web/src/game/layout.ts';
 import * as walkLayout from '../apps/web/src/walk/layout.ts';
 import * as minigameLayout from '../apps/web/src/minigames/layout.ts';
+import * as screensaverLayout from '../apps/web/src/screensavers/layout.ts';
 import { displayDesign } from '../apps/web/src/display.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -65,9 +66,9 @@ const USAGE = `Usage: node scripts/play.ts <command> [args]
   resize <width>x<height>              change the viewport
   targets                              list the layout targets click accepts
 
-Targets name layout exports in apps/web/src/{menu,game,walk,minigames}/layout.ts, e.g. START,
-menu.BACK, game.BACK, rowRect.0, GAME_CALIBRATION_CAMERA.next, mgTile.0, mgOptionNext.1 or
-walk.sceneRect.3.
+Targets name layout exports in apps/web/src/{menu,game,walk,minigames,screensavers}/layout.ts, e.g.
+START, menu.BACK, game.BACK, rowRect.0, GAME_CALIBRATION_CAMERA.next, mgTile.0, mgOptionNext.1,
+svTile.2, SV_START or walk.sceneRect.3.
 
 PLAY_SESSION=<name> before any command uses a separate named session.`;
 
@@ -80,22 +81,23 @@ const centre = (s: Shape) => ({ x: s.x + (s.w ?? 0) / 2, y: s.y + (s.h ?? 0) / 2
 
 /**
  * Each layout module's exports and its layout for a display's width. The main menu's layout
- * depends on whether it has Minigames, and a minigame's preview on how many option rows it has
- * (the canvas reports both).
+ * depends on whether it has Minigames, and a minigame's or screensaver's preview on how many
+ * option rows it has (the canvas reports them).
  */
-const layoutsAt = (width: number, minigames: boolean, minigameOptions: number): Record<string, Record<string, unknown>> => ({
+const layoutsAt = (width: number, minigames: boolean, minigameOptions: number, saverOptions = minigameOptions): Record<string, Record<string, unknown>> => ({
   menu: { ...menuLayout, ...menuLayout.menuLayout(width, true, minigames) },
   game: { ...gameLayout, ...gameLayout.gameLayout(width) },
   walk: { ...walkLayout, ...walkLayout.walkLayout(width) },
   minigames: { ...minigameLayout, ...minigameLayout.minigameLayout(width, minigameOptions) },
+  screensavers: { ...screensaverLayout, ...screensaverLayout.screensaverLayout(width, saverOptions) },
 });
 
 /**
  * The design-unit point a target names: "x,y", "[module.]EXPORT[.key...]" (functions take the
  * numbers after them as arguments).
  */
-function resolveTarget(target: string, width = 1600, minigames = false, minigameOptions = 0) {
-  const layouts = layoutsAt(width, minigames, minigameOptions);
+function resolveTarget(target: string, width = 1600, minigames = false, minigameOptions = 0, saverOptions = 0) {
+  const layouts = layoutsAt(width, minigames, minigameOptions, saverOptions);
   const point = /^(-?[\d.]+),(-?[\d.]+)$/.exec(target);
   if (point) return { x: Number(point[1]), y: Number(point[2]) };
   let parts = target.split('.');
@@ -223,11 +225,11 @@ async function daemon(options: Options) {
     if (options.app === 'dance') return void await page.waitForSelector('.studio[data-revision], .new-dance', { timeout: 120000 });
     // The canvas fades in once the world is built, then the menu reports ready. The phone
     // camera page (/pair/) has no world and is ready once it draws; walk mode (/?walk) once its
-    // scene is built (or has failed).
+    // scene is built (or has failed); a screensaver link (/?screensaver=) once it's showing.
     await page.waitForFunction(() => {
       const c = document.querySelector<HTMLCanvasElement>('.canvas-frame canvas');
-      return (c?.style.opacity === '1' && c.dataset.menuReady === 'true') || c?.dataset.phoneReady === 'true'
-        || c?.dataset.walkReady === 'true' || c?.dataset.walkFailed === 'true';
+      return (c?.style.opacity === '1' && (c.dataset.menuReady === 'true' || (c.dataset.svScreen === 'running' && c.dataset.svReady === 'true')))
+        || c?.dataset.phoneReady === 'true' || c?.dataset.walkReady === 'true' || c?.dataset.walkFailed === 'true';
     }, null, { timeout: 120000 });
   };
   const goto = async (target: string) => { await page.goto(new URL(target, appUrl).href); await ready(); };
@@ -243,12 +245,15 @@ async function daemon(options: Options) {
     const frame = await page.locator('.canvas-frame').boundingBox();
     if (!frame) throw Error('No .canvas-frame on this page; use --locator');
     const design = displayDesign(frame.width, frame.height);
-    const { minigames, options } = await page.evaluate(() => {
+    const { minigames, options, saverOptions } = await page.evaluate(() => {
       const data = document.querySelector<HTMLElement>('.canvas-frame canvas')?.dataset;
       // (The rows: a per-player setting lists a value for each player but is one row.)
-      return { minigames: data?.menuMinigames === 'true', options: data?.minigameOptionRows ? Number(data.minigameOptionRows) : data?.minigameOptions ? data.minigameOptions.split('|').length : 0 };
+      return {
+        minigames: data?.menuMinigames === 'true', options: data?.minigameOptionRows ? Number(data.minigameOptionRows) : data?.minigameOptions ? data.minigameOptions.split('|').length : 0,
+        saverOptions: data?.svOptionRows ? Number(data.svOptionRows) : 0,
+      };
     });
-    const { x, y } = resolveTarget(target, design.w, minigames, options);
+    const { x, y } = resolveTarget(target, design.w, minigames, options, saverOptions);
     return { x: frame.x + (x / design.w) * frame.width, y: frame.y + (y / design.h) * frame.height };
   };
   const shutdown = async () => {

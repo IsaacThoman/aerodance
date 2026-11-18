@@ -10,12 +10,14 @@ import type { PlayerCount } from '../../../../packages/pose/choreography.ts';
 import type { SoundSettings } from './soundSettings.ts';
 import type { AspectSetting, GraphicsSettings, StatsSetting } from './graphicsSettings.ts';
 import useFullscreen from './useFullscreen.ts';
+import { HANDOFF_WAIT, SWAP_IN, SWAP_OUT, SWAP_SLIDE, handoff } from '../ui/handoff.ts';
 import type { Fullscreen } from './useFullscreen.ts';
 // The title's height is the same in either display mode (menuLayout only moves and sizes it).
 import { PLAYERS_TITLE_Y, TITLE as HOME_TITLE, menuLayout } from './layout.ts';
 import { displayDesign } from '../display.ts';
 import { HAS_SONGS, createSongsPanel } from './songsPanel.ts';
 import { MINIGAMES as GAMES } from '../minigames/registry.ts';
+import { SCREENSAVERS } from '../screensavers/registry.ts';
 import type { SongsPanel, SongsWidget } from './songsPanel.ts';
 import { createTransferPanel } from './transferPanel.ts';
 import type { TransferPanel, TransferWidget } from './transferPanel.ts';
@@ -38,7 +40,10 @@ import type { TransferPanel, TransferWidget } from './transferPanel.ts';
  * that code, from a transfer QR code's link).
  * Start, Settings and Let's dance are glass buttons (ui/useGlassBlur.ts blurs the world inside
  * them) in the look ?buttons=1..6 picks; Settings' panels are the dark style's glass.
- * The title rises while the players screen is up and fades out while settings is.
+ * The title rises while the players screen is up and fades out while settings is. Going to and
+ * from another menu screen (Experiments, Song Select) hands over as a screen change does
+ * (ui/handoff.ts): the buttons fade out sliding left and the title fades, then the next screen's
+ * slide in; coming back, the buttons slide back in once the other screen's are gone.
  *
  * Input comes from the mouse/touch on the canvas or the keyboard (arrows, Enter, Escape;
  * Left/Right step the volume sliders). On the players screen Left/Right only move the cursor:
@@ -257,6 +262,8 @@ interface MenuState {
   spin: number; gearAngle: number; alpha: number;
   /** Showing, and where it is going (they differ during a swap). */
   screen: MenuScreen; next: MenuScreen; swap: number;
+  /** Seconds left before it swaps in, arriving from another menu screen (ui/handoff.ts). */
+  wait: number;
   drawnSound: SoundSettings | null;
   drawnGraphics: GraphicsSettings | null;
   drawnFullscreen: Fullscreen | null;
@@ -271,8 +278,8 @@ interface MenuState {
   reported?: MenuScreen;
 }
 
-// The main screen has Minigames while there are any to play.
-const HAS_MINIGAMES = GAMES.length > 0;
+// The main screen has Experiments while there are minigames to play or screensavers to watch.
+const HAS_MINIGAMES = GAMES.length > 0 || SCREENSAVERS.length > 0;
 
 export default function MainMenu({
   visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onMinigames, refocus, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
@@ -306,7 +313,7 @@ export default function MainMenu({
     ],
   };
   const menu = useRef<MenuState>({
-    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnFullscreen: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
+    spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, wait: 0, drawnSound: null, drawnGraphics: null, drawnFullscreen: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
   });
   const props = useRef<MainMenuProps>({ sound, graphics });
   props.current = { visible, playerCount, onPlayerCountChange, onStart, onMinigames, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
@@ -423,9 +430,18 @@ export default function MainMenu({
     },
     update: (dt, s) => {
       const shown = !!props.current.visible;
-      // Screen change: fade the current screen out, swap, fade the next one in.
-      if (m.next !== m.screen) {
-        m.swap = Math.max(0, m.swap - dt * 7);
+      if (!shown) {
+        // Gone to another menu screen: swapping out as a screen change does, the title fading
+        // with it, then the overlay goes.
+        if (m.alpha > 0) {
+          m.swap = Math.max(0, m.swap - dt * SWAP_OUT);
+          m.titleAlpha = s.ease(m.titleAlpha, 0, 12);
+          if (m.swap === 0 && m.titleAlpha < 0.03) m.alpha = 0;
+          s.invalidate();
+        }
+      } else if (m.next !== m.screen) {
+        // Screen change: fade the current screen out, swap, fade the next one in.
+        m.swap = Math.max(0, m.swap - dt * SWAP_OUT);
         if (m.swap === 0) {
           m.screen = m.next;
           // A mouse left resting where the last screen was pressed hovers nothing on the new one
@@ -433,18 +449,23 @@ export default function MainMenu({
           if (s.pointerKind !== 'key') s.pointer = null;
         }
         s.invalidate();
+      } else if (m.wait > 0) {
+        // Arriving from another menu screen: in once it has swapped out.
+        m.wait -= dt;
+        s.invalidate();
       } else if (m.swap < 1) {
-        m.swap = Math.min(1, m.swap + dt * 6);
+        m.swap = Math.min(1, m.swap + dt * SWAP_IN);
         s.invalidate();
       }
-      m.alpha = s.ease(m.alpha, shown ? 1 : 0, shown ? 3 : 6);
+      if (shown) m.alpha = s.ease(m.alpha, 1, 3);
+      if (shown && m.alpha > 0.9) handoff.live = true;
       if (m.refocus && live()) {
         s.focus(WIDGETS[m.screen].find((wdg) => wdg.id === m.refocus) ?? null);
         m.refocus = null;
       }
       m.gearAngle = s.ease(m.gearAngle, m.spin + (s.hover.settings ?? 0) * 0.35, 8);
       m.titleY = s.ease(m.titleY, m.next === 'players' ? PLAYERS_TITLE_Y : TITLE.y, 7);
-      m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' || m.next === 'transfer' ? 0 : 1, 8);
+      if (shown) m.titleAlpha = s.ease(m.titleAlpha, m.next === 'settings' || m.next === 'transfer' || m.wait > 0 ? 0 : 1, 8);
       const { sound: drawSound, graphics: drawGraphics } = props.current;
       if (drawSound !== m.drawnSound || drawGraphics !== m.drawnGraphics || fullscreenRef.current !== m.drawnFullscreen || count() !== m.drawnCount) s.invalidate();
       if (m.screen !== m.reported) {
@@ -482,7 +503,7 @@ export default function MainMenu({
       const t = m.swap;
       g.save();
       g.globalAlpha = t;
-      g.translate((1 - t) * -24, 0);
+      g.translate((1 - t) * -SWAP_SLIDE, 0);
       const h = s.hover;
       const press = (id: string) => s.press * (h[id] ?? 0);
       if (m.screen === 'main') {
@@ -516,17 +537,21 @@ export default function MainMenu({
       : m.screen === 'players' ? [buttonPane(ui, 'go', PLAYERS_GO)]
         : m.screen === 'transfer' ? [panelPane(layout.TRANSFER_CONNECT), panelPane(layout.SONGS)]
           : [panelPane(SOUND), panelPane(layout.GRAPHICS), ...(HAS_SONGS ? [panelPane(layout.SONGS)] : [])];
-    return { panes, alpha: m.alpha * m.swap, offsetX: (1 - m.swap) * -24 };
+    return { panes, alpha: m.alpha * m.swap, offsetX: (1 - m.swap) * -SWAP_SLIDE };
   });
 
   // Reopening the menu lands on initialScreen (Back from Song Select returns to players), with
-  // a keyboard cursor on Let's dance.
+  // a keyboard cursor on Let's dance. Coming back from another menu screen, it swaps in once that
+  // one has swapped out, the title fading in (ui/handoff.ts).
   useEffect(() => {
     if (!visible) return;
+    const arriving = handoff.live;
     m.screen = m.next = initialScreen;
-    m.swap = 1;
+    m.swap = arriving ? 0 : 1;
+    m.wait = arriving ? HANDOFF_WAIT : 0;
+    if (arriving) m.alpha = 1;
     m.titleY = initialScreen === 'players' ? PLAYERS_TITLE_Y : HOME_TITLE.y;
-    m.titleAlpha = initialScreen === 'settings' || initialScreen === 'transfer' ? 0 : 1;
+    m.titleAlpha = arriving || initialScreen === 'settings' || initialScreen === 'transfer' ? 0 : 1;
     m.refocus = !ui.keyboard ? null : initialScreen === 'players' ? 'go' : initialScreen === 'main' ? refocus ?? null : null;
     ui.invalidate();
   }, [visible, initialScreen, refocus, m, ui]);

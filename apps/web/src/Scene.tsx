@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import AeroWorld from './aero/AeroWorld.tsx';
 import BackdropView from './backdrop/BackdropView.tsx';
@@ -24,9 +25,11 @@ const SETTLE_FRAMES = 3;
  * The canvas reports data-background (the one mounted) and data-background-ready (built, and
  * the veil down) for tests.
  *
+ * `children` render inside a backdrop's own scene while one is showing (a screensaver's things).
+ *
  * <Scene background="koi" paused={stageShowing} />
  */
-export default function Scene({ paused = false, background }: { paused?: boolean; background: BackgroundId }) {
+export default function Scene({ paused = false, background, children }: { paused?: boolean; background: BackgroundId; children?: ReactNode }) {
   const gl = useThree((state) => state.gl);
   const [shown, setShown] = useState(background);
   const fade = useRef<Fade>({ value: 0, settled: 0 });
@@ -82,7 +85,7 @@ export default function Scene({ paused = false, background }: { paused?: boolean
     <>
       {shown === 'skyline'
         ? <AeroWorld speed={1} paused={paused} hide={aeroHide} onShown={onWorldShown} />
-        : <BackdropView id={shown} paused={paused} onReady={onBackdropReady} />}
+        : <BackdropView id={shown} paused={paused} onReady={onBackdropReady}>{children}</BackdropView>}
       <Veil fade={fade} />
     </>
   );

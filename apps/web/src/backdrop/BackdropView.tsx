@@ -17,6 +17,8 @@ export interface BackdropViewProps {
   paused?: boolean;
   /** Built and its shaders compiled (or crashed): from now on its frames are what it looks like. */
   onReady?: BackdropReadyHandler;
+  /** Rendered inside the backdrop's scene, with its camera, lights and post-processing (a screensaver's things). */
+  children?: ReactNode;
 }
 
 /**
@@ -33,7 +35,7 @@ export interface BackdropViewProps {
  *
  * <BackdropView id="koi" paused={stageShowing} onReady={(id, failed) => ...} />
  */
-export default function BackdropView({ id, paused = false, onReady }: BackdropViewProps) {
+export default function BackdropView({ id, paused = false, onReady, children }: BackdropViewProps) {
   // A fresh scene for each backdrop, so none inherits another's fog, background or environment.
   const scene = useMemo(() => new THREE.Scene(), [id]); // eslint-disable-line react-hooks/exhaustive-deps
   const pausedRef = useRef(paused);
@@ -41,7 +43,7 @@ export default function BackdropView({ id, paused = false, onReady }: BackdropVi
   // Before every backdrop callback (priority 0) and the pipeline (1).
   useFrame(() => { backdropPlay.paused = pausedRef.current || screenOwner.stage; }, -1);
   useEffect(() => () => { backdropPlay.paused = false; }, []);
-  return createPortal(<BackdropContent key={id} backdrop={byId(id)} onReady={onReady} />, scene);
+  return createPortal(<><BackdropContent key={id} backdrop={byId(id)} onReady={onReady} />{children}</>, scene);
 }
 
 const byId = (id: BackdropId): Backdrop => {
