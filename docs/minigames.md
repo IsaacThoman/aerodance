@@ -7,11 +7,14 @@ they share: the list, each game's settings, the camera and its calibration, the 
 3, 2, 1, pausing, the HUD, the results and best scores, a pose API built for games, and a puppet
 camera to test them with. A game is one folder; adding one changes no other file.
 
-The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game;
-its **Scene** setting puts the table in the Biodome ([arenas](../packages/arenas/README.md)) or a plain debug room.
-Alone, the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns.
-Two players split the screen, one at each end of the table in first person, and rally with each other,
-each seeing the other as their glass dancer holding the paddle (`table-tennis/rally.ts`).
+The **Experiments** button only shows while there's a game to play. **Table Tennis** is the first game,
+played as Wii Sports Resort's is: a match is first to 6 points by 2 clear (`table-tennis/match.ts`),
+the table in the Biodome ([arenas](../packages/arenas/README.md); `?scene=debug` for a plain room).
+Alone, the opponent is a robot arm from the robot hall ([robots](../packages/robots/README.md)) that serves and returns
+(the **Opponent** setting), or the **Mode** is Return Challenge: return its serves, quicker every few,
+until one gets by. Two players split the screen, one at each end of the table in first person, and play
+a match, each seeing the other as their glass dancer holding the paddle. A player serves by raising
+their free hand to toss the ball and swinging through it as it comes down (`table-tennis/rally.ts`).
 
 ## The flow
 
@@ -162,7 +165,7 @@ with the player 0-based), remembered in the browser like any other. A preview ha
 rows (five sit a little closer than four).
 
 With play.ts, `click mgOptionNext.<i>` (or `mgOptionPrev.<i>`, or the row, `mgOption.<i>`) steps
-the preview's row i (a per-player row's chip: `mgOptionPlayer.<i>.<player>.<players>`), and the canvas reports them all: `wait minigameOptions~botShots=hard`.
+the preview's row i (a per-player row's chip: `mgOptionPlayer.<i>.<player>.<players>`), and the canvas reports them all: `wait minigameOptions~opponent=hard`.
 
 ### What the host does, and what the game does
 
@@ -472,7 +475,7 @@ node scripts/play.ts shot --frame
 node scripts/play.ts key Escape                        # pause; click GAME_RESUME, GAME_RESTART or GAME_QUIT
 node scripts/play.ts click GAME_RESUME
 node scripts/play.ts wait minigamePhase=playing --timeout 8000
-node scripts/play.ts state                             # Table Tennis is open play: pause and quit to leave
+node scripts/play.ts state                             # Table Tennis: mgScore, mgServer, mgPoint as the match goes
 ```
 
 `node scripts/play.ts puppet <command>` runs a puppet command in the page (so does
@@ -515,14 +518,17 @@ gesture seen, `player:type[:direction][:hand]`), `minigameRaise` (the how-to car
 `'hands'`), `minigameCalibrationPlayers`, `minigameCalibrationProgress`, the
 results' `minigameResults`, `minigameWinner` and `minigameNewBest`, the list's `minigameScreen`,
 `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the
-preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything` for
+preview's settings, e.g. `mode=match|opponent=medium|…` for
 Table Tennis), and the game's own `mg*` keys; a round's settings are
-`eval "minigame.options"`. Table Tennis reports `mgRally`, `mgBest`, `mgHits`, `mgAssist` and, with two,
-`mgServer`, `mgHits1` and `mgHits2`; in development its O and P keys put a stand-in
-(`table-tennis/autoplay.ts`) in for the first and last player, which plays through the real
-paddle and aim assist (`mgAutoplay` says who), so a two-player rally can run with puppets standing
-still (the stand-ins serve too, by swinging through the waiting ball; puppets standing still serve
-and hit nothing), and `window.tableTennis` has the round (`round`: its ball, players and settings)
+`eval "minigame.options"`. Table Tennis reports `mgMode` (`match`, `challenge`), `mgScore` (a match's
+`3|5`, Player 1's or the player's first; Return Challenge's returns), `mgServer` (from 1; alone, 2 is
+the robot), `mgPoint` (the last point: who won it and why, e.g. `2:out`; reasons in `match.ts`),
+`mgBall` (`ready`, `serving`, `flying`, `between`), `mgTossed`, `mgDone`, `mgRally`, `mgBest`,
+`mgHits`, `mgReturns`, `mgAssist` and, with two, `mgHits1` and `mgHits2`; in development its O and P
+keys put a stand-in (`table-tennis/autoplay.ts`) in for the first and last player, which plays
+through the real paddle and aim assist (`mgAutoplay` says who), so a match can run with puppets
+standing still (the stand-ins serve too, tossing the ball and swinging through it; puppets
+standing still never serve, and the match waits for them), and `window.tableTennis` has the round (`round`: its ball, players and settings)
 and the camera (a split screen's views in `camera.cameras`) for staged shots. `?assist=off|low|normal|high`
 sets its aim assist (Normal otherwise; the A key steps it). The puppet works for the song game too: its calibration and scoring
 run on it.

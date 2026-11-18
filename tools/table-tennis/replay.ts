@@ -7,7 +7,8 @@
  *   node tools/table-tennis/replay.ts <session.jsonl> [--fps 60] [--hands]
  *
  * The shots won't match the recording's own to the frame (the recording doesn't keep the screen's
- * frame times), but the same swings serve and hit the same balls. `--hands` lists the stretches
+ * frame times), but the same swings serve and hit the same balls (a session recorded before the
+ * game had matches, with its open rally's serves, plays as a match now and won't). `--hands` lists the stretches
  * where a paddle hand went missing instead.
  */
 
@@ -35,7 +36,8 @@ const count = header.playerCount;
 const side = (i: number) => (options[`paddleHand.${i + 1}`] === 'left' ? 'left' : 'right');
 const rigs = Array.from({ length: Math.min(count, 2) }, (_, i) => newRig(i as 0 | 1, side(i)));
 const filters = rigs.map(() => newHandFilters());
-const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: DEFAULT_ASSIST, botLevel: (options.botShots ?? 'easy') as Play['botLevel'], botAlways: options.botReturns !== 'fair' };
+// (Sessions recorded before matches had the open rally's settings: they play as a match now.)
+const play: Play = { mode: options.mode === 'challenge' ? 'challenge' : 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: DEFAULT_ASSIST, botLevel: (options.opponent ?? options.botShots ?? 'medium') as Play['botLevel'] };
 const round = new Round(rigs, play);
 const two = rigs.length > 1;
 const secs = (t: number) => ((t - header.t) / 1000).toFixed(2).padStart(6);

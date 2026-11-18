@@ -18,12 +18,12 @@ import { DEFAULT_ASSIST } from '../../src/minigames/table-tennis/assist.ts';
 import type { AssistLevel } from '../../src/minigames/table-tennis/assist.ts';
 import { AUTOPLAY, arrival } from '../../src/minigames/table-tennis/autoplay.ts';
 import type { BotLevel } from '../../src/minigames/table-tennis/bot.ts';
-import { heldBall, mine, mineBall } from '../../src/minigames/table-tennis/rally.ts';
+import { SERVE, heldBall, mine, mineBall } from '../../src/minigames/table-tennis/rally.ts';
 import type { End } from '../../src/minigames/table-tennis/rally.ts';
 import { BLADE_UP, MITT, OWN_EYE, REACH, REST, SHOULDER, heldPose, newHandFilters, newRig, takeAge, takeHand } from '../../src/minigames/table-tennis/rig.ts';
 import type { HandFilters, Rig } from '../../src/minigames/table-tennis/rig.ts';
 import { Round } from '../../src/minigames/table-tennis/round.ts';
-import type { Play } from '../../src/minigames/table-tennis/round.ts';
+import type { Mode, Play } from '../../src/minigames/table-tennis/round.ts';
 import type { Side } from '../../src/minigames/table-tennis/arms.ts';
 
 /** A seeded random source (mulberry32), and a normal one from it. */
@@ -172,11 +172,11 @@ export class Person {
   private blade: V3;
   private nextFlail = 0;
   private serveAt: number | null = null;
+  private serveSwung = false;
   /** Bringing the paddle up to the waiting ball, before serving it. */
   private ready: { at: V3; from: V3; t: number; over: number } | null = null;
-  /** Their free hand is up (alone: asking the robot to serve). */
+  /** Their free hand is up (tossing the ball, to serve). */
   raised = false;
-  private raiseAt: number | null = null;
 
   constructor(end: End, hand: Side, skill: Skill, random: Random) {
     this.end = end; this.hand = hand; this.skill = skill; this.random = random;
@@ -209,10 +209,11 @@ export class Person {
 
   /**
    * Where their paddle's blade really is at `now` (s), in their own frame, given what they see:
-   * the ball (their own frame) flying or waiting for them, when it was last hit, and whether
-   * it's theirs to serve (and since when it has waited).
+   * the ball (their own frame) flying, when it was last hit, and whether it's theirs to serve:
+   * where it waits (their own frame), since when it has waited, and since when it's been tossed
+   * (null: it hasn't).
    */
-  update(now: number, seen: { ball: Ball | null; touchedAt: number; serve: { ball: V3; since: number } | null; robotHolds: boolean }): V3 {
+  update(now: number, seen: { ball: Ball | null; touchedAt: number; serve: { hold: V3; since: number; tossed: number | null } | null }): V3 {
     const { skill, random } = this;
     if (skill.kind === 'idle') {
       this.raised = false;
@@ -220,33 +221,41 @@ export class Person {
       const rest = REST[this.hand];
       return bladeOf(this.hand, v3(rest.x + 0.03 * sign(this.hand) + 0.02 * Math.sin(now * 1.3), rest.y + 0.05, rest.z - 0.05 + 0.02 * Math.sin(now * 0.9)));
     }
-    // Alone, they ask the robot to serve: the free hand up a moment after it has the ball.
-    if (seen.robotHolds) { this.raiseAt ??= now + 0.5 + random.rand() * 0.6; this.raised = now >= this.raiseAt && now < this.raiseAt + 0.5; if (now > this.raiseAt + 1.2) this.raiseAt = null; }
-    else { this.raiseAt = null; this.raised = false; }
-    if (skill.kind === 'still') return this.home();
-    if (skill.kind === 'flail') {
-      if (!this.stroke || now > this.stroke.t + skill.swing * 2) {
-        if (now >= this.nextFlail) {
-          this.begin(v3((random.rand() * 2 - 1) * 0.5, TABLE.top + 0.15 + random.rand() * 0.6, AUTOPLAY.hitZ + (random.rand() * 2 - 1) * 0.15), now + 0.25 + skill.swing, now);
-          this.nextFlail = now + 0.5 + random.rand() * 0.5;
-        }
+    if (skill.kind === 'still') { this.raised = false; return this.home(); }
+    if (seen.serve) {
+      // Their serve (a flailer's too): they bring the paddle up behind the waiting ball, raise
+      // their free hand to toss it a moment later, and swing through it as it comes back down to
+      // about a hand's breadth over where it was tossed from. A toss that comes down unhit they
+      // toss again.
+      const serve = seen.serve;
+      if (this.serveAt === null) {
+        this.serveAt = serve.since + 0.4 + random.rand() * 0.5;
+        this.ready = { at: add(serve.hold, v3(0.03 * sign(this.hand), 0.02 + random.rand() * 0.08, 0.12 + random.rand() * 0.06)), from: { ...this.blade }, t: now, over: 0.2 + random.rand() * 0.2 };
       }
-    } else if (seen.serve) {
-      // Their serve: they bring the paddle up behind the waiting ball (getting ready isn't
-      // serving), and after a moment swing through it.
-      if (this.serveAt === null || seen.serve.since > this.serveAt + 1.2) {
-        this.serveAt = seen.serve.since + 0.6 + random.rand() * 0.5;
-        this.ready = { at: add(seen.serve.ball, v3(0.03 * sign(this.hand), 0.02 + random.rand() * 0.08, 0.12 + random.rand() * 0.06)), from: { ...this.blade }, t: now, over: 0.2 + random.rand() * 0.2 };
+      this.raised = serve.tossed === null && serve.since >= this.serveAt && serve.since < this.serveAt + 0.4;
+      if (serve.tossed === null) this.serveSwung = false;
+      else if (!this.serveSwung && !this.stroke) {
+        this.serveSwung = true; this.ready = null;
+        const meet = (SERVE.toss + Math.sqrt(SERVE.toss * SERVE.toss - 2 * 9.81 * 0.1)) / 9.81;
+        this.begin(add(serve.hold, v3(0, 0.1, 0)), now + Math.max(skill.swing + 0.05, meet - serve.tossed), now);
       }
-      if (this.ready && !this.stroke && seen.serve.since >= this.serveAt - 0.05) { this.ready = null; this.begin(seen.serve.ball, now + skill.swing + 0.15, now); }
     } else {
-      this.serveAt = null; this.ready = null;
-      const coming = seen.ball && arrival(seen.ball);
-      // A ball coming that they haven't made their mind up about, once they've seen it's coming:
-      // they go for it (or let it by), if there's time to. With too little, their swing is late.
-      if (coming && seen.touchedAt !== this.decided && now >= seen.touchedAt + skill.react && coming.t > 0.12) {
-        this.decided = seen.touchedAt;
-        if (random.rand() >= skill.lapse) this.begin(coming.at, now + Math.max(coming.t, 0.08 + skill.swing), now);
+      this.serveAt = null; this.ready = null; this.raised = false; this.serveSwung = false;
+      if (skill.kind === 'flail') {
+        if (!this.stroke || now > this.stroke.t + skill.swing * 2) {
+          if (now >= this.nextFlail) {
+            this.begin(v3((random.rand() * 2 - 1) * 0.5, TABLE.top + 0.15 + random.rand() * 0.6, AUTOPLAY.hitZ + (random.rand() * 2 - 1) * 0.15), now + 0.25 + skill.swing, now);
+            this.nextFlail = now + 0.5 + random.rand() * 0.5;
+          }
+        }
+      } else {
+        const coming = seen.ball && arrival(seen.ball);
+        // A ball coming that they haven't made their mind up about, once they've seen it's coming:
+        // they go for it (or let it by), if there's time to. With too little, their swing is late.
+        if (coming && seen.touchedAt !== this.decided && now >= seen.touchedAt + skill.react && coming.t > 0.12) {
+          this.decided = seen.touchedAt;
+          if (random.rand() >= skill.lapse) this.begin(coming.at, now + Math.max(coming.t, 0.08 + skill.swing), now);
+        }
       }
     }
     if (this.stroke) {
@@ -331,7 +340,8 @@ export interface SimOptions {
   /** The aim assist's level (the game's own, unless given). */
   assist?: AssistLevel;
   botLevel?: BotLevel;
-  botAlways?: boolean;
+  /** A match (the default), or (alone) Return Challenge. A round over, another starts at once. */
+  mode?: Mode;
   fps?: number;
 }
 
@@ -340,8 +350,12 @@ export interface SimResult {
   came: number[];
   hits: number[];
   fair: number[];
-  /** With two: each player's serves (balls put in play by them). */
+  /** Each player's serves (balls put in play by them). */
   serves: number[];
+  /** The matches finished: the score (Player 1's, or the player's, first). */
+  matches: [number, number][];
+  /** Return Challenge's runs finished: the returns in each. */
+  runs: number[];
   /** The rallies' lengths (shots in a row that landed), and the best. */
   rallies: number[];
   best: number;
@@ -357,48 +371,63 @@ export function simulate(options: SimOptions): SimResult {
   const random = seeded(seed);
   const two = players.length > 1;
   const rigs = players.map((p, i) => newRig(i as End, p.hand ?? 'right'));
-  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? DEFAULT_ASSIST, botLevel: options.botLevel ?? 'medium', botAlways: options.botAlways ?? true };
-  const round = new Round(rigs, play, random.rand);
+  const play: Play = { mode: options.mode ?? 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: options.assist ?? DEFAULT_ASSIST, botLevel: options.botLevel ?? 'medium' };
+  let round = new Round(rigs, play, random.rand);
+  // When this round began (a round's clock starts at 0: the people go by the sim's).
+  let began = 0;
   const people = players.map((p, i) => new Person(i as End, rigs[i].paddle, p.skill, seeded(seed * 7919 + i * 104729 + 1)));
   const cameras = players.map((p, i) => new Camera(p.tracking, seeded(seed * 31337 + i * 15485863 + 2)));
-  const result: SimResult = { came: players.map(() => 0), hits: players.map(() => 0), fair: players.map(() => 0), serves: players.map(() => 0), rallies: [], best: 0, waiting: 0, waits: [] };
+  const result: SimResult = { came: players.map(() => 0), hits: players.map(() => 0), fair: players.map(() => 0), serves: players.map(() => 0), matches: [], runs: [], rallies: [], best: 0, waiting: 0, waits: [] };
   const dt = 1 / fps;
-  // The shot in the air: whose, whether its landing has been judged, and (the robot's) whether
-  // the player has answered it yet.
-  let shot: { by: End | 'bot'; judged: boolean; serve: boolean } | null = null;
+  // The shot in the air: whose, whether its landing has been judged, whether it's a serve, and
+  // whether it was a hit that counted (an answer to a ball that came at its hitter).
+  let shot: { by: End | 'bot'; judged: boolean; serve: boolean; counted: boolean } | null = null;
   const answered: boolean[] = players.map(() => true);
   let wasFlying = false, waitedSince = 0, rally = 0;
   const endRally = () => { if (rally) result.rallies.push(rally); rally = 0; };
   const comesAt = (end: End) => { result.came[end] += 1; answered[end] = false; };
   for (let t = 0; t < seconds; t += dt) {
+    // A round over: its score kept, and the next begun.
+    if (round.finished()) {
+      if (round.mode === 'challenge') result.runs.push(round.challenge.returns);
+      else result.matches.push([...round.match.score]);
+      round = new Round(rigs, play, random.rand);
+      began = t;
+    }
     rigs.forEach((rig, i) => {
-      const serving = two && round.holding() && round.server() === rig.end;
+      const serving = round.holding() && round.playerServes() && round.server() === rig.end;
       const blade = people[i].update(t, {
         ball: round.flying ? mineBall(rig.end, round.ball) : null,
-        touchedAt: Math.max(round.touchedAt, round.servedAt),
-        serve: serving ? { ball: mine(rig.end, heldBall(rig.end, 0, rig.paddle).pos), since: round.time - round.heldSince } : null,
-        robotHolds: !two && round.holding(),
+        touchedAt: began + Math.max(round.touchedAt, round.servedAt),
+        serve: serving ? { hold: mine(rig.end, heldBall(rig.end, 0, rig.paddle).pos), since: round.time - round.heldSince, tossed: round.tossAt === null ? null : round.time - round.tossAt } : null,
       });
       cameras[i].see(rig, people[i], blade, t);
     });
     const botHitBefore = round.bot.hitAt, servedBefore = round.servedAt;
     round.step(dt, t * 1000, true);
     const served = round.servedAt !== servedBefore;
-    // The robot's serve or shot: it comes at the player.
-    if (!two && (round.bot.hitAt !== botHitBefore || served)) { shot = { by: 'bot', judged: true, serve: false }; comesAt(0); }
+    // The robot's serve or shot: it comes at the player once it lands on their half (its mistakes,
+    // long, wide or into the net, never do).
+    if (!two && (round.bot.hitAt !== botHitBefore || (served && round.shot?.by === 1))) shot = { by: 'bot', judged: false, serve: served, counted: false };
     for (const e of round.events) {
       if (e.type === 'paddle' && e.by !== undefined) {
-        if (two && served) result.serves[e.by] += 1;
+        let counted = false;
+        if (served) result.serves[e.by] += 1;
         // (A ball hit twice on its way by counts once.)
-        else if (!answered[e.by]) { result.hits[e.by] += 1; answered[e.by] = true; }
-        shot = { by: e.by, judged: false, serve: two && served };
+        else if (!answered[e.by]) { result.hits[e.by] += 1; answered[e.by] = true; counted = true; }
+        shot = { by: e.by, judged: false, serve: served, counted };
+      } else if (shot && !shot.judged && shot.by === 'bot') {
+        // (Its own paddle's sound is no landing; its serve's first bounce is on its own half.)
+        if (e.type === 'paddle' || (e.type === 'table' && e.at.z < 0 && shot.serve)) continue;
+        shot.judged = true;
+        if (e.type === 'table' && e.at.z >= 0) comesAt(0);
       } else if (shot && !shot.judged && shot.by !== 'bot') {
         // The shot's first bounce: on the other half, it's a fair one, and comes at the other player.
         shot.judged = true;
         const by = shot.by, fair = e.type === 'table' && (e.at.z >= 0 ? 0 : 1) !== by;
         if (!fair) { endRally(); continue; }
         rally += 1;
-        if (!shot.serve) result.fair[by] += 1;
+        if (shot.counted) result.fair[by] += 1;
         if (two) comesAt(by === 0 ? 1 : 0);
       }
     }
@@ -418,6 +447,7 @@ export function simulateMany(options: SimOptions, rounds: number): SimResult {
   const sum = (pick: (r: SimResult) => number[]) => all[0].came.map((_, i) => all.reduce((n, r) => n + pick(r)[i], 0));
   return {
     came: sum((r) => r.came), hits: sum((r) => r.hits), fair: sum((r) => r.fair), serves: sum((r) => r.serves),
+    matches: all.flatMap((r) => r.matches), runs: all.flatMap((r) => r.runs),
     rallies: all.flatMap((r) => r.rallies), best: Math.max(...all.map((r) => r.best)),
     waiting: all.reduce((n, r) => n + r.waiting, 0) / rounds, waits: all.flatMap((r) => r.waits),
   };

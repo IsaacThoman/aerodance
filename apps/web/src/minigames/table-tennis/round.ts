@@ -1,23 +1,26 @@
 /*
  * A round of Table Tennis, without the drawing: the ball, the players' paddles (rig.ts) and,
- * alone, the robot's, a frame at a time. Game.tsx draws what's here; the tests play it without a
- * screen (apps/web/tests/table-tennis-agency.test.ts).
+ * alone, the robot's, a frame at a time, and the match they're playing (match.ts). Game.tsx draws
+ * what's here; the tests play it without a screen (apps/web/tests/table-tennis-agency.test.ts).
  *
- * Alone, the ball is held on the robot's paddle until a serve (the player's free hand raised, or
- * Space), tossed up and struck, then flies (ball.ts) in the table's frame at the time's speed,
- * met by the player's paddle as it moved this frame (as it was a lag ago: LaggedBall, flight.ts).
- * A return that lands on the far half counts, and the bot (bot.ts) plays it back, the robot's
- * paddle drawn back, swung through the ball and followed through (robot.ts): a rally lasts as
- * long as the player keeps returning it.
+ * A Match (Play.mode) is first to 6 (match.ts MATCH), against the robot alone or the other player
+ * with two. On a player's serve the ball waits in the air over their end (rally.ts SERVE); their
+ * free hand raised tosses it up, and a swing through it as it comes down serves it (assist.ts
+ * serveHit; or Space). The robot serves its own after a moment: tossed up and struck (robot.ts).
+ * The ball flies (ball.ts) in the table's frame at the time's speed, met by the players' paddles
+ * as they moved this frame (as they were a lag ago: LaggedBall, flight.ts), and the bot (bot.ts)
+ * plays back the player's returns that land, now and then getting one wrong. The referee
+ * (match.ts judge) says when a shot has won or lost the point; then, after a beat (BEAT), the
+ * next serve is set up, until someone has won.
  *
- * With two, the ball waits in the air over the server's end (rally.ts SERVE) until their swing
- * serves it (assist.ts serveHit; or Space), and the open rally (rally.ts) counts the shots that
- * land on the other half. Every shot is slowed to a pace the other player can get to (assist.ts
- * PACE): alone, the robot gets to anything.
+ * Return Challenge (alone) has the robot serve and serve again, quicker every few, for as long as
+ * the player returns them onto its half: the first they don't ends the round.
  *
- * Either way a ball that's out of play is soon taken back (DEAD): on the floor, in the net, or
- * bouncing twice on one half with nobody hitting it. With two it goes to whoever's end it
- * finished at.
+ * With two every shot is slowed to a pace the other player can get to (assist.ts PACE): alone,
+ * the robot gets to anything it can reach.
+ *
+ * A ball that's out of play is soon taken back (DEAD): on the floor, in the net, or bouncing twice
+ * on one half with nobody hitting it.
  */
 
 import * as THREE from 'three';
@@ -26,14 +29,16 @@ import type { AssistLevel } from './assist.ts';
 import { arrival, autoplayBlade, autoplayRaised, autoplayServe } from './autoplay.ts';
 import { PADDLE_COOLDOWN, v3 } from './ball.ts';
 import type { Ball, PaddlePose, V3 } from './ball.ts';
-import { BOT, botServe, botShot, botTarget, planReturn, reachRoom } from './bot.ts';
+import { BOT, botMistake, botServe, botShot, botTarget, challengeServe, missShot, planReturn, reachRoom } from './bot.ts';
 import type { BotLevel } from './bot.ts';
 import { coming, endPass, recalibrate, trackPass } from './calibrate.ts';
 import type { Pass, PassResult } from './calibrate.ts';
 import { flightStep } from './flight.ts';
 import type { FlightEvent, Swinger } from './flight.ts';
 import { LaggedBall } from './lagged.ts';
-import { SERVE, bounced, dead, endOf, heldBall, hit, mine, mineBall, newRally, otherEnd, served } from './rally.ts';
+import { award, challengeLevel, deadVerdict, judge, newMatch, newShot, serverOf } from './match.ts';
+import type { Match, Shot, Verdict } from './match.ts';
+import { SERVE, TOSS_S, endOf, heldBall, mine, mineBall, otherEnd, tossedBall } from './rally.ts';
 import type { End } from './rally.ts';
 import { RAISED, REST, bladePose, borneOut, followHands, handLive, heldPose, wristFor } from './rig.ts';
 import type { Rig } from './rig.ts';
@@ -46,10 +51,21 @@ import type { ArmPose, ServeMotion } from './robot.ts';
  * lain still; and one that's been in the air this long with nobody touching it.
  */
 export const DEAD = { floor: 0.35, net: 0.6, second: 0.3, still: 0.4, stalled: 12 } as const;
+/**
+ * Between points (the players' seconds): how long after a point is won the next serve is set up
+ * (after a return in Return Challenge, `challenge`), and how long after the last point the round
+ * is finished (Round.finished).
+ */
+export const BEAT = { point: 1.6, challenge: 0.5, over: 1.4 } as const;
+/** How long the robot holds the ball before serving it (the players' seconds): in a match, and in Return Challenge. */
+export const ROBOT_WAIT = { match: 1.1, challenge: 0.45 } as const;
+/** A point lost by a receiver is held back their lag and this much more (the players' seconds: a frame or two) for a hit seen late. */
+const HOLD_MARGIN = 0.05;
 // How late the paddle is to the ball, stepped through with L: 'auto' is the tracker's measured
 // delay (camera to result) and DRAW_LAG more for the hand's filtering and easing; or set, in seconds.
 export const HIT_LAGS = ['auto', 0, 0.06, 0.1, 0.15] as const;
-export type HitLag = typeof HIT_LAGS[number];
+/** 'auto', or a lag in seconds (the L key steps through HIT_LAGS; the tests set others). */
+export type HitLag = 'auto' | number;
 /**
  * The paddle as drawn trails the tracker's poses by about 80 ms at a swing's speed (trackbench's
  * ping-pong scenes: the one-euro filter, holding each pose a frame, and the easing), and alone the
@@ -62,8 +78,13 @@ export const DRAW_LAG = { one: 0.075, two: 0.03 } as const;
 /** DRAW_LAG for one player or two. */
 export const drawLag = (two: boolean) => (two ? DRAW_LAG.two : DRAW_LAG.one);
 
+/** What's being played: a match (first to 6), or, alone, Return Challenge. */
+export type Mode = 'match' | 'challenge';
+
 /** The round's settings, and the keys pressed for it. */
 export interface Play {
+  /** A match, or (alone) Return Challenge: two players always play a match. */
+  mode: Mode;
   forgiving: boolean;
   /** Space was pressed: serve a ball. */
   serve: boolean;
@@ -73,20 +94,21 @@ export interface Play {
   hitLag: HitLag;
   /** How much the aim assist helps (assist.ts). */
   assist: AssistLevel;
-  /** Alone: how hard the bot's shots are, and whether it returns the player's misses too. */
+  /** Alone: how hard the bot's shots and serves are (a match's). */
   botLevel: BotLevel;
-  botAlways: boolean;
 }
 
-/** How late a player's paddle is to the ball, in the ball's time (the camera off: not at all). */
-const lagOf = (rig: Rig, play: Play, two: boolean) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + drawLag(two) : 0) : play.hitLag) * play.timeScale);
+/**
+ * How late a player's paddle is to the ball, in the ball's time (the camera off: not at all). A
+ * serve's swing is allowed for in full (`full`), with two too: nobody waiting for it loses time.
+ */
+const lagOf = (rig: Rig, play: Play, two: boolean, full = false) => (!rig.tracked ? 0 : (play.hitLag === 'auto' ? (rig.latency > 0 ? rig.latency + drawLag(two && !full) : 0) : play.hitLag) * play.timeScale);
 
 /** Each player's part of the ball's frame: their paddle last frame (the table's frame) and where they'd moved it (their own), their swings, the ball's pass, their free hand. */
-interface Player {
-  paddle: PaddlePose | null; moved: V3 | null; speeds: { t: number; vel: V3 }[]; pass: Pass | null; raised: boolean;
-  /** When they last served or hit the ball (their own seconds; never: -Infinity). */
-  active: number;
-}
+interface Player { paddle: PaddlePose | null; moved: V3 | null; speeds: { t: number; vel: V3 }[]; pass: Pass | null; raised: boolean; }
+
+/** A point won: to whom, why, whose shot it was, where the ball was when it was decided (the table's frame), and when (the players' seconds: Round.real). */
+export interface PointWon extends Verdict { by: End; at: V3; t: number; }
 
 const dist = (a: V3, b: V3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const tmp = new THREE.Vector3();
@@ -96,6 +118,8 @@ export class Round {
   readonly play: Play;
   readonly two: boolean;
   readonly rand: () => number;
+  /** A match, or Return Challenge (alone). */
+  readonly mode: Mode;
   ball: Ball;
   lagged: LaggedBall | null = null;
   /** The ball's drawn place, from its real one (eased onto a rewound hit's by Game.tsx), set when a hit moves it. */
@@ -105,20 +129,37 @@ export class Round {
   slowSince: number | null = null;
   servedAt = -Infinity;
   hits = 0;
+  /** The players' shots that landed on the other half. */
   returns = 0;
-  hitThisServe = false;
   /** The ball's world's time, and the players' own. */
   time = 0;
   real = 0;
   players: Player[];
-  /** When the ball was last hit (by anyone), alone the rally's returns so far and the best, and since when the ball's been held to serve. */
+  /** When the ball was last hit (by anyone), this point's shots that landed so far and the most any point has had, and since when the ball's been waiting to be served (the ball's time). */
   touchedAt = -Infinity;
   rally = 0;
   best = 0;
   heldSince = 0;
-  /** Alone: the player hit the ball last, and their return has had its one fair bounce (for the bot to play). */
-  yours = false;
-  farBounce = false;
+  /** The match: its score, and who serves. */
+  match: Match = newMatch(0);
+  /** Return Challenge: the serves returned so far, and the level the serves are at (match.ts challengeLevel). */
+  challenge = { returns: 0, level: 0 };
+  /** The shot in the air, as the referee follows it (match.ts), or none. */
+  shot: Shot | null = null;
+  /** The last point won (for the HUD's call), or none yet. */
+  point: PointWon | null = null;
+  /** A point has been won and the next serve isn't set up yet. */
+  between = false;
+  /** The match has been won, or the challenge's run has ended (Round.finished says when to show it). */
+  done = false;
+  /** When the waiting ball was tossed (the ball's time), or null while it waits to be. */
+  tossAt: number | null = null;
+  /**
+   * A point the receiver lost (the ball got by them) held back while their swing at it may yet be
+   * on its way from the camera: their paddle is met by the ball as it was a lag ago, so for that
+   * long a hit can still come and the point be theirs to play on.
+   */
+  private held: { verdict: Verdict; at: V3; until: number; shot: Shot } | null = null;
   /** The half the ball last bounced on since it was last hit (null: it hasn't). */
   bouncedOn: End | null = null;
   /**
@@ -138,8 +179,7 @@ export class Round {
    * to bear it out: the pose it was seen at, the wrist there and the way it was swinging.
    */
   serveSeen: { vel: V3; at: number; wrist: V3; way: V3 } | null = null;
-  /** With two: the open rally, and each player's hits. */
-  duel = newRally(0);
+  /** Each player's hits (with two). */
   hitsBy = [0, 0];
   /** The ball's latest bounces on the table, newest last: where (the table's frame), and when (the ball's time). */
   bounces: { at: V3; t: number }[] = [];
@@ -153,18 +193,26 @@ export class Round {
     this.play = play;
     this.two = rigs.length > 1;
     this.rand = rand;
-    this.ball = this.two ? heldBall(0, 0, rigs[0].paddle) : { pos: onPaddle(this.arm), vel: v3(), cooldown: 0 };
-    this.players = rigs.map((): Player => ({ paddle: null, moved: null, speeds: [], pass: null, raised: false, active: -Infinity }));
+    this.mode = this.two ? 'match' : play.mode;
+    this.ball = this.robotHolds() ? { pos: onPaddle(this.arm), vel: v3(), cooldown: 0 } : heldBall(this.server(), 0, rigs[this.server()]?.paddle);
+    this.players = rigs.map((): Player => ({ paddle: null, moved: null, speeds: [], pass: null, raised: false }));
     this.passes = rigs.map(() => null);
   }
 
-  /** Who's waiting to serve: alone, the player (for the robot to serve), while the ball's held. */
-  server(): End { return this.two ? this.duel.server : 0; }
-  holding() { return !this.flying && !this.serve; }
-  /** Whether a player has served or hit the ball lately (SERVE.away). */
-  playing(end: End) { return this.real - this.players[end].active <= SERVE.away; }
-  /** With two: the waiting ball can be served (it has waited long enough). */
-  armed() { return this.two && this.holding() && this.time - this.heldSince >= SERVE.arm * this.play.timeScale; }
+  /** Whose serve it is: the match's server (alone, 1 is the robot's), or in Return Challenge always the robot's. */
+  server(): End { return this.mode === 'challenge' ? 1 : serverOf(this.match); }
+  /** The ball is waiting to be served (by a player or the robot): not in play, nor between points. */
+  holding() { return !this.flying && !this.serve && !this.between && !this.done; }
+  /** A player (not the robot) is to serve. */
+  playerServes() { return this.two || this.server() === 0; }
+  /** The robot has the ball on its paddle, its serve. */
+  robotHolds() { return !this.two && this.holding() && this.server() === 1; }
+  /** A player's waiting ball can be tossed (it has waited long enough), or is tossed. */
+  armed() { return this.playerServes() && this.holding() && this.time - this.heldSince >= SERVE.arm * this.play.timeScale; }
+  /** The ball is to be seen: in play, waiting to be served, or being served (not between points once it's gone). */
+  ballShown() { return this.flying || this.holding() || !!this.serve; }
+  /** The round is over and its results are due: a beat after the last point. */
+  finished() { return this.done && this.point !== null && this.real - this.point.t >= BEAT.over; }
 
   /**
    * A stand-in (autoplay.ts) sets its player's hands before they're drawn, from the ball as they'd
@@ -176,11 +224,15 @@ export class Round {
     for (const rig of this.rigs) {
       if (!rig.autoplay) continue;
       const mineToServe = this.holding() && this.server() === rig.end;
-      const seen = this.flying && this.lagged ? mineBall(rig.end, this.lagged.then(lagOf(rig, play, this.two))) : null;
-      const blade = this.two && mineToServe ? autoplayServe((this.time - this.heldSince) / play.timeScale, mine(rig.end, heldBall(rig.end, 0, rig.paddle).pos))
+      const lag = lagOf(rig, play, this.two);
+      const seen = this.flying && this.lagged ? mineBall(rig.end, this.lagged.then(lag)) : null;
+      // (Serving, it swings at the tossed ball as it was a lag ago, as its swing will be judged against.)
+      const since = this.tossAt === null ? null : this.time - this.tossAt - lagOf(rig, play, this.two, true);
+      const toss = since === null ? null : tossedBall(rig.end, Math.max(0, since), rig.paddle);
+      const blade = mineToServe ? autoplayServe(since === null ? null : since / play.timeScale, mine(rig.end, (toss ?? this.ball).pos))
         : autoplayBlade(seen && arrival(seen, play.timeScale), rig.paddle);
       rig.hands[rig.paddle] = { at: now, pose: { ...heldPose(rig.paddle, REST[rig.paddle]), wrist: wristFor(rig, blade) } };
-      const raised = !this.two && autoplayRaised(mineToServe ? this.time - this.heldSince : null);
+      const raised = mineToServe && this.tossAt === null && autoplayRaised((this.time - this.heldSince) / play.timeScale);
       const out = rig.free === 'left' ? -0.05 : 0.05;
       rig.hands[rig.free] = { at: now, pose: heldPose(rig.free, raised ? { x: out, y: 0.3, z: -0.15 } : { x: out, y: -0.4, z: -0.1 }) };
     }
@@ -207,7 +259,7 @@ export class Round {
       }
       return;
     }
-    const held = !this.flying;
+    const held = this.robotHolds();
     if (plan && bot.aim) { bot.dir = heading(bot.pos, bot.aim); bot.fore = forehand(plan.at); }
     const face = held ? HOLD_NORMAL : faceNormal(bot.dir);
     const offset = held ? v3() : strokeOffset(plan ? plan.t : null, this.time - bot.hitAt, bot.dir, bot.fore, reachRoom(bot.pos));
@@ -224,7 +276,6 @@ export class Round {
     if (held) this.ball.pos = onPaddle(this.arm);
   }
 
-  private endRally() { if (this.rally) { this.best = Math.max(this.best, this.rally); this.rally = 0; } }
 
   // A pass over: kept for the HUD, and the paddle's calibration moved by it.
   private finishPass(i: number, struck: boolean) {
@@ -237,18 +288,65 @@ export class Round {
     this.passes[i] = pass;
   }
 
-  // The ball's flight over (it's dead, or a stalled rally's ball taken back).
-  private over() {
+  // The ball's flight over (it's dead, or left too long): if nothing had decided the point, whoever
+  // was to play the ball next loses it.
+  private stopFlight() {
     this.flying = false;
     this.bot.aim = null;
-    this.heldSince = this.time;
     this.serveSeen = null;
-    if (this.two) {
-      // To whoever's end it finished at; unless they aren't playing (away, or not looking) and the other is.
-      const at = endOf(this.ball.pos.z), other = otherEnd(at);
-      dead(this.duel, this.playing(at) || !this.playing(other) ? at : other);
-    } else this.endRally();
     this.rigs.forEach((_, i) => this.finishPass(i, false));
+    if (this.between || this.done) return;
+    // (A point held back for a late hit that hasn't come is decided as it was.)
+    const held = this.held;
+    this.held = null;
+    if (held && held.shot === this.shot) this.decide(held.verdict, held.at);
+    else if (this.shot) this.decide(deadVerdict(this.shot), this.ball.pos);
+    else this.nextServe();
+  }
+
+  // A point won (match.ts): scored, and the beat before the next serve begun. In Return Challenge a
+  // return counts and the next serve comes; the player missing one ends the round (one of the
+  // robot's serves that didn't land is served again).
+  private decide(verdict: Verdict, at: V3) {
+    const by = this.shot?.by ?? otherEnd(verdict.to);
+    this.point = { ...verdict, by, at: { ...at }, t: this.real };
+    this.between = true;
+    this.best = Math.max(this.best, this.rally);
+    if (this.mode === 'challenge') {
+      if (verdict.reason === 'return') this.challenge = { returns: this.challenge.returns + 1, level: challengeLevel(this.challenge.returns + 1) };
+      else if (verdict.to === 1) this.done = true;
+    } else {
+      award(this.match, verdict.to);
+      if (this.match.winner !== null) this.done = true;
+    }
+  }
+
+  // The beat over: the next serve, its ball waiting for the server (on the robot's paddle, its).
+  private nextServe() {
+    Object.assign(this, { between: false, shot: null, rally: 0, tossAt: null, serveSeen: null, serveAsked: false, heldSince: this.time, held: null });
+  }
+
+  /** How long the beat after the last point lasts (the players' seconds). */
+  private beat() { return this.mode === 'challenge' && this.point?.to === 0 ? BEAT.challenge : BEAT.point; }
+
+  // What the ball touching the table, the net or the floor does to the shot in the air (match.ts judge).
+  private referee(e: FlightEvent) {
+    const shot = this.shot;
+    if (!shot || this.between || this.done || e.type === 'paddle') return;
+    const landed = shot.landed;
+    const verdict = judge(shot, { type: e.type, half: endOf(e.at.z) });
+    if (!landed && shot.landed) {
+      this.rally += 1;
+      if (this.two || shot.by === 0) this.returns += 1;
+      // Return Challenge: the player's return landing is the point.
+      if (this.mode === 'challenge' && shot.by === 0) { this.decide({ to: 0, reason: 'return' }, e.at); return; }
+    }
+    if (!verdict) return;
+    // The ball got by the receiver: held back for as long as a hit of theirs, seen late, may yet come.
+    const receiver = this.rigs[otherEnd(shot.by)];
+    const wait = verdict.to === shot.by && receiver ? lagOf(receiver, this.play, this.two) + HOLD_MARGIN * this.play.timeScale : 0;
+    if (wait > 0) { this.held = { verdict, at: { ...e.at }, until: this.time + wait, shot }; return; }
+    this.decide(verdict, e.at);
   }
 
   /** The ball's flight begins (a serve's strike), from where it is, at `vel`. */
@@ -257,7 +355,7 @@ export class Round {
     this.lagged = new LaggedBall(this.ball, this.time);
     this.drawnOff = v3();
     for (const p of this.players) p.pass = null;
-    Object.assign(this, { flying: true, deadAt: Infinity, slowSince: null, servedAt: this.time, bouncedOn: null });
+    Object.assign(this, { flying: true, deadAt: Infinity, slowSince: null, servedAt: this.time, bouncedOn: null, tossAt: null });
   }
 
   /**
@@ -312,60 +410,24 @@ export class Round {
       };
       const swing = borne();
       // (A serve's swing is a longer one than a rally's.)
-      return { paddleVel, live, wasRaised, lag: lagOf(rig, play, two), swing, serveSwing: () => borne(SERVE_SWING.travel) };
+      return { paddleVel, live, wasRaised, lag: lagOf(rig, play, two), serveLag: lagOf(rig, play, two, true), swing, serveSwing: () => borne(SERVE_SWING.travel) };
     });
-    const s = this.server();
     let plan: { t: number; at: V3 } | null = null;
-    if (two) {
-      // Space serves (a stalled rally's ball taken back to the server first).
-      if (play.serve && this.flying) { this.over(); this.duel.server = s; this.heldSince = this.time; }
-      if (!this.flying) {
-        // Left waiting too long, the ball goes to the other player to serve.
-        if (this.time - this.heldSince > SERVE.pass * play.timeScale) { this.duel.server = otherEnd(s); this.heldSince = this.time; this.serveSeen = null; }
-        const server = this.server(), rig = rigs[server];
-        const held = heldBall(server, this.time, rig.paddle);
-        this.ball.pos = held.pos; this.ball.vel = held.vel;
-        const from = mine(server, held.pos);
-        const { raw } = pads[server], { live } = you[server];
-        const pose = rig.hands[rig.paddle];
-        let vel: V3 | null = play.serve ? { ...SERVE.key } : null;
-        if (!vel && (!live || !pose)) this.serveSeen = null;
-        else if (!vel && this.serveSeen && pose && pose.at > this.serveSeen.at) {
-          // The tracker's next pose bears the swing out, unless the hand has sprung back: one wild
-          // pose (the arm's depth read the wrong way round, say) isn't a swing.
-          const w = pose.pose.wrist, was = this.serveSeen.wrist, way = this.serveSeen.way;
-          if ((w.x - was.x) * way.x + (w.y - was.y) * way.y + (w.z - was.z) * way.z > -SWING.sprung) vel = this.serveSeen.vel;
-          this.serveSeen = null;
-        } else if (!vel && !this.serveSeen && pose && this.armed() && raw) {
-          const swing = you[server].serveSwing();
-          const seen = serveHit(from, raw, swing, help);
-          const l = Math.hypot(swing.x, swing.y, swing.z) || 1;
-          if (seen) this.serveSeen = { vel: seen, at: pose.at, wrist: { ...pose.pose.wrist }, way: v3(swing.x / l, swing.y / l, swing.z / l) };
-        }
-        if (vel) {
-          // A serve lands, whatever the level (but with the assist off), and no sooner than the other
-          // player can be ready for it.
-          this.serveSeen = null;
-          this.launch(mine(server, assistReturn(from, vel, play.assist === 'off' && !play.serve ? 0 : 1, PACE.serve)), PADDLE_COOLDOWN);
-          served(this.duel);
-          this.hits += 1; this.hitsBy[server] += 1; this.touchedAt = this.time; this.players[server].active = this.real;
-          this.events.push({ type: 'paddle', at: { ...this.ball.pos }, speed: Math.hypot(vel.x, vel.y, vel.z), by: server });
-        }
-      }
-    } else {
-      // The player's free hand raised (not in the middle of a rally: an arm swung up mid-rally isn't a serve), or Space.
-      const idle = !this.flying || this.time - Math.max(this.servedAt, this.touchedAt) > RAISED.again * play.timeScale;
-      const asked = play.serve || (this.players[0].raised && idle && (!you[0].wasRaised || this.time - this.servedAt > RAISED.again * play.timeScale));
-      // A serve asked for: the ball back to the robot if it's still out (a rally stalled), and served once it's holding it.
-      if (asked && !this.serve) {
-        this.serveAsked = true;
-        if (this.flying) this.over();
-      }
-      if (this.holding() && this.serveAsked && dist(this.bot.pos, BOT.home) < 0.02 && dist(this.bot.normal, HOLD_NORMAL) < 0.05) {
-        this.endRally();
-        // Struck from above where it's held, down onto its own half and over onto the player's.
+    // A point won: once its beat is over, the ball (if it's still going) is taken back and the next
+    // serve set up.
+    if (this.between && !this.done && this.point && this.real - this.point.t >= this.beat()) {
+      if (this.flying) this.stopFlight();
+      this.nextServe();
+    }
+    const s = this.server();
+    if (this.holding() && !this.playerServes()) {
+      // The robot's serve: after a moment holding the ball (or Space), once it's home, struck from
+      // above where it's held, down onto its own half and over onto the player's.
+      const wait = this.mode === 'challenge' ? ROBOT_WAIT.challenge : ROBOT_WAIT.match;
+      if (play.serve || this.time - this.heldSince >= wait * play.timeScale) this.serveAsked = true;
+      if (this.serveAsked && dist(this.bot.pos, BOT.home) < 0.02 && dist(this.bot.normal, HOLD_NORMAL) < 0.05) {
         const from = serveStrike(this.arm.pos);
-        const flight = botServe(from, play.botLevel, this.rand, rigs[0].paddle);
+        const flight = botServe(from, this.mode === 'challenge' ? challengeServe(this.challenge.level) : play.botLevel, this.rand, rigs[0].paddle);
         const vel = flight?.vel ?? v3(0, 0, 3);
         const dir = heading(from, flight?.second ?? v3(0, 0, 1));
         const tilt = Math.min(0.35, Math.max(-0.2, Math.atan2(vel.y, Math.hypot(vel.x, vel.z))));
@@ -373,15 +435,54 @@ export class Round {
         this.serveVel = vel;
         this.serveAsked = false;
       }
+    } else if (this.holding()) {
+      // A player's serve: the ball waits by their paddle hand until their free hand, raised, tosses
+      // it; a swing through it as it comes down serves it (or Space, at once). Left to fall (as the
+      // server saw it, a lag ago: until then it rests where it dropped to), it's back waiting, to
+      // be tossed again.
+      const rig = rigs[s], p = this.players[s], { serveLag: lag } = you[s];
+      if (this.tossAt === null && this.armed() && p.raised) this.tossAt = this.time;
+      const since = this.tossAt === null ? null : this.time - this.tossAt;
+      if (since !== null && !tossedBall(s, Math.max(0, since - lag), rig.paddle)) { this.tossAt = null; this.serveSeen = null; this.heldSince = this.time; }
+      const ball = this.tossAt === null || since === null ? heldBall(s, this.time, rig.paddle) : tossedBall(s, Math.min(since, TOSS_S - 1e-3), rig.paddle)!;
+      this.ball.pos = ball.pos; this.ball.vel = ball.vel;
+      const from = mine(s, ball.pos);
+      const { raw } = pads[s], { live } = you[s];
+      const pose = rig.hands[rig.paddle];
+      let vel: V3 | null = play.serve ? { ...SERVE.key } : null;
+      if (!vel && (!live || !pose || this.tossAt === null)) this.serveSeen = null;
+      else if (!vel && this.serveSeen && pose && pose.at > this.serveSeen.at) {
+        // The tracker's next pose bears the swing out, unless the hand has sprung back: one wild
+        // pose (the arm's depth read the wrong way round, say) isn't a swing.
+        const w = pose.pose.wrist, was = this.serveSeen.wrist, way = this.serveSeen.way;
+        if ((w.x - was.x) * way.x + (w.y - was.y) * way.y + (w.z - was.z) * way.z > -SWING.sprung) vel = this.serveSeen.vel;
+        this.serveSeen = null;
+      } else if (!vel && !this.serveSeen && pose && raw && this.tossAt !== null) {
+        // Swung at the ball as the server saw it, a lag ago.
+        const seenBall = tossedBall(s, Math.max(0, this.time - this.tossAt - lag), rig.paddle) ?? ball;
+        const swing = you[s].serveSwing();
+        const seen = serveHit(mine(s, seenBall.pos), raw, swing, help);
+        const l = Math.hypot(swing.x, swing.y, swing.z) || 1;
+        if (seen) this.serveSeen = { vel: seen, at: pose.at, wrist: { ...pose.pose.wrist }, way: v3(swing.x / l, swing.y / l, swing.z / l) };
+      }
+      if (vel) {
+        // A serve lands, whatever the level (but with the assist off), and with two no sooner than
+        // the other player can be ready for it.
+        this.serveSeen = null;
+        this.launch(mine(s, assistReturn(from, vel, play.assist === 'off' && !play.serve ? 0 : 1, two ? PACE.serve : undefined)), PADDLE_COOLDOWN);
+        this.shot = newShot(s);
+        this.hits += 1; this.hitsBy[s] += 1; this.touchedAt = this.time;
+        this.events.push({ type: 'paddle', at: { ...this.ball.pos }, speed: Math.hypot(vel.x, vel.y, vel.z), by: s });
+      }
     }
     play.serve = false;
     const b = this.ball;
     if (!two && this.serve && !this.flying && this.time >= this.serve.strikeAt) {
-      // The strike: the ball's flight begins.
+      // The robot's strike: the ball's flight begins (a real serve: onto its own half first).
       b.pos = { ...this.serve.strike };
       this.launch({ ...this.serveVel });
+      this.shot = newShot(1, true);
       this.events.push({ type: 'paddle', at: { ...this.serve.strike }, speed: Math.hypot(this.serveVel.x, this.serveVel.y, this.serveVel.z) });
-      Object.assign(this, { hitThisServe: false, yours: false, farBounce: false });
     } else if (this.flying && this.lagged) {
       const lagged = this.lagged, ball = this.ball;
       // Each ball's pass by each paddle, as its player saw it: kept at its nearest.
@@ -392,7 +493,8 @@ export class Round {
         if (coming(then, raw.z)) this.players[i].pass = trackPass(this.players[i].pass, then, raw, Math.hypot(you[i].swing.x, you[i].swing.y, you[i].swing.z));
       });
       const before = { ...ball.pos };
-      const swingers: Swinger[] = rigs.map((rig, i) => ({
+      // (Once the point's won, the ball goes on its way untouched.)
+      const swingers: Swinger[] = this.between ? [] : rigs.map((rig, i) => ({
         // (A lost hand's paddle, sinking to its rest, is still there for the ball to meet, as it's drawn; it swings at nothing.)
         end: rig.end, raw: you[i].live ? pads[i].raw : null, paddleVel: you[i].paddleVel, swing: you[i].swing, lag: you[i].lag,
         from: this.players[i].paddle ?? pads[i].paddle, to: pads[i].paddle,
@@ -404,17 +506,10 @@ export class Round {
       if ((flight.swung || flight.hit) && by !== undefined && you[by].lag > 0) this.drawnOff = v3(before.x + this.drawnOff.x - ball.pos.x, before.y + this.drawnOff.y - ball.pos.y, before.z + this.drawnOff.z - ball.pos.z);
       const out = (after: number) => { this.deadAt = Math.min(this.deadAt, this.time + after * play.timeScale); };
       for (const e of flight.events) {
-        if (e.type === 'paddle') { this.deadAt = Infinity; this.bouncedOn = null; }
-        if (two) {
-          if (e.type === 'paddle' && e.by !== undefined) { this.hits += 1; this.hitsBy[e.by] += 1; hit(this.duel, e.by); this.touchedAt = this.time; this.players[e.by].active = this.real; this.finishPass(e.by, true); }
-          if (e.type === 'table' && bounced(this.duel, endOf(e.at.z)) === 'fair') this.returns += 1;
-        } else {
-          if (e.type === 'paddle') { this.hits += 1; this.hitThisServe = true; this.yours = true; this.touchedAt = this.time; this.farBounce = false; this.finishPass(0, true); }
-          if (e.type === 'table' && e.side === 'far' && this.hitThisServe) { this.returns += 1; this.rally += 1; this.hitThisServe = false; this.farBounce = true; }
-          // Anything else after the far half's bounce: the bot can't play it.
-          else if (e.type !== 'paddle') this.farBounce = false;
-          if (e.type === 'table' && e.side === 'near') this.hitThisServe = false;
-        }
+        if (e.type === 'paddle') {
+          this.deadAt = Infinity; this.bouncedOn = null;
+          if (e.by !== undefined) { this.hits += 1; this.hitsBy[e.by] += 1; this.touchedAt = this.time; this.shot = newShot(e.by); this.finishPass(e.by, true); }
+        } else this.referee(e);
         if (e.type === 'table') {
           this.bounces.push({ at: e.at, t: this.time });
           if (this.bounces.length > 3) this.bounces.shift();
@@ -427,6 +522,11 @@ export class Round {
         if (e.type === 'net') out(DEAD.net);
         if (e.type === 'floor') out(DEAD.floor);
       }
+      // A receiver's point held back for a late hit of theirs: theirs to lose once it hasn't come
+      // (a hit since has the ball in play again).
+      const held = this.held;
+      if (held && (held.shot !== this.shot || this.between)) this.held = null;
+      else if (held && this.time >= held.until) { this.held = null; this.decide(held.verdict, held.at); }
       // Gone by a paddle (or away) unhit.
       rigs.forEach((rig, i) => {
         const raw = pads[i].raw;
@@ -436,32 +536,32 @@ export class Round {
       if (Math.hypot(ball.vel.x, ball.vel.y, ball.vel.z) < 0.25) this.slowSince ??= this.time; else this.slowSince = null;
       const settled = this.slowSince !== null && this.time - this.slowSince > DEAD.still * play.timeScale;
       if (!two) {
-        // The bot goes to where it will meet the player's return (a fair one, or any it can get to if
-        // it returns everything), and hits it as it gets there. Returning a miss ends the rally's count.
-        plan = this.yours && this.deadAt === Infinity && !this.serve ? planReturn(ball, this.farBounce, play.botAlways) : null;
+        // In a match the bot goes to where it will meet the player's return that has landed on its
+        // half, and hits it as it gets there, now and then getting it wrong (more often the harder
+        // the ball came at it). In Return Challenge it only serves.
+        const yours = this.shot?.by === 0;
+        plan = this.mode === 'match' && yours && !this.between && this.deadAt === Infinity && !this.serve ? planReturn(ball, !!this.shot?.landed) : null;
         // The spot its shot will go to, chosen as it sets off for the ball (its paddle turns to face it).
         if (plan) this.bot.aim ??= botTarget(play.botLevel, this.rand, rigs[0].paddle);
         if (plan && plan.t <= worldDt * 1.01 && dist(this.bot.pos, plan.at) < 0.3) {
-          if (!this.farBounce) this.endRally();
           const aim = this.bot.aim ?? undefined;
+          const mistake = botMistake(play.botLevel, Math.hypot(ball.vel.x, ball.vel.y, ball.vel.z) / play.timeScale, this.rand);
           // (Its paddle's sound is the only thing of the hit left to say: the round has taken it in.)
-          this.events.push(lagged.hitThen(0, (struck) => botShot(struck.pos, play.botLevel, this.rand, aim))[0]);
-          Object.assign(this, { touchedAt: this.time, hitThisServe: false, yours: false, farBounce: false, slowSince: null, bouncedOn: null });
+          this.events.push(lagged.hitThen(0, (struck) => (mistake ? missShot(struck.pos, mistake, this.rand) : botShot(struck.pos, play.botLevel, this.rand, aim)))[0]);
+          Object.assign(this, { touchedAt: this.time, slowSince: null, bouncedOn: null, shot: newShot(1) });
           this.bot.hitAt = this.time;
           this.bot.aim = null;
         }
         if (!this.serve) {
           const goal = plan?.at ?? BOT.home, bot = this.bot.pos;
           const away = dist(goal, bot);
-          // Returning everything, it's as quick as it needs to be to get there.
-          const speed = plan && play.botAlways ? Math.max(BOT.speed, away / Math.max(plan.t, worldDt)) : BOT.speed;
-          const move = Math.min(1, (speed * worldDt) / (away || 1));
+          const move = Math.min(1, (BOT.speed * worldDt) / (away || 1));
           this.bot.pos = v3(bot.x + (goal.x - bot.x) * move, bot.y + (goal.y - bot.y) * move, bot.z + (goal.z - bot.z) * move);
         }
       }
-      if (settled || this.time > this.deadAt || this.time - Math.max(this.servedAt, this.touchedAt) > DEAD.stalled * play.timeScale) this.over();
+      if (settled || this.time > this.deadAt || this.time - Math.max(this.servedAt, this.touchedAt) > DEAD.stalled * play.timeScale) this.stopFlight();
     } else if (!two && !this.serve) {
-      // Back home between rallies, to hold the ball.
+      // Back home between points, to hold the ball for its serve.
       const bot = this.bot.pos, k = 1 - Math.exp(-5 * worldDt);
       this.bot.pos = v3(bot.x + (BOT.home.x - bot.x) * k, bot.y + (BOT.home.y - bot.y) * k, bot.z + (BOT.home.z - bot.z) * k);
     }

@@ -130,7 +130,7 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 - Stage: `stage`, `stageReady`
 - Walk mode (`goto '/?walk=club'`): `walkScene`, `walkReady`, `walkPaused`, `walkMode`, `walkGrounded`, `walkPosition`; `click walk.RESUME` walks, `key w:1500` holds W ([walk mode](walk-mode.md#testing-it))
 - A song: `gamePhase` (`calibrating`, `ready`, `countdown`, `playing`, `paused`, `results`), `gameTimeMs`, `gameScores`, `gameCalibrationPlayers`, `gameCalibrationProgress`, `gameCameraStatus`
-- Experiments: the list's `minigameScreen` (`list`, `preview`), `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the preview's settings, e.g. `scene=biodome|botShots=medium|botReturns=everything`); a round's `minigamePhase` (`calibrating`, `howto`, `countdown`, `playing`, `paused`, `finishing`, `results`), `minigameReady`, `minigameScores`, `minigameTimeMs`, `minigameRemainingMs`, `minigamePresent`, `minigameGesture` (the last gesture seen, e.g. `1:swipe:left:right`), the results' `minigameWinner` and `minigameNewBest`, and the game's own `mg*` keys ([minigames](minigames.md#testing-with-the-puppet-camera)). A round calibrates on the song game's targets (`GAME_CALIBRATION_PREVIEW`) and pauses on them (`GAME_PAUSE`, `GAME_RESUME`, `GAME_RESTART`, `GAME_QUIT`)
+- Experiments: the list's `minigameScreen` (`list`, `preview`), `minigameSelectReady`, `minigameList`, `minigameChosen`, `minigameDial`, `minigameOptions` (the preview's settings, e.g. `mode=match|opponent=medium|handTracking=on`); a round's `minigamePhase` (`calibrating`, `howto`, `countdown`, `playing`, `paused`, `finishing`, `results`), `minigameReady`, `minigameScores`, `minigameTimeMs`, `minigameRemainingMs`, `minigamePresent`, `minigameGesture` (the last gesture seen, e.g. `1:swipe:left:right`), the results' `minigameWinner` and `minigameNewBest`, and the game's own `mg*` keys ([minigames](minigames.md#testing-with-the-puppet-camera)). A round calibrates on the song game's targets (`GAME_CALIBRATION_PREVIEW`) and pauses on them (`GAME_PAUSE`, `GAME_RESUME`, `GAME_RESTART`, `GAME_QUIT`)
 - Performance, while the stats overlay is on (Settings → Graphics → Stats: `click STATS.1` for Basic, `STATS.2` for Full, `STATS.0` for Off; or open `/?diag=stats`): `statsMode`, `statsFps`, `statsFrameMs`, `statsP99Ms`, `statsMaxMs`, `statsCpuMs`, `statsGpuMs` (Full only, and `--` without timer queries), `statsDrawCalls`, `statsTriangles`, `statsPoseHz`, `statsPoseAgeMs`. They update four times a second, e.g. `wait 'statsFps>55'`.
 
 Wait on `menuReady=true` or `songReady=true` after changing screens: these become `true`
@@ -183,15 +183,16 @@ node scripts/play.ts click MINIGAMES
 node scripts/play.ts wait minigameScreen=list minigameSelectReady=true
 node scripts/play.ts click mgTile.0
 node scripts/play.ts wait minigameScreen=preview minigameSelectReady=true
-node scripts/play.ts click MG_PLAY                   # Table Tennis is single-player
+node scripts/play.ts click MG_MINUS                  # one player (MG_PLUS for two)
+node scripts/play.ts click MG_PLAY
 node scripts/play.ts wait minigamePhase=calibrating minigameReady=true
 node scripts/play.ts click GAME_CALIBRATION_PREVIEW  # Start camera
 node scripts/play.ts wait minigamePhase=howto --timeout 20000
 node scripts/play.ts click MG_HOWTO_START
 node scripts/play.ts puppet play all armsOut:500+200 vUp:500+200 --loop
 node scripts/play.ts wait minigamePhase=playing --timeout 8000
-node scripts/play.ts key Escape
-node scripts/play.ts click GAME_QUIT                  # open play: pause and quit to leave
+node scripts/play.ts key o                            # a stand-in plays for Player 1
+node scripts/play.ts wait minigamePhase=results --timeout 400000   # the match to its end
 ```
 
 Calibrating one player with the fixture camera, from a song's preview:

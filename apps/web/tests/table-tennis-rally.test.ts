@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { TABLE, v3 } from '../src/minigames/table-tennis/ball.ts';
 import type { V3 } from '../src/minigames/table-tennis/ball.ts';
 import { AUTOPLAY, arrival, autoplayBlade, autoplayRaised, autoplayServe } from '../src/minigames/table-tennis/autoplay.ts';
-import { SERVE, bounced, dead, endOf, heldBall, hit, mine, mineBall, newRally, served } from '../src/minigames/table-tennis/rally.ts';
+import { SERVE, TOSS_S, endOf, heldBall, mine, mineBall, tossedBall } from '../src/minigames/table-tennis/rally.ts';
 import { REST, heldPose, newHandFilters, newRig, takeHand, wristFor } from '../src/minigames/table-tennis/rig.ts';
 import { PACE } from '../src/minigames/table-tennis/assist.ts';
-import { DEAD, Round } from '../src/minigames/table-tennis/round.ts';
+import { BEAT, DEAD, Round } from '../src/minigames/table-tennis/round.ts';
 import type { Play } from '../src/minigames/table-tennis/round.ts';
 
 const FRAME = 1 / 60;
@@ -36,42 +36,17 @@ test("each server's ball waits over their own end, on the side of their paddle h
   }
 });
 
-test('the open rally counts shots in a row that land on the other half', () => {
-  const r = newRally(0);
-  // The serve is the server's shot, and counts when it lands.
-  served(r);
-  assert.equal(r.last, 0);
-  assert.equal(bounced(r, 1), 'fair');
-  // A second bounce on the same half changes nothing.
-  assert.equal(bounced(r, 1), null);
-  hit(r, 1);
-  assert.equal(bounced(r, 0), 'fair');
-  assert.equal(r.count, 2);
-  // A shot that comes down on the hitter's own half doesn't count, and played back anyway, the count starts again.
-  hit(r, 0);
-  assert.equal(bounced(r, 0), 'short');
-  assert.equal(r.count, 2);
-  hit(r, 1);
-  assert.equal(r.count, 0);
-  assert.equal(r.best, 2);
-  assert.equal(bounced(r, 0), 'fair');
-  // Dead at the far end: the far player serves, and the count is banked.
-  dead(r, 1);
-  assert.equal(r.server, 1);
-  assert.equal(r.count, 0);
-  assert.equal(r.best, 2);
-  // Hitting twice running ends a count too.
-  served(r);
-  bounced(r, 0);
-  hit(r, 0);
-  bounced(r, 1);
-  hit(r, 1);
-  bounced(r, 0);
-  assert.equal(r.count, 3);
-  hit(r, 0);
-  hit(r, 0);
-  assert.equal(r.count, 0);
-  assert.equal(r.best, 3);
+test('the serve tossed goes straight up from where it waited, comes back down, and is back waiting once it has dropped past', () => {
+  const waiting = heldBall(0, 0, 'right').pos;
+  const top = tossedBall(0, SERVE.toss / 9.81, 'right')!;
+  assert.ok(Math.abs(top.pos.y - waiting.y - (SERVE.toss * SERVE.toss) / (2 * 9.81)) < 0.02, 'up to its height');
+  assert.ok(Math.abs(top.pos.x - waiting.x) < 1e-9 && Math.abs(top.pos.z - waiting.z) < 1e-9, 'straight up');
+  assert.ok(Math.abs(top.vel.y) < 1e-9);
+  const falling = tossedBall(0, TOSS_S - 0.05, 'right')!;
+  assert.ok(falling.vel.y < 0 && falling.pos.y < waiting.y, 'coming back down past where it was');
+  assert.equal(tossedBall(0, TOSS_S + 0.01, 'right'), null);
+  // The far player's, in their own frame, is the same.
+  assert.ok(close(mine(1, tossedBall(1, 0.3, 'left')!.pos), tossedBall(0, 0.3, 'left')!.pos));
 });
 
 test('the stand-in lines up behind the ball and swings forward through it', () => {
@@ -84,93 +59,101 @@ test('the stand-in lines up behind the ball and swings forward through it', () =
   assert.ok(Math.abs(late.z - AUTOPLAY.hitZ) < 1e-9);
   assert.equal(arrival({ ...seen, vel: v3(0, 0, -5) }), null, 'a ball going away is left');
   assert.ok(!autoplayRaised(null));
-  assert.ok(!autoplayRaised(0.5));
+  assert.ok(!autoplayRaised(AUTOPLAY.serveAfter - 0.1));
   assert.ok(autoplayRaised(AUTOPLAY.serveAfter + 0.1));
-  // Serving, it waits behind the ball, then swings forward through it.
+  // Serving, it waits behind the ball, untossed and tossed, then swings forward through it as it comes down.
   const waiting = v3(0.3, 1.12, 1.27);
+  assert.ok(autoplayServe(null, waiting).z > waiting.z + 0.2);
   assert.ok(autoplayServe(0.1, waiting).z > waiting.z + 0.2);
-  assert.ok(autoplayServe(AUTOPLAY.serveWait + AUTOPLAY.serveWind + AUTOPLAY.swingS, waiting).z < waiting.z - 0.2);
+  assert.ok(autoplayServe(AUTOPLAY.swingAt + AUTOPLAY.swingS, waiting).z < waiting.z - 0.2);
 });
+
+const PLAY: Play = { mode: 'match', forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium' };
 
 /** A round of two stand-ins (autoplay.ts) through the game's own round, for `seconds`: its hits in order, and its serves. */
 function rally(seconds: number, hitLag: Play['hitLag'] = 0) {
   const rigs = [newRig(0, 'right'), newRig(1, 'right')];
   for (const rig of rigs) { rig.autoplay = true; rig.tracked = true; rig.latency = 0.1; }
-  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag, assist: 'normal', botLevel: 'medium', botAlways: true };
-  const round = new Round(rigs, play, () => 0.5);
+  const round = new Round(rigs, { ...PLAY, hitLag }, () => 0.5);
   const hits: number[] = [];
-  let serves = 0, waited = 0, waits = 0, since = 0;
+  let serves = 0;
   for (let t = 0; t < seconds; t += FRAME) {
-    const servedAt = round.servedAt, flying = round.flying;
+    const servedAt = round.servedAt;
     round.step(FRAME, t * 1000, true);
-    if (round.servedAt !== servedAt) { serves += 1; if (serves > 1) { waited += t - since; waits += 1; } }
+    if (round.servedAt !== servedAt) serves += 1;
     else for (const e of round.events) if (e.type === 'paddle' && e.by !== undefined) hits.push(e.by);
-    if (flying && !round.flying) since = t;
   }
-  return { round, hits, serves, meanWait: waits ? waited / waits : 0 };
+  return { round, hits, serves, best: Math.max(round.best, round.rally) };
 }
 
-test('two stand-ins serve by swinging through the waiting ball, and keep a rally going', () => {
-  const { round, hits, serves } = rally(40);
+test('two stand-ins serve by tossing the ball and swinging through it, and keep a rally going', () => {
+  const { round, hits, serves, best } = rally(40);
   assert.ok(serves >= 1, 'the ball was served');
   assert.ok(hits.includes(0) && hits.includes(1), 'both ends hit the ball');
   assert.equal(round.hits, hits.length + serves);
-  const best = Math.max(round.duel.best, round.duel.count);
   assert.ok(best >= 15, `a long rally (${best})`);
 });
 
 test('with lag compensation the stand-ins still rally', () => {
-  const { round, hits } = rally(30, 0.1);
+  const { hits, best } = rally(30, 0.1);
   assert.ok(hits.includes(0) && hits.includes(1));
-  const best = Math.max(round.duel.best, round.duel.count);
   assert.ok(best >= 8, `a rally (${best})`);
 });
 
-test('a dead ball is soon back with a player who is playing, and a ball left waiting goes to the other one', () => {
-  // Nobody playing at the far end: every serve dies there, and comes straight back to the server.
+test('a serve nobody answers is the server\'s point, the next serve comes after a beat, and the serve changes every two points', () => {
+  // Nobody playing at the far end: Player 1's serves land and get by.
   const rigs = [newRig(0, 'right'), newRig(1, 'right')];
   rigs[0].autoplay = true; rigs[0].tracked = true;
-  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium', botAlways: true };
-  const round = new Round(rigs, play, () => 0.5);
-  const served: number[] = [], died: number[] = [];
-  for (let t = 0; t < 20; t += FRAME) {
-    const flying = round.flying;
+  const round = new Round(rigs, { ...PLAY }, () => 0.5);
+  const served: number[] = [], won: number[] = [];
+  for (let t = 0; t < 15; t += FRAME) {
+    const flying = round.flying, point = round.point;
     round.step(FRAME, t * 1000, true);
     if (!flying && round.flying) served.push(t);
-    if (flying && !round.flying) { died.push(t); assert.equal(round.server(), 0, 'back with the player who is there'); }
+    if (round.point !== point) {
+      won.push(t);
+      assert.equal(round.point!.to, 0, "the server's point");
+      assert.ok(round.point!.reason === 'double' || round.point!.reason === 'missed', round.point!.reason);
+    }
   }
-  assert.ok(served.length >= 4, `served again and again (${served.length})`);
-  // It flew the table's length, bounced, and fell to the floor past the far end.
-  assert.ok(died[0] - served[0] < 2.5, `dead ${(died[0] - served[0]).toFixed(2)} s after the serve`);
-  assert.ok(served[1] - died[0] < 2, `served again ${(served[1] - died[0]).toFixed(2)} s later`);
+  assert.equal(served.length, 2, 'two serves, then it was the other player\'s');
+  assert.deepEqual(round.match.score, [2, 0]);
+  assert.equal(round.server(), 1);
+  assert.ok(round.holding(), 'waiting for Player 2, who is not there');
+  // It flew the table's length and bounced again or fell to the floor past the far end.
+  assert.ok(won[0] - served[0] < 2.5, `won ${(won[0] - served[0]).toFixed(2)} s after the serve`);
+  assert.ok(served[1] - won[0] > BEAT.point - 0.05, `served again ${(served[1] - won[0]).toFixed(2)} s later`);
+  assert.ok(served[1] - won[0] < BEAT.point + SERVE.arm + 2, `served again ${(served[1] - won[0]).toFixed(2)} s later`);
   assert.ok(DEAD.floor < 0.5 && DEAD.second < 0.5 && SERVE.arm < 0.5);
-  // Nobody playing at either end: the ball goes from one to the other, for whoever comes first.
-  const idle = new Round([newRig(0, 'right'), newRig(1, 'right')], { ...play }, () => 0.5);
-  const servers: number[] = [];
-  for (let t = 0; t < SERVE.pass * 2.5; t += FRAME) { idle.step(FRAME, t * 1000, true); if (servers.at(-1) !== idle.server()) servers.push(idle.server()); }
-  assert.deepEqual(servers, [0, 1, 0]);
 });
 
 /**
- * A server alone at the table (the far player stands away), their paddle hand going from its rest
- * to `to` (their own frame) over `rise` seconds from the first second on, seen by a 30 Hz camera
- * 90 ms late: when the ball was served, if it was.
+ * A server alone at the table (the far player stands away), who raises their free hand at 1 s to
+ * toss the ball, their paddle hand going from its rest to `to` (their own frame) over `rise`
+ * seconds as the ball comes back down (centred on its coming back past a hand's breadth over where
+ * it waited), seen by a 30 Hz camera 90 ms late: when the ball was served, if it was.
  */
-function reach(to: V3, rise: number, served?: (round: Round, t: number) => void): number | null {
+function reach(to: V3, rise: number, served?: (round: Round, t: number) => void, toss = true): number | null {
   const rigs = [newRig(0, 'right'), newRig(1, 'right')];
-  for (const rig of rigs) rig.tracked = true;
-  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 'auto', assist: 'normal', botLevel: 'medium', botAlways: true };
-  const round = new Round(rigs, play, () => 0.5);
+  // (The camera's delay, as the tracker measures it: the hits allow for it.)
+  for (const rig of rigs) { rig.tracked = true; rig.latency = 0.09; }
+  const round = new Round(rigs, { ...PLAY, hitLag: 'auto' }, () => 0.5);
   const filters = newHandFilters();
   const from = REST.right, target = wristFor(rigs[0], to);
-  const queue: { at: number; wrist: V3 }[] = [];
-  for (let t = 0; t < 3; t += FRAME) {
+  const queue: { at: number; side: 'left' | 'right'; wrist: V3 }[] = [];
+  const meet = (SERVE.toss + Math.sqrt(SERVE.toss * SERVE.toss - 2 * 9.81 * 0.08)) / 9.81;
+  let tossed: number | null = null;
+  for (let t = 0; t < 4; t += FRAME) {
     if (Math.floor(t * 30) !== Math.floor((t - FRAME) * 30)) {
-      const u = Math.min(1, Math.max(0, (t - 1) / rise)), k = u * u * (3 - 2 * u);
-      queue.push({ at: t + 0.09, wrist: v3(from.x + (target.x - from.x) * k, from.y + (target.y - from.y) * k, from.z + (target.z - from.z) * k) });
+      // (Without a toss, the swing comes at 1 s.)
+      const start = !toss ? 1 : tossed === null ? Infinity : tossed + meet - rise / 2;
+      const u = Math.min(1, Math.max(0, (t - start) / rise)), k = u * u * (3 - 2 * u);
+      queue.push({ at: t + 0.09, side: 'right', wrist: v3(from.x + (target.x - from.x) * k, from.y + (target.y - from.y) * k, from.z + (target.z - from.z) * k) });
+      queue.push({ at: t + 0.09, side: 'left', wrist: toss && t >= 1 && t < 1.3 ? v3(-0.05, 0.3, -0.15) : v3(-0.05, -0.4, -0.1) });
     }
-    while (queue.length && queue[0].at <= t) takeHand(rigs[0], 'right', heldPose('right', queue.shift()!.wrist), t * 1000, filters);
+    while (queue.length && queue[0].at <= t) { const q = queue.shift()!; takeHand(rigs[0], q.side, heldPose(q.side, q.wrist), t * 1000, filters); }
     round.step(FRAME, t * 1000, true);
+    if (tossed === null && round.tossAt !== null) tossed = t;
     if (round.flying) { served?.(round, t); return t; }
   }
   return null;
@@ -202,16 +185,22 @@ test("however hard it's swung, a serve gives the other player time to get ready 
   }
 });
 
-test('Space serves at once, mid-rally too', () => {
+test('the waiting ball is not served without a toss, however it is swung at', () => {
+  const ball = mine(0, heldBall(0, 0, 'right').pos);
+  for (const rise of [0.2, 0.3]) assert.equal(reach(v3(ball.x - 0.05, ball.y + 0.05, ball.z - 0.25), rise, undefined, false), null, `through it in ${rise} s, untossed`);
+});
+
+test('Space serves at once, whoever is to serve', () => {
   const rigs = [newRig(0, 'right'), newRig(1, 'right')];
-  const play: Play = { forgiving: false, serve: false, timeScale: 1, hitLag: 0, assist: 'normal', botLevel: 'medium', botAlways: true };
+  const play: Play = { ...PLAY };
   const round = new Round(rigs, play, () => 0.5);
   play.serve = true;
   round.step(FRAME, 0, true);
-  assert.ok(round.flying);
-  for (let i = 1; i < 20; i++) round.step(FRAME, i * 1000 * FRAME, true);
-  const served = round.servedAt;
-  play.serve = true;
-  round.step(FRAME, 21 * 1000 * FRAME, true);
-  assert.ok(round.flying && round.servedAt > served, 'served again in the same frame');
+  assert.ok(round.flying, "a player's serve");
+  const alone = new Round([newRig(0, 'right')], { ...PLAY }, () => 0.5);
+  // Alone, the robot serves the match's third point: give the player the first two.
+  alone.match.score = [1, 1];
+  alone.play.serve = true;
+  for (let i = 0; i < 120 && !alone.flying; i++) alone.step(FRAME, i * 1000 * FRAME, true);
+  assert.ok(alone.flying && alone.shot?.by === 1, "the robot's serve, as soon as it's ready");
 });
