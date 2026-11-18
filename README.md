@@ -27,4 +27,5 @@ Then open http://localhost:5173.
 
 - [Developer guide](docs/README.md): how the game works, running, testing and deploying it
 - [Dance Studio](tools/choreography/README.md): recording and editing routines into song bundles
+- [Landing page](apps/site/README.md): the site that introduces the game
 - [Apple TV](apps/tvos/README.md) and [the rest of the docs](docs/)

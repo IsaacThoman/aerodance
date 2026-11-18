@@ -32,6 +32,7 @@ jobs:
       - run: npm run build
       - run: npm run studio:build
       - run: npm run dance:build
+      - run: npm run site:build
 
   browser:
     # The TV remote, the canvas UI flow, imported songs and transferring them in Chromium; the

@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { beat, useDisposable } from '../shared/hooks.ts';
 import { noise } from '../shared/glsl.ts';
-import { COLORS } from './layout.ts';
+import { COLORS, ORDER } from './layout.ts';
 import { stageUniforms } from './materials.ts';
 import type { EnvMapProps } from './materials.ts';
 import {
@@ -335,7 +335,7 @@ export function Terrace({ envMap }: EnvMapProps) {
       <mesh geometry={chromeGeo} material={chromeMat} />
       <mesh geometry={glowGeo} material={glowMat} />
       <mesh geometry={leafGeo} material={leafMat} castShadow receiveShadow />
-      <mesh geometry={glassGeo} material={glassMat} renderOrder={5} />
+      <mesh geometry={glassGeo} material={glassMat} renderOrder={ORDER.glass} />
       <Flowers envMap={envMap} />
       <Canopy material={petalMat} />
       <WindFlowers envMap={envMap} />
