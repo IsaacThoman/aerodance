@@ -96,8 +96,15 @@ browsers. On the Apple TV it's the Songs panel's only button.
   keypad to enter that code. Every device can switch between the two using **Show this device’s
   code** or **Enter a code from another device**. Scanning the QR code opens the game there
   (`/?transfer=<code>`) and joins directly.
-- Once connected, each side lists its songs with a send button, or a tick where the other side
-  already has that copy or a later revision, and **Send all**. Either side can send.
+- Once connected, both devices show the same thing. Each lists the songs on either device in
+  the same order, and where each one is: a send button for a song only this device has (or has
+  a later revision or another copy of), a get button for one only the other has, which asks it
+  to send the song, or a tick for one on both. **Send all** and **Get all** take every song
+  with that button.
+- While songs go, both show the song on its way with the same progress bar (in its row, and
+  under who's connected, with how many of how many and what's next), and the songs queued
+  behind it as waiting. Songs can go both ways at once. Afterwards both say how the song or the
+  batch went.
 - The receiver saves each song as Import song would, after the same checks, without asking. A
   copy of the same revision is replaced unless it's the same copy (the same `song.json`), and a
   later revision is kept.
@@ -112,9 +119,14 @@ The Apple TV app keeps the songs it's sent in `Library/Caches/aerodance/songs/` 
 no lasting storage beyond a little in `NSUserDefaults`). tvOS may delete them when it runs short of
 space, though never while the app runs; send them again then.
 
+A copy of the game from before get buttons and queues (an Apple TV app not yet updated, say)
+still sends and receives: its songs list without get buttons, and a song it sends shows once it
+starts arriving.
+
 Code: `apps/web/src/menu/transferPanel.ts` (the screen), `apps/web/src/songs/transferLink.ts`
 (the connection), `apps/web/src/songs/songTransfer.ts` (what the two sides say: songs go as the
-ZIP Dance Studio exports, in 48 KB pieces, at most 384 KB unacknowledged),
+ZIP Dance Studio exports, in 48 KB pieces, at most 384 KB unacknowledged; the sender tells the
+receiver its queue, and counts progress by what the receiver has acknowledged),
 `apps/web/src/songs/folderSongs.ts` (the Apple TV app's saved songs), and transfer rooms in
 `packages/pairing/server.ts`.
 

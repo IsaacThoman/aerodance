@@ -68,7 +68,8 @@ export function menuLayout(width = 1600, fullscreen = true, minigames = false) {
   const SONG_ACTIONS = { x: SONGS.x + 28, y: SONGS.y + SONGS.h - 72, w: SONGS.w - 56, h: 48 };
   const importW = 200;
   // Transfer songs: where the other device connects (left, where Sound and Graphics are), and
-  // this device's songs to send (right, where Songs is), each song's send button at its row's end.
+  // the songs on either device (right, where Songs is), each song's send or get button at its
+  // row's end (SONG_TRASH).
   const CONNECT = { x, y: SOUND.y, w, h: SONGS.h };
   const keyW = (CONNECT.w - 80 - 24) / 3;
   return {
@@ -105,6 +106,9 @@ export function menuLayout(width = 1600, fullscreen = true, minigames = false) {
     SONG_ACTIONS,
     SONG_IMPORT: { ...SONG_ACTIONS, w: importW },
     SONG_TRANSFER: { ...SONG_ACTIONS, x: SONG_ACTIONS.x + importW + 16, w: SONG_ACTIONS.w - importW - 16 },
+    /** Transfer songs: Send all and Get all side by side at its Songs panel's foot (either alone has SONG_ACTIONS). */
+    TRANSFER_SEND_ALL: { ...SONG_ACTIONS, w: (SONG_ACTIONS.w - 16) / 2 },
+    TRANSFER_GET_ALL: { ...SONG_ACTIONS, x: SONG_ACTIONS.x + (SONG_ACTIONS.w + 16) / 2, w: (SONG_ACTIONS.w - 16) / 2 },
     TRANSFER_CONNECT: CONNECT,
     /** The code or QR code's box, the code's digits typed so far, and the keypad (1-9, delete, 0, join). */
     TRANSFER_QR: { x: CONNECT.x + 40, y: CONNECT.y + 84, w: 236, h: 236 },
