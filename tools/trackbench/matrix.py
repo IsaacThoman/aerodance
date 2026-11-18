@@ -8,7 +8,6 @@ at a time).
 """
 import argparse
 import concurrent.futures as cf
-import json
 import os
 import subprocess
 import sys
@@ -100,6 +99,9 @@ def main():
     ap.add_argument('--cpu-jobs', type=int, default=2)
     ap.add_argument('--force', action='store_true')
     a = ap.parse_args()
+    unknown = [e for e in a.estimators if e not in GAME and e not in NATIVE]
+    if unknown:
+        ap.error(f'unknown estimators {unknown}: add them to GAME or NATIVE')
     ss = scenes(a.scenes)
     log(f'{len(ss)} scenes, estimators {a.estimators}')
     game = [e for e in a.estimators if e in GAME]

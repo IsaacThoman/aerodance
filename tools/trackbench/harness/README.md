@@ -39,13 +39,13 @@ scenes are independent. `run-suite.ts` runs `--jobs` scenes at once (default 8, 
 cores on a smaller machine), each in a fresh page and pose worker, with a browser for each job:
 pages of one browser share its GPU process, which serialised their work. On an M5 Pro, 17 mixed
 scenes took 236 s one at a time, 191 s four at a time in one browser, and 42 s eight at a time in
-eight browsers; the whole suite (133 scenes) takes 4.4 minutes instead of 29. It also decodes
+eight browsers; the whole suite (then 133 scenes) took 4.4 minutes instead of 29. It also decodes
 each scene's next frame while the current one is with the model, and launches the longest scenes
 first. Results are identical however many jobs run (`compare-runs.ts`), except the measured
 inference times in `metrics.json`'s `cost`, which run longer while scenes share the GPU: measure
 those with `--jobs 1`. `--realtime` runs alone, since it measures timing. The CPU analyses (`metrics.ts`, `studies/retrack.ts`,
 `studies/calibration.ts`, `studies/score-robustness.ts`) spread scenes over `--jobs` processes
-(default: all cores but one; `pool.ts`), with the same outputs: metrics over 133 scenes take 3 s
+(default: all cores but one; `pool.ts`), with the same outputs: metrics over 133 scenes took 3 s
 instead of 13, the scoring study 16 s instead of 71.
 
 `npm run build` first: `run-game.ts` copies `dist/` to `$TRACKBENCH_DATA/dist-snapshot-<git
@@ -289,7 +289,7 @@ worst lists, and deltas compared two different sets of scenes.)
 
 **Independence.** Post-only variants (`sens-*`, `base-genre-mh`) and the setup scenes that reuse
 a multiplayer render (`setup-trio`, `setup-quad`, `setup-return`, and `mp3-same`, `mp4-same`)
-are the same pixels as their base: 133 scenes are 114 renders. `split.ts`'s `renderCluster` finds
+are the same pixels as their base: the 133 dance scenes are 114 renders. `split.ts`'s `renderCluster` finds
 each scene's render (where its `render/` resolves), and `studies/paired.ts` and
 `studies/scorer-share.ts` resample whole clusters in their bootstrap (`clusterBootstrap` in
 `common.ts`).

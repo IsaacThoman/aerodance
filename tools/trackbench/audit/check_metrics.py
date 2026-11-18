@@ -1,8 +1,9 @@
+import os
 import json
 from pathlib import Path
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-D=Path('/Volumes/development/aerodance-trackbench'); B=[11,12,13,14,15,16,23,24,25,26,27,28]; T=[11,12,23,24]; M={i:i+1 if i%2 else i-1 for i in B}; out={}
+D=Path(os.environ.get('TRACKBENCH_DATA','/Volumes/development/aerodance-trackbench')); B=[11,12,13,14,15,16,23,24,25,26,27,28]; T=[11,12,23,24]; M={i:i+1 if i%2 else i-1 for i in B}; out={}
 for sid in ['base-solo','cam-fov-120']:
  d=D/'scenes'/sid; meta=json.loads((d/'meta.json').read_text()); W,H=meta['resolution']; A=W/H; focal=meta['camera']['K'][0][0]/H; gt={g['frame']:g for g in map(json.loads,(d/'gt.jsonl').read_text().splitlines())}; run=D/'runs'/'rtmo-s'/sid; dets=list(map(json.loads,(run/'detections.jsonl').read_text().splitlines())); errors=[]; found=total=0
  for f in dets:

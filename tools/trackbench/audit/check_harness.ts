@@ -6,7 +6,7 @@ import {GameSession} from '../../../apps/web/src/game/GameSession.ts';
 import {GameLoop,toDetected} from '../harness/gameloop.ts';
 import {expectedNumbering,detectionMetrics,trackedMetrics,zeroOffsets,accumulateOffsets,finishOffsets} from '../harness/metrics.ts';
 import {buildReport,COLUMNS} from '../harness/report.ts';
-const D='/Volumes/development/aerodance-trackbench'; const out:any={};
+const D=process.env.TRACKBENCH_DATA||'/Volumes/development/aerodance-trackbench'; const out:any={};
 for(const sid of ['base-solo','sens-fps-15','mp2-cross-distinct','mot-floor']) {
  const scene=loadScene(sid), tracked:any[]=readJsonl(`${D}/runs/mp-lite-game/${sid}/tracked.jsonl`), mapping=expectedNumbering(scene,tracked).mapping, bundle=referenceBundle(scene,mapping,danceWindow(scene)!);
  const records=tracked.filter(r=>!r.dropped).map(r=>({captureMs:r.t_ms,receivedMs:r.received_ms,poses:r.poses.map((p:any)=>({playerId:p.playerId,landmarks:p.kp.map(([x,y,z,confidence]:any)=>({x,y,z,confidence}))}))}));

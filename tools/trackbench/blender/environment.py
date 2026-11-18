@@ -1,7 +1,6 @@
 """Photographic CC0 assets in metre-scale rooms; no implicit network downloads."""
 import math
 import random
-from pathlib import Path
 import bpy
 from mathutils import Vector
 try:

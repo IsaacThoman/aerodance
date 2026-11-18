@@ -3,11 +3,12 @@
 #   run_estimators.sh <root: real|syn> [scene-glob]
 # Detections land in $S2R/<root>/runs/<estimator>/<scene>/ (never the main runs/, so the
 # harness's per-estimator offsets there aren't mixed with pseudo-GT scenes).
-S2R=${S2R:-/Volumes/development/aerodance-trackbench/sim2real}
+DATA=${TRACKBENCH_DATA:-/Volumes/development/aerodance-trackbench}
+S2R=${S2R:-$DATA/sim2real}
 ROOT=$1; GLOB=${2:-*}
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
 export TRACKBENCH_DATA=$S2R/$ROOT
-PY=/Volumes/development/aerodance-trackbench/.venv/bin/python
+PY=$DATA/.venv/bin/python
 ESTS=${ESTS:-"rtmo-s rtmpose-s movenet-multipose apple-vision yolo26n-pose yolo26s-pose rtmo-t rtmpose-m mp-full mp-lite mp-heavy"}
 for s in $TRACKBENCH_DATA/scenes/$GLOB; do
   id=$(basename $s)

@@ -12,10 +12,11 @@
 #   pipeline.sh track <root>                            detections without tracking through the game's tracker
 #   pipeline.sh metrics <root>                          s2r_metrics.ts for every estimator in the root
 set -u
-S2R=${S2R:-/Volumes/development/aerodance-trackbench/sim2real}
+DATA=${TRACKBENCH_DATA:-/Volumes/development/aerodance-trackbench}
+S2R=${S2R:-$DATA/sim2real}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
-PY=/Volumes/development/aerodance-trackbench/.venv/bin/python
+PY=$DATA/.venv/bin/python
 REFPY=$S2R/.venv-ref/bin/python
 EVAL_SEQS=$(python3 -c "import json;print(' '.join(s['id'] for s in json.load(open('$HERE/sequences.json'))['sequences']))")
 ident() { python3 -c "import json;print(next((s.get('identity','') for s in json.load(open('$HERE/sequences.json'))['sequences'] if s['id']=='$1'),''))"; }

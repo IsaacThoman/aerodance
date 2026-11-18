@@ -203,7 +203,6 @@ def main():
         if len(doms) < 2:
             continue
         ests = sorted(set.union(*[set(data[d]) for d in doms]))
-        pgt_doms = {d for d in doms if 'pgt' in d or d == 'evreal'}
         # The references are fair estimators against real (AIST++) and exact GT; on pseudo-GT they define the GT.
         R = res[study] = {'domains': doms, 'estimators': ests, 'metrics': {}, 'rank': {}, 'gap': {}, 'joints': {}, 'conditions': {}, 'per_seq': {}}
         md.append(f'\n## Study: {study}\n')

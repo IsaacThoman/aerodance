@@ -113,6 +113,9 @@ interface PendingFrame { seq: number; mediaTimeMs: number; frameBrowserTimeMs: n
 interface Picture { bitmap: Promise<ImageBitmap>; size: { width: number; height: number }; }
 
 const ACTIVE: readonly WebcamStatus[] = ['connecting', 'initializing', 'connected'];
+/** A result whose frame is this old when it arrives is dropped (tools/trackbench replays this). */
+export const MAX_FRAME_AGE_MS = 500;
+
 const saved = (key: string, fallback: string) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
 const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing. */ } };
 function aborted<T>(promise: Promise<T>, signal: AbortSignal) {
@@ -563,7 +566,7 @@ export class WebcamPoseSource {
     this.resultTimes = this.resultTimes.filter(time => receivedBrowserTimeMs - time <= 2000);
     const poseHz = this.resultTimes.length > 1 ? (this.resultTimes.length - 1) * 1000 / Math.max(1, receivedBrowserTimeMs - this.resultTimes[0]) : 0;
     // Never let a slow result revive expired player readiness or contaminate a take.
-    if (frameAgeMs >= 500) { this.dropped++; this.publish({ snapshot: null, message: 'Tracking is too slow. Try Lite or another camera.' }); return; }
+    if (frameAgeMs >= MAX_FRAME_AGE_MS) { this.dropped++; this.publish({ snapshot: null, message: 'Tracking is too slow. Try Lite or another camera.' }); return; }
     try {
       const record = validateWebcamRecord({ schema: 'aerodance.webcam-record', schemaVersion: 1, type: 'pose',
         sessionId: this.sessionId, seq: pending.seq, playerCount: this.playerCount, input: this.input,

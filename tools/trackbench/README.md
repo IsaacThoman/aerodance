@@ -68,8 +68,8 @@ node tools/trackbench/studies/paired.ts --name my-comparison
 
 To try a change to the game's tracking, change the game's code and re-run. The harness imports
 the game's tracker, calibration and scorer, and serves the built worker, so `track.ts` and
-`metrics.ts` measure the change directly. (`run-game.ts` snapshots `dist/` by git commit, so
-rebuild and commit, or delete the snapshot, after changing the worker.)
+`metrics.ts` measure the change directly. (`run-game.ts` snapshots `dist/` per commit and worker
+hash, so just `npm run build` after changing the worker; `run.json` records which snapshot ran.)
 
 ### Studies
 
