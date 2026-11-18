@@ -27,6 +27,8 @@ const pairingUpgrade = (httpServer: Server | Http2SecureServer | null) => {
 // game); old /phone links go there too, as nginx sends them.
 const phonePage: Connect.NextHandleFunction = (req, res, next) => {
   const path = req.url?.split('?')[0];
+  // The Studio is /studio/, typed as /studio (nginx adds the slash, Vite would serve the game).
+  if (path === '/studio') { res.writeHead(302, { location: `/studio/${req.url!.slice(path.length)}` }); res.end(); return; }
   if (path !== '/pair' && path !== '/phone' && !path?.startsWith('/phone/')) { next(); return; }
   res.writeHead(302, { location: `/pair/${req.url!.slice(path.length)}` });
   res.end();
@@ -57,13 +59,15 @@ export default defineConfig({
   build: {
     outDir: '../../dist',
     emptyOutDir: true,
-    // The game, the page a phone opens to be its camera (apps/web/src/phone/), and the TV remote
-    // the iPhone/iPad app shows (apps/web/src/remote/).
+    // The game, the page a phone opens to be its camera (apps/web/src/phone/), the TV remote
+    // the iPhone/iPad app shows (apps/web/src/remote/), and the Studio where songs' dances are
+    // made (apps/web/src/studio/), on the game's origin so a finished song lands in its library.
     rolldownOptions: {
       input: {
         main: fileURLToPath(new URL('./apps/web/index.html', import.meta.url)),
         pair: fileURLToPath(new URL('./apps/web/pair/index.html', import.meta.url)),
         remote: fileURLToPath(new URL('./apps/web/remote/index.html', import.meta.url)),
+        studio: fileURLToPath(new URL('./apps/web/studio/index.html', import.meta.url)),
       },
     },
   },

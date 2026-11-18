@@ -1,16 +1,18 @@
-# Dance projects (`aerodance.dance`), v1
+# Dance projects (`aerodance.dance`), v2
 
-> **Status: implemented** in [`tools/dance`](../tools/dance/README.md). The CLI is documented in
-> [dance-cli.md](dance-cli.md).
+> **Status: implemented** in [`packages/dance`](../packages/dance), the engine
+> [aerodance studio](studio.md) and the [`dance` CLI](dance-cli.md) share.
 
-A dance project is the editable animation behind a song's choreography: the keys, curves, holds,
-planted feet, phrases and timing an animator chose, and the video, audio and tracked poses they were
-chosen against. The game never reads it. `dance export` compiles it into the game's sampled
-[`.adpose` choreography](pose-binary-format.md), which can't be turned back into keys.
+A dance project is the editable work behind a song's choreography: the takes that were recorded
+or tracked, where each plays on a dancer's timeline, the keys, curves, holds, planted feet, phrases
+and timing chosen on top, and the video and audio it was all made against. The game never reads
+it. Exporting compiles it into the game's sampled
+[`.adpose` choreography](pose-binary-format.md), which can't be turned back into takes or keys.
 
-The Studio's capture projects ([`tools/choreography`](../tools/choreography/README.md), project
-format 3) stay as they are: they hold recorded takes and corrections to them. A dance project holds
-animation made from scratch or drafted from tracking, and both export the same song bundles.
+A dance can be made of recordings (as aerodance studio makes them), of keys alone (animated by
+hand with the CLI), or both: keys beneath, recordings over them, corrections on top. The older
+capture tool's projects ([`tools/choreography`](../tools/choreography/README.md), project format
+3) are a different format; the song bundles it exports open as dances.
 
 ## Why a new format
 
@@ -28,9 +30,14 @@ my-dance/
   sources/video-3fa9….webm        the reference video (copied in, or referenced with --link)
   sources/proxy-3fa9….webm        a browser-playable copy for the Studio, when the original may not play
   sources/audio-8c21….wav         the song audio
-  sources/tracking-d07e….adpose   poses tracked from the video
+  sources/tracking-d07e….adpose   poses tracked from the video, for reference
+  sources/take-51c0….adpose       a take: recorded or tracked motion that clips play
+  attempts/                       playtests: players' poses through the routine, and their index
   .dance/                         undo history, caches and renders; safe to delete (and git-ignored)
 ```
+
+In aerodance studio the same layout lives in the browser's private file storage, or in a folder
+on disk the user opened.
 
 Source files are named by their content's hash and never overwritten, so undoing an `attach`
 finds the file the earlier revision used.
@@ -74,6 +81,40 @@ the heel and toes from the ankle and the body's turn. Points without a keyed `z`
 
 Groups name sets of controls in ops: `all`, `body`, `headAngles`, `torso`, `shoulders`, `hips`,
 `arms`, `leftArm`, `rightArm`, `legs`, `leftLeg`, `rightLeg`, `hands`, `feet`, `elbows`, `knees`.
+
+## Takes and clips
+
+A **take** (`sources.takes[]`) is captured motion: a `take` [.adpose](pose-binary-format.md) file
+with one slot per person, never rewritten once saved.
+
+| Field | |
+|---|---|
+| `id`, `label`, `createdAt` | `k1`, `k2`, …; a name to show |
+| `origin` | `webcam` (recorded), `video` (tracked from the project's video) or `import` (from a song bundle) |
+| `clock` | `song`: its times are song times (a recording made to the music). `video`: they are the video's, placed on the song by `sources.video.startMs` and `rate` |
+| `slots`, `width`, `height` | People in it, and its picture's size: its poses' own frame, which needn't be the dance's |
+| `startMs`, `endMs` | Its first and last pose, on its clock |
+| `model`, `fps` | The tracker and its rate |
+| `cleanup` | `false` plays the poses exactly as stored (a finished song's choreography). Otherwise a take is cleaned as it is read: isolated joint spikes rejected, gaps up to 200 ms bridged, jitter smoothed ([`packages/pose/cleanup.ts`](../packages/pose/cleanup.ts)), and each joint's fitness for scoring kept beside it. The cleanup is deterministic, so a dance compiles the same every time |
+
+A dancer's **clips** (`dancers[].clips[]`) put motion on its timeline. All of a clip's times are on
+the dancer's clock.
+
+| Field | |
+|---|---|
+| `id`, `label` | |
+| `startMs`, `endMs` | Where it plays |
+| `fadeInMs`, `fadeOutMs` | It blends in from, and back out to, whatever is beneath over its first and last moments (they must fit inside it) |
+| `rate` | Source milliseconds per dancer millisecond |
+| `mirror` | Left and right swapped, reflected where the dancer stands |
+| `shift` | `[dx, dy]`: moves the whole clip in the frame |
+| `kind: "take"` | `take` and `slot` (which person); `offsetMs`, the take time playing at `startMs`; `anchor`, the point of the take's picture that stands at the dancer's `home`; and `scale`, how much larger the dancer is drawn than captured. Anchoring and scaling make takes shot at different distances, or in a picture of another shape, agree. A take placed as filmed (over its video) has `anchor` at `home` and `scale` 1 |
+| `kind: "ref"` | `dancer` and `fromMs`: the source dancer's time playing at `startMs`. The clip replays what that dancer (this one or another) does there, after its clips, layers and contacts and before its style, moved to where this dancer stands. It stays linked: editing the source changes it. A clip can't, directly or through others, be linked to a stretch that plays it |
+
+Clips are layered in list order: a clip covers the keys beneath it and the clips before it, as far
+as its fades let it. Where a take has a gap (the camera lost the dancer), its clip eases to what is
+beneath across the gap. `dancers[].approvals[]` (`{ id, startMs, endMs, controls }`) lets joints a
+take was unsure of be scored over an interval.
 
 ## What the game's character shows
 
@@ -154,6 +195,12 @@ export:
 
 1. **Base layer.** Shoulders, hips, wrists, ankles and the angles come from their keys. A control
    with no keys stays in the neutral stance (`neutralPose`) at the dancer's `home`.
+
+   **Clips** then cover that, each by its weight (its fades, and its take's gaps), in list order.
+   A clip brings its own head, elbows and knees: the head as an offset from its shoulders, each
+   elbow and knee measured against its own limb. Steps 4 and 5 then place them on this pose's
+   shoulders and limbs, so they are exactly where they were captured while nothing has moved the
+   limb's ends, and follow when an offset or a contact has.
 2. **Additive layers** add their weighted offsets. A group offset such as `body` moves the group's
    shoulders, hips, wrists and ankles; the elbows, knees and head follow them.
 3. **Contacts** plant a wrist or ankle where it was at the contact's start (or at `position`), easing
@@ -222,6 +269,11 @@ angles are numbers.
     "tracking": [
       { "id": "t1", "path": "sources/tracking-3fa9c2e1b7d0.adpose", "sha256": "…", "bytes": 52184, "mimeType": "application/octet-stream",
         "model": "lite", "createdAt": "…", "fps": 30, "dancers": ["P1"] }   // the dancer each tracked slot follows
+    ],
+    "takes": [
+      { "id": "k1", "label": "Chorus · take 2", "path": "sources/take-51c0aa93e2b4.adpose", "sha256": "…", "bytes": 181204, "mimeType": "application/octet-stream",
+        "createdAt": "…", "origin": "webcam", "clock": "song", "model": "lite", "fps": 29.8,
+        "slots": 1, "width": 640, "height": 480, "startMs": 10100, "endMs": 25400 }
     ]
   },
   "dancers": [
@@ -233,6 +285,13 @@ angles are numbers.
                 "upperArm": 0.11, "forearm": 0.11, "thigh": 0.18, "shin": 0.12, "hand": 0.04, "foot": 0.1 },
       "calibration": null,                          // or { torsoLength, baseHip: [x, y, z], floorY } (see Export)
       "style": { "reach": 1.6, "bounce": 2.5, "sway": 1.6, "lean": 1.5, "turn": 1.6, "head": 1.7, "lift": 2 },  // optional
+      "clips": [
+        { "id": "clip1", "kind": "take", "label": "Chorus · take 2", "take": "k1", "slot": 0,
+          "startMs": 10100, "endMs": 25400, "offsetMs": 10100, "rate": 1, "fadeInMs": 150, "fadeOutMs": 150,
+          "mirror": false, "shift": [0, 0], "anchor": [0.47, 0.56], "scale": 0.91 },
+        { "id": "clip2", "kind": "ref", "label": "Repeat", "dancer": "P1", "fromMs": 10250,   // the chorus again, linked
+          "startMs": 40250, "endMs": 55250, "rate": 1, "fadeInMs": 150, "fadeOutMs": 150, "mirror": false, "shift": [0, 0] }
+      ],
       "layers": [
         { "id": "base", "label": "Base", "mode": "absolute", "enabled": true, "weight": 1, "channels": {
           "leftWrist": [
@@ -247,7 +306,8 @@ angles are numbers.
         } }
       ],
       "contacts": [ { "id": "c1", "control": "rightAnkle", "startMs": 10250, "endMs": 15250, "blendMs": 100, "position": null } ],
-      "exclusions": [ { "id": "x1", "startMs": 2000, "endMs": 3000, "reason": "legs out of frame", "controls": ["legs"] } ]
+      "exclusions": [ { "id": "x1", "startMs": 2000, "endMs": 3000, "reason": "legs out of frame", "controls": ["legs"] } ],
+      "approvals": [ { "id": "ok1", "startMs": 14000, "endMs": 15500, "controls": ["leftShoulder", "leftElbow", "leftWrist"] } ]
     }
   ],
   "phrases": [ { "id": "ph1", "label": "Chorus", "startMs": 10250, "endMs": 15250, "dancer": null } ],
@@ -257,7 +317,8 @@ angles are numbers.
 
 Validation (`format.ts` `assertDance`) names the first bad field: keys in strictly increasing time,
 values of the right shape, layer 0 absolute and the rest additive, unique IDs, contacts on the same
-control that don't overlap (their blends may), one to four dancers, a known stage.
+control that don't overlap (their blends may), one to four dancers, a known stage, clips whose take
+and slot exist and whose links don't loop.
 
 Field notes:
 
@@ -272,15 +333,21 @@ Field notes:
 
 ## Export
 
-`compile.ts` evaluates every dancer on a 60 Hz grid, plus every key, contact and exclusion boundary,
-over the playable range. It keeps a frame only where the game's straight-line interpolation between
+`compile.ts` evaluates every dancer on a 60 Hz grid, plus every key, contact, exclusion, approval
+and clip boundary and every frame of a take a clip plays (a take plays straight lines between its
+own frames, so the frames between drop out), over the playable range. It keeps a frame only where the game's straight-line interpolation between
 the frames kept around it would be more than 0.0015 frame units off for any joint (about a pixel at
 640 wide), and never leaves more than 150 ms between frames, because the game treats gaps over 200 ms
 as missing poses. A 5-second phrase of quick arm moves keeps about 150 frames.
 
-Every exported joint is marked `edited`, reviewed and eligible for scoring, except where an
-exclusion says otherwise: whole-dancer exclusions become the track's unscored intervals, partial ones
-clear the joints' eligibility flags.
+Every exported joint is reviewed and eligible for scoring (`edited` for keyed animation, `measured`
+where a take plays), except:
+
+- where an exclusion says otherwise: whole-dancer exclusions become the track's unscored intervals,
+  partial ones clear the joints' eligibility flags;
+- joints a take was unsure of, unless an approval covers them;
+- everything, where a dancer made only of recordings has nothing playing (a gap in a take, or a
+  stretch nobody recorded): standing still there isn't choreography.
 
 Each track's calibration (how the game's character retargets the poses) is `dancers[].calibration`
 when set, otherwise measured from the compiled poses: the median torso length and floor as
@@ -293,5 +360,7 @@ checks it with the game's own catalog and choreography validators before writing
 
 ## Versioning
 
-`schemaVersion` is 1. A change that older tools would misread gets a new version; tools reject
-versions they don't know rather than guess.
+`schemaVersion` is 2: version 1 plus `sources.takes`, `dancers[].clips` and `dancers[].approvals`.
+A version 1 dance is brought up to date as it is read (the new lists start empty) and saved as
+version 2 by the next edit. A change that older tools would misread gets a new version; tools
+reject versions they don't know rather than guess.

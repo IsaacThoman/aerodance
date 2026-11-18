@@ -94,6 +94,7 @@ and Vite dependency cache under `.cache/play/sessions/<name>/`.
 | `hover <target>` | Moves the mouse onto a target |
 | `key <key>...` | Presses keys in order: `Enter`, `Escape`, `ArrowDown`, …; `key:ms` holds one down that long (`w:1500`, or `Shift+w:800` for several) |
 | `type <text>` | Types into the focused element |
+| `upload <selector> <file>...` | Chooses files in a file input (it may be hidden), e.g. the Studio's music picker |
 | `wait <condition>... [--timeout ms]` | Waits until every condition holds, then prints the state. Conditions: `key=value`, `key~regex`, `key>number`, `key<number`. The default timeout is 30 s |
 | `shot [file.png] [--frame]` | Screenshot of the page, or of just the game frame. Without a file it goes to `.cache/play/shots/` |
 | `goto <path or url>` | Loads a page and waits until it is ready (e.g. `goto '/?input=ghost'`) |
@@ -135,6 +136,28 @@ browser tests assert on, and `wait` and `state` read the same attributes. The us
 
 Wait on `menuReady=true` or `songReady=true` after changing screens: these become `true`
 once the screen's entrance animation has finished and it accepts clicks.
+
+### Driving the Studio
+
+[aerodance studio](studio.md) is a DOM page on the game's dev server: `start --url /studio/` (or
+`goto /studio/`). It is ready when its root element (`.studio`) has `data-ready="true"`, and `state`
+and `wait` read that element's `data-*`: `screen` (`library`, `project`), `station`, `revision`,
+`audio` (`none`, `loading`, `ready`), `takes`, `clips`, `issues`, `busy`, `error`, `playing`, `time`.
+
+```sh
+node scripts/play.ts start --url /studio/
+node scripts/play.ts click --locator 'text=Make your first dance'
+node scripts/play.ts type 'Test' && node scripts/play.ts click --locator '.dialog .btn-primary'
+node scripts/play.ts wait screen=project station=song
+node scripts/play.ts upload '.dropzone input[type=file]' song.mp3     # a file input, hidden or not
+node scripts/play.ts wait audio=ready 'revision>1'
+node scripts/play.ts eval 'window.studio.demo()'                      # development only: a stand-in performer's take
+node scripts/play.ts click --locator '[data-station=fix]'
+```
+
+Each session starts with an empty library (a fresh browser profile), and the Studio's projects
+live in that profile: they go when the session stops. `goto /` in the same session opens the
+game with whatever the Studio added to its library.
 
 ### Camera
 

@@ -6,19 +6,27 @@ See [how scores are calculated](scoring.md) and [the plan for finishing the game
 
 See [the browser webcam plan](browser-webcam-plan.md) for shared game/editor webcam input using MediaPipe Lite.
 
-See [the song and dance authoring workflow](song-dance-authoring-workflow.md) for the proposed Docker-hosted editor, pose format, raw landmark editing, Frutiger playback, and portable song bundle contract.
+Songs' dances are made in [aerodance studio](studio.md), served with the game at `/studio/`: record each
+part of the song with the camera (or bring in a video), fix what's wrong, dance it back through the
+game's scorer, and add it to the game's library in the same browser. Its engine is
+[`packages/dance`](dance-format.md); its code is in `apps/web/src/studio/`
+([developer guide](../apps/web/src/studio/README.md)).
 
-The editor is implemented as [Dance Studio](../tools/choreography/README.md).
+Two older tools remain. See [the song and dance authoring workflow](song-dance-authoring-workflow.md) for the first one's original design: the Docker-hosted editor, pose format, raw landmark editing, Frutiger playback, and portable song bundle contract.
+
+That editor is [Dance Studio](../tools/choreography/README.md), a separate capture tool; the song files it exports open in aerodance studio.
 Run `docker compose -f tools/choreography/compose.yaml -f tools/choreography/compose.local.yaml up --build -d`
 and open http://localhost:8082 to record/import, edit, preview, save, and export song bundles.
 Dance Studio is also static: projects autosave in browser storage (IndexedDB and
 OPFS). Download project backups to keep or transfer your work; see its README for
 migration from older disk-based deployments.
 
-To animate dancers to a video by hand (from scratch or from tracking), use the
-[`dance` CLI and animation Studio](dance-cli.md) in [`tools/dance`](../tools/dance/README.md).
-Its projects ([`aerodance.dance`](dance-format.md)) keep keys, curves, planted feet and timing on
-disk, and export the same song bundles. It is built to be driven by coding agents.
+To animate dancers to a video by hand (from scratch or from tracking), or to work on a dance from
+a terminal, use the [`dance` CLI and animation Studio](dance-cli.md) in
+[`tools/dance`](../tools/dance/README.md). It shares aerodance studio's engine and project format
+([`aerodance.dance`](dance-format.md)): a dance kept in a folder can be open in both at once. It
+keeps keys, curves, planted feet and timing on disk, exports the same song bundles, and is built
+to be driven by coding agents.
 See [the video conversion guide](video-dance-conversion.md) for the process that combines authored
 character movements, tracked secondary motion, protected interactions, and geometry checks.
 

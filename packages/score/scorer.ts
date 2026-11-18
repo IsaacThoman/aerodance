@@ -36,6 +36,12 @@ export interface PlayerResult {
 }
 /** One interval's comparison: score in [0, 1], and live, the share of reference limbs tracked. */
 export interface IntervalComparison { score: number; live: number; }
+/**
+ * One scored 100 ms interval, for tools that show where points went (the game itself only uses
+ * judgements): its score after the timing factor, the share of reference limbs tracked, whether
+ * it counted as lost, and the timing shift that matched best.
+ */
+export interface IntervalEvent { playerId: number; index: number; songTimeMs: number; score: number; live: number; lost: boolean; shiftMs: number; }
 export interface Scorer {
   readonly version: number;
   readonly playerCount: PlayerCount;
@@ -47,6 +53,8 @@ export interface Scorer {
   result(playerId: number): PlayerResult;
   results(): PlayerResult[];
   onJudgement(fn: (event: JudgementEvent) => void): () => boolean;
+  /** Every scorable interval as it is scored. Listening changes no score. */
+  onInterval(fn: (event: IntervalEvent) => void): () => boolean;
 }
 
 export const SCORER_VERSION = 2;
@@ -208,6 +216,7 @@ export function createScorer(bundle: SongBundle, playerCount: PlayerCount, cast:
   const tracks = Array.from({ length: playerCount }, (_, id) => createTrack(bundle, id, grids.get(cast[id])!));
   const listeners = new Set<(event: JudgementEvent) => void>();
   const emit = (event: JudgementEvent) => { for (const fn of listeners) fn(event); };
+  const intervalListeners = new Set<(event: IntervalEvent) => void>();
 
   function closeWindow(track: Track, songTimeMs: number) {
     const w = track.window;
@@ -242,6 +251,7 @@ export function createScorer(bundle: SongBundle, playerCount: PlayerCount, cast:
       if (!lost) track.trackedIntervals++;
       if (score >= JUDGEMENTS[1][1]) { track.offsetSum += bestShift; track.offsetCount++; }
       track.window.push({ score, lost });
+      for (const fn of intervalListeners) fn({ playerId: track.playerId, index: k, songTimeMs: t, score, live: best.live, lost, shiftMs: bestShift });
     }
     if ((k + 1) % WINDOW_INTERVALS === 0 || k === track.times.length - 1) closeWindow(track, t + INTERVAL_MS / 2);
   }
@@ -309,6 +319,10 @@ export function createScorer(bundle: SongBundle, playerCount: PlayerCount, cast:
     onJudgement(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    onInterval(fn) {
+      intervalListeners.add(fn);
+      return () => intervalListeners.delete(fn);
     },
   };
   return scorer;

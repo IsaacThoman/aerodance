@@ -224,12 +224,12 @@ export class Bridge {
       const dance = await project.read();
       await project.loadTracking(dance);
       const tracking = new Map(await Promise.all(dance.sources.tracking.map(async t => [t.id, await project.tracking(t.id, dance)] as const)));
-      return { revision: dance.revision, findings: checkDance(dance, { tracking: id => tracking.get(id) ?? null }) };
+      return { revision: dance.revision, findings: checkDance(dance, { tracking: id => tracking.get(id) ?? null, takes: await project.takes(dance) }) };
     }));
     api.get('/score', handle(async () => {
       const dance = await project.read();
       const tracking = new Map(await Promise.all(dance.sources.tracking.map(async t => [t.id, await project.tracking(t.id, dance)] as const)));
-      return { revision: dance.revision, scores: scoreAgainstTracking(dance, id => tracking.get(id)!) };
+      return { revision: dance.revision, scores: scoreAgainstTracking(dance, id => tracking.get(id)!, undefined, await project.takes(dance)) };
     }));
     api.post('/export', handle(async req => {
       const { songBundle, bundleZip, installBundle } = await import('./bundle.ts');

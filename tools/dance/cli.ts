@@ -13,6 +13,7 @@ import { checkDance, compareToTracking } from './check.ts';
 import type { Finding } from './check.ts';
 import { compileDance } from './compile.ts';
 import { createEvaluator, keyTimes } from './evaluate.ts';
+import type { TakeLookup } from '../../packages/dance/evaluate.ts';
 import { CONTROLS, GROUPS, POINTS, SCALARS, aspectOf, expandControls, findDancer, isMidJoint } from './format.ts';
 import type { AnyKey, Dance, Dancer } from './format.ts';
 import { OP_NAMES, channelFilter, channelNames } from './ops.ts';
@@ -104,8 +105,13 @@ function showDance(dance: Dance, project: DanceProject): string {
   lines.push(v ? `video ${v.path} ${v.width}×${v.height} ${v.fps} fps ${formatTime(v.durationMs)}, plays from song ${v.startMs} ms at rate ${v.rate}${v.proxy ? `, proxy ${v.proxy}` : ''}` : 'video none');
   lines.push(dance.sources.audio ? `audio ${dance.sources.audio.path} ${formatTime(dance.sources.audio.durationMs)}` : 'audio none (needed to export)');
   for (const t of dance.sources.tracking) lines.push(`tracking ${t.id}: ${t.path}, ${t.fps} fps, slots → ${t.dancers.map((d, i) => `${i}:${d ?? '-'}`).join(' ')}`);
+  for (const k of dance.sources.takes) lines.push(`take ${k.id} "${k.label}": ${k.path}, ${k.origin}, ${k.slots} ${k.slots === 1 ? 'person' : 'people'}, ` +
+    `${formatTime(k.startMs)}–${formatTime(k.endMs)} on the ${k.clock} clock, ${k.width}×${k.height}`);
   for (const d of dance.dancers) {
     lines.push(`${d.id} "${d.label}" home ${fmtPoint(d.home)} offset ${d.timeOffsetMs} ms`);
+    for (const c of d.clips) lines.push(`  clip ${c.id} "${c.label}" ${formatTime(c.startMs)}–${formatTime(c.endMs)}: ` +
+      (c.kind === 'take' ? `take ${c.take} person ${c.slot + 1} from ${formatTime(c.offsetMs)}` : `linked to ${c.dancer} from ${formatTime(c.fromMs)}`) +
+      `${c.rate === 1 ? '' : ` at ×${c.rate}`}${c.mirror ? ', mirrored' : ''}`);
     for (const layer of d.layers) {
       const channels = channelNames(layer).map(n => `${n}:${layer.channels[n].length}`);
       const times = keyTimes(d, d.layers.indexOf(layer));
@@ -114,6 +120,7 @@ function showDance(dance: Dance, project: DanceProject): string {
     }
     if (d.contacts.length) lines.push(`  contacts ${d.contacts.map(c => `${c.id} ${c.control} ${c.startMs}–${c.endMs}`).join(', ')}`);
     if (d.exclusions.length) lines.push(`  unscored ${d.exclusions.map(x => `${x.id} ${x.startMs}–${x.endMs}${x.controls ? ` ${x.controls.join('+')}` : ''} (${x.reason})`).join(', ')}`);
+    if (d.approvals.length) lines.push(`  approved ${d.approvals.map(x => `${x.id} ${x.startMs}–${x.endMs}${x.controls ? ` ${x.controls.join('+')}` : ''}`).join(', ')}`);
     for (const c of d.performance ?? []) lines.push(`  performance ${c.id}: ${c.keys.length} character poses ${formatTime(c.startMs)}–${formatTime(c.endMs)}`);
   }
   if (dance.phrases.length) lines.push(`phrases ${dance.phrases.map(p => `${p.id} "${p.label}" ${p.startMs}–${p.endMs}${p.dancer ? ` ${p.dancer}` : ''}`).join(', ')}`);
@@ -143,9 +150,9 @@ function keysTable(dance: Dance, dancer: Dancer, layerId: string | undefined, ra
   }
   return { text: lines.join('\n'), json: { dancer: dancer.id, layer: layer.id, channels: json } };
 }
-function poseReport(dance: Dance, dancers: Dancer[], t: number, landmarks: boolean) {
+function poseReport(dance: Dance, dancers: Dancer[], t: number, landmarks: boolean, takes?: TakeLookup) {
   return dancers.map(d => {
-    const e = createEvaluator(dance, d), rig = e.rig(t);
+    const e = createEvaluator(dance, d, { takes }), rig = e.rig(t);
     const points = Object.fromEntries(POINTS.map(p => [p, rig.points[p].map(v => fixed(v))]));
     const out: Record<string, unknown> = { dancer: d.id, songTimeMs: t, points, turn: fixed(rig.turn, 2), headYaw: fixed(rig.headYaw, 2),
       headPitch: fixed(rig.headPitch, 2), headRoll: fixed(rig.headRoll, 2),
@@ -261,7 +268,7 @@ export async function main(argv: string[]): Promise<number> {
         print(dancers.map(d => ({ dancer: d.id, songTimeMs: at, performance: createPerformanceSampler(d.performance ?? [])(at - d.timeOffsetMs) })));
         return 0;
       }
-      const report = poseReport(dance, dancers, at, values.landmarks === true);
+      const report = poseReport(dance, dancers, at, values.landmarks === true, await project.takes(dance));
       if (json) { print(report); return 0; }
       for (const r of report) {
         const points = r.points as Record<string, number[]>;
@@ -279,7 +286,7 @@ export async function main(argv: string[]): Promise<number> {
       const names = controls ? expandControls(controls) as string[] : ['leftWrist', 'rightWrist'];
       const rows: Record<string, unknown>[] = [];
       for (const d of dancers) {
-        const e = createEvaluator(dance, d);
+        const e = createEvaluator(dance, d, { takes: await project.takes(dance) });
         for (let t = range[0]; t <= range[1] + 1e-6; t += every) {
           const rig = e.rig(t);
           rows.push({ dancer: d.id, t: fixed(t, 1), ...Object.fromEntries(names.map(n => [n, (POINTS as readonly string[]).includes(n)
@@ -295,7 +302,7 @@ export async function main(argv: string[]): Promise<number> {
         const { applyOps } = await import('./ops.ts');
         const tracking = new Map<string, Awaited<ReturnType<DanceProject['tracking']>>>();
         for (const t of dance.sources.tracking) tracking.set(t.id, await project.tracking(t.id, dance));
-        const { summary } = applyOps(dance, request.ops, { tracking: id => tracking.get(id) ?? (() => { throw Error(`No tracking ${id}`); })() });
+        const { summary } = applyOps(dance, request.ops, { tracking: id => tracking.get(id) ?? (() => { throw Error(`No tracking ${id}`); })(), takes: await project.takes(dance) });
         print(json ? summary : formatApply({ revision: dance.revision, previousRevision: dance.revision, summary, replayed: false }, dance) + '\n(dry run: nothing written)');
         return 0;
       }
@@ -323,7 +330,7 @@ export async function main(argv: string[]): Promise<number> {
       await project.loadTracking(dance);
       const tracking = new Map<string, Awaited<ReturnType<DanceProject['tracking']>>>();
       for (const t of dance.sources.tracking) tracking.set(t.id, await project.tracking(t.id, dance));
-      const findings = checkDance(dance, { range: range ?? undefined, tracking: id => tracking.get(id) ?? null })
+      const findings = checkDance(dance, { range: range ?? undefined, tracking: id => tracking.get(id) ?? null, takes: await project.takes(dance) })
         .filter(f => !dancersArg || dancers.some(d => d.id === f.dancer));
       print(json ? findings : formatFindings(findings, dance));
       return findings.some(f => f.severity === 'error') ? 1 : 0;
@@ -333,7 +340,7 @@ export async function main(argv: string[]): Promise<number> {
       for (const t of dance.sources.tracking) tracking.set(t.id, await project.tracking(t.id, dance));
       const windowMs = opt(values, 'every') ? parseTime(opt(values, 'every'), dance) : 500;
       if (!(windowMs >= 50)) throw Error('--every must be at least 50 ms');
-      const result = compareToTracking(dance, id => tracking.get(id) ?? null, { range: range ?? undefined, windowMs })
+      const result = compareToTracking(dance, id => tracking.get(id) ?? null, { range: range ?? undefined, windowMs, takes: await project.takes(dance) })
         .filter(c => !dancersArg || dancers.some(d => d.id === c.dancer));
       if (!result.length) throw Error('No tracking follows these dancers; run `dance track` first');
       if (json) { print(result); return 0; }
@@ -351,7 +358,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'score': {
       const tracking = new Map<string, Awaited<ReturnType<DanceProject['tracking']>>>();
       for (const t of dance.sources.tracking) tracking.set(t.id, await project.tracking(t.id, dance));
-      const scores = scoreAgainstTracking(dance, id => tracking.get(id)!);
+      const scores = scoreAgainstTracking(dance, id => tracking.get(id)!, undefined, await project.takes(dance));
       if (json) { print(scores); return 0; }
       for (const s of scores) {
         const r = s.result;
@@ -377,7 +384,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case 'compile': {
-      const compiled = compileDance(dance);
+      const compiled = compileDance(dance, { takes: await project.takes(dance) });
       print(json ? compiled.stats : `${compiled.stats.frames} frames from ${compiled.stats.candidates} samples`);
       return 0;
     }

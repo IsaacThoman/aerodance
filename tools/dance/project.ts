@@ -20,6 +20,9 @@ import { assertDance, newDance, upgradeDance } from './format.ts';
 import type { Dance, FileRef } from './format.ts';
 import { decodeTracking } from './tracking.ts';
 import type { TrackingData } from './tracking.ts';
+import { decodeTake } from '../../packages/dance/takes.ts';
+import type { TakeData } from '../../packages/dance/takes.ts';
+import type { TakeLookup } from '../../packages/dance/evaluate.ts';
 import { extractAudio, makeProxy, mimeOf, probeAudioMs, probeVideo, sha256File } from './media.ts';
 
 export const DANCE_FILE = 'dance.json';
@@ -59,6 +62,7 @@ const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catc
 export class DanceProject {
   readonly dir: string;
   private trackingCache = new Map<string, TrackingData>();
+  private takeCache = new Map<string, TakeData>();
   constructor(dir: string) { this.dir = path.resolve(dir); }
   get file() { return path.join(this.dir, DANCE_FILE); }
   meta(...parts: string[]) { return path.join(this.dir, '.dance', ...parts); }
@@ -98,7 +102,8 @@ export class DanceProject {
     } finally { await rm(lock, { recursive: true, force: true }); }
   }
   private async history(): Promise<History> {
-    try { return JSON.parse(await readFile(this.meta('history.json'), 'utf8')) as History; }
+    // The Studio's store (packages/dance/store.ts) writes the same file without the op ids.
+    try { return { undo: [], redo: [], ops: [], ...JSON.parse(await readFile(this.meta('history.json'), 'utf8')) as Partial<History> }; }
     catch { return { undo: [], redo: [], ops: [] }; }
   }
   private async saveHistory(history: History) {
@@ -184,7 +189,7 @@ export class DanceProject {
       const current = await this.read();
       if (expectRevision !== undefined && expectRevision !== current.revision) throw new RevisionConflict(expectRevision, current.revision);
       if (ops.some(o => typeof o === 'object' && o !== null && ['draft', 'fit-body', 'pose'].includes(String((o as { op?: unknown }).op)))) await this.loadTracking(current);
-      const { dance, summary } = applyOps(current, ops, { tracking: id => this.trackingSync(current, id) });
+      const { dance, summary } = applyOps(current, ops, { tracking: id => this.trackingSync(current, id), takes: await this.takes(current) });
       const saved = await this.commit(current, dance);
       const result: ApplyResult = { revision: saved.revision, previousRevision: current.revision, summary, replayed: false };
       history.undo.push({ revision: current.revision, label: label ?? describeOps(ops), at: saved.updatedAt });
@@ -227,6 +232,17 @@ export class DanceProject {
     const cached = this.trackingCache.get(source.sha256);
     if (!cached) throw Error(`Tracking ${id} isn't loaded`);
     return cached;
+  }
+  /** Every take the dance holds, decoded once per file, as the evaluator, compiler and ops look them up. */
+  async takes(dance?: Dance): Promise<TakeLookup> {
+    const current = dance ?? await this.read(), byId = new Map<string, TakeData>();
+    for (const source of current.sources.takes) {
+      const key = `${source.sha256}${source.cleanup === false ? ':as-stored' : ''}`;
+      let data = this.takeCache.get(key);
+      if (!data) this.takeCache.set(key, data = decodeTake(new Uint8Array(await readFile(this.resolve(source.path))), { cleanup: source.cleanup !== false }));
+      byId.set(source.id, data);
+    }
+    return id => byId.get(id) ?? null;
   }
   /** Loads every tracking file (ops read them synchronously). */
   async loadTracking(dance?: Dance): Promise<void> {

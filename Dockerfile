@@ -15,7 +15,7 @@ CMD ["sh", "-c", "node apps/web/tests/remote.browser.ts && node apps/web/tests/u
 
 FROM ui-test AS webcam-test
 RUN npm run studio:build
-CMD ["sh", "-c", "node apps/web/tests/webcam.browser.ts && node apps/web/tests/webcam-calibration.browser.ts && node apps/web/tests/phone.browser.ts"]
+CMD ["sh", "-c", "node apps/web/tests/webcam.browser.ts && node apps/web/tests/webcam-calibration.browser.ts && node apps/web/tests/phone.browser.ts && node apps/web/tests/studio.browser.ts"]
 
 FROM docker.io/nginxinc/nginx-unprivileged:stable-alpine
 # Phone pairing runs in this container beside nginx: Node from the build image (the same

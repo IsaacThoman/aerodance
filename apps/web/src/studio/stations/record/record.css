@@ -1,0 +1,89 @@
+/* The Record station. Shared pieces (panels, buttons, the timeline) are styled in studio.css. */
+
+/* Parts of the station that sit still while a recording runs. */
+.rec-group { display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: opacity 0.2s; }
+.rec-group[inert], .rec-setup[inert] { opacity: 0.5; }
+/* The transport and timeline stay bright: the performer watches the playhead. */
+.station-bottom > .rec-group { gap: 8px; opacity: 1; }
+
+/* ---- The Record panel ---- */
+.rec-controls, .rec-setup { display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: opacity 0.2s; }
+.rec-dancers { display: flex; flex-wrap: wrap; gap: 6px; }
+.rec-dancer { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px 6px 9px; border-radius: 999px; border: 1px solid var(--edge-soft); background: rgba(6, 44, 96, 0.4);
+  cursor: pointer; font-weight: 600; color: var(--ink-soft); white-space: nowrap; transition: background 0.12s, color 0.12s; }
+.rec-dancer i { width: 12px; height: 12px; border-radius: 50%; background: var(--dancer); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.7); }
+.rec-dancer:hover { color: var(--ink); background: rgba(255, 255, 255, 0.14); }
+.rec-dancer.on { color: #fff; border-color: #fff; background: linear-gradient(180deg, color-mix(in srgb, var(--dancer) 72%, #fff), var(--dancer)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 6px rgba(0, 40, 100, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 30, 80, 0.5); }
+.rec-dancer.on i { background: #fff; box-shadow: none; }
+.rec-stretch { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.rec-stretch strong { font-size: 16px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-stretch .muted { font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rec-stretch .btn { margin-left: auto; padding: 3px 10px; font-size: 12px; align-self: center; }
+.rec-check { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; font-weight: 600; }
+.rec-check input { margin: 2px 0 0; flex: none; }
+.rec-check small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-faint); }
+.rec-go { width: 100%; }
+.rec-go.btn-primary .icon-svg { color: #e02f3c; filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5)); }
+.rec-stop { display: flex; gap: 8px; align-items: stretch; }
+.rec-stop .rec-go { flex: 1; width: auto; }
+.rec-controls kbd { font: inherit; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: rgba(0, 30, 60, 0.18); border: 1px solid rgba(0, 30, 60, 0.22); margin-left: 3px; text-shadow: none; }
+.rec-why { font-size: 13px; color: var(--ink-soft); text-align: center; }
+
+/* ---- Who is who in the camera's picture ---- */
+.rec-people .segmented { align-self: flex-start; }
+.rec-who { display: flex; flex-direction: column; gap: 6px; }
+.rec-who select { width: auto; flex: none; padding: 5px 9px; }
+.rec-who b { font-weight: 800; }
+
+/* ---- Takes ---- */
+.rec-takes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 264px; overflow-y: auto; }
+.rec-takes li { display: flex; flex-direction: column; padding: 4px 5px 8px 11px; border-radius: var(--radius-small); border: 1px solid var(--edge-soft); background: rgba(6, 44, 96, 0.38); }
+.rec-takes li.in-use { border-color: rgba(125, 255, 192, 0.65); background: rgba(8, 96, 58, 0.34); }
+.rec-take-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rec-take-name strong { flex: 1; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-take-name .btn { width: 30px; height: 30px; padding: 6px; }
+.rec-take-facts { display: flex; align-items: center; gap: 7px; min-height: 28px; padding-right: 6px; font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-seen { display: inline-flex; align-items: center; gap: 4px; }
+.rec-seen .meter { width: 34px; flex: none; }
+.rec-mark { flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px 1px 5px; border-radius: 999px; background: var(--mint); color: #063f25; font-size: 11px; font-weight: 700; }
+.rec-mark .dancer-dot { margin: 0 -2px 0 3px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9); }
+.rec-take-facts .rec-mark, .rec-take-facts .btn { margin-left: auto; }
+.rec-take-facts .rec-mark + .btn { margin-left: 0; }
+.rec-take-facts .btn { padding: 4px 10px; font-size: 13px; }
+
+/* ---- Repeat or follow, and the picked part ---- */
+.rec-tag { display: inline-flex; align-items: center; white-space: nowrap; font-weight: 600; }
+.panel-aside .rec-tag { font-size: 12px; color: var(--ink-soft); }
+.rec-pick { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.rec-pick select { flex: 1; }
+.rec-picked { scroll-margin: 12px; }
+.rec-picked-name { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 4px solid var(--dancer); min-width: 0; }
+.rec-picked-name strong { font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-picked-name > span { font-size: 13px; }
+
+/* ---- From a video ---- */
+.rec-video { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rec-video > .btn { align-self: flex-start; }
+.rec-video-progress { display: flex; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; }
+.rec-video-progress .meter { flex: 1; }
+.rec-video-progress span { width: 38px; text-align: right; font-weight: 600; }
+
+/* ---- Over the coach view ---- */
+.rec-count { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.rec-count > div { min-width: 200px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 20px 36px 22px; border-radius: 30px; background: rgba(6, 44, 96, 0.62); border: 1px solid var(--edge);
+  backdrop-filter: blur(12px) saturate(1.3); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 12px 36px rgba(0, 30, 80, 0.4); }
+.rec-count span { font-size: 15px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+.rec-count strong { font-size: 104px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 4px 18px rgba(0, 40, 110, 0.5); animation: rec-beat 0.3s ease-out; }
+.rec-badge { position: absolute; left: 10px; top: 10px; display: flex; align-items: center; gap: 9px; padding: 7px 15px 7px 11px; border-radius: 999px; font-weight: 700; white-space: nowrap;
+  background: rgba(6, 44, 96, 0.7); border: 1px solid var(--edge-soft); backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0, 30, 80, 0.35); }
+.rec-badge span { font-weight: 600; color: var(--ink-soft); padding-left: 9px; border-left: 1px solid rgba(255, 255, 255, 0.35); }
+.rec-dot { width: 12px; height: 12px; border-radius: 50%; background: rgba(255, 255, 255, 0.55); }
+.rec-badge.live { background: rgba(150, 18, 30, 0.82); border-color: rgba(255, 160, 160, 0.9); }
+.rec-badge.live span { color: #fff; }
+.rec-badge.live .rec-dot { background: #ff4b55; box-shadow: 0 0 10px rgba(255, 75, 85, 0.95); animation: rec-pulse 1.1s ease-in-out infinite; }
+.rec-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(4, 34, 78, 0.45); pointer-events: none; }
+.rec-progress > div { height: 100%; background: linear-gradient(90deg, #ff8a8f, #ff4b55); }
+@keyframes rec-pulse { 50% { opacity: 0.35; } }
+@keyframes rec-beat { from { transform: scale(1.3); opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .rec-count strong, .rec-badge.live .rec-dot { animation: none; } }
