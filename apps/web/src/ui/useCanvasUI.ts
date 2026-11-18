@@ -246,6 +246,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
   const requestFrame = useThree((state) => state.invalidate);
   const opts = useRef(options);
   opts.current = options;
+  const bufferSize = useRef(new THREE.Vector2()).current;
 
   const overlay = useMemo(() => {
     const canvas = document.createElement('canvas');
@@ -438,7 +439,7 @@ export default function useCanvasUI<W extends Widget = Widget>(options: CanvasUI
     s.time += s.dt;
 
     // Match the render buffer exactly so overlay pixels line up with world pixels.
-    const buf = gl.getDrawingBufferSize(new THREE.Vector2());
+    const buf = gl.getDrawingBufferSize(bufferSize);
     if (overlay.canvas.width !== buf.x || overlay.canvas.height !== buf.y) {
       overlay.canvas.width = buf.x;
       overlay.canvas.height = buf.y;

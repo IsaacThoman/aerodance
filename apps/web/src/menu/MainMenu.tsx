@@ -69,7 +69,6 @@ export interface MainMenuProps {
   onMinigames?: () => void;
   /** The button a keyboard cursor comes back to when the menu reopens on the main screen ('minigames'). */
   refocus?: string;
-  onSettingsOpen?: () => void;
   onScreenChange?: (screen: MenuScreen) => void;
   sound: SoundSettings;
   onSoundChange?: (sound: SoundSettings) => void;
@@ -275,7 +274,7 @@ interface MenuState {
 const HAS_MINIGAMES = GAMES.length > 0;
 
 export default function MainMenu({
-  visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onMinigames, refocus, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
+  visible = true, initialScreen = 'main', transferCode = '', playerCount = 1, onPlayerCountChange, onStart, onMinigames, refocus, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange,
 }: MainMenuProps) {
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
@@ -309,7 +308,7 @@ export default function MainMenu({
     spin: 0, gearAngle: 0, alpha: 0, screen: 'main', next: 'main', swap: 1, drawnSound: null, drawnGraphics: null, drawnFullscreen: null, drawnCount: null, drawnSongs: '', titleY: TITLE.y, titleAlpha: 1, refocus: null,
   });
   const props = useRef<MainMenuProps>({ sound, graphics });
-  props.current = { visible, playerCount, onPlayerCountChange, onStart, onMinigames, onSettingsOpen, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
+  props.current = { visible, playerCount, onPlayerCountChange, onStart, onMinigames, onScreenChange, sound, onSoundChange, graphics, onGraphicsChange };
   const count = () => props.current.playerCount ?? 1;
   const fullscreenRef = useRef(fullscreen);
   fullscreenRef.current = fullscreen;
@@ -408,7 +407,7 @@ export default function MainMenu({
       switch (wdg.id) {
         case 'start': setCount(DEFAULT_PLAYERS); go('players'); break;
         case 'minigames': props.current.onMinigames?.(); break;
-        case 'settings': m.spin += Math.PI / 2; go('settings'); props.current.onSettingsOpen?.(); break;
+        case 'settings': m.spin += Math.PI / 2; go('settings'); break;
         case 'back': go(PARENT[m.screen]); break;
         case 'minus': setCount(count() - 1); break;
         case 'plus': setCount(count() + 1); break;

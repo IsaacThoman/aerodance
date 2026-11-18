@@ -149,7 +149,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
   const ui = useCanvasUI<CameraWidget>({
     priority: 2,
     active: live,
-    keyNav: () => ['loading', 'calibrating', 'ready', 'error', 'paused', 'results'].includes(phase()),
+    keyNav: () => ['loading', 'calibrating', 'ready', 'error', 'paused'].includes(phase()),
     widgets: (): CameraWidget[] => {
       const ph = phase();
       if (calibrating()) {
@@ -177,7 +177,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
       if (wdg.id === 'start') session?.start();
       else if (wdg.id === 'pause') session?.pause();
       else if (wdg.id === 'resume') session?.resume();
-      else if (wdg.id === 'restart' || wdg.id === 'retry') p.onRetry?.();
+      else if (wdg.id === 'restart') p.onRetry?.();
       else if (wdg.id === 'quit') p.onQuit?.();
       else if (wdg.id === 'skip') session?.continueWithoutCamera();
       else if (wdg.id === 'start-camera') camera.start();
@@ -215,7 +215,7 @@ export default function GameScreen({ visible = false, session, camera: source, o
       if (calibrating()) camera.update();
       session.update(performance.now());
       if (SONG_PHASES.includes(session.phase) && tracking(session)) {
-        mirror.current = { rect: gameLayout(s.w).GAME_MIRROR, w: s.w, h: s.h, dim: session.phase === 'paused' ? VEIL : 0, alpha: st.alpha };
+        mirror.current = { rect: GAME_MIRROR, w: s.w, h: s.h, dim: session.phase === 'paused' ? VEIL : 0, alpha: st.alpha };
       }
       // Animated every frame while a song is on: scores, the countdown, popups, readiness.
       s.invalidate();
